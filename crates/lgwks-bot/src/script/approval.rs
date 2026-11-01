@@ -207,7 +207,7 @@ pub async fn approval(
     outcome.map_err(|error| error.located(&child))
 }
 
-/// [`approval`] for an `await approval <label> within <duration>:` that
+/// [`approval`](fn@approval) for an `await approval <label> within <duration>:` that
 /// `script!` wrote at `site`, with the block as the payload's bytes.
 ///
 /// The block runs only when no pending record exists, so a resume replays the
@@ -215,7 +215,7 @@ pub async fn approval(
 ///
 /// # Errors
 ///
-/// As [`approval`], located at the step.
+/// As [`approval`](fn@approval), located at the step.
 pub async fn approval_at<F, Fut>(
     scope: &Scope,
     step: &str,

@@ -225,6 +225,17 @@ struct Index {
     /// decrements, and a lapse records a decision, so only live approvals are
     /// counted.
     pending: HashMap<String, u64>,
+    /// Per run and step key hex: the bytes of a record written in the batch
+    /// now flushing, not yet folded into `runs`.
+    ///
+    /// The duplicate check reads it beside `runs`: without it, two appends to
+    /// one key in one batch both found the key absent, both wrote, and both
+    /// answered `Recorded`, so two racing decisions each saw their own bytes
+    /// and both won. The first staged write wins; the settle moves it into
+    /// `runs`. A failed flush leaves its entries here harmlessly, because
+    /// `committed` already moved and the length fence refuses every later
+    /// append.
+    staged: HashMap<(RunId, String), Vec<u8>>,
 }
 
 /// One run's records.
@@ -823,6 +834,17 @@ fn decide_and_write(
         }
     }
 
+    // A record for this key staged earlier in the same batch is already the
+    // answer: the same bytes are the same fact, other bytes a conflict.
+    let staged_key = (stored.run, key.to_hex());
+    if let Some(bytes) = index.staged.get(&staged_key) {
+        return Ok(Stage::Settled(Ok(if *bytes == stored.value {
+            Appended::AlreadyRecorded
+        } else {
+            Appended::Conflicting
+        })));
+    }
+
     let previous = tail_head(index);
     let (framed, head) = record::frame(stored, &previous).map_err(refusal)?;
 
@@ -864,6 +886,7 @@ fn decide_and_write(
     // fence must expect these bytes. A head that lagged a write would fork the chain.
     index.committed = next;
     index.tail = head;
+    index.staged.insert(staged_key, stored.value.clone());
 
     file.write_all(&framed)
         .map_err(StoreError::storage)
@@ -885,6 +908,7 @@ fn decide_and_write(
         bytes: framed.len(),
         settle: Box::new(move |index: &mut Arc<Mutex<Index>>| {
             let mut index = owner::lock(index);
+            index.staged.remove(&(run, key.clone()));
             count_approval(&mut index, &tenant, &held.bytes);
             let entry = index.runs.entry(run).or_insert_with(|| RunIndex {
                 tenant: tenant.clone(),

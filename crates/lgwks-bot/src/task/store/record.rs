@@ -333,6 +333,7 @@ pub(super) fn replay(file: &mut File) -> Result<Index, StoreError> {
         committed: u64::saturating_from(STORE_HEADER.len()),
         tail: genesis_head(),
         pending: HashMap::new(),
+        staged: HashMap::new(),
     };
     let mut previous = genesis_head();
     let mut at = 0u64;

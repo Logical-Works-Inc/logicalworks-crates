@@ -161,8 +161,9 @@ impl Execute for Release {
     }
 
     fn archive_input(&self, input: &Vec<u8>) -> Option<Vec<u8>> {
-        use lgwks_bot::script::run_store::Durable as _;
-        input.to_record().ok()
+        // Through the `script` re-export: `script::run_store` is public only
+        // under `testing`, which the Windows containment job does not enable.
+        lgwks_bot::script::Durable::to_record(input).ok()
     }
 
     async fn execute_action(&self, call: (Auth, &Vec<u8>)) -> Result<(), BotError> {
@@ -264,11 +265,13 @@ fn a_restarted_host_decides_a_parked_approval() -> Result<(), ApprovalTestError>
     clear_noted();
     let scratch = scratch("approval-restart")?;
     let payload = b"release-43".to_vec();
+    // One task for both hosts: a task names the flow, not the host that runs
+    // it, so the resume after the restart replays the same definition.
+    let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
+        ship(&scope, payload).await
+    })?;
     let (run, id) = {
         let host = host_on(scratch.path(), "acme")?;
-        let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
-            ship(&scope, payload).await
-        })?;
         let report = lgwks_bot::block_on(host.run(&shipping, payload.clone()));
         let id = parked_id(&report)?;
         let run = report.run_id().ok_or(ApprovalTestError::Setup {
@@ -294,9 +297,6 @@ fn a_restarted_host_decides_a_parked_approval() -> Result<(), ApprovalTestError>
             });
         }
     }
-    let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
-        ship(&scope, payload).await
-    })?;
     let resumed = lgwks_bot::block_on(reopened.resume(run, &shipping, payload.clone()));
     if !matches!(resumed.disposition(), Disposition::Succeeded)
         || resumed.output() != Some(&payload)

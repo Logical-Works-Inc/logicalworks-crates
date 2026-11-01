@@ -104,6 +104,7 @@
 //! [`StreamGate`]: crate::script::StreamGate
 //! [`TypedSource`]: crate::script::TypedSource
 //! [`TypedAction`]: crate::script::TypedAction
+//! [`approval`]: fn@crate::script::approval
 
 mod admit;
 pub(crate) mod approval;
