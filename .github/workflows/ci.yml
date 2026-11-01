@@ -593,8 +593,9 @@ jobs:
       - name: Run lgwks-bot no-default-feature tests
         run: cargo nextest run -p lgwks_bot --all-targets --locked --no-default-features ${PARTITION:+--partition $PARTITION}
 
-  # The Linux leg. The macOS suites run on the self-hosted runner, so the
-  # Linux-only paths (`/proc` child lists, the Linux reap) execute here. The
+  # The Linux leg. Every other job runs on the self-hosted macOS runner, so the
+  # Linux-only paths (`/proc` child lists, the Linux reap) execute here, in a
+  # container on the same machine, with the same cargo configuration. The
   # workspace suite and the two §4.7 target cells are one job; the lgwks-bot
   # full suite is the other, each with its own target volume. The AppCUI
   # storefront rode the bot-full leg until run 39503601863: its three commands
@@ -607,66 +608,67 @@ jobs:
   # by exactly one job.
   tests_linux:
     name: Tests (Linux container)
-    # A hosted arm64 Linux runner, free for this public repository. On the Mac
-    # the leg ran in an OrbStack VM that shared the machine's cores with every
-    # other instance, and it failed outright whenever the engine was down (run
-    # 41296219222: `Cannot connect to the Docker daemon`, both suites, 16 s in).
-    # Here the job itself runs in the same image the tool built (Debian trixie,
-    # whose util-linux 2.41 `setpriv` applies the Landlock rules
-    # `Confinement::Landlock` wraps, #337; Ubuntu 24.04 ships 2.39), so the
-    # tool sees a Linux host and runs the suites directly (`main.rs`).
-    #
-    # A hosted runner restores dependencies from the cache but recompiles the
-    # workspace crates, whose sources the checkout stamps newer than any cached
-    # output: over three minutes before the first test (run 38401426445).
-    # sccache's GitHub cache backend keys a compile by its inputs' content, not
-    # their mtimes, so an unchanged workspace crate is a cache read.
+    # Each suite on its own instance, whose container target volume keeps the
+    # Linux build across runs: 175 s and 195 s on run 38365526454. A hosted
+    # Linux runner restores a cache without the workspace crates and compiled
+    # lgwks_std, lgwks_deps and lgwks_bot for over three minutes before the
+    # first test (run 38401426445). Measured again on a free hosted
+    # `ubuntu-24.04-arm` runner (4 vCPU) in a trixie job container, with the
+    # dependencies restored by rust-cache and sccache's GitHub backend on: the
+    # test profile still compiled for 3 m 12 s, 11 of 2,707 tests had run when
+    # a four-minute bound cut it (run on cd974bf8, job 124823633811), because
+    # the 35 test binaries are bin crates and sccache caches no bin crate. The
+    # feature matrix, which compiles no test binary, moved there instead.
     #
     # `targets workspace` adds the two cells #642 closes: `lgwks_std --features
-    # full` and `lgwks_ast` for `aarch64-unknown-linux-gnu`, the runner's own
-    # triple, which the macOS host's `target-matrix` lane cannot reach.
-    runs-on: ubuntu-24.04-arm
-    container: rust:1.99.1-trixie
+    # full` and `lgwks_ast` for `aarch64-unknown-linux-gnu`. The container is
+    # arm64, so its own C compiler targets that triple, which the macOS host's
+    # `target-matrix` lane cannot reach. They run first, in the workspace leg's
+    # container, sharing its `/target` with the suite that follows.
+    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.suite == 'targets workspace' && 'lwc-8' || 'lwc-9' }}"]
     timeout-minutes: 5
     env:
-      # Lints run once, in the Clippy job.
+      # The tool is built on the host: lints run once, in the Clippy job.
       RUSTC_WORKSPACE_WRAPPER: ""
-      CARGO_INCREMENTAL: "0"
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: sccache
-      NEXTEST_TEST_THREADS: "4"
     strategy:
       fail-fast: false
       matrix:
         suite: [targets workspace, bot-full]
     steps:
       - uses: actions/checkout@v7
-      - name: Install lld and sqlite3, as the tool's derived image does
-        # The acceptance-receipt binary holds its receipts through the sqlite3
-        # program (run 38404124109).
-        run: apt-get update -qq && apt-get install -y -qq lld sqlite3
       - name: Pin Rust 1.99.0
-        run: |
-          rustup default "1.99.1"
-          rustup component add clippy
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
+        uses: ./.github/actions/local-rust
         with:
-          save-if: "true"
-          cache-on-failure: "true"
-          key: linux-${{ matrix.suite }}
-      - name: Compile cache for the workspace crates
-        uses: mozilla-actions/sccache-action@v0.0.9
-      - name: nextest is installed
-        uses: taiki-e/install-action@nextest
-      # `lgwks_deps` has no default feature since the scan moved to `lgwks_ast`
-      # (#408); the flag is kept so the command stays the text
-      # `scripts/gate-lanes.toml` holds.
+          toolchain: "1.99.1"
+          nextest: "true"
+          # 254 s for the bot-full leg on run 39021102172: 46 s inside the cap,
+          # so it yielded 15 s. On a loaded host that margin is gone: the
+          # bot-full leg's suite ended inside the cap and the job still lost it
+          # in teardown, by 5 s, 14 s and 7 s (runs 39241327366, 39242679913,
+          # 39245570492). The job timer runs from job start, so the delay counts
+          # against the cap; it yields nothing now.
+          defer: "0"
+          # The tests run in the container, whose /tmp is its own tmpfs and
+          # whose only host mount of files is the checkout (`plan.rs`), so the
+          # host RAM disk this input makes held nothing the leg read: 13 s of
+          # the 288 s on run 39252665926, and the same four `diskutil` calls
+          # every job makes at one second (#272).
+          tmp-gib: "0"
+          # `NEXTEST_TEST_THREADS` reaches the container, and the leg ran at
+          # two: 185 s for 5,015 tests on run 39252665926, and the leg was
+          # cancelled at the cap on runs 39250803813, 39251780293 and
+          # 39253542698 with its suite still running. Four, against the nine
+          # the macOS bot-full suite is green at.
+          test-share: "4"
+      # The container image is Debian trixie, whose util-linux 2.41 `setpriv`
+      # applies the Landlock rules `Confinement::Landlock` wraps (#337);
+      # bookworm's 2.38 cannot, and the Landlock simulations failed there with
+      # `Unsupported` (run 38455031363). The tool builds the derived image with
+      # lld and sqlite3 itself (the acceptance-receipt binary holds its receipts
+      # through the sqlite3 program, run 38404124109). `lgwks_deps` has no default
+      # feature since the scan moved to `lgwks_ast` (#408); the flag is kept so
+      # the command stays the text `scripts/gate-lanes.toml` holds.
       - name: Run the workspace and lgwks-bot full suites on Linux
-        # Stops before the job limit so the cache is saved: cut by the job's own
-        # cap, cargo was still writing `target/debug/deps` while the cache step
-        # archived it, and the save failed (run 41296957496).
-        timeout-minutes: 4
         run: cargo run --locked -p lgwks_deps --no-default-features --bin linux-container-tests -- ${{ matrix.suite }}
       # The Linux receipt (#271): the bot-full suite's JUnit, under a name the
       # macOS shards' `lgwks-bot-junit-*` download pattern does not match, so
@@ -1172,8 +1174,9 @@ jobs:
     # The mac leg rides the Linux-workspace instance, not the bot-full one: both
     # legs used to share lwc-5 with the bot-full suite, so the suite started two
     # minutes late behind a 123 s leg and the instance's wall was their sum.
-    # lwc-8 held the Linux workspace suite until that leg moved to a hosted
-    # runner, so this leg now has the instance to itself.
+    # lwc-8's own job is the 158 s Linux workspace suite in a container with its
+    # own target volume, so this leg queues behind that and the instance stays
+    # under the budget once warm.
     runs-on: [self-hosted, macOS, ARM64, lwc, lwc-8]
     timeout-minutes: 5
     steps:
