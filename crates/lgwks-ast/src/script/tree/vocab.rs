@@ -309,3 +309,44 @@ impl Ready {
         &self.body
     }
 }
+
+/// `await approval <label> within <duration>:`.
+#[derive(Debug, Clone)]
+pub struct Approval {
+    /// Where it stands in the script; read through `site()`.
+    pub(crate) site: Site,
+    /// The structural label of the wait's scope.
+    pub(crate) label: String,
+    /// The written label naming the approval.
+    pub(crate) name: String,
+    /// The longest the decision may take.
+    pub(crate) limit: Duration,
+    /// The body whose value is the payload's bytes.
+    pub(crate) body: Block,
+}
+
+impl Approval {
+    /// The structural label of the wait's scope.
+    #[must_use]
+    pub const fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
+    /// The written label naming the approval.
+    #[must_use]
+    pub const fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    /// The longest the decision may take.
+    #[must_use]
+    pub const fn limit(&self) -> &Duration {
+        &self.limit
+    }
+
+    /// The body whose value is the payload's bytes.
+    #[must_use]
+    pub const fn body(&self) -> &Block {
+        &self.body
+    }
+}

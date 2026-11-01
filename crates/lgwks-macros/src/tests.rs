@@ -29,7 +29,7 @@ pub(crate) fn expand(source: &str) -> Result<String, String> {
 ///
 /// A word's guarantee may cite a case here by its name (`lexicon::Evidence`),
 /// which is why the table is visible to the crate.
-pub(crate) const REFUSALS: [(&str, &str, &str); 47] = [
+pub(crate) const REFUSALS: [(&str, &str, &str); 48] = [
     (
         "unwrap by path",
         "flow f(x: Option<u8>):\n    let n = Option::unwrap(x)\n",
@@ -245,6 +245,11 @@ pub(crate) const REFUSALS: [(&str, &str, &str); 47] = [
         "ready with no deadline",
         "flow f(db: &Readiness<u8>):\n    ready pool from (db):\n        1\n",
         "a `ready` waits under a deadline",
+    ),
+    (
+        "approval with no deadline",
+        "flow f(payload: Vec<u8>):\n    let approved = await approval ship:\n        payload\n",
+        "an `await approval` waits under a deadline",
     ),
     (
         "else without if",
@@ -516,7 +521,7 @@ fn an_unknown_block_lists_every_block_word_in_one_sentence() -> Result<(), Strin
         refusal,
         "unknown block; a line ending in `:` is one of `each`, `within`, `retry`, \
          `together`, `step`, `for`, `if`/`else`, `graph`, `saga`, `whenever`, \
-         `justify`, `remember`, `admit`, `ready`, or `let x = <block>:`",
+         `justify`, `remember`, `admit`, `ready`, `await`, or `let x = <block>:`",
     );
     Ok(())
 }

@@ -29,6 +29,7 @@ use crate::cap::Cap;
 use crate::cell::{CellError, CellHost, DEFAULT_MAILBOX_BOUND, EffectRunner};
 use crate::gate::GrantSet;
 use crate::rt::edge::EdgeStop;
+use crate::task::RunStore;
 
 mod check;
 mod error;
@@ -119,6 +120,10 @@ pub struct App<S = ()> {
     grants: GrantSet,
     /// Who serves the effects the handlers return.
     provider: Arc<dyn Provider>,
+    /// The file store an `AwaitApproval` effect parks through, when the app
+    /// was given one: the park is decidable through the same path as a flow's
+    /// park, over the same file.
+    approvals: Option<RunStore>,
     /// Routes in registration order.
     routes: Vec<RouteEntry<S>>,
     /// `on` handlers in registration order.
@@ -133,6 +138,7 @@ impl App<()> {
             name: crate::cell::clip(name, MAX_NAME_BYTES.saturating_add(1)),
             grants: GrantSet::empty(),
             provider: Arc::new(NoProvider),
+            approvals: None,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -146,6 +152,7 @@ impl App<()> {
             name: self.name,
             grants: self.grants,
             provider: self.provider,
+            approvals: self.approvals,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -195,6 +202,19 @@ where
         self
     }
 
+    /// Park the handlers' `AwaitApproval` effects through `store`.
+    ///
+    /// Without a store an approval the provider cannot answer is
+    /// [`EffectResult::Unavailable`] and nothing more. With one, the wait is
+    /// parked under the tenant beside the answer, decidable through
+    /// [`Host::decide`](crate::task::Host::decide) over the same file a flow's
+    /// park is decided through — one decision path for flows and apps.
+    #[must_use]
+    pub fn approvals(mut self, store: RunStore) -> Self {
+        self.approvals = Some(store);
+        self
+    }
+
     /// Check the app, then serve `listener` until `stop`, answering every
     /// tenant from its own state.
     ///
@@ -215,7 +235,7 @@ where
         mailbox_bound: usize,
     ) -> Result<Arc<CellHost<AppCell<S>>>, AppError> {
         self.check()?;
-        let runner = Arc::new(AppRunner::new(self.grants, self.provider));
+        let runner = Arc::new(AppRunner::new(self.grants, self.provider, self.approvals));
         let cell = AppCell::new(self.routes, self.ons);
         let erased: Arc<dyn EffectRunner> = Arc::<AppRunner<S>>::clone(&runner);
         let host = match CellHost::start(cell, erased, workers, mailbox_bound) {

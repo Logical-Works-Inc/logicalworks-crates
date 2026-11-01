@@ -221,6 +221,15 @@ pub enum Disposition {
     /// [`Report::repair`] is `Some`. Its body never ran, so nothing was polled and
     /// nothing was executed.
     Blocked,
+    /// The run parked awaiting a human decision and holds no task.
+    ///
+    /// The terminal state of a run whose `await approval` step committed its
+    /// pending record: the body ran up to the park, the decision is owed, and a
+    /// later [`Host::resume`] under the same run either returns the payload,
+    /// fails it as denied or lapsed, or parks again under the same id. A
+    /// parked run is resumable, not failed, and the request-key doors treat it
+    /// as an incomplete run rather than a verdict.
+    Parked,
 }
 
 impl Disposition {
@@ -234,6 +243,7 @@ impl Disposition {
             Self::DeadlineExceeded => "DeadlineExceeded",
             Self::Refused => "Refused",
             Self::Blocked => "Blocked",
+            Self::Parked => "Parked",
         }
     }
 
@@ -310,6 +320,10 @@ fn terminal_for<O: Durable>(report: &Report<O>) -> Result<Option<TerminalRecord>
                 error.to_string(),
             ))
         }
+        // A parked run is incomplete, and its pending record is the receipt a
+        // later submission resumes from: recording a verdict now would close a
+        // request that is still waiting on its decision.
+        Disposition::Parked => None,
         Disposition::Cancelled | Disposition::Refused | Disposition::Blocked => None,
     })
 }

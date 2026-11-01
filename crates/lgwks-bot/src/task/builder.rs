@@ -3,6 +3,7 @@
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::{fmt, io};
@@ -13,6 +14,7 @@ use crate::journal::frame::SaturatingFrom;
 use crate::registry::DomainRegistry;
 use crate::rt::clock::Clock;
 use crate::rt::sync::{CancellationToken, Semaphore};
+use crate::script::approval::{AuditLog, MAX_PENDING_APPROVALS};
 use crate::script::run_store::Records;
 use crate::script::{Policy, RunRecords, Tenant};
 
@@ -71,6 +73,12 @@ pub struct HostBuilder {
     pub(super) repair_attempts: u64,
     /// The most root spend one run may be charged before it is refused.
     pub(super) repair_spend: u64,
+    /// How many undecided approvals this tenant may hold.
+    ///
+    /// The park ceiling every `await approval` is admitted against. The default
+    /// is [`MAX_PENDING_PER_TENANT`](crate::script::MAX_PENDING_PER_TENANT);
+    /// [`HostBuilder::max_pending_approvals`] lowers or raises it.
+    pub(super) max_pending: usize,
     /// The world's run feed, when the caller bound one (ADR 0006 R3).
     pub(super) runs: Option<RunFeed>,
 }
@@ -276,6 +284,18 @@ impl HostBuilder {
         self
     }
 
+    /// Hold at most `approvals` undecided approvals for this tenant.
+    ///
+    /// The park ceiling every `await approval` is admitted against: a park
+    /// past it is refused before its payload block runs. The default is
+    /// [`MAX_PENDING_PER_TENANT`](crate::script::MAX_PENDING_PER_TENANT);
+    /// the ceiling is [`MAX_PENDING_APPROVALS`](crate::script::MAX_PENDING_APPROVALS),
+    /// past which the number is a budget in name only.
+    pub fn max_pending_approvals(mut self, approvals: usize) -> Self {
+        self.max_pending = approvals;
+        self
+    }
+
     /// Install the host.
     ///
     /// # Errors
@@ -323,6 +343,17 @@ impl HostBuilder {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
             return refusal;
         }
+        let pending = u64::saturating_from(self.max_pending);
+        let pending_ceiling = u64::saturating_from(MAX_PENDING_APPROVALS);
+        if pending == 0 || pending > pending_ceiling {
+            let refusal = Err(HostError::Bound {
+                what: "the pending approval ceiling",
+                value: pending,
+                max: pending_ceiling,
+            });
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
+            return refusal;
+        }
         Ok(Host {
             inner: Arc::new(Installation {
                 identity: HOST_IDENTITIES.fetch_add(1, Ordering::Relaxed),
@@ -348,6 +379,8 @@ impl HostBuilder {
                 domains: self.domains,
                 repair_attempts: self.repair_attempts,
                 repair_spend: self.repair_spend,
+                max_pending: self.max_pending,
+                audit: Mutex::new(AuditLog::new()),
                 runs: self.runs,
             }),
         })

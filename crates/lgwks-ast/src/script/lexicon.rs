@@ -74,6 +74,8 @@ pub enum Kind {
     Admit,
     /// `ready x from (readiness) within 30s:`
     Ready,
+    /// `await approval <label> within 30s:`
+    Approval,
 }
 
 impl Kind {
@@ -105,6 +107,7 @@ impl Kind {
             Self::Remember => "remember",
             Self::Admit => "admit",
             Self::Ready => "ready",
+            Self::Approval => "await",
         }
     }
 }
@@ -418,7 +421,7 @@ const fn form(written: &'static str, means: &'static str) -> Form {
 const IF_ELSE_EXAMPLE: &str = "flow route(code: u16) -> u8:\n    if code < 400:\n        give back 0\n    else if code < 500:\n        give back 1\n    else:\n        give back 2\n";
 
 /// Every word, in the order the documentation lists them.
-pub const LEXICON: [Word; 24] = [
+pub const LEXICON: [Word; 25] = [
     Word {
         kind: Kind::Flow,
         position: Position::Flow,
@@ -748,6 +751,7 @@ pub const LEXICON: [Word; 24] = [
     vocab::REMEMBER,
     vocab::ADMIT,
     vocab::READY,
+    vocab::APPROVAL,
 ];
 
 /// The row `token` names, when it is a word.

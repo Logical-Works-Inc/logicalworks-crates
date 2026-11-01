@@ -26,6 +26,9 @@ pub enum StoreLimitKind {
     Records,
     /// The store file would exceed [`MAX_STORE_BYTES`](super::MAX_STORE_BYTES).
     StoreBytes,
+    /// The tenant already holds [`MAX_PENDING_PER_TENANT`](crate::script::MAX_PENDING_PER_TENANT)
+    /// undecided approvals.
+    PendingApprovals,
 }
 
 /// Why a record could not be read, written, or resumed.
@@ -171,6 +174,7 @@ impl fmt::Display for StoreError {
                     StoreLimitKind::RecordBytes => "one record's bytes",
                     StoreLimitKind::Records => "records in one run",
                     StoreLimitKind::StoreBytes => "bytes in one run's store",
+                    StoreLimitKind::PendingApprovals => "undecided approvals for one tenant",
                 };
                 write!(
                     formatter,

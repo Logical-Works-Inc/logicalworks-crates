@@ -15,6 +15,7 @@ use super::{
     DefinitionIdentity, Held, Index, MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES,
     RunIndex, STORE_HEADER, StoreError, StoreLimitKind, check_format_version, genesis_head,
 };
+use crate::script::approval::{RecordClass, classify_record};
 
 /// A store refusal as the device error the owner's one reply channel carries.
 ///
@@ -331,6 +332,7 @@ pub(super) fn replay(file: &mut File) -> Result<Index, StoreError> {
         runs: HashMap::new(),
         committed: u64::saturating_from(STORE_HEADER.len()),
         tail: genesis_head(),
+        pending: HashMap::new(),
     };
     let mut previous = genesis_head();
     let mut at = 0u64;
@@ -382,8 +384,31 @@ pub(super) fn replay(file: &mut File) -> Result<Index, StoreError> {
                 bytes: stored.value.clone(),
             },
         );
+        count_approval(&mut index, &stored.tenant, &stored.value);
     }
     Ok(index)
+}
+
+/// Fold one committed record's bytes into the live-approval count.
+///
+/// Pending parks increment their tenant; decisions decrement, saturating, so
+/// a decision that arrives with no park counted — an app park recorded
+/// elsewhere, a torn write that never folded — cannot borrow below zero.
+/// Anything else leaves the count alone: the ceiling is over approvals, not
+/// over records.
+pub(super) fn count_approval(index: &mut Index, tenant: &str, bytes: &[u8]) {
+    match classify_record(bytes) {
+        RecordClass::Pending(_) => {
+            let held = index.pending.entry(tenant.to_owned()).or_insert(0);
+            *held = held.saturating_add(1);
+        }
+        RecordClass::Decision(_) => {
+            if let Some(held) = index.pending.get_mut(tenant) {
+                *held = held.saturating_sub(1);
+            }
+        }
+        RecordClass::Other => {}
+    }
 }
 
 /// Lowercase hex, for a digest used as a map key.

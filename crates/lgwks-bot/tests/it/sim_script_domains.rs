@@ -29,6 +29,7 @@ use lgwks_bot::spec::{Bot, BotSpec};
 use lgwks_bot::task::{Host, task};
 use lgwks_bot::{Cap, GrantSet};
 
+use crate::effect_policy::allowing;
 use crate::effects::memory_scope;
 use crate::script_domains::{
     SCRIPT_DOMAINS, blocked_on, host, page_then_misspelled_source, page_when_over, post, reach,
@@ -277,7 +278,7 @@ fn effect_seed(hosts: &[Host; 2], sim: &mut Sim) -> SimResult {
         |scope: Scope, (target, value): (String, u16)| async move { post(&scope, &target, value).await },
     )?;
     let _ = take_trace();
-    let report = lgwks_bot::block_on(host.run(&posting, (target.clone(), value)));
+    let report = lgwks_bot::block_on(allowing(host.run(&posting, (target.clone(), value))));
     assert!(
         report.result().is_ok(),
         "seed {}: {:?}",

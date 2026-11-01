@@ -143,6 +143,15 @@ impl RunRecords for RunStore {
         Ok(self.tenant_of(run))
     }
 
+    /// How many parked approvals `tenant` holds undecided.
+    ///
+    /// The ceiling an `await approval` is admitted against, folded at replay
+    /// and at every committed append, so answering it costs a probe however
+    /// large the store is.
+    fn pending_count(&self, tenant: &str) -> Result<Option<u64>, FlowError> {
+        Ok(Some(self.pending_for(tenant)))
+    }
+
     /// The identity the run's first record was written under.
     fn recorded_definition(&self, run: RunId) -> Result<Option<DefinitionIdentity>, FlowError> {
         Ok(self.definition_of(run))

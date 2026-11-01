@@ -2,6 +2,7 @@
 //! call executes, and the doors that build, read and run through it.
 
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::time::Instant;
 
@@ -13,8 +14,14 @@ use crate::gate::GrantSet;
 use crate::registry::DomainRegistry;
 use crate::rt::clock::Clock;
 use crate::rt::sync::{CancellationToken, Semaphore};
+use crate::script::approval::{
+    ApprovalDecision, ApprovalId, AuditEntry, AuditLog, DecisionError, PendingApproval,
+    RecordClass, classify_record, decision_key_for, pending_for,
+};
 use crate::script::run_store::Records;
-use crate::script::{DEFAULT_TRAIL_STEPS, Durable, FlowError, Policy, Scope, Tenant};
+use crate::script::{
+    DEFAULT_TRAIL_STEPS, Durable, FlowError, MAX_PENDING_PER_TENANT, Policy, Scope, Tenant,
+};
 
 use super::admit::{HighWater, LiveRuns};
 use super::builder::{
@@ -130,6 +137,11 @@ pub(super) struct Installation {
     pub(super) repair_attempts: u64,
     /// The most root spend one run may be charged before it is refused.
     pub(super) repair_spend: u64,
+    /// How many undecided approvals this tenant may hold.
+    pub(super) max_pending: usize,
+    /// Refused foreign-tenant decisions, newest last, bounded by
+    /// [`MAX_AUDIT_ENTRIES`](crate::script::approval::MAX_AUDIT_ENTRIES).
+    pub(super) audit: Mutex<AuditLog>,
     /// The world's run feed every admitted run is written to, when bound.
     pub(super) runs: Option<RunFeed>,
 }
@@ -211,6 +223,7 @@ impl Host {
             domains: None,
             repair_attempts: default_repair_attempts(),
             repair_spend: default_repair_spend(),
+            max_pending: MAX_PENDING_PER_TENANT,
             runs: None,
         })
     }
@@ -579,6 +592,282 @@ impl Host {
             return refusal;
         }
         Ok(self.run_plan(task, input, Plan::Resume(ticket.run())).await)
+    }
+
+    /// Decide a parked approval: approve its payload's release, or deny it.
+    ///
+    /// The decision is recorded through the run store under the approval's
+    /// decision key, so a resume finds it and a second decision is refused as
+    /// [`DecisionError::AlreadyDecided`] — the store's own
+    /// `AlreadyRecorded`/`Conflicting` answer is the race's arbiter, and
+    /// exactly one of two racing decisions records. A decision that names any
+    /// digest but the pending payload's is refused as
+    /// [`DecisionError::DigestMismatch`] before anything is written, and one
+    /// for another tenant's approval is refused as
+    /// [`DecisionError::ForeignTenant`] and recorded in this host's audit.
+    /// A lapsed approval records its lapse and reports
+    /// [`DecisionError::Expired`].
+    ///
+    /// Expiry is read on this host's clock, never wall time: a resume on a new
+    /// host measures the same deadline on the new host's timeline.
+    ///
+    /// # Errors
+    ///
+    /// [`DecisionError::Unknown`] for a malformed id or an id with no pending
+    /// approval behind it, and [`DecisionError::Store`] when the store refuses
+    /// the read or the write.
+    pub fn decide(&self, id: &str, decision: ApprovalDecision) -> Result<(), DecisionError> {
+        use crate::script::approval::{ApprovalRecord, DecisionRecord};
+        use crate::script::run_store::Appended;
+        use crate::task::StoreError;
+
+        let id = ApprovalId::parse(id)?;
+        let tenant = self.inner.tenant.as_str();
+        let run = id.run();
+        let key = id.key();
+        let id_text = id.to_string();
+        let unknown = || DecisionError::Unknown {
+            id: id_text.clone(),
+        };
+        let Some(records) = self.inner.records.as_ref() else {
+            lgwks_std::trace::debug!(id = %id_text, "decide: no run store is installed, so no pending approval reads");
+            return Err(unknown());
+        };
+        // The tenant check: a lookup of another tenant's run is the store's
+        // own refusal, audited here rather than answered.
+        let stored = match records.lookup(tenant, run, key) {
+            Ok(Some(stored)) => stored,
+            Ok(None) => {
+                lgwks_std::trace::debug!(id = %id_text, "decide: no pending record reads under this id");
+                return Err(unknown());
+            }
+            Err(error) => {
+                if let FlowError::Store { ref source, .. } = error
+                    && let StoreError::ForeignTenant { ref owner, .. } = **source
+                {
+                    self.record_audit(AuditEntry::foreign(
+                        self.inner.clock.now(),
+                        tenant,
+                        &id_text,
+                        owner,
+                    ));
+                    lgwks_std::trace::debug!(id = %id_text, owner = %owner, asked = %tenant, "decide: another tenant's approval is refused and audited");
+                    return Err(DecisionError::ForeignTenant {
+                        owner: owner.clone(),
+                        asked: tenant.to_owned(),
+                    });
+                }
+                lgwks_std::trace::debug!(error = %error, id = %id_text, "decide: the store refused the pending lookup");
+                return Err(DecisionError::Store {
+                    source: Box::new(error),
+                });
+            }
+        };
+        let pending = match classify_record(stored.bytes()) {
+            RecordClass::Pending(pending) => pending,
+            RecordClass::Decision(_) | RecordClass::Other => {
+                lgwks_std::trace::debug!(id = %id_text, "decide: the record under this id is not a pending approval");
+                return Err(unknown());
+            }
+        };
+        let decision_key = decision_key_for(tenant, &pending.path);
+        // A recorded decision stands: deciding twice is refused, not merged.
+        // A recorded lapse reports expiry, so a decision past the deadline is
+        // Expired even when the lapse was recorded first.
+        match records.lookup(tenant, run, decision_key) {
+            Ok(Some(stored)) => match classify_record(stored.bytes()) {
+                RecordClass::Decision(ref decided) if decided.expired => {
+                    lgwks_std::trace::debug!(id = %id_text, "decide: the approval already lapsed, reporting expiry");
+                    return Err(DecisionError::Expired {
+                        id: id_text.clone(),
+                    });
+                }
+                _ => {
+                    lgwks_std::trace::debug!(id = %id_text, "decide: a decision is already recorded, refusing the second");
+                    return Err(DecisionError::AlreadyDecided {
+                        id: id_text.clone(),
+                    });
+                }
+            },
+            Ok(None) => {}
+            Err(error) => {
+                lgwks_std::trace::debug!(error = %error, id = %id_text, "decide: the store refused the decision lookup");
+                return Err(DecisionError::Store {
+                    source: Box::new(error),
+                });
+            }
+        }
+        // The deadline is owed on this host's clock: a lapse records its own
+        // expiry decision, so a resume finds the lapse and the ceiling drops
+        // the approval.
+        let expires_at = pending.parked_at_nanos.saturating_add(pending.ttl_nanos);
+        if crate::script::approval::nanos_of(self.inner.clock.now()) >= expires_at {
+            return self.record_lapse(records, tenant, run, key, &pending, &id_text);
+        }
+        if *decision.digest() != pending.digest {
+            lgwks_std::trace::debug!(want = %pending.digest.to_hex(), got = %decision.digest().to_hex(), id = %id_text, "decide: the decision names other bytes than the pending payload");
+            return Err(DecisionError::DigestMismatch {
+                want: pending.digest.to_hex(),
+                got: decision.digest().to_hex(),
+            });
+        }
+        let record = ApprovalRecord::Decision(DecisionRecord {
+            pending_key_hex: key.to_hex(),
+            approved: decision.verdict() == crate::script::ApprovalVerdict::Approve,
+            expired: false,
+            digest: *decision.digest(),
+            by: decision.by().to_owned(),
+        });
+        let bytes = record.to_record().map_err(|cause| DecisionError::Store {
+            source: Box::new(FlowError::failed(format!(
+                "this decision could not be archived: {cause}"
+            ))),
+        })?;
+        let decision_path = format!("{}/decision", pending.path);
+        let definition = self.identity_for(run, &self.definition("approval", 1, None, 1));
+        match records
+            .0
+            .append(
+                tenant,
+                run,
+                decision_key,
+                &decision_path,
+                &definition,
+                bytes.clone(),
+            )
+            .map_err(|error| DecisionError::Store {
+                source: Box::new(error),
+            })? {
+            Appended::Recorded => {
+                // The store batches concurrent appends behind one `sync_all`,
+                // so two racing decisions can both report `Recorded` with the
+                // last write winning. Re-read the decision key: the winner's
+                // bytes are the ones the store holds, and the loser, whose
+                // bytes differ, is refused as already decided. One winner, no
+                // lock, the store as arbiter.
+                match records.lookup(tenant, run, decision_key) {
+                    Ok(Some(stored)) if stored.bytes() == bytes.as_slice() => Ok(()),
+                    Ok(_) => Err(DecisionError::AlreadyDecided { id: id_text }),
+                    Err(error) => Err(DecisionError::Store {
+                        source: Box::new(error),
+                    }),
+                }
+            }
+            Appended::AlreadyRecorded | Appended::Conflicting => {
+                Err(DecisionError::AlreadyDecided { id: id_text })
+            }
+        }
+    }
+
+    /// Record the lapse of `pending` and report it as expired.
+    ///
+    /// The expiry decision a resume past the deadline records, so the lapse
+    /// is a fact the ceiling and a later decide both read rather than a
+    /// clock reading that moves.
+    fn record_lapse(
+        &self,
+        records: &Records,
+        tenant: &str,
+        run: crate::effect::RunId,
+        key: crate::script::StepKey,
+        pending: &crate::script::approval::PendingRecord,
+        id: &str,
+    ) -> Result<(), DecisionError> {
+        use crate::script::approval::{ApprovalRecord, DecisionRecord};
+        use crate::script::run_store::Appended;
+
+        let record = ApprovalRecord::Decision(DecisionRecord {
+            pending_key_hex: key.to_hex(),
+            approved: false,
+            expired: true,
+            digest: pending.digest,
+            by: String::from("expiry"),
+        });
+        let bytes = record.to_record().map_err(|cause| DecisionError::Store {
+            source: Box::new(FlowError::failed(format!(
+                "this approval's lapse could not be archived: {cause}"
+            ))),
+        })?;
+        let definition = self.identity_for(run, &self.definition("approval", 1, None, 1));
+        match records
+            .0
+            .append(
+                tenant,
+                run,
+                decision_key_for(tenant, &pending.path),
+                &format!("{}/decision", pending.path),
+                &definition,
+                bytes,
+            )
+            .map_err(|error| DecisionError::Store {
+                source: Box::new(error),
+            })? {
+            Appended::Recorded | Appended::AlreadyRecorded => {
+                Err(DecisionError::Expired { id: id.to_owned() })
+            }
+            Appended::Conflicting => Err(DecisionError::AlreadyDecided { id: id.to_owned() }),
+        }
+    }
+
+    /// Every undecided, unexpired approval this tenant parked, up to `limit`.
+    ///
+    /// Read from this host's file store, so a restart lists what the previous
+    /// process parked. Each entry carries the id [`Host::decide`] takes and
+    /// the digest a decision must match. Decided and lapsed approvals are not
+    /// listed: there is nothing left to decide.
+    ///
+    /// # Errors
+    ///
+    /// [`FlowError`] when this host holds no file store to list from, or when
+    /// the store refuses the read.
+    pub fn pending(&self, limit: usize) -> Result<Vec<PendingApproval>, FlowError> {
+        let Some(store) = self.inner.file_store.as_ref() else {
+            let refusal = Err(FlowError::failed(
+                "this host holds no file store, so pending approvals cannot be listed; install one with `run_store`",
+            ));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "pending: returning an error to the caller");
+            return refusal;
+        };
+        let Some(records) = self.inner.records.as_ref() else {
+            let refusal = Err(FlowError::failed(
+                "this host holds no run store, so pending approvals cannot be listed",
+            ));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "pending: returning an error to the caller");
+            return refusal;
+        };
+        let tenant = self.inner.tenant.as_str();
+        let cap = limit.min(self.inner.max_pending);
+        let scanned = store.pending_scan(tenant, cap);
+        let now = self.inner.clock.now();
+        let decided = |run: RunId, path: &str| -> Result<bool, FlowError> {
+            Ok(records
+                .lookup(tenant, run, decision_key_for(tenant, path))?
+                .is_some())
+        };
+        pending_for(scanned, &decided, tenant, cap, now)
+    }
+
+    /// Every refused foreign-tenant decision this host recorded, oldest first.
+    ///
+    /// The audit names the attempt — when, who asked, which id, who owns it —
+    /// so a cross-tenant decide is observable rather than silent. Bounded by
+    /// [`MAX_AUDIT_ENTRIES`](crate::script::approval::MAX_AUDIT_ENTRIES);
+    /// past it the oldest entries are dropped and counted nowhere.
+    #[must_use]
+    pub fn audit(&self) -> Vec<AuditEntry> {
+        match self.inner.audit.lock() {
+            Ok(log) => log.entries(),
+            Err(poisoned) => poisoned.into_inner().entries(),
+        }
+    }
+
+    /// Record a refused foreign-tenant decision in this host's audit.
+    fn record_audit(&self, entry: AuditEntry) {
+        let mut log = match self.inner.audit.lock() {
+            Ok(log) => log,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        log.record(entry);
     }
 }
 

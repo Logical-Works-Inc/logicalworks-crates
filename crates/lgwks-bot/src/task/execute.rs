@@ -302,6 +302,7 @@ impl Host {
             self.inner.clock.clone(),
             run,
             Arc::clone(&self.inner.policy),
+            self.inner.max_pending,
         );
         let scope = match root.enter(task_name.as_str()) {
             Ok(scope) => scope,
@@ -622,6 +623,7 @@ impl WorldRun {
             Disposition::DeadlineExceeded => RunOutcome::TimedOut,
             Disposition::Refused => RunOutcome::Refused,
             Disposition::Blocked => RunOutcome::Blocked,
+            Disposition::Parked => RunOutcome::Parked,
         });
     }
 

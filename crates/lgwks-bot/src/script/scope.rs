@@ -1,7 +1,7 @@
 //! Tenants, step keys and the scope every step runs in.
 
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use lgwks_std::hash::{Digest, Hasher};
 
@@ -10,6 +10,7 @@ use crate::rt::clock::Clock;
 use crate::rt::sync::CancellationToken;
 use crate::task::{InputDigest, MAX_REQUEST_KEY_BYTES};
 
+use super::approval::{Approved, MAX_PENDING_PER_TENANT};
 use super::justify::Justify;
 use super::policy::Policy;
 use super::trail::{Mark, Outcome, Site, Trail};
@@ -158,6 +159,16 @@ impl StepKey {
         self.0.as_bytes()
     }
 
+    /// Build a step key from a parsed digest, for an approval id that names
+    /// one.
+    ///
+    /// Crate-private because a step key is minted by hashing, never written by
+    /// hand: the only caller that rebuilds one is the approval id its own
+    /// report printed.
+    pub(crate) const fn from_digest(digest: Digest) -> Self {
+        Self(digest)
+    }
+
     /// Lowercase hex, the form to send to a receiver as an idempotency key.
     #[must_use]
     pub fn to_hex(&self) -> String {
@@ -252,6 +263,14 @@ struct ScopeInner {
     /// when the flow named any. Inherited by every descended scope, so one
     /// installation governs the whole flow.
     justify: Option<Arc<Justify>>,
+    /// The approvals this run holds, decided through the host: every scope
+    /// descended from one root shares the same list, so an `await approval`
+    /// decided earlier in the flow gates an `act` later in it.
+    approved: Arc<Mutex<Vec<Approved>>>,
+    /// How many undecided approvals this tenant may hold: the park ceiling an
+    /// `await approval` is admitted against. Inherited by every descended
+    /// scope, so one installation governs the whole flow.
+    approval_max: usize,
     /// This step's entry in the trail, which [`Scope::settle`] completes;
     /// `None` at the root, which no step entered.
     mark: Option<Arc<Mark>>,
@@ -325,6 +344,7 @@ impl Scope {
             clock,
             None,
             Arc::new(Policy::for_this_machine()),
+            MAX_PENDING_PER_TENANT,
         )
     }
 
@@ -346,6 +366,7 @@ impl Scope {
         clock: Clock,
         run: Option<RunId>,
         policy: Arc<Policy>,
+        approval_max: usize,
     ) -> Self {
         Self {
             inner: Arc::new(ScopeInner {
@@ -358,6 +379,8 @@ impl Scope {
                 clock,
                 run,
                 justify: None,
+                approved: Arc::new(Mutex::new(Vec::new())),
+                approval_max,
                 mark: None,
             }),
         }
@@ -393,6 +416,8 @@ impl Scope {
                 clock: self.inner.clock.clone(),
                 run: self.inner.run,
                 justify: Some(Arc::new(justify)),
+                approved: Arc::clone(&self.inner.approved),
+                approval_max: self.inner.approval_max,
                 mark: self.inner.mark.clone(),
             }),
         }
@@ -401,6 +426,43 @@ impl Scope {
     /// The justification rules this scope answers to, when the flow named any.
     pub(crate) fn justification(&self) -> Option<&Justify> {
         self.inner.justify.as_deref()
+    }
+
+    /// Hold `approved` for the rest of the run: every scope descended from
+    /// this root shares the list, so a decision reached at one step gates an
+    /// `act` at any later one.
+    ///
+    /// Crate-private because the run is the supported way to earn an approval:
+    /// a caller that installed its own could run a gated action without ever
+    /// parking one.
+    pub(crate) fn hold_approval(&self, approved: Approved) {
+        let mut held = match self.inner.approved.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        held.push(approved);
+    }
+
+    /// The digests of every approval this run holds, oldest first.
+    ///
+    /// What a gated `act` matches the digest of its archived input against.
+    /// Crate-private for the same reason [`Scope::hold_approval`] is: the run
+    /// earns its approvals, a caller does not hand them in.
+    pub(crate) fn approvals(&self) -> Vec<Digest> {
+        let held = match self.inner.approved.lock() {
+            Ok(held) => held,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        held.iter().map(Approved::digest).cloned().collect()
+    }
+
+    /// How many undecided approvals this tenant may hold: the ceiling an
+    /// `await approval` is admitted against.
+    ///
+    /// Crate-private because the host sets it: a scope built by hand carries
+    /// the default, and a run under a host carries the host's.
+    pub(crate) fn approval_max(&self) -> usize {
+        self.inner.approval_max
     }
 
     /// Enter the named step beneath this scope.
@@ -515,6 +577,8 @@ impl Scope {
                 clock: self.inner.clock.clone(),
                 run: self.inner.run,
                 justify: self.inner.justify.clone(),
+                approved: Arc::clone(&self.inner.approved),
+                approval_max: self.inner.approval_max,
                 mark: Some(mark),
             }),
         })

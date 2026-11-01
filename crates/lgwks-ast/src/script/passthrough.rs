@@ -68,6 +68,7 @@ fn construct_lines(construct: &Construct, out: &mut Vec<Passthrough>) {
         Construct::Justify(ref block) => block.governed(),
         Construct::Admit(ref admitted) => admitted.payload(),
         Construct::Ready(ref waited) => waited.body(),
+        Construct::Approval(ref parked) => parked.body(),
         Construct::Graph(ref declared) => {
             for node in declared.nodes() {
                 block_lines(node.body(), out);

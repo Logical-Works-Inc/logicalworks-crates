@@ -11,8 +11,8 @@ use super::super::lines::{
 };
 use super::super::refuse;
 use super::super::tree::{
-    Admit, Block, Compensate, Construct, Graph, Justify, Node, Overflow, Producer, Ready, Site,
-    Statement, Step, StepShape, Whenever,
+    Admit, Approval, Block, Compensate, Construct, Graph, Justify, Node, Overflow, Producer, Ready,
+    Site, Statement, Step, StepShape, Whenever,
 };
 use super::super::{Refusal, Result};
 use super::words::{bound, duration, refuse_typed_concurrency, rewrite, shape};
@@ -541,4 +541,62 @@ pub(super) fn ready(
         body,
     };
     Ok((Construct::Ready(waited), map))
+}
+
+/// `await approval <label> within <duration>:`.
+///
+/// The line starts with `await`, the particle that says the step parks rather
+/// than waits: the `Kind::Approval` row is spelled `await`, and this reader
+/// checks the `approval` that follows it, the one-word label, and the `within`
+/// deadline the decision is owed by. Expiry is not optional: a word with no
+/// `within` does not compile, because a decision nobody is owed by is a task
+/// held open with no bound.
+pub(super) fn approval(
+    line: &Line,
+    children: &[LineNode],
+    labels: &mut Labels,
+) -> Result<(Construct, StepShape)> {
+    let form = "`await approval` reads `await approval <label> within 30s:`";
+    let (name, limit) = match *after(&line.tokens, 1) {
+        [ref word, ref label, ref within, ref limit @ ..]
+            if is_ident(word, "approval") && is_ident(within, "within") && !limit.is_empty() =>
+        {
+            match ident(label) {
+                Some(name) => (name.to_string(), limit),
+                None => return refuse_at(line, form, "await approval"),
+            }
+        }
+        _ => {
+            return refuse_at(
+                line,
+                "an `await approval` waits under a deadline: `await approval <label> within 30s:`",
+                "await approval",
+            );
+        }
+    };
+    let deadline = duration(limit, line)?;
+    let label = labels.next("approval");
+    let (body, inner) = word_body(children, false)?;
+    if body.tail().is_none() {
+        return refuse_at(
+            line,
+            "the last line under `await approval` is the payload's bytes, and this block ends without one",
+            "await approval",
+        );
+    }
+    let map = shape(
+        Kind::Approval,
+        name.clone(),
+        text(&line.tokens),
+        line,
+        inner,
+    );
+    let parked = Approval {
+        site: Site::of(&map),
+        label,
+        name,
+        limit: deadline,
+        body,
+    };
+    Ok((Construct::Approval(parked), map))
 }

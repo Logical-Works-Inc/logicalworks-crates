@@ -33,7 +33,7 @@ use lgwks_bot::task::{Host, RunStore, StoreError, task};
 
 use crate::memory_records::MemoryRecords;
 use crate::scratch::Scratch;
-use crate::script_domains::{SCRIPT_DOMAINS, post};
+use crate::script_domains::{SCRIPT_DOMAINS, post, posts_once};
 use crate::spec_materialize::take_trace;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -128,17 +128,5 @@ fn an_ephemeral_store_refuses_an_external_action() -> TestResult {
 fn a_durable_store_admits_the_same_action() -> TestResult {
     let scratch = Scratch::new("records-act")?;
     let store = RunStore::open(scratch.path().join("act.runstore"))?;
-    let host = host_over(Arc::new(store))?;
-    let posting = task("posting", |scope: Scope, value: u16| async move {
-        post(&scope, "channel", value).await
-    })?;
-    let _ = take_trace();
-    let report = lgwks_bot::block_on(host.run(&posting, 7));
-    assert!(report.result().is_ok(), "{:?}", report.result());
-    assert_eq!(
-        take_trace(),
-        ["execute:test::post:7"],
-        "the action ran once"
-    );
-    Ok(())
+    posts_once(&host_over(Arc::new(store))?)
 }

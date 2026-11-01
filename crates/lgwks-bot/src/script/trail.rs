@@ -101,6 +101,11 @@ pub enum Outcome {
     },
     /// The step, or one above it, was stopped.
     Cancelled,
+    /// The step parked awaiting a human decision, holding no task.
+    Parked {
+        /// The parked approval's id, `<run>:<step>` in hex.
+        id: Arc<str>,
+    },
     /// The step failed.
     Failed {
         /// The located failure, as it renders.
@@ -114,6 +119,9 @@ impl Outcome {
         match *result {
             Ok(_) => Self::Succeeded,
             Err(FlowError::TimedOut { after, .. }) => Self::TimedOut { after },
+            Err(FlowError::Parked { ref id, .. }) => Self::Parked {
+                id: Arc::from(id.as_str()),
+            },
             Err(ref error) if error.is_cancelled() => Self::Cancelled,
             Err(ref error) => Self::Failed {
                 reason: Arc::from(error.to_string()),
@@ -132,8 +140,8 @@ impl Outcome {
 }
 
 impl fmt::Display for Outcome {
-    /// `ok`, `retried N, then ok`, `timed out after D`, `stopped`, or
-    /// `failed with <reason>`.
+    /// `ok`, `retried N, then ok`, `timed out after D`, `stopped`,
+    /// `parked awaiting <id>`, or `failed with <reason>`.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Succeeded => formatter.write_str("ok"),
@@ -142,6 +150,7 @@ impl fmt::Display for Outcome {
             }
             Self::TimedOut { after } => write!(formatter, "timed out after {after:?}"),
             Self::Cancelled => formatter.write_str("stopped"),
+            Self::Parked { ref id } => write!(formatter, "parked awaiting approval {id}"),
             Self::Failed { ref reason } => write!(formatter, "failed with {reason}"),
         }
     }

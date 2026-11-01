@@ -1,7 +1,7 @@
 //! The grammar generator's structured words: `graph` and its `node`s, `saga`
-//! and its `compensate` lines, `whenever`, `justify`, `remember`, `admit` and
-//! `ready`, each drawn with the shapes the parser accepts, so the band says
-//! every word of the lexicon.
+//! and its `compensate` lines, `whenever`, `justify`, `remember`, `admit`,
+//! `ready` and `await approval`, each drawn with the shapes the parser
+//! accepts, so the band says every word of the lexicon.
 
 use std::fmt;
 
@@ -41,13 +41,14 @@ impl Script {
     /// One structured word at `depth`, bound with `let`, with its body.
     pub(super) fn structured(&mut self, depth: usize) -> Result<(), Drawn> {
         self.say(Kind::Let);
-        match self.draw.index(7)? {
+        match self.draw.index(8)? {
             0 => self.graph(depth),
             1 => self.saga(depth),
             2 => self.whenever(depth),
             3 => self.justify(depth),
             4 => self.remember(depth),
             5 => self.admit(depth),
+            6 => self.approval(depth),
             _ => self.ready(depth),
         }
     }
@@ -90,6 +91,19 @@ impl Script {
             format!("site.size(db{name})"),
             None,
         );
+        Ok(())
+    }
+
+    /// `await approval` over a payload under a deadline, bound as the approval.
+    fn approval(&mut self, depth: usize) -> Result<(), Drawn> {
+        let name = self.name();
+        let deadline = *self.draw.pick(&["250ms", "2s", "(site.deadline())"])?;
+        self.line(
+            depth,
+            format!("let a{name} = await approval ship{name} within {deadline}:"),
+            Some(Kind::Approval),
+        );
+        self.line(depth.saturating_add(1), format!("site.reply({name})"), None);
         Ok(())
     }
 

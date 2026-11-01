@@ -28,6 +28,7 @@ use lgwks_bot::{
     Action, Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, Need, Observe, Source, domains,
 };
 
+use crate::effect_policy::allowing;
 use crate::effects::memory_scope;
 use crate::spec_materialize::{Counter, Page, record, take_trace};
 
@@ -471,12 +472,20 @@ fn an_action_output_reads_back_as_its_own_type_only() -> TestResult {
 
 #[test]
 fn an_external_action_runs_with_the_flows_value() -> TestResult {
-    let host = host("acme", GrantSet::empty())?;
+    posts_once(&host("acme", GrantSet::empty())?)
+}
+
+/// Run `post` with 7 on `host` under the suite's allowing policy, and prove
+/// the external action ran exactly once with the flow's value.
+///
+/// Shared with `run_records`, whose durable-store test asks the same question
+/// of a host over a store of its own.
+pub(crate) fn posts_once(host: &lgwks_bot::task::Host) -> TestResult {
     let posting = task("posting", |scope: Scope, value: u16| async move {
         post(&scope, "channel", value).await
     })?;
     let _ = take_trace();
-    let report = lgwks_bot::block_on(host.run(&posting, 7));
+    let report = lgwks_bot::block_on(allowing(host.run(&posting, 7)));
     assert!(report.result().is_ok(), "{:?}", report.result());
     assert_eq!(
         take_trace(),

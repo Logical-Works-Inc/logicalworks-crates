@@ -151,7 +151,9 @@ mod records;
 mod tests;
 
 pub use error::{StoreError, StoreLimitKind};
-use record::{Stored, StoredDefinition, hex_of, refusal, replay, store_full, tail_head};
+use record::{
+    Stored, StoredDefinition, count_approval, hex_of, refusal, replay, store_full, tail_head,
+};
 
 // ── The store ───────────────────────────────────────────────────────────────
 
@@ -215,6 +217,14 @@ struct Index {
     /// over the *archived* record, so recomputing one would re-archive a value
     /// and risk hashing something other than the bytes on the disk.
     tail: Digest,
+    /// Per tenant, how many parked approvals are undecided.
+    ///
+    /// Maintained at fold time — replay and every committed append — so the
+    /// park ceiling is one probe rather than a scan: a park that scanned the
+    /// whole store would cost the store's size on every park. A decision
+    /// decrements, and a lapse records a decision, so only live approvals are
+    /// counted.
+    pending: HashMap<String, u64>,
 }
 
 /// One run's records.
@@ -496,6 +506,72 @@ impl RunStore {
     #[must_use]
     pub fn knows_run(&self, run: RunId) -> bool {
         self.index().runs.contains_key(&run)
+    }
+
+    /// How many parked approvals of `tenant` are undecided.
+    ///
+    /// The ceiling an `await approval` is admitted against, read as one probe
+    /// rather than a scan: the count is folded at replay and at every
+    /// committed append, so a park costs a hash-map probe however large the
+    /// store is.
+    pub(crate) fn pending_for(&self, tenant: &str) -> u64 {
+        // A tenant the index has never folded a park for has none undecided.
+        match self.index().pending.get(tenant) {
+            Some(count) => *count,
+            None => 0,
+        }
+    }
+
+    /// Up to `limit` raw approval records of `tenant`: run, key hex, path,
+    /// bytes.
+    ///
+    /// The scan behind the pending listing: only records that decode as a
+    /// parked approval are cloned, so a store of large step values is not
+    /// copied to list a few approvals. Sorted by key, so two hosts list the
+    /// same approvals in the same order.
+    pub(crate) fn pending_scan(
+        &self,
+        tenant: &str,
+        limit: usize,
+    ) -> Vec<(RunId, String, String, Vec<u8>)> {
+        use crate::script::approval::{RecordClass, classify_record};
+        let index = self.index();
+        let mut out = Vec::new();
+        let mut runs: Vec<RunId> = index
+            .runs
+            .iter()
+            .filter_map(|pair| {
+                if pair.1.tenant == tenant {
+                    Some(*pair.0)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        runs.sort_by_key(|item| item.id().to_hex());
+        for run in runs {
+            let Some(kept) = index.runs.get(&run) else {
+                continue;
+            };
+            let mut keys: Vec<&String> = kept.steps.keys().collect();
+            keys.sort();
+            for key_hex in keys {
+                if out.len() >= limit {
+                    break;
+                }
+                let Some(step) = kept.steps.get(key_hex) else {
+                    continue;
+                };
+                if matches!(classify_record(&step.bytes), RecordClass::Pending(_)) {
+                    out.push((run, key_hex.clone(), step.path.clone(), step.bytes.clone()));
+                }
+            }
+            if out.len() >= limit {
+                break;
+            }
+        }
+        out.sort_by(|left, right| left.1.cmp(&right.1).then(left.2.cmp(&right.2)));
+        out
     }
 
     /// Who minted `run`, when the store knows.
@@ -809,6 +885,7 @@ fn decide_and_write(
         bytes: framed.len(),
         settle: Box::new(move |index: &mut Arc<Mutex<Index>>| {
             let mut index = owner::lock(index);
+            count_approval(&mut index, &tenant, &held.bytes);
             let entry = index.runs.entry(run).or_insert_with(|| RunIndex {
                 tenant: tenant.clone(),
                 definition: definition.clone(),

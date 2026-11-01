@@ -39,7 +39,9 @@ use crate::error::BotError;
 use crate::gate::GrantSet;
 use crate::registry::{DomainRegistry, Role};
 use crate::spec::{Erased, Need, NeedSet};
+use crate::verb::EffectLifetime;
 
+use super::approval::{EffectDisposition, approval_digest, installed_policy};
 use super::{FlowError, Scope};
 
 /// One identifier a flow names and the word it names it with, for the
@@ -206,13 +208,19 @@ pub async fn observe<T: 'static>(scope: &Scope, id: &str, target: &str) -> Resul
 /// under `id` from `target` and run it on `value` under exactly the
 /// capabilities it declares.
 ///
+/// An action the installed [`EffectPolicy`](super::approval::EffectPolicy)
+/// gates runs only when the run holds a matching approval: an [`Approved`](super::approval::Approved)
+/// whose digest matches the archived input, decided through the host. Under
+/// the default policy every action whose effect leaves the process is gated.
+///
 /// # Errors
 ///
 /// The identifier undeclared ([`BotError::UndeclaredDomains`]); the
 /// constructor's refusal of `target`; [`FlowError::Blocked`] when the run's
 /// authority does not cover the action's capabilities, before it runs;
-/// [`BotError::TypeMismatch`] when `value` is not the action's input; the
-/// action's own failure.
+/// [`FlowError::NeedsApproval`] when the policy gates the action and the run
+/// holds no matching approval; [`BotError::TypeMismatch`] when `value` is not
+/// the action's input; the action's own failure.
 pub async fn act<V: 'static>(
     scope: &Scope,
     id: &str,
@@ -240,6 +248,11 @@ pub async fn act<V: 'static>(
     }
     let grants = exactly(caps);
     let input = Erased::new(value);
+    gate_approval(
+        scope,
+        action.effect_lifetime(),
+        action.archive_input(&input),
+    )?;
     let output = action
         .run_any_on(scope.clock(), &grants, &input)
         .await
@@ -248,6 +261,49 @@ pub async fn act<V: 'static>(
         domain: id.to_owned(),
         output,
     })
+}
+
+/// Refuse a gated action the run holds no approval for.
+///
+/// The run holds what its `await approval` steps earned, as digests over the
+/// archived payload; the action archives its input the same way before the
+/// two are compared, so an approval releases exactly the bytes it was made
+/// against. An action that cannot archive its input cannot prove a match and
+/// is refused rather than run ungated: fail-closed, because an unprovable
+/// approval is no approval.
+///
+/// A policy that answers [`EffectDisposition::Reversible`] runs without
+/// asking, so local actions and explicitly allowed tests cost no archive.
+fn gate_approval(
+    scope: &Scope,
+    lifetime: EffectLifetime,
+    archived: Option<Vec<u8>>,
+) -> Result<(), FlowError> {
+    match installed_policy().disposition(lifetime) {
+        EffectDisposition::Reversible => Ok(()),
+        EffectDisposition::NeedsConfirmation | EffectDisposition::Terminal => {
+            let Some(bytes) = archived else {
+                let refusal = Err(FlowError::failed(
+                    "this action hands an effect out of the process and cannot archive its input, \
+                     so no approval can match it; refusing rather than running ungated",
+                )
+                .located(scope));
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "gate_approval: returning an error to the caller");
+                return refusal;
+            };
+            let digest = approval_digest(&bytes);
+            if scope.approvals().iter().any(|held| held == &digest) {
+                return Ok(());
+            }
+            let refusal = Err(FlowError::NeedsApproval {
+                at: std::sync::Arc::from(""),
+                want: digest.to_hex(),
+            }
+            .located(scope));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "gate_approval: returning an error to the caller");
+            refusal
+        }
+    }
 }
 
 /// The registry this run resolves domains against, when its host has one.

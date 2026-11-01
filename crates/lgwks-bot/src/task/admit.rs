@@ -398,6 +398,7 @@ pub(super) fn disposition_of(error: &FlowError) -> Disposition {
     match *error {
         FlowError::Cancelled { .. } => Disposition::Cancelled,
         FlowError::TimedOut { .. } => Disposition::DeadlineExceeded,
+        FlowError::Parked { .. } => Disposition::Parked,
         _ => Disposition::Failed,
     }
 }

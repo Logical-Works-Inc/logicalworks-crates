@@ -224,6 +224,11 @@ all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
+name = "approval_scale"
+path = "examples/approval_scale.rs"
+required-features = ["script", "ephemeral"]
+
+[[example]]
 name = "bounded_fanout"
 path = "examples/bounded_fanout.rs"
 required-features = ["rt", "time", "sync"]

@@ -280,7 +280,7 @@ fn statement(line: &Statement) -> Result<TokenStream> {
 }
 
 /// A block that yields a value: `each`, `within`, `retry`, `step`, `graph`,
-/// `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`.
+/// `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`, `await approval`.
 fn construct(block: &Construct) -> Result<TokenStream> {
     match *block {
         Construct::Each(ref fan) => each(fan),
@@ -294,6 +294,7 @@ fn construct(block: &Construct) -> Result<TokenStream> {
         Construct::Remember(ref named) => vocab::remember(named),
         Construct::Admit(ref admitted) => vocab::admit(admitted),
         Construct::Ready(ref waited) => vocab::ready(waited),
+        Construct::Approval(ref parked) => vocab::approval(parked),
         _ => Err(newer_word("block word")),
     }
 }

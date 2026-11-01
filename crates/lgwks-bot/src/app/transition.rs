@@ -2,6 +2,7 @@
 //! the runner that answers requests and serves effects under the grants.
 
 use std::sync::{Arc, Weak};
+use std::time::Duration;
 
 use super::{HostSlot, MAX_EFFECTS_PER_APPLY, Method, Provider};
 use crate::cell::{
@@ -10,6 +11,14 @@ use crate::cell::{
 };
 use crate::ecs::Response;
 use crate::gate::GrantSet;
+use crate::task::RunStore;
+
+/// How long an app-parked approval is owed before it lapses.
+///
+/// The wait nobody decides must end rather than linger: a lapse reads as an
+/// unavailable answer that stayed unavailable, and the ceiling drops the
+/// approval.
+const APP_APPROVAL_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// A route transition over the raw body: decode, then fold.
 type RouteFn<S> = Arc<dyn Fn(&mut S, &[u8]) -> Vec<Effect> + Send + Sync>;
@@ -207,6 +216,9 @@ pub(super) struct AppRunner<S: Clone + Default + Send + 'static> {
     grants: GrantSet,
     /// Who serves the granted effects.
     provider: Arc<dyn Provider>,
+    /// The store an `AwaitApproval` effect parks through, when the app was
+    /// given one.
+    store: Option<RunStore>,
     /// The host answers re-enter through.
     host: HostSlot<S>,
 }
@@ -216,10 +228,15 @@ where
     S: Clone + Default + Send + 'static,
 {
     /// A runner over `grants` and `provider`, bound to its host later.
-    pub(super) fn new(grants: GrantSet, provider: Arc<dyn Provider>) -> Self {
+    pub(super) fn new(
+        grants: GrantSet,
+        provider: Arc<dyn Provider>,
+        store: Option<RunStore>,
+    ) -> Self {
         Self {
             grants,
             provider,
+            store,
             host: HostSlot::new(),
         }
     }
@@ -244,7 +261,10 @@ where
             }
             _ => match self.provider.dispatch(tenant, effect) {
                 Some(bytes) => EffectResult::Value(bytes.into_boxed_slice()),
-                None => EffectResult::Unavailable,
+                None => {
+                    self.park_approval(tenant, effect);
+                    EffectResult::Unavailable
+                }
             },
         };
         let Some(host) = self.host.get().and_then(Weak::upgrade) else {
@@ -261,6 +281,31 @@ where
         }
         if let Err(refusal) = host.try_submit(tenant, message, Arc::new(ReplySlot::new())) {
             lgwks_std::trace::debug!(%refusal, tenant, "app: a provider answer was refused");
+        }
+    }
+
+    /// Park an `AwaitApproval` effect the provider could not answer, when the
+    /// app is served with a store.
+    ///
+    /// The park is decidable through [`Host::decide`](crate::task::Host::decide)
+    /// over the same file, so an app wait and a flow wait answer to one path.
+    /// Anything else — an answered effect, or an app with no store — is left
+    /// alone.
+    fn park_approval(&self, tenant: &str, effect: &Effect) {
+        let Effect::AwaitApproval { ref what, .. } = *effect else {
+            return;
+        };
+        let Some(store) = self.store.as_ref() else {
+            return;
+        };
+        if let Err(refusal) =
+            crate::script::approval::park_app_approval(store, tenant, what, APP_APPROVAL_TTL)
+        {
+            lgwks_std::trace::debug!(
+                ?refusal,
+                tenant,
+                "app: an approval the provider left open could not be parked"
+            );
         }
     }
 }

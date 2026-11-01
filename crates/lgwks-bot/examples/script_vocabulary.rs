@@ -18,12 +18,14 @@ use std::time::Duration;
 use lgwks_bot::cap::Cap;
 use lgwks_bot::proposal::{Decoder, LedgerLimits, PlanBudget, PlanLimits, Surface};
 use lgwks_bot::script::{
-    FlowError, Gate, Generation, GraphNode, GraphReport, Justify, NodeOutcome, Overflow,
-    PumpReport, Readiness, Scope, StreamGate, Tenant, TypedAction, TypedSource, act_typed,
-    map_domain, observe_typed,
+    EffectDisposition, EffectPolicy, FlowError, Gate, Generation, GraphNode, GraphReport, Justify,
+    NodeOutcome, Overflow, PumpReport, Readiness, Scope, StreamGate, Tenant, TypedAction,
+    TypedSource, act_typed, map_domain, observe_typed, with_effect_policy,
 };
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{Action, Auth, BotError, Execute, GrantSet, Observe, Source, domains};
+use lgwks_bot::{
+    Action, Auth, BotError, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
+};
 
 /// A check that fails the run with a readable reason, never a bare panic.
 fn check(what: bool, reason: &str) -> Result<(), String> {
@@ -219,6 +221,17 @@ lgwks_bot::script! {
         give back size
 }
 
+/// The example's explicit policy: the demo actions are doubles, so no
+/// decision is owed.
+struct AllowDemo;
+
+impl EffectPolicy for AllowDemo {
+    /// Reversible: the example owns its doubles.
+    fn disposition(&self, _lifetime: EffectLifetime) -> EffectDisposition {
+        EffectDisposition::Reversible
+    }
+}
+
 /// A gate over a surface with one read operation, for the `admit` flow.
 fn proposal_gate() -> Result<Gate, Box<dyn Error>> {
     let surface = Surface::builder("demo")?
@@ -357,7 +370,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .ok()
         .copied();
     check(count == Some(7), "the typed source polls its count")?;
-    let paged = lgwks_bot::block_on(host.run(&paging, (String::from("oncall"), 2)));
+    let paged = lgwks_bot::block_on(with_effect_policy(
+        AllowDemo,
+        host.run(&paging, (String::from("oncall"), 2)),
+    ));
     check(paged.result().is_ok(), "the typed action runs")?;
     writeln!(out, "typed: counter polled 7, page acted once")
         .map_err(|error| format!("the report was not written: {error}"))?;

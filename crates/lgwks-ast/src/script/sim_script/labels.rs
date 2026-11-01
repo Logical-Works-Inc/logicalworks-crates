@@ -86,6 +86,10 @@ fn construct_labels(construct: &Construct, out: &mut Vec<String>) {
             out.push(waited.label().to_owned());
             block_labels(waited.body(), out);
         }
+        Construct::Approval(ref parked) => {
+            out.push(parked.label().to_owned());
+            block_labels(parked.body(), out);
+        }
         Construct::Graph(ref declared) => {
             out.push(declared.label().to_owned());
             for node in declared.nodes() {

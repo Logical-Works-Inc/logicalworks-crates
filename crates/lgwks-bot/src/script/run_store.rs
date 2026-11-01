@@ -319,6 +319,11 @@ pub trait RunRecords: Send + Sync {
         ))
     }
 
+    /// Undecided approvals `tenant` holds (the `await approval` ceiling), `None` when this store keeps no count; a failed count is an error, never zero (INV-BOT-7).
+    fn pending_count(&self, _tenant: &str) -> Result<Option<u64>, FlowError> {
+        Ok(None)
+    }
+
     /// Build the record this store is being asked to commit.
     ///
     /// One constructor for the six fields both doors take, because the awaited door

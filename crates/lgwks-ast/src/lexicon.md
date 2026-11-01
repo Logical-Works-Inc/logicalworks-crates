@@ -36,5 +36,6 @@ Each line is one step. It starts with one of the words below, or it is a line of
 | `remember name:` | the block once per run; a resume reads its value back |
 | `admit from model through (gate):` (or `tool`, `document`) | the block's bytes admitted as a `Plan`; a refusal fails the step |
 | `ready x from (readiness) within 30s:` | the block once `readiness` is signalled, `x` bound to it |
+| `await approval <label> within 30s:` | the block's bytes parked for a human decision, bound as `Approved`; the payload returns once decided |
 
 [`Scope`]: https://docs.rs/lgwks_bot/latest/lgwks_bot/script/struct.Scope.html
