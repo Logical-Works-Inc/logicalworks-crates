@@ -444,7 +444,7 @@ impl Script {
     /// next lines.
     fn plain(&mut self, depth: usize) -> Result<(), String> {
         let name = self.name();
-        let text = match self.draw.index(5)? {
+        let text = match self.draw.index(8)? {
             0 => format!("let a{name} = site.get({name})"),
             1 => format!("let a{name} = site.pair(\n{name},\nitems.len())"),
             2 => {
@@ -455,7 +455,19 @@ impl Script {
                 self.say(Kind::Act);
                 format!("act notify::page on site.key({name}) with items.len()")
             }
-            _ => format!("site.note({name}).await.or_retry()?"),
+            4 => format!("site.note({name}).await.or_retry()?"),
+            5 => {
+                self.say(Kind::Fetch);
+                format!("let f{name} = fetch site.url({name}) with (site.options())")
+            }
+            6 => {
+                self.say(Kind::Ask);
+                format!("let r{name} = ask site.model() with (site.request({name}))")
+            }
+            _ => {
+                self.say(Kind::Send);
+                "send site.mailer() with items".to_owned()
+            }
         };
         self.line(depth, text, None);
         Ok(())

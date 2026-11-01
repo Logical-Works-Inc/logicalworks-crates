@@ -18,8 +18,10 @@ use lgwks_deps::proc_macro2::{Delimiter, Ident, Span, TokenStream, TokenTree};
 
 use super::lexicon::Kind;
 
+mod calls;
 mod vocab;
 
+pub use calls::{Domain, Outside};
 pub use vocab::{
     Admit, Approval, Compensate, Graph, Justify, Node, Overflow, Producer, Ready, Whenever,
 };
@@ -550,65 +552,6 @@ impl Call {
     }
 }
 
-/// `observe domain::id of target` or `act domain::id on target with value`: a
-/// registry identifier called in this scope, as a step of its own (#388).
-///
-/// The identifier is kept as written, `::` and all, because it is the key the
-/// host's `DomainRegistry` declares and the text a refusal names; it is never
-/// resolved here. Resolution is the runtime's, at the flow's entry, against
-/// the registry the run was given, so a flow refers to a domain by the same
-/// string a `BotSpec` does and the two cannot drift.
-#[derive(Debug, Clone)]
-pub struct Domain {
-    /// Where it stands in the script; read through `site()`.
-    pub(crate) site: Site,
-    /// Whether it observes (`observe`) or acts (`act`).
-    pub(crate) kind: Kind,
-    /// The registry identifier, as written without spaces: `github::pr_status`.
-    pub(crate) id: String,
-    /// The structural label: the identifier's last segment, numbered among
-    /// same-named steps in one scope.
-    pub(crate) label: String,
-    /// What the domain is built from: after `of` for `observe`, between `on`
-    /// and `with` for `act`.
-    pub(crate) target: Code,
-    /// What an action is handed, after `with`; `None` for `observe`.
-    pub(crate) value: Option<Code>,
-}
-
-impl Domain {
-    /// Whether it observes ([`Kind::Observe`]) or acts ([`Kind::Act`]).
-    #[must_use]
-    pub const fn kind(&self) -> Kind {
-        self.kind
-    }
-
-    /// The registry identifier, as written without spaces.
-    #[must_use]
-    pub const fn id(&self) -> &str {
-        self.id.as_str()
-    }
-
-    /// The structural label: the identifier's last segment, numbered among
-    /// same-named steps in one scope.
-    #[must_use]
-    pub const fn label(&self) -> &str {
-        self.label.as_str()
-    }
-
-    /// What the domain is built from.
-    #[must_use]
-    pub const fn target(&self) -> &Code {
-        &self.target
-    }
-
-    /// What an action is handed; `None` for an observation.
-    #[must_use]
-    pub const fn value(&self) -> Option<&Code> {
-        self.value.as_ref()
-    }
-}
-
 /// Where a step stands in the script: its word, its source line and the line
 /// as written.
 ///
@@ -672,8 +615,8 @@ macro_rules! site_of {
 }
 
 site_of!(
-    Each, Within, Retry, Step, For, Call, Domain, Graph, Node, Compensate, Whenever, Justify,
-    Admit, Ready, Approval,
+    Each, Within, Retry, Step, For, Call, Domain, Outside, Graph, Node, Compensate, Whenever,
+    Justify, Admit, Ready, Approval,
 );
 
 /// A flow's entry in the architecture map.
@@ -986,4 +929,6 @@ pub enum Fragment {
     Run(Call),
     /// An `observe` or `act` of a registry domain.
     Domain(Domain),
+    /// A `fetch`, `ask` or `send` outside call.
+    Outside(Outside),
 }

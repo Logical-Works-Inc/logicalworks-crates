@@ -1,5 +1,6 @@
 //! The script vocabulary on the shipped artifact: justification, graphs,
-//! compensation, streams, typed domains, bounds, deadlines and approval.
+//! compensation, streams, typed domains, bounds, deadlines, approval and the
+//! outside words.
 //!
 //! `graph`, `saga`, `whenever` and `justify` run as `script!` flows, the one
 //! way in; each section then checks the runtime items those words expand to
@@ -34,6 +35,8 @@ use super::say;
 
 #[path = "vocabulary/approval.rs"]
 mod approval;
+#[path = "vocabulary/outside.rs"]
+mod outside;
 
 /// Keep `step` in `log`; a poisoned log keeps what it had.
 fn note(log: &Mutex<Vec<&'static str>>, step: &'static str) {
@@ -183,6 +186,8 @@ pub(crate) enum Section {
     Durable,
     /// The parked approval and its decision.
     Approval,
+    /// The outside words and their capabilities.
+    Outside,
 }
 
 impl std::fmt::Display for Section {
@@ -197,6 +202,7 @@ impl std::fmt::Display for Section {
             Self::Typed => "typed",
             Self::Durable => "durable",
             Self::Approval => "approval",
+            Self::Outside => "outside",
         };
         formatter.write_str(name)
     }
@@ -672,5 +678,6 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     say(&format!(
         "durable: remembered {price}, admitted {wanted} operation, pool of {size}"
     ))?;
-    approval::run(driver)
+    approval::run(driver)?;
+    outside::run(driver)
 }

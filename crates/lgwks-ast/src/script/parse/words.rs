@@ -5,7 +5,7 @@ use lgwks_deps::proc_macro2::{Delimiter, Group, Ident, TokenStream, TokenTree};
 
 use super::super::lexicon::{self, Kind};
 use super::super::lines::{Line, after, group, ident, is_ident, is_parens, is_punct, text};
-use super::super::tree::{Bound, Call, Code, Domain, Duration, Fragment, Site, StepShape};
+use super::super::tree::{Bound, Call, Code, Domain, Duration, Fragment, Outside, Site, StepShape};
 use super::super::{Refusal, Result};
 use super::Labels;
 
@@ -45,6 +45,14 @@ pub(super) fn rewrite(
             fragments.push(Fragment::Domain(domain));
             break;
         }
+        // An outside word takes the rest of the line as its target and
+        // options, so nothing is left after it to walk either.
+        if let Some(kind) = outside_word(token)
+            && let Some(called) = outside_call(kind, rest, labels, shapes, line)?
+        {
+            fragments.push(Fragment::Outside(called));
+            break;
+        }
         if let TokenTree::Group(ref group) = *token {
             let inner: Vec<TokenTree> = group.stream().into_iter().collect();
             fragments.push(Fragment::Group {
@@ -65,6 +73,118 @@ fn domain_word(token: &TokenTree) -> Option<Kind> {
     [Kind::Observe, Kind::Act]
         .into_iter()
         .find(|&kind| lexicon::is(token, kind))
+}
+
+/// The outside word `token` is, when it is `fetch`, `ask` or `send`.
+fn outside_word(token: &TokenTree) -> Option<Kind> {
+    [Kind::Fetch, Kind::Ask, Kind::Send]
+        .into_iter()
+        .find(|&kind| lexicon::is(token, kind))
+}
+
+/// The capability the outside word `kind` declares, as the map's subject.
+///
+/// Mirrored in `lgwks_bot::script::OutsideWord::capability`: the map names
+/// the reach, the runtime checks it, and the two spellings must agree.
+fn capability_of(kind: Kind) -> String {
+    match kind {
+        Kind::Fetch => String::from("bot.net"),
+        Kind::Ask => String::from("bot.model"),
+        Kind::Send => String::from("bot.notify"),
+        _ => String::from("bot.unknown"),
+    }
+}
+
+/// `fetch <url> [with (options)]`, `ask <model> with (request)` or
+/// `send <receiver> with <payload>`, starting at the word: the outside call,
+/// or `None` when what follows the word is not the start of one, in which
+/// case the word is a name of plain Rust (`fetch(x)`, `let ask = ..`) and
+/// nothing was consumed.
+///
+/// A call starts with an identifier or a literal: two names side by side —
+/// `fetch url` — is never Rust, so it is always the word, while a bracketed
+/// group first — `fetch(x)` — reads as the call it is written as, and stays
+/// Rust.
+///
+/// # Errors
+///
+/// An `ask` or a `send` with no `with`, a `fetch` with nothing before its
+/// `with`, or any of the three with nothing after `with`.
+fn outside_call(
+    kind: Kind,
+    tokens: &[TokenTree],
+    labels: &mut Labels,
+    shapes: &mut Vec<StepShape>,
+    line: &Line,
+) -> Result<Option<Outside>> {
+    let Some((word, after_word)) = tokens.split_first() else {
+        return Ok(None);
+    };
+    let (form, optional) = match kind {
+        Kind::Fetch => ("`fetch <url> [with (options)]`", true),
+        Kind::Ask => ("`ask <model> with (request)`", false),
+        Kind::Send => ("`send <receiver> with <payload>`", false),
+        _ => return Ok(None),
+    };
+    let starts_expression = matches!(
+        after_word.split_first(),
+        Some((TokenTree::Ident(_), _)) | Some((TokenTree::Literal(_), _))
+    );
+    if !starts_expression {
+        return Ok(None);
+    }
+    let at_with = after_word.iter().position(|token| is_ident(token, "with"));
+    let (target, options) = match (at_with, optional) {
+        (Some(at), _) => {
+            let (before, after) = after_word.split_at(at);
+            (before, Some(after.split_first().map(|(_, rest)| rest)))
+        }
+        (None, true) => (after_word, None),
+        (None, false) => {
+            let refusal = Err(Refusal::new(
+                word.span(),
+                format!("this line reads {form}: the request the word runs on follows `with`"),
+            ));
+            tracing::debug!(error = ?refusal.as_ref().err(), "outside_call: returning an error to the caller");
+            return refusal;
+        }
+    };
+    if target.is_empty() {
+        let refusal = Err(Refusal::new(
+            word.span(),
+            format!("this line reads {form}: what the word reaches comes first"),
+        ));
+        tracing::debug!(error = ?refusal.as_ref().err(), "outside_call: returning an error to the caller");
+        return refusal;
+    }
+    let options = match options {
+        Some(Some(options)) if !options.is_empty() => Some(options),
+        Some(_) => {
+            let refusal = Err(Refusal::new(
+                word.span(),
+                format!("this line reads {form}: nothing follows `with`"),
+            ));
+            tracing::debug!(error = ?refusal.as_ref().err(), "outside_call: returning an error to the caller");
+            return refusal;
+        }
+        None => None,
+    };
+    let target = rewrite(target, labels, shapes, line)?;
+    let options = match options {
+        Some(tokens) => Some(rewrite(tokens, labels, shapes, line)?),
+        None => None,
+    };
+    let label = labels.next(kind.spelling());
+    let map = shape(kind, capability_of(kind), text(tokens), line, Vec::new());
+    let site = Site::of(&map);
+    shapes.push(map);
+    Ok(Some(Outside {
+        site,
+        kind,
+        label,
+        target,
+        options,
+    }))
 }
 
 /// `observe id of target` or `act id on target with value`, starting at the

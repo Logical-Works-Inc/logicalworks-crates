@@ -274,7 +274,10 @@ pub async fn act<V: 'static>(
 ///
 /// A policy that answers [`EffectDisposition::Reversible`] runs without
 /// asking, so local actions and explicitly allowed tests cost no archive.
-fn gate_approval(
+///
+/// `pub(crate)` because a `send` — and a POST `fetch` — hand effects out
+/// through this same gate rather than a second copy of it.
+pub(crate) fn gate_approval(
     scope: &Scope,
     lifetime: EffectLifetime,
     archived: Option<Vec<u8>>,

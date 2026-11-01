@@ -15,7 +15,8 @@
 
 use lgwks_ast::script::{
     Block, Bound, BranchValue, Call, Code, Construct, Domain, Duration, Each, Flow, FlowShape, For,
-    Fragment, IfChain, Kind, Retry, Script, Site, Statement, Step, StepShape, Together, Within,
+    Fragment, IfChain, Kind, Outside, Retry, Script, Site, Statement, Step, StepShape, Together,
+    Within,
 };
 use lgwks_deps::proc_macro2::{Group, Ident, Literal, Span, TokenStream, TokenTree};
 use lgwks_deps::quote::{ToTokens, quote};
@@ -186,6 +187,7 @@ fn flow_code(flow: &Flow) -> Result<TokenStream> {
     let visibility = flow.visibility();
     let header = flow.shape();
     let admission = domain_admission(header.steps())?;
+    let outside = outside_admission(header.steps())?;
     let site = site_static(
         Kind::Flow,
         header.line(),
@@ -200,6 +202,7 @@ fn flow_code(flow: &Flow) -> Result<TokenStream> {
             let scope = &scope.enter_at(#name_text, #site)?;
             let outcome: ::core::result::Result<#output, #script::FlowError> = async {
                 #admission
+                #outside
                 #body_block
             }.await;
             scope.settle(&outcome);
@@ -473,6 +476,10 @@ fn code(rust: &Code) -> Result<TokenStream> {
                 let used = domain(used)?;
                 tokens.extend(quote!((#used?)));
             }
+            Fragment::Outside(ref used) => {
+                let used = outside(used)?;
+                tokens.extend(quote!((#used?)));
+            }
             _ => {
                 let refusal = newer_word("fragment of Rust");
                 lgwks_std::trace::debug!(error = %refusal, "code: returning an error to the caller");
@@ -537,6 +544,51 @@ fn domain(used: &Domain) -> Result<TokenStream> {
     }))
 }
 
+/// A `fetch`, `ask` or `send`, awaited, as a flow `Result`.
+///
+/// The `_at` word enters the step's own scope, settles it and locates the
+/// failure there, so unlike a domain call there is no scope to enter here:
+/// the call is the step.
+fn outside(used: &Outside) -> Result<TokenStream> {
+    let script = runtime();
+    let site = site_of(used.site());
+    let label = used.label();
+    let target = code(used.target())?;
+    let invoked = match used.kind() {
+        Kind::Fetch => {
+            let options = match used.options() {
+                Some(options) => code(options)?,
+                None => quote!(#script::FetchOptions::default()),
+            };
+            quote!(#script::fetch_at(scope, #label, #site, ::core::convert::AsRef::<str>::as_ref(&(#target)), &#options))
+        }
+        Kind::Ask => {
+            let Some(request) = used.options() else {
+                let refusal = newer_word("outside call");
+                lgwks_std::trace::debug!(error = %refusal, "outside: an ask names no request");
+                return Err(refusal);
+            };
+            let request = code(request)?;
+            quote!(#script::ask_at(scope, #label, #site, #target, &#request))
+        }
+        Kind::Send => {
+            let Some(payload) = used.options() else {
+                let refusal = newer_word("outside call");
+                lgwks_std::trace::debug!(error = %refusal, "outside: a send names no payload");
+                return Err(refusal);
+            };
+            let payload = code(payload)?;
+            quote!(#script::send_at(scope, #label, #site, #target, &(#payload)))
+        }
+        _ => {
+            let refusal = newer_word("outside call");
+            lgwks_std::trace::debug!(error = %refusal, "outside: returning an error to the caller");
+            return Err(refusal);
+        }
+    };
+    Ok(quote!((#invoked).await))
+}
+
 /// The admission a flow runs before its first step when it names any domain:
 /// every identifier it writes, in source order, each once, checked against the
 /// host's registry in one pass. Nothing when it names none.
@@ -574,6 +626,44 @@ fn collect_domains<'shape>(steps: &'shape [StepShape], uses: &mut Vec<(Kind, &'s
             }
         }
         collect_domains(step.children(), uses);
+    }
+}
+
+/// The admission a flow runs before its first step when it names any outside
+/// word: every word it writes, in source order, each once, checked against
+/// the run's grants in one pass. Nothing when it names none.
+fn outside_admission(steps: &[StepShape]) -> Result<TokenStream> {
+    let mut uses: Vec<Kind> = Vec::new();
+    collect_outside(steps, &mut uses);
+    if uses.is_empty() {
+        return Ok(TokenStream::new());
+    }
+    let script = runtime();
+    let mut entries = Vec::new();
+    for kind in uses {
+        entries.push(match kind {
+            Kind::Fetch => quote!(#script::OutsideWord::Fetch),
+            Kind::Ask => quote!(#script::OutsideWord::Ask),
+            Kind::Send => quote!(#script::OutsideWord::Send),
+            _ => {
+                let refusal = newer_word("outside call");
+                lgwks_std::trace::debug!(error = %refusal, "outside_admission: returning an error to the caller");
+                return Err(refusal);
+            }
+        });
+    }
+    Ok(quote!(#script::admit_outside(scope, &[#(#entries),*])?;))
+}
+
+/// Every outside step in `steps` and their children, in source order, each
+/// word once.
+fn collect_outside(steps: &[StepShape], uses: &mut Vec<Kind>) {
+    for step in steps {
+        let kind = step.kind();
+        if matches!(kind, Kind::Fetch | Kind::Ask | Kind::Send) && !uses.contains(&kind) {
+            uses.push(kind);
+        }
+        collect_outside(step.children(), uses);
     }
 }
 

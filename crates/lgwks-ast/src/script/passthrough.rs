@@ -129,7 +129,7 @@ fn written(code: &Code) -> Option<Vec<TokenTree>> {
                 group.set_span(span);
                 tokens.push(TokenTree::Group(group));
             }
-            Fragment::Run(_) | Fragment::Domain(_) => return None,
+            Fragment::Run(_) | Fragment::Domain(_) | Fragment::Outside(_) => return None,
         }
     }
     Some(tokens)

@@ -37,5 +37,9 @@ Each line is one step. It starts with one of the words below, or it is a line of
 | `admit from model through (gate):` (or `tool`, `document`) | the block's bytes admitted as a `Plan`; a refusal fails the step |
 | `ready x from (readiness) within 30s:` | the block once `readiness` is signalled, `x` bound to it |
 | `await approval <label> within 30s:` | the block's bytes parked for a human decision, bound as `Approved`; the payload returns once decided |
+| `fetch <url> with (options)` | one HTTP exchange under `options`: deadline, attempt budget and body bound declared in the word |
+| `fetch <url>` | the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry` |
+| `ask <model> with (request)` | one model call under `request`: token budget and deadline, decoded into the declared type |
+| `send <receiver> with <payload>` | one outbound effect through `receiver`: intent first, dispatched once, settled from evidence |
 
 [`Scope`]: https://docs.rs/lgwks_bot/latest/lgwks_bot/script/struct.Scope.html
