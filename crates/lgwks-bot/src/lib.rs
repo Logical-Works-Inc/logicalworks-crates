@@ -204,6 +204,12 @@ pub mod domain {
     pub mod notify;
     pub mod sys;
 }
+/// Sequential per-tenant execution cells: the request system's thread-per-core
+/// host, its command logs and its effect seam (issue #790). Private: it is the
+/// implementation behind [`RequestFeed`](crate::ecs::RequestFeed), not a second
+/// way to serve requests. Gated with the edge, its one producer.
+#[cfg(feature = "edge")]
+mod cell;
 /// The one declared clock, which every deadline this crate evaluates names.
 ///
 /// Ungated because the module is `std`-only — it imports `fmt`, `sync::Arc`, an

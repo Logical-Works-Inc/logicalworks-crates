@@ -218,6 +218,8 @@ mod scope;
 // The vocabulary the substrate reports in, built in every configuration.
 mod work;
 
+#[cfg(feature = "edge")]
+pub(crate) use crate::cell::SubmitRefused;
 #[cfg(feature = "ecs")]
 pub use bot::EcsBot;
 #[cfg(feature = "ecs")]
@@ -225,6 +227,10 @@ pub use builder::EcsBuilder;
 #[cfg(feature = "ecs")]
 pub use builder::EcsObserveBuilder;
 pub use lgwks_std::retry::RetryPolicy;
+#[cfg(feature = "edge")]
+pub(crate) use requests::MAX_TENANTS;
+#[cfg(all(feature = "edge", test))]
+pub(crate) use requests::RequestRefused;
 #[cfg(feature = "edge")]
 pub use requests::{Request, RequestCounts, RequestFeed, Response};
 #[cfg(feature = "ecs")]

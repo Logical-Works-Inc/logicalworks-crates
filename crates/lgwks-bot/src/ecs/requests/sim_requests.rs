@@ -7,7 +7,6 @@
 //! same seed gives the same trace hash, checked by running each seed twice.
 
 use std::collections::BTreeMap;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use lgwks_std::seeded::Seeded;
 
@@ -225,7 +224,7 @@ fn sim_threads_on_shared_tenants_lose_no_update() -> Result<(), String> {
 }
 
 #[test]
-fn sim_a_panicking_handler_leaves_its_partition_serving() -> Result<(), String> {
+fn sim_a_panicking_handler_is_contained_and_the_tenant_serves_again() -> Result<(), String> {
     for seed in 0..SEEDS {
         let feed = counter();
         let mut stream = Seeded::from_seed(seed);
@@ -237,13 +236,23 @@ fn sim_a_panicking_handler_leaves_its_partition_serving() -> Result<(), String> 
         }
         let boom =
             Request::new("acme", "POST", "/count", b"boom").map_err(|error| error.to_string())?;
-        if catch_unwind(AssertUnwindSafe(|| feed.answer(&boom))).is_ok() {
-            return Err(format!("seed {seed}: the handler did not panic"));
+        // The panic never crosses the cell boundary: it is contained, the
+        // tenant is rebuilt from its log without the poisoned message, and
+        // the submitter is answered 500.
+        let panicked = feed.answer(&boom).map_err(|error| error.to_string())?;
+        if panicked.status() != 500 {
+            return Err(format!(
+                "seed {seed}: the panic answered {}",
+                panicked.status()
+            ));
         }
         let after = feed.answer(&post).map_err(|error| error.to_string())?;
         let body = after.into_body();
         if body != before.saturating_add(1).to_string().into_bytes() {
             return Err(format!("seed {seed}: acme read {body:?} after the panic"));
+        }
+        if feed.counts().panicked != 1 {
+            return Err(format!("seed {seed}: {:?}", feed.counts()));
         }
     }
     Ok(())
