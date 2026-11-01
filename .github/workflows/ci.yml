@@ -23,9 +23,9 @@ on:
 # rather than maximising the number of jobs. 35 jobs, each compiling its own copy
 # of the workspace, put 7,500 job-seconds through six instances and took
 # 21.4 minutes (run 37579691890). Lanes that build the same feature set share a
-# job (the lane table's `group`), and only the two check-row jobs and the
-# acceptance receipt wait on another job: each of them reads a result instead of
-# building one.
+# job (the lane table's `group`), and only the two check-row jobs wait on
+# another job (the required row also records the acceptance receipt): each of
+# them reads a result instead of building one.
 #
 # Every job that builds names the one instance it runs on (`lwc-1` .. `lwc-13`,
 # runner labels). An instance keeps one target directory and one container
@@ -562,44 +562,6 @@ jobs:
         timeout-minutes: 3
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full ${PARTITION:+--partition $PARTITION}
 
-  acceptance_receipts:
-    # The receipt, built from the JUnit reports the shards already wrote. The
-    # job builds one small binary (`acceptance-receipts`, std only) and reads the
-    # XML files with it, so it costs seconds, not a second run of the tests.
-    name: Acceptance receipts
-    needs: [tests_bot_full, tests_linux, process-windows]
-    runs-on: [self-hosted, macOS, ARM64, lwc]
-    timeout-minutes: 5
-    env:
-      REVISION: ${{ github.sha }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
-        uses: ./.github/actions/local-rust
-        with:
-          toolchain: "1.99.1"
-          # It runs no tests and it is the last link of the run's critical path.
-          tmp-gib: "0"
-          defer: "0"
-      - name: Download lgwks-bot JUnit reports
-        uses: actions/download-artifact@v8
-        with:
-          pattern: lgwks-bot-junit-*
-          path: acceptance-artifact
-      - name: Download the Linux and Windows JUnit reports
-        uses: actions/download-artifact@v8
-        with:
-          pattern: acceptance-junit-*
-          path: acceptance-junit
-      - name: Record acceptance receipts
-        run: cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --platform "$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-junit/acceptance-junit-linux/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
-      - name: Upload acceptance receipt
-        uses: actions/upload-artifact@v7
-        with:
-          name: acceptance-receipts
-          path: acceptance-artifact/
-          retention-days: 30
-
   # The lgwks-bot suite at no default features, in a job of its own. The
   # lgwks-std per-feature suites live in the feature-matrix job below: they
   # build narrow feature sets of lgwks-std, as its checks do, so they share
@@ -650,7 +612,13 @@ jobs:
     # Linux build across runs: 175 s and 195 s on run 38365526454. A hosted
     # Linux runner restores a cache without the workspace crates and compiled
     # lgwks_std, lgwks_deps and lgwks_bot for over three minutes before the
-    # first test (run 38401426445).
+    # first test (run 38401426445). Measured again on a free hosted
+    # `ubuntu-24.04-arm` runner (4 vCPU) in a trixie job container, with the
+    # dependencies restored by rust-cache and sccache's GitHub backend on: the
+    # test profile still compiled for 3 m 12 s, 11 of 2,707 tests had run when
+    # a four-minute bound cut it (run on cd974bf8, job 124823633811), because
+    # the 35 test binaries are bin crates and sccache caches no bin crate. The
+    # feature matrix, which compiles no test binary, moved there instead.
     #
     # `targets workspace` adds the two cells #642 closes: `lgwks_std --features
     # full` and `lgwks_ast` for `aarch64-unknown-linux-gnu`. The container is
@@ -1073,44 +1041,44 @@ jobs:
   # the bot matrix 2 m 02 s, the AST matrix cut off at 24 s).
   feature-matrix-bot-ast:
     name: Feature matrix (${{ matrix.part }})
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.instance }}"]
+    # Hosted arm64 Linux, free for this public repository. Every leg checks or
+    # runs portable code, and docs.rs itself builds on Linux, so the docs.rs
+    # leg now reads the platform it predicts. The five legs held five of the
+    # Mac's instances beside the suites; here they take none, and each leg's
+    # cache is keyed by its part, so a leg restores the build it saved.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
+    env:
+      CARGO_INCREMENTAL: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
     strategy:
       fail-fast: false
       matrix:
         include:
           - part: docs.rs
-            instance: lwc-11
-          # On the instance whose target holds lgwks-bot's graph: the leg on
-          # lwc-10 spent 5 m 33 s compiling four feature resolutions on a cold
-          # target and was cancelled at the cap (run 39837239411), where the same
-          # leg reads 1 m 19 s warm. Two resolutions per leg now, so a cold target
-          # pays half the work: the no-default and default builds here, the
-          # feature subsets and all-features on the leg below.
-          #
-          # Not on lwc-5: the bot-full slice is pinned there, and which of the
-          # two the runner took first was chance. Run 40311162932 ran the slice
-          # first; run 40318318318 ran this leg first, 11:52:48-11:54:18, and the
-          # slice, wave one's critical link, started 97 s into the run. lwc-11
-          # holds the docs.rs leg and the ml storefront leg, done by 1 m 40 s on
-          # run 40311162932, so this leg ends inside wave two either way.
+          # Two resolutions per leg: a leg that compiled four on a cold target
+          # spent 5 m 33 s and was cancelled at the cap (run 39837239411), so
+          # the no-default and default builds are here, the feature subsets and
+          # all-features on the leg below.
           - part: lgwks-bot
-            instance: lwc-11
           - part: lgwks-bot all
-            instance: lwc-10
           - part: lgwks-ast
-            instance: lwc-12
           - part: lgwks-bot WASI
-            instance: lwc-13
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.0
-        uses: ./.github/actions/local-rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
-          build-share: "2"
-          # Only the lgwks-ast leg runs tests; the others only check.
-          tmp-gib: ${{ matrix.part == 'lgwks-ast' && '4' || '0' }}
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: "true"
+          cache-on-failure: "true"
+          key: feature-${{ matrix.part }}
+      - name: Compile cache for the workspace crates
+        uses: mozilla-actions/sccache-action@v0.0.9
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
         # docs.rs builds with whatever `[package.metadata.docs.rs]` declares,
@@ -1120,6 +1088,13 @@ jobs:
         # what happened to lgwks_deps: `gpui` pulls `objc2`, which refuses to
         # compile off Apple targets. Build with the declared set so an
         # unbuildable declaration fails here instead of on docs.rs.
+        #
+        # The lane builds with a nightly toolchain that carries no clippy, and
+        # `.cargo/config.toml` routes workspace compiles through clippy-driver
+        # (run 41296957496: `'clippy-driver' is not installed for the toolchain
+        # 'nightly-aarch64-unknown-linux-gnu'`). The check legs keep the lints.
+        env:
+          RUSTC_WORKSPACE_WRAPPER: ""
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane docsrs-metadata
       - name: Check lgwks-bot async feature matrix
         if: matrix.part == 'lgwks-bot'
@@ -1281,7 +1256,7 @@ jobs:
     env:
       # Lints run once, in the Clippy job.
       RUSTC_WORKSPACE_WRAPPER: ""
-      # This job is the acceptance receipts' last `needs`, and its first cargo
+      # The acceptance receipts (recorded in the required row) wait on this job, and its first cargo
       # line, `Updating crates.io index`, took 75 s and 93 s of its 221 s and 290 s
       # on main runs 39106771175 and 39107070152: the second ended the run at
       # 326 s, 47 s after the saturation legs. On a hosted Windows runner the
@@ -1369,15 +1344,25 @@ jobs:
   # jobs in series, 29 s of a 268 s run, for one API call.
   build_verdict:
     name: Build and workspace tests
-    needs: [build, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_bot_full, tests_std_full, acceptance_receipts, tests_nodefault, tests_linux, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [build, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_bot_full, tests_std_full, tests_nodefault, tests_linux, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     # On an instance, not a hosted runner: this row starts when the bot-full
-    # job ends and is the run's last link beside the receipts, and a hosted
-    # runner's pick-up took 2 s on main run 39090275332 and 56 s on run
-    # 39091155164 (queued 02:48:38, started 02:49:34, the run's wall 314 s
-    # against the 300 s #272 requires). Its work is two shell commands.
+    # job ends and is the run's last link, and a hosted runner's pick-up took
+    # 2 s on main run 39090275332 and 56 s on run 39091155164 (queued 02:48:38,
+    # started 02:49:34, the run's wall 314 s against the 300 s #272 requires).
+    #
+    # The acceptance receipt is recorded here, not in a job of its own. As its
+    # own job it was a second pickup, setup and teardown in series with this
+    # one on the run's last link: on run 41157994919 the bot-full job ended at
+    # 02:04:47, the receipts job ran 02:04:51-02:05:36 (45 s for 8 s of
+    # recording), this row started at 02:05:39, and the wall was 301 s. The
+    # receipts read the JUnit reports of tests_bot_full, tests_linux and
+    # process-windows, all of which this row already needs, and a receipt that
+    # cannot be recorded now fails the required row.
     runs-on: [self-hosted, macOS, ARM64, lwc]
     timeout-minutes: 5
+    env:
+      REVISION: ${{ github.sha }}
     steps:
       - name: Every workspace test job passed
         env:
@@ -1388,6 +1373,35 @@ jobs:
         run: |
           echo "workspace ${BUILD}, its tail ${TAIL}, lgwks_bot full and saturation ${BOT_FULL}, lgwks_bot no default ${BOT_NODEFAULT}"
           test "${BUILD}" = success && test "${TAIL}" = success && test "${BOT_FULL}" = success && test "${BOT_NODEFAULT}" = success
+      # The receipt, built from the JUnit reports the test jobs already wrote.
+      # One small binary (`acceptance-receipts`, std only) reads the XML files,
+      # so it costs seconds, not a second run of the tests.
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.0
+        uses: ./.github/actions/local-rust
+        with:
+          toolchain: "1.99.1"
+          # It runs no tests and it is the last link of the run's critical path.
+          tmp-gib: "0"
+          defer: "0"
+      - name: Download lgwks-bot JUnit reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: lgwks-bot-junit-*
+          path: acceptance-artifact
+      - name: Download the Linux and Windows JUnit reports
+        uses: actions/download-artifact@v8
+        with:
+          pattern: acceptance-junit-*
+          path: acceptance-junit
+      - name: Record acceptance receipts
+        run: cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --platform "$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-junit/acceptance-junit-linux/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
+      - name: Upload acceptance receipt
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-receipts
+          path: acceptance-artifact/
+          retention-days: 30
       - name: Run wall is at most 300 seconds
         if: ${{ always() }}
         env:
