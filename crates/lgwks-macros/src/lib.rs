@@ -46,6 +46,7 @@
 //! | `remember name:` | the block once per run; a resume reads its value back |
 //! | `admit from model through (gate):` (or `tool`, `document`) | the block's bytes admitted as a `Plan`; a refusal fails the step |
 //! | `ready x from (readiness) within 30s:` | the block once `readiness` is signalled, `x` bound to it |
+//! | `await approval <label> within 30s:` | the block's bytes parked for a human decision, bound as `Approved`; the payload returns once decided |
 //!
 //! Every step keys by tenant, run and path (`Scope::key`): one run's attempts
 //! and restarts share a key, two runs of one flow never do, and work that is

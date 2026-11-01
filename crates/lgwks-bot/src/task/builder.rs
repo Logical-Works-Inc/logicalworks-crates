@@ -3,6 +3,7 @@
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::{fmt, io};
@@ -13,7 +14,9 @@ use crate::journal::frame::SaturatingFrom;
 use crate::registry::DomainRegistry;
 use crate::rt::clock::Clock;
 use crate::rt::sync::{CancellationToken, Semaphore};
-use crate::script::{Policy, Tenant};
+use crate::script::approval::{AuditLog, MAX_PENDING_APPROVALS};
+use crate::script::run_store::Records;
+use crate::script::{Policy, RunRecords, Tenant};
 
 use super::admit::{HighWater, LiveRuns};
 use super::host::Installation;
@@ -50,8 +53,14 @@ pub struct HostBuilder {
     pub(super) grants: GrantSet,
     /// The registry a flow's domain words resolve against, when installed.
     pub(super) domains: Option<&'static DomainRegistry>,
-    /// The durable step-record store, when the caller installed one.
-    pub(super) store: Option<store::RunStore>,
+    /// The durable step-record store every run installs, when the caller gave one.
+    ///
+    /// The one door: the file store and a caller's own [`RunRecords`] both arrive
+    /// here, so the run path never asks which kind it holds.
+    pub(super) records: Option<Records>,
+    /// The file store's own handle, when the store is the file store, kept only
+    /// for [`Host::run_store`]'s read-only queries.
+    pub(super) file_store: Option<store::RunStore>,
     /// The declared schema id of this host's durable step values.
     ///
     /// The default is [`UNVERSIONED_CODEC`], which says the caller declared none
@@ -64,6 +73,12 @@ pub struct HostBuilder {
     pub(super) repair_attempts: u64,
     /// The most root spend one run may be charged before it is refused.
     pub(super) repair_spend: u64,
+    /// How many undecided approvals this tenant may hold.
+    ///
+    /// The park ceiling every `await approval` is admitted against. The default
+    /// is [`MAX_PENDING_PER_TENANT`](crate::script::MAX_PENDING_PER_TENANT);
+    /// [`HostBuilder::max_pending_approvals`] lowers or raises it.
+    pub(super) max_pending: usize,
     /// The world's run feed, when the caller bound one (ADR 0006 R3).
     pub(super) runs: Option<RunFeed>,
 }
@@ -143,21 +158,41 @@ impl HostBuilder {
     /// # Errors
     ///
     /// [`StoreError`] when the store cannot be opened or replayed.
-    pub fn run_store(mut self, dir: impl AsRef<std::path::Path>) -> Result<Self, StoreError> {
-        self.store = Some(store::RunStore::open_in(
-            dir.as_ref(),
-            self.tenant.as_str(),
-        )?);
-        Ok(self)
+    pub fn run_store(self, dir: impl AsRef<std::path::Path>) -> Result<Self, StoreError> {
+        let opened = store::RunStore::open_in(dir.as_ref(), self.tenant.as_str())?;
+        Ok(self.store(opened))
     }
 
     /// Install a store this caller already opened.
     ///
     /// For a host whose store is opened once and shared, and for a caller that
     /// wants to get the opened handle back for [`RunStore::tenant_of`](crate::task::RunStore::tenant_of) and the
-    /// other read-only queries.
+    /// other read-only queries. The store is installed through
+    /// [`HostBuilder::records`]'s door, so every run reaches it as the
+    /// [`RunRecords`] any other store is.
     pub fn store(mut self, store: store::RunStore) -> Self {
-        self.store = Some(store);
+        self.records = Some(Records(Arc::new(store.clone())));
+        self.file_store = Some(store);
+        self
+    }
+
+    /// Install any durable store behind every run's durable steps.
+    ///
+    /// The same task-local a file store is installed through, so a step that
+    /// calls [`remember`](crate::script::remember) reaches `records` exactly as it
+    /// reaches the shipped store, and [`Host::resume`] replays from it. The store
+    /// keeps its own obligations, which
+    /// `lgwks_bot::script::run_store::conformance` (feature `testing`) checks: a
+    /// read failure is an error and never absence, an append answers only once it
+    /// is durable, and one tenant never reads another's run. A store that
+    /// promises less than [`DurabilityPromise::ProcessCrash`](crate::journal::DurabilityPromise::ProcessCrash)
+    /// is refused for any step that hands an effect out of the process.
+    ///
+    /// [`Host::run_store`] answers `None` for a store installed here, because the
+    /// file store's read-only queries are not part of the trait.
+    pub fn records(mut self, records: Arc<dyn RunRecords>) -> Self {
+        self.records = Some(Records(records));
+        self.file_store = None;
         self
     }
 
@@ -249,6 +284,18 @@ impl HostBuilder {
         self
     }
 
+    /// Hold at most `approvals` undecided approvals for this tenant.
+    ///
+    /// The park ceiling every `await approval` is admitted against: a park
+    /// past it is refused before its payload block runs. The default is
+    /// [`MAX_PENDING_PER_TENANT`](crate::script::MAX_PENDING_PER_TENANT);
+    /// the ceiling is [`MAX_PENDING_APPROVALS`](crate::script::MAX_PENDING_APPROVALS),
+    /// past which the number is a budget in name only.
+    pub fn max_pending_approvals(mut self, approvals: usize) -> Self {
+        self.max_pending = approvals;
+        self
+    }
+
     /// Install the host.
     ///
     /// # Errors
@@ -296,6 +343,17 @@ impl HostBuilder {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
             return refusal;
         }
+        let pending = u64::saturating_from(self.max_pending);
+        let pending_ceiling = u64::saturating_from(MAX_PENDING_APPROVALS);
+        if pending == 0 || pending > pending_ceiling {
+            let refusal = Err(HostError::Bound {
+                what: "the pending approval ceiling",
+                value: pending,
+                max: pending_ceiling,
+            });
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
+            return refusal;
+        }
         Ok(Host {
             inner: Arc::new(Installation {
                 identity: HOST_IDENTITIES.fetch_add(1, Ordering::Relaxed),
@@ -313,13 +371,16 @@ impl HostBuilder {
                 refused: AtomicU64::new(0),
                 policy: Arc::new(Policy::for_this_host(self.clock.clone())),
                 clock: self.clock,
-                store: self.store,
+                records: self.records,
+                file_store: self.file_store,
                 codec: self.codec,
                 ledger: self.ledger,
                 grants: self.grants,
                 domains: self.domains,
                 repair_attempts: self.repair_attempts,
                 repair_spend: self.repair_spend,
+                max_pending: self.max_pending,
+                audit: Mutex::new(AuditLog::new()),
                 runs: self.runs,
             }),
         })

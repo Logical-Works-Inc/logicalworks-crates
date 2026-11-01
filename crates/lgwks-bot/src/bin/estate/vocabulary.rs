@@ -1,12 +1,13 @@
 //! The script vocabulary on the shipped artifact: justification, graphs,
-//! compensation, streams, typed domains, bounds and deadlines.
+//! compensation, streams, typed domains, bounds, deadlines and approval.
 //!
 //! `graph`, `saga`, `whenever` and `justify` run as `script!` flows, the one
 //! way in; each section then checks the runtime items those words expand to
 //! and what the run reports: a WAF that stops a run with its reason code, a needs-ordered
 //! graph whose failure blocks only downstream, compensations in reverse order,
-//! a bounded feed, typed calls mapped into the domain error, and the bounds
-//! and deadlines the words check at. A mismatch fails the smoke: the binary's
+//! a bounded feed, typed calls mapped into the domain error, the bounds
+//! and deadlines the words check at, and a human approval that parks the run
+//! until it is decided. A mismatch fails the smoke: the binary's
 //! clean exit is the proof. `run` drives every section through the public
 //! interface; every new `script` item the crate exposes is named here, which
 //! is what makes this module the surface guard's caller for them.
@@ -27,8 +28,12 @@ use lgwks_bot::script::{
 use lgwks_bot::script::{
     MAX_COMPENSATIONS, MAX_GRAPH_NODES, at_most, attempts, retry, within, within_on,
 };
+use lgwks_bot::task::{HostError, StoreError};
 
 use super::say;
+
+#[path = "vocabulary/approval.rs"]
+mod approval;
 
 /// Keep `step` in `log`; a poisoned log keeps what it had.
 fn note(log: &Mutex<Vec<&'static str>>, step: &'static str) {
@@ -99,6 +104,7 @@ lgwks_bot::script! {
         let size = ready pool from (db) within 30s:
             pool.awaited().saturating_add(0)
         give back size
+
 }
 
 /// The capless operation the smoke's surface registers, beside a capful one
@@ -175,6 +181,8 @@ pub(crate) enum Section {
     Typed,
     /// The remembered step, admission and readiness.
     Durable,
+    /// The parked approval and its decision.
+    Approval,
 }
 
 impl std::fmt::Display for Section {
@@ -188,6 +196,7 @@ impl std::fmt::Display for Section {
             Self::Stream => "stream",
             Self::Typed => "typed",
             Self::Durable => "durable",
+            Self::Approval => "approval",
         };
         formatter.write_str(name)
     }
@@ -213,6 +222,12 @@ pub(crate) enum VocabularyError {
     Readiness(ReadinessError),
     /// The admission surface refused to build.
     Surface(SurfaceError),
+    /// The run store refused to open.
+    Store(StoreError),
+    /// The host refused to build.
+    Host(HostError),
+    /// A decision was refused.
+    Decision(lgwks_bot::script::DecisionError),
     /// The report was not written: the write's own error.
     Io(std::io::Error),
 }
@@ -228,6 +243,9 @@ impl std::fmt::Display for VocabularyError {
             Self::Queue(ref error) => write!(formatter, "vocabulary queue failed: {error}"),
             Self::Readiness(ref error) => write!(formatter, "vocabulary readiness failed: {error}"),
             Self::Surface(ref error) => write!(formatter, "vocabulary surface failed: {error}"),
+            Self::Store(ref error) => write!(formatter, "vocabulary store failed: {error}"),
+            Self::Host(ref error) => write!(formatter, "vocabulary host failed: {error}"),
+            Self::Decision(ref error) => write!(formatter, "vocabulary decision failed: {error}"),
             Self::Io(ref error) => write!(formatter, "vocabulary report failed: {error}"),
         }
     }
@@ -241,6 +259,9 @@ impl std::error::Error for VocabularyError {
             Self::Queue(ref error) => Some(error),
             Self::Readiness(ref error) => Some(error),
             Self::Surface(ref error) => Some(error),
+            Self::Store(ref error) => Some(error),
+            Self::Host(ref error) => Some(error),
+            Self::Decision(ref error) => Some(error),
             Self::Io(ref error) => Some(error),
         }
     }
@@ -278,6 +299,27 @@ impl From<std::io::Error> for VocabularyError {
     /// An unwritten report travels as the write's own error.
     fn from(error: std::io::Error) -> Self {
         Self::Io(error)
+    }
+}
+
+impl From<StoreError> for VocabularyError {
+    /// An unopenable store travels as itself.
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
+}
+
+impl From<HostError> for VocabularyError {
+    /// An unbuildable host travels as itself.
+    fn from(error: HostError) -> Self {
+        Self::Host(error)
+    }
+}
+
+impl From<lgwks_bot::script::DecisionError> for VocabularyError {
+    /// A refused decision travels as itself.
+    fn from(error: lgwks_bot::script::DecisionError) -> Self {
+        Self::Decision(error)
     }
 }
 
@@ -630,5 +672,5 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     say(&format!(
         "durable: remembered {price}, admitted {wanted} operation, pool of {size}"
     ))?;
-    Ok(())
+    approval::run(driver)
 }

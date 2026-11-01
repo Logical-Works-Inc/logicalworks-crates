@@ -642,6 +642,16 @@ pub(crate) trait ExecuteAny {
     /// `Box<dyn ExecuteAny>` this is the only way left to ask it which domain
     /// it is.
     fn domain_id(&self) -> &str;
+    /// Forwards to [`Execute::archive_input`], downcasting first.
+    ///
+    /// `None` when the value is not this action's input, exactly as a call
+    /// with the wrong type is refused rather than archived as something else:
+    /// archiving a value the action would not accept would let an approval
+    /// match bytes the action never runs on.
+    fn archive_input(&self, input: &Erased) -> Option<Vec<u8>> {
+        let _ = input;
+        None
+    }
     /// Issue an [`Auth`] for the action's caps, downcast `input` to the
     /// action's `Input`, run it, and box the output as `Any`. Denies with
     /// [`BotError::CapabilityDenied`] before acting; reports a type mismatch as
@@ -760,6 +770,13 @@ where
 
     fn effect_lifetime(&self) -> crate::verb::EffectLifetime {
         self.0.effect_lifetime()
+    }
+
+    fn archive_input(&self, input: &Erased) -> Option<Vec<u8>> {
+        input
+            .as_any()
+            .downcast_ref::<A::Input>()
+            .and_then(|typed| self.0.archive_input(typed))
     }
 
     fn run_any<'a>(

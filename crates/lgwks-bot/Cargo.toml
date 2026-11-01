@@ -154,6 +154,12 @@ wire = ["lgwks_std/wire"]
 # `ron`: the human-facing document notation (`lgwks_std::ron`). Default-on
 # because `FlowSpec` reads it beside JSON.
 ron = ["lgwks_std/ron"]
+# `testing`: the run-store conformance suite (`lgwks_bot::script::run_store::
+# conformance`) a caller runs against their own `RunRecords` implementation.
+# Default-off because it is a test harness, not a capability; it implies
+# `ephemeral` because the suite mints run ids, and `full` turns it on so the
+# gate runs the suite against the shipped store.
+testing = ["script", "ephemeral"]
 full = [
     "rt",
     "time",
@@ -173,6 +179,7 @@ full = [
     "trace",
     "wire",
     "ron",
+    "testing",
 ]
 
 [dependencies]
@@ -215,6 +222,11 @@ workspace = true
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "approval_scale"
+path = "examples/approval_scale.rs"
+required-features = ["script", "ephemeral"]
 
 [[example]]
 name = "bounded_fanout"
@@ -306,6 +318,11 @@ name = "guarantees"
 path = "examples/guarantees.rs"
 required-features = ["script", "ephemeral"]
 
+[[example]]
+name = "durable_steps"
+path = "examples/durable_steps.rs"
+required-features = ["script", "ephemeral"]
+
 [[bin]]
 name = "edge-load"
 path = "src/bin/edge_load.rs"
@@ -315,3 +332,8 @@ required-features = ["edge", "ephemeral"]
 name = "estate"
 path = "src/bin/estate.rs"
 required-features = ["script", "ephemeral"]
+
+[[bin]]
+name = "store-conformance"
+path = "src/bin/store_conformance.rs"
+required-features = ["testing"]

@@ -23,6 +23,11 @@ use lgwks_bot::{Auth, Bot, BotError, Cap, EffectLifetime, GrantSet};
 #[path = "estate/vocabulary.rs"]
 mod vocabulary;
 
+/// Human approvals on the shipped binary: list, approve, deny over the file
+/// store, driving the same decide path a flow's park is decided through.
+#[path = "estate/approvals.rs"]
+mod approvals;
+
 /// Runs entering the world through the journal (ADR 0006 R3), on the shipped
 /// binary.
 #[path = "estate/run_events.rs"]
@@ -306,6 +311,17 @@ impl Drop for Scratch {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some((first, rest)) = args.split_first()
+        && first == "approvals"
+    {
+        // `main`'s `Err` is the one report of a refusal: the runtime prints it
+        // to stderr and exits 1.
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+        return approvals::run(rest, &mut out)
+            .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+    }
     let mut mismatch: Option<String> = None;
     let mut estate = Estate::supervised("acme", 8)?;
     // The process driver (ADR 0006 R2): every block below runs on it, so the binary that proves

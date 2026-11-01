@@ -221,6 +221,15 @@ pub enum Disposition {
     /// [`Report::repair`] is `Some`. Its body never ran, so nothing was polled and
     /// nothing was executed.
     Blocked,
+    /// The run parked awaiting a human decision and holds no task.
+    ///
+    /// The terminal state of a run whose `await approval` step committed its
+    /// pending record: the body ran up to the park, the decision is owed, and a
+    /// later [`Host::resume`] under the same run either returns the payload,
+    /// fails it as denied or lapsed, or parks again under the same id. A
+    /// parked run is resumable, not failed, and the request-key doors treat it
+    /// as an incomplete run rather than a verdict.
+    Parked,
 }
 
 impl Disposition {
@@ -234,6 +243,7 @@ impl Disposition {
             Self::DeadlineExceeded => "DeadlineExceeded",
             Self::Refused => "Refused",
             Self::Blocked => "Blocked",
+            Self::Parked => "Parked",
         }
     }
 
@@ -310,6 +320,10 @@ fn terminal_for<O: Durable>(report: &Report<O>) -> Result<Option<TerminalRecord>
                 error.to_string(),
             ))
         }
+        // A parked run is incomplete, and its pending record is the receipt a
+        // later submission resumes from: recording a verdict now would close a
+        // request that is still waiting on its decision.
+        Disposition::Parked => None,
         Disposition::Cancelled | Disposition::Refused | Disposition::Blocked => None,
     })
 }
@@ -348,6 +362,10 @@ pub enum EffectKnowledge {
         /// the ones a previous attempt committed and this one replayed.
         records: usize,
     },
+    /// As [`EffectKnowledge::StepRecords`], under a store that could not count
+    /// the run's records when asked: the steps are durable, and the count is not
+    /// claimed rather than reported as zero (INV-BOT-7).
+    StepRecordsUncounted,
 }
 
 // ── Task ─────────────────────────────────────────────────────────────────────
@@ -846,9 +864,7 @@ fn recorded_receipt(
 /// A request whose receipt is already on the disk, gathered so the reattach
 /// logic takes one borrowed value rather than eight positional arguments.
 struct Existing<'a> {
-    /// The host's store, for the run's record count.
-    store: &'a RunStore,
-    /// The receipt's host records handle.
+    /// The receipt's host records handle, which also counts the run's records.
     records: &'a Records,
     /// The tenant this host runs for.
     tenant: &'a str,

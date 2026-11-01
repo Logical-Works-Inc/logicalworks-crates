@@ -17,7 +17,8 @@ use super::admit::{Declined, RunAuthority, Terminal, TrailSnapshot, disposition_
 use super::host::Plan;
 use super::name::TaskName;
 use super::{
-    BODY_STEP, Control, Disposition, HELD_PERMITS, Host, RepairTicket, Report, StoreError, Task,
+    BODY_STEP, Control, DefinitionIdentity, Disposition, HELD_PERMITS, Host, RepairTicket, Report,
+    StoreError, Task,
 };
 
 impl Host {
@@ -86,15 +87,21 @@ impl Host {
         // *read* another tenant's records; this only governs whether the run id
         // may be adopted.
         if let Some(run) = resume
-            && let Some(store) = self.inner.store.as_ref()
-            && let Some(owner) = store.tenant_of(run)
-            && owner != self.inner.tenant.as_str()
+            && let Some(store) = self.inner.records.as_ref()
         {
-            let error = StoreError::ForeignTenant {
-                owner,
-                asked: self.inner.tenant.as_str().to_owned(),
-            };
-            return self.refuse(started, task_name, error.to_string());
+            match store.owner(run) {
+                Ok(Some(owner)) if owner != self.inner.tenant.as_str() => {
+                    let error = StoreError::ForeignTenant {
+                        owner,
+                        asked: self.inner.tenant.as_str().to_owned(),
+                    };
+                    return self.refuse(started, task_name, error.to_string());
+                }
+                Ok(_) => {}
+                // A store that cannot say who owns the run has not said the run
+                // is this tenant's, so the adoption is refused rather than assumed.
+                Err(unread) => return self.refuse(started, task_name, unread.to_string()),
+            }
         }
         // What this call's records will be *written* under, decided before
         // admission. The run a call adopts is not always the run it records
@@ -119,27 +126,20 @@ impl Host {
         // steps below write and look up under, so comparing a run's records
         // against it would agree by construction and fence nothing.
         if let (Some(run), Some(store), Some(declared)) =
-            (resume, self.inner.store.as_ref(), declared.as_ref())
-            && let Err(error) = store.check_definition(run, declared)
+            (resume, self.inner.records.as_ref(), declared.as_ref())
+            && let Err(error) = admits_definition(store, run, declared)
         {
             // Every refusal is refused; only the *kind* differs, and the kind is
             // the store's own. A drift is the flow's typed `Incompatible` carrying
             // its axis; every other store refusal — an unreadable device, a
-            // ceiling, a foreign tenant — reaches the caller as `FlowError::Store`
-            // wrapping the store's own error. Matching on `Incompatible` alone
-            // once let a read failure through as though the check had passed,
-            // which is INV-BOT-7 in the host's own pre-flight: a store that could
-            // not be read admitted the run and let the step below discover it,
-            // having already told the caller nothing.
-            let located = match error {
-                StoreError::Incompatible { ref drift, .. } => {
-                    FlowError::incompatible(task_name.as_str(), drift.clone())
-                }
-                other => FlowError::Store {
-                    at: Arc::from(task_name.as_str()),
-                    source: Box::new(other),
-                },
-            };
+            // ceiling, a foreign tenant — reaches the caller as the store's own
+            // error. Matching on `Incompatible` alone once let a read failure
+            // through as though the check had passed, which is INV-BOT-7 in the
+            // host's own pre-flight: a store that could not be read admitted the
+            // run and let the step below discover it, having already told the
+            // caller nothing. The same check every durable step makes, so the
+            // host and the step cannot disagree about one store's answer.
+            let located = error.located_at(&Arc::from(task_name.as_str()));
             self.inner.refused.fetch_add(1, Ordering::Relaxed);
             return self.report(Terminal {
                 started,
@@ -158,7 +158,7 @@ impl Host {
         // silent downgrade a resume exists to rule out, so it is refused
         // before any step runs.
         if let Some(run) = resume
-            && self.inner.store.is_none()
+            && self.inner.records.is_none()
         {
             return self.refuse(
                 started,
@@ -177,7 +177,7 @@ impl Host {
         // A host given a store promised durable steps. A build that cannot mint
         // the identity those steps are keyed by refuses rather than running
         // them unrecorded and reporting a run nobody can resume.
-        if run.is_none() && self.inner.store.is_some() {
+        if run.is_none() && self.inner.records.is_some() {
             return self.refuse(
                 started,
                 task_name,
@@ -302,6 +302,7 @@ impl Host {
             self.inner.clock.clone(),
             run,
             Arc::clone(&self.inner.policy),
+            self.inner.max_pending,
         );
         let scope = match root.enter(task_name.as_str()) {
             Ok(scope) => scope,
@@ -540,7 +541,7 @@ impl Host {
     /// run proceeds with no run id; with a store and no identity, `execute`
     /// refuses rather than run steps the store promised to keep.
     pub(super) fn adopt_run(&self, resume: Option<RunId>) -> Option<RunId> {
-        match (self.inner.store.is_some(), resume) {
+        match (self.inner.records.is_some(), resume) {
             (true, Some(run)) => Some(run),
             (true, None) => self.mint_run(),
             (false, _) => None,
@@ -590,9 +591,9 @@ impl Host {
         // A store with no run cannot key a record, and a run with no store has
         // nowhere to put one; both pairs mean the same thing — this run is not
         // durable — so they are refused here rather than at the first step.
-        let store = self.inner.store.as_ref()?;
+        let store = self.inner.records.as_ref()?;
         run?;
-        Some(Records(Arc::new(store.clone())))
+        Some(store.clone())
     }
 }
 
@@ -622,6 +623,7 @@ impl WorldRun {
             Disposition::DeadlineExceeded => RunOutcome::TimedOut,
             Disposition::Refused => RunOutcome::Refused,
             Disposition::Blocked => RunOutcome::Blocked,
+            Disposition::Parked => RunOutcome::Parked,
         });
     }
 
@@ -650,5 +652,36 @@ pub(super) fn ticket_epoch(control: Option<Control>) -> u64 {
     match control {
         Some(control) => control.epoch(),
         None => 0,
+    }
+}
+
+/// Whether `declared` may resume `run`, judged against the definition the run's
+/// records were first written under.
+///
+/// The host's pre-flight reads the recorded definition rather than making a step
+/// read: a step read is the durable step's own question, and a fault on it must
+/// reach the step that asked, as the store's failure (INV-BOT-59), not be
+/// spent here and reported as a refusal of the whole run. A run the store has
+/// never seen is not refused; its first step writes the identity.
+///
+/// # Errors
+///
+/// [`FlowError::Incompatible`] naming the drift's axis, or whatever the store
+/// reports when it cannot name the recorded definition.
+fn admits_definition(
+    store: &Records,
+    run: RunId,
+    declared: &DefinitionIdentity,
+) -> Result<(), FlowError> {
+    let Some(recorded) = store.recorded_definition(run)? else {
+        return Ok(());
+    };
+    match declared.drift_from(&recorded) {
+        None => Ok(()),
+        Some(drift) => {
+            let refusal = Err(FlowError::incompatible("", drift));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admits_definition: returning an error to the caller");
+            refusal
+        }
     }
 }

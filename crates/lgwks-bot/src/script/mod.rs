@@ -26,6 +26,7 @@
 //! | `together:` | `try_join!` | sequential awaits that should overlap; a failed branch that keeps running |
 //! | `step name:` | [`Scope::enter`] | anonymous work with no stable key or error location |
 //! | `ready db from (readiness) within 30s:` | [`Readiness`] | a readiness guessed by sleeping; a poll loop; a stale instance releasing dependants |
+//! | `await approval <label> within 30s:` | [`approval`] | parking without a decision; running a gated effect without one |
 //! | `admit from model through (gate):` | [`admit`] | an untrusted payload becoming an instruction; a refusal with no location, no provenance or no ceiling |
 //! | `remember name:` | [`remember`] | an effect repeated on resume; a recorded value re-requested from a model |
 //!
@@ -103,8 +104,12 @@
 //! [`StreamGate`]: crate::script::StreamGate
 //! [`TypedSource`]: crate::script::TypedSource
 //! [`TypedAction`]: crate::script::TypedAction
+//! [`approval`]: fn@crate::script::approval
 
 mod admit;
+pub(crate) mod approval;
+pub(crate) mod approval_policy;
+pub(crate) mod approval_records;
 mod compensate;
 mod control;
 mod domain;
@@ -116,6 +121,11 @@ mod justify;
 mod map;
 mod policy;
 mod ready;
+// Public under `testing` so `run_store::conformance` has the path a caller's own
+// store tests name; every item a store implements is re-exported below either way.
+#[cfg(feature = "testing")]
+pub mod run_store;
+#[cfg(not(feature = "testing"))]
 pub(crate) mod run_store;
 pub(crate) mod scope;
 mod stream;
@@ -134,6 +144,11 @@ pub use admit::{
     Gate, RefusalRecord, admit, admit_at, intervention_of, provenance_of, read_refusal, refusal_of,
     refusal_record,
 };
+pub use approval::{
+    ApprovalDecision, ApprovalId, ApprovalVerdict, Approved, AuditEntry, DecisionError,
+    DefaultPolicy, EffectDisposition, EffectPolicy, MAX_PENDING_APPROVALS, MAX_PENDING_PER_TENANT,
+    PendingApproval, approval, approval_at, with_effect_policy,
+};
 pub use compensate::{Compensations, MAX_COMPENSATIONS, compensated, compensated_at};
 pub use control::{at_most, attempts, retry, retry_at, within, within_at, within_on};
 pub use domain::{Acted, DomainUse, act, admit_domains, observe};
@@ -149,7 +164,9 @@ pub use ready::{
     ReadyOutcome,
 };
 pub use rt_clock::Clock;
-pub use run_store::{Appended, Durable, remember, remembered_at};
+pub use run_store::{
+    Appended, Durable, RunRecords, StagedRecord, StoredValue, remember, remembered_at,
+};
 pub use scope::{Scope, StepKey, Tenant};
 pub use stream::{Overflow, PumpReport, StreamGate, pump, stream_at};
 pub use trail::{Outcome, ScriptTrail, Site, TrailEntry};

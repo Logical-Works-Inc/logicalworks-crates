@@ -3,7 +3,7 @@
 //! call into `lgwks_bot::script`.
 
 use lgwks_ast::script::{
-    Admit, Compensate, Graph, Justify, Overflow, Producer, Ready, Step, Whenever,
+    Admit, Approval, Compensate, Graph, Justify, Overflow, Producer, Ready, Step, Whenever,
 };
 use lgwks_deps::proc_macro2::TokenStream;
 use lgwks_deps::quote::quote;
@@ -207,6 +207,37 @@ pub(super) fn admit(admitted: &Admit) -> Result<TokenStream> {
     })
 }
 
+/// `await approval <label> within <duration>:`: the block's value is the
+/// payload, parked for a decision in a step of its own.
+///
+/// Like `admit`, the block runs first and its value is the payload's bytes.
+/// Unlike `admit`, nothing is decided here: the step appends the pending
+/// record and the run ends parked, and the `Approved` the flow binds arrives
+/// only when a resume finds the decision. The `?` the `let` line carries is
+/// what ends the run parked rather than running the lines after it.
+pub(super) fn approval(parked: &Approval) -> Result<TokenStream> {
+    let script = runtime();
+    let name = parked.name();
+    let label = parked.label();
+    let site = site_of(parked.site());
+    let limit = duration(parked.limit())?;
+    let inner = body(parked.body())?.into_ok_block();
+    Ok(quote! {
+        #script::approval_at(
+            scope,
+            #label,
+            #site,
+            #name,
+            #limit,
+            async |scope: #script::Scope| {
+                let scope = &scope;
+                scope.justified(0).await?;
+                #inner
+            },
+        )
+        .await
+    })
+}
 /// `ready <pattern> from (<readiness>) within <duration>:`: the wait in a
 /// scope of its own, the released value bound, then the block.
 pub(super) fn ready(waited: &Ready) -> Result<TokenStream> {

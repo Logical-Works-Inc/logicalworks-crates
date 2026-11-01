@@ -326,4 +326,6 @@ pub enum StepKind {
     Admit,
     /// `ready x from (readiness) within D:`; the subject is `D`.
     Ready,
+    /// `await approval <label> within D:`; the subject is `<label>`.
+    Approval,
 }

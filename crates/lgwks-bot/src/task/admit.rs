@@ -165,10 +165,8 @@ impl Host {
         // report with a store says how many records it has; one without says
         // `None`, which is the honest "nothing survived" rather than a count of
         // zero records that reads like a run that did nothing.
-        let effects = match (run, self.inner.store.as_ref()) {
-            (Some(run), Some(store)) => EffectKnowledge::StepRecords {
-                records: store.record_count(run),
-            },
+        let effects = match (run, self.inner.records.as_ref()) {
+            (Some(run), Some(store)) => store.knowledge(run),
             _ => EffectKnowledge::None,
         };
         // A ticket names where a run stopped, so it exists for a stopped run
@@ -400,6 +398,7 @@ pub(super) fn disposition_of(error: &FlowError) -> Disposition {
     match *error {
         FlowError::Cancelled { .. } => Disposition::Cancelled,
         FlowError::TimedOut { .. } => Disposition::DeadlineExceeded,
+        FlowError::Parked { .. } => Disposition::Parked,
         _ => Disposition::Failed,
     }
 }

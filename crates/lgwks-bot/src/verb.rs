@@ -345,6 +345,22 @@ pub trait Execute {
         EffectLifetime::External
     }
 
+    /// The input as the bytes an approval decision is made against, or `None`
+    /// when this action cannot name them.
+    ///
+    /// The default is `None`: most actions model their input as a typed value
+    /// with no canonical bytes, and an unprovable approval is no approval — an
+    /// `act` the policy gates is refused when the run holds no `Approved`
+    /// (`script::Approved`, under the `script` feature) whose digest matches
+    /// these bytes. An action that runs under approval
+    /// overrides this with the canonical encoding both sides agree on; a flow
+    /// parks those same bytes, and the host refuses a decision that names any
+    /// others.
+    fn archive_input(&self, input: &Self::Input) -> Option<Vec<u8>> {
+        let _ = input;
+        None
+    }
+
     /// Perform the effect this action models, after `call.0` proves the
     /// required caps. Awaited by `Bot::tick` in chain order; blocking work
     /// belongs on a `lgwks_std::task::spawn_blocking` thread inside the domain.

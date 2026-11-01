@@ -440,6 +440,8 @@ const DISPOSITION_DEADLINE: u8 = 3;
 const DISPOSITION_REFUSED: u8 = 4;
 /// See [`DISPOSITION_SUCCEEDED`].
 const DISPOSITION_BLOCKED: u8 = 5;
+/// See [`DISPOSITION_SUCCEEDED`].
+const DISPOSITION_PARKED: u8 = 6;
 
 /// The code stored for `disposition`.
 fn disposition_code(disposition: Disposition) -> u8 {
@@ -454,6 +456,11 @@ fn disposition_code(disposition: Disposition) -> u8 {
         // stored code. The arm is here rather than a wildcard so a disposition
         // added later still breaks this build.
         Disposition::Blocked => DISPOSITION_BLOCKED,
+        // A parked run is incomplete, and its pending record is the receipt a
+        // later submission resumes from: recording a verdict now would close a
+        // request that is still waiting on its decision. The code exists so the
+        // mapping stays exhaustive; `terminal_for` never records it.
+        Disposition::Parked => DISPOSITION_PARKED,
     }
 }
 
@@ -466,6 +473,7 @@ fn disposition_from_code(code: u8) -> Option<Disposition> {
         DISPOSITION_DEADLINE => Some(Disposition::DeadlineExceeded),
         DISPOSITION_REFUSED => Some(Disposition::Refused),
         DISPOSITION_BLOCKED => Some(Disposition::Blocked),
+        DISPOSITION_PARKED => Some(Disposition::Parked),
         _ => None,
     }
 }

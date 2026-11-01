@@ -20,7 +20,9 @@ use super::lexicon::Kind;
 
 mod vocab;
 
-pub use vocab::{Admit, Compensate, Graph, Justify, Node, Overflow, Producer, Ready, Whenever};
+pub use vocab::{
+    Admit, Approval, Compensate, Graph, Justify, Node, Overflow, Producer, Ready, Whenever,
+};
 
 /// A whole `script!` block: its flows, in source order.
 #[derive(Debug, Clone)]
@@ -671,7 +673,7 @@ macro_rules! site_of {
 
 site_of!(
     Each, Within, Retry, Step, For, Call, Domain, Graph, Node, Compensate, Whenever, Justify,
-    Admit, Ready,
+    Admit, Ready, Approval,
 );
 
 /// A flow's entry in the architecture map.
@@ -901,7 +903,8 @@ impl Statement {
 }
 
 /// A block word with its own async body: `each`, `within`, `retry`, `step`,
-/// `graph`, `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`.
+/// `graph`, `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`,
+/// `await approval`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Construct {
@@ -927,6 +930,8 @@ pub enum Construct {
     Admit(Admit),
     /// `ready <pattern> from (<readiness>) within <duration>:`.
     Ready(Ready),
+    /// `await approval <label> within <duration>:`.
+    Approval(Approval),
 }
 
 /// What a `together:` branch runs.

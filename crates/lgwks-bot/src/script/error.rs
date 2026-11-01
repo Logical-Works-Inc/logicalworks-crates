@@ -210,6 +210,61 @@ pub enum FlowError {
         /// What is wrong with the declaration.
         reason: String,
     },
+    /// The run parked awaiting a human decision instead of producing a value.
+    ///
+    /// The terminal state of a step the `await approval` word parked: the
+    /// pending record is committed, no task is held, and a resume after the
+    /// decision returns the payload (`Approved`), the denial
+    /// ([`FlowError::ApprovalDenied`]) or the lapse
+    /// ([`FlowError::ApprovalExpired`]). Not retryable: repeating the step asks
+    /// the same store for the same decision.
+    Parked {
+        /// The step that parked.
+        at: Arc<str>,
+        /// The parked approval's id, `<run>:<step>` in hex.
+        id: String,
+        /// The digest of the payload the decision must match, in hex.
+        digest: String,
+        /// When the decision is owed by, in nanoseconds on the host's clock.
+        expires_at: u64,
+    },
+    /// A parked approval was denied.
+    ///
+    /// Typed rather than a [`FlowError::Failed`] with the denial's text, because
+    /// the caller has to tell a denial from a failure of the step: a denial
+    /// answers the approval, while a failure says the step never ran. Not
+    /// retryable: the decision stands until a new run parks a new approval.
+    ApprovalDenied {
+        /// The step that parked.
+        at: Arc<str>,
+        /// The denied approval's id, `<run>:<step>` in hex.
+        id: String,
+    },
+    /// A parked approval lapsed before it was decided.
+    ///
+    /// Typed rather than a [`FlowError::TimedOut`], because no timer ran: the
+    /// deadline is the `within` the word declared, measured on the host's
+    /// clock, and a resume past it finds the lapse. Not retryable: the same
+    /// resume past the same deadline lapses the same way.
+    ApprovalExpired {
+        /// The step that parked.
+        at: Arc<str>,
+        /// The lapsed approval's id, `<run>:<step>` in hex.
+        id: String,
+    },
+    /// An action whose effect needs a human decision ran with none.
+    ///
+    /// Typed rather than a [`FlowError::Blocked`], because no capability would
+    /// close it: the run needs an [`Approved`](super::Approved) whose digest
+    /// matches the archived input, decided through the host. Not retryable on
+    /// its own, for the same reason a block is not: repeating the step asks the
+    /// same question and gets the same answer.
+    NeedsApproval {
+        /// The step that reached for the decision.
+        at: Arc<str>,
+        /// The digest of the archived input no approval matches, in hex.
+        want: String,
+    },
     /// The durable run store refused to read or write a step's record.
     ///
     /// Carried as the store's own typed error rather than as a rendering of it,
@@ -303,6 +358,10 @@ impl FlowError {
             | Self::Incompatible { .. }
             | Self::Justified { .. }
             | Self::Graph { .. }
+            | Self::Parked { .. }
+            | Self::ApprovalDenied { .. }
+            | Self::ApprovalExpired { .. }
+            | Self::NeedsApproval { .. }
             | Self::Store { .. } => false,
         }
     }
@@ -329,7 +388,11 @@ impl FlowError {
             | Self::Intervention { ref at, .. }
             | Self::TooDeep { ref at, .. }
             | Self::Justified { ref at, .. }
-            | Self::Graph { ref at, .. } => at,
+            | Self::Graph { ref at, .. }
+            | Self::Parked { ref at, .. }
+            | Self::ApprovalDenied { ref at, .. }
+            | Self::ApprovalExpired { ref at, .. }
+            | Self::NeedsApproval { ref at, .. } => at,
             Self::Incompatible { ref at, .. } => at,
             Self::Store { ref at, .. } => at,
             // Every other variant is unlocated: it is raised before a step exists
@@ -363,8 +426,11 @@ impl FlowError {
     }
 
     /// [`FlowError::located`] against a path already in hand.
+    ///
+    /// `pub(crate)` so the host's pre-flight locates a store refusal at the task
+    /// the way a durable step locates it at the step.
     #[must_use]
-    pub(super) fn located_at(mut self, path: &Arc<str>) -> Self {
+    pub(crate) fn located_at(mut self, path: &Arc<str>) -> Self {
         match self {
             Self::Cancelled { ref mut at }
             | Self::TimedOut { ref mut at, .. }
@@ -380,6 +446,10 @@ impl FlowError {
             | Self::Justified { ref mut at, .. }
             | Self::Graph { ref mut at, .. }
             | Self::Incompatible { ref mut at, .. }
+            | Self::Parked { ref mut at, .. }
+            | Self::ApprovalDenied { ref mut at, .. }
+            | Self::ApprovalExpired { ref mut at, .. }
+            | Self::NeedsApproval { ref mut at, .. }
             | Self::Store { ref mut at, .. } => {
                 if at.is_empty() {
                     *at = Arc::clone(path);
@@ -456,6 +526,28 @@ impl fmt::Display for FlowError {
             Self::Graph { ref at, ref reason } => {
                 write!(formatter, "{at}: the graph is not runnable: {reason:?}")
             }
+            Self::Parked {
+                ref at,
+                ref id,
+                ref digest,
+                expires_at,
+            } => write!(
+                formatter,
+                "{at}: parked awaiting approval {id} for digest {digest}, owed by {expires_at}ns on the host clock"
+            ),
+            Self::ApprovalDenied { ref at, ref id } => {
+                write!(formatter, "{at}: approval {id} was denied")
+            }
+            Self::ApprovalExpired { ref at, ref id } => {
+                write!(
+                    formatter,
+                    "{at}: approval {id} lapsed before it was decided"
+                )
+            }
+            Self::NeedsApproval { ref at, ref want } => write!(
+                formatter,
+                "{at}: this action hands an effect out of the process and no approval matches digest {want}; decide one through the host"
+            ),
             Self::InvalidTenant { reason } => write!(formatter, "invalid tenant: {reason}"),
             Self::InvalidName { reason } => write!(formatter, "invalid task name: {reason}"),
             Self::InvalidRequestKey { reason } => {
@@ -488,7 +580,11 @@ impl std::error::Error for FlowError {
             } => Some(&**intervention),
             Self::Store { ref source, .. } => Some(&**source),
             Self::Exhausted { ref last, .. } | Self::Throttled { ref last, .. } => Some(&**last),
-            Self::Cancelled { .. }
+            Self::Parked { .. }
+            | Self::ApprovalDenied { .. }
+            | Self::ApprovalExpired { .. }
+            | Self::NeedsApproval { .. }
+            | Self::Cancelled { .. }
             | Self::TimedOut { .. }
             | Self::Failed { .. }
             | Self::Transient { .. }

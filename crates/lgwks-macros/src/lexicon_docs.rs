@@ -271,8 +271,9 @@ fn a_guarantee_whose_test_is_gone_is_refused() {
 }
 
 /// The lexicon's budget: what an agent can hold whole beside its task, over
-/// every page together.
-const PAGE_TOKENS: usize = 4_000;
+/// every page together. Raised from 4,000 to 4,500 for the 25th word
+/// (`await approval`, #784): the budget scales with the table it measures.
+const PAGE_TOKENS: usize = 4_500;
 
 /// The most lines one committed page holds: the estate's size law for a
 /// repository `.md` file (Director 2026-10-10).
@@ -424,10 +425,13 @@ fn section(row: &Word) -> Result<String, String> {
     ))
 }
 
-/// The word as an author says it: `give back` is two tokens.
+/// The word as an author says it: `give back` is two tokens, and so is
+/// `await approval`.
 fn heading(kind: Kind) -> &'static str {
     if kind == Kind::GiveBack {
         "give back"
+    } else if kind == Kind::Approval {
+        "await approval"
     } else {
         kind.spelling()
     }

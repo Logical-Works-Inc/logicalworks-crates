@@ -100,6 +100,8 @@ pub enum RunOutcome {
     Refused,
     /// The run's body blocked on authority it did not hold.
     Blocked,
+    /// The run parked awaiting a human decision, holding no task.
+    Parked,
     /// The run's deadline elapsed.
     TimedOut,
     /// The run's body panicked.
@@ -110,12 +112,13 @@ pub enum RunOutcome {
 
 impl RunOutcome {
     /// Every outcome, in code order.
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::Succeeded,
         Self::Failed,
         Self::Cancelled,
         Self::Refused,
         Self::Blocked,
+        Self::Parked,
         Self::TimedOut,
         Self::Panicked,
         Self::Aborted,
@@ -129,6 +132,7 @@ impl RunOutcome {
             Self::Cancelled => 3,
             Self::Refused => 4,
             Self::Blocked => 5,
+            Self::Parked => 9,
             Self::TimedOut => 6,
             Self::Panicked => 7,
             Self::Aborted => 8,
@@ -151,6 +155,7 @@ impl RunOutcome {
             | Self::Failed
             | Self::Cancelled
             | Self::TimedOut
+            | Self::Parked
             | Self::Panicked
             | Self::Aborted => EffectEvidence::Applied,
         }

@@ -325,3 +325,39 @@ pub(super) const READY: Word = block(
     ],
     "flow rows(db: &Readiness<Pool>) -> u64:\n    let n = ready pool from (db) within 30s:\n        pool.awaited().count()\n    give back n\n",
 );
+
+/// The simulation file for `await approval`, whose flows the real macro
+/// expanded and whose decisions a real host records.
+const APPROVAL_SIMS: &str = "crates/lgwks-bot/tests/it/sim_approval.rs";
+
+/// A guarantee proved by a family in [`APPROVAL_SIMS`].
+const fn approval_sim(axis: Axis, claim: &'static str, test: &'static str) -> Guarantee {
+    script_sim_in(APPROVAL_SIMS, axis, claim, test)
+}
+
+/// `await approval <label> within <duration>:`.
+pub(super) const APPROVAL: Word = block(
+    Kind::Approval,
+    "`approval_at`",
+    &[form(
+        "`await approval <label> within 30s:`",
+        "the block's bytes parked for a human decision, bound as `Approved`; the payload returns once decided",
+    )],
+    &[
+        "an `await approval` with no `within`",
+        "a label that is not one word",
+    ],
+    &[
+        approval_sim(
+            Axis::Ephemeral,
+            "a first run parks without holding a task, and a resume after the decision returns the payload",
+            "parked_runs_resume_after_a_decision",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "an `await approval` with no deadline is refused",
+            "approval with no deadline",
+        ),
+    ],
+    "flow ship(payload: Vec<u8>) -> Vec<u8>:\n    let approved = await approval ship within 30s:\n        payload\n    give back approved.payload().to_vec()\n",
+);

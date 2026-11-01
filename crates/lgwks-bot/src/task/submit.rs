@@ -94,11 +94,11 @@ impl Host {
         F: Fn(Scope, I) -> Fut,
         Fut: Future<Output = Result<O, FlowError>>,
     {
-        let Some(store) = self.inner.store.as_ref() else {
+        if self.inner.records.is_none() {
             let refusal = Err(RequestError::NoStore);
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "submit: returning an error to the caller");
             return refusal;
-        };
+        }
         let tenant = self.inner.tenant.as_str();
         let run = derive_request_run(tenant, key)?;
         let records = self.records(Some(run)).ok_or(RequestError::NoStore)?;
@@ -113,7 +113,6 @@ impl Host {
         // input reattaches, and a different input is a conflict.
         if let Some(held) = records.lookup(tenant, run, binding_key)? {
             let existing = Existing {
-                store,
                 records: &records,
                 tenant,
                 run,
@@ -140,7 +139,6 @@ impl Host {
             Appended::AlreadyRecorded => {
                 let held = recorded_receipt(&records, tenant, run, binding_key)?;
                 let existing = Existing {
-                    store,
                     records: &records,
                     tenant,
                     run,
@@ -202,7 +200,6 @@ impl Host {
         O: Durable,
     {
         let Existing {
-            store,
             records,
             tenant,
             run,
@@ -240,7 +237,7 @@ impl Host {
         Ok(Submission::InFlight(InFlight::new(
             run,
             task.name().to_owned(),
-            store.record_count(run),
+            records.record_count(run)?,
         )))
     }
 

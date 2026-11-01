@@ -84,6 +84,14 @@ mod process_probe;
 mod prop;
 
 #[cfg(feature = "script")]
+#[path = "../support/effect_policy.rs"]
+mod effect_policy;
+
+#[cfg(all(feature = "script", feature = "ephemeral", feature = "time"))]
+#[path = "../support/approval_error.rs"]
+mod approval_error;
+
+#[cfg(feature = "script")]
 #[path = "../support/proposal.rs"]
 mod proposal_fixtures;
 
@@ -110,6 +118,10 @@ mod run_world;
 
 #[path = "../support/scratch.rs"]
 mod scratch;
+
+#[cfg(feature = "testing")]
+#[path = "../../src/bin/store_conformance/memory_records.rs"]
+mod memory_records;
 
 #[cfg(all(feature = "rt", feature = "time", feature = "sync", feature = "script"))]
 #[path = "../support/tenancy_harness.rs"]
@@ -150,6 +162,7 @@ fn probe_test(module: &str, test: &str) -> String {
 mod ambiguous_commit;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 mod app;
+mod approval;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod authority;
 #[cfg(all(feature = "ecs", feature = "wire"))]
@@ -237,6 +250,8 @@ mod rt_process_stdin;
 mod rt_runtime_stack;
 #[cfg(feature = "script")]
 mod run_events;
+#[cfg(feature = "testing")]
+mod run_records;
 mod script_domains;
 mod script_flow;
 #[cfg(feature = "script")]
@@ -248,6 +263,9 @@ mod session;
 mod session_front_door;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod sim_append_verdict;
+mod sim_approval;
+mod sim_approval_extra;
+mod sim_approval_scale;
 mod sim_cancel_under_load;
 mod sim_cas;
 mod sim_cas_corrupt;

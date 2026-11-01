@@ -37,7 +37,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -45,12 +45,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use lgwks_std::hash::{Digest, Hasher};
 
 use crate::journal::frame::SaturatingFrom;
-use lgwks_std::wire::{WireError, from_bytes, to_bytes};
 
 use crate::effect::RunId;
-use crate::journal::frame::{self, Cursor, HEAD_BYTES};
-use crate::journal::owner::{self, Stage, StorageGate, StorageOwner, SubmitError};
-use crate::script::run_store::{Appended, RunRecords, StagedRecord, StoredValue};
+use crate::journal::owner::{self, Stage, StorageGate, StorageOwner};
+use crate::script::run_store::{Appended, RunRecords, StagedRecord};
 use crate::script::{FlowError, StepKey};
 
 use super::definition::{DefinitionIdentity, Drift, STORE_FORMAT};
@@ -146,242 +144,16 @@ fn genesis_head() -> Digest {
     hasher.finalize()
 }
 
-/// Which ceiling an append or a replay hit.
-///
-/// Named rather than collapsed into one "capacity exceeded" because the repair
-/// differs per arm: one is a value too big, one is a run that grew, one is a
-/// store that filled. A caller that cannot tell them apart raises every cap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum StoreLimitKind {
-    /// One archived record exceeded [`MAX_RECORD_BYTES`].
-    RecordBytes,
-    /// The run already holds [`MAX_RECORDS_PER_RUN`] records.
-    Records,
-    /// The store file would exceed [`MAX_STORE_BYTES`].
-    StoreBytes,
-}
+mod error;
+mod record;
+mod records;
+#[cfg(test)]
+mod tests;
 
-/// Why a record could not be read, written, or resumed.
-///
-/// A read failure is never absence (INV-BOT-7): every arm here is an error the
-/// caller must see, never an empty index that would cause a finished step to
-/// re-run as though it had never run.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum StoreError {
-    /// A declared ceiling refused the write, or the replay. The store is
-    /// unchanged: a refusal is not a compaction.
-    Limit {
-        /// Which ceiling.
-        kind: StoreLimitKind,
-        /// What would have been needed.
-        requested: u64,
-        /// The ceiling.
-        limit: u64,
-    },
-    /// The store file could not be opened, read or written.
-    Storage {
-        /// What the device said.
-        cause: std::io::Error,
-    },
-    /// The file exists but is not a run store, or its header is short.
-    NotAStore,
-    /// The file *is* a run store, in a format this build does not read.
-    ///
-    /// Distinct from [`NotAStore`][Self::NotAStore] because the two say opposite
-    /// things about what is on the disk: one says these bytes were never this
-    /// store's, the other says they were, and were written by a version of this
-    /// crate whose records mean something this build cannot reconstruct. A
-    /// pre-version store holds records with no
-    /// [`DefinitionIdentity`] in them, and the only
-    /// ways to read those are to invent an identity they never carried — which
-    /// makes every pre-version resume look exactly compatible — or to discard
-    /// evidence a running system is relying on. So the store is refused with both
-    /// versions named, and the caller is told which this build wants rather than
-    /// being handed a corrupt-store error that says nothing about either.
-    ///
-    /// This is a breaking change for every existing run store, and it is
-    /// deliberately not softened into one: the format has never shipped a version
-    /// that could lose a record, so there is nothing to convert, and a deployment
-    /// that needs its records keeps its own copy and re-runs.
-    FormatVersion {
-        /// The version byte the file declares.
-        found: u8,
-        /// The version this build reads.
-        expected: u8,
-    },
-    /// A committed frame does not follow from the records before it. Those
-    /// bytes are acknowledged evidence and are refused, never trimmed.
-    Corrupt {
-        /// The frame's index, from zero.
-        at: u64,
-    },
-    /// The value could not be archived.
-    Encoding {
-        /// What the codec said.
-        cause: WireError,
-    },
-    /// The run id belongs to a tenant other than the one resuming it.
-    ///
-    /// A refusal rather than an absence: the run *is* in this store, and reading
-    /// its records for the wrong tenant is a cross-tenant read dressed up as a
-    /// miss.
-    ForeignTenant {
-        /// The tenant that minted the run.
-        owner: String,
-        /// The tenant that asked to resume it.
-        asked: String,
-    },
-    /// The run id names no run this store holds, so it cannot be attributed to
-    /// any tenant here.
-    ///
-    /// Distinct from [`ForeignTenant`][Self::ForeignTenant] because the two say
-    /// opposite things: one says the run exists and belongs elsewhere, the other
-    /// says this store has never seen it. A resume in either case is refused —
-    /// recording a run this host cannot attribute would put one tenant's work
-    /// under another's name.
-    UnknownRun {
-        /// The run id that was asked for.
-        run: String,
-        /// The store that could not attribute it.
-        tenant: String,
-    },
-    /// The run's records were written under a different definition identity, so
-    /// replaying them would answer a question this build never asked.
-    ///
-    /// Refused before any step runs and with nothing written, because the two
-    /// available answers are both worse: replaying is returning a value the
-    /// current definition never produced, and re-running is repeating effects a
-    /// previous attempt already performed. Which axis disagrees is named, so the
-    /// caller knows whether it needs a new run, a decision, a migration or an
-    /// edit.
-    Incompatible {
-        /// The run whose records disagree.
-        run: String,
-        /// Which axis, and what each side holds.
-        drift: Drift,
-    },
-}
-
-impl StoreError {
-    /// A storage refusal carrying the device's own error.
-    ///
-    /// A constructor rather than seven literals, because every `map_err` in this
-    /// module wraps the same fact — the device said no — and a literal per call
-    /// site would be seven chances to name a different variant for the same
-    /// event.
-    ///
-    /// `pub(crate)` because the repair ledger beside this store reports device
-    /// refusals in the same vocabulary: one error type for both file-backed
-    /// stores means a caller handling a device refusal handles it once.
-    pub(crate) fn storage(cause: std::io::Error) -> Self {
-        Self::Storage { cause }
-    }
-}
-
-impl fmt::Display for StoreError {
-    /// The refusal, naming the ceiling, the device, or the owning tenant.
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Limit {
-                kind,
-                requested,
-                limit,
-            } => {
-                let what = match kind {
-                    StoreLimitKind::RecordBytes => "one record's bytes",
-                    StoreLimitKind::Records => "records in one run",
-                    StoreLimitKind::StoreBytes => "bytes in one run's store",
-                };
-                write!(
-                    formatter,
-                    "{what}: {requested} exceeds the ceiling of {limit}"
-                )
-            }
-            Self::Storage { ref cause } => {
-                write!(formatter, "the run store's device refused: {cause}")
-            }
-            Self::NotAStore => {
-                formatter.write_str("this file is not a run store; refusing to read it as records")
-            }
-            Self::FormatVersion { found, expected } => write!(
-                formatter,
-                "this is a run store in format version {found}, and this build reads version \
-                 {expected}; refusing to read records whose definition identity this version \
-                 cannot reconstruct"
-            ),
-            Self::Corrupt { at } => write!(
-                formatter,
-                "run store frame {at} does not follow from the records before it; \
-                 the bytes are refused, not trimmed"
-            ),
-            Self::Encoding { ref cause } => {
-                write!(formatter, "the step's value could not be archived: {cause}")
-            }
-            Self::ForeignTenant {
-                ref owner,
-                ref asked,
-            } => write!(
-                formatter,
-                "run belongs to tenant {owner:?}, not {asked:?}; refusing to read its records"
-            ),
-            Self::UnknownRun {
-                ref run,
-                ref tenant,
-            } => write!(
-                formatter,
-                "no records for run {run} in tenant {tenant:?}'s store; refusing to resume a \
-                 run this store cannot attribute to it"
-            ),
-            Self::Incompatible { ref run, ref drift } => write!(
-                formatter,
-                "run {run} was recorded under a different definition: {}; refusing to replay \
-                 it under this one",
-                drift
-            ),
-        }
-    }
-}
-
-impl std::error::Error for StoreError {
-    /// The device's or the codec's own error.
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match *self {
-            Self::Storage { ref cause } => Some(cause),
-            Self::Encoding { ref cause } => Some(cause),
-            Self::Limit { .. }
-            | Self::NotAStore
-            | Self::FormatVersion { .. }
-            | Self::Corrupt { .. }
-            | Self::ForeignTenant { .. }
-            | Self::UnknownRun { .. }
-            | Self::Incompatible { .. } => None,
-        }
-    }
-}
-
-impl From<StoreError> for FlowError {
-    /// A store refusal is permanent: repeating the step would ask the same store
-    /// the same question and get the same refusal.
-    ///
-    /// Two arms and not one, because the refusal's *kind* is what the caller acts
-    /// on. A drift is already the flow's own typed [`FlowError::Incompatible`]
-    /// carrying its axis, so it stays that rather than being buried one level
-    /// down; every other store refusal — an unreadable device, a ceiling, a
-    /// foreign tenant — reaches the caller as `FlowError::Store` wrapping the
-    /// store's own error, so a read failure is never reported as a definition
-    /// drift and never as a rendered string (INV-BOT-7).
-    fn from(error: StoreError) -> Self {
-        match error {
-            StoreError::Incompatible { drift, .. } => Self::incompatible("", drift),
-            other => Self::Store {
-                at: Arc::from(""),
-                source: Box::new(other),
-            },
-        }
-    }
-}
+pub use error::{StoreError, StoreLimitKind};
+use record::{
+    Stored, StoredDefinition, count_approval, hex_of, refusal, replay, store_full, tail_head,
+};
 
 // ── The store ───────────────────────────────────────────────────────────────
 
@@ -445,6 +217,25 @@ struct Index {
     /// over the *archived* record, so recomputing one would re-archive a value
     /// and risk hashing something other than the bytes on the disk.
     tail: Digest,
+    /// Per tenant, how many parked approvals are undecided.
+    ///
+    /// Maintained at fold time — replay and every committed append — so the
+    /// park ceiling is one probe rather than a scan: a park that scanned the
+    /// whole store would cost the store's size on every park. A decision
+    /// decrements, and a lapse records a decision, so only live approvals are
+    /// counted.
+    pending: HashMap<String, u64>,
+    /// Per run and step key hex: the bytes of a record written in the batch
+    /// now flushing, not yet folded into `runs`.
+    ///
+    /// The duplicate check reads it beside `runs`: without it, two appends to
+    /// one key in one batch both found the key absent, both wrote, and both
+    /// answered `Recorded`, so two racing decisions each saw their own bytes
+    /// and both won. The first staged write wins; the settle moves it into
+    /// `runs`. A failed flush leaves its entries here harmlessly, because
+    /// `committed` already moved and the length fence refuses every later
+    /// append.
+    staged: HashMap<(RunId, String), Vec<u8>>,
 }
 
 /// One run's records.
@@ -478,17 +269,17 @@ impl fmt::Debug for RunStore {
     /// or a log line must not carry a step's output into a reader that asked
     /// where the store is.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // A poisoned index renders as `None` rather than as an empty store, so the
+        // debug line never claims a count nobody read.
+        let (runs, committed) = match self.inner.index.lock() {
+            Ok(index) => (Some(index.runs.len()), Some(index.committed)),
+            Err(_) => (None, None),
+        };
         formatter
             .debug_struct("RunStore")
             .field("path", &self.inner.path)
-            .field(
-                "runs",
-                &self.inner.index.lock().map_or(0, |index| index.runs.len()),
-            )
-            .field(
-                "committed",
-                &self.inner.index.lock().map_or(0, |index| index.committed),
-            )
+            .field("runs", &runs)
+            .field("committed", &committed)
             .finish()
     }
 }
@@ -666,10 +457,10 @@ impl RunStore {
     /// How many records `run` holds.
     #[must_use]
     pub fn record_count(&self, run: RunId) -> usize {
-        self.index()
-            .runs
-            .get(&run)
-            .map_or(0, |held| held.steps.len())
+        match self.index().runs.get(&run) {
+            Some(held) => held.steps.len(),
+            None => 0,
+        }
     }
 
     /// The archived bytes committed for `key` under `run`, or `None` when there
@@ -726,6 +517,72 @@ impl RunStore {
     #[must_use]
     pub fn knows_run(&self, run: RunId) -> bool {
         self.index().runs.contains_key(&run)
+    }
+
+    /// How many parked approvals of `tenant` are undecided.
+    ///
+    /// The ceiling an `await approval` is admitted against, read as one probe
+    /// rather than a scan: the count is folded at replay and at every
+    /// committed append, so a park costs a hash-map probe however large the
+    /// store is.
+    pub(crate) fn pending_for(&self, tenant: &str) -> u64 {
+        // A tenant the index has never folded a park for has none undecided.
+        match self.index().pending.get(tenant) {
+            Some(count) => *count,
+            None => 0,
+        }
+    }
+
+    /// Up to `limit` raw approval records of `tenant`: run, key hex, path,
+    /// bytes.
+    ///
+    /// The scan behind the pending listing: only records that decode as a
+    /// parked approval are cloned, so a store of large step values is not
+    /// copied to list a few approvals. Sorted by key, so two hosts list the
+    /// same approvals in the same order.
+    pub(crate) fn pending_scan(
+        &self,
+        tenant: &str,
+        limit: usize,
+    ) -> Vec<(RunId, String, String, Vec<u8>)> {
+        use crate::script::approval::{RecordClass, classify_record};
+        let index = self.index();
+        let mut out = Vec::new();
+        let mut runs: Vec<RunId> = index
+            .runs
+            .iter()
+            .filter_map(|pair| {
+                if pair.1.tenant == tenant {
+                    Some(*pair.0)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        runs.sort_by_key(|item| item.id().to_hex());
+        for run in runs {
+            let Some(kept) = index.runs.get(&run) else {
+                continue;
+            };
+            let mut keys: Vec<&String> = kept.steps.keys().collect();
+            keys.sort();
+            for key_hex in keys {
+                if out.len() >= limit {
+                    break;
+                }
+                let Some(step) = kept.steps.get(key_hex) else {
+                    continue;
+                };
+                if matches!(classify_record(&step.bytes), RecordClass::Pending(_)) {
+                    out.push((run, key_hex.clone(), step.path.clone(), step.bytes.clone()));
+                }
+            }
+            if out.len() >= limit {
+                break;
+            }
+        }
+        out.sort_by(|left, right| left.1.cmp(&right.1).then(left.2.cmp(&right.2)));
+        out
     }
 
     /// Who minted `run`, when the store knows.
@@ -840,145 +697,6 @@ impl RunStore {
             return refusal;
         }
         Ok(())
-    }
-}
-
-/// The store as the script module reaches it: a typed lookup and a typed append
-/// over archived bytes, with no `lgwks_bot::task` in its own surface.
-///
-/// The implementation is here; the trait lives in
-/// [`script`] because the task module is a *consumer* of a
-/// durable step, and a step must be markable without the host that runs it.
-impl RunRecords for RunStore {
-    fn lookup(
-        &self,
-        tenant: &str,
-        run: RunId,
-        key: StepKey,
-    ) -> Result<Option<StoredValue>, FlowError> {
-        self.step_readable()?;
-        let index = self.index();
-        let Some(held) = index.runs.get(&run) else {
-            return Ok(None);
-        };
-        if held.tenant != tenant {
-            let refusal = Err(StoreError::ForeignTenant {
-                owner: held.tenant.clone(),
-                asked: tenant.to_owned(),
-            }
-            .into());
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "lookup: returning an error to the caller");
-            return refusal;
-        }
-        Ok(held
-            .steps
-            .get(&key.to_hex())
-            .map(|step| StoredValue::new(step.path.clone(), step.bytes.clone())))
-    }
-
-    fn append(
-        &self,
-        tenant: &str,
-        run: RunId,
-        key: StepKey,
-        path: &str,
-        definition: &DefinitionIdentity,
-        bytes: Vec<u8>,
-    ) -> Result<Appended, FlowError> {
-        let staged = self.owned(RunRecords::stage(
-            self, tenant, run, key, path, definition, bytes,
-        ));
-        self.commit(staged.record, staged.key)
-            .map_err(FlowError::from)
-    }
-
-    /// Whether the records for `run` were written under `definition`.
-    ///
-    /// The check every durable step makes before it returns a recorded value. A
-    /// run this store holds nothing for is compatible by definition: that is a
-    /// first attempt, and refusing it would make the first record unreachable.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`Self::check_definition`] reports, unchanged: a drift as
-    /// [`FlowError::Incompatible`], and a device refusal as itself. Neither is ever
-    /// collapsed into the other's answer.
-    fn compatibility(
-        &self,
-        run: RunId,
-        definition: &DefinitionIdentity,
-    ) -> Result<bool, FlowError> {
-        self.step_readable()?;
-        self.check_definition(run, definition)
-            .map(|()| true)
-            .map_err(FlowError::from)
-    }
-
-    /// Which axis of `run`'s recorded identity disagrees with `definition`.
-    ///
-    /// The same comparison [`Self::compatibility`] made, returning the axis rather
-    /// than the boolean. Two doors rather than one returning a richer type because
-    /// the boolean is asked on every durable step — including the ones that pass,
-    /// where the axis is never wanted — and building a [`Drift`] that names two
-    /// digests or two schema ids on a step that will replay cleanly is work spent
-    /// only to be thrown away.
-    ///
-    /// # Errors
-    ///
-    /// [`FlowError::Failed`] when this store holds no record for `run`, so there is
-    /// no recorded identity to compare against, or when the two doors disagree —
-    /// `compatibility` refused this pair while this comparison finds nothing to
-    /// refuse. Naming an axis in either case would mean inventing one.
-    fn drift(&self, run: RunId, definition: &DefinitionIdentity) -> Result<Drift, FlowError> {
-        let Some(recorded) = self.definition_of(run) else {
-            let refusal = Err(FlowError::failed(format!(
-                "this store holds no definition identity for run {}, so it cannot name a drift \
-             axis; refusing to invent one",
-                run.id().to_hex()
-            )));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "drift: returning an error to the caller");
-            return refusal;
-        };
-        match definition.drift_from(&recorded) {
-            Some(drift) => Ok(drift),
-            None => Err(FlowError::failed(format!(
-                "run {} was refused as incompatible and yet agrees with the declared \
-                 definition; refusing to name an axis for a disagreement that is not there",
-                run.id().to_hex()
-            ))),
-        }
-    }
-
-    /// The awaited door, which is the one a durable step takes.
-    ///
-    /// The `sync_all` behind it is the device's cost, and this is what keeps that
-    /// cost off the executor: the step's future waits for the owner's answer
-    /// instead of sitting through the flush (INV-BOT-50).
-    fn append_async<'a>(
-        &'a self,
-        record: StagedRecord<'a>,
-    ) -> crate::BoxFuture<'a, Result<Appended, FlowError>> {
-        let staged = self.owned(record);
-        Box::pin(async move {
-            self.commit_async(staged.record, staged.key)
-                .await
-                .map_err(FlowError::from)
-        })
-    }
-}
-
-/// Map one owner refusal onto this store's vocabulary.
-///
-/// One conversion rather than a match per call site, because every `?` on an owner
-/// refusal wraps the same fact — the device, or the handle, said no — and a literal
-/// per call site would be four chances to name a different variant for one event.
-/// The refusal's own message distinguishes a full queue from a poison from an
-/// undelivered answer, so nothing is lost by carrying it as the device's error.
-impl From<SubmitError> for StoreError {
-    fn from(cause: SubmitError) -> Self {
-        Self::Storage {
-            cause: cause.into_io(),
-        }
     }
 }
 
@@ -1116,8 +834,19 @@ fn decide_and_write(
         }
     }
 
+    // A record for this key staged earlier in the same batch is already the
+    // answer: the same bytes are the same fact, other bytes a conflict.
+    let staged_key = (stored.run, key.to_hex());
+    if let Some(bytes) = index.staged.get(&staged_key) {
+        return Ok(Stage::Settled(Ok(if *bytes == stored.value {
+            Appended::AlreadyRecorded
+        } else {
+            Appended::Conflicting
+        })));
+    }
+
     let previous = tail_head(index);
-    let (framed, head) = frame(stored, &previous).map_err(refusal)?;
+    let (framed, head) = record::frame(stored, &previous).map_err(refusal)?;
 
     let staged = u64::saturating_from(framed.len());
     let next = index
@@ -1140,8 +869,12 @@ fn decide_and_write(
         .map_err(refusal)?
         .len();
     if on_disk != index.committed {
+        let held = match index.runs.get(&stored.run) {
+            Some(run) => run.steps.len(),
+            None => 0,
+        };
         let refusal = Err(refusal(StoreError::Corrupt {
-            at: u64::saturating_from(index.runs.get(&stored.run).map_or(0, |run| run.steps.len())),
+            at: u64::saturating_from(held),
         }));
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
         return refusal;
@@ -1153,6 +886,7 @@ fn decide_and_write(
     // fence must expect these bytes. A head that lagged a write would fork the chain.
     index.committed = next;
     index.tail = head;
+    index.staged.insert(staged_key, stored.value.clone());
 
     file.write_all(&framed)
         .map_err(StoreError::storage)
@@ -1174,6 +908,8 @@ fn decide_and_write(
         bytes: framed.len(),
         settle: Box::new(move |index: &mut Arc<Mutex<Index>>| {
             let mut index = owner::lock(index);
+            index.staged.remove(&(run, key.clone()));
+            count_approval(&mut index, &tenant, &held.bytes);
             let entry = index.runs.entry(run).or_insert_with(|| RunIndex {
                 tenant: tenant.clone(),
                 definition: definition.clone(),
@@ -1182,562 +918,4 @@ fn decide_and_write(
             entry.steps.insert(key, held);
         }),
     })
-}
-
-/// A store refusal as the device error the owner's one reply channel carries.
-///
-/// One conversion rather than a `map_err` per arm, because every `?` on a store
-/// refusal wraps the same fact — this store said no — and a literal per site would
-/// be seven chances to name a different message for one event. The refusal's own
-/// `Display` carries the ceiling or the tenant that names it.
-fn refusal(cause: StoreError) -> std::io::Error {
-    std::io::Error::other(cause.to_string())
-}
-
-/// The chain head the next frame in this file follows.
-///
-/// The index carries the tail head beside the committed length, because the head
-/// cannot be recomputed from the index: a frame's head is over the *archived*
-/// record, and re-archiving a value to hash it would be a second encoding of the
-/// same bytes with its own chance of disagreeing with what is on the disk.
-fn tail_head(index: &Index) -> Digest {
-    index.tail
-}
-
-/// The record as it is archived and as it is checked.
-#[derive(
-    Debug, Clone, lgwks_std::wire::Archive, lgwks_std::wire::Serialize, lgwks_std::wire::Deserialize,
-)]
-#[rkyv(
-    attr(non_exhaustive),
-    crate = lgwks_std::wire::rkyv,
-    compare(PartialEq),
-    derive(Debug)
-)]
-struct Stored {
-    /// The run this record belongs to.
-    #[rkyv(attr(doc = "The run this record belongs to."))]
-    run: RunId,
-    /// The step key's digest.
-    #[rkyv(attr(doc = "The step key's digest."))]
-    key: Vec<u8>,
-    /// The tenant that minted the run.
-    #[rkyv(attr(doc = "The tenant that minted the run."))]
-    tenant: String,
-    /// The step's path, for attribution.
-    #[rkyv(attr(doc = "The step's path, for attribution."))]
-    path: String,
-    /// The definition the record was written under, as its fields.
-    ///
-    /// Archived as fields rather than as one digest because a drift refusal has
-    /// to *name* the two sides: a head over the digest could detect the
-    /// disagreement but could not report which axis it was, and the fields are
-    /// what a caller reads to decide whether it needs a new run or a migration.
-    #[rkyv(attr(doc = "The definition the record was written under, as its fields."))]
-    definition: StoredDefinition,
-    /// The archived value the step returned.
-    #[rkyv(attr(doc = "The archived value the step returned."))]
-    value: Vec<u8>,
-}
-
-/// A [`DefinitionIdentity`] in the shape a record archives.
-///
-/// Named rather than archived directly so the record's on-disk shape is stated
-/// once, in the store that writes it, and a future revision of the definition
-/// vocabulary is a new struct here rather than a change to a type every consumer
-/// of [`Drift`] is already matching.
-#[derive(
-    Debug, Clone, lgwks_std::wire::Archive, lgwks_std::wire::Serialize, lgwks_std::wire::Deserialize,
-)]
-#[rkyv(
-    attr(non_exhaustive),
-    crate = lgwks_std::wire::rkyv,
-    compare(PartialEq),
-    derive(Debug)
-)]
-struct StoredDefinition {
-    /// The task name.
-    #[rkyv(attr(doc = "The task name."))]
-    name: String,
-    /// The declared definition revision.
-    #[rkyv(attr(doc = "The declared definition revision."))]
-    revision: u64,
-    /// The input digest.
-    #[rkyv(attr(doc = "The input digest."))]
-    input: Vec<u8>,
-    /// How many durable steps the definition declares.
-    #[rkyv(attr(doc = "How many durable steps the definition declares."))]
-    steps: u64,
-    /// The declared durable-value schema id.
-    #[rkyv(attr(doc = "The declared durable-value schema id."))]
-    codec: String,
-}
-
-/// The 32 bytes a record archived, as the digest the identity carries back.
-///
-/// A fixed width rather than a slice, because a record whose input field is not
-/// 32 bytes is a corrupt frame and the checked decoder is what says so; the
-/// conversion cannot silently truncate, because `as` is forbidden in this
-/// workspace and this is the honest alternative to it.
-fn digest_from_record(bytes: &[u8]) -> Digest {
-    let mut digest = [0u8; 32];
-    let copied = bytes.len().min(digest.len());
-    digest[..copied].copy_from_slice(&bytes[..copied]);
-    Digest::from_bytes(digest)
-}
-
-impl StoredDefinition {
-    /// The record's archived form of a live identity.
-    fn of(identity: &DefinitionIdentity) -> Self {
-        Self {
-            name: identity.name().to_owned(),
-            revision: identity.revision(),
-            input: identity.input().as_bytes().to_vec(),
-            steps: u64::saturating_from(identity.steps()),
-            codec: identity.codec().to_owned(),
-        }
-    }
-
-    /// The live identity this record was written under.
-    fn to_identity(&self) -> DefinitionIdentity {
-        DefinitionIdentity::new(
-            &self.name,
-            self.revision,
-            digest_from_record(&self.input),
-            usize::saturating_from(self.steps),
-        )
-        .with_codec(&self.codec)
-    }
-}
-
-impl Stored {
-    /// This record's chain head over the head before it.
-    ///
-    /// Framed exactly as the step key is framed, so a record's head cannot be
-    /// confused with the digest of the bytes it holds: the run, the key, the
-    /// tenant, the path and every definition field are length-framed, and the
-    /// value is framed last so no two different records hash the same byte
-    /// string. The definition's own bytes go in through the identity's framing
-    /// so a head over the record commits to the identity the same way the
-    /// identity's digest commits to it.
-    fn head_from(&self, previous: &Digest, _archived: &[u8]) -> Digest {
-        let mut hasher = Hasher::new();
-        hasher.write_framed(previous.as_bytes());
-        hasher.write_framed(&self.run_key_bytes());
-        hasher.write_framed(&self.key);
-        hasher.write_framed(self.tenant.as_bytes());
-        hasher.write_framed(self.path.as_bytes());
-        hasher.write_framed(self.definition.name.as_bytes());
-        hasher.write_framed(&self.definition.revision.to_le_bytes());
-        hasher.write_framed(&self.definition.input);
-        hasher.write_framed(&self.definition.steps.to_le_bytes());
-        hasher.write_framed(self.definition.codec.as_bytes());
-        hasher.write_framed(&self.value);
-        hasher.finalize()
-    }
-
-    /// The run id's 16 bytes, as a field the framing can hold.
-    ///
-    /// The hex spelling rather than the big-endian integer, because
-    /// `RunId::to_hex` is the one conversion this crate defines for the role
-    /// and a second one here would be a second definition to keep in step.
-    fn run_key_bytes(&self) -> Vec<u8> {
-        self.run.id().to_hex().into_bytes()
-    }
-}
-
-/// The frame for one record: length, payload, head.
-///
-/// The head is stored rather than recomputed on faith. That is what separates a
-/// torn tail (dropped, because a write leaves a prefix and a prefix has no head)
-/// from a frame that does not follow (refused, because those bytes were
-/// acknowledged).
-fn frame(stored: &Stored, previous: &Digest) -> Result<(Vec<u8>, Digest), StoreError> {
-    // Archive, bound, chain and lay out — the same step the effect journal takes.
-    // Only the record's own archiving and its step-chaining head are this store's.
-    frame::frame_record(
-        stored,
-        previous,
-        MAX_RECORD_BYTES,
-        |stored| {
-            to_bytes::<WireError>(stored)
-                .map(|bytes| bytes.as_ref().to_vec())
-                .map_err(|cause| StoreError::Encoding { cause })
-        },
-        Stored::head_from,
-        record_too_large,
-    )
-}
-
-/// The refusal for a store that has no room left, named by what it would have
-/// needed.
-///
-/// One constructor because both call sites discovered the same fact by different
-/// routes — an addition that overflowed and an addition that came out past the
-/// ceiling — and a literal per site would be two chances to name a different bound
-/// for the same ceiling.
-fn store_full(requested: u64) -> StoreError {
-    StoreError::Limit {
-        kind: StoreLimitKind::StoreBytes,
-        requested,
-        limit: MAX_STORE_BYTES,
-    }
-}
-
-/// The refusal for a record whose archived bytes are past this store's ceiling.
-///
-/// One constructor, because the message and the two numbers are the same fact
-/// whichever call site discovers it, and a literal per site would be two chances to
-/// name a different bound for the same ceiling.
-fn record_too_large(len: usize) -> StoreError {
-    StoreError::Limit {
-        kind: StoreLimitKind::RecordBytes,
-        requested: u64::saturating_from(len),
-        limit: u64::saturating_from(MAX_RECORD_BYTES),
-    }
-}
-
-/// Read `buf` in full, reporting whether all of it arrived.
-fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool, StoreError> {
-    let mut filled = 0usize;
-    while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
-            Ok(0) => return Ok(false),
-            Ok(read) => filled = filled.saturating_add(read),
-            Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(cause) => {
-                let refusal = Err(StoreError::storage(cause));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "read_full: returning an error to the caller");
-                return refusal;
-            }
-        }
-    }
-    Ok(true)
-}
-
-/// One complete, decoded frame read from the store.
-struct Framed {
-    /// The record the frame's payload decoded to.
-    stored: Stored,
-    /// The payload bytes, which the chain head is computed over.
-    payload: Vec<u8>,
-    /// The chain head the frame recorded for itself.
-    head: [u8; HEAD_BYTES],
-    /// The payload length the frame declared.
-    declared: usize,
-}
-
-/// Read the frame at ordinal `at`, or `None` where the file stops holding a
-/// whole frame.
-///
-/// A partial length prefix, or a payload or head cut short, is an append that
-/// never finished: it was never anyone's answer, so the scan stops and the
-/// caller trims to `committed`. A complete prefix naming a frame this store
-/// never writes (a write leaves a prefix of a length it did finish computing,
-/// and that length was always legal) or a payload that does not decode cannot
-/// be an interrupted append and is refused. So is a cut whose bytes hold a frame
-/// this store acknowledged under another length: `cursor` is where the frame
-/// starts and the head it chains from, which is what the stored head is checked
-/// against (#262).
-fn next_frame(file: &mut File, cursor: &Cursor<'_>) -> Result<Option<Framed>, StoreError> {
-    let at = cursor.at;
-    let corrupt = || StoreError::Corrupt { at };
-    let Some(raw) = frame::read_raw(
-        file,
-        cursor,
-        MAX_RECORD_BYTES,
-        StoreError::storage,
-        corrupt,
-        |previous, payload| {
-            let aligned = frame::decodable(payload);
-            from_bytes::<Stored, WireError>(aligned.as_slice())
-                .ok()
-                .map(|stored| stored.head_from(previous, payload))
-        },
-    )?
-    else {
-        return Ok(None);
-    };
-    let stored = from_bytes::<Stored, WireError>(&raw.payload).map_err(|error| {
-        lgwks_std::trace::debug!(?error, at, "next_frame: the payload did not decode");
-        StoreError::Corrupt { at }
-    })?;
-    Ok(Some(Framed {
-        stored,
-        declared: raw.payload.len(),
-        payload: raw.payload,
-        head: raw.head,
-    }))
-}
-
-/// Read every committed frame, returning the index it implies.
-///
-/// The scan is bounded by the file's own length: every iteration consumes at
-/// least one byte, and a file that grows underneath the scan cannot extend it,
-/// because the reader stops at the length it saw when it began. A frame whose
-/// stored head does not follow is [`StoreError::Corrupt`] and is not truncated.
-fn replay(file: &mut File) -> Result<Index, StoreError> {
-    let total = file.metadata().map_err(StoreError::storage)?.len();
-    file.seek(SeekFrom::Start(0)).map_err(StoreError::storage)?;
-
-    let mut header = [0u8; STORE_HEADER.len()];
-    if !read_full(file, &mut header)? {
-        let refusal = Err(StoreError::NotAStore);
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-        return refusal;
-    }
-    // The two refusals are separated, and the version one is checked first,
-    // because they are different facts and only one of them is a version the
-    // writer could have meant. Every version of this format shares the whole
-    // magic *except* its last byte, which is that format's version — so a file
-    // whose first fifteen bytes match is this store's, at some version, and a
-    // file whose first fifteen do not match was never a run store at all. That
-    // is the whole reason `STORE_MAGIC` is 15 bytes of constant plus a version
-    // byte rather than one 16-byte constant.
-    check_format_version(header)?;
-    let mut index = Index {
-        runs: HashMap::new(),
-        committed: u64::saturating_from(STORE_HEADER.len()),
-        tail: genesis_head(),
-    };
-    let mut previous = genesis_head();
-    let mut at = 0u64;
-    while let Some(Framed {
-        stored,
-        payload,
-        head,
-        declared,
-    }) = next_frame(file, &Cursor::new(at, index.committed, &previous))?
-    {
-        if stored.head_from(&previous, &payload) != Digest::from_bytes(head) {
-            let refusal = Err(StoreError::Corrupt { at });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-            return refusal;
-        }
-        let frame_len = frame::framed_len(declared);
-        // A frame that runs past the end of the file is an interrupted append.
-        // Readable as a whole above, so this only catches a header that lied
-        // about a frame already acknowledged, which is rot rather than a crash.
-        if index
-            .committed
-            .checked_add(frame_len)
-            .is_none_or(|end| end > total)
-        {
-            break;
-        }
-        index.committed = index.committed.saturating_add(frame_len);
-        index.tail = stored.head_from(&previous, &payload);
-        previous = stored.head_from(&previous, &payload);
-        at = at.saturating_add(1);
-        if at > MAX_RECORDS_PER_RUN {
-            let refusal = Err(StoreError::Limit {
-                kind: StoreLimitKind::Records,
-                requested: at,
-                limit: MAX_RECORDS_PER_RUN,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-            return refusal;
-        }
-        let run = index.runs.entry(stored.run).or_insert_with(|| RunIndex {
-            tenant: stored.tenant.clone(),
-            definition: stored.definition.to_identity(),
-            steps: HashMap::new(),
-        });
-        run.steps.insert(
-            hex_of(&stored.key),
-            Held {
-                path: stored.path.clone(),
-                bytes: stored.value.clone(),
-            },
-        );
-    }
-    Ok(index)
-}
-
-/// Lowercase hex, for a digest used as a map key.
-///
-/// `lgwks_std::hash::Digest::to_hex` takes a `Digest`, and this is the same 32
-/// bytes before the head has been computed; formatting them here rather than
-/// reaching into the digest type keeps the key exactly the bytes on the disk.
-fn hex_of(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = Vec::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes.iter().copied() {
-        hex.push(DIGITS[usize::from(byte >> 4) & 0x0f]);
-        hex.push(DIGITS[usize::from(byte) & 0x0f]);
-    }
-    // Every byte pushed above is an ASCII digit, so this is well-formed UTF-8
-    // and the conversion cannot fail; `String::from_utf8` reports the invariant
-    // rather than trusting it.
-    hex.into_iter().map(char::from).collect()
-}
-
-/// A frame whose length prefix lies is refused, and an append that was cut is
-/// repaired (#262). The file is built frame by frame with the store's own framing,
-/// then one prefix is changed: the bytes are the acknowledged ones, so nothing but
-/// the stored head can say whether the length is the writer's.
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::journal::frame::probe::{Scratch, declared_at, frame_starts, with_prefix};
-
-    type TestResult = Result<(), Box<dyn std::error::Error>>;
-
-    /// The store file of `count` records, written to `path`, and its bytes.
-    fn written(path: &Path, count: u8) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let run = RunId::from_hex(&format!("a{}", "0".repeat(31)))?;
-        let identity =
-            DefinitionIdentity::new("tail", 1, Digest::from_bytes([1; 32]), usize::from(count));
-        let mut bytes = STORE_HEADER.to_vec();
-        let mut previous = genesis_head();
-        for step in 0..count {
-            let stored = Stored {
-                run,
-                key: vec![step; 32],
-                tenant: "acme".to_owned(),
-                path: format!("s{step}"),
-                definition: StoredDefinition::of(&identity),
-                value: vec![step; 40 + usize::from(step)],
-            };
-            let (framed, head) = frame(&stored, &previous)?;
-            bytes.extend_from_slice(&framed);
-            previous = head;
-        }
-        std::fs::write(path, &bytes)?;
-        Ok(bytes)
-    }
-
-    /// Open `path` and require a refusal as `Corrupt` at frame `at`, with the file
-    /// byte-identical to `before`.
-    fn require_refused(path: &Path, before: &[u8], at: u64, why: &str) -> TestResult {
-        let outcome: TestResult = match RunStore::open(path) {
-            Err(StoreError::Corrupt { at: named }) => {
-                assert_eq!(named, at, "{why}");
-                Ok(())
-            }
-            Err(other) => Err(format!("{why}: expected Corrupt, got {other}").into()),
-            Ok(opened) => Err(format!(
-                "{why}: reopened at {} committed bytes, so an acknowledged frame was lost",
-                opened.committed_bytes()
-            )
-            .into()),
-        };
-        outcome?;
-        assert_eq!(std::fs::read(path)?, before, "{why}: refused bytes move");
-        Ok(())
-    }
-
-    /// The acknowledged final record whose prefix grows is the defect: `extra` up to
-    /// 32 leaves the payload whole and the head short, more ends inside the payload.
-    #[test]
-    fn a_lengthened_acknowledged_final_record_is_refused_not_trimmed() -> TestResult {
-        let scratch = Scratch::new("store-lengthened")?;
-        let bytes = written(scratch.path(), 3)?;
-        let last = frame_starts(&bytes, STORE_HEADER.len())?[2];
-        let declared = declared_at(&bytes, last);
-        for extra in (1u32..=40).chain([100, 255, 1024, 4096]) {
-            let lied = with_prefix(&bytes, last, declared + extra);
-            std::fs::write(scratch.path(), &lied)?;
-            require_refused(scratch.path(), &lied, 2, &format!("final record L+{extra}"))?;
-        }
-        Ok(())
-    }
-
-    /// An inflated length on a record with records behind it: the true record is still
-    /// first behind the prefix, so it authenticates and the frames after it are kept.
-    #[test]
-    fn an_inflated_record_with_records_behind_it_is_refused_untouched() -> TestResult {
-        let scratch = Scratch::new("store-inflated")?;
-        let bytes = written(scratch.path(), 3)?;
-        let middle = frame_starts(&bytes, STORE_HEADER.len())?[1];
-        let remaining = u32::try_from(bytes.len() - middle)?;
-        for declared in [remaining, remaining + 1, remaining + 31, remaining + 500] {
-            let lied = with_prefix(&bytes, middle, declared);
-            std::fs::write(scratch.path(), &lied)?;
-            require_refused(scratch.path(), &lied, 1, &format!("declared {declared}"))?;
-        }
-        Ok(())
-    }
-
-    /// A lengthened prefix over a record whose own bytes are also damaged still
-    /// refuses, because the record behind it authenticates.
-    #[test]
-    fn a_damaged_cut_record_with_an_acknowledged_one_behind_it_is_refused() -> TestResult {
-        let scratch = Scratch::new("store-damaged")?;
-        let bytes = written(scratch.path(), 3)?;
-        let middle = frame_starts(&bytes, STORE_HEADER.len())?[1];
-        let remaining = u32::try_from(bytes.len() - middle)?;
-        let mut lied = with_prefix(&bytes, middle, remaining + 7);
-        if let Some(byte) = lied.get_mut(middle + 12) {
-            *byte ^= 0x55;
-        }
-        std::fs::write(scratch.path(), &lied)?;
-        require_refused(scratch.path(), &lied, 1, "damaged middle, lengthened")
-    }
-
-    /// The control: an append cut at any place in the final record is still repaired,
-    /// back to exactly the acknowledged prefix. Sampled at each boundary and between
-    /// them, since each repair is an `fsync`.
-    #[test]
-    fn an_append_cut_inside_the_final_record_is_repaired() -> TestResult {
-        let scratch = Scratch::new("store-cut")?;
-        let bytes = written(scratch.path(), 3)?;
-        let last = frame_starts(&bytes, STORE_HEADER.len())?[2];
-        let kept = u64::try_from(last)?;
-        let whole = bytes.len() - last;
-        for cut in [
-            1,
-            3,
-            4,
-            5,
-            whole >> 1,
-            whole - 33,
-            whole - 32,
-            whole - 31,
-            whole - 1,
-        ] {
-            std::fs::write(
-                scratch.path(),
-                bytes.get(..last + cut).ok_or("cut past the end")?,
-            )?;
-            let store = RunStore::open(scratch.path())?;
-            assert_eq!(
-                store.committed_bytes(),
-                kept,
-                "cut {cut}: the two records survive"
-            );
-            drop(store);
-            assert_eq!(std::fs::metadata(scratch.path())?.len(), kept, "cut {cut}");
-        }
-        Ok(())
-    }
-
-    /// The worst tail a repair can be asked to examine, a full-ceiling prefix over
-    /// noise, is decided in bounded time: the first search tries a payload length per
-    /// byte and each try decodes, so the cost is the thing to bound.
-    #[test]
-    fn a_ceiling_sized_noise_tail_is_trimmed_in_bounded_time() -> TestResult {
-        let scratch = Scratch::new("store-noise")?;
-        let mut bytes = written(scratch.path(), 1)?;
-        let kept = u64::try_from(bytes.len())?;
-        bytes.extend_from_slice(&u32::try_from(MAX_RECORD_BYTES)?.to_be_bytes());
-        let mut state = 0x9e37_79b9_7f4a_7c15u64;
-        for _ in 0..MAX_RECORD_BYTES + HEAD_BYTES - 1 {
-            state = state
-                .wrapping_mul(6_364_136_223_846_793_005)
-                .wrapping_add(1);
-            bytes.push(state.to_be_bytes()[0]);
-        }
-        std::fs::write(scratch.path(), &bytes)?;
-        let started = std::time::Instant::now();
-        let store = RunStore::open(scratch.path())?;
-        let elapsed = started.elapsed();
-        assert_eq!(
-            store.committed_bytes(),
-            kept,
-            "noise holds no acknowledged record"
-        );
-        assert!(elapsed.as_secs() < 5, "the search took {elapsed:?}");
-        Ok(())
-    }
 }

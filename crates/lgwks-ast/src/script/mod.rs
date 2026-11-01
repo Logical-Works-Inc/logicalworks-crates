@@ -49,9 +49,9 @@ mod sim_script;
 pub use find::{Invocation, read_source};
 pub use lexicon::{Axis, Evidence, Form, Guarantee, Kind, LEXICON, Position, Word};
 pub use tree::{
-    Admit, Block, Bound, Branch, BranchValue, Call, Code, Compensate, Construct, Domain, Duration,
-    Each, Flow, FlowShape, For, Fragment, Graph, IfBranch, IfChain, Justify, MapStep, Node,
-    Overflow, Passthrough, Producer, Ready, Retry, Script, Site, Statement, Step, StepShape,
+    Admit, Approval, Block, Bound, Branch, BranchValue, Call, Code, Compensate, Construct, Domain,
+    Duration, Each, Flow, FlowShape, For, Fragment, Graph, IfBranch, IfChain, Justify, MapStep,
+    Node, Overflow, Passthrough, Producer, Ready, Retry, Script, Site, Statement, Step, StepShape,
     Together, Whenever, Within, write_map,
 };
 

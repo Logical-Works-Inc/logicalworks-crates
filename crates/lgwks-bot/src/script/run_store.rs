@@ -11,13 +11,15 @@
 //! body of a run sees exactly the store that host installed, a step outside a
 //! run sees none, and nothing carries a `Store` a caller could not see.
 //!
-//! The trait is what [`Scope::remember`] calls, so the script module has no
+//! The trait is what [`remember`] calls, so the script module has no
 //! dependency on [`lgwks_bot::task`](crate::task) and the task module supplies
-//! the one shipped implementation. A caller that wants a store of their own can
-//! implement this — it is two methods over archived bytes — but must honour the
-//! same three obligations: [`lookup`] distinguishes a read failure from
-//! absence, [`append`] returns only after the bytes are durable, and both bind
-//! the caller's tenant.
+//! the one shipped implementation. A caller that wants a store of their own
+//! implements it, installs it with
+//! [`HostBuilder::records`](crate::task::HostBuilder::records), and must honour
+//! the same three obligations: [`RunRecords::lookup`] distinguishes a read
+//! failure from absence, [`RunRecords::append`] returns only after the bytes are
+//! durable, and both bind the caller's tenant. The `conformance` module (feature
+//! `testing`) checks them.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -27,10 +29,14 @@ use lgwks_std::wire::rkyv::rancor::Strategy;
 use lgwks_std::wire::{Archive, Deserialize, Serialize, WireError};
 
 use crate::effect::RunId;
+use crate::journal::DurabilityPromise;
 use crate::rt::task_local;
-use crate::task::{DefinitionIdentity, Drift};
+use crate::task::{DefinitionIdentity, Drift, StoreError};
 
 use super::{FlowError, Scope, Site, StepKey};
+
+#[cfg(feature = "testing")]
+pub mod conformance;
 
 /// The bound a step's value must satisfy to be a durable step's result.
 ///
@@ -313,6 +319,11 @@ pub trait RunRecords: Send + Sync {
         ))
     }
 
+    /// Undecided approvals `tenant` holds (the `await approval` ceiling), `None` when this store keeps no count; a failed count is an error, never zero (INV-BOT-7).
+    fn pending_count(&self, _tenant: &str) -> Result<Option<u64>, FlowError> {
+        Ok(None)
+    }
+
     /// Build the record this store is being asked to commit.
     ///
     /// One constructor for the six fields both doors take, because the awaited door
@@ -329,14 +340,68 @@ pub trait RunRecords: Send + Sync {
     ) -> StagedRecord<'a> {
         StagedRecord::of(tenant, run, key, path, definition, bytes)
     }
+
+    /// What this store promises about a record once an append has answered.
+    ///
+    /// The default is [`DurabilityPromise::Ephemeral`], the one answer a store that
+    /// says nothing can be held to. A store that survives its writer dying says so,
+    /// and only such a store may stand behind a step that hands an effect out of
+    /// the process: [`act`](super::act) refuses the rest, because after a crash an
+    /// ephemeral store reports an empty run rather than an uncertain one.
+    fn durability(&self) -> DurabilityPromise {
+        DurabilityPromise::Ephemeral
+    }
+
+    /// The tenant that owns `run`, when this store holds records for it.
+    ///
+    /// The host asks before it adopts a run id, so a resume of another tenant's
+    /// run is refused before admission rather than at its first step. `Ok(None)`
+    /// is a run this store never wrote, which is not a refusal: a process killed
+    /// before its first record left nothing to own. The default answers `None`,
+    /// and [`RunRecords::lookup`] still refuses the foreign read on its own.
+    ///
+    /// # Errors
+    ///
+    /// [`FlowError`] when the store cannot answer, never reported as `None`
+    /// (INV-BOT-7).
+    fn recorded_owner(&self, _run: RunId) -> Result<Option<String>, FlowError> {
+        Ok(None)
+    }
+
+    /// The definition `run`'s records were written under, when this store keeps
+    /// one.
+    ///
+    /// What a resume writes its records under, so a resume cannot check its
+    /// definition against one run and record under another. `Ok(None)` for a run
+    /// with no records, and for a store that keeps no identity of its own, which
+    /// then records under the identity the caller declared.
+    ///
+    /// # Errors
+    ///
+    /// [`FlowError`] when the store cannot answer.
+    fn recorded_definition(&self, _run: RunId) -> Result<Option<DefinitionIdentity>, FlowError> {
+        Ok(None)
+    }
+
+    /// How many records this store holds for `run`, `0` for a run it never wrote.
+    ///
+    /// What a report's step-record count and an in-flight request's count carry.
+    /// Required rather than defaulted, because a default could only answer zero,
+    /// and zero is a claim that nothing was recorded.
+    ///
+    /// # Errors
+    ///
+    /// [`FlowError`] when the store cannot answer; the report then names the
+    /// run's records as uncounted rather than as none (INV-BOT-7).
+    fn record_count(&self, run: RunId) -> Result<usize, FlowError>;
 }
 
 /// One record a store is being asked to commit, borrowed rather than assembled at
 /// each call site.
 ///
 /// The trait's two doors take the same six facts, and a store's implementation
-/// wants them as one value; a struct the caller fills once through
-/// [`StagedRecord::of`] is what keeps those two doors from being two copies of the
+/// wants them as one value; a struct the caller fills once is what keeps those
+/// two doors from being two copies of the
 /// same parameter list.
 ///
 /// Fields private and reached through accessors, because the invariants a store
@@ -422,9 +487,10 @@ impl<'a> StagedRecord<'a> {
         &self.bytes
     }
 
-    /// The archived value, by value, for the one store that moves it onto its own
-    /// storage thread.
-    fn into_bytes(self) -> Vec<u8> {
+    /// The archived value, by value, for a store that moves it onto its own
+    /// storage thread or into its own table.
+    #[must_use]
+    pub(crate) fn into_bytes(self) -> Vec<u8> {
         self.bytes
     }
 }
@@ -446,11 +512,11 @@ pub struct StoredValue {
 impl StoredValue {
     /// Build a record from the path and archived bytes the store holds.
     ///
-    /// Crate-private because a `StoredValue` never escapes the crate except
-    /// through [`super::remember`], which decodes it under the step's own type;
-    /// a public field would be a value a caller could hand to a step of the
-    /// wrong type.
-    pub(crate) fn new(path: String, bytes: Vec<u8>) -> Self {
+    /// The one door a store of the caller's own answers [`RunRecords::lookup`]
+    /// through. The fields stay private, so a value is read back only by
+    /// [`super::remember`], which decodes it under the step's own type.
+    #[must_use]
+    pub fn new(path: String, bytes: Vec<u8>) -> Self {
         Self { path, bytes }
     }
 
@@ -604,6 +670,75 @@ impl Records {
         self.0
             .append_async(self.0.stage(tenant, run, key, path, definition, bytes))
             .await
+    }
+
+    /// The tenant that owns `run`, as the store recorded it.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the store reports when it cannot answer.
+    pub(crate) fn owner(&self, run: RunId) -> Result<Option<String>, FlowError> {
+        self.0.recorded_owner(run)
+    }
+
+    /// The identity `run`'s records were written under, when the store keeps one.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the store reports when it cannot answer.
+    pub(crate) fn recorded_definition(
+        &self,
+        run: RunId,
+    ) -> Result<Option<DefinitionIdentity>, FlowError> {
+        self.0.recorded_definition(run)
+    }
+
+    /// How many records the store holds for `run`.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the store reports when it cannot answer.
+    pub(crate) fn record_count(&self, run: RunId) -> Result<usize, FlowError> {
+        self.0.record_count(run)
+    }
+
+    /// What a report says about `run`'s step records.
+    ///
+    /// A count the store could not give is uncounted, never zero: a read failure
+    /// is not absence (INV-BOT-7).
+    pub(crate) fn knowledge(&self, run: RunId) -> crate::task::EffectKnowledge {
+        match self.0.record_count(run) {
+            Ok(records) => crate::task::EffectKnowledge::StepRecords { records },
+            Err(unread) => {
+                lgwks_std::trace::warn!(error = %unread, "knowledge: the store could not count the run's records");
+                crate::task::EffectKnowledge::StepRecordsUncounted
+            }
+        }
+    }
+
+    /// Refuse an effect leaving the process when this store does not survive its
+    /// writer dying.
+    ///
+    /// The step store's half of the journal's own rule: below
+    /// [`DurabilityPromise::ProcessCrash`] a recovered run cannot tell "the effect
+    /// never left" from "the record of it leaving was lost", and that is the state
+    /// in which a blind resend happens.
+    ///
+    /// # Errors
+    ///
+    /// [`FlowError::Store`] carrying [`StoreError::PromiseUnmet`] for an
+    /// ephemeral store.
+    pub(crate) fn admit_external_handoff(&self) -> Result<(), FlowError> {
+        let offered = self.0.durability();
+        if offered.survives_process_crash() {
+            return Ok(());
+        }
+        let refusal = Err(FlowError::from(StoreError::PromiseUnmet {
+            required: DurabilityPromise::ProcessCrash,
+            offered,
+        }));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admit_external_handoff: returning an error to the caller");
+        refusal
     }
 }
 

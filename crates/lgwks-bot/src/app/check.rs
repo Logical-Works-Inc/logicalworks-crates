@@ -187,6 +187,7 @@ where
             name: crate::cell::clip(&plan.name, MAX_NAME_BYTES.saturating_add(1)),
             grants: GrantSet::empty(),
             provider: std::sync::Arc::new(NoProvider),
+            approvals: None,
             routes,
             ons: Vec::new(),
         };

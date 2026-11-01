@@ -25,6 +25,7 @@ use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Host, MAX_TASK_DEADLINE, Report, task};
 use lgwks_bot::{BotError, Cap, DispatchCertainty, GrantSet, domains};
 
+use crate::effect_policy::allowing;
 use crate::fake_gh_issues::{calls_on, creates_on, held_on, hide, hold, issue_on_fake, land_later};
 use crate::sim_keyed::drive;
 
@@ -122,9 +123,11 @@ pub(crate) fn open_on_clock(
             open_issue(&scope, &repo, draft).await
         },
     )?;
+    // Every caller here drives the fake GitHub, whose issues never leave the
+    // process, where the default policy would gate `gh::issue`.
     Ok(drive(
         clock,
-        host.run(&opening, (repo.to_owned(), draft.clone())),
+        allowing(host.run(&opening, (repo.to_owned(), draft.clone()))),
     ))
 }
 
