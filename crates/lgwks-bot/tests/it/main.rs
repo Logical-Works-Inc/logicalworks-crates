@@ -111,6 +111,10 @@ mod run_world;
 #[path = "../support/scratch.rs"]
 mod scratch;
 
+#[cfg(feature = "testing")]
+#[path = "../../src/bin/store_conformance/memory_records.rs"]
+mod memory_records;
+
 #[cfg(all(feature = "rt", feature = "time", feature = "sync", feature = "script"))]
 #[path = "../support/tenancy_harness.rs"]
 mod tenancy_harness;
@@ -237,6 +241,8 @@ mod rt_process_stdin;
 mod rt_runtime_stack;
 #[cfg(feature = "script")]
 mod run_events;
+#[cfg(feature = "testing")]
+mod run_records;
 mod script_domains;
 mod script_flow;
 #[cfg(feature = "script")]

@@ -363,8 +363,11 @@ impl FlowError {
     }
 
     /// [`FlowError::located`] against a path already in hand.
+    ///
+    /// `pub(crate)` so the host's pre-flight locates a store refusal at the task
+    /// the way a durable step locates it at the step.
     #[must_use]
-    pub(super) fn located_at(mut self, path: &Arc<str>) -> Self {
+    pub(crate) fn located_at(mut self, path: &Arc<str>) -> Self {
         match self {
             Self::Cancelled { ref mut at }
             | Self::TimedOut { ref mut at, .. }

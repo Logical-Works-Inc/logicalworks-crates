@@ -13,7 +13,8 @@ use crate::journal::frame::SaturatingFrom;
 use crate::registry::DomainRegistry;
 use crate::rt::clock::Clock;
 use crate::rt::sync::{CancellationToken, Semaphore};
-use crate::script::{Policy, Tenant};
+use crate::script::run_store::Records;
+use crate::script::{Policy, RunRecords, Tenant};
 
 use super::admit::{HighWater, LiveRuns};
 use super::host::Installation;
@@ -50,8 +51,14 @@ pub struct HostBuilder {
     pub(super) grants: GrantSet,
     /// The registry a flow's domain words resolve against, when installed.
     pub(super) domains: Option<&'static DomainRegistry>,
-    /// The durable step-record store, when the caller installed one.
-    pub(super) store: Option<store::RunStore>,
+    /// The durable step-record store every run installs, when the caller gave one.
+    ///
+    /// The one door: the file store and a caller's own [`RunRecords`] both arrive
+    /// here, so the run path never asks which kind it holds.
+    pub(super) records: Option<Records>,
+    /// The file store's own handle, when the store is the file store, kept only
+    /// for [`Host::run_store`]'s read-only queries.
+    pub(super) file_store: Option<store::RunStore>,
     /// The declared schema id of this host's durable step values.
     ///
     /// The default is [`UNVERSIONED_CODEC`], which says the caller declared none
@@ -143,21 +150,41 @@ impl HostBuilder {
     /// # Errors
     ///
     /// [`StoreError`] when the store cannot be opened or replayed.
-    pub fn run_store(mut self, dir: impl AsRef<std::path::Path>) -> Result<Self, StoreError> {
-        self.store = Some(store::RunStore::open_in(
-            dir.as_ref(),
-            self.tenant.as_str(),
-        )?);
-        Ok(self)
+    pub fn run_store(self, dir: impl AsRef<std::path::Path>) -> Result<Self, StoreError> {
+        let opened = store::RunStore::open_in(dir.as_ref(), self.tenant.as_str())?;
+        Ok(self.store(opened))
     }
 
     /// Install a store this caller already opened.
     ///
     /// For a host whose store is opened once and shared, and for a caller that
     /// wants to get the opened handle back for [`RunStore::tenant_of`](crate::task::RunStore::tenant_of) and the
-    /// other read-only queries.
+    /// other read-only queries. The store is installed through
+    /// [`HostBuilder::records`]'s door, so every run reaches it as the
+    /// [`RunRecords`] any other store is.
     pub fn store(mut self, store: store::RunStore) -> Self {
-        self.store = Some(store);
+        self.records = Some(Records(Arc::new(store.clone())));
+        self.file_store = Some(store);
+        self
+    }
+
+    /// Install any durable store behind every run's durable steps.
+    ///
+    /// The same task-local a file store is installed through, so a step that
+    /// calls [`remember`](crate::script::remember) reaches `records` exactly as it
+    /// reaches the shipped store, and [`Host::resume`] replays from it. The store
+    /// keeps its own obligations, which
+    /// `lgwks_bot::script::run_store::conformance` (feature `testing`) checks: a
+    /// read failure is an error and never absence, an append answers only once it
+    /// is durable, and one tenant never reads another's run. A store that
+    /// promises less than [`DurabilityPromise::ProcessCrash`](crate::journal::DurabilityPromise::ProcessCrash)
+    /// is refused for any step that hands an effect out of the process.
+    ///
+    /// [`Host::run_store`] answers `None` for a store installed here, because the
+    /// file store's read-only queries are not part of the trait.
+    pub fn records(mut self, records: Arc<dyn RunRecords>) -> Self {
+        self.records = Some(Records(records));
+        self.file_store = None;
         self
     }
 
@@ -313,7 +340,8 @@ impl HostBuilder {
                 refused: AtomicU64::new(0),
                 policy: Arc::new(Policy::for_this_host(self.clock.clone())),
                 clock: self.clock,
-                store: self.store,
+                records: self.records,
+                file_store: self.file_store,
                 codec: self.codec,
                 ledger: self.ledger,
                 grants: self.grants,

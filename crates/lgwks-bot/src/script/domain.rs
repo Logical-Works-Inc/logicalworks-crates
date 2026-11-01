@@ -229,6 +229,15 @@ pub async fn act<V: 'static>(
         .into_execute_any();
     let caps = action.required_caps();
     scope.require(caps)?;
+    // An action's effect leaves the process, so the store behind this run must
+    // survive its writer dying: over an ephemeral one a crash would leave an empty
+    // run rather than an uncertain one, and a resume would send the effect blind.
+    // A run with no store claims nothing durable and is not refused.
+    if let Some(records) = super::run_store::installed() {
+        records
+            .admit_external_handoff()
+            .map_err(|refused| refused.located(scope))?;
+    }
     let grants = exactly(caps);
     let input = Erased::new(value);
     let output = action

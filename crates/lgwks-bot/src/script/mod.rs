@@ -116,6 +116,11 @@ mod justify;
 mod map;
 mod policy;
 mod ready;
+// Public under `testing` so `run_store::conformance` has the path a caller's own
+// store tests name; every item a store implements is re-exported below either way.
+#[cfg(feature = "testing")]
+pub mod run_store;
+#[cfg(not(feature = "testing"))]
 pub(crate) mod run_store;
 pub(crate) mod scope;
 mod stream;
@@ -149,7 +154,9 @@ pub use ready::{
     ReadyOutcome,
 };
 pub use rt_clock::Clock;
-pub use run_store::{Appended, Durable, remember, remembered_at};
+pub use run_store::{
+    Appended, Durable, RunRecords, StagedRecord, StoredValue, remember, remembered_at,
+};
 pub use scope::{Scope, StepKey, Tenant};
 pub use stream::{Overflow, PumpReport, StreamGate, pump, stream_at};
 pub use trail::{Outcome, ScriptTrail, Site, TrailEntry};

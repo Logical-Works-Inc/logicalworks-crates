@@ -348,6 +348,10 @@ pub enum EffectKnowledge {
         /// the ones a previous attempt committed and this one replayed.
         records: usize,
     },
+    /// As [`EffectKnowledge::StepRecords`], under a store that could not count
+    /// the run's records when asked: the steps are durable, and the count is not
+    /// claimed rather than reported as zero (INV-BOT-7).
+    StepRecordsUncounted,
 }
 
 // ── Task ─────────────────────────────────────────────────────────────────────
@@ -846,9 +850,7 @@ fn recorded_receipt(
 /// A request whose receipt is already on the disk, gathered so the reattach
 /// logic takes one borrowed value rather than eight positional arguments.
 struct Existing<'a> {
-    /// The host's store, for the run's record count.
-    store: &'a RunStore,
-    /// The receipt's host records handle.
+    /// The receipt's host records handle, which also counts the run's records.
     records: &'a Records,
     /// The tenant this host runs for.
     tenant: &'a str,

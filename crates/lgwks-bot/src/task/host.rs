@@ -13,6 +13,7 @@ use crate::gate::GrantSet;
 use crate::registry::DomainRegistry;
 use crate::rt::clock::Clock;
 use crate::rt::sync::{CancellationToken, Semaphore};
+use crate::script::run_store::Records;
 use crate::script::{DEFAULT_TRAIL_STEPS, Durable, FlowError, Policy, Scope, Tenant};
 
 use super::admit::{HighWater, LiveRuns};
@@ -89,13 +90,17 @@ pub(super) struct Installation {
     /// load a retry storm adds does not scale with concurrency. Handed to each
     /// run's root scope beside the clock.
     pub(super) policy: Arc<Policy>,
-    /// The durable step-record store, when one was installed.
+    /// The durable step-record store every run installs, when one was installed.
     ///
     /// `None` is the honest local mode: no record survives the process, so no
     /// report claims a run id and no ticket exists. A host with a store in hand
     /// that behaved as though it had none would be claiming durability it does
-    /// not have, which is the one thing INV-BOT-54 forbids.
-    pub(super) store: Option<store::RunStore>,
+    /// not have, which is the one thing INV-BOT-54 forbids. The file store and a
+    /// caller's own [`RunRecords`](crate::script::RunRecords) are both this field.
+    pub(super) records: Option<Records>,
+    /// The file store's handle, when the installed store is the file store, for
+    /// [`Host::run_store`] alone.
+    pub(super) file_store: Option<store::RunStore>,
     /// The declared schema id of this host's durable step values.
     ///
     /// What a [`DefinitionIdentity`] this host builds by hand starts from, so the
@@ -198,7 +203,8 @@ impl Host {
             deadline: default_deadline(),
             progress: DEFAULT_TRAIL_STEPS,
             clock: Clock::wall(),
-            store: None,
+            records: None,
+            file_store: None,
             codec: UNVERSIONED_CODEC.to_owned(),
             ledger: None,
             grants: GrantSet::empty(),
@@ -253,9 +259,13 @@ impl Host {
     /// report it produces says so. The handle is a clone, so a caller that wants
     /// to inspect the store from a different task reads the same index rather
     /// than opening a second reader over the same file.
+    ///
+    /// `None` too for a host whose store was installed through
+    /// [`HostBuilder::records`]: that store is reached through the trait, and its
+    /// read-only queries are its owner's.
     #[must_use]
     pub fn run_store(&self) -> Option<&store::RunStore> {
-        self.inner.store.as_ref()
+        self.inner.file_store.as_ref()
     }
 
     /// The identity the run's records are already under, or `declared` when this
@@ -270,14 +280,19 @@ impl Host {
         run: RunId,
         declared: &DefinitionIdentity,
     ) -> DefinitionIdentity {
-        match self
-            .inner
-            .store
-            .as_ref()
-            .and_then(|store| store.definition_of(run))
-        {
-            Some(recorded) => recorded,
-            None => declared.clone(),
+        let Some(store) = self.inner.records.as_ref() else {
+            return declared.clone();
+        };
+        match store.recorded_definition(run) {
+            Ok(Some(recorded)) => recorded,
+            Ok(None) => declared.clone(),
+            // Not taken as agreement: every durable step asks the store again
+            // before it replays, and a store that still cannot answer refuses the
+            // step as itself there (INV-BOT-7).
+            Err(unread) => {
+                lgwks_std::trace::warn!(error = %unread, "identity_for: the store could not name the run's recorded identity");
+                declared.clone()
+            }
         }
     }
 
