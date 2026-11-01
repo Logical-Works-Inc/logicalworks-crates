@@ -40,7 +40,7 @@ pub(crate) const MAX_TENANTS: usize = 65_536;
 pub(crate) const MAX_TENANT_BYTES: usize = 64;
 
 /// Whether `tenant` names a tenant: 1..=64 bytes of `[A-Za-z0-9_-]`.
-fn valid_tenant(tenant: &str) -> bool {
+pub(crate) fn valid_tenant(tenant: &str) -> bool {
     !tenant.is_empty()
         && tenant.len() <= MAX_TENANT_BYTES
         && tenant

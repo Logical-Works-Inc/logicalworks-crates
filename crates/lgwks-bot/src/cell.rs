@@ -29,10 +29,12 @@
 //! state carries no codec to write a checkpoint with.
 //!
 //! Effects are data. `apply` returns them and the host hands them to the
-//! [`EffectRunner`] outside the cell. This change ships the reply effect;
-//! fetch, ask and send ride the same sum and runner later, their results
-//! re-entering as messages through the mailbox.
+//! [`EffectRunner`] outside the cell. The world's feed delivers the reply
+//! alone; the app SDK (#791) also serves fetch, ask, send, approval and
+//! timers through its provider, their results re-entering as messages
+//! through the mailbox.
 
+use crate::cap::Cap;
 use core::fmt;
 
 mod host;
@@ -214,12 +216,213 @@ impl std::error::Error for SubmitRefused {}
 /// What a cell returns for the runner to deliver outside the cell.
 ///
 /// A sum type rather than a bare reply so fetch, ask and send ride the same
-/// seam later. This change ships the reply effect only.
-#[derive(Debug)]
+/// seam: every variant after [`Effect::Reply`] carries its `reply_to` tag so
+/// the runner can feed the provider's answer back through the mailbox.
+#[derive(Debug, Clone)]
 #[non_exhaustive]
-pub(crate) enum Effect {
+pub enum Effect {
     /// Answer the waiting submitter with this response.
     Reply(crate::ecs::Response),
+    /// Fetch `url` through the app's provider, under the `net` cap.
+    Fetch {
+        /// Where to fetch, clipped to 1 KiB.
+        url: Box<str>,
+        /// Which `on` handler receives the answer.
+        reply_to: ReplyTag,
+    },
+    /// Ask a model `prompt` through the app's provider, under `app.ask`.
+    Ask {
+        /// The question, clipped to 4 KiB.
+        prompt: Box<str>,
+        /// Which `on` handler receives the answer.
+        reply_to: ReplyTag,
+    },
+    /// Send `body` to `to` through the app's provider, under `notify`.
+    Send {
+        /// The recipient, clipped to 256 bytes.
+        to: Box<str>,
+        /// The payload, cut to 8 KiB.
+        body: Box<[u8]>,
+        /// Which `on` handler receives the receipt.
+        reply_to: ReplyTag,
+    },
+    /// Wait for a human approval through the app's provider, under
+    /// `app.approval`.
+    AwaitApproval {
+        /// What waits, clipped to 4 KiB.
+        what: Box<str>,
+        /// Which `on` handler receives the decision.
+        reply_to: ReplyTag,
+    },
+    /// Wake after `millis` milliseconds, as data the provider schedules.
+    After {
+        /// The named delay, clamped to one hour.
+        millis: u64,
+        /// Which `on` handler receives the wake.
+        reply_to: ReplyTag,
+    },
+}
+
+/// The longest `reply_to` tag an effect may carry, in bytes.
+pub(crate) const MAX_TAG_BYTES: usize = 64;
+
+/// The longest `Fetch::url` an effect may carry, in bytes.
+pub(crate) const MAX_URL_BYTES: usize = 1_024;
+
+/// The longest `Ask` prompt or approval subject, in bytes.
+pub(crate) const MAX_PROMPT_BYTES: usize = 4_096;
+
+/// The longest `Send::to` recipient, in bytes.
+pub(crate) const MAX_SEND_TO_BYTES: usize = 256;
+
+/// The longest `Send::body` payload, in bytes.
+pub(crate) const MAX_SEND_BODY_BYTES: usize = 8_192;
+
+/// The longest `After::millis` delay, in milliseconds.
+pub(crate) const MAX_AFTER_MILLIS: u64 = 3_600_000;
+
+/// The longest prefix of `text` that is at most `ceiling` bytes and ends on a
+/// character boundary.
+pub(crate) fn clip(text: &str, ceiling: usize) -> Box<str> {
+    let mut end = 0;
+    for (at, character) in text.char_indices() {
+        let next = at.saturating_add(character.len_utf8());
+        if next > ceiling {
+            break;
+        }
+        end = next;
+    }
+    match text.get(..end) {
+        Some(kept) => kept.into(),
+        None => Box::default(),
+    }
+}
+
+/// The name of the `on` handler an effect's answer goes to, at most 64 bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ReplyTag(Box<str>);
+
+/// What a provider answered, or the cap whose absence refused the dispatch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum EffectResult {
+    /// The provider's bytes, bounded by the effect that asked.
+    Value(Box<[u8]>),
+    /// The dispatch was refused: the app holds no such cap.
+    Refused(Cap),
+    /// The app's provider does not serve this effect, or failed to.
+    Unavailable,
+}
+
+/// What an `on` handler receives: which tag fired and what it carried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OnInput {
+    /// Which effect answered.
+    tag: ReplyTag,
+    /// The provider's answer or the refusal.
+    result: EffectResult,
+}
+
+impl ReplyTag {
+    /// A tag naming an `on` handler, clipped to 64 bytes.
+    #[must_use]
+    pub fn new(tag: &str) -> Self {
+        Self(clip(tag, MAX_TAG_BYTES))
+    }
+
+    /// The tag text.
+    #[must_use]
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Effect {
+    /// Answer the waiting submitter with `status` and `body`.
+    #[must_use]
+    pub fn reply(status: u16, body: Vec<u8>) -> Self {
+        let mut body = body;
+        body.truncate(crate::rt::edge::MAX_BODY_BYTES);
+        Self::Reply(crate::ecs::Response::new(status, body))
+    }
+
+    /// Which `on` handler this effect answers to, if it answers one.
+    #[must_use]
+    pub(crate) fn reply_to(&self) -> Option<&ReplyTag> {
+        match *self {
+            Self::Reply(_) => None,
+            Self::Fetch { ref reply_to, .. }
+            | Self::Ask { ref reply_to, .. }
+            | Self::Send { ref reply_to, .. }
+            | Self::AwaitApproval { ref reply_to, .. }
+            | Self::After { ref reply_to, .. } => Some(reply_to),
+        }
+    }
+
+    /// The cap the runner must hold to dispatch this effect; `None` needs none.
+    #[must_use]
+    pub(crate) fn required_cap(&self) -> Option<Cap> {
+        match *self {
+            Self::Reply(_) | Self::After { .. } => None,
+            Self::Fetch { .. } => Some(Cap::net()),
+            Self::Ask { .. } => Some(Cap::new("app.ask")),
+            Self::Send { .. } => Some(Cap::notify()),
+            Self::AwaitApproval { .. } => Some(Cap::new("app.approval")),
+        }
+    }
+
+    /// Truncate every bounded field to its ceiling.
+    #[must_use]
+    pub(crate) fn bound(self) -> Self {
+        match self {
+            Self::Reply(response) => Self::Reply(response),
+            Self::Fetch { url, reply_to } => Self::Fetch {
+                url: clip(&url, MAX_URL_BYTES),
+                reply_to,
+            },
+            Self::Ask { prompt, reply_to } => Self::Ask {
+                prompt: clip(&prompt, MAX_PROMPT_BYTES),
+                reply_to,
+            },
+            Self::Send { to, body, reply_to } => {
+                let mut body = body.into_vec();
+                body.truncate(MAX_SEND_BODY_BYTES);
+                Self::Send {
+                    to: clip(&to, MAX_SEND_TO_BYTES),
+                    body: body.into_boxed_slice(),
+                    reply_to,
+                }
+            }
+            Self::AwaitApproval { what, reply_to } => Self::AwaitApproval {
+                what: clip(&what, MAX_PROMPT_BYTES),
+                reply_to,
+            },
+            Self::After { millis, reply_to } => Self::After {
+                millis: millis.min(MAX_AFTER_MILLIS),
+                reply_to,
+            },
+        }
+    }
+}
+
+impl OnInput {
+    /// What an `on` handler receives.
+    #[must_use]
+    pub(crate) fn new(tag: ReplyTag, result: EffectResult) -> Self {
+        Self { tag, result }
+    }
+
+    /// Which effect answered.
+    #[must_use]
+    pub(crate) fn tag(&self) -> &ReplyTag {
+        &self.tag
+    }
+
+    /// The provider's answer or the refusal.
+    #[must_use]
+    pub fn result(&self) -> &EffectResult {
+        &self.result
+    }
 }
 
 /// Delivers a cell's effects outside the cell, after `apply` returned.
@@ -228,35 +431,46 @@ pub(crate) enum Effect {
 /// and the next message, and never for a message replayed in a rebuild, so a
 /// logged message's effects are delivered exactly once.
 pub(crate) trait EffectRunner: Send + Sync {
-    /// Deliver `effects`; the reply they carry, if any.
-    fn run(&self, effects: Vec<Effect>) -> Option<crate::ecs::Response>;
+    /// Deliver `effects` for `tenant`; the reply they carry, if any.
+    fn run(&self, tenant: &str, effects: Vec<Effect>) -> Option<crate::ecs::Response>;
 }
 
-/// The shipped runner: the first [`Effect::Reply`] is the answer.
+/// The first [`Effect::Reply`] among `effects`; every other effect goes to
+/// `other`. A second reply for one message is dropped and logged, and the
+/// first stands.
+pub(crate) fn first_reply(
+    effects: Vec<Effect>,
+    mut other: impl FnMut(Effect),
+) -> Option<crate::ecs::Response> {
+    let mut answer = None;
+    for effect in effects {
+        match effect {
+            Effect::Reply(response) if answer.is_none() => answer = Some(response),
+            Effect::Reply(_) => {
+                lgwks_std::trace::debug!("cell: a second reply effect for one message is dropped");
+            }
+            effect => other(effect),
+        }
+    }
+    answer
+}
+
+/// The world feed's runner: the first [`Effect::Reply`] is the answer.
 ///
 /// A message whose cell returned no reply effect is answered `500` by the
-/// host rather than left hanging; a second reply effect for one message is
-/// dropped and logged, and the first stands.
+/// host rather than left hanging.
 #[derive(Debug, Default)]
 pub(crate) struct ReplyRunner;
 
 impl EffectRunner for ReplyRunner {
-    fn run(&self, effects: Vec<Effect>) -> Option<crate::ecs::Response> {
-        let mut answer = None;
-        for effect in effects {
-            match effect {
-                Effect::Reply(response) => {
-                    if answer.is_some() {
-                        lgwks_std::trace::debug!(
-                            "cell: a second reply effect for one message is dropped"
-                        );
-                        continue;
-                    }
-                    answer = Some(response);
-                }
-            }
-        }
-        answer
+    fn run(&self, tenant: &str, effects: Vec<Effect>) -> Option<crate::ecs::Response> {
+        first_reply(effects, |effect| {
+            lgwks_std::trace::debug!(
+                tenant,
+                ?effect,
+                "cell: the reply-only runner drops an effect"
+            );
+        })
     }
 }
 

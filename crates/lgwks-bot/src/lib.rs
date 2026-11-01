@@ -204,6 +204,8 @@ pub mod domain {
     pub mod notify;
     pub mod sys;
 }
+#[cfg(feature = "edge")]
+pub mod app;
 /// Sequential per-tenant execution cells: the request system's thread-per-core
 /// host, its command logs and its effect seam (issue #790). Private: it is the
 /// implementation behind [`RequestFeed`](crate::ecs::RequestFeed), not a second

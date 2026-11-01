@@ -444,6 +444,7 @@ fn apply_logged<C: Cell>(
 ) -> Response {
     cell.tail_bytes = cell.tail_bytes.saturating_add(C::weight(&message));
     cell.tail.push(message.clone());
+    let tenant_name = C::tenant(&message).to_owned();
     let applied = catch_unwind(AssertUnwindSafe(|| {
         let mut budget = Steps::new(MAX_STEPS_PER_MESSAGE);
         core.cell.apply(&mut cell.state, message, &mut budget)
@@ -451,7 +452,7 @@ fn apply_logged<C: Cell>(
     match applied {
         Ok(Ok(effects)) => {
             core.settled.fetch_add(1, Ordering::Relaxed);
-            let answer = match core.runner.run(effects) {
+            let answer = match core.runner.run(&tenant_name, effects) {
                 Some(response) => response,
                 None => {
                     lgwks_std::trace::debug!("cell: the cell returned no reply effect");
