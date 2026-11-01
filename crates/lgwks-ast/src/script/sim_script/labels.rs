@@ -123,6 +123,13 @@ fn code_labels(code: &Code, out: &mut Vec<String>) {
                     code_labels(value, out);
                 }
             }
+            Fragment::Outside(ref used) => {
+                out.push(used.label().to_owned());
+                code_labels(used.target(), out);
+                if let Some(options) = used.options() {
+                    code_labels(options, out);
+                }
+            }
         }
     }
 }

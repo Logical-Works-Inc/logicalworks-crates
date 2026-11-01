@@ -328,4 +328,10 @@ pub enum StepKind {
     Ready,
     /// `await approval <label> within D:`; the subject is `<label>`.
     Approval,
+    /// `fetch <url> [with (options)]`; the subject is the capability.
+    Fetch,
+    /// `ask <model> with (request)`; the subject is the capability.
+    Ask,
+    /// `send <receiver> with <payload>`; the subject is the capability.
+    Send,
 }

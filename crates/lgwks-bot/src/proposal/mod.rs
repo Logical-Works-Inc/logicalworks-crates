@@ -118,7 +118,7 @@ pub use checkpoint::{
 pub use codec::{Declared, Decoder, Plan, PlanLimits, Wanted, payload_digest};
 pub use completion::{Completion, CompletionKind, CompletionOutcome, Coverage, MAX_EVIDENCE_REFS};
 pub use ledger::{Intervention, LedgerLimits, RepairLedger};
-pub use model::StubModel;
+pub use model::{Shape, StubModel};
 pub use surface::{Operation, Surface, SurfaceBuilder, SurfaceError};
 
 /// The longest a field's *name* may be, in bytes.

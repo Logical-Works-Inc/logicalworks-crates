@@ -110,15 +110,20 @@ mod admit;
 pub(crate) mod approval;
 pub(crate) mod approval_policy;
 pub(crate) mod approval_records;
+pub(crate) mod ask;
+pub(crate) mod ask_decode;
 mod compensate;
 mod control;
 mod domain;
 mod each;
 mod error;
 mod fan_out;
+#[cfg(feature = "net")]
+pub(crate) mod fetch;
 mod graph;
 mod justify;
 mod map;
+mod outside;
 mod policy;
 mod ready;
 // Public under `testing` so `run_store::conformance` has the path a caller's own
@@ -128,6 +133,7 @@ pub mod run_store;
 #[cfg(not(feature = "testing"))]
 pub(crate) mod run_store;
 pub(crate) mod scope;
+mod send;
 mod stream;
 pub(crate) mod trail;
 mod typed;
@@ -149,15 +155,25 @@ pub use approval::{
     DefaultPolicy, EffectDisposition, EffectPolicy, MAX_PENDING_APPROVALS, MAX_PENDING_PER_TENANT,
     PendingApproval, approval, approval_at, with_effect_policy,
 };
+#[doc(hidden)]
+pub use ask::ask_at;
+pub use ask::{AskRequest, ModelOutput, ModelPort, ask};
+pub use ask_decode::{AskDecode, Json};
 pub use compensate::{Compensations, MAX_COMPENSATIONS, compensated, compensated_at};
 pub use control::{at_most, attempts, retry, retry_at, within, within_at, within_on};
 pub use domain::{Acted, DomainUse, act, admit_domains, observe};
 pub use each::{each, each_at};
 pub use error::{FlowError, OptionExt, ResultExt};
 pub use fan_out::{FanOut, FanOutError};
+#[cfg(feature = "net")]
+#[doc(hidden)]
+pub use fetch::fetch_at;
+#[cfg(feature = "net")]
+pub use fetch::{FetchOptions, FetchResponse, PostBody, fetch};
 pub use graph::{GraphNode, GraphReport, MAX_GRAPH_NODES, NodeOutcome, graph, graph_at};
 pub use justify::{Allowance, Decision, Justify, JustifyCtx, Rule, Verdict};
 pub use map::{Architecture, FlowShape, Passthrough, StepKind, StepShape};
+pub use outside::{OutsideWord, admit_outside};
 pub(crate) use policy::Policy;
 pub use ready::{
     FailAfterReady, Generation, MAX_DEPENDANTS, MAX_NAME_BYTES, Readiness, ReadinessError, Ready,
@@ -168,6 +184,9 @@ pub use run_store::{
     Appended, Durable, RunRecords, StagedRecord, StoredValue, remember, remembered_at,
 };
 pub use scope::{Scope, StepKey, Tenant};
+#[doc(hidden)]
+pub use send::send_at;
+pub use send::{SendOutcome, SendPort, send};
 pub use stream::{Overflow, PumpReport, StreamGate, pump, stream_at};
 pub use trail::{Outcome, ScriptTrail, Site, TrailEntry};
 pub use typed::{TypedAction, TypedSource, act_typed, map_domain, observe_typed};

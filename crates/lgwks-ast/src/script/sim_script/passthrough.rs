@@ -4,10 +4,15 @@
 use super::{SCRIPT_BASE, Script, Trace, accepted};
 
 /// Whether a generated line says a word anywhere: `run`, `observe`, `act`,
-/// `give back` or `fail`. The block words are headers, which `opens` marks.
+/// `fetch`, `ask`, `send`, `give back` or `fail`. The block words are headers,
+/// which `opens` marks.
 fn says_a_word(text: &str) -> bool {
-    text.split_whitespace()
-        .any(|token| matches!(token, "run" | "observe" | "act" | "give" | "fail"))
+    text.split_whitespace().any(|token| {
+        matches!(
+            token,
+            "run" | "observe" | "act" | "fetch" | "ask" | "send" | "give" | "fail"
+        )
+    })
 }
 
 /// A line with all whitespace removed: a group that runs onto the next lines

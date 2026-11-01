@@ -85,7 +85,7 @@ struct Exemption {
 /// pattern it exempts.
 const EXEMPT: [Exemption; 1] = [Exemption {
     file: "crates/lgwks-ast/src/script/sim_script.rs",
-    line: 707,
+    line: 719,
     expected: concat!("line: \"let planted = std::thr", "ead::spawn(work)\","),
 }];
 

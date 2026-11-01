@@ -284,6 +284,11 @@ path = "examples/measure_overhead.rs"
 required-features = ["script", "rt", "time", "sync", "process"]
 
 [[example]]
+name = "outside_overhead"
+path = "examples/outside_overhead.rs"
+required-features = ["script", "ephemeral", "time", "net"]
+
+[[example]]
 name = "poll_deadline_cost"
 path = "examples/poll_deadline_cost.rs"
 required-features = ["rt", "ephemeral"]
@@ -331,7 +336,7 @@ required-features = ["edge", "ephemeral"]
 [[bin]]
 name = "estate"
 path = "src/bin/estate.rs"
-required-features = ["script", "ephemeral"]
+required-features = ["script", "ephemeral", "net"]
 
 [[bin]]
 name = "store-conformance"

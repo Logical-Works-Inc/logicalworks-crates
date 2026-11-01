@@ -6,7 +6,9 @@
 //! `script!` alone: the words are read here and nowhere else, and each
 //! expands to one `lgwks_bot::script` call.
 
-use super::{Axis, Form, Guarantee, Kind, Position, Word, form, refused, script_sim_in};
+use super::{
+    Axis, Form, Guarantee, Kind, Position, Word, domain_word, form, refused, script_sim_in,
+};
 
 /// The simulation file for the structured words, whose flows the real macro
 /// expanded.
@@ -360,4 +362,91 @@ pub(super) const APPROVAL: Word = block(
         ),
     ],
     "flow ship(payload: Vec<u8>) -> Vec<u8>:\n    let approved = await approval ship within 30s:\n        payload\n    give back approved.payload().to_vec()\n",
+);
+
+/// The simulation file for `fetch`, `ask` and `send` (#783), whose flows the
+/// real macro expanded.
+const OUTSIDE_SIMS: &str = "crates/lgwks-bot/tests/it/sim_outside.rs";
+
+/// A guarantee proved by a family in [`OUTSIDE_SIMS`].
+const fn outside_sim(axis: Axis, claim: &'static str, test: &'static str) -> Guarantee {
+    script_sim_in(OUTSIDE_SIMS, axis, claim, test)
+}
+
+/// `fetch <url> [with (options)]`.
+pub(super) const FETCH: Word = domain_word(
+    Kind::Fetch,
+    "`fetch_at`",
+    &[
+        form(
+            "`fetch <url> with (options)`",
+            "one HTTP exchange under `options`: deadline, attempt budget and body bound declared in the word",
+        ),
+        form(
+            "`fetch <url>`",
+            "the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry`",
+        ),
+    ],
+    &["a `fetch` with no URL"],
+    &[
+        outside_sim(
+            Axis::Hyperscale,
+            "attempts share one budget per run and tenant, and an oversize body is refused while it streams",
+            "fetch_attempts_share_one_budget_and_sizes_refuse_while_streaming",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "a `fetch` with no URL is refused at the word, naming the form",
+            "fetch with no url",
+        ),
+    ],
+    "flow call(url: &str) -> u16:\n    let answered = fetch url with (lgwks_bot::script::FetchOptions::default())\n    give back answered.status()\n",
+);
+
+/// `ask <model> with (request)`.
+pub(super) const ASK: Word = domain_word(
+    Kind::Ask,
+    "`ask_at`",
+    &[form(
+        "`ask <model> with (request)`",
+        "one model call under `request`: token budget and deadline, decoded into the declared type",
+    )],
+    &["an `ask` with no `with (request)`"],
+    &[
+        outside_sim(
+            Axis::Decoupled,
+            "a truncated or undecodable output is refused typed, never decoded into a claim",
+            "ask_truncation_refuses_typed_on_every_seed",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "an `ask` with no request is refused at the word, naming the form",
+            "ask with no request",
+        ),
+    ],
+    "flow draft(model: &lgwks_bot::proposal::StubModel) -> String:\n    let reply: String = ask model with (lgwks_bot::script::AskRequest::default())\n    give back reply\n",
+);
+
+/// `send <receiver> with <payload>`.
+pub(super) const SEND: Word = domain_word(
+    Kind::Send,
+    "`send_at`",
+    &[form(
+        "`send <receiver> with <payload>`",
+        "one outbound effect through `receiver`: intent first, dispatched once, settled from evidence",
+    )],
+    &["a `send` with no `with <payload>`"],
+    &[
+        outside_sim(
+            Axis::Ephemeral,
+            "the intent is durable before dispatch, the unknown stays unknown, and nothing dispatches twice",
+            "send_dispatches_once_and_unknown_stays_unknown",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "a `send` with no payload is refused at the word, naming the form",
+            "send with no payload",
+        ),
+    ],
+    "flow mail(mailer: &StubMailer, payload: Vec<u8>) -> lgwks_bot::script::SendOutcome:\n    let outcome = send mailer with (payload)\n    give back outcome\n",
 );

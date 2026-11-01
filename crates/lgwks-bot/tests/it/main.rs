@@ -127,6 +127,15 @@ mod memory_records;
 #[path = "../support/tenancy_harness.rs"]
 mod tenancy_harness;
 
+#[cfg(all(
+    feature = "script",
+    feature = "ephemeral",
+    feature = "time",
+    feature = "net"
+))]
+#[path = "../support/outside.rs"]
+mod outside_support;
+
 #[path = "../sim/mod.rs"]
 mod sim;
 
@@ -220,6 +229,13 @@ mod no_default;
 mod observe_refresh;
 #[cfg(feature = "wire")]
 mod orphan_reap;
+#[cfg(all(
+    feature = "script",
+    feature = "ephemeral",
+    feature = "time",
+    feature = "net"
+))]
+mod outside;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod owner_epoch_takeover;
 mod pr_review_journey;
@@ -312,6 +328,20 @@ mod sim_language;
 mod sim_network;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod sim_observe_refresh;
+#[cfg(all(
+    feature = "script",
+    feature = "ephemeral",
+    feature = "time",
+    feature = "net"
+))]
+mod sim_outside;
+#[cfg(all(
+    feature = "script",
+    feature = "ephemeral",
+    feature = "time",
+    feature = "net"
+))]
+mod sim_outside_bounds;
 mod sim_permit_release;
 mod sim_process;
 mod sim_process_env;

@@ -20,3 +20,52 @@ flow ship(payload: Vec<u8>) -> Vec<u8>:
         payload
     give back approved.payload().to_vec()
 ```
+
+## `fetch`
+
+Stands inside a line of Rust. Calls `fetch_at`.
+
+- `fetch <url> with (options)` — one HTTP exchange under `options`: deadline, attempt budget and body bound declared in the word
+- `fetch <url>` — the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry`
+
+Refuses: a `fetch` with no URL.
+
+Guarantees: attempts share one budget per run and tenant, and an oversize body is refused while it streams (hyperscale); a `fetch` with no URL is refused at the word, naming the form (idiomatic).
+
+```text
+flow call(url: &str) -> u16:
+    let answered = fetch url with (lgwks_bot::script::FetchOptions::default())
+    give back answered.status()
+```
+
+## `ask`
+
+Stands inside a line of Rust. Calls `ask_at`.
+
+- `ask <model> with (request)` — one model call under `request`: token budget and deadline, decoded into the declared type
+
+Refuses: an `ask` with no `with (request)`.
+
+Guarantees: a truncated or undecodable output is refused typed, never decoded into a claim (decoupled); an `ask` with no request is refused at the word, naming the form (idiomatic).
+
+```text
+flow draft(model: &lgwks_bot::proposal::StubModel) -> String:
+    let reply: String = ask model with (lgwks_bot::script::AskRequest::default())
+    give back reply
+```
+
+## `send`
+
+Stands inside a line of Rust. Calls `send_at`.
+
+- `send <receiver> with <payload>` — one outbound effect through `receiver`: intent first, dispatched once, settled from evidence
+
+Refuses: a `send` with no `with <payload>`.
+
+Guarantees: the intent is durable before dispatch, the unknown stays unknown, and nothing dispatches twice (ephemeral); a `send` with no payload is refused at the word, naming the form (idiomatic).
+
+```text
+flow mail(mailer: &StubMailer, payload: Vec<u8>) -> lgwks_bot::script::SendOutcome:
+    let outcome = send mailer with (payload)
+    give back outcome
+```

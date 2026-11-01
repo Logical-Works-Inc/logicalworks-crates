@@ -29,7 +29,7 @@ pub(crate) fn expand(source: &str) -> Result<String, String> {
 ///
 /// A word's guarantee may cite a case here by its name (`lexicon::Evidence`),
 /// which is why the table is visible to the crate.
-pub(crate) const REFUSALS: [(&str, &str, &str); 48] = [
+pub(crate) const REFUSALS: [(&str, &str, &str); 51] = [
     (
         "unwrap by path",
         "flow f(x: Option<u8>):\n    let n = Option::unwrap(x)\n",
@@ -271,6 +271,21 @@ pub(crate) const REFUSALS: [(&str, &str, &str); 48] = [
         "flow f(n: u16):\n    act notify::page on \"oncall\"\n",
         "`act <domain::id> on <target> with <value>`",
     ),
+    (
+        "fetch with no url",
+        "flow f(o: &Opts):\n    fetch with (o)\n",
+        "what the word reaches comes first",
+    ),
+    (
+        "ask with no request",
+        "flow f(m: &Model):\n    ask m\n",
+        "the request the word runs on follows `with`",
+    ),
+    (
+        "send with no payload",
+        "flow f(r: &Mailer):\n    send r\n",
+        "the request the word runs on follows `with`",
+    ),
 ];
 
 #[test]
@@ -474,29 +489,69 @@ fn the_structured_words_expand_to_their_runtime_calls() -> Result<(), String> {
                   \x20   let rows = ready pool from (db) within 2s:\n\
                   \x20       pool.awaited().len()\n\
                   \x20   give back report.succeeded().len()\n";
+    expands_to(
+        source,
+        &[
+            ":: lgwks_bot :: script :: graph_at",
+            "GraphNode :: new (\"test\" , & [\"build\"]",
+            ":: lgwks_bot :: script :: compensated_at",
+            "lgwks_script_compensations . add (\"charge\"",
+            ":: lgwks_bot :: script :: stream_at",
+            "Overflow :: DropNewest",
+            "with_justification",
+            "StepKind :: Graph",
+            "StepKind :: Node",
+            "StepKind :: Saga",
+            "StepKind :: Compensate",
+            "StepKind :: Whenever",
+            "StepKind :: Justify",
+            ":: lgwks_bot :: script :: remembered_at",
+            ":: lgwks_bot :: script :: admit_at",
+            "Source :: ToolOutput",
+            ". wait (scope , :: core :: time :: Duration :: from_nanos (2000000000))",
+            "StepKind :: Remember",
+            "StepKind :: Admit",
+            "StepKind :: Ready",
+        ],
+    )
+}
+
+/// Each outside word expands to its one runtime call, its map entry and its
+/// trail site, and the whole expansion is still Rust.
+#[test]
+fn the_outside_words_expand_to_their_runtime_calls() -> Result<(), String> {
+    let source = "flow calls(url: &str, model: &Model, mailer: &Mailer) -> u16:\n\
+                  \x20   let answered = fetch url with (opts)\n\
+                  \x20   let bare = fetch url\n\
+                  \x20   let reply: String = ask model with (request)\n\
+                  \x20   let outcome = send mailer with (payload)\n\
+                  \x20   give back answered.status()\n";
+    expands_to(
+        source,
+        &[
+            ":: lgwks_bot :: script :: fetch_at",
+            ":: lgwks_bot :: script :: FetchOptions :: default ()",
+            ":: lgwks_bot :: script :: ask_at",
+            ":: lgwks_bot :: script :: send_at",
+            ":: lgwks_bot :: script :: admit_outside",
+            "OutsideWord :: Fetch",
+            "OutsideWord :: Ask",
+            "OutsideWord :: Send",
+            "StepKind :: Fetch",
+            "StepKind :: Ask",
+            "StepKind :: Send",
+            "\"bot.net\"",
+            "\"bot.model\"",
+            "\"bot.notify\"",
+        ],
+    )
+}
+
+/// Expand `source` and check that the expansion carries every fragment and is
+/// still Rust.
+fn expands_to(source: &str, fragments: &[&str]) -> Result<(), String> {
     let expanded = expand(source)?;
-    for fragment in [
-        ":: lgwks_bot :: script :: graph_at",
-        "GraphNode :: new (\"test\" , & [\"build\"]",
-        ":: lgwks_bot :: script :: compensated_at",
-        "lgwks_script_compensations . add (\"charge\"",
-        ":: lgwks_bot :: script :: stream_at",
-        "Overflow :: DropNewest",
-        "with_justification",
-        "StepKind :: Graph",
-        "StepKind :: Node",
-        "StepKind :: Saga",
-        "StepKind :: Compensate",
-        "StepKind :: Whenever",
-        "StepKind :: Justify",
-        ":: lgwks_bot :: script :: remembered_at",
-        ":: lgwks_bot :: script :: admit_at",
-        "Source :: ToolOutput",
-        ". wait (scope , :: core :: time :: Duration :: from_nanos (2000000000))",
-        "StepKind :: Remember",
-        "StepKind :: Admit",
-        "StepKind :: Ready",
-    ] {
+    for fragment in fragments {
         assert!(
             expanded.contains(fragment),
             "missing {fragment:?} in {expanded}"
