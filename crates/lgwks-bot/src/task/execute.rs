@@ -17,7 +17,8 @@ use super::admit::{Declined, RunAuthority, Terminal, TrailSnapshot, disposition_
 use super::host::Plan;
 use super::name::TaskName;
 use super::{
-    BODY_STEP, Control, Disposition, HELD_PERMITS, Host, RepairTicket, Report, StoreError, Task,
+    BODY_STEP, Control, DefinitionIdentity, Disposition, HELD_PERMITS, Host, RepairTicket, Report,
+    StoreError, Task,
 };
 
 impl Host {
@@ -126,7 +127,7 @@ impl Host {
         // against it would agree by construction and fence nothing.
         if let (Some(run), Some(store), Some(declared)) =
             (resume, self.inner.records.as_ref(), declared.as_ref())
-            && let Err(error) = store.agrees(run, declared)
+            && let Err(error) = admits_definition(store, run, declared)
         {
             // Every refusal is refused; only the *kind* differs, and the kind is
             // the store's own. A drift is the flow's typed `Incompatible` carrying
@@ -649,5 +650,36 @@ pub(super) fn ticket_epoch(control: Option<Control>) -> u64 {
     match control {
         Some(control) => control.epoch(),
         None => 0,
+    }
+}
+
+/// Whether `declared` may resume `run`, judged against the definition the run's
+/// records were first written under.
+///
+/// The host's pre-flight reads the recorded definition rather than making a step
+/// read: a step read is the durable step's own question, and a fault on it must
+/// reach the step that asked, as the store's failure (INV-BOT-59), not be
+/// spent here and reported as a refusal of the whole run. A run the store has
+/// never seen is not refused; its first step writes the identity.
+///
+/// # Errors
+///
+/// [`FlowError::Incompatible`] naming the drift's axis, or whatever the store
+/// reports when it cannot name the recorded definition.
+fn admits_definition(
+    store: &Records,
+    run: RunId,
+    declared: &DefinitionIdentity,
+) -> Result<(), FlowError> {
+    let Some(recorded) = store.recorded_definition(run)? else {
+        return Ok(());
+    };
+    match declared.drift_from(&recorded) {
+        None => Ok(()),
+        Some(drift) => {
+            let refusal = Err(FlowError::incompatible("", drift));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admits_definition: returning an error to the caller");
+            refusal
+        }
     }
 }
