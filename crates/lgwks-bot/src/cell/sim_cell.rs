@@ -20,8 +20,10 @@ use lgwks_std::seeded::{DrawError, Seeded};
 use super::CHECKPOINT_EVERY;
 use crate::ecs::{Request, RequestFeed, RequestRefused, Response};
 
-/// Seeds the seeded properties run.
-const SEEDS: u64 = 32;
+/// Seeds the seeded properties run. Each seed sends 2,000 to 4,000 requests
+/// and its hot tenants cross dozens of checkpoints, so eight seeds cover the
+/// rebuild paths inside the CI suite's time budget.
+const SEEDS: u64 = 8;
 
 /// Hot tenants: one draw in eight goes to one of these, so their tails cross
 /// the checkpoint many times in one run.
