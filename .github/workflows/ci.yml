@@ -593,9 +593,8 @@ jobs:
       - name: Run lgwks-bot no-default-feature tests
         run: cargo nextest run -p lgwks_bot --all-targets --locked --no-default-features ${PARTITION:+--partition $PARTITION}
 
-  # The Linux leg. Every other job runs on the self-hosted macOS runner, so the
-  # Linux-only paths (`/proc` child lists, the Linux reap) execute here, in a
-  # container on the same machine, with the same cargo configuration. The
+  # The Linux leg. The macOS suites run on the self-hosted runner, so the
+  # Linux-only paths (`/proc` child lists, the Linux reap) execute here. The
   # workspace suite and the two §4.7 target cells are one job; the lgwks-bot
   # full suite is the other, each with its own target volume. The AppCUI
   # storefront rode the bot-full leg until run 39503601863: its three commands
@@ -608,60 +607,61 @@ jobs:
   # by exactly one job.
   tests_linux:
     name: Tests (Linux container)
-    # Each suite on its own instance, whose container target volume keeps the
-    # Linux build across runs: 175 s and 195 s on run 38365526454. A hosted
-    # Linux runner restores a cache without the workspace crates and compiled
-    # lgwks_std, lgwks_deps and lgwks_bot for over three minutes before the
-    # first test (run 38401426445).
+    # A hosted arm64 Linux runner, free for this public repository. On the Mac
+    # the leg ran in an OrbStack VM that shared the machine's cores with every
+    # other instance, and it failed outright whenever the engine was down (run
+    # 41296219222: `Cannot connect to the Docker daemon`, both suites, 16 s in).
+    # Here the job itself runs in the same image the tool built (Debian trixie,
+    # whose util-linux 2.41 `setpriv` applies the Landlock rules
+    # `Confinement::Landlock` wraps, #337; Ubuntu 24.04 ships 2.39), so the
+    # tool sees a Linux host and runs the suites directly (`main.rs`).
+    #
+    # A hosted runner restores dependencies from the cache but recompiles the
+    # workspace crates, whose sources the checkout stamps newer than any cached
+    # output: over three minutes before the first test (run 38401426445).
+    # sccache's GitHub cache backend keys a compile by its inputs' content, not
+    # their mtimes, so an unchanged workspace crate is a cache read.
     #
     # `targets workspace` adds the two cells #642 closes: `lgwks_std --features
-    # full` and `lgwks_ast` for `aarch64-unknown-linux-gnu`. The container is
-    # arm64, so its own C compiler targets that triple, which the macOS host's
-    # `target-matrix` lane cannot reach. They run first, in the workspace leg's
-    # container, sharing its `/target` with the suite that follows.
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.suite == 'targets workspace' && 'lwc-8' || 'lwc-9' }}"]
+    # full` and `lgwks_ast` for `aarch64-unknown-linux-gnu`, the runner's own
+    # triple, which the macOS host's `target-matrix` lane cannot reach.
+    runs-on: ubuntu-24.04-arm
+    container: rust:1.99.1-trixie
     timeout-minutes: 5
     env:
-      # The tool is built on the host: lints run once, in the Clippy job.
+      # Lints run once, in the Clippy job.
       RUSTC_WORKSPACE_WRAPPER: ""
+      CARGO_INCREMENTAL: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      NEXTEST_TEST_THREADS: "4"
     strategy:
       fail-fast: false
       matrix:
         suite: [targets workspace, bot-full]
     steps:
       - uses: actions/checkout@v7
+      - name: Install lld and sqlite3, as the tool's derived image does
+        # The acceptance-receipt binary holds its receipts through the sqlite3
+        # program (run 38404124109).
+        run: apt-get update -qq && apt-get install -y -qq lld sqlite3
       - name: Pin Rust 1.99.0
-        uses: ./.github/actions/local-rust
+        run: |
+          rustup default "1.99.1"
+          rustup component add clippy
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
         with:
-          toolchain: "1.99.1"
-          nextest: "true"
-          # 254 s for the bot-full leg on run 39021102172: 46 s inside the cap,
-          # so it yielded 15 s. On a loaded host that margin is gone: the
-          # bot-full leg's suite ended inside the cap and the job still lost it
-          # in teardown, by 5 s, 14 s and 7 s (runs 39241327366, 39242679913,
-          # 39245570492). The job timer runs from job start, so the delay counts
-          # against the cap; it yields nothing now.
-          defer: "0"
-          # The tests run in the container, whose /tmp is its own tmpfs and
-          # whose only host mount of files is the checkout (`plan.rs`), so the
-          # host RAM disk this input makes held nothing the leg read: 13 s of
-          # the 288 s on run 39252665926, and the same four `diskutil` calls
-          # every job makes at one second (#272).
-          tmp-gib: "0"
-          # `NEXTEST_TEST_THREADS` reaches the container, and the leg ran at
-          # two: 185 s for 5,015 tests on run 39252665926, and the leg was
-          # cancelled at the cap on runs 39250803813, 39251780293 and
-          # 39253542698 with its suite still running. Four, against the nine
-          # the macOS bot-full suite is green at.
-          test-share: "4"
-      # The container image is Debian trixie, whose util-linux 2.41 `setpriv`
-      # applies the Landlock rules `Confinement::Landlock` wraps (#337);
-      # bookworm's 2.38 cannot, and the Landlock simulations failed there with
-      # `Unsupported` (run 38455031363). The tool builds the derived image with
-      # lld and sqlite3 itself (the acceptance-receipt binary holds its receipts
-      # through the sqlite3 program, run 38404124109). `lgwks_deps` has no default
-      # feature since the scan moved to `lgwks_ast` (#408); the flag is kept so
-      # the command stays the text `scripts/gate-lanes.toml` holds.
+          save-if: "true"
+          cache-on-failure: "true"
+          key: linux-${{ matrix.suite }}
+      - name: Compile cache for the workspace crates
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: nextest is installed
+        uses: taiki-e/install-action@nextest
+      # `lgwks_deps` has no default feature since the scan moved to `lgwks_ast`
+      # (#408); the flag is kept so the command stays the text
+      # `scripts/gate-lanes.toml` holds.
       - name: Run the workspace and lgwks-bot full suites on Linux
         run: cargo run --locked -p lgwks_deps --no-default-features --bin linux-container-tests -- ${{ matrix.suite }}
       # The Linux receipt (#271): the bot-full suite's JUnit, under a name the
@@ -1035,44 +1035,44 @@ jobs:
   # the bot matrix 2 m 02 s, the AST matrix cut off at 24 s).
   feature-matrix-bot-ast:
     name: Feature matrix (${{ matrix.part }})
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.instance }}"]
+    # Hosted arm64 Linux, free for this public repository. Every leg checks or
+    # runs portable code, and docs.rs itself builds on Linux, so the docs.rs
+    # leg now reads the platform it predicts. The five legs held five of the
+    # Mac's instances beside the suites; here they take none, and each leg's
+    # cache is keyed by its part, so a leg restores the build it saved.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
+    env:
+      CARGO_INCREMENTAL: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
     strategy:
       fail-fast: false
       matrix:
         include:
           - part: docs.rs
-            instance: lwc-11
-          # On the instance whose target holds lgwks-bot's graph: the leg on
-          # lwc-10 spent 5 m 33 s compiling four feature resolutions on a cold
-          # target and was cancelled at the cap (run 39837239411), where the same
-          # leg reads 1 m 19 s warm. Two resolutions per leg now, so a cold target
-          # pays half the work: the no-default and default builds here, the
-          # feature subsets and all-features on the leg below.
-          #
-          # Not on lwc-5: the bot-full slice is pinned there, and which of the
-          # two the runner took first was chance. Run 40311162932 ran the slice
-          # first; run 40318318318 ran this leg first, 11:52:48-11:54:18, and the
-          # slice, wave one's critical link, started 97 s into the run. lwc-11
-          # holds the docs.rs leg and the ml storefront leg, done by 1 m 40 s on
-          # run 40311162932, so this leg ends inside wave two either way.
+          # Two resolutions per leg: a leg that compiled four on a cold target
+          # spent 5 m 33 s and was cancelled at the cap (run 39837239411), so
+          # the no-default and default builds are here, the feature subsets and
+          # all-features on the leg below.
           - part: lgwks-bot
-            instance: lwc-11
           - part: lgwks-bot all
-            instance: lwc-10
           - part: lgwks-ast
-            instance: lwc-12
           - part: lgwks-bot WASI
-            instance: lwc-13
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.0
-        uses: ./.github/actions/local-rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
-          build-share: "2"
-          # Only the lgwks-ast leg runs tests; the others only check.
-          tmp-gib: ${{ matrix.part == 'lgwks-ast' && '4' || '0' }}
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: "true"
+          cache-on-failure: "true"
+          key: feature-${{ matrix.part }}
+      - name: Compile cache for the workspace crates
+        uses: mozilla-actions/sccache-action@v0.0.9
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
         # docs.rs builds with whatever `[package.metadata.docs.rs]` declares,
@@ -1161,9 +1161,8 @@ jobs:
     # The mac leg rides the Linux-workspace instance, not the bot-full one: both
     # legs used to share lwc-5 with the bot-full suite, so the suite started two
     # minutes late behind a 123 s leg and the instance's wall was their sum.
-    # lwc-8's own job is the 158 s Linux workspace suite in a container with its
-    # own target volume, so this leg queues behind that and the instance stays
-    # under the budget once warm.
+    # lwc-8 held the Linux workspace suite until that leg moved to a hosted
+    # runner, so this leg now has the instance to itself.
     runs-on: [self-hosted, macOS, ARM64, lwc, lwc-8]
     timeout-minutes: 5
     steps:
