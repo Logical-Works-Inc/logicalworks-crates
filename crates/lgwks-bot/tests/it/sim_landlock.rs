@@ -301,7 +301,7 @@ fn grants_case(sim: &mut sim::Sim) -> TestResult {
     let granted: Vec<bool> = (0..8).map(|_| sim.rng().below(2) == 0).collect();
     let work = tree.work("work")?;
     let runtime = Runtime::new()?;
-    let reads = runtime.block_on(confined_reads(tree.dirs.clone(), work, granted.clone()))?;
+    let reads = runtime.block_on(confined_reads(tree.dirs, work, granted.clone()))?;
     assert_eq!(reads.len(), granted.len(), "one line per directory");
     for (index, (&grant, &(direct, grandchild))) in granted.iter().zip(&reads).enumerate() {
         assert_eq!(

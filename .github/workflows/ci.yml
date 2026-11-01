@@ -663,6 +663,10 @@ jobs:
       # (#408); the flag is kept so the command stays the text
       # `scripts/gate-lanes.toml` holds.
       - name: Run the workspace and lgwks-bot full suites on Linux
+        # Stops before the job limit so the cache is saved: cut by the job's own
+        # cap, cargo was still writing `target/debug/deps` while the cache step
+        # archived it, and the save failed (run 41296957496).
+        timeout-minutes: 4
         run: cargo run --locked -p lgwks_deps --no-default-features --bin linux-container-tests -- ${{ matrix.suite }}
       # The Linux receipt (#271): the bot-full suite's JUnit, under a name the
       # macOS shards' `lgwks-bot-junit-*` download pattern does not match, so
@@ -1082,6 +1086,13 @@ jobs:
         # what happened to lgwks_deps: `gpui` pulls `objc2`, which refuses to
         # compile off Apple targets. Build with the declared set so an
         # unbuildable declaration fails here instead of on docs.rs.
+        #
+        # The lane builds with a nightly toolchain that carries no clippy, and
+        # `.cargo/config.toml` routes workspace compiles through clippy-driver
+        # (run 41296957496: `'clippy-driver' is not installed for the toolchain
+        # 'nightly-aarch64-unknown-linux-gnu'`). The check legs keep the lints.
+        env:
+          RUSTC_WORKSPACE_WRAPPER: ""
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane docsrs-metadata
       - name: Check lgwks-bot async feature matrix
         if: matrix.part == 'lgwks-bot'
