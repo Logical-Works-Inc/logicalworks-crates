@@ -1306,11 +1306,13 @@ jobs:
     name: Clippy and scan
     needs: clippy
     if: ${{ always() }}
-    # A row of two shell commands, on this machine's runner: the legs it reads
-    # run on `main`, where a pull request's five-minute budget is not at stake,
-    # and a pull request reports this required name as a pass when the legs are
-    # skipped, which is the posture the hosted legs were moved to.
-    runs-on: [self-hosted, macOS, ARM64, lwc]
+    # A row of two shell commands, on a hosted runner: the legs it reads run on
+    # `main`, where a pull request's five-minute budget is not at stake, and a
+    # pull request reports this required name as a pass when the legs are
+    # skipped, which is the posture the hosted legs were moved to. Hosted runners
+    # cost a public repository nothing, so a row that compiles nothing leaves the
+    # thirteen `lwc` instances on this machine to the jobs that do.
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Every clippy leg passed

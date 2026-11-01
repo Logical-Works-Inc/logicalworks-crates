@@ -4,12 +4,16 @@
 //! ```text
 //! edge-load world            serve the world's edge until stdin closes
 //! edge-load axum             serve plain axum with a locked map until stdin closes
+//! edge-load app              serve the counter as an app SDK app until stdin closes
+//! edge-load app-ask          the app counter with one provider ask per post
+//! edge-load plan FILE        serve a model-written plan through App::from_plan
 //! edge-load hit ADDR CONNS REQUESTS TENANTS
 //! ```
 //!
-//! Both servers answer `POST /t/{tenant}/count` with the tenant's count after
+//! Every counter answers `POST /t/{tenant}/count` with the tenant's count after
 //! adding one, and `GET` with the count as it stands, so a tenant's answers are
-//! its own sequence whichever server holds them. Each prints `listening ADDR` on
+//! its own sequence whichever server holds them; a plan answers its fixed
+//! status and body. Each prints `listening ADDR` on
 //! its first stdout line. The client opens `CONNS` keep-alive connections, each
 //! sending `REQUESTS` posts round-robin over `TENANTS` tenants, times every
 //! request from its first byte written to its last byte read, and prints one
@@ -29,6 +33,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
+use lgwks_bot::app::{App, Effect, EffectResult, Method as AppMethod, OnInput, Provider, ReplyTag};
 use lgwks_bot::rt::edge::{EdgeError, EdgeStop, MAX_BODY_BYTES, serve};
 use lgwks_bot::rt::io::{AsyncReadExt, AsyncWriteExt};
 use lgwks_bot::rt::net::TcpStream;
@@ -69,7 +74,9 @@ impl fmt::Display for LoadError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Usage => {
-                f.write_str("usage: edge-load world | axum | hit ADDR CONNS REQUESTS TENANTS")
+                f.write_str(
+                    "usage: edge-load world | axum | app | app-ask | plan FILE | hit ADDR CONNS REQUESTS TENANTS",
+                )
             }
             Self::Io(ref cause) => write!(f, "i/o: {cause}"),
             Self::Edge(ref cause) => write!(f, "edge: {cause}"),
@@ -99,9 +106,128 @@ fn main() -> Result<(), LoadError> {
     match *words.as_slice() {
         ["world"] => world(),
         ["axum"] => plain_axum(),
+        ["app"] => app(),
+        ["app-ask"] => app_ask(),
+        ["plan", path] => plan(path),
         ["hit", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants),
         _ => refused(LoadError::Usage),
     }
+}
+
+/// The counter as an app SDK app: the same cell host as the world's edge,
+/// with the route table, typed body and effect runner in front of it. A body
+/// on a count does not decode as `()` and is answered `400`.
+fn app() -> Result<(), LoadError> {
+    let counter =
+        |count: &mut u64, (): ()| vec![Effect::reply(200, count.to_string().into_bytes())];
+    serve_app(
+        App::new("edge-load")
+            .state::<u64>()
+            .route(AppMethod::POST, "/count", move |count: &mut u64, (): ()| {
+                *count = count.saturating_add(1);
+                counter(count, ())
+            })
+            .route(AppMethod::GET, "/count", counter),
+    )
+}
+
+/// Answers every ask with the asking tenant's name, so the round trip
+/// through the provider and back into the tenant's mailbox is what is timed.
+struct EchoTenant;
+
+impl Provider for EchoTenant {
+    fn dispatch(&self, tenant: &str, effect: &Effect) -> Option<Vec<u8>> {
+        match *effect {
+            Effect::Ask { .. } => Some(tenant.as_bytes().to_vec()),
+            _ => None,
+        }
+    }
+}
+
+/// One tenant's counts in `app-ask`: posts, and the asks answered back.
+#[derive(Debug, Clone, Default)]
+struct Asked {
+    /// Posts counted.
+    posts: u64,
+    /// Ask answers the `on` handler folded.
+    answers: u64,
+}
+
+/// The counter with one effect per post: each post asks the provider, whose
+/// answer re-enters the tenant's mailbox and is folded by the `asked` handler.
+/// `GET` answers `posts/answers`; the record line prints neither, the client
+/// times the posts.
+fn app_ask() -> Result<(), LoadError> {
+    serve_app(
+        App::new("edge-load-ask")
+            .state::<Asked>()
+            .grant(Cap::new("app.ask"))
+            .provider(EchoTenant)
+            .route(AppMethod::POST, "/count", |asked: &mut Asked, (): ()| {
+                asked.posts = asked.posts.saturating_add(1);
+                vec![
+                    Effect::reply(200, asked.posts.to_string().into_bytes()),
+                    Effect::Ask {
+                        prompt: "count".into(),
+                        reply_to: ReplyTag::new("asked"),
+                    },
+                ]
+            })
+            .route(AppMethod::GET, "/count", |asked: &mut Asked, (): ()| {
+                let page = format!("{}/{}", asked.posts, asked.answers);
+                vec![Effect::reply(200, page.into_bytes())]
+            })
+            .on(
+                ReplyTag::new("asked"),
+                |asked: &mut Asked, input: &OnInput| {
+                    if let EffectResult::Value(_) = *input.result() {
+                        asked.answers = asked.answers.saturating_add(1);
+                    }
+                    Vec::new()
+                },
+            ),
+    )
+}
+
+/// A plan a model wrote, read from `path` and served through the same check.
+fn plan(path: &str) -> Result<(), LoadError> {
+    // One byte past the 64 KiB plan ceiling, so an oversized file is refused
+    // by `from_plan` with its typed error instead of read whole.
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(std::fs::File::open(path)?, 64 * 1_024 + 1),
+        &mut bytes,
+    )?;
+    match App::<()>::from_plan(&bytes) {
+        Ok(app) => serve_app(app),
+        Err(cause) => refused(LoadError::World(cause.to_string())),
+    }
+}
+
+/// Serve `app` on a fresh loopback port until stdin closes.
+fn serve_app<S: Clone + Default + Send + 'static>(app: App<S>) -> Result<(), LoadError> {
+    let listener = listen()?;
+    let stop = EdgeStop::new();
+    let watcher = stop.clone();
+    until_stdin_then(
+        move || watcher.stop(),
+        || {
+            app.serve(listener, &stop)
+                .map_err(|cause| LoadError::World(cause.to_string()))
+        },
+    )
+}
+
+/// Run `serve` on this thread while a scoped thread waits for stdin to close
+/// and then calls `cancel`; what `serve` returned.
+fn until_stdin_then<T>(cancel: impl FnOnce() + Send, serve: impl FnOnce() -> T) -> T {
+    std::thread::scope(|scope| {
+        scope.spawn(move || {
+            until_stdin_closes();
+            cancel();
+        });
+        serve()
+    })
 }
 
 /// Bind a loopback port and announce it on stdout.
@@ -217,14 +343,11 @@ fn world() -> Result<(), LoadError> {
         return refused(LoadError::World(String::from("the feed was set twice")));
     }
     let stop = EdgeStop::new();
-    std::thread::scope(|scope| {
-        let watcher = stop.clone();
-        scope.spawn(move || {
-            until_stdin_closes();
-            watcher.stop();
-        });
-        serve(&mut bot, &feed, listener, &stop).map_err(LoadError::Edge)
-    })?;
+    let watcher = stop.clone();
+    until_stdin_then(
+        move || watcher.stop(),
+        || serve(&mut bot, &feed, listener, &stop).map_err(LoadError::Edge),
+    )?;
     // The world's own record, so a run can be checked against what the client sent.
     let counts = feed.counts();
     let mut out = std::io::stdout().lock();
@@ -263,20 +386,19 @@ fn plain_axum() -> Result<(), LoadError> {
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(counts);
     let stop = CancellationToken::new();
-    std::thread::scope(|scope| {
-        let watcher = stop.clone();
-        scope.spawn(move || {
-            until_stdin_closes();
-            watcher.cancel();
-        });
-        lgwks_bot::block_on(async move {
-            let listener = lgwks_bot::rt::net::TcpListener::from_std(listener)?;
-            lgwks_deps::axum::serve(listener, router)
-                .with_graceful_shutdown(stop.cancelled_owned())
-                .await
-        })
-        .map_err(LoadError::Io)
-    })
+    let watcher = stop.clone();
+    until_stdin_then(
+        move || watcher.cancel(),
+        || {
+            lgwks_bot::block_on(async move {
+                let listener = lgwks_bot::rt::net::TcpListener::from_std(listener)?;
+                lgwks_deps::axum::serve(listener, router)
+                    .with_graceful_shutdown(stop.cancelled_owned())
+                    .await
+            })
+            .map_err(LoadError::Io)
+        },
+    )
 }
 
 /// `POST` adds one to the tenant's count and answers it; `GET` answers it as

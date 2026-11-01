@@ -148,6 +148,8 @@ fn probe_test(module: &str, test: &str) -> String {
 
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod ambiguous_commit;
+#[cfg(all(feature = "edge", feature = "ephemeral"))]
+mod app;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod authority;
 #[cfg(all(feature = "ecs", feature = "wire"))]

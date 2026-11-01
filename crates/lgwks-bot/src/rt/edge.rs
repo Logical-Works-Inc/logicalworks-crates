@@ -98,6 +98,11 @@ impl EdgeStop {
     pub fn stop(&self) {
         self.token.cancel();
     }
+
+    /// The token the signal cancels, for another server on the same driver.
+    pub(crate) fn token(&self) -> &CancellationToken {
+        &self.token
+    }
 }
 
 /// Serve `listener` into `world`'s request system `feed` until `stop` is
@@ -183,34 +188,49 @@ async fn ingress(State(feed): State<RequestFeed>, request: HttpRequest) -> HttpR
     let Some((tenant, rest)) = tenant_of(parts.uri.path()) else {
         return answer(400, b"name a tenant: /t/{tenant}/...".to_vec());
     };
-    // A body the framing says is empty is not read: most requests carry none.
-    let body = if body.size_hint().exact() == Some(0) {
-        Bytes::new()
-    } else {
-        match to_bytes(body, MAX_BODY_BYTES).await {
-            Ok(bytes) => bytes,
-            Err(_over) => return answer(413, b"the body is over the edge's ceiling".to_vec()),
-        }
+    let body = match read_body(body).await {
+        Ok(body) => body,
+        Err(over) => return *over,
     };
-    let pending = match feed.try_submit(tenant, parts.method.as_str(), rest, &body) {
-        Ok(pending) => pending,
-        Err(SubmitRefused::Tenant) => {
-            return answer(400, b"the tenant is not a valid name".to_vec());
+    match feed.try_submit(tenant, parts.method.as_str(), rest, &body) {
+        Ok(pending) => answer_pending(pending).await,
+        Err(refusal) => refused_answer(refusal),
+    }
+}
+
+/// The body, read whole under [`MAX_BODY_BYTES`], or the `413` that refuses
+/// it. A body the framing says is empty is not read: most requests carry none.
+pub(crate) async fn read_body(body: Body) -> Result<Bytes, Box<HttpResponse>> {
+    if body.size_hint().exact() == Some(0) {
+        return Ok(Bytes::new());
+    }
+    match to_bytes(body, MAX_BODY_BYTES).await {
+        Ok(bytes) => Ok(bytes),
+        Err(_over) => Err(Box::new(answer(
+            413,
+            b"the body is over the edge's ceiling".to_vec(),
+        ))),
+    }
+}
+
+/// What the edge answers for a submission the cell host refused.
+pub(crate) fn refused_answer(refusal: SubmitRefused) -> HttpResponse {
+    match refusal {
+        SubmitRefused::Tenant => answer(400, b"the tenant is not a valid name".to_vec()),
+        SubmitRefused::TooLarge { .. } => {
+            answer(413, b"the message is over the host's ceiling".to_vec())
         }
-        Err(SubmitRefused::TooLarge { .. }) => {
-            return answer(413, b"the message is over the host's ceiling".to_vec());
-        }
-        Err(SubmitRefused::Overloaded { retry_after_ms }) => {
-            return answer_retry(
-                503,
-                b"the tenant is behind; retry the request".to_vec(),
-                retry_after_ms,
-            );
-        }
-        Err(SubmitRefused::Closed) => {
-            return answer(503, b"the request feed is closed".to_vec());
-        }
-    };
+        SubmitRefused::Overloaded { retry_after_ms } => answer_retry(
+            503,
+            b"the tenant is behind; retry the request".to_vec(),
+            retry_after_ms,
+        ),
+        SubmitRefused::Closed => answer(503, b"the request feed is closed".to_vec()),
+    }
+}
+
+/// The cell's answer to a queued submission, or `503` when it was lost.
+pub(crate) async fn answer_pending(pending: crate::cell::PendingReply) -> HttpResponse {
     match pending.await {
         Ok(response) => answer(response.status(), response.into_body()),
         Err(error) => {
@@ -221,7 +241,7 @@ async fn ingress(State(feed): State<RequestFeed>, request: HttpRequest) -> HttpR
 }
 
 /// `/t/{tenant}/{rest}` split into the tenant and `/{rest}`.
-fn tenant_of(path: &str) -> Option<(&str, &str)> {
+pub(crate) fn tenant_of(path: &str) -> Option<(&str, &str)> {
     let named = path.strip_prefix("/t/")?;
     match named.find('/') {
         Some(at) => Some(named.split_at(at)),
@@ -250,7 +270,7 @@ fn answer_retry(status: u16, body: Vec<u8>, retry_after_ms: u64) -> HttpResponse
 
 /// An HTTP response with `status` and `body`; a status HTTP does not define is
 /// answered `500`.
-fn answer(status: u16, body: Vec<u8>) -> HttpResponse {
+pub(crate) fn answer(status: u16, body: Vec<u8>) -> HttpResponse {
     match StatusCode::from_u16(status) {
         Ok(status) => (status, Body::from(body)).into_response(),
         Err(_invalid) => {
