@@ -48,7 +48,8 @@ impl OutsideWord {
 }
 
 /// Refuse the run `scope` is running unless its host's grants cover every
-/// word in `uses`, each with its [`OutsideWord::capability`].
+/// word in `uses`: `bot.net` for `fetch`, `bot.model` for `ask` and
+/// `bot.notify` for `send`.
 ///
 /// One pass over all of them, so the refusal names every missing grant at
 /// once; called by the expansion at the flow's entry, before its first step.

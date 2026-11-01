@@ -206,7 +206,7 @@ impl FetchResponse {
 /// [`FlowError::Blocked`] without the grant; [`FlowError::NeedsApproval`]
 /// for a POST the policy gates and no approval matches;
 /// [`FlowError::InvalidBound`] for an attempt count outside `1..=1000` or a
-/// body bound of zero or past [`MAX_FETCH_BODY_BYTES`];
+/// body bound of zero or past the 64 MiB ceiling;
 /// [`FlowError::Failed`] for a malformed URL, a non-success status outside
 /// the 5xx range, or a transport the policy cannot retry; and the attempt
 /// failures [`FlowError::TimedOut`], [`FlowError::Transient`],
