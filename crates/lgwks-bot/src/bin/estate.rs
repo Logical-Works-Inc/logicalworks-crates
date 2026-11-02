@@ -33,6 +33,11 @@ mod approvals;
 #[path = "estate/run_events.rs"]
 mod run_events;
 
+/// The reference tenant HTTP edge (`estate serve`, #782): one typed draft
+/// route over a file store, with the tenant from the path and idempotency.
+#[path = "estate/serve_ref.rs"]
+mod serve_ref;
+
 /// One line to the caller's locked stdout; a write error reaches `main` as an I/O error.
 fn say(line: &str) -> std::io::Result<()> {
     writeln!(std::io::stdout().lock(), "{line}")
@@ -312,6 +317,11 @@ impl Drop for Scratch {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some((first, rest)) = args.split_first()
+        && first == "serve"
+    {
+        return serve_ref::run(rest).map_err(Box::<dyn std::error::Error>::from);
+    }
     if let Some((first, rest)) = args.split_first()
         && first == "approvals"
     {

@@ -83,7 +83,7 @@ fs = ["io", "lgwks_deps/tokio-fs"]
 # which it carries, so it is not on the WASI default set. It drives the world
 # beside the router on its wakes and deadlines (ADR 0006 R5), so it carries the
 # timer and the select it waits with.
-edge = ["net", "sync", "time", "macros", "ecs", "lgwks_deps/axum"]
+edge = ["net", "sync", "time", "macros", "ecs", "lgwks_deps/axum", "dep:lgwks_ast", "lgwks_ast/script"]
 signal = ["rt", "lgwks_deps/tokio-signal"]
 # `inspect`: typed in-process structural code inspection (R8). Host-only, like
 # `process`/`fs`/`net`: it pulls the native tree-sitter grammars through
@@ -328,6 +328,11 @@ name = "durable_steps"
 path = "examples/durable_steps.rs"
 required-features = ["script", "ephemeral"]
 
+[[example]]
+name = "serve_load"
+path = "examples/serve_load.rs"
+required-features = ["edge", "ephemeral"]
+
 [[bin]]
 name = "edge-load"
 path = "src/bin/edge_load.rs"
@@ -336,7 +341,7 @@ required-features = ["edge", "ephemeral"]
 [[bin]]
 name = "estate"
 path = "src/bin/estate.rs"
-required-features = ["script", "ephemeral", "net"]
+required-features = ["script", "ephemeral", "net", "edge", "signal"]
 
 [[bin]]
 name = "store-conformance"

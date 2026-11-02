@@ -450,3 +450,89 @@ pub(super) const SEND: Word = domain_word(
     ],
     "flow mail(mailer: &StubMailer, payload: Vec<u8>) -> lgwks_bot::script::SendOutcome:\n    let outcome = send mailer with (payload)\n    give back outcome\n",
 );
+
+/// The simulation file for `serve` and `route` (#782), whose flows the real
+/// macro expanded.
+const SERVE_SIMS: &str = "crates/lgwks-bot/tests/it/sim_serve.rs";
+
+/// A guarantee proved by a family in [`SERVE_SIMS`].
+const fn serve_sim(axis: Axis, claim: &'static str, test: &'static str) -> Guarantee {
+    script_sim_in(SERVE_SIMS, axis, claim, test)
+}
+
+/// `serve on port from env PORT, at most 1000 runs in flight:` and its routes.
+pub(super) const SERVE: Word = block(
+    Kind::Serve,
+    "`serve_at`",
+    &[
+        form(
+            "`serve on port from env PORT, at most (limit) runs in flight:`",
+            "the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency",
+        ),
+        form(
+            "`serve on port (port), at most (limit) runs in flight:`",
+            "the same on a literal port expression",
+        ),
+    ],
+    &[
+        "a `serve` with no `at most (limit) runs in flight`",
+        "a limit outside `1..=65536`",
+        "a line under it that is not a `route`",
+    ],
+    &[
+        serve_sim(
+            Axis::MultiTenant,
+            "two tenants on one route never read each other's state",
+            "two_tenants_on_one_route_stay_isolated",
+        ),
+        serve_sim(
+            Axis::Hyperscale,
+            "past the ceiling the edge answers 503 with Retry-After and queues nothing",
+            "over_the_ceiling_is_503_with_retry_after",
+        ),
+        serve_sim(
+            Axis::Ephemeral,
+            "a retry with the same idempotency key returns the first result and never runs the body twice",
+            "an_idempotent_retry_returns_the_first_result",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "a `serve` with no in-flight ceiling is refused at the word, naming the form",
+            "serve with no ceiling",
+        ),
+    ],
+    "flow drafts() -> u16:\n    let served = serve on port from env PORT, at most 1000 runs in flight:\n        route POST /drafts (body: DraftRequest) -> Draft:\n            give back draft_reply(body).await?\n    give back served.port()\n",
+);
+
+/// `route POST /drafts (body: DraftRequest) -> Draft:` inside a `serve`.
+pub(super) const ROUTE: Word = block(
+    Kind::Route,
+    "`TypedRoute::new`",
+    &[form(
+        "`route POST /drafts (body: DraftRequest) -> Draft:`",
+        "one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output",
+    )],
+    &[
+        "a `route` outside a `serve`",
+        "a `route` with no typed body",
+        "a method other than `GET` or `POST`",
+    ],
+    &[
+        serve_sim(
+            Axis::Decoupled,
+            "a body that does not decode is answered 400 naming the field before the handler runs",
+            "a_malformed_body_is_400_naming_the_field",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "only ever stands inside a `serve`",
+            "route outside a serve",
+        ),
+        refused(
+            Axis::Idiomatic,
+            "a `route` with no typed body is refused at the word, naming the form",
+            "route with no body",
+        ),
+    ],
+    "flow drafts() -> u16:\n    let served = serve on port from env PORT, at most 1000 runs in flight:\n        route POST /drafts (body: DraftRequest) -> Draft:\n            give back draft_reply(body).await?\n    give back served.port()\n",
+);

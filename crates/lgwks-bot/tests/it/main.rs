@@ -119,6 +119,10 @@ mod run_world;
 #[path = "../support/scratch.rs"]
 mod scratch;
 
+#[cfg(feature = "edge")]
+#[path = "../support/serve_edge.rs"]
+mod serve_edge;
+
 #[cfg(feature = "testing")]
 #[path = "../../src/bin/store_conformance/memory_records.rs"]
 mod memory_records;
@@ -275,6 +279,10 @@ mod script_front_door;
 mod script_map_parity;
 mod script_refusals;
 mod script_trail;
+#[cfg(feature = "edge")]
+mod serve;
+#[cfg(feature = "edge")]
+mod serve_process;
 mod session;
 mod session_front_door;
 #[cfg(all(feature = "ecs", feature = "wire"))]
@@ -374,6 +382,8 @@ mod sim_script_feeds;
 mod sim_script_steps;
 mod sim_script_vocab;
 mod sim_script_words;
+#[cfg(feature = "edge")]
+mod sim_serve;
 mod sim_session_front_door;
 mod sim_skew;
 #[cfg(all(feature = "ecs", feature = "wire"))]

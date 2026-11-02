@@ -1,7 +1,8 @@
 //! The grammar generator's structured words: `graph` and its `node`s, `saga`
 //! and its `compensate` lines, `whenever`, `justify`, `remember`, `admit`,
-//! `ready` and `await approval`, each drawn with the shapes the parser
-//! accepts, so the band says every word of the lexicon.
+//! `ready`, `await approval` and `serve` with its `route` lines, each drawn
+//! with the shapes the parser accepts, so the band says every word of the
+//! lexicon.
 
 use std::fmt;
 
@@ -41,7 +42,7 @@ impl Script {
     /// One structured word at `depth`, bound with `let`, with its body.
     pub(super) fn structured(&mut self, depth: usize) -> Result<(), Drawn> {
         self.say(Kind::Let);
-        match self.draw.index(8)? {
+        match self.draw.index(9)? {
             0 => self.graph(depth),
             1 => self.saga(depth),
             2 => self.whenever(depth),
@@ -49,8 +50,27 @@ impl Script {
             4 => self.remember(depth),
             5 => self.admit(depth),
             6 => self.approval(depth),
+            7 => self.serve(depth),
             _ => self.ready(depth),
         }
+    }
+
+    /// `serve` with one route, the route's body the value.
+    fn serve(&mut self, depth: usize) -> Result<(), Drawn> {
+        let name = self.name();
+        self.line(
+            depth,
+            format!("let s{name} = serve on port from env PORT{name}, at most 10 runs in flight:"),
+            Some(Kind::Serve),
+        );
+        let inner = depth.saturating_add(1);
+        self.line(
+            inner,
+            format!("route POST /drafts{name} (body: Vec<u8>) -> Vec<u8>:"),
+            Some(Kind::Route),
+        );
+        self.line(inner.saturating_add(1), "give back body".to_owned(), None);
+        Ok(())
     }
 
     /// `remember name:` around a block of statements.

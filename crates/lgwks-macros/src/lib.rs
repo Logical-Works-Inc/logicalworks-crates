@@ -51,6 +51,12 @@
 //! | `fetch <url>` | the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry` |
 //! | `ask <model> with (request)` | one model call under `request`: token budget and deadline, decoded into the declared type |
 //! | `send <receiver> with <payload>` | one outbound effect through `receiver`: intent first, dispatched once, settled from evidence |
+//! | `serve on port from env PORT, at most (limit) runs in flight:` | the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency |
+//! | `serve on port (port), at most (limit) runs in flight:` | the same on a literal port expression |
+//! | `route POST /drafts (body: DraftRequest) -> Draft:` | one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output |
+//! | `serve on port from env PORT, at most (limit) runs in flight:` | the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency |
+//! | `serve on port (port), at most (limit) runs in flight:` | the same on a literal port expression |
+//! | `route POST /drafts (body: DraftRequest) -> Draft:` | one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output |
 //!
 //! Every step keys by tenant, run and path (`Scope::key`): one run's attempts
 //! and restarts share a key, two runs of one flow never do, and work that is

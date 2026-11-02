@@ -97,6 +97,13 @@ fn construct_labels(construct: &Construct, out: &mut Vec<String>) {
                 block_labels(node.body(), out);
             }
         }
+        Construct::Serve(ref served) => {
+            out.push(served.label().to_owned());
+            for route in served.routes() {
+                out.push(route.label().to_owned());
+                block_labels(route.body(), out);
+            }
+        }
         Construct::Whenever(ref feed) => {
             out.push(feed.label().to_owned());
             code_labels(feed.batches(), out);

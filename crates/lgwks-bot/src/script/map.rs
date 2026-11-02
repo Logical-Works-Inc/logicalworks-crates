@@ -334,4 +334,8 @@ pub enum StepKind {
     Ask,
     /// `send <receiver> with <payload>`; the subject is the capability.
     Send,
+    /// `serve on port ..., at most N runs in flight:`; the subject is the port.
+    Serve,
+    /// `route METHOD /path (body: Type) -> Output:`; the subject is `METHOD path`.
+    Route,
 }

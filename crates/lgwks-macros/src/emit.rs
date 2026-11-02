@@ -23,6 +23,7 @@ use lgwks_deps::quote::{ToTokens, quote};
 
 use crate::error::{Error, Result};
 
+mod serve;
 mod vocab;
 
 /// The runtime every expansion calls into.
@@ -283,7 +284,7 @@ fn statement(line: &Statement) -> Result<TokenStream> {
 }
 
 /// A block that yields a value: `each`, `within`, `retry`, `step`, `graph`,
-/// `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`, `await approval`.
+/// `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`, `await approval`, `serve`.
 fn construct(block: &Construct) -> Result<TokenStream> {
     match *block {
         Construct::Each(ref fan) => each(fan),
@@ -298,6 +299,7 @@ fn construct(block: &Construct) -> Result<TokenStream> {
         Construct::Admit(ref admitted) => vocab::admit(admitted),
         Construct::Ready(ref waited) => vocab::ready(waited),
         Construct::Approval(ref parked) => vocab::approval(parked),
+        Construct::Serve(ref served) => serve::serve(served),
         _ => Err(newer_word("block word")),
     }
 }

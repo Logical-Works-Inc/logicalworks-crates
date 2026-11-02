@@ -576,15 +576,15 @@ impl Script {
     }
 
     /// Every header a statement may be inserted under as its first line.
-    /// `together:` and `graph:` are left out: each line under the one is a
-    /// branch and under the other a node, never a statement.
+    /// `together:`, `graph:` and `serve:` are left out: under the first each
+    /// line is a branch, and under the others a node or a route, never a statement.
     fn openers(&self) -> Vec<usize> {
         self.lines
             .iter()
             .enumerate()
             .filter(|&(_, src)| {
                 src.opens
-                    .is_some_and(|kind| !matches!(kind, Kind::Together | Kind::Graph))
+                    .is_some_and(|kind| !matches!(kind, Kind::Together | Kind::Graph | Kind::Serve))
             })
             .map(|(index, _)| index)
             .collect()

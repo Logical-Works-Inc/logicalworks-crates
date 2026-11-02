@@ -51,8 +51,8 @@ pub use lexicon::{Axis, Evidence, Form, Guarantee, Kind, LEXICON, Position, Word
 pub use tree::{
     Admit, Approval, Block, Bound, Branch, BranchValue, Call, Code, Compensate, Construct, Domain,
     Duration, Each, Flow, FlowShape, For, Fragment, Graph, IfBranch, IfChain, Justify, MapStep,
-    Node, Outside, Overflow, Passthrough, Producer, Ready, Retry, Script, Site, Statement, Step,
-    StepShape, Together, Whenever, Within, write_map,
+    Node, Outside, Overflow, Passthrough, Producer, Ready, Retry, Route, RouteMethod, Script,
+    Serve, ServePort, Site, Statement, Step, StepShape, Together, Whenever, Within, write_map,
 };
 
 /// A script the language refuses, located at the token it is about.

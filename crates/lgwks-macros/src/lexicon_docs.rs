@@ -272,10 +272,10 @@ fn a_guarantee_whose_test_is_gone_is_refused() {
 
 /// The lexicon's budget: what an agent can hold whole beside its task, over
 /// every page together. Raised from 4,000 to 4,500 for the 25th word
-/// (`await approval`, #784), and to 5,000 for the 26th through 28th
-/// (`fetch`, `ask`, `send`, #783): the budget scales with the table it
-/// measures.
-const PAGE_TOKENS: usize = 5_000;
+/// (`await approval`, #784), to 5,000 for the 26th through 28th
+/// (`fetch`, `ask`, `send`, #783), and to 5,500 for the 29th and 30th
+/// (`serve`, `route`, #782): the budget scales with the table it measures.
+const PAGE_TOKENS: usize = 5_500;
 
 /// The most lines one committed page holds: the estate's size law for a
 /// repository `.md` file (Director 2026-10-10).

@@ -69,3 +69,40 @@ flow mail(mailer: &StubMailer, payload: Vec<u8>) -> lgwks_bot::script::SendOutco
     let outcome = send mailer with (payload)
     give back outcome
 ```
+
+## `serve`
+
+Opens a block: its line ends in `:`. Calls `serve_at`.
+
+- `serve on port from env PORT, at most (limit) runs in flight:` — the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency
+- `serve on port (port), at most (limit) runs in flight:` — the same on a literal port expression
+
+Refuses: a `serve` with no `at most (limit) runs in flight`; a limit outside `1..=65536`; a line under it that is not a `route`.
+
+Guarantees: two tenants on one route never read each other's state (multi-tenant); past the ceiling the edge answers 503 with Retry-After and queues nothing (hyperscale); a retry with the same idempotency key returns the first result and never runs the body twice (ephemeral); a `serve` with no in-flight ceiling is refused at the word, naming the form (idiomatic).
+
+```text
+flow drafts() -> u16:
+    let served = serve on port from env PORT, at most 1000 runs in flight:
+        route POST /drafts (body: DraftRequest) -> Draft:
+            give back draft_reply(body).await?
+    give back served.port()
+```
+
+## `route`
+
+Opens a block: its line ends in `:`. Calls `TypedRoute::new`.
+
+- `route POST /drafts (body: DraftRequest) -> Draft:` — one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output
+
+Refuses: a `route` outside a `serve`; a `route` with no typed body; a method other than `GET` or `POST`.
+
+Guarantees: a body that does not decode is answered 400 naming the field before the handler runs (decoupled); only ever stands inside a `serve` (idiomatic); a `route` with no typed body is refused at the word, naming the form (idiomatic).
+
+```text
+flow drafts() -> u16:
+    let served = serve on port from env PORT, at most 1000 runs in flight:
+        route POST /drafts (body: DraftRequest) -> Draft:
+            give back draft_reply(body).await?
+    give back served.port()
+```

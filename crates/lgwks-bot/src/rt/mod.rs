@@ -123,6 +123,8 @@ pub mod io;
 pub mod net;
 #[cfg(feature = "process")]
 pub mod process;
+#[cfg(feature = "edge")]
+pub mod serve;
 #[cfg(all(feature = "signal", any(unix, windows)))]
 pub mod signal;
 #[cfg(feature = "sync")]

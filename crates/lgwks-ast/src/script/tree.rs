@@ -19,9 +19,11 @@ use lgwks_deps::proc_macro2::{Delimiter, Ident, Span, TokenStream, TokenTree};
 use super::lexicon::Kind;
 
 mod calls;
+mod serve;
 mod vocab;
 
 pub use calls::{Domain, Outside};
+pub use serve::{Route, RouteMethod, Serve, ServePort};
 pub use vocab::{
     Admit, Approval, Compensate, Graph, Justify, Node, Overflow, Producer, Ready, Whenever,
 };
@@ -616,7 +618,7 @@ macro_rules! site_of {
 
 site_of!(
     Each, Within, Retry, Step, For, Call, Domain, Outside, Graph, Node, Compensate, Whenever,
-    Justify, Admit, Ready, Approval,
+    Justify, Admit, Ready, Approval, Serve, Route,
 );
 
 /// A flow's entry in the architecture map.
@@ -847,7 +849,7 @@ impl Statement {
 
 /// A block word with its own async body: `each`, `within`, `retry`, `step`,
 /// `graph`, `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`,
-/// `await approval`.
+/// `await approval`, `serve`.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Construct {
@@ -875,6 +877,8 @@ pub enum Construct {
     Ready(Ready),
     /// `await approval <label> within <duration>:`.
     Approval(Approval),
+    /// `serve on port ..., at most N runs in flight:` and its `route`s.
+    Serve(Serve),
 }
 
 /// What a `together:` branch runs.
