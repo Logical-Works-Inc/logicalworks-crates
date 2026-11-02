@@ -702,7 +702,8 @@ dependencies = [
 name = "lgwks_ast"
 version = "4.1.0"
 dependencies = [
- "lgwks_deps",
+ "proc-macro2",
+ "quote",
  "thiserror",
  "tracing",
 ]

@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use lgwks_deps::proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{TokenStream, TokenTree};
 
 use super::super::lexicon::{self, Kind};
 use super::super::lines::{

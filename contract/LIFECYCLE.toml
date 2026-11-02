@@ -306,3 +306,17 @@ replacement = "An estate AEAD in lgwks_std with no third-party edge once the cip
 removal_trigger = "Sealed records seal and open without the chacha20poly1305 edge and no consumer remains."
 last_reviewed = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/785"
+
+[[lifecycle]]
+crate = "prettyplease"
+replacement = "An estate Rust pretty-printer in lgwks_ast once formatting needs no third-party edge."
+removal_trigger = "`lgwks expand` formats without the prettyplease edge and no consumer remains."
+last_reviewed = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+
+[[lifecycle]]
+crate = "syn"
+replacement = "An estate Rust parser for the expand path, or formatting without a full syntax tree."
+removal_trigger = "`lgwks expand` parses its emitted tokens without the syn edge and no consumer remains."
+last_reviewed = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"

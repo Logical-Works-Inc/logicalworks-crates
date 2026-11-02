@@ -16,7 +16,7 @@
 //! `with`, `of`, `on`) are part of that word's grammar, read by its reader;
 //! they are not words, and a line cannot start with one.
 
-use lgwks_deps::proc_macro2::TokenTree;
+use proc_macro2::TokenTree;
 
 use super::lines::{Line, ident};
 

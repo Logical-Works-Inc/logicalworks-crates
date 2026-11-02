@@ -738,6 +738,9 @@ fn deps_are_approved_leaves() -> TestResult {
                 "jiff",
                 "rusqlite",
                 "chacha20poly1305",
+                "prettyplease",
+                "syn",
+                "lgwks_ast",
             ],
             "unexpected gate dependencies: {declared:?}"
         );

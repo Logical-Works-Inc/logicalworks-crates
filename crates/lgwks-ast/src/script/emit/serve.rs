@@ -1,11 +1,10 @@
 //! The `serve` word: the tenant HTTP edge as one flow step.
 
-use lgwks_ast::script::{RouteMethod, Serve};
-use lgwks_deps::proc_macro2::TokenStream;
-use lgwks_deps::quote::quote;
-
+use super::super::Result;
+use super::super::{RouteMethod, Serve};
 use super::{body, bound, code, runtime, site_of};
-use crate::error::Result;
+use proc_macro2::TokenStream;
+use quote::quote;
 
 /// `serve on port ..., at most N runs in flight:` and its `route`s.
 ///
@@ -18,19 +17,20 @@ pub(super) fn serve(declared: &Serve) -> Result<TokenStream> {
     let site = site_of(declared.site());
     let label = declared.label();
     let max = bound(declared.bound())?;
+    // The options answer `ServeError`; the flow answers `FlowError`, so the
+    // refusal is carried across by name rather than by a `?` with no `From`.
+    let refused = quote! {
+        .map_err(|cause| #script::FlowError::failed(
+            ::std::format!("the serve options are refused: {cause}")
+        ))?
+    };
     let options = match *declared.port() {
-        lgwks_ast::script::ServePort::Env(ref name) => {
-            quote!(#script::ServeOptions::from_env_ephemeral(#name, #max)?)
+        super::super::ServePort::Env(ref name) => {
+            quote!(#script::ServeOptions::from_env_ephemeral(#name, #max) #refused)
         }
-        lgwks_ast::script::ServePort::Expr(ref port_code) => {
+        super::super::ServePort::Expr(ref port_code) => {
             let port = code(port_code)?;
-            quote!(#script::ServeOptions::new_ephemeral(#port, #max)?)
-        }
-        _ => {
-            lgwks_std::trace::debug!(
-                "emit: the serve port is from a newer word than this macro generates"
-            );
-            return Err(super::newer_word("serve port"));
+            quote!(#script::ServeOptions::new_ephemeral(#port, #max) #refused)
         }
     };
     let mut routes = TokenStream::new();
@@ -43,17 +43,11 @@ pub(super) fn serve(declared: &Serve) -> Result<TokenStream> {
 }
 
 /// One route as a `TypedRoute` with its typed closure.
-fn route_tokens(route: &lgwks_ast::script::Route) -> Result<TokenStream> {
+fn route_tokens(route: &super::super::Route) -> Result<TokenStream> {
     let script = runtime();
     let method = match route.method() {
         RouteMethod::Get => quote!(::lgwks_bot::rt::serve::RouteMethod::Get),
         RouteMethod::Post => quote!(::lgwks_bot::rt::serve::RouteMethod::Post),
-        _ => {
-            lgwks_std::trace::debug!(
-                "emit: the route method is from a newer word than this macro generates"
-            );
-            return Err(super::newer_word("route method"));
-        }
     };
     let path = route.path();
     let body_ty = code(route.body_ty())?;
@@ -84,6 +78,7 @@ fn route_tokens(route: &lgwks_ast::script::Route) -> Result<TokenStream> {
                             #script::FlowError::failed(::std::format!("the tenant is refused: {error}"))
                         })?);
                         let scope = &scope.enter_at(label, site)?;
+                        let _ = scope;
                         let body = decoded;
                         let _ = &body;
                         #inner

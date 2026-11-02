@@ -24,8 +24,8 @@
 
 use std::str::FromStr;
 
-use lgwks_deps::proc_macro2::{TokenStream, TokenTree};
 use lgwks_std::seeded::Seeded;
+use proc_macro2::{TokenStream, TokenTree};
 
 use super::lexicon::Kind;
 use super::lines::{self, Node};

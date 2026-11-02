@@ -22,7 +22,7 @@
 //! the `forbid` lint attributes `lgwks_macros` puts on every generated flow,
 //! which the consumer's own compiler and clippy enforce by resolved path.
 
-use lgwks_deps::proc_macro2::{Delimiter, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 
 use super::lines::{is_ident, is_punct};
 use super::{Refusal, Result};
@@ -302,7 +302,7 @@ mod tests {
     use std::error::Error;
     use std::str::FromStr;
 
-    use lgwks_deps::proc_macro2::TokenStream;
+    use proc_macro2::TokenStream;
 
     use super::check;
 

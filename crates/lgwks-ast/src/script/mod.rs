@@ -25,12 +25,18 @@
 //! the runtime's `Architecture::to_json` does, and the `lgwks-ast` binary runs
 //! `lgwks-ast script map|check [--json] [PATH...]` over a tree (#384).
 //!
+//! With the `emit` feature, `emit::script` writes the Rust a parsed script
+//! compiles to: the one emitter `lgwks_macros::script!` and `lgwks expand`
+//! share, so the tool prints byte-for-byte what the macro compiles (#787).
+//!
 //! [`parse`]: crate::script::parse
 //! [`Script`]: crate::script::Script
 //! [`read_source`]: crate::script::read_source
 
-use lgwks_deps::proc_macro2::{Span, TokenStream};
+use proc_macro2::{Span, TokenStream};
 
+#[cfg(feature = "emit")]
+pub mod emit;
 mod find;
 #[cfg(feature = "tool")]
 mod json;

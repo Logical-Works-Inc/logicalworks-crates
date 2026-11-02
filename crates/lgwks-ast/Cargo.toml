@@ -32,12 +32,14 @@ keywords = ["parser", "ast", "tree-sitter", "static-analysis", "code-analysis"]
 # pays to compile a grammar it cannot select.
 [features]
 # Every capability this crate owns is on by default (Director, 2026-10-22, #732):
-# all 28 grammars, the `script!` reader (SL-2's one parser), the `lgwks-ast` tool
-# and the zero-gate detectors. A consumer that wants the typed-diagnostic derive
-# alone opts out with `--no-default-features`; one that wants a smaller parser
-# opts out with `--no-default-features --features parser,lang-rust`. ADR 0003 is
-# the decision; the compile cost of the full set is printed by `docs/catalog.md`.
-default = ["full", "script", "tool", "scan"]
+# all 28 grammars, the `script!` reader (SL-2's one parser), its one emitter
+# (the Rust `script!` compiles to, shared with the `lgwks` binary, #787), the
+# `lgwks-ast` tool and the zero-gate detectors. A consumer that wants the
+# typed-diagnostic derive alone opts out with `--no-default-features`; one that
+# wants a smaller parser opts out with `--no-default-features --features
+# parser,lang-rust`. ADR 0003 is the decision; the compile cost of the full set
+# is printed by `docs/catalog.md`.
+default = ["full", "script", "emit", "tool", "scan"]
 # The multi-language parser and its grammar stack (#367). Every `lang-*`
 # feature enables it, so the default set has it; without it this crate is the
 # typed-error derive and the diagnostic types alone, with no tree-sitter, so a
@@ -84,17 +86,25 @@ lang-yaml = ["parser", "ast-grep-language/tree-sitter-yaml"]
 # The `script!` language's parser (SL-2, #383): `lgwks_ast::script::parse`,
 # the typed script tree and the lexicon. `lgwks_macros` compiles scripts through
 # it and a tool reads them through it, so the language has one reader. It needs
-# token streams only, reached through the `lgwks_deps` storefront that owns the
-# `proc-macro2` edge (INV-DEP-3), and logs each refusal through `tracing`; no
-# grammar is selected by it, so the macro's build compiles no tree-sitter.
-script = ["dep:lgwks_deps", "dep:tracing"]
+# token streams with span locations only, authored here since #787 (the
+# `lgwks` binary in `lgwks_deps` depends on this crate, so reaching them
+# through the storefront would be the cycle Cargo refuses), and logs each
+# refusal through `tracing`; no grammar is selected by it, so the macro's
+# build compiles no tree-sitter.
+script = ["dep:proc-macro2", "dep:tracing"]
+# The one emitter of the language (#787): `lgwks_ast::script::emit::script`
+# writes the Rust a parsed script compiles to. `lgwks_macros::script!` is a
+# thin shell over `parse` then this function, and `lgwks expand` prints this
+# same function formatted, so the macro and the tool never become two code
+# paths. Needs quasi-quoting only, authored here beside the token edge.
+emit = ["script", "dep:quote"]
 # The script tool (#384): `script::Script::to_json` and the `lgwks-ast` binary,
 # `lgwks-ast script map|check|census [--json] [--top N] [PATH...]`, the second
 # caller of the one parser (SL-2). It walks a tree and writes JSON through `lgwks_std`, a
 # workspace member, so it adds no third-party edge. It lives here rather than
-# in `lgwks-deps` because `script` already depends on `lgwks_deps` for
-# `proc_macro2`, and `lgwks_deps` depending back on this crate is a cycle Cargo
-# refuses.
+# in `lgwks-deps` because the `lgwks` binary there depends on this crate for
+# parse and emit (#787), and a tool beside its reader keeps the one-parser rule
+# obvious.
 tool = ["script", "dep:lgwks_std"]
 # The zero-gate source detectors (INV-SCAN-ZERO, #408): `lgwks_ast::scan` and
 # the `lgwks-ast scan` subcommand, which read Rust through the one parser and
@@ -150,10 +160,14 @@ tracing = { version = "0.1", default-features = false, features = ["std"], optio
 # features), so this names an edge that was already compiled rather than adding
 # a crate: the `Tree` built here is the type `StrDoc` holds.
 tree-sitter = { version = "0.27", optional = true }
-# The token streams `script` reads (feature `script`, #383), through the
-# storefront that owns the edge; the macro's build pulls `proc-macro2` and
-# nothing else here.
-lgwks_deps = { workspace = true, default-features = false, features = ["script"], optional = true }
+# The token streams `script` reads (feature `script`, #383) and the
+# quasi-quoting `emit` writes with (#787): both authored here since the
+# `lgwks` binary in `lgwks_deps` depends on this crate, which makes the old
+# route through the storefront a dependency cycle Cargo refuses
+# (contract/APPROVED.toml). The macro's build pulls `proc-macro2` (with span
+# locations) and `quote` and nothing else here.
+proc-macro2 = { version = "1", features = ["span-locations"], optional = true }
+quote = { version = "1", optional = true }
 # The script tool's tree walk and JSON (feature `tool`, #384).
 lgwks_std = { workspace = true, features = ["json"], optional = true }
 

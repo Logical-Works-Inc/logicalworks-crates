@@ -11,7 +11,7 @@
 use std::str::FromStr;
 
 use lgwks_ast::script::{Kind, parse};
-use lgwks_deps::proc_macro2::TokenStream;
+use proc_macro2::TokenStream;
 
 /// What every fallible test here returns.
 type TestResult = Result<(), Box<dyn std::error::Error>>;

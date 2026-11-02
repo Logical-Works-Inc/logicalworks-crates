@@ -62,12 +62,12 @@ approval with no authored edge.
    parser. `lgwks_std` cannot route through `lgwks_deps`, because `lgwks_deps`
    depends on `lgwks_std` and the reverse would be a cycle.
 
-Do **not** add `tokio`, `futures`, `async-trait`, `pollster`, `syn`,
-`proc-macro2`, `regex`, `uuid`, `chrono`, `walkdir`, `glob`, `base64`, `hex`,
+Do **not** add `tokio`, `futures`, `async-trait`, `pollster`, `regex`, `uuid`, `chrono`, `walkdir`, `glob`, `base64`, `hex`,
 `percent-encoding`, `serde_json`, `ureq`, `reqwest`, or `ast-grep-*` as a *new*
 edge. Read that as a ban on additions, not as a description of the tree:
 `lgwks_std` and `lgwks_ast` already author several of these names directly
-(`regex`, `serde_json`, `ureq` and `ast-grep-*` among them) under the
+(`regex`, `serde_json`, `ureq`, `ast-grep-*`, `proc-macro2` and `quote` among
+them, plus `syn` beside `prettyplease` for `lgwks expand`, #787) under the
 grandfather clause above. A listed name maps to a workspace path *when a facade
 supplies it*; where none does, the approved direct edge is legal and removing it
 would be the defect (`docs/dependency-doctrine.md` says which is which).

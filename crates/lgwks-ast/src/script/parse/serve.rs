@@ -4,7 +4,7 @@
 //! in-flight ceiling (`at most (limit) runs in flight`, required), with every
 //! line under it a `route METHOD /path (body: Type) -> Output:`.
 
-use lgwks_deps::proc_macro2::TokenTree;
+use proc_macro2::TokenTree;
 
 use super::super::lexicon::{self, Kind};
 use super::super::lines::{

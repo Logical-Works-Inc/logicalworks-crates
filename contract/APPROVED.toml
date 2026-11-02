@@ -766,3 +766,79 @@ reason = "Sealed journal and run-store records need authenticated encryption und
 approved_by = "maintainer"
 approved_on = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/785"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# One-file apps and the Rust they compile to (#787).
+#
+# The `lgwks` binary is a [[bin]] of `lgwks_deps`, and it calls the one
+# emitter (`lgwks_ast::script::emit`) the `script!` macro compiles through, so
+# `lgwks_deps` depends on `lgwks_ast`. The parser crate therefore cannot keep
+# reaching token streams back through the storefront: that round trip is the
+# cycle `lgwks_deps` depending back on `lgwks_ast` is, which Cargo refuses.
+# The two token edges move into the standalone parser crate with it as owner,
+# and no new crate enters the lockfile for the move itself. `expand` formats
+# the emitted tokens with prettyplease over syn, both pure Rust, optional and
+# default-on like every capability this crate owns.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[approved]]
+crate = "proc-macro2"
+tier = "boundary"
+version = "^1"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_ast"
+capability = "tokens.script_tokens"
+source = "registry"
+allowed_consumers = "lgwks_ast"
+allowed_kinds = "normal"
+reason = "The script! language is read from token streams with the line and column of every token, and the one emitter writes token streams back; lgwks_ast owns both the reader and the emitter, and lgwks_deps (home of the lgwks binary) depends on lgwks_ast, so reaching the streams through the storefront would be the dependency cycle Cargo refuses. Same version and span locations the storefront edge carried; no new crate enters the lockfile."
+approved_by = "maintainer"
+approved_on = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+
+[[approved]]
+crate = "quote"
+tier = "boundary"
+version = "^1"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_ast"
+capability = "macro.script_emit"
+source = "registry"
+allowed_consumers = "lgwks_ast"
+allowed_kinds = "normal"
+reason = "The one script! emitter (lgwks_ast::script::emit, #787) writes Rust tokens by quasi-quotation, which the standard library does not provide. Same version the storefront edge carried; no new crate enters the lockfile."
+approved_by = "maintainer"
+approved_on = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+
+[[approved]]
+crate = "prettyplease"
+tier = "boundary"
+version = "=0.2.37"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_deps"
+capability = "format.rust_pretty"
+source = "registry"
+uses_default_features = "false"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "`lgwks expand` prints the emitted Rust formatted, so a reviewer reads the real code; formatting Rust source is absent from the standard library and the estate. Pinned exactly, default-features off, pure Rust with no C toolchain."
+approved_by = "maintainer"
+approved_on = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+
+[[approved]]
+crate = "syn"
+tier = "boundary"
+version = "=2.0.119"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_deps"
+capability = "format.rust_parse"
+source = "registry"
+uses_default_features = "false"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "`lgwks expand` parses the emitted tokens into a syn::File for prettyplease to format; the estate owns no Rust grammar outside lgwks_ast's tree-sitter reader, which refuses to pretty-print. Same major version prettyplease 0.2.37 resolves, so no second syn enters the lockfile."
+approved_by = "maintainer"
+approved_on = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"

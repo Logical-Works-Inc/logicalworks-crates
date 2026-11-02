@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use lgwks_deps::proc_macro2::{Delimiter, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, TokenStream, TokenTree};
 
 use super::lexicon::{self, Kind};
 use super::lines::{Line, Node, group, ident, is_ident, is_punct, text};

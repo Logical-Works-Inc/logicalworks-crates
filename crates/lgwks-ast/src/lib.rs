@@ -17,6 +17,7 @@
 //! | `lang-*` (the other 21, `lang-tsx` and `lang-c` among them) | off | one more grammar each, and `parser` |
 //! | `parser` | on, through any `lang-*` | the multi-language parser and its grammar stack |
 //! | `script` | off | `script::parse`, the reader of the `script!` language |
+//! | `emit` | on | `script::emit::script`, the one Rust emitter; implies `script` |
 //! | `tool` | off | `Script::to_json` and the `lgwks-ast script` binary; implies `script` |
 //! | `scan` | off | the zero-gate Rust source detectors and `lgwks-ast scan`; implies `lang-rust` |
 //! | `full` | off | all 28 grammars |

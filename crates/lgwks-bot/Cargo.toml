@@ -51,15 +51,16 @@ macros = ["rt", "lgwks_deps/tokio-macros"]
 # into (`lgwks_bot::script`). Default-on because it is how flows are meant to be
 # written here: every block it offers is bounded, deadline-carrying, keyed by
 # tenant and step, and recorded in the `ARCHITECTURE` map. The proc macro is
-# first-party (`lgwks_macros`); its `syn`/`quote` edge is owned by the
-# `lgwks_deps` storefront and compiles for the host only.
+# first-party (`lgwks_macros`); its token-stream edge is owned by the
+# `lgwks_deps` storefront (`script`, span locations) and compiles for the
+# host only.
 # `lgwks_ast/script` (no grammar; the parser `lgwks_macros` already builds) is
 # where the map's one rendering lives, `lgwks_ast::script::write_map`, which the
 # script tool prints a parsed script through too (#384).
 # `script` implies `wire` and `ecs`: the run store and the admission boundary
 # persist through the wire encoding, and a script's verbs execute as `Bot`s on
 # the ECS substrate, so a script build without either is half a runtime.
-script = ["rt", "time", "sync", "macros", "dep:lgwks_macros", "dep:lgwks_ast", "lgwks_ast/script", "wire", "ecs"]
+script = ["rt", "time", "sync", "macros", "dep:lgwks_macros", "dep:lgwks_ast", "lgwks_ast/script", "lgwks_deps/script", "wire", "ecs"]
 # Reader/writer traits. Not implied by `rt`: a consumer reading from a pipe or a
 # file needs `AsyncRead` without any of the drivers, and it is the module that
 # makes `net`, `process`, and `fs` composable with each other.

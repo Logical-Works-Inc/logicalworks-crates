@@ -16,7 +16,7 @@
 
 use std::str::FromStr;
 
-use lgwks_deps::proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{TokenStream, TokenTree};
 
 use super::lines::{is_ident, is_punct};
 use super::tree::Script;

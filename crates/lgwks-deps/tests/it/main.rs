@@ -45,9 +45,19 @@ mod default_run;
 mod embedding;
 mod estate_edges;
 mod feature_policy;
+// The `lgwks` binary is built only with its feature (#787), so its journeys
+// run where it exists.
+#[cfg(feature = "lgwks")]
+#[path = "../support/lgwks_scratch.rs"]
+mod lgwks_scratch;
+
 mod gate_consumer;
 mod gate_ownership;
 mod identity_binding;
+#[cfg(feature = "lgwks")]
+mod lgwks_e2e;
+#[cfg(feature = "lgwks")]
+mod lgwks_json;
 mod metadata_dimensions;
 mod metadata_public_api;
 mod origin_binding;
@@ -63,6 +73,10 @@ mod sim_churn_slot;
 mod sim_dependency_policy;
 mod sim_freshness_cli;
 mod sim_invariant_register;
+#[cfg(feature = "lgwks")]
+mod sim_lgwks_check;
+#[cfg(feature = "lgwks")]
+mod sim_lgwks_expand;
 mod sim_license_policy;
 mod sim_lock_dependencies;
 mod sim_lock_spellings;

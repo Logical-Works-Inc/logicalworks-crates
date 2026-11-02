@@ -433,12 +433,18 @@ impl Children {
     /// Ends the watchdog: nothing is left for it to stop.
     pub(crate) fn finish(&self) {
         let mut running = guard(&self.watchdog);
-        if let Some(mut dog) = running.take() {
-            if let Err(error) = writeln!(dog.input, "quit 0").and_then(|()| dog.input.flush()) {
-                lgwks_std::trace::debug!(%error, "the watchdog could not be told to quit");
-            }
-            drop(dog.input);
-            if let Err(error) = dog.child.wait() {
+        if let Some(dog) = running.take() {
+            // The pipe closes at the end of this block, before the wait: a
+            // scope rather than `drop`, which warns on a target whose
+            // `ChildStdin` has no destructor (WASI).
+            let mut child = {
+                let Watchdog { child, mut input } = dog;
+                if let Err(error) = writeln!(input, "quit 0").and_then(|()| input.flush()) {
+                    lgwks_std::trace::debug!(%error, "the watchdog could not be told to quit");
+                }
+                child
+            };
+            if let Err(error) = child.wait() {
                 lgwks_std::trace::debug!(%error, "the watchdog could not be reaped");
             }
         }
