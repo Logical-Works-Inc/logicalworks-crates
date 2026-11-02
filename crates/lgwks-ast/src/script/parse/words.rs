@@ -1,7 +1,7 @@
 //! Inline words: `run`, `observe`, `act`, bounds, durations, and the map
 //! entries they leave.
 
-use lgwks_deps::proc_macro2::{Delimiter, Group, Ident, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Group, Ident, TokenStream, TokenTree};
 
 use super::super::lexicon::{self, Kind};
 use super::super::lines::{Line, after, group, ident, is_ident, is_parens, is_punct, text};

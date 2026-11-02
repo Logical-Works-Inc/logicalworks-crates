@@ -9,17 +9,16 @@ use std::str::FromStr;
 
 use lgwks_deps::proc_macro2::TokenStream;
 
-use crate::emit;
-
 /// Expand `source` as the macro would, as text or as the refusal message.
 ///
 /// The crate's one expansion fixture: every test module that asserts on an
 /// expansion reads it through here. It is the macro's own path, `parse` then
-/// `emit`, so a refusal asserted here is the one `cargo build` reports.
+/// the one emitter in `lgwks_ast`, so a refusal asserted here is the one
+/// `cargo build` reports.
 pub(crate) fn expand(source: &str) -> Result<String, String> {
     let stream = TokenStream::from_str(source).map_err(|error| error.to_string())?;
     let script = lgwks_ast::script::parse(stream).map_err(|refusal| refusal.to_string())?;
-    emit::script(&script)
+    lgwks_ast::script::emit::script(&script)
         .map(|tokens| tokens.to_string())
         .map_err(|error| error.to_string())
 }

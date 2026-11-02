@@ -2,14 +2,13 @@
 //! lines, `whenever`, `justify`, `remember`, `admit` and `ready`, each one
 //! call into `lgwks_bot::script`.
 
-use lgwks_ast::script::{
+use super::super::Result;
+use super::super::{
     Admit, Approval, Compensate, Graph, Justify, Overflow, Producer, Ready, Step, Whenever,
 };
-use lgwks_deps::proc_macro2::TokenStream;
-use lgwks_deps::quote::quote;
-
-use super::{body, bound, code, duration, newer_word, runtime, site_of};
-use crate::error::Result;
+use super::{body, bound, code, duration, runtime, site_of};
+use proc_macro2::TokenStream;
+use quote::quote;
 
 /// The registrar a saga's body holds, which each `compensate` line in it
 /// registers on. One name, so a `compensate` reaches only its own saga's.
@@ -18,11 +17,6 @@ fn registrar() -> TokenStream {
 }
 
 /// `graph[, at most (limit) at once]:` and its `node`s.
-///
-/// Each node's body runs in its own scope, `<graph>/<node>`, asks the scope's
-/// justification first, and gives back the node's value; every node's value
-/// is one type. The bodies are `async move` so a node holds copies of the
-/// references it reads, never a borrow of the closure that built it.
 pub(super) fn graph(declared: &Graph) -> Result<TokenStream> {
     let script = runtime();
     let limit = match declared.bound() {
@@ -86,20 +80,13 @@ pub(super) fn compensate(undo: &Compensate) -> Result<TokenStream> {
     })
 }
 
-/// `whenever <pattern> in <batches>, buffering <N>, <overflow>:`: the batch
-/// expression is awaited for each next batch, and each event is handled in
-/// its own scope.
+/// `whenever <pattern> in <batches>, buffering <N>, <overflow>:`.
 pub(super) fn whenever(feed: &Whenever) -> Result<TokenStream> {
     let script = runtime();
     let overflow = match feed.overflow() {
         Overflow::DropOldest => quote!(DropOldest),
         Overflow::DropNewest => quote!(DropNewest),
         Overflow::Refuse => quote!(Refuse),
-        _ => {
-            let refusal = newer_word("overflow policy");
-            lgwks_std::trace::debug!(error = %refusal, "whenever: returning an error to the caller");
-            return Err(refusal);
-        }
     };
     let cap = bound(feed.cap())?;
     let batches = code(feed.batches())?;
@@ -123,9 +110,7 @@ pub(super) fn whenever(feed: &Whenever) -> Result<TokenStream> {
     })
 }
 
-/// `justify with (<rules>):`: the block in a scope of its own that answers
-/// to `rules`, asked first at the block's entry and again by every step,
-/// node, retry attempt, `observe` and `act` inside.
+/// `justify with (<rules>:`.
 pub(super) fn justify(block: &Justify) -> Result<TokenStream> {
     let script = runtime();
     let rules = block.rules();
@@ -134,12 +119,10 @@ pub(super) fn justify(block: &Justify) -> Result<TokenStream> {
     Ok(scoped(block.label(), block.site(), &entered, &inner))
 }
 
-/// A block word's own scope, entered at `site` and shaped by `entered`: the
-/// scope's justification asked first, then `inner`, the outcome settled and
-/// located at the scope.
+/// A block word's own scope, entered at `site` and shaped by `entered`.
 fn scoped(
     label: &str,
-    site: &lgwks_ast::script::Site,
+    site: &super::super::Site,
     entered: &TokenStream,
     inner: &TokenStream,
 ) -> TokenStream {
@@ -158,8 +141,7 @@ fn scoped(
     }
 }
 
-/// `remember <name>:`: the block run in the step's own scope once per run,
-/// its value recorded through the host's run store.
+/// `remember <name>:`.
 pub(super) fn remember(named: &Step) -> Result<TokenStream> {
     let script = runtime();
     let label = named.label();
@@ -174,19 +156,13 @@ pub(super) fn remember(named: &Step) -> Result<TokenStream> {
     })
 }
 
-/// `admit from <producer> through (<gate>):`: the block's value is the
-/// payload, admitted as a `Plan` in a step of its own.
+/// `admit from <producer> through (<gate>:`.
 pub(super) fn admit(admitted: &Admit) -> Result<TokenStream> {
     let script = runtime();
     let producer = match admitted.producer() {
         Producer::Model => quote!(Model),
         Producer::Tool => quote!(ToolOutput),
         Producer::Document => quote!(Document),
-        _ => {
-            let refusal = newer_word("producer");
-            lgwks_std::trace::debug!(error = %refusal, "admit: returning an error to the caller");
-            return Err(refusal);
-        }
     };
     let gate = admitted.gate();
     let label = admitted.label();
@@ -207,14 +183,7 @@ pub(super) fn admit(admitted: &Admit) -> Result<TokenStream> {
     })
 }
 
-/// `await approval <label> within <duration>:`: the block's value is the
-/// payload, parked for a decision in a step of its own.
-///
-/// Like `admit`, the block runs first and its value is the payload's bytes.
-/// Unlike `admit`, nothing is decided here: the step appends the pending
-/// record and the run ends parked, and the `Approved` the flow binds arrives
-/// only when a resume finds the decision. The `?` the `let` line carries is
-/// what ends the run parked rather than running the lines after it.
+/// `await approval <label> within <duration>:`.
 pub(super) fn approval(parked: &Approval) -> Result<TokenStream> {
     let script = runtime();
     let name = parked.name();
@@ -238,8 +207,8 @@ pub(super) fn approval(parked: &Approval) -> Result<TokenStream> {
         .await
     })
 }
-/// `ready <pattern> from (<readiness>) within <duration>:`: the wait in a
-/// scope of its own, the released value bound, then the block.
+
+/// `ready <pattern> from (<readiness>) within <duration>:`.
 pub(super) fn ready(waited: &Ready) -> Result<TokenStream> {
     let pattern = waited.pattern();
     let readiness = waited.readiness();

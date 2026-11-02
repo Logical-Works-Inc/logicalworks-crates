@@ -2,7 +2,7 @@
 //! The structured words, `graph`, `saga`, `whenever` and `justify`, are read
 //! in `vocab`.
 
-use lgwks_deps::proc_macro2::{Spacing, TokenStream, TokenTree};
+use proc_macro2::{Spacing, TokenStream, TokenTree};
 
 use super::super::lexicon::{self, Kind};
 use super::super::lines::{Line, Node, after, ident, is_ident, is_punct, text};

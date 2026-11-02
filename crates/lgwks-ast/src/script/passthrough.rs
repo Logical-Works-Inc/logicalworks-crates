@@ -10,7 +10,7 @@
 //! census and the code generator see one reading: a line is passthrough
 //! exactly when the expansion emits it as written.
 
-use lgwks_deps::proc_macro2::{Group, TokenStream, TokenTree};
+use proc_macro2::{Group, TokenStream, TokenTree};
 
 use super::lines::text;
 use super::tree::{Block, BranchValue, Code, Construct, Fragment, Passthrough, Statement};

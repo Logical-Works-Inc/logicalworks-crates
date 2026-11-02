@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use lgwks_deps::proc_macro2::{Delimiter, Ident, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Ident, Span, TokenStream, TokenTree};
 
 use super::lexicon::Kind;
 

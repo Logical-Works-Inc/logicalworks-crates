@@ -11,7 +11,7 @@ mod prop;
 
 use std::str::FromStr;
 
-use lgwks_deps::proc_macro2::TokenStream;
+use proc_macro2::TokenStream;
 use proptest::collection::vec;
 use proptest::prelude::{Strategy, any};
 use proptest::test_runner::TestCaseError;

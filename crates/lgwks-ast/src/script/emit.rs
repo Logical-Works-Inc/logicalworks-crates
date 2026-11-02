@@ -6,22 +6,26 @@
 //! `try_join!(..)` calls with ordinary Rust between them, so `cargo expand`
 //! shows the orchestration the script declared and nothing it did not.
 //!
-//! Nothing here reads the language. [`lgwks_ast::script::parse`] has already
+//! Nothing here reads the language. [`super::parse`] has already
 //! read every word, decided every refusal and chosen every step label (labels
 //! are structural and never carry a line number; see that module), so this
 //! module only writes Rust for a tree it is handed. The one thing it can still
 //! refuse is a word its version does not generate: a tree from a newer
-//! `lgwks_ast` than this crate was built against.
+//! `lgwks_ast` than this crate was released with.
+//!
+//! This is the one emitter of the language. `lgwks_macros::script!` is a thin
+//! shell over [`super::parse`] then [`script`], and `lgwks expand` prints what
+//! [`script`] answers, formatted, so the macro and the tool never become two
+//! code paths.
 
-use lgwks_ast::script::{
+use super::{
     Block, Bound, BranchValue, Call, Code, Construct, Domain, Duration, Each, Flow, FlowShape, For,
     Fragment, IfChain, Kind, Outside, Retry, Script, Site, Statement, Step, StepShape, Together,
     Within,
 };
-use lgwks_deps::proc_macro2::{Group, Ident, Literal, Span, TokenStream, TokenTree};
-use lgwks_deps::quote::{ToTokens, quote};
-
-use crate::error::{Error, Result};
+use super::{Refusal, Result};
+use proc_macro2::{Group, Ident, Literal, Span, TokenStream, TokenTree};
+use quote::{ToTokens, quote};
 
 mod serve;
 mod vocab;
@@ -33,13 +37,12 @@ fn runtime() -> TokenStream {
 
 /// The refusal for a word this crate does not generate: the tree came from a
 /// newer `lgwks_ast` than the one this crate was released with.
-fn newer_word(what: &str) -> Error {
-    Error::new(
+fn newer_word(what: &str) -> Refusal {
+    Refusal::new(
         Span::call_site(),
         format!(
-            "this script uses a {what} that the resolved `lgwks_ast` reads but this \
-             `lgwks_macros` does not generate; use the `lgwks_macros` released with that \
-             `lgwks_ast`"
+            "this script uses a {what} that this `lgwks_ast` reads but does not generate; \
+             use the `lgwks_macros` released with the `lgwks_ast` that wrote it"
         ),
     )
 }
@@ -95,6 +98,11 @@ struct Body {
     tail: Option<(TokenStream, bool)>,
     /// Whether the last line leaves the block, so no value follows it.
     diverges: bool,
+    /// The flow result a closing `give back` or `fail` answers, held apart
+    /// from the statements: the tail of a block that is itself the flow's
+    /// result, a `return` everywhere else. A `return` in tail position is
+    /// what clippy's `needless_return` refuses in the expanded text.
+    exit: Option<TokenStream>,
 }
 
 impl Body {
@@ -104,32 +112,46 @@ impl Body {
             statements,
             tail,
             diverges,
+            exit,
         } = self;
-        let value = match tail {
+        let value = match (exit, tail) {
+            (Some(exit), _) => exit,
             _ if diverges => TokenStream::new(),
-            Some((tokens, true)) => tokens,
-            Some((tokens, false)) => ok(&tokens),
-            None => ok(&quote!(())),
+            (None, Some((tokens, true))) => tokens,
+            (None, Some((tokens, false))) => ok(&tokens),
+            (None, None) => ok(&quote!(())),
         };
         quote!({ #statements #value })
     }
 
-    /// `{ statements; tail }` for a plain Rust block.
+    /// `{ statements; tail }` for a plain Rust block, which a closing
+    /// `give back` or `fail` leaves by `return`.
     fn into_block(self) -> TokenStream {
         let Self {
-            statements, tail, ..
+            statements,
+            tail,
+            exit,
+            ..
         } = self;
-        let value = tail.map(|(tokens, fallible)| if fallible { quote!(#tokens?) } else { tokens });
+        let value = match exit {
+            Some(exit) => Some(quote!(return #exit;)),
+            None => tail.map(|(tokens, fallible)| if fallible { quote!(#tokens?) } else { tokens }),
+        };
         quote!({ #statements #value })
     }
 }
 
 /// Expand a whole script: every flow, then the architecture map.
 ///
+/// This is the one emitter of the language (SL-2, #787): the `script!`
+/// proc macro calls it on the tree [`super::parse`] answers, and `lgwks
+/// expand` prints what it answers, formatted, so what the tool prints is
+/// byte-for-byte what the macro compiles.
+///
 /// # Errors
 ///
 /// A word this crate's version does not generate.
-pub(crate) fn script(script: &Script) -> Result<TokenStream> {
+pub fn script(script: &Script) -> Result<TokenStream> {
     let mut output = TokenStream::new();
     let mut flows = Vec::new();
     for flow in script.flows() {
@@ -162,8 +184,8 @@ fn flow_code(flow: &Flow) -> Result<TokenStream> {
     // output of a flow whose signature has no `->`. Matched rather than
     // substituted for a missing type: the two arms are different signatures.
     let output = match flow.output() {
-        Some(ty) => ty,
-        None => &unit,
+        Some(ty) => ty.clone(),
+        None => unit,
     };
     let attributes = flow.attributes();
     let has_doc = attributes.clone().into_iter().any(|token| {
@@ -217,10 +239,16 @@ fn flow_code(flow: &Flow) -> Result<TokenStream> {
 fn body(block: &Block) -> Result<Body> {
     let mut statements = TokenStream::new();
     let mut tail = None;
-    let value_at = block
-        .tail()
-        .map(|_| block.statements().len().saturating_sub(1));
+    let mut exit = None;
+    let last = block.statements().len().saturating_sub(1);
+    let value_at = block.tail().map(|_| last);
     for (index, line) in block.statements().iter().enumerate() {
+        if index == last
+            && let Some(answer) = exit_value(line)?
+        {
+            exit = Some(answer);
+            continue;
+        }
         let tokens = statement(line)?;
         if Some(index) == value_at {
             tail = Some((tokens, line.is_fallible()));
@@ -236,12 +264,42 @@ fn body(block: &Block) -> Result<Body> {
         statements,
         tail,
         diverges: block.diverges(),
+        exit,
     })
+}
+
+/// The flow result a `give back` or `fail` line answers, without the
+/// `return` that leaves with it; `None` for every other line.
+fn exit_value(line: &Statement) -> Result<Option<TokenStream>> {
+    match *line {
+        Statement::GiveBack(ref value) => {
+            let value = code(value)?;
+            Ok(Some(quote!(::core::result::Result::Ok(#value))))
+        }
+        Statement::Fail {
+            transient,
+            ref reason,
+        } => {
+            let script = runtime();
+            let constructor = if transient {
+                quote!(transient)
+            } else {
+                quote!(failed)
+            };
+            let reason = code(reason)?;
+            Ok(Some(
+                quote!(::core::result::Result::Err(#script::FlowError::#constructor(#reason))),
+            ))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// One line, or one `if` chain.
 fn statement(line: &Statement) -> Result<TokenStream> {
-    let script = runtime();
+    if let Some(answer) = exit_value(line)? {
+        return Ok(quote!(return #answer;));
+    }
     match *line {
         Statement::Rust(ref rust) => code(rust),
         Statement::Let(ref rust) => {
@@ -261,25 +319,8 @@ fn statement(line: &Statement) -> Result<TokenStream> {
         Statement::Together(ref branches) => together(branches),
         Statement::For(ref each) => for_loop(each),
         Statement::If(ref chain) => if_chain(chain),
-        Statement::GiveBack(ref value) => {
-            let value = code(value)?;
-            Ok(quote!(return ::core::result::Result::Ok(#value);))
-        }
-        Statement::Fail {
-            transient,
-            ref reason,
-        } => {
-            let constructor = if transient {
-                quote!(transient)
-            } else {
-                quote!(failed)
-            };
-            let reason = code(reason)?;
-            Ok(
-                quote!(return ::core::result::Result::Err(#script::FlowError::#constructor(#reason));),
-            )
-        }
-        _ => Err(newer_word("statement")),
+        // `exit_value` answered both above.
+        Statement::GiveBack(_) | Statement::Fail { .. } => Ok(TokenStream::new()),
     }
 }
 
@@ -300,7 +341,6 @@ fn construct(block: &Construct) -> Result<TokenStream> {
         Construct::Ready(ref waited) => vocab::ready(waited),
         Construct::Approval(ref parked) => vocab::approval(parked),
         Construct::Serve(ref served) => serve::serve(served),
-        _ => Err(newer_word("block word")),
     }
 }
 
@@ -361,8 +401,7 @@ fn retry(attempts: &Retry) -> Result<TokenStream> {
     })
 }
 
-/// `step <name>:`. The step asks its scope's justification before its body,
-/// so a `justify with (rules):` around it can stop it first.
+/// `step <name>:`.
 fn step(named: &Step) -> Result<TokenStream> {
     let script = runtime();
     let label = named.label();
@@ -395,11 +434,6 @@ fn together(branches: &Together) -> Result<TokenStream> {
             BranchValue::Construct(ref block) => construct(block)?,
             BranchValue::Run(ref run) => call(run)?,
             BranchValue::Rust(ref rust) => ok(&code(rust)?),
-            _ => {
-                let refusal = newer_word("`together:` branch");
-                lgwks_std::trace::debug!(error = %refusal, "together: returning an error to the caller");
-                return Err(refusal);
-            }
         };
         futures.push(quote!(async { #value }));
     }
@@ -482,19 +516,12 @@ fn code(rust: &Code) -> Result<TokenStream> {
                 let used = outside(used)?;
                 tokens.extend(quote!((#used?)));
             }
-            _ => {
-                let refusal = newer_word("fragment of Rust");
-                lgwks_std::trace::debug!(error = %refusal, "code: returning an error to the caller");
-                return Err(refusal);
-            }
         }
     }
     Ok(tokens)
 }
 
-/// A `run` call, awaited, as a flow `Result`: the call itself is the scope's
-/// child when its label is the callee's own name, and enters a scope of its
-/// numbered label otherwise, so two calls in one scope never share a key.
+/// A `run` call, awaited, as a flow `Result`.
 fn call(run: &Call) -> Result<TokenStream> {
     let path = run.path();
     let arguments = if run.arguments().is_empty() {
@@ -517,8 +544,7 @@ fn call(run: &Call) -> Result<TokenStream> {
     }))
 }
 
-/// `observe` or `act`, awaited, as a flow `Result`, in a scope of its own
-/// label so the domain's step is keyed and trailed like any other.
+/// `observe` or `act`, awaited, as a flow `Result`.
 fn domain(used: &Domain) -> Result<TokenStream> {
     let script = runtime();
     let id = used.id();
@@ -532,7 +558,7 @@ fn domain(used: &Domain) -> Result<TokenStream> {
         }
         _ => {
             let refusal = newer_word("domain call");
-            lgwks_std::trace::debug!(error = %refusal, "domain: returning an error to the caller");
+            tracing::debug!(error = %refusal, "domain: returning an error to the caller");
             return Err(refusal);
         }
     };
@@ -547,10 +573,6 @@ fn domain(used: &Domain) -> Result<TokenStream> {
 }
 
 /// A `fetch`, `ask` or `send`, awaited, as a flow `Result`.
-///
-/// The `_at` word enters the step's own scope, settles it and locates the
-/// failure there, so unlike a domain call there is no scope to enter here:
-/// the call is the step.
 fn outside(used: &Outside) -> Result<TokenStream> {
     let script = runtime();
     let site = site_of(used.site());
@@ -567,7 +589,7 @@ fn outside(used: &Outside) -> Result<TokenStream> {
         Kind::Ask => {
             let Some(request) = used.options() else {
                 let refusal = newer_word("outside call");
-                lgwks_std::trace::debug!(error = %refusal, "outside: an ask names no request");
+                tracing::debug!(error = %refusal, "outside: an ask names no request");
                 return Err(refusal);
             };
             let request = code(request)?;
@@ -576,7 +598,7 @@ fn outside(used: &Outside) -> Result<TokenStream> {
         Kind::Send => {
             let Some(payload) = used.options() else {
                 let refusal = newer_word("outside call");
-                lgwks_std::trace::debug!(error = %refusal, "outside: a send names no payload");
+                tracing::debug!(error = %refusal, "outside: a send names no payload");
                 return Err(refusal);
             };
             let payload = code(payload)?;
@@ -584,16 +606,14 @@ fn outside(used: &Outside) -> Result<TokenStream> {
         }
         _ => {
             let refusal = newer_word("outside call");
-            lgwks_std::trace::debug!(error = %refusal, "outside: returning an error to the caller");
+            tracing::debug!(error = %refusal, "outside: returning an error to the caller");
             return Err(refusal);
         }
     };
     Ok(quote!((#invoked).await))
 }
 
-/// The admission a flow runs before its first step when it names any domain:
-/// every identifier it writes, in source order, each once, checked against the
-/// host's registry in one pass. Nothing when it names none.
+/// The admission a flow runs before its first step when it names any domain.
 fn domain_admission(steps: &[StepShape]) -> Result<TokenStream> {
     let mut uses: Vec<(Kind, &str)> = Vec::new();
     collect_domains(steps, &mut uses);
@@ -608,7 +628,7 @@ fn domain_admission(steps: &[StepShape]) -> Result<TokenStream> {
             Kind::Act => quote!(#script::DomainUse::act(#id)),
             _ => {
                 let refusal = newer_word("domain call");
-                lgwks_std::trace::debug!(error = %refusal, "domain_admission: returning an error to the caller");
+                tracing::debug!(error = %refusal, "domain_admission: returning an error to the caller");
                 return Err(refusal);
             }
         });
@@ -616,8 +636,7 @@ fn domain_admission(steps: &[StepShape]) -> Result<TokenStream> {
     Ok(quote!(#script::admit_domains(scope, &[#(#entries),*])?;))
 }
 
-/// Every domain step in `steps` and their children, in source order, each
-/// identifier once per role.
+/// Every domain step in `steps` and their children, in source order.
 fn collect_domains<'shape>(steps: &'shape [StepShape], uses: &mut Vec<(Kind, &'shape str)>) {
     for step in steps {
         let kind = step.kind();
@@ -631,9 +650,7 @@ fn collect_domains<'shape>(steps: &'shape [StepShape], uses: &mut Vec<(Kind, &'s
     }
 }
 
-/// The admission a flow runs before its first step when it names any outside
-/// word: every word it writes, in source order, each once, checked against
-/// the run's grants in one pass. Nothing when it names none.
+/// The admission a flow runs before its first step when it names any outside word.
 fn outside_admission(steps: &[StepShape]) -> Result<TokenStream> {
     let mut uses: Vec<Kind> = Vec::new();
     collect_outside(steps, &mut uses);
@@ -649,7 +666,7 @@ fn outside_admission(steps: &[StepShape]) -> Result<TokenStream> {
             Kind::Send => quote!(#script::OutsideWord::Send),
             _ => {
                 let refusal = newer_word("outside call");
-                lgwks_std::trace::debug!(error = %refusal, "outside_admission: returning an error to the caller");
+                tracing::debug!(error = %refusal, "outside_admission: returning an error to the caller");
                 return Err(refusal);
             }
         });
@@ -657,8 +674,7 @@ fn outside_admission(steps: &[StepShape]) -> Result<TokenStream> {
     Ok(quote!(#script::admit_outside(scope, &[#(#entries),*])?;))
 }
 
-/// Every outside step in `steps` and their children, in source order, each
-/// word once.
+/// Every outside step in `steps` and their children, in source order.
 fn collect_outside(steps: &[StepShape], uses: &mut Vec<Kind>) {
     for step in steps {
         let kind = step.kind();
@@ -669,18 +685,12 @@ fn collect_outside(steps: &[StepShape], uses: &mut Vec<Kind>) {
     }
 }
 
-/// A `&'static Site` for `site`, as a block holding the one `static` it names.
+/// A `&'static Site` for `site`.
 fn site_of(site: &Site) -> TokenStream {
     site_static(site.kind(), site.line(), site.text())
 }
 
-/// A `&'static Site` for the line `text`, the word `kind`, on source line
-/// `line`.
-///
-/// A `static` rather than a value: the trail keeps a pointer per step, so the
-/// line's text is written into the binary once and never copied at run time.
-/// The variant is named by the word's `Debug` rendering, as [`step_shape`]
-/// names it.
+/// A `&'static Site` for the line `text`, the word `kind`, on source line `line`.
 fn site_static(kind: Kind, line: usize, text: &str) -> TokenStream {
     let script = runtime();
     let kind = Ident::new(&format!("{kind:?}"), Span::call_site());
@@ -696,7 +706,6 @@ fn bound(written: &Bound) -> Result<TokenStream> {
     match *written {
         Bound::Count(count) => Ok(Literal::u64_unsuffixed(count).into_token_stream()),
         Bound::Expr(ref expr) => Ok(expr.clone()),
-        _ => Err(newer_word("bound")),
     }
 }
 
@@ -708,16 +717,10 @@ fn duration(written: &Duration) -> Result<TokenStream> {
             Ok(quote!(::core::time::Duration::from_nanos(#nanos)))
         }
         Duration::Expr(ref expr) => Ok(expr.clone()),
-        _ => Err(newer_word("duration")),
     }
 }
 
 /// The runtime map's line, a `u32` literal saturating at `u32::MAX`.
-///
-/// The tree keeps the source's own line; the runtime's map stores a `u32`. A
-/// source with more lines than that cannot be compiled by any host, and a
-/// saturated line keeps the entry on the last line there is rather than
-/// wrapping onto some other line of the file.
 fn line_literal(line: usize) -> Literal {
     match u32::try_from(line) {
         Ok(number) => Literal::u32_unsuffixed(number),
@@ -743,10 +746,6 @@ fn flow_shape(shape: &FlowShape) -> TokenStream {
 }
 
 /// A step's `StepShape::new(..)` entry in the map.
-///
-/// The variant is named by the word's `Debug` rendering: `lgwks_bot`'s
-/// `StepKind` has one variant per map word, spelled as the lexicon's `Kind`
-/// variant is, so the derive is the one spelling both crates share.
 fn step_shape(shape: &StepShape) -> TokenStream {
     let script = runtime();
     let kind = Ident::new(&format!("{:?}", shape.kind()), Span::call_site());

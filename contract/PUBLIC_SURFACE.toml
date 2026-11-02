@@ -20,10 +20,11 @@
 "crates/lgwks-ast/src/parser/walk.rs" = 6
 "crates/lgwks-ast/src/scan/manifest.rs" = 1
 "crates/lgwks-ast/src/scan/mod.rs" = 13
+"crates/lgwks-ast/src/script/emit.rs" = 2
 "crates/lgwks-ast/src/script/find.rs" = 5
 "crates/lgwks-ast/src/script/json.rs" = 1
 "crates/lgwks-ast/src/script/lexicon.rs" = 23
-"crates/lgwks-ast/src/script/mod.rs" = 9
+"crates/lgwks-ast/src/script/mod.rs" = 10
 "crates/lgwks-ast/src/script/tree.rs" = 92
 "crates/lgwks-ast/src/script/tree/calls.rs" = 11
 "crates/lgwks-ast/src/script/tree/serve.rs" = 15
@@ -226,7 +227,6 @@
 "crates/lgwks-deps/src/refusal.rs" = 4
 "crates/lgwks-deps/src/sqlite.rs" = 12
 "crates/lgwks-deps/src/vendor.rs" = 11
-"crates/lgwks-macros/src/emit.rs" = 1
 "crates/lgwks-macros/src/lib.rs" = 1
 "crates/lgwks-std/src/encoding.rs" = 8
 "crates/lgwks-std/src/fs/capability.rs" = 39

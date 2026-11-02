@@ -6,7 +6,7 @@
 //! wrapped in and the `compensate` lines its body may hold. A `remember` is a
 //! `Step` the same way, wrapped in [`Construct::Remember`](super::Construct::Remember).
 
-use lgwks_deps::proc_macro2::TokenStream;
+use proc_macro2::TokenStream;
 
 use super::{Block, Bound, Code, Duration, Site};
 

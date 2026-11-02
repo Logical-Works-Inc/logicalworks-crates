@@ -409,8 +409,10 @@ surfaces = "local ci"
 required = true
 fast = true
 # The detectors read Rust through `lgwks_ast`, the workspace's one Rust reader
-# (ADR 0001, #408), so the lane runs `lgwks-ast scan`. `lgwks_deps` cannot host it:
-# `lgwks_ast`'s `script` feature depends on `lgwks_deps`, and the reverse is a cycle.
+# (ADR 0001, #408), so the lane runs `lgwks-ast scan`. `lgwks_ast` is
+# standalone: `lgwks_deps` reaches its script reader and emitter through
+# depending on `lgwks_ast` (#787), never the reverse, which Cargo would refuse
+# as a cycle.
 command = "cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- scan"
 ci_step = "Scan reports zero findings"
 

@@ -20,9 +20,6 @@ pub(crate) struct Error {
     message: String,
 }
 
-/// An expansion's result: tokens, or the refusal to report.
-pub(crate) type Result<T> = std::result::Result<T, Error>;
-
 impl Error {
     /// A refusal reported at `span`.
     pub(crate) fn new(span: Span, message: impl fmt::Display) -> Self {

@@ -97,7 +97,6 @@
 //!
 //! [`Scope`]: https://docs.rs/lgwks_bot/latest/lgwks_bot/script/struct.Scope.html
 
-mod emit;
 mod error;
 
 use error::Error;
@@ -106,11 +105,19 @@ use lgwks_deps::proc_macro2::TokenStream;
 /// Expand an indented orchestration script into `async fn`s over
 /// `lgwks_bot::script` and an `ARCHITECTURE` map. See the crate
 /// documentation for the language.
+///
+/// The language is read by `lgwks_ast::script::parse` and the Rust is written
+/// by `lgwks_ast::script::emit::script`: this macro parses then calls that
+/// one emitter, so what it compiles is byte-for-byte what `lgwks expand`
+/// prints.
 #[proc_macro]
 pub fn script(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let expanded = lgwks_ast::script::parse(TokenStream::from(input))
         .map_err(|refusal| Error::new(refusal.span(), refusal.message()))
-        .and_then(|script| emit::script(&script));
+        .and_then(|script| {
+            lgwks_ast::script::emit::script(&script)
+                .map_err(|refusal| Error::new(refusal.span(), refusal.message()))
+        });
     match expanded {
         Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),

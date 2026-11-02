@@ -8,7 +8,7 @@
 //! is one token however many lines it spans, so a call split across lines stays
 //! one logical line, which is Python's own rule for brackets.
 
-use lgwks_deps::proc_macro2::{
+use proc_macro2::{
     Delimiter, Group, Ident, LineColumn, Punct, Spacing, Span, TokenStream, TokenTree,
 };
 
