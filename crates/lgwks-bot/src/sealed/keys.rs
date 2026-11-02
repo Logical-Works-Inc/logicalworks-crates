@@ -15,8 +15,13 @@
 //! key files are owner-only. They are not page-locked: the estate has no OS
 //! page-lock seam, and admitting an FFI edge for `mlock` alone would trade the
 //! workspace's `unsafe` ban for one call. [`SoftwareProvider::page_lock_report`]
-//! | reports exactly that, so a caller choosing this provider knows what it
+//! reports exactly that, so a caller choosing this provider knows what it
 //! does and does not promise.
+//!
+//! [`KeyProvider`]: crate::sealed::keys::KeyProvider
+//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision
+//! [`KeyProvider::destroy`]: crate::sealed::keys::KeyProvider::destroy
+//! [`SoftwareProvider::page_lock_report`]: crate::sealed::keys::SoftwareProvider::page_lock_report
 
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};

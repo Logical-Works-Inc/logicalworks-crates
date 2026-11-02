@@ -15,7 +15,7 @@
 //! # The promise
 //!
 //! A sealed record is unreadable without its data key, and each record holds a
-//! data key of its own: [`keys::KeyProvider::provision`] mints a fresh 32-byte
+//! data key of its own: [`KeyProvider::provision`](crate::sealed::keys::KeyProvider::provision) mints a fresh 32-byte
 //! key per record, never shared across records or tenants. The archived bytes
 //! go through the envelope with that key, and the frame's chain head covers
 //! the ciphertext together with the key identity, so a shredded record still
@@ -42,8 +42,8 @@
 //! # Erasure
 //!
 //! Shredding erases one record, tenant erasure shreds every live record of
-//! one tenant (GDPR Art. 17), and [`sweep`](sweep::Sweeper) shreds what a TTL
-//! passed, driven by the injected [`clock::Clock`](crate::clock::Clock). The
+//! one tenant (GDPR Art. 17), and [`Sweeper`](crate::sealed::sweep::Sweeper) shreds what a TTL
+//! passed, driven by the injected [`Clock`](crate::clock::Clock). The
 //! background driver owns its one task in a
 //! [`JoinSet`](crate::rt::task::JoinSet) listening to one
 //! [`CancellationToken`](crate::rt::sync::CancellationToken).

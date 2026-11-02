@@ -5,12 +5,12 @@
 //! The cipher is ChaCha20-Poly1305 through the `lgwks_deps` storefront
 //! (`sealed-aead`), never a direct edge: this module names
 //! `lgwks_deps::chacha20poly1305` and nothing else. Every record seals under a
-//! data key of its own — minting that key is the [`KeyProvider`](super::keys::KeyProvider)'s
+//! data key of its own — minting that key is the [`KeyProvider`](crate::sealed::keys::KeyProvider)'s
 //! job, not this module's — so a nonce reused across records cannot happen: the
 //! nonce is drawn fresh per seal from the estate entropy source by the caller,
 //! and the key it seals under is never used for another record.
 //!
-//! [`DataKey`] is move-only and redacted: no `Clone`, no `Copy`, no `Display`,
+//! [`DataKey`](crate::sealed::envelope::DataKey) is move-only and redacted: no `Clone`, no `Copy`, no `Display`,
 //! and a `Debug` that names the type and nothing else. Dropping it overwrites
 //! the bytes through a compiler fence, because the workspace forbids `unsafe`
 //! and a volatile write is unavailable: the overwrite followed by

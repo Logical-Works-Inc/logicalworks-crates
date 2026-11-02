@@ -17,6 +17,10 @@
 //! size law counts lines, not concerns: the driver owns its task, each store
 //! owns its bytes, and neither reaches into the other except through
 //! [`SweepTarget::sweep_once`].
+//!
+//! [`JoinSet`]: crate::rt::task::JoinSet
+//! [`CancellationToken`]: crate::rt::sync::CancellationToken
+//! [`SweepTarget::sweep_once`]: crate::sealed::sweep::SweepTarget::sweep_once
 
 use std::time::Duration;
 

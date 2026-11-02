@@ -5,6 +5,9 @@
 //!
 //! Every step is asserted as it is printed, so a clean exit is a proved
 //! journey, exactly as in the run-store half (`sealed.rs`).
+//!
+//! [`FileJournal`]: lgwks_bot::journal::FileJournal
+//! [`Sweeper`]: lgwks_bot::sealed::sweep::Sweeper
 
 use std::io::Write;
 use std::path::Path;

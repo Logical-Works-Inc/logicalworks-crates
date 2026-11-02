@@ -297,7 +297,7 @@ struct Held {
     sealed: Option<SealedStep>,
 }
 
-/// Sealed types live in [`sealed_impl`](sealed_impl): the envelope material,
+/// Sealed types live in `sealed_impl`: the envelope material,
 /// the write carrier, the public append and the burn-set slot. Re-exported
 /// here so the index, the staged append and the record module keep naming
 /// the same paths.
