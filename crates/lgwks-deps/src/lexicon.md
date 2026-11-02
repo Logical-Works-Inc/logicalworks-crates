@@ -41,5 +41,8 @@ Each line is one step. It starts with one of the words below, or it is a line of
 | `fetch <url>` | the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry` |
 | `ask <model> with (request)` | one model call under `request`: token budget and deadline, decoded into the declared type |
 | `send <receiver> with <payload>` | one outbound effect through `receiver`: intent first, dispatched once, settled from evidence |
+| `serve on port from env PORT, at most (limit) runs in flight:` | the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency |
+| `serve on port (port), at most (limit) runs in flight:` | the same on a literal port expression |
+| `route POST /drafts (body: DraftRequest) -> Draft:` | one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output |
 
 [`Scope`]: https://docs.rs/lgwks_bot/latest/lgwks_bot/script/struct.Scope.html

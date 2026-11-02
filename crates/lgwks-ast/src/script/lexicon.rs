@@ -82,6 +82,10 @@ pub enum Kind {
     Ask,
     /// `send <receiver> with <payload>`
     Send,
+    /// `serve on port ..., at most N runs in flight:` and its routes
+    Serve,
+    /// `route METHOD /path (body: Type) -> Type:` inside a `serve`
+    Route,
 }
 
 impl Kind {
@@ -117,6 +121,8 @@ impl Kind {
             Self::Fetch => "fetch",
             Self::Ask => "ask",
             Self::Send => "send",
+            Self::Serve => "serve",
+            Self::Route => "route",
         }
     }
 }
@@ -430,7 +436,7 @@ const fn form(written: &'static str, means: &'static str) -> Form {
 const IF_ELSE_EXAMPLE: &str = "flow route(code: u16) -> u8:\n    if code < 400:\n        give back 0\n    else if code < 500:\n        give back 1\n    else:\n        give back 2\n";
 
 /// Every word, in the order the documentation lists them.
-pub const LEXICON: [Word; 28] = [
+pub const LEXICON: [Word; 30] = [
     Word {
         kind: Kind::Flow,
         position: Position::Flow,
@@ -764,6 +770,8 @@ pub const LEXICON: [Word; 28] = [
     vocab::FETCH,
     vocab::ASK,
     vocab::SEND,
+    vocab::SERVE,
+    vocab::ROUTE,
 ];
 
 /// The row `token` names, when it is a word.
@@ -788,14 +796,14 @@ pub(crate) fn kind_of(line: &Line) -> Option<Kind> {
 
 /// The block words, as the refusal for an unknown block lists them: in lexicon
 /// order, `else` written with the `if` it belongs to, `node` and `compensate`
-/// left to the `graph` and `saga` they stand in, and `let`, in the form that
-/// opens a block, last after an "or".
+/// and `route` left to the `graph`, `saga` and `serve` they stand in, and `let`,
+/// in the form that opens a block, last after an "or".
 pub(crate) fn block_words() -> String {
     let mut words: Vec<String> = LEXICON
         .iter()
         .filter(|row| row.position == Position::Block)
         .filter_map(|row| match row.kind {
-            Kind::Else | Kind::Node | Kind::Compensate | Kind::Let => None,
+            Kind::Else | Kind::Node | Kind::Compensate | Kind::Route | Kind::Let => None,
             Kind::If => Some(format!(
                 "`{}`/`{}`",
                 Kind::If.spelling(),

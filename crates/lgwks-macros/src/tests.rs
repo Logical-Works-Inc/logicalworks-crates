@@ -29,7 +29,7 @@ pub(crate) fn expand(source: &str) -> Result<String, String> {
 ///
 /// A word's guarantee may cite a case here by its name (`lexicon::Evidence`),
 /// which is why the table is visible to the crate.
-pub(crate) const REFUSALS: [(&str, &str, &str); 51] = [
+pub(crate) const REFUSALS: [(&str, &str, &str); 54] = [
     (
         "unwrap by path",
         "flow f(x: Option<u8>):\n    let n = Option::unwrap(x)\n",
@@ -285,6 +285,21 @@ pub(crate) const REFUSALS: [(&str, &str, &str); 51] = [
         "send with no payload",
         "flow f(r: &Mailer):\n    send r\n",
         "the request the word runs on follows `with`",
+    ),
+    (
+        "serve with no ceiling",
+        "flow f() -> u16:\n    let served = serve on port from env PORT:\n        route POST /a (body: B) -> C:\n            give back 1\n    give back served.port()\n",
+        "with no in-flight ceiling",
+    ),
+    (
+        "route with no body",
+        "flow f() -> u16:\n    let served = serve on port from env PORT, at most 10 runs in flight:\n        route POST /a:\n            give back 1\n    give back served.port()\n",
+        "with no typed body",
+    ),
+    (
+        "route outside a serve",
+        "flow f() -> u8:\n    route POST /a (body: B) -> C:\n        give back 1\n",
+        "under a `serve",
     ),
 ];
 
@@ -576,7 +591,7 @@ fn an_unknown_block_lists_every_block_word_in_one_sentence() -> Result<(), Strin
         refusal,
         "unknown block; a line ending in `:` is one of `each`, `within`, `retry`, \
          `together`, `step`, `for`, `if`/`else`, `graph`, `saga`, `whenever`, \
-         `justify`, `remember`, `admit`, `ready`, `await`, or `let x = <block>:`",
+         `justify`, `remember`, `admit`, `ready`, `await`, `serve`, or `let x = <block>:`",
     );
     Ok(())
 }

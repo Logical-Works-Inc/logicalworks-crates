@@ -75,6 +75,12 @@ fn construct_lines(construct: &Construct, out: &mut Vec<Passthrough>) {
             }
             return;
         }
+        Construct::Serve(ref served) => {
+            for route in served.routes() {
+                block_lines(route.body(), out);
+            }
+            return;
+        }
     };
     block_lines(body, out);
 }

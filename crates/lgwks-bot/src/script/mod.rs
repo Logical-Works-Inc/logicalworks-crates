@@ -134,6 +134,8 @@ pub mod run_store;
 pub(crate) mod run_store;
 pub(crate) mod scope;
 mod send;
+#[cfg(feature = "edge")]
+mod serve;
 mod stream;
 pub(crate) mod trail;
 mod typed;
@@ -187,6 +189,11 @@ pub use scope::{Scope, StepKey, Tenant};
 #[doc(hidden)]
 pub use send::send_at;
 pub use send::{SendOutcome, SendPort, send};
+#[cfg(feature = "edge")]
+#[doc(hidden)]
+pub use serve::serve_at;
+#[cfg(feature = "edge")]
+pub use serve::{ServeError, ServeOptions, ServeReport};
 pub use stream::{Overflow, PumpReport, StreamGate, pump, stream_at};
 pub use trail::{Outcome, ScriptTrail, Site, TrailEntry};
 pub use typed::{TypedAction, TypedSource, act_typed, map_domain, observe_typed};

@@ -26,10 +26,12 @@ use super::tree::{Block, Construct, Flow, FlowShape, Script, Statement, StepShap
 use super::{Refusal, Result};
 
 mod blocks;
+mod serve;
 mod vocab;
 mod words;
 
 use blocks::{each, for_loop, if_chain, retry, split_let, step, together, within};
+use serve::serve;
 use vocab::{admit, approval, compensate, graph, justify, named, ready, whenever};
 use words::{expect_words, rewrite, run_only, shape, text_of};
 
@@ -283,7 +285,7 @@ fn statement(
 
 /// Read a block that yields a value: `each`, `within`, `retry`, `step`,
 /// `graph`, `saga`, `whenever`, `justify`, `remember`, `admit`, `ready`,
-/// `await approval`.
+/// `await approval`, `serve`.
 fn construct(
     line: &Line,
     children: &[Node],
@@ -301,10 +303,19 @@ fn construct(
         Some(Kind::Admit) => admit(line, children, labels),
         Some(Kind::Ready) => ready(line, children, labels),
         Some(Kind::Approval) => approval(line, children, labels),
+        Some(Kind::Serve) => serve(line, children, labels),
         Some(Kind::Node) => {
             let refusal = Err(Refusal::new(
                 line.span,
                 "a `node` is one node of a graph: write it under a `graph:` line",
+            ));
+            tracing::debug!(error = ?refusal.as_ref().err(), "construct: returning an error to the caller");
+            refusal
+        }
+        Some(Kind::Route) => {
+            let refusal = Err(Refusal::new(
+                line.span,
+                "a `route` is one route of a serve: write it under a `serve ...:` line",
             ));
             tracing::debug!(error = ?refusal.as_ref().err(), "construct: returning an error to the caller");
             refusal
