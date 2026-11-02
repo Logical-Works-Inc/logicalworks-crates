@@ -151,11 +151,41 @@ pub fn binary() -> Result<PathBuf, String> {
 /// Drive the built `lgwks` binary with `args` from `dir`, capturing both
 /// streams so the verdict can assert on them.
 pub fn run_lgwks(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
-    let output = std::process::Command::new(binary()?)
+    let binary = binary()?;
+    run_with("lgwks", &binary, dir, args)
+}
+
+/// The `lgwks-deps` binary under test: the binary Cargo built for this suite.
+pub fn deps_binary() -> Result<PathBuf, String> {
+    match std::env::var_os("CARGO_BIN_EXE_lgwks-deps") {
+        Some(binary) => Ok(PathBuf::from(binary)),
+        None => {
+            lgwks_std::trace::debug!("lgwks-test: no lgwks-deps test binary was provided");
+            Err(String::from(
+                "Cargo did not provide the lgwks-deps test binary",
+            ))
+        }
+    }
+}
+
+/// Drive the built `lgwks-deps` binary with `args` from `dir`, capturing both
+/// streams so the verdict can assert on them.
+pub fn run_deps(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
+    let binary = deps_binary()?;
+    run_with("lgwks-deps", &binary, dir, args)
+}
+
+/// Drive `binary` with `args` from `dir`, capturing both streams.
+///
+/// One definition for every command family this file serves, so a fix to the
+/// capture layout is a fix for all of them: `run_lgwks` and `run_deps` differ
+/// only in which binary they were given.
+fn run_with(name: &str, binary: &Path, dir: &Path, args: &[&str]) -> Result<Outcome, String> {
+    let output = std::process::Command::new(binary)
         .args(args)
         .current_dir(dir)
         .output()
-        .map_err(|error| format!("lgwks could not start: {error}"))?;
+        .map_err(|error| format!("{name} could not start: {error}"))?;
     match String::from_utf8(output.stderr) {
         Ok(stderr) => Ok(Outcome {
             code: output.status.code(),
@@ -164,7 +194,7 @@ pub fn run_lgwks(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
         }),
         Err(_) => {
             lgwks_std::trace::debug!("lgwks-test: the binary wrote non-UTF-8 to stderr");
-            Err(String::from("lgwks wrote non-UTF-8 to stderr"))
+            Err(format!("{name} wrote non-UTF-8 to stderr"))
         }
     }
 }

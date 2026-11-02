@@ -4,3 +4,4 @@
 # audit under is not what changes the verdict — the inspected repository is.
 [policy]
 enforce = true
+schema = 3

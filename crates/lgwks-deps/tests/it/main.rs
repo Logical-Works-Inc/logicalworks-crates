@@ -85,6 +85,8 @@ mod sim_metadata_dimensions;
 mod sim_origin;
 mod sim_policy_properties;
 mod sim_register_policy;
+#[cfg(feature = "lgwks")]
+mod sim_retire;
 mod sim_seed_draws;
 mod sim_vendor_coverage;
 #[cfg(feature = "sqlite")]

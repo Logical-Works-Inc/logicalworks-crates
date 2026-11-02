@@ -6,3 +6,4 @@
 # below must inspect that repository and not this one.
 [policy]
 enforce = true
+schema = 3

@@ -42,7 +42,12 @@ pub(crate) fn print_request_template(
          reason = \"\"                # one sentence naming what std cannot do\n\
          approved_by = \"\"           # the human who decided\n\
          approved_on = \"\"           # YYYY-MM-DD\n\
-         review = \"\"                # path or URL to the evidence\n"
+         review = \"\"                # path or URL to the evidence\n\
+         [approved.retire]\n\
+         replacement = \"\"           # std or workspace module path that will own it\n\
+         blocker = \"\"               # one sentence: what that module is missing today\n\
+         cost = {{ cold_build_s = 0.0, crates = 0, binary_bytes = 0, measured = \"\", command = \"\" }}  # measured, never estimated\n\
+         review = \"\"                # YYYY-MM-DD the mortgage is next reviewed\n"
     )
 }
 
@@ -107,6 +112,9 @@ pub(crate) const STARTER: &str = "\
 # `lgwks_std` instead, which is why `tier` admits only `boundary` and `vendor`.
 
 [policy]
+# Schema 3: every approval carries an `[approved.retire]` table, its measured
+# exit toward zero dependencies (#788).
+schema = 3
 # Fail-closed. Set to false only while a repo is being brought onto the gate,
 # and only in a diff a human signed off — refusals then report as warnings.
 enforce = true

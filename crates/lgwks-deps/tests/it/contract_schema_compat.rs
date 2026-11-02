@@ -1,10 +1,13 @@
-//! Schema migration and external-consumer compatibility (issue #158 A1/A2).
+//! Schema migration and external-consumer compatibility (issue #158 A1/A2,
+//! #788).
 //!
 //! Schema 1 is a class-only register; schema 2 adds the exact-origin and
-//! admitted-capability-policy keys and the explicit alias list. The migration is
-//! additive: a schema-1 register still parses under the same public API, the
-//! committed register is schema 2, and an unknown future version is refused
-//! rather than read under the older rules.
+//! admitted-capability-policy keys and the explicit alias list; schema 3
+//! mortgages every edge's exit in an `[approved.retire]` table. The migration
+//! is additive: every schema still parses under the same public API, the
+//! committed register is schema 3, and an unknown future version is refused
+//! rather than read under the older rules. `check` refuses a register below
+//! schema 3 with a `SchemaMigration` refusal naming the migration (#788).
 
 use std::error::Error;
 use std::path::Path;
@@ -24,9 +27,9 @@ const SCHEMA_1: &str = concat!(
     "approved_by = \"maintainer\"\napproved_on = \"2026-08-30\"\nreview = \"https://example.invalid/1\"\n",
 );
 
-/// A downstream consumer reads the same public API for both schema versions.
+/// A downstream consumer reads the same public API for every schema version.
 #[test]
-fn the_public_api_reads_both_schema_versions() -> TestResult {
+fn the_public_api_reads_all_three_schema_versions() -> TestResult {
     let v1 = Contract::parse(SCHEMA_1)?;
     assert_eq!(v1.schema(), 1, "an absent schema key is version 1");
     assert_eq!(v1.entry_count(), 1);
@@ -42,6 +45,14 @@ fn the_public_api_reads_both_schema_versions() -> TestResult {
     assert_eq!(v2.schema(), 2);
     assert_eq!(v2.entry_count(), 1);
     assert!(v2.approval_for("serde").is_some());
+
+    let v3 = Contract::parse(&SCHEMA_1.replace(
+        "[policy]\nenforce = true",
+        "[policy]\nschema = 3\nenforce = true",
+    ))?;
+    assert_eq!(v3.schema(), 3);
+    assert_eq!(v3.entry_count(), 1);
+    assert!(v3.approval_for("serde").is_some());
     Ok(())
 }
 
@@ -54,15 +65,15 @@ fn an_unknown_future_schema_is_refused() {
     ));
 }
 
-/// The committed register was migrated in place to schema 2.
+/// The committed register was migrated in place to schema 3 (#788).
 #[test]
-fn the_committed_register_is_schema_two() -> TestResult {
+fn the_committed_register_is_schema_three() -> TestResult {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/APPROVED.toml");
     let text = std::fs::read_to_string(path)?;
     let register = Contract::parse(&text)?;
     assert_eq!(
         register.schema(),
-        2,
+        3,
         "the committed register must author the migrated schema version"
     );
     assert!(

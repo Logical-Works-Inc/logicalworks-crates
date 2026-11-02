@@ -459,7 +459,13 @@ fn hex_approval(tier: &str) -> String {
              library does not expose.\"\n",
             "approved_by = \"maintainer\"\n",
             "approved_on = \"2026-10-01\"\n",
-            "review = \"docs/ADMISSION.md\"\n"
+            "review = \"docs/ADMISSION.md\"\n",
+            "[approved.retire]\n",
+            "replacement = \"lgwks_std::hex\"\n",
+            "blocker = \"The fixture approves hex beside the estate module that already owns it.\"\n",
+            "cost = {{ cold_build_s = 0.1, crates = 1, binary_bytes = 1, measured = \"2026-11-02\", \
+             command = \"fixture: the edge is never built\" }}\n",
+            "review = \"2099-01-01\"\n"
         ),
         tier = tier
     )

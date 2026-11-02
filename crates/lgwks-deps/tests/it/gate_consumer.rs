@@ -136,7 +136,7 @@ impl Scratch {
         )?;
         std::fs::write(
             root.join("contract/APPROVED.toml"),
-            "[policy]\nenforce = true\naccepted_licenses = \"MIT, Apache-2.0\"\n",
+            "[policy]\nschema = 3\nenforce = true\naccepted_licenses = \"MIT, Apache-2.0\"\n",
         )?;
         std::fs::write(root.join("src/lib.rs"), "pub fn f() -> u32 {\n    1\n}\n")?;
         let scratch = Self { root, target };
@@ -274,7 +274,7 @@ fn sim_a_widening_change_fails_the_gate() -> TestResult {
     )?;
     scratch.plant(
         "head/contract/APPROVED.toml",
-        "[policy]\nenforce = true\naccepted_licenses = \"MIT, Apache-2.0\"\n",
+        "[policy]\nschema = 3\nenforce = true\naccepted_licenses = \"MIT, Apache-2.0\"\n",
     )?;
     scratch.plant("head/src/lib.rs", "pub fn f() -> u32 {\n    1\n}\n")?;
     scratch.plant("head/flows.rs", ACCEPTED)?;

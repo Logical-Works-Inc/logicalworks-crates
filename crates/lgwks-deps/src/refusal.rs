@@ -177,6 +177,49 @@ pub enum Refusal {
         /// Approvals with an observed edge that went unjudged.
         approvals: usize,
     },
+    /// The register still reads schema 1 or 2, which mortgage no edge's exit.
+    ///
+    /// Schema 3 mortgages every approval in an `[approved.retire]` table.
+    /// One refusal for the whole register, because the fix is one migration:
+    /// name each edge's replacement, blocker, measured cost and review, and
+    /// set `[policy] schema = 3` (#788).
+    SchemaMigration {
+        /// Schema version the register was written under.
+        schema: u32,
+    },
+    /// A schema-3 approval carries no `[approved.retire]` table, so nothing
+    /// says how the edge ends.
+    RetireMissing {
+        /// Approved external package with no mortgage.
+        krate: String,
+        /// The absent table, as written in the register.
+        field: String,
+    },
+    /// A schema-3 approval's mortgage names a replacement, blocker, cost or
+    /// review the gate cannot honor: a module path nothing owns, or a cost
+    /// that is not a measured positive number.
+    RetireInvalid {
+        /// Approved external package whose mortgage is refused.
+        krate: String,
+        /// The refused mortgage field, such as `retire.replacement`.
+        field: String,
+        /// The authored value, verbatim.
+        value: String,
+        /// What the field must carry instead.
+        expected: String,
+    },
+    /// A schema-3 approval's mortgage review date lies before the date the
+    /// check ran on: the edge's exit was due a review it never got.
+    RetireExpired {
+        /// Approved external package whose mortgage lapsed.
+        krate: String,
+        /// The lapsed mortgage field, `retire.review`.
+        field: String,
+        /// The authored review date.
+        review: String,
+        /// The date the check ran on.
+        today: String,
+    },
     /// The licence the package's own manifest declares is not the licence the
     /// register approved, or is not one the register accepts.
     ///
@@ -476,6 +519,41 @@ impl fmt::Display for Refusal {
                  [policy] accepted_licenses; name the SPDX identifiers this repository \
                  accepts (for example `accepted_licenses = \"MIT, Apache-2.0\"`)"
             ),
+            Self::SchemaMigration { schema } => write!(
+                formatter,
+                "the register still reads schema {schema}; migrate it to schema 3: \
+                 every [[approved]] entry gains an [approved.retire] table naming \
+                 its replacement, blocker, measured cost and review, and [policy] \
+                 sets schema = 3 (#788)"
+            ),
+            Self::RetireMissing {
+                ref krate,
+                ref field,
+            } => write!(
+                formatter,
+                "approval for {krate:?} names no {field} table: schema 3 mortgages \
+                 every edge's exit with [approved.retire] (replacement, blocker, \
+                 cost, review) (#788)"
+            ),
+            Self::RetireInvalid {
+                ref krate,
+                ref field,
+                ref value,
+                ref expected,
+            } => write!(
+                formatter,
+                "approval for {krate:?} has invalid {field} value {value:?}; {expected}"
+            ),
+            Self::RetireExpired {
+                ref krate,
+                ref field,
+                ref review,
+                ref today,
+            } => write!(
+                formatter,
+                "approval for {krate:?} {field} {review:?} is before today {today:?}: \
+                 re-review the mortgage and move the date forward (#788)"
+            ),
             Self::AdoptionModeRefusals { refusals } => write!(
                 formatter,
                 "[policy] enforce = false stood down {refusals} dependency-edge \
@@ -562,8 +640,13 @@ impl Refusal {
             | Self::DeferredAdmitted { ref krate, .. }
             | Self::MissingLifecycle { ref krate, .. }
             | Self::PatchExpired { ref krate, .. }
-            | Self::ProviderBlocked { ref krate, .. } => krate,
-            Self::AdoptionModeRefusals { .. } | Self::LicensePolicyUndeclared { .. } => "<policy>",
+            | Self::ProviderBlocked { ref krate, .. }
+            | Self::RetireMissing { ref krate, .. }
+            | Self::RetireInvalid { ref krate, .. }
+            | Self::RetireExpired { ref krate, .. } => krate,
+            Self::AdoptionModeRefusals { .. }
+            | Self::LicensePolicyUndeclared { .. }
+            | Self::SchemaMigration { .. } => "<policy>",
             // An override is about a file's table, not one crate: a `[patch]`
             // can carry many packages, and a source replacement carries them all.
             // A ledger that cannot be read is about the file, for the same reason.
@@ -582,7 +665,9 @@ impl Refusal {
     pub const fn is_policy(&self) -> bool {
         matches!(
             *self,
-            Self::AdoptionModeRefusals { .. } | Self::LicensePolicyUndeclared { .. }
+            Self::AdoptionModeRefusals { .. }
+                | Self::LicensePolicyUndeclared { .. }
+                | Self::SchemaMigration { .. }
         )
     }
 }
