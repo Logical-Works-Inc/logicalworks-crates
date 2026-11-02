@@ -34,12 +34,13 @@ keywords = ["parser", "ast", "tree-sitter", "static-analysis", "code-analysis"]
 # Every capability this crate owns is on by default (Director, 2026-10-22, #732):
 # all 28 grammars, the `script!` reader (SL-2's one parser), its one emitter
 # (the Rust `script!` compiles to, shared with the `lgwks` binary, #787), the
-# `lgwks-ast` tool and the zero-gate detectors. A consumer that wants the
+# `lgwks-ast` tool, the zero-gate detectors, and the legacy COBOL/JCL reader
+# (#777). A consumer that wants the
 # typed-diagnostic derive alone opts out with `--no-default-features`; one that
 # wants a smaller parser opts out with `--no-default-features --features
 # parser,lang-rust`. ADR 0003 is the decision; the compile cost of the full set
 # is printed by `docs/catalog.md`.
-default = ["full", "script", "emit", "tool", "scan"]
+default = ["full", "script", "emit", "tool", "scan", "legacy"]
 # The multi-language parser and its grammar stack (#367). Every `lang-*`
 # feature enables it, so the default set has it; without it this crate is the
 # typed-error derive and the diagnostic types alone, with no tree-sitter, so a
@@ -112,6 +113,11 @@ tool = ["script", "dep:lgwks_std"]
 # They live here because `script` makes this crate depend on `lgwks_deps`, so
 # `lgwks_deps` calling back is a cycle Cargo refuses (ADR 0001). Default off.
 scan = ["lang-rust"]
+# The CODE half of legacy comprehension (#777): the COBOL and JCL reader with
+# its PERFORM, CALL, file, field and job graphs and line-pinned summaries,
+# and their JSON verdicts for agents. Needs the refusal signal and the JSON
+# value type, so it builds everywhere `tool` does.
+legacy = ["dep:tracing", "dep:lgwks_std"]
 full = [
     "lang-rust",
     "lang-python",
@@ -192,6 +198,10 @@ required-features = ["tool"]
 [[example]]
 name = "parse"
 required-features = ["lang-rust"]
+
+[[example]]
+name = "legacy"
+required-features = ["legacy"]
 
 # The parse-budget measurement (`scripts/measure-ast-budget.sh`, built with
 # `full`) walks `Language::ALL`, so it needs the parser and nothing more: with no

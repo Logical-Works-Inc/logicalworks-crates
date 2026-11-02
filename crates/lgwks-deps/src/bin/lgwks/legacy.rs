@@ -9,6 +9,7 @@
 //! earned them. Files are read no further than one byte past the input
 //! ceiling, so an oversized input is refused without being held whole.
 
+mod explain;
 mod image;
 mod office;
 mod text;
@@ -34,6 +35,7 @@ Read and write the formats legacy estates run on, exactly and under bounds.
   packed decode <hex> --digits=N [--scale=S] [--unsigned]
   packed encode <value> --digits=N [--unsigned]  COMP-3 and exact decimals
   copybook <layout> [records] [--page=...]       the layout, or each record
+  explain <program.cbl|job.jcl> [--copy-dir=DIR] what a program or job does
   cfb list <in>                                  a compound file's streams
   cfb read <in> <stream> <out>                   one stream's bytes
   cfb pack <out> <name=path>...                  a compound file from files
@@ -224,7 +226,7 @@ fn invocation(args: &[String]) -> Result<Invocation<'_>, Refusal> {
     }
     let Some((&codec, positional)) = words.split_first() else {
         return common::refuse(Refusal::whole(String::from(
-            "lgwks legacy needs a codec: ebcdic, packed, copybook, cfb, vba, access or fax",
+            "lgwks legacy needs a codec: ebcdic, packed, copybook, explain, cfb, vba, access or fax",
         )));
     };
     let max_bytes = whole_number(
@@ -266,12 +268,13 @@ fn route(call: &Invocation<'_>) -> Result<Fact, Refusal> {
         "ebcdic" => text::ebcdic(call),
         "packed" => text::packed(call),
         "copybook" => text::copybook(call),
+        "explain" => explain::explain(call),
         "cfb" => office::cfb(call),
         "vba" => office::vba(call),
         "access" => office::access(call),
         "fax" => image::fax(call),
         other => common::refuse(Refusal::whole(format!(
-            "unknown codec {other}: one of ebcdic, packed, copybook, cfb, vba, access or fax"
+            "unknown codec {other}: one of ebcdic, packed, copybook, explain, cfb, vba, access or fax"
         ))),
     }
 }
