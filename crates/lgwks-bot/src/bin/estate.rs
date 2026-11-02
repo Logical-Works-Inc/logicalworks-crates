@@ -38,6 +38,14 @@ mod run_events;
 #[path = "estate/serve_ref.rs"]
 mod serve_ref;
 
+/// Model-written plans over the tenant HTTP edge (`estate apps`, #786):
+/// refuse, repair, run, and assert every printed line over loopback.
+#[path = "estate/apps.rs"]
+mod apps;
+/// The offline half of `estate apps`: the library's verdicts match the edge's.
+#[path = "estate/apps_offline.rs"]
+mod apps_offline;
+
 /// The sealed evening (`estate sealed`, #785): two tenants sealed, one
 /// shredded, a restart, and a chain that still verifies.
 #[path = "estate/sealed.rs"]
@@ -330,6 +338,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         && first == "serve"
     {
         return serve_ref::run(rest).map_err(Box::<dyn std::error::Error>::from);
+    }
+    if let Some((first, rest)) = args.split_first()
+        && first == "apps"
+    {
+        return apps::run(rest).map_err(Box::<dyn std::error::Error>::from);
     }
     if let Some((first, rest)) = args.split_first()
         && first == "approvals"

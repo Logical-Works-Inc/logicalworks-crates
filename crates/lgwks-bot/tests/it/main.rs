@@ -119,6 +119,10 @@ mod run_world;
 #[path = "../support/scratch.rs"]
 mod scratch;
 
+#[cfg(all(feature = "edge", feature = "script"))]
+#[path = "../support/apps_harness.rs"]
+mod apps_harness;
+
 #[cfg(feature = "sealed")]
 #[path = "../support/sealed_harness.rs"]
 mod sealed_harness;
@@ -180,6 +184,8 @@ mod ambiguous_commit;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 mod app;
 mod approval;
+#[cfg(all(feature = "edge", feature = "script"))]
+mod apps;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod authority;
 #[cfg(all(feature = "ecs", feature = "wire"))]
@@ -296,6 +302,8 @@ mod sim_append_verdict;
 mod sim_approval;
 mod sim_approval_extra;
 mod sim_approval_scale;
+#[cfg(all(feature = "edge", feature = "script"))]
+mod sim_apps;
 mod sim_cancel_under_load;
 mod sim_cas;
 mod sim_cas_corrupt;

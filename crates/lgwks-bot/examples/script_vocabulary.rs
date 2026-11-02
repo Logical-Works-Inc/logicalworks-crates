@@ -412,7 +412,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     })
     .with_work(2);
     check(node.name() == "probe", "a node carries its name")?;
-    check(node.needs() == ["fetch_a"], "a node carries its needs")?;
+    check(
+        node.needs() == [Arc::from("fetch_a")].as_slice(),
+        "a node carries its needs",
+    )?;
     check(
         lgwks_bot::script::MAX_GRAPH_NODES == 4_096,
         "the graph admits more lanes than any lane graph needs",

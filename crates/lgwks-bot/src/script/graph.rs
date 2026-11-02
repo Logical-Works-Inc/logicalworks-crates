@@ -49,9 +49,9 @@ type BodyFn<'a, T> = Box<dyn Fn(Scope) -> BodyFut<'a, T> + Send + 'a>;
 /// One node: a name, the names it waits for, and its body.
 pub struct GraphNode<'a, T> {
     /// The node's name, unique in the graph.
-    name: &'static str,
+    name: Arc<str>,
     /// The nodes that must have succeeded before this one starts.
-    needs: &'static [&'static str],
+    needs: Arc<[Arc<str>]>,
     /// A unit cost for the critical-path order.
     work: u64,
     /// The body, run once in a scope of its own.
@@ -60,14 +60,18 @@ pub struct GraphNode<'a, T> {
 
 impl<'a, T> GraphNode<'a, T> {
     /// A node named `name`, waiting for `needs`, running `run` once.
+    ///
+    /// The names are owned: a compiled `script!` passes literals, and a
+    /// model-written plan passes the names its stored plan holds, so dropping
+    /// that plan frees them and nothing is leaked per admission or per run.
     pub fn new(
-        name: &'static str,
-        needs: &'static [&'static str],
+        name: impl Into<Arc<str>>,
+        needs: &[&str],
         run: impl Fn(Scope) -> BodyFut<'a, T> + Send + 'a,
     ) -> Self {
         Self {
-            name,
-            needs,
+            name: name.into(),
+            needs: needs.iter().map(|need| Arc::from(*need)).collect(),
             work: 1,
             run: Box::new(run),
         }
@@ -82,14 +86,14 @@ impl<'a, T> GraphNode<'a, T> {
 
     /// The node's name: what its needs and the report name it by.
     #[must_use]
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        self.name.as_ref()
     }
 
     /// The names this node waits for.
     #[must_use]
-    pub fn needs(&self) -> &'static [&'static str] {
-        self.needs
+    pub fn needs(&self) -> &[Arc<str>] {
+        self.needs.as_ref()
     }
 }
 
@@ -110,10 +114,10 @@ pub enum NodeOutcome<T> {
 #[derive(Debug)]
 pub struct GraphReport<T> {
     /// One entry per declared node, in declaration order.
-    outcomes: Vec<(&'static str, NodeOutcome<T>)>,
+    outcomes: Vec<(Arc<str>, NodeOutcome<T>)>,
     /// The nodes started together at each scheduling point, in the order the
     /// points came, each in start order.
-    schedule: Vec<Vec<&'static str>>,
+    schedule: Vec<Vec<Arc<str>>>,
 }
 
 impl<T> GraphReport<T> {
@@ -122,37 +126,37 @@ impl<T> GraphReport<T> {
     pub fn outcome(&self, name: &str) -> Option<&NodeOutcome<T>> {
         self.outcomes
             .iter()
-            .find(|item| item.0 == name)
+            .find(|item| item.0.as_ref() == name)
             .map(|item| &item.1)
     }
 
     /// Names that ran to a value (not a failure, not blocked).
     #[must_use]
-    pub fn succeeded(&self) -> Vec<&'static str> {
+    pub fn succeeded(&self) -> Vec<&str> {
         self.outcomes
             .iter()
             .filter(|item| matches!(item.1, NodeOutcome::Ran(Ok(_))))
-            .map(|item| item.0)
+            .map(|item| item.0.as_ref())
             .collect()
     }
 
     /// Names that ran and failed.
     #[must_use]
-    pub fn failed(&self) -> Vec<&'static str> {
+    pub fn failed(&self) -> Vec<&str> {
         self.outcomes
             .iter()
             .filter(|item| matches!(item.1, NodeOutcome::Ran(Err(_))))
-            .map(|item| item.0)
+            .map(|item| item.0.as_ref())
             .collect()
     }
 
     /// Names that never ran.
     #[must_use]
-    pub fn blocked(&self) -> Vec<&'static str> {
+    pub fn blocked(&self) -> Vec<&str> {
         self.outcomes
             .iter()
             .filter(|item| matches!(item.1, NodeOutcome::Blocked { .. }))
-            .map(|item| item.0)
+            .map(|item| item.0.as_ref())
             .collect()
     }
 
@@ -168,7 +172,7 @@ impl<T> GraphReport<T> {
     /// scheduling point, in the order the points came, each in start order.
     /// A point is the start of the run or a node's completion.
     #[must_use]
-    pub fn waves(&self) -> &[Vec<&'static str>] {
+    pub fn waves(&self) -> &[Vec<Arc<str>>] {
         &self.schedule
     }
 
@@ -311,47 +315,47 @@ fn refusal_reason<T>(nodes: &[GraphNode<'_, T>]) -> Option<String> {
             nodes.len()
         ));
     }
-    let mut seen: BTreeSet<&'static str> = BTreeSet::new();
+    let mut seen: BTreeSet<Arc<str>> = BTreeSet::new();
     for node in nodes {
         if node.name.is_empty() {
             return Some(String::from("a node is named the empty string"));
         }
-        if !seen.insert(node.name) {
+        if !seen.insert(Arc::clone(&node.name)) {
             return Some(format!("a node is declared twice: {}", node.name));
         }
     }
     for node in nodes {
-        for need in node.needs {
+        for need in node.needs.iter() {
             if !seen.contains(need) {
                 return Some(format!(
                     "{} needs {}, which no node declares",
                     node.name, need
                 ));
             }
-            if *need == node.name {
+            if need == &node.name {
                 return Some(format!("{} needs itself", node.name));
             }
         }
     }
     // Kahn's pass over names: what never reaches zero waits on a cycle.
-    let mut outstanding: BTreeMap<&'static str, usize> = nodes
+    let mut outstanding: BTreeMap<Arc<str>, usize> = nodes
         .iter()
-        .map(|node| (node.name, node.needs.len()))
+        .map(|node| (Arc::clone(&node.name), node.needs.len()))
         .collect();
-    let mut ready: Vec<&'static str> = outstanding
+    let mut ready: Vec<Arc<str>> = outstanding
         .iter()
         .filter(|item| *item.1 == 0)
-        .map(|item| *item.0)
+        .map(|item| Arc::clone(item.0))
         .collect();
     while let Some(name) = ready.pop() {
-        outstanding.remove(name);
+        outstanding.remove(name.as_ref());
         for node in nodes {
             if node.needs.contains(&name)
-                && let Some(count) = outstanding.get_mut(node.name)
+                && let Some(count) = outstanding.get_mut(&node.name)
             {
                 *count = count.saturating_sub(1);
                 if *count == 0 {
-                    ready.push(node.name);
+                    ready.push(Arc::clone(&node.name));
                 }
             }
         }
@@ -366,7 +370,7 @@ fn refusal_reason<T>(nodes: &[GraphNode<'_, T>]) -> Option<String> {
 /// its height, the longest chain of work from it to the end of the graph.
 struct Plan {
     /// The names, in declaration order.
-    names: Vec<&'static str>,
+    names: Vec<Arc<str>>,
     /// Each node's needs, as declaration indices.
     needs: Vec<Vec<usize>>,
     /// The nodes that need each node, as declaration indices.
@@ -378,16 +382,16 @@ struct Plan {
 impl Plan {
     /// The plan of a declaration [`validate`] accepted.
     fn of<T>(nodes: &[GraphNode<'_, T>]) -> Result<Self, FlowError> {
-        let index: BTreeMap<&'static str, usize> = nodes
+        let index: BTreeMap<Arc<str>, usize> = nodes
             .iter()
             .enumerate()
-            .map(|(at, node)| (node.name, at))
+            .map(|(at, node)| (Arc::clone(&node.name), at))
             .collect();
         let mut needs = Vec::with_capacity(nodes.len());
         let mut dependants: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
         for (at, node) in nodes.iter().enumerate() {
             let mut resolved = Vec::with_capacity(node.needs.len());
-            for need in node.needs {
+            for need in node.needs.iter() {
                 let of = *index
                     .get(need)
                     .ok_or_else(|| FlowError::graph(format!("{need} is not a declared node")))?;
@@ -434,7 +438,7 @@ impl Plan {
             }
         }
         Ok(Self {
-            names: nodes.iter().map(|node| node.name).collect(),
+            names: nodes.iter().map(|node| Arc::clone(&node.name)).collect(),
             needs,
             dependants,
             height,
@@ -470,7 +474,7 @@ struct Run<'a, T> {
     /// Free slot positions.
     free: Vec<usize>,
     /// The nodes started at each scheduling point.
-    schedule: Vec<Vec<&'static str>>,
+    schedule: Vec<Vec<Arc<str>>>,
 }
 
 impl<'a, T> Run<'a, T> {
@@ -516,9 +520,9 @@ impl<'a, T> Run<'a, T> {
                 .get_mut(index)
                 .and_then(Option::take)
                 .ok_or_else(|| FlowError::graph("a ready node had already started"))?;
-            let scope = here.enter(node.name)?;
+            let scope = here.enter(node.name.as_ref())?;
             let future = (node.run)(scope.clone());
-            started.push(node.name);
+            started.push(Arc::clone(&node.name));
             if let Some(slot) = self.slots.get_mut(position) {
                 *slot = Some(Running {
                     index,
@@ -607,7 +611,7 @@ impl<'a, T> Run<'a, T> {
                     )
                 })
                 .filter_map(|need| self.plan.names.get(*need))
-                .map(|name| (*name).to_owned())
+                .map(|name| name.as_ref().to_owned())
                 .collect();
             by.sort_unstable();
             self.record(at, NodeOutcome::Blocked { by });
@@ -652,7 +656,7 @@ impl<'a, T> Run<'a, T> {
                 lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "report: returning an error to the caller");
                 return refusal;
             };
-            outcomes.push((*name, outcome));
+            outcomes.push((Arc::clone(name), outcome));
         }
         Ok(GraphReport {
             outcomes,
