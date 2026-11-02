@@ -21,7 +21,7 @@ pub(super) type RouteHandler =
     dyn Fn(String, Option<String>, Vec<u8>) -> BoxRouteFuture + Send + Sync;
 
 /// One typed route: the verb, the path below the tenant prefix, and the
-/// handler from tenant and body bytes to response bytes.
+/// handler from tenant, content type and body bytes to response bytes.
 #[derive(Clone)]
 pub struct TypedRoute {
     /// The verb this route answers.
