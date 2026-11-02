@@ -172,7 +172,7 @@ pub mod requirements;
 /// edge costs, when it was last reviewed, and the report that renders them.
 pub mod retire;
 /// The schema-3 exit mortgage reader: `[approved.retire]` tables and cost
-/// inline tables, parsed into [`retire::Retire`].
+/// inline tables, parsed into the crate's retire mortgages.
 mod retire_read;
 /// The spec-owner check's one implementation (#695): `lgwks_deps` owns the
 /// rule, the `check-spec-owners` binary is a thin shim over the shared entry,

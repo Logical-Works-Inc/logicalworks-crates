@@ -10,7 +10,7 @@
 //! or `std` owns, an expired review and a cost that is not positive — each
 //! with the entry's name and the offending field. `retire --report` renders
 //! the same mortgages as text and as one JSON object, with the total distance
-//! to zero beside every edge. The reader half lives in [`crate::retire_read`].
+//! to zero beside every edge. The reader half lives in the private `retire_read`.
 
 use std::path::Path;
 
