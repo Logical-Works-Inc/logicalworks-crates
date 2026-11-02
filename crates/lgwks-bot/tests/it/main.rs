@@ -119,6 +119,10 @@ mod run_world;
 #[path = "../support/scratch.rs"]
 mod scratch;
 
+#[cfg(feature = "sealed")]
+#[path = "../support/sealed_harness.rs"]
+mod sealed_harness;
+
 #[cfg(feature = "edge")]
 #[path = "../support/serve_edge.rs"]
 mod serve_edge;
@@ -279,6 +283,8 @@ mod script_front_door;
 mod script_map_parity;
 mod script_refusals;
 mod script_trail;
+#[cfg(feature = "sealed")]
+mod sealed;
 #[cfg(feature = "edge")]
 mod serve;
 #[cfg(feature = "edge")]
@@ -382,6 +388,10 @@ mod sim_script_feeds;
 mod sim_script_steps;
 mod sim_script_vocab;
 mod sim_script_words;
+#[cfg(feature = "sealed")]
+mod sim_sealed;
+#[cfg(feature = "sealed")]
+mod sim_sealed_shred;
 #[cfg(feature = "edge")]
 mod sim_serve;
 mod sim_session_front_door;

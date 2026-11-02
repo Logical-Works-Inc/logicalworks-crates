@@ -38,6 +38,15 @@ mod run_events;
 #[path = "estate/serve_ref.rs"]
 mod serve_ref;
 
+/// The sealed evening (`estate sealed`, #785): two tenants sealed, one
+/// shredded, a restart, and a chain that still verifies.
+#[path = "estate/sealed.rs"]
+mod sealed;
+/// The journal and owned-sweeper half of `estate sealed`.
+#[cfg(feature = "sealed")]
+#[path = "estate/sealed_journal.rs"]
+mod sealed_journal;
+
 /// One line to the caller's locked stdout; a write error reaches `main` as an I/O error.
 fn say(line: &str) -> std::io::Result<()> {
     writeln!(std::io::stdout().lock(), "{line}")
@@ -330,6 +339,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
         return approvals::run(rest, &mut out)
+            .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+    }
+    if let Some((first, rest)) = args.split_first()
+        && first == "sealed"
+    {
+        let stdout = std::io::stdout();
+        let mut out = stdout.lock();
+        return sealed::run(rest, &mut out)
             .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
     }
     let mut mismatch: Option<String> = None;

@@ -40,6 +40,7 @@ the crate is the decision. An `off` row states why in ADR 0003.
 | authority | `lgwks_bot::cap` | `lgwks_bot` | `always` | on | authority, grant, capability, permission |
 | journal | `lgwks_bot::journal` | `lgwks_bot` | `always` | on | journal, durable, effect record, replay, crash recovery |
 | ecs | `lgwks_bot::ecs` | `lgwks_bot` | `ecs` | on | ecs, schedule, change detection, tick, observe evaluate execute |
+| sealed records at rest | `lgwks_bot::sealed` | `lgwks_bot` | `sealed` | off — Journal and run-store records sealed under fresh ChaCha20-Poly1305 data keys with key destruction as erasure; never built unless selected. One flag: --features sealed (ADR 0003). | sealed, sealed records, encryption at rest, shred, crypto-erase, ttl erasure, gdpr erasure |
 | parse | `lgwks_ast::parser` | `lgwks_ast` | `parser` | on | parse, parser, ast, tree-sitter, ast-grep, syntax |
 | scan | `lgwks_ast::scan` | `lgwks_ast` | `scan` | on | scan, zero gate, source detectors, lint |
 | script reader | `lgwks_ast::script` | `lgwks_ast` | `script` | on | script reader, script parse, lexicon |
@@ -56,6 +57,7 @@ the crate is the decision. An `off` row states why in ADR 0003.
 | http middleware | `crates/lgwks-deps/src/lib.rs` | `lgwks_deps` | `tower-http` | off — cors, trace and compression layers for the revenue slice; never built unless selected. One flag: --features tower-http (ADR 0003). | tower-http, tower, middleware, cors, compression, trace layer |
 | ai input guard | `crates/lgwks-deps/src/lib.rs` | `lgwks_deps` | `llm-guard` | off — pure-Rust AI input scanners with no model download; never built unless selected. One flag: --features llm-guard (ADR 0003). | llm-guard, guardrails, prompt injection, ai security, input filter |
 | documentation governance | `docs/adr/README.md` | `repository` | `always` | on | adr, architecture decision record, prd, product requirements, iso 42010, iso 29148, governance |
+| sealed records | `lgwks_deps::storefront::chacha20poly1305` | `lgwks_deps` | `sealed-aead` | off — Authenticated encryption for sealed journal and run-store records has no std or estate equivalent; pure-Rust ChaCha20-Poly1305 with no C toolchain, never built unless selected. One flag: --features sealed-aead (ADR 0003). | aead, chacha20poly1305, chacha, poly1305, sealed records, authenticated encryption, encryption at rest |
 
 ## When the gate refuses your code
 

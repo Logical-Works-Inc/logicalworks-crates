@@ -323,6 +323,17 @@ words = ["ecs", "schedule", "change detection", "tick", "observe evaluate execut
 replaces = ["a hand-rolled poll loop"]
 
 [[capability]]
+name = "sealed records at rest"
+path = "lgwks_bot::sealed"
+file = "crates/lgwks-bot/src/sealed/mod.rs"
+crate = "lgwks_bot"
+feature = "sealed"
+default = "off"
+reason = "Journal and run-store records sealed under fresh ChaCha20-Poly1305 data keys with key destruction as erasure; never built unless selected. One flag: --features sealed (ADR 0003)."
+words = ["sealed", "sealed records", "encryption at rest", "shred", "crypto-erase", "ttl erasure", "gdpr erasure"]
+replaces = ["plaintext step records", "deleting bytes to erase", "an unauthenticated cipher"]
+
+[[capability]]
 name = "parse"
 path = "lgwks_ast::parser"
 file = "crates/lgwks-ast/src/parser.rs"
@@ -491,3 +502,14 @@ feature = "always"
 default = "on"
 words = ["adr", "architecture decision record", "prd", "product requirements", "iso 42010", "iso 29148", "governance"]
 replaces = ["a design decision recorded only in a pull request", "a requirement edited instead of superseded"]
+
+[[capability]]
+name = "sealed records"
+path = "lgwks_deps::storefront::chacha20poly1305"
+file = "crates/lgwks-deps/src/lib.rs"
+crate = "lgwks_deps"
+feature = "sealed-aead"
+default = "off"
+reason = "Authenticated encryption for sealed journal and run-store records has no std or estate equivalent; pure-Rust ChaCha20-Poly1305 with no C toolchain, never built unless selected. One flag: --features sealed-aead (ADR 0003)."
+words = ["aead", "chacha20poly1305", "chacha", "poly1305", "sealed records", "authenticated encryption", "encryption at rest"]
+replaces = ["chacha20poly1305 as a direct edge", "an unauthenticated cipher", "plaintext records"]

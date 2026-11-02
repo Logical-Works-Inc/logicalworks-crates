@@ -160,6 +160,17 @@ ron = ["lgwks_std/ron"]
 # `ephemeral` because the suite mints run ids, and `full` turns it on so the
 # gate runs the suite against the shipped store.
 testing = ["script", "ephemeral"]
+# `sealed`: journal and run-store records sealed at rest (#785). Every record
+# written under it is encrypted with ChaCha20-Poly1305 under a fresh data key
+# of its own, wrapped by a `KeyProvider`; shredding destroys the key
+# (crypto-erasure) while the chain still verifies the record as
+# present-and-erased. It implies `script` for the shared frame grammar the
+# sealed log is framed with, and through it the `rt`, `sync` and `time` the
+# TTL sweeper's owned tasks need; the AEAD engine itself arrives through the
+# `lgwks_deps` storefront (`sealed-aead`), never as a direct edge. Key and
+# nonce draws come from the estate's one entropy source, `lgwks_std::random`
+# — the same edge `ephemeral` enables, not a second one.
+sealed = ["lgwks_deps/sealed-aead", "script", "lgwks_std/random"]
 full = [
     "rt",
     "time",
@@ -180,6 +191,7 @@ full = [
     "wire",
     "ron",
     "testing",
+    "sealed",
 ]
 
 [dependencies]
@@ -332,6 +344,11 @@ required-features = ["script", "ephemeral"]
 name = "serve_load"
 path = "examples/serve_load.rs"
 required-features = ["edge", "ephemeral"]
+
+[[example]]
+name = "sealed_overhead"
+path = "examples/sealed_overhead.rs"
+required-features = ["sealed"]
 
 [[bin]]
 name = "edge-load"

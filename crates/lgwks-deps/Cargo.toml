@@ -135,6 +135,12 @@ time-jiff = ["dep:jiff"]
 # (ADR 0003). Consumers opt in via --features sqlite and declare no SQLite
 # crate of their own (#696, #700).
 sqlite = ["dep:rusqlite"]
+# Sealed records (AEAD). The one pinned authenticated-encryption engine the
+# sealed journal and run-store records seal under: ChaCha20-Poly1305, pure
+# Rust, no C toolchain, portable to every declared target. Default-off like
+# every other storefront group (ADR 0003); `lgwks_bot` selects it through its
+# `sealed` feature and reaches the engine only through the storefront (#785).
+sealed-aead = ["dep:chacha20poly1305"]
 
 [dependencies]
 # The foundation this gate is built on, named rather than inherited: `core` is
@@ -197,6 +203,11 @@ jiff = { version = "0.2", default-features = false, features = ["std", "tz-syste
 # default features so the no-flag build stays portable: the engine is
 # selected, never the crate.
 rusqlite = { version = "=0.41.0", default-features = false, features = ["bundled"], optional = true }
+# Sealed records: the one AEAD every sealed estate record seals under.
+# Pinned exactly (estate issue #785). ChaCha20-Poly1305 is pure Rust with no
+# C toolchain, so the no-flag build stays portable: the engine is selected,
+# never the crate.
+chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"], optional = true }

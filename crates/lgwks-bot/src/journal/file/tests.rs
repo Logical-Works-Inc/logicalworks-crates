@@ -417,7 +417,7 @@ fn a_storage_fault_mid_frame_is_storage_not_a_torn_tail() -> TestResult {
             inner: std::io::Cursor::new(frame.clone()),
             serve,
         };
-        match scan(&mut faulty, MAX_JOURNAL_EVENTS) {
+        match scan(&mut faulty, MAX_JOURNAL_EVENTS, None) {
             Err(JournalError::Storage(_)) => {}
             Err(other) => {
                 return Err(format!(
@@ -454,7 +454,7 @@ fn scanning_refuses_a_complete_event_beyond_the_limit() -> TestResult {
     bytes.extend_from_slice(&frame_bytes(first_position, &second)?);
     let mut reader = std::io::Cursor::new(bytes);
 
-    match scan(&mut reader, 1) {
+    match scan(&mut reader, 1, None) {
         Err(JournalError::CapacityExceeded {
             resource: JournalLimitKind::Events,
             limit,

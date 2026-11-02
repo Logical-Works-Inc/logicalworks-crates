@@ -103,6 +103,19 @@ impl SaturatingFrom<usize> for u32 {
     }
 }
 
+impl SaturatingFrom<usize> for u16 {
+    fn saturating_from(value: usize) -> Self {
+        // A sealed frame's tenant, bind and short lengths: each is bounded by
+        // the frame ceiling, so saturation names the ceiling the frame bound
+        // then refuses, where a truncating `as` cast would admit a small
+        // number nobody chose.
+        match u16::try_from(value) {
+            Ok(narrowed) => narrowed,
+            Err(_wider_than_a_prefix) => Self::MAX,
+        }
+    }
+}
+
 impl SaturatingFrom<u64> for u32 {
     fn saturating_from(value: u64) -> Self {
         // An attempt ordinal rendered as the count a failure report carries: one

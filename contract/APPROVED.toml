@@ -738,3 +738,31 @@ reason = "policy-only: no shipped workspace code consumes this edge yet; AI secu
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Sealed records at rest (#785).
+#
+# Every journal and run-store record written under `lgwks_bot`'s `sealed`
+# feature is encrypted with ChaCha20-Poly1305 under a fresh data key of its
+# own, wrapped by a `KeyProvider`. The standard library has no AEAD, and the
+# estate has no cipher of its own, so a third-party engine is the rung-8
+# answer. It is the storefront's only AEAD edge: `lgwks_bot` selects it
+# through `sealed-aead` and reaches it only through the storefront.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[approved]]
+crate = "chacha20poly1305"
+tier = "boundary"
+version = "=0.10.1"
+license = "Apache-2.0 OR MIT"
+owner = "lgwks_deps"
+capability = "crypto.aead-seal"
+source = "registry"
+uses_default_features = "false"
+features = "alloc"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "Sealed journal and run-store records need authenticated encryption under a fresh key per record, and neither the standard library nor the estate owns an AEAD; ChaCha20-Poly1305 is pure Rust with no C toolchain, pinned exactly, default-features off with alloc only."
+approved_by = "maintainer"
+approved_on = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/785"

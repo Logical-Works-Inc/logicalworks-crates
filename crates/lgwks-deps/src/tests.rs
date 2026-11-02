@@ -737,6 +737,7 @@ fn deps_are_approved_leaves() -> TestResult {
                 "tokenizers",
                 "jiff",
                 "rusqlite",
+                "chacha20poly1305",
             ],
             "unexpected gate dependencies: {declared:?}"
         );

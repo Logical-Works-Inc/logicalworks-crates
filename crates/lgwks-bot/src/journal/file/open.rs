@@ -5,7 +5,7 @@ use super::HashMap;
 #[cfg(feature = "wire")]
 use super::{
     BufReader, ContinuationPolicy, EventKind, FileView, MAX_GENERATION_WALK, MAX_JOURNAL_BYTES,
-    OpenKind, OpenOptions, ReplayCursor, ScanStop, Scanned, StorageOwner, ladder_hold,
+    OpenKind, OpenOptions, ReplayCursor, ScanStop, SealedOpen, StorageOwner, ladder_hold,
 };
 use super::{
     Continuation, EffectEvent, FileJournal, JournalEntry, JournalError, JournalLimitKind,
@@ -50,7 +50,7 @@ impl FileJournal {
     /// [`MAX_JOURNAL_BYTES`] or [`MAX_JOURNAL_EVENTS`].
     #[cfg(feature = "wire")]
     pub fn open(path: impl AsRef<Path>) -> Result<Self, JournalError> {
-        Self::open_impl(path.as_ref(), OpenKind::Plain)
+        Self::open_impl(path.as_ref(), OpenKind::Plain, None)
     }
 
     /// Open a journal that continues at the declared watermark.
@@ -82,6 +82,7 @@ impl FileJournal {
         Self::open_impl(
             path.as_ref(),
             OpenKind::Continuing(ContinuationPolicy::declared()),
+            None,
         )
     }
 
@@ -102,7 +103,7 @@ impl FileJournal {
         path: impl AsRef<Path>,
         policy: ContinuationPolicy,
     ) -> Result<Self, JournalError> {
-        Self::open_impl(path.as_ref(), OpenKind::Continuing(policy))
+        Self::open_impl(path.as_ref(), OpenKind::Continuing(policy), None)
     }
 
     /// Open the journal at `path`, following its continuations to the live one.
@@ -120,9 +121,53 @@ impl FileJournal {
     /// the next successor when the walk ran out of generations.
     #[cfg(feature = "wire")]
     pub fn open_active(path: impl AsRef<Path>) -> Result<Self, JournalError> {
-        let mut here = path.as_ref().to_path_buf();
+        Self::open_active_impl(path.as_ref(), None)
+    }
+
+    /// Open the sealed journal at `path` with `provider`, following its
+    /// continuations to the live one.
+    ///
+    /// What a restarting sealed controller wants: the same walk as
+    /// [`FileJournal::open_active`], with every generation opened sealed
+    /// under the same provider and tenant, so a sealed chain of generations
+    /// replays its live events and folds its shredded ones to erased.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the last journal reports, and [`JournalError::Superseded`]
+    /// naming the next successor when the walk ran out of generations.
+    #[cfg(feature = "sealed")]
+    pub fn open_active_sealed(
+        path: impl AsRef<Path>,
+        provider: std::sync::Arc<dyn crate::sealed::keys::KeyProvider>,
+        tenant: &str,
+    ) -> Result<Self, JournalError> {
+        let open = SealedOpen {
+            provider,
+            tenant: tenant.to_owned(),
+        };
+        Self::open_active_impl(path.as_ref(), Some(open))
+    }
+
+    /// The generation walk both active constructors take: one
+    /// [`JournalError::Superseded`] at a time, bounded by
+    /// [`MAX_GENERATION_WALK`], sealed or plain as the caller opened.
+    #[cfg(feature = "wire")]
+    fn open_active_impl(path: &Path, _sealed: Option<SealedOpen>) -> Result<Self, JournalError> {
+        let mut here = path.to_path_buf();
         for _ in 0..MAX_GENERATION_WALK {
-            match Self::open_impl(&here, OpenKind::Continuing(ContinuationPolicy::declared())) {
+            #[cfg(feature = "sealed")]
+            let open = _sealed.as_ref().map(|named| SealedOpen {
+                provider: std::sync::Arc::clone(&named.provider),
+                tenant: named.tenant.clone(),
+            });
+            #[cfg(not(feature = "sealed"))]
+            let open: Option<SealedOpen> = None;
+            match Self::open_impl(
+                &here,
+                OpenKind::Continuing(ContinuationPolicy::declared()),
+                open,
+            ) {
                 Ok(journal) => return Ok(journal),
                 Err(JournalError::Superseded { path: next }) => here = PathBuf::from(next),
                 Err(other) => {
@@ -216,13 +261,19 @@ impl FileJournal {
     ///
     /// One implementation for every constructor: a stalled device is a property of
     /// the storage owner and a continuing journal is a declared policy, and neither
-    /// is a second way to open a journal.
+    /// is a second way to open a journal. A sealed open additionally decrypts
+    /// every event frame through its provider, so a sealed file replays its
+    /// live events and folds its shredded ones to erased.
     ///
     /// # Errors
     ///
     /// Whatever the file, the lock, the scan or the authority rule reports.
     #[cfg(feature = "wire")]
-    pub(super) fn open_impl(path: &Path, kind: OpenKind) -> Result<Self, JournalError> {
+    pub(super) fn open_impl(
+        path: &Path,
+        kind: OpenKind,
+        sealed: Option<SealedOpen>,
+    ) -> Result<Self, JournalError> {
         let path = path.to_path_buf();
         super::super::continuation::refuse_ambiguous_base(&path)?;
         let mut file = OpenOptions::new()
@@ -255,16 +306,23 @@ impl FileJournal {
 
         file.seek_read_zero()?;
         let mut reader = BufReader::new(&mut file);
-        let scanned = scan(&mut reader, MAX_JOURNAL_EVENTS)?;
+        let scanned = scan(&mut reader, MAX_JOURNAL_EVENTS, sealed.as_ref())?;
         drop(reader);
-        let Scanned {
-            entries,
-            carried,
-            seal,
-            chain_from,
-            tail,
-            stop,
-        } = scanned;
+        // Bound fields one by one rather than destructuring: attributes inside
+        // a struct pattern are valid Rust the checked parse's grammar version
+        // cannot read yet, and an unreadable file must not reach the gate.
+        let entries = scanned.entries;
+        let carried = scanned.carried;
+        let seal = scanned.seal;
+        let chain_from = scanned.chain_from;
+        let tail = scanned.tail;
+        let stop = scanned.stop;
+        #[cfg(feature = "sealed")]
+        let sealed_slots = scanned.sealed_slots;
+        #[cfg(feature = "sealed")]
+        let sealed_burned = scanned.sealed_burned;
+        #[cfg(feature = "sealed")]
+        let sealed_frames = scanned.sealed_frames;
 
         // The authority rule, asked before anything is repaired: a journal whose
         // successor is complete is not this run's journal, and repairing its tail
@@ -341,6 +399,14 @@ impl FileJournal {
         let storage =
             StorageOwner::spawn(file, (), kind.stalled()).map_err(JournalError::Storage)?;
         let view = FileView::read_only(&path)?;
+        #[cfg(feature = "sealed")]
+        let sealed = sealed.map(|open| super::sealed_impl::SealedJournalState {
+            provider: open.provider,
+            tenant: open.tenant,
+            slots: sealed_slots,
+            burned: sealed_burned.into_iter().collect(),
+            frames: sealed_frames,
+        });
         Ok(Self {
             path,
             storage,
@@ -360,6 +426,8 @@ impl FileJournal {
             folded,
             sealed_by: None,
             pause: None,
+            #[cfg(feature = "sealed")]
+            sealed,
         })
     }
 

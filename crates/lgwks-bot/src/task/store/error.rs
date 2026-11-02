@@ -8,6 +8,8 @@ use lgwks_std::wire::WireError;
 
 use crate::journal::DurabilityPromise;
 use crate::script::FlowError;
+#[cfg(feature = "sealed")]
+use crate::sealed::keys::KeyError;
 
 use super::Drift;
 
@@ -143,6 +145,35 @@ pub enum StoreError {
         /// What the installed store promises.
         offered: DurabilityPromise,
     },
+    /// The key provider refused a sealed read or write: the store cannot
+    /// answer. A destroyed key never reaches this arm — it reads as erased —
+    /// so this always means the answer is missing, never that the record is
+    /// gone. A transient refusal stays retryable through the provider's own
+    /// arm rather than folding either way.
+    #[cfg(feature = "sealed")]
+    SealedKey {
+        /// The provider's own refusal.
+        source: KeyError,
+    },
+    /// The sealed step was shredded: it reads as erased, never as its value,
+    /// and its slot is burned against re-append, so a restart past a shred
+    /// cannot record the step twice.
+    #[cfg(feature = "sealed")]
+    SealedErased {
+        /// The run, as hex.
+        run: String,
+        /// The step key, as hex.
+        key: String,
+    },
+    /// No sealed step names this key: it was never sealed here, so there is
+    /// nothing to shred and nothing to read.
+    #[cfg(feature = "sealed")]
+    SealedUnknown {
+        /// The run, as hex.
+        run: String,
+        /// The step key, as hex.
+        key: String,
+    },
 }
 
 impl StoreError {
@@ -228,6 +259,21 @@ impl fmt::Display for StoreError {
                  promises {required:?}, and the installed store promises {offered:?}; \
                  refusing before the effect leaves"
             ),
+            #[cfg(feature = "sealed")]
+            Self::SealedKey { ref source } => write!(
+                formatter,
+                "the sealed step's key provider refused: {source}"
+            ),
+            #[cfg(feature = "sealed")]
+            Self::SealedErased { ref run, ref key } => write!(
+                formatter,
+                "sealed step {key} of run {run} was shredded; it reads as erased and its slot refuses re-append"
+            ),
+            #[cfg(feature = "sealed")]
+            Self::SealedUnknown { ref run, ref key } => write!(
+                formatter,
+                "no sealed step {key} of run {run} was ever sealed; refusing to shred what was never sealed"
+            ),
         }
     }
 }
@@ -238,6 +284,8 @@ impl std::error::Error for StoreError {
         match *self {
             Self::Storage { ref cause } => Some(cause),
             Self::Encoding { ref cause } => Some(cause),
+            #[cfg(feature = "sealed")]
+            Self::SealedKey { ref source } => Some(source),
             Self::Limit { .. }
             | Self::NotAStore
             | Self::FormatVersion { .. }
@@ -246,6 +294,8 @@ impl std::error::Error for StoreError {
             | Self::UnknownRun { .. }
             | Self::Incompatible { .. }
             | Self::PromiseUnmet { .. } => None,
+            #[cfg(feature = "sealed")]
+            Self::SealedErased { .. } | Self::SealedUnknown { .. } => None,
         }
     }
 }
