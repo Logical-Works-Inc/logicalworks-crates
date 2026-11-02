@@ -299,3 +299,10 @@ replacement = "An estate loopback TLS peer for tests, and OS reverse proxy termi
 removal_trigger = "The http mTLS end-to-end test runs against an estate TLS peer with no rustls dev edge."
 last_reviewed = "2026-10-27"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+
+[[lifecycle]]
+crate = "chacha20poly1305"
+replacement = "An estate AEAD in lgwks_std with no third-party edge once the cipher is eliminated."
+removal_trigger = "Sealed records seal and open without the chacha20poly1305 edge and no consumer remains."
+last_reviewed = "2026-11-02"
+review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/785"

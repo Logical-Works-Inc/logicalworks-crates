@@ -2,6 +2,10 @@
 
 #[cfg(feature = "wire")]
 use super::EffectJournal;
+#[cfg(not(feature = "sealed"))]
+use super::SealedPending;
+#[cfg(feature = "sealed")]
+use super::sealed_impl::SealedPending;
 use super::{
     AttemptStatus, EffectEvent, EventKind, FileJournal, HashMap, JournalEntry, JournalError,
     JournalLimitKind, JournalPosition, MAX_JOURNAL_BYTES, PathBuf, SaturatingFrom, SettledAttempt,
@@ -87,7 +91,7 @@ impl FileJournal {
         &self,
         event: &EffectEvent,
         from: JournalPosition,
-    ) -> Result<(JournalPosition, Vec<u8>), JournalError> {
+    ) -> Result<(JournalPosition, Vec<u8>, Option<SealedPending>), JournalError> {
         let sequence = from
             .sequence()
             .checked_add(1)
@@ -113,7 +117,31 @@ impl FileJournal {
                 ))
             },
         )?;
-        Ok((JournalPosition { sequence, head }, framed))
+        Ok((JournalPosition { sequence, head }, framed, None))
+    }
+
+    /// Frame one event with a sealed expiry: the shared step, which seals
+    /// under a fresh data key when this handle was opened sealed and frames
+    /// plain otherwise.
+    ///
+    /// # Errors
+    ///
+    /// As [`FileJournal::frame`], plus [`JournalError::SealedErased`] when
+    /// the event's key fingerprint is burned.
+    #[cfg(feature = "wire")]
+    pub(super) fn frame_with_expiry(
+        &self,
+        event: &EffectEvent,
+        from: JournalPosition,
+        expires_at: Option<std::time::Duration>,
+    ) -> Result<(JournalPosition, Vec<u8>, Option<SealedPending>), JournalError> {
+        #[cfg(feature = "sealed")]
+        if self.sealed.is_some() {
+            return super::sealed_impl::frame_sealed(self, event, from, expires_at)
+                .map(|(position, framed, pending)| (position, framed, Some(pending)));
+        }
+        let _ = expires_at;
+        self.frame(event, from)
     }
 
     /// Refuse an append that would take the file past [`MAX_JOURNAL_BYTES`].
@@ -272,12 +300,15 @@ impl FileJournal {
     /// Fold a committed frame into this handle's view of the journal.
     ///
     /// The acknowledgment is minted from the position the frame was chained at,
-    /// so the two cannot disagree.
+    /// so the two cannot disagree. A sealed frame also folds its slot — the
+    /// frame's ordinal, sequence, key and expiry — so reads, shreds and sweeps
+    /// find it without rereading the file.
     pub(super) fn accept(
         &mut self,
         event: &EffectEvent,
         position: JournalPosition,
         frame_len: usize,
+        pending: Option<SealedPending>,
     ) {
         self.committed.push(JournalEntry::new(position, *event));
         self.position = position;
@@ -288,6 +319,25 @@ impl FileJournal {
         self.disk_len = self
             .disk_len
             .saturating_add(u64::saturating_from(frame_len));
+        #[cfg(feature = "sealed")]
+        if let (Some(state), Some(pending)) = (self.sealed.as_mut(), pending) {
+            let ordinal = state.frames;
+            state.slots.push(super::sealed_impl::SealedSlot {
+                ordinal,
+                sequence: position.sequence(),
+                head: position.head(),
+                key: pending.key_id,
+                wrapped: pending.wrapped,
+                nonce: pending.nonce,
+                ciphertext: pending.ciphertext,
+                fingerprint: pending.fingerprint,
+                expires_at: pending.expires_at,
+                erased: false,
+            });
+            state.frames = state.frames.saturating_add(1);
+        }
+        #[cfg(not(feature = "sealed"))]
+        let _ = pending;
     }
 
     /// Everything one append checks and frames before the disk is touched.
@@ -311,7 +361,35 @@ impl FileJournal {
         &self,
         expected_tail: JournalPosition,
         event: &EffectEvent,
-    ) -> Result<(JournalPosition, Vec<u8>), JournalError> {
+    ) -> Result<(JournalPosition, Vec<u8>, Option<SealedPending>), JournalError> {
+        self.prepare_append_with_expiry(expected_tail, event, None)
+    }
+
+    /// Everything one append checks and frames before the disk is touched,
+    /// with the sealed expiry the sealed append names.
+    ///
+    /// The synchronous and asynchronous forms differ only in how they wait for
+    /// the storage owner, so everything that decides *whether* to append lives
+    /// here and is reached by both: the tail fence, the ladder, the event
+    /// bound, the frame, and the byte bound. A check that exists once cannot
+    /// drift between the two doors.
+    ///
+    /// # Errors
+    ///
+    /// [`JournalError::TailMismatch`] when the caller's view of the tail is
+    /// not this journal's, [`JournalError::OutOfOrder`] when the rung cannot
+    /// follow what is committed for the key, [`JournalError::Storage`] when
+    /// this handle is stale or the frame is over the bound,
+    /// [`JournalError::SealedErased`] when the event's slot is burned, and
+    /// [`JournalError::CapacityExceeded`] when the append is over an event or
+    /// byte ceiling. Nothing is written by any of them.
+    #[cfg(feature = "wire")]
+    pub(super) fn prepare_append_with_expiry(
+        &self,
+        expected_tail: JournalPosition,
+        event: &EffectEvent,
+        expires_at: Option<std::time::Duration>,
+    ) -> Result<(JournalPosition, Vec<u8>, Option<SealedPending>), JournalError> {
         self.refuse_sealed()?;
         let actual = self.tail();
         check_append_order(
@@ -323,8 +401,8 @@ impl FileJournal {
         self.refuse_walked(event)?;
         self.fence()?;
         self.bound_events(1)?;
-        let (position, frame) = self.frame(event, actual)?;
+        let (position, frame, pending) = self.frame_with_expiry(event, actual, expires_at)?;
         self.bound_bytes(frame.len())?;
-        Ok((position, frame))
+        Ok((position, frame, pending))
     }
 }

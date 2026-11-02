@@ -208,6 +208,25 @@ pub enum JournalError {
     /// where it does: with `wire`.
     #[cfg(feature = "wire")]
     Corrupt(Box<Corruption>),
+    /// A sealed slot is burned: the record was shredded and reads as erased.
+    ///
+    /// Re-appending its event is refused with the sequence the append would
+    /// have taken, so a restart past a shred cannot duplicate the effect the
+    /// ladder forgot: the ladder is rebuilt from live entries only, and the
+    /// burn set is what still remembers the shredded attempt.
+    #[cfg(feature = "sealed")]
+    SealedErased {
+        /// The shredded sequence, or the sequence the refused append would
+        /// have taken.
+        sequence: u64,
+    },
+    /// No sealed slot names this sequence: it was never sealed here, so
+    /// there is nothing to shred and nothing to read.
+    #[cfg(feature = "sealed")]
+    SealedUnknown {
+        /// The chain sequence that was asked for.
+        sequence: u64,
+    },
 }
 
 impl fmt::Display for JournalError {
@@ -312,6 +331,16 @@ impl fmt::Display for JournalError {
             Self::Corrupt(ref corruption) => {
                 write!(f, "journal refused its own committed bytes: {corruption}")
             }
+            #[cfg(feature = "sealed")]
+            Self::SealedErased { sequence } => write!(
+                f,
+                "sealed journal record {sequence} was shredded; it reads as erased and its slot refuses re-append"
+            ),
+            #[cfg(feature = "sealed")]
+            Self::SealedUnknown { sequence } => write!(
+                f,
+                "no sealed journal record names sequence {sequence}; refusing to shred what was never sealed"
+            ),
         }
     }
 }

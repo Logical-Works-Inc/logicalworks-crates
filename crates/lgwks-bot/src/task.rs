@@ -124,6 +124,8 @@ pub use request::{
     InFlight, InputDigest, MAX_REQUEST_KEY_BYTES, RequestConflict, RequestError, RequestKey,
     Submission,
 };
+#[cfg(feature = "sealed")]
+pub use store::SealedAppend;
 pub use store::{
     MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunStore, StoreError, StoreLimitKind,
 };

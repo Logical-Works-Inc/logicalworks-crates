@@ -105,14 +105,14 @@ impl EffectJournal for FileJournal {
         // The staleness fence, the ladder, the bounds and the framing are the
         // two doors' shared decision, so they are made once. The file's byte
         // length is checked against this write on the thread that holds it.
-        let (position, frame) = self.prepare_append(expected_tail, event)?;
+        let (position, frame, pending) = self.prepare_append(expected_tail, event)?;
 
         // Through the shared door before the acknowledgment: after this
         // returns, the bytes are through the file system, and a kill of this
         // process cannot take the fact back out of the file.
         self.write_and_sync(&frame)?;
 
-        self.accept(event, position, frame.len());
+        self.accept(event, position, frame.len(), pending);
         Ok(DurableAck::new(position, self.durability()))
     }
 
@@ -135,9 +135,9 @@ impl EffectJournal for FileJournal {
         event: &'a EffectEvent,
     ) -> crate::BoxFuture<'a, Result<DurableAck, JournalError>> {
         Box::pin(async move {
-            let (position, frame) = self.prepare_append(expected_tail, event)?;
+            let (position, frame, pending) = self.prepare_append(expected_tail, event)?;
             self.write_and_sync_async(frame.clone()).await?;
-            self.accept(event, position, frame.len());
+            self.accept(event, position, frame.len(), pending);
             Ok(DurableAck::new(position, self.durability()))
         })
     }

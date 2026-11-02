@@ -119,6 +119,7 @@
 //! | `ml-tokenizers` | the Hugging Face subword tokenizer |
 //! | `time-jiff` | interim zoned time until ELIMINATE lands in `lgwks_std::time` |
 //! | `sqlite` | the one durable SQLite, opened with the estate's defaults |
+//! | `sealed-aead` | the one AEAD the sealed records seal under (#785) |
 
 // Lint contract (missing_docs deny, unsafe_code forbid, broken intra-doc
 // links deny) comes from the workspace root.
@@ -346,6 +347,17 @@ pub use tower_http;
 #[doc(hidden)]
 pub use llm_guard;
 
+/// The one authored AEAD edge, re-exported for the storefront.
+///
+/// `lgwks_deps` owns this edge so no other crate declares `chacha20poly1305`
+/// directly (`INV-DEP-EDGE-OWNED`). `lgwks_bot` enables the `sealed-aead`
+/// storefront feature and seals its journal and run-store records through this
+/// re-export; a consumer that wants the engine without the bot enables the
+/// feature here.
+#[cfg(feature = "sealed-aead")]
+#[doc(hidden)]
+pub use chacha20poly1305;
+
 /// The supported storefront: enable a feature and reach its engine here.
 ///
 /// Every path below is one audited edge this crate owns, so a consumer never
@@ -364,6 +376,8 @@ pub mod storefront {
     pub use crate::bevy_state;
     #[cfg(feature = "bevy-time")]
     pub use crate::bevy_time;
+    #[cfg(feature = "sealed-aead")]
+    pub use crate::chacha20poly1305;
     #[cfg(feature = "gpui")]
     pub use crate::gpui;
     #[cfg(feature = "time-jiff")]

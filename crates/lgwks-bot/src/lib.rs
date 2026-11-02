@@ -65,6 +65,7 @@
 //! | `inspect` | off | structural code inspection through `lgwks_ast` (host only) |
 //! | `ephemeral` | off | run identities minted from `lgwks_std::random` |
 //! | `profile` | off | the per-stage tick profiler |
+//! | `sealed` | off | journal and run-store records sealed at rest under fresh data keys (#785) |
 //! | `full` | off | every feature above |
 //!
 //! # Release boundary
@@ -397,6 +398,18 @@ pub mod rt;
 /// keyed, and mapped (feature `script`).
 #[cfg(feature = "script")]
 pub mod script;
+/// Sealed records at rest (feature `sealed`, #785).
+///
+/// The encrypted half of the durable story: every record is sealed with
+/// ChaCha20-Poly1305 under a fresh data key of its own, wrapped by a
+/// [`KeyProvider`](sealed::keys::KeyProvider), and every frame chains the
+/// ciphertext with its key identity, so a shredded record still verifies as
+/// present-and-erased. Shredding destroys the key rather than the bytes
+/// (crypto-erasure, NIST SP 800-88); reads fold a destroyed key to a tombstone,
+/// a missing key to an error, and a transient provider fault to a retryable
+/// error that neither resurrects nor drops the record.
+#[cfg(feature = "sealed")]
+pub mod sealed;
 /// The semantic tier: resolving an utterance a lexicon cannot reach.
 #[doc(hidden)]
 pub mod semantic;

@@ -126,14 +126,39 @@ use super::frame::read_exact_or_eof;
 use super::frame::{HEAD_BYTES, LENGTH_BYTES, Piece, Prefix, SaturatingFrom};
 #[cfg(feature = "wire")]
 use super::next_allowed_of;
+#[cfg(feature = "sealed")]
+use sealed_impl::SealedPending;
+/// Without the `sealed` feature no append is ever sealed, so the slot the
+/// accept folds is the unit: present in the signature, never constructed.
+#[cfg(not(feature = "sealed"))]
+pub(super) type SealedPending = ();
 use super::owner::{StorageGate, StorageOwner};
 use super::{
     AttemptStatus, ChainBreak, DurabilityPromise, DurableAck, EffectEvent, EffectEvidence,
     EffectJournal, EventKind, JournalEntry, JournalError, JournalLimitKind, JournalPosition,
     MAX_JOURNAL_BYTES, MAX_JOURNAL_EVENTS, Recovered, recover_continued,
 };
+#[cfg(feature = "sealed")]
+use crate::sealed::keys::KeyProvider;
 #[cfg(feature = "wire")]
 use lgwks_std::wire::{WireError, from_bytes};
+#[cfg(feature = "sealed")]
+use std::sync::Arc;
+
+/// What a sealed open carries into the scan and the replay: who wraps this
+/// file's data keys and which tenant they are minted for.
+///
+/// The provider and tenant travel together because a frame the scan accepts
+/// is decrypted under exactly the provider and namespace the open named —
+/// never a provider the file did not open with.
+pub(super) struct SealedOpen {
+    /// Who mints, wraps, opens and destroys this file's data keys.
+    #[cfg(feature = "sealed")]
+    pub(super) provider: Arc<dyn KeyProvider>,
+    /// The tenant every key of this file is minted for.
+    #[cfg(feature = "sealed")]
+    pub(super) tenant: String,
+}
 
 /// The largest frame this journal will read or write.
 ///
@@ -322,19 +347,38 @@ pub struct FileJournal {
     sealed_by: Option<PathBuf>,
     /// The boundary an armed continuation stops at, if one is armed.
     pause: Option<SealPause>,
+    /// The sealed half of this handle, when it was opened sealed: who wraps
+    /// its keys, which tenant they are minted for, and what the replay
+    /// learned. `None` for every plain open, which leaves every existing
+    /// behaviour unchanged.
+    #[cfg(feature = "sealed")]
+    sealed: Option<sealed_impl::SealedJournalState>,
 }
 
 impl core::fmt::Debug for FileJournal {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("FileJournal")
+        let mut rendered = f.debug_struct("FileJournal");
+        rendered
             .field("path", &self.path)
             .field("committed_events", &self.committed.len())
             .field("disk_len", &self.disk_len)
             .field("torn_tail_repaired", &self.torn_tail_repaired)
             .field("continuing", &self.continuing)
             .field("generation", &self.generation())
-            .field("sealed_by", &self.sealed_by)
-            .finish()
+            .field("sealed_by", &self.sealed_by);
+        #[cfg(feature = "sealed")]
+        rendered.field(
+            "sealed",
+            &self.sealed.as_ref().map(|state| {
+                (
+                    state.tenant.clone(),
+                    state.slots.len(),
+                    state.burned.len(),
+                    state.frames,
+                )
+            }),
+        );
+        rendered.finish()
     }
 }
 
@@ -405,9 +449,17 @@ impl FileJournal {
             SealOutcome::Sealed { bytes } => {
                 self.disk_len = self.disk_len.saturating_add(u64::saturating_from(bytes));
                 self.sealed_by = Some(successor.clone());
+                #[cfg(feature = "sealed")]
+                let sealed = self.sealed.as_ref().map(|state| SealedOpen {
+                    provider: std::sync::Arc::clone(&state.provider),
+                    tenant: state.tenant.clone(),
+                });
+                #[cfg(not(feature = "sealed"))]
+                let sealed: Option<SealedOpen> = None;
                 Ok(Some(Self::open_impl(
                     &successor,
                     OpenKind::Continuing(self.continuation),
+                    sealed,
                 )?))
             }
             SealOutcome::Paused(boundary) => {
@@ -437,7 +489,7 @@ impl FileJournal {
     /// `AttemptId`, which is monotonic per `ActionId` and never reused, so it is
     /// the same question the ladder asks for a key the journal *does* hold and
     /// the same answer: this attempt was already recorded.
-    fn refuse_walked(&self, event: &EffectEvent) -> Result<(), JournalError> {
+    pub(super) fn refuse_walked(&self, event: &EffectEvent) -> Result<(), JournalError> {
         let key = event.key();
         if self.ladder.contains_key(&key) {
             return Ok(());
@@ -519,7 +571,7 @@ impl FileJournal {
     /// Whatever [`FileJournal::open`] reports.
     #[cfg(feature = "wire")]
     pub fn open_with_stalled_storage(path: impl AsRef<Path>) -> Result<Self, JournalError> {
-        Self::open_impl(path.as_ref(), OpenKind::Stalled)
+        Self::open_impl(path.as_ref(), OpenKind::Stalled, None)
     }
 
     /// A handle that can release the stall, independently of this journal.
@@ -604,7 +656,8 @@ impl FileJournal {
         let mut position = self.tail();
         let mut staged: HashMap<crate::effect::EffectKey, EventKind> = HashMap::new();
         let mut frames = Vec::new();
-        let mut pending: Vec<(JournalPosition, usize)> = Vec::with_capacity(events.len());
+        let mut pending: Vec<(JournalPosition, usize, Option<SealedPending>)> =
+            Vec::with_capacity(events.len());
         for event in events {
             let key = event.key();
             let attempted = event.kind();
@@ -620,10 +673,10 @@ impl FileJournal {
                 return refusal;
             }
             staged.insert(key, attempted);
-            let (next, framed) = self.frame(event, position)?;
+            let (next, framed, sealed) = self.frame_with_expiry(event, position, None)?;
             position = next;
             self.bound_bytes(frames.len().saturating_add(framed.len()))?;
-            pending.push((position, framed.len()));
+            pending.push((position, framed.len(), sealed));
             frames.extend_from_slice(&framed);
         }
 
@@ -633,9 +686,9 @@ impl FileJournal {
         self.write_and_sync(&frames)?;
 
         let mut acks = Vec::with_capacity(pending.len());
-        for (event, entry) in events.iter().zip(&pending) {
-            let (position, frame_len) = *entry;
-            self.accept(event, position, frame_len);
+        for (event, entry) in events.iter().zip(pending) {
+            let (position, frame_len, sealed) = entry;
+            self.accept(event, position, frame_len, sealed);
             acks.push(DurableAck::new(position, self.durability()));
         }
         Ok(acks)
@@ -728,6 +781,8 @@ mod open;
 mod replay;
 mod scan;
 mod seal;
+#[cfg(feature = "sealed")]
+mod sealed_impl;
 mod write;
 
 pub use replay::Replay;
@@ -736,7 +791,7 @@ pub use replay::Replay;
 use adapter::ReplayCursor;
 use replay::FileView;
 #[cfg(feature = "wire")]
-use scan::{ScanStop, Scanned, read_exact_classified};
+use scan::{ScanStop, read_exact_classified};
 #[cfg(feature = "wire")]
 use scan::{resolve_ambiguous_tail, scan, verify_frame};
 #[cfg(test)]
