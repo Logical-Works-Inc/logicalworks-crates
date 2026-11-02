@@ -15,7 +15,7 @@
 //! # The promise
 //!
 //! A sealed record is unreadable without its data key, and each record holds a
-//! data key of its own: [`KeyProvider::provision`](crate::sealed::keys::KeyProvider::provision) mints a fresh 32-byte
+//! data key of its own: [`KeyProvider::provision`] mints a fresh 32-byte
 //! key per record, never shared across records or tenants. The archived bytes
 //! go through the envelope with that key, and the frame's chain head covers
 //! the ciphertext together with the key identity, so a shredded record still
@@ -42,23 +42,28 @@
 //! # Erasure
 //!
 //! Shredding erases one record, tenant erasure shreds every live record of
-//! one tenant (GDPR Art. 17), and [`Sweeper`](crate::sealed::sweep::Sweeper) shreds what a TTL
-//! passed, driven by the injected [`Clock`](crate::clock::Clock). The
+//! one tenant (GDPR Art. 17), and [`Sweeper`] shreds what a TTL
+//! passed, driven by the injected [`Clock`]. The
 //! background driver owns its one task in a
-//! [`JoinSet`](crate::rt::task::JoinSet) listening to one
-//! [`CancellationToken`](crate::rt::sync::CancellationToken).
+//! [`JoinSet`] listening to one
+//! [`CancellationToken`].
 //!
 //! [`keys`]: crate::sealed::keys
 //! [`envelope`]: crate::sealed::envelope
 //! [`journal`]: crate::sealed::journal
 //! [`runstore`]: crate::sealed::runstore
 //! [`sweep`]: crate::sealed::sweep
+//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision
+//! [`Sweeper`]: crate::sealed::sweep::Sweeper
+//! [`Clock`]: crate::clock::Clock
+//! [`JoinSet`]: crate::rt::task::JoinSet
+//! [`CancellationToken`]: crate::rt::sync::CancellationToken
 
 /// The AEAD envelope over one sealed record: the zeroizing key handle and the
 /// seal/open step over ciphertext.
 pub mod envelope;
 
-/// Wrapped data keys: the [`KeyProvider`](keys::KeyProvider) port, its typed
+/// Wrapped data keys: the `KeyProvider` port, its typed
 /// refusals, key identities, and the software provider.
 pub mod keys;
 
@@ -70,8 +75,8 @@ pub mod journal;
 /// what a shred did.
 pub mod runstore;
 
-/// The owned TTL driver: the [`Sweeper`](sweep::Sweeper) that sweeps expired
-/// records on the blocking pool under a [`CancellationToken`](crate::rt::sync::CancellationToken).
+/// The owned TTL driver: the `Sweeper` that sweeps expired records on the
+/// blocking pool under a cancellation token.
 pub mod sweep;
 
 /// How a sealed read folds a provider refusal: destroyed to a tombstone,
