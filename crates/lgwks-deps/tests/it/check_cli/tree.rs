@@ -269,7 +269,7 @@ impl AstManifestEdit {
         std::fs::write(&path, &tampered)?;
         // The gate shells out to `cargo metadata --locked`, which refuses a
         // manifest whose dependencies the lock file does not yet carry. Adding a
-        // dependency is exactly that, so the lock is regenerated alongside --
+        // dependency is exactly that, so the lock is extended alongside --
         // offline, and released with the manifest on drop. Without this the test
         // fails in `cargo metadata` rather than in the gate it is testing.
         let lock = root.join("Cargo.lock");
@@ -295,8 +295,14 @@ impl Drop for AstManifestEdit {
     }
 }
 
-/// Regenerates `Cargo.lock` offline, so the gate's own `cargo metadata --locked`
+/// Extends `Cargo.lock` offline, so the gate's own `cargo metadata --locked`
 /// accepts a manifest this test has just extended.
+///
+/// `cargo update --workspace` resolves only the workspace members and keeps every
+/// other locked version, so the new edge is added and nothing else moves. A full
+/// `generate-lockfile` re-resolved the whole graph from the index and failed the
+/// day crates.io yanked `async-executor` 1.14.0, which `gpui`'s `smol` was locked
+/// to: a yank is a reason not to pick a version, never one to drop a locked one.
 ///
 /// Best effort for the same reason the restore is: a lock file that will not
 /// regenerate leaves `cargo metadata`'s refusal as the test's result, which is a
@@ -306,7 +312,7 @@ fn refresh_lock(root: &Path, lock: &Path) -> Result<(), Box<dyn Error>> {
     // into the same `?` the rest of the fixture uses, and a helper that both
     // reports and asserts is a helper whose failure the reader has to guess at.
     let output = Command::new("cargo")
-        .args(["generate-lockfile", "--offline"])
+        .args(["update", "--workspace", "--offline"])
         .current_dir(root)
         .output()?;
     let succeeded = output.status.success();
