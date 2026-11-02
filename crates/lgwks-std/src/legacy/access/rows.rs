@@ -1,10 +1,8 @@
 //! Table rows: reading data pages and building images.
 //!
-//! [`read_table_rows`] walks a table's data pages into decoded [`Row`]
-//! items; [`build_image`] lays out the header, catalogue and data pages the
+//! `read_table_rows` walks a table's data pages into decoded `Row`
+//! items; `build_image` lays out the header, catalogue and data pages the
 //! round-trip tests read back.
-//!
-//! [`Row`]: super::Row
 
 use super::super::limits::Limits;
 use super::catalog::Column;

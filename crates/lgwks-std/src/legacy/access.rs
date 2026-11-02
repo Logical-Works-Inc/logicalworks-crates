@@ -4,13 +4,10 @@
 //! validated per the Jet/ACE on-disk notes: the `STANDARD JET DB` and
 //! `STANDARD ACE DB` magics, the 2048/4096-byte pages, a catalogue page of
 //! table and column descriptors, and data pages of fixed rows. Text,
-//! integer, currency (exact [`Decimal`]), date and memo columns decode;
+//! integer, currency (exact `Decimal`), date and memo columns decode;
 //! encrypted files and unsupported column types are typed errors naming
 //! the table and column. Pages live in `page`, the catalogue in `catalog`,
-//! cells in `columns`; [`rows`] reads rows and builds the test images.
-//!
-//! [`Decimal`]: super::decimal::Decimal
-//! [`rows`]: rows
+//! cells in `columns`; `rows` reads rows and builds the test images.
 
 /// The table catalogue: names, pages and column descriptors.
 mod catalog;

@@ -5,7 +5,7 @@
 //! hold the data size minus three, then either 4 KiB of raw bytes or flag
 //! bytes over literal bytes and 2-byte copy tokens (low 4 bits: length
 //! minus 3; high 12 bits: offset back minus 1) per MS-OVBA §2.4.1.3.4-5.
-//! [`decompress`] reads containers; [`compress`] writes them for
+//! `decompress` reads containers; `compress` writes them for
 //! round-trip tests, capping each chunk so its size field always holds.
 
 use std::fmt;

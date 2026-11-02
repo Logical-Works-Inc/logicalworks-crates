@@ -8,7 +8,7 @@
 //! directory scan. Streams read through the FAT, or through the mini FAT
 //! rooted at the root storage for small streams. An `EncryptionInfo` stream
 //! marks an encrypted file, and any other major version is refused
-//! (MS-CFB §2.2.1). [`vba`] decompresses module source from the
+//! (MS-CFB §2.2.1). `vba` decompresses module source from the
 //! `_VBA_PROJECT` container per MS-OVBA §2.4.1: signature `0x01`, 4 KiB
 //! chunks with a 12-bit size, literal bytes and 12-bit-offset copy tokens.
 
@@ -107,7 +107,7 @@ pub enum CfbError {
         /// The rule it breaks.
         why: String,
     },
-    /// The input or output passed a [`Limits`] ceiling.
+    /// The input or output passed a [`Limits`](super::limits::Limits) ceiling.
     Limit(LimitError),
 }
 
@@ -174,8 +174,8 @@ struct DirEntry {
 
 /// An opened compound file: sectors, chains and the directory.
 ///
-/// The header parses in [`header`], chains resolve in [`fat`], entries in
-/// [`directory`], and bytes in [`stream`]; this struct is the handle they
+/// The header parses in `header`, chains resolve in `fat`, entries in
+/// `directory`, and bytes in `stream`; this struct is the handle they
 /// share.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

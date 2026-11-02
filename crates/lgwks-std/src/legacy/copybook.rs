@@ -5,20 +5,16 @@
 //! pictures are `X`, `9`, `S9`, `V`, `COMP`, `COMP-3`, `COMP-4` and `BINARY`
 //! with `OCCURS n`, `OCCURS m TO n DEPENDING ON` and `REDEFINES` (IBM
 //! Enterprise COBOL Language Reference, record description entries). A
-//! parsed [`RecordLayout`] decodes a fixed-width record into [`FieldValue`]
+//! parsed `RecordLayout` decodes a fixed-width record into `FieldValue`
 //! items and encodes them back, so `decode` then `encode` returns the same
 //! bytes. A field whose name carries `DATE` and whose picture is eight
-//! unsigned zoned digits decodes as [`DateValue`], which keeps the raw bytes
+//! unsigned zoned digits decodes as `DateValue`, which keeps the raw bytes
 //! beside the parsed year, month and day. Any other clause is a located
-//! [`CopybookError`], never a guess.
+//! `CopybookError`, never a guess.
 //!
-//! The record model — fields, values, dates and errors — lives in [`model`];
+//! The record model — fields, values, dates and errors — lives in `model`;
 //! the clause grammar in `grammar`; the level tree and layout in `layout`;
 //! decoding in `reader`; encoding in `writer`.
-//!
-//! [`FieldValue`]: model::FieldValue
-//! [`DateValue`]: model::DateValue
-//! [`CopybookError`]: model::CopybookError
 
 /// The clause grammar: items, `OCCURS` and `PIC`.
 mod grammar;

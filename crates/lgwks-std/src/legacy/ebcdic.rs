@@ -6,7 +6,7 @@
 //! U+0000-U+00FF and every such character encodes to one byte, per the IBM
 //! Character Data Representation Architecture tables (SC09-2190). So decode
 //! then encode returns the same bytes for every input, and only a character
-//! past U+00FF is refused, as [`EbcdicError::UnmappableChar`] naming its
+//! past U+00FF is refused, as `EbcdicError::UnmappableChar` naming its
 //! offset.
 //!
 //! The tables are stored the way IBM defines the pages: 037 whole, and each

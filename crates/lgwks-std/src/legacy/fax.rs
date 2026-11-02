@@ -313,7 +313,7 @@ pub enum TiffError {
         /// Bytes supplied.
         have: usize,
     },
-    /// The input or output passed a [`Limits`] ceiling.
+    /// The input or output passed a [`Limits`](super::limits::Limits) ceiling.
     Limit(LimitError),
 }
 

@@ -1,6 +1,6 @@
 //! `limits` bounds every legacy reader before it allocates.
 //!
-//! Each codec in this directory takes a [`Limits`] and refuses input past it
+//! Each codec in this directory takes a `Limits` and refuses input past it
 //! with a typed error, so a corrupt length prefix or a cyclic link cannot grow
 //! the heap without bound. The checks run before any allocation, never after a
 //! prefix has been written.

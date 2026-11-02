@@ -3,7 +3,7 @@
 //! EBCDIC text, packed and zoned decimal, COBOL copybooks, OLE compound
 //! files with VBA sources, Jet/ACE databases and bilevel TIFF fax images:
 //! each codec decodes and encodes, so `decode` then `encode` returns the
-//! same bytes, every reader takes a [`limits::Limits`] and refuses past it
+//! same bytes, every reader takes a `limits::Limits` and refuses past it
 //! before allocating, and every failure is a typed error naming its offset.
 //! Pure Rust, no third-party dependency; the only crate edge is the optional
 //! `trace` debug log, compiled out when that feature is off.

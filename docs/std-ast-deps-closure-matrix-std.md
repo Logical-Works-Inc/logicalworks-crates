@@ -1,10 +1,10 @@
-# Closure matrix, Part 1: the twenty-three `lgwks_std` modules
+# Closure matrix, Part 1: the twenty-four `lgwks_std` modules
 
 Part of the [std × ast × deps closure matrix](std-ast-deps-closure-matrix.md),
 which names the revision every row describes and what a row's state means.
 
 The module inventory is read from `crates/lgwks-std/src/lib.rs`, which
-declares exactly twenty-three `pub mod` items. Every one has a row. A module added
+declares exactly twenty-four `pub mod` items. Every one has a row. A module added
 without a row is a coverage failure, and the `check-doc-citations` binary of
 `lgwks_deps` refuses it: it reads the `pub mod` names from `lib.rs` and the module column
 below, and fails when either holds a name the other lacks.
@@ -34,6 +34,7 @@ below, and fails when either holds a name the other lacks.
 | 21 | `wire` | `wire` | exercised | `wire_consumer.rs` (7 tests); seeded family `tests/it/sim_wire.rs` | Default width mismatch, canonical vs generic guarantees, error typing/zero-copy scope → [#167](https://github.com/srinji-kaggss/logicalworks-crates/issues/167) (closed 2026-10-02). The fixed derive-support re-export is retained. |
 | 22 | `sign` | `sign` (implies `random`, `hash`) | exercised | `a_generated_key_seals_and_opens` (unit); seeded family `tests/it/sim_sign.rs` incl. `the_same_seed_replays_to_the_same_sign_trace`, `public_key_and_signature_byte_forms_round_trip` | Detached ed25519 seals over `tag ‖ BLAKE3(record)`, checked with `verify_strict` → [#316](https://github.com/srinji-kaggss/logicalworks-crates/issues/316) (landed 2026-10-07). **A seal proves who signed a record, not that the record is true**, and key storage is the caller's. |
 | 23 | `build` | `build` (implies `hash`, `trace`) | exercised | seeded family `tests/it/sim_build.rs` incl. `sim_one_tree_at_two_roots_digests_equal`, `sim_a_closed_pipe_is_a_directive_error` | A build script's input digest (framed BLAKE3 over root-relative names, bytes, variables, features) and checked `cargo:` directives, Director 2026-10-22 ("should be in lgwks"). **A digest names the inputs a script declared, not every file the compiler read.** |
+| 24 | `legacy` | `legacy` | exercised | `every_page_is_a_bijection_onto_latin_1`, `every_sibling_count_is_a_valid_red_black_tree_in_name_order` (unit); seeded families `tests/it/sim_legacy_{ebcdic,decimal,copybook,cfb,access,fax,edges}.rs`; `lgwks_deps` `tests/it/sim_lgwks_legacy.rs` drives `lgwks legacy` | EBCDIC 037/500/1047/273, packed and zoned decimal, copybook records, MS-CFB with VBA, Jet/ACE tables and bilevel TIFF fax, each round-tripping byte for byte under `Limits` → [#792](https://github.com/srinji-kaggss/logicalworks-crates/issues/792). **Access decodes five column kinds and copybooks refuse `RENAMES` and `SYNC`, each as a typed, located error, never a guess.** |
 
 ### Two facts about this table that are easy to misread
 

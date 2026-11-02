@@ -3,7 +3,7 @@
 //! COBOL `COMP-3` (packed) and zoned decimal carry decimal digits in nibbles
 //! with an implied scale: `PIC S9(5)V99` stores `12345.67` as the digits
 //! `1234567` with scale 2, never as a binary float. This module decodes those
-//! bytes into [`Decimal`], an `i128` coefficient plus a `u32` scale (IBM
+//! bytes into `Decimal`, an `i128` coefficient plus a `u32` scale (IBM
 //! Enterprise COBOL Language Reference, numeric items), so `decode` then
 //! `encode` returns the same bytes and no `f32`/`f64` ever touches a value.
 //! Bad nibbles and signs are typed errors naming the byte.
