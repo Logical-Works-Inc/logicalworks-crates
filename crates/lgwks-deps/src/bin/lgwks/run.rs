@@ -217,6 +217,18 @@ fn stderr_file() -> std::io::Result<File> {
     ))
 }
 
+/// A target with neither file descriptors nor handles to share (WASI) cannot
+/// hand the app this process's stderr, and cannot start the app either; the
+/// refusal says so rather than serving with the verdict line mixed in.
+#[cfg(not(any(unix, windows)))]
+fn stderr_file() -> std::io::Result<File> {
+    lgwks_std::trace::debug!("lgwks run: this target cannot share stderr with a child");
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "this target cannot share stderr with the app",
+    ))
+}
+
 /// Wait until `addr` accepts, the app has `exited`, or the deadline passes.
 ///
 /// The loop paces itself on a condition variable with a deadline rather
