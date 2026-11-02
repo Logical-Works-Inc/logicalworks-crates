@@ -400,8 +400,13 @@ fn graph_schedule_respects_needs_capacity_and_bound(band: Band) -> TestResult {
         // Graham's bound, ceil(total / slots) + the critical path. A lane of
         // work `w` waits `w - 1` turns, so it holds its slot `w` rounds.
         let (expected, makespan) = greedy_model(&edges, &works, slots, failing)?;
+        let waves: Vec<Vec<&str>> = report
+            .waves()
+            .iter()
+            .map(|wave| wave.iter().map(|name| name.as_ref()).collect::<Vec<&str>>())
+            .collect();
         assert_eq!(
-            report.waves(),
+            waves.as_slice(),
             expected.as_slice(),
             "every free slot took the tallest ready node the moment it was ready"
         );

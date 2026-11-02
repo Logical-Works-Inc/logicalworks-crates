@@ -516,7 +516,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         Box::pin(async move { Ok::<u64, FlowError>(0) })
     })
     .with_work(2);
-    if node.name() != "probe" || node.needs() != ["fetch_a"] {
+    if node.name() != "probe" || node.needs() != [Arc::from("fetch_a")].as_slice() {
         return refuse(Section::Graph, "a node carries its name and its needs");
     }
     say(&format!("graph: lanes ran {:?}", report.succeeded()))?;

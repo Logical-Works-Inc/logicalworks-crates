@@ -106,6 +106,9 @@ pub mod task;
 /// requires, and a `pub use` of a macro is what keeps that true.
 pub use lgwks_deps::tokio::task_local;
 
+#[cfg(all(feature = "script", feature = "edge"))]
+#[path = "apps/mod.rs"]
+pub mod apps;
 /// This crate's own cancellation primitive. Private, because its only public
 /// name is `rt::sync::CancellationToken` (one type, one path), matching how
 /// the ECS substrate is reached through `spec` rather than named directly.

@@ -21,7 +21,6 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -298,60 +297,9 @@ impl ServeReport {
     }
 }
 
-/// The boxed answer a typed route handler returns.
-type BoxRouteFuture = Pin<Box<dyn Future<Output = Result<Vec<u8>, (u16, String)>> + Send>>;
-
-/// From tenant and body bytes to response bytes, or `(status, message)`.
-type RouteHandler = dyn Fn(String, Vec<u8>) -> BoxRouteFuture + Send + Sync;
-
-/// One typed route: the verb, the path below the tenant prefix, and the
-/// handler from tenant and body bytes to response bytes.
-#[derive(Clone)]
-pub struct TypedRoute {
-    /// The verb this route answers.
-    method: RouteMethod,
-    /// Rooted at `/`, as the edge serves it.
-    path: String,
-    /// From tenant and body bytes to response bytes, or `(status, message)`.
-    handler: Arc<RouteHandler>,
-}
-
-impl TypedRoute {
-    /// Answer `method` `path` with `handler`.
-    ///
-    /// The handler receives the request's tenant (never the body) and its
-    /// body bytes, and answers the response bytes (a JSON document) or the
-    /// status and message to answer (a `400` for a malformed body, `500` for
-    /// a failed handler).
-    pub fn new<F, Fut>(method: RouteMethod, path: &str, handler: F) -> Self
-    where
-        F: Fn(String, Vec<u8>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Vec<u8>, (u16, String)>> + Send + 'static,
-    {
-        let erased = Arc::new(move |tenant: String, body: Vec<u8>| {
-            let answered = handler(tenant, body);
-            let boxed: BoxRouteFuture = Box::pin(answered);
-            boxed
-        });
-        Self {
-            method,
-            path: path.to_owned(),
-            handler: erased,
-        }
-    }
-
-    /// The verb this route answers.
-    #[must_use]
-    pub const fn method(&self) -> RouteMethod {
-        self.method
-    }
-
-    /// The path below the tenant prefix.
-    #[must_use]
-    pub fn path(&self) -> &str {
-        self.path.as_str()
-    }
-}
+/// The typed route and its one handler shape.
+mod route;
+pub use route::TypedRoute;
 
 /// The request body as the Host request-key path sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
@@ -769,6 +717,12 @@ async fn ingress(State(shared): State<Arc<Shared>>, request: HttpRequest) -> Htt
         }
     };
     let _live = LiveGuard::enter(&shared);
+    let content_type = parts
+        .headers
+        .get(lgwks_deps::axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .map(str::to_owned);
     let handler = Arc::clone(&route.handler);
     let tenant_owned = tenant.to_owned();
     let body_vec = body.to_vec();
@@ -798,8 +752,9 @@ async fn ingress(State(shared): State<Arc<Shared>>, request: HttpRequest) -> Htt
         let run_task = match task("serve-route", move |_scope: Scope, input: ServeInput| {
             let handler = Arc::clone(&handler);
             let tenant_owned = inner_tenant.clone();
+            let content = content_type.clone();
             async move {
-                match handler(tenant_owned, input.body).await {
+                match handler(tenant_owned, content, input.body).await {
                     Ok(bytes) => Ok(ServeOutput {
                         status: 200,
                         body: bytes,

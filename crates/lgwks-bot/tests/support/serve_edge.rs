@@ -52,14 +52,37 @@ pub fn post_timeout(
     key: Option<&str>,
     timeout: Option<Duration>,
 ) -> Result<(u16, String, String), String> {
+    match key {
+        Some(key) => post_with(
+            addr,
+            tenant,
+            path,
+            body,
+            &[("idempotency-key", key)],
+            timeout,
+        ),
+        None => post_with(addr, tenant, path, body, &[], timeout),
+    }
+}
+
+/// One `POST` to `tenant` `path` carrying `headers`, bounded by `timeout`.
+pub fn post_with(
+    addr: SocketAddr,
+    tenant: &str,
+    path: &str,
+    body: &[u8],
+    headers: &[(&str, &str)],
+    timeout: Option<Duration>,
+) -> Result<(u16, String, String), String> {
     let target = format!("/t/{tenant}{path}");
     let mut head = format!(
         "POST {target} HTTP/1.1\r\nhost: {addr}\r\ncontent-length: {}\r\nconnection: close\r\n",
         body.len()
     );
-    if let Some(key) = key {
-        head.push_str("idempotency-key: ");
-        head.push_str(key);
+    for &(name, value) in headers {
+        head.push_str(name);
+        head.push_str(": ");
+        head.push_str(value);
         head.push_str("\r\n");
     }
     head.push_str("\r\n");
