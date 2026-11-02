@@ -28,7 +28,7 @@ it stands on. It pulls tokio through the `lgwks_deps` storefront, and
 | `process` | `io`, `sync` | `rt::process`: `Command` — how to describe a child, with `StdioPolicy::Capture` for a bounded stream. Running one is `Supervisor::spawn_process` (reported later) or `Supervisor::run_process` (returns its `ProcessRun`), and they are the only ways: `Child` and its pipes are deliberately not exported |
 | `fs` | `io` | `rt::fs`: an async filesystem, a blocking-threadpool wrapper |
 | `edge` | `net`, `sync`, `time`, `macros`, `ecs` | `rt::edge`: the HTTP edge, axum on the driver, every request answered by a `RequestFeed` from its own tenant's state (ADR 0006 R4), and the world driven beside it on its wakes and `Every` deadlines (R5); the `edge-load` binary |
-| `signal` | `rt` | `rt::signal`: OS signal streams. Compiled only on `unix` or `windows` (`crates/lgwks-bot/src/rt/mod.rs:126`) |
+| `signal` | `rt` | `rt::signal`: OS signal streams. Compiled only on `unix` or `windows` (`crates/lgwks-bot/src/rt/mod.rs:128`) |
 | `ephemeral` | | `EffectScope::ephemeral()`, `RunId::mint()`, `EnvironmentId::mint()`. Host-only: minting needs OS entropy, and `lgwks_std::random` is linux/macOS/windows only. Off by default for the same reason `signal` is — the default set is built for `wasm32-wasip1` |
 | `script` | `rt`, `time`, `sync`, `macros` | `script!`, `try_join!` and the `script` module, the supported interface; reads flows through `lgwks_ast`'s `script` reader. On by default |
 | `inspect` | | structural code inspection through `lgwks_ast` (every grammar) |

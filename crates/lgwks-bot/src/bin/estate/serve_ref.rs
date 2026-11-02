@@ -1,7 +1,7 @@
 //! The reference route for `estate serve`: one typed draft over a file store.
 //!
-//! `POST /drafts` decodes its body as [`DraftRequest`] through
-//! `lgwks_std::json`, answers [`Draft`], and never reads the tenant from the
+//! `POST /drafts` decodes its body as `DraftRequest` through
+//! `lgwks_std::json`, answers `Draft`, and never reads the tenant from the
 //! body: the tenant comes from the request path and is part of every store
 //! key the route reaches.
 
