@@ -154,12 +154,14 @@ sealed-aead = ["dep:chacha20poly1305"]
 [dependencies]
 # The foundation this gate is built on, named rather than inherited: `core` is
 # the walk, clock and encoding it reads with, `trace` is how it logs a refusal,
-# and `json` is the register and report format. `default-features = false`
+# `json` is the register and report format, and `legacy` is the codec set
+# `lgwks legacy` reads and writes (pure Rust, no edge of its own).
+# `default-features = false`
 # because a *tool's* edge declares the capabilities it uses; the storefront's
 # own default set is what it sells to a consumer, and that is argued in the
 # `[features]` block above. Keeping the edge exact also keeps the four
 # storefront fixtures' lockfiles independent of `lgwks_std`'s default set.
-lgwks_std = { workspace = true, default-features = false, features = ["core", "trace", "json"] }
+lgwks_std = { workspace = true, default-features = false, features = ["core", "trace", "json", "legacy"] }
 proc-macro2 = { version = "1", features = ["span-locations"], optional = true }
 quote = { version = "1", optional = true }
 # Day-0 revenue slice (#721): each edge is registered in contract/APPROVED.toml
