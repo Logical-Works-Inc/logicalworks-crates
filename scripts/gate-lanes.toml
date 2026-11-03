@@ -586,12 +586,19 @@ cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets
 ci_step = "Clippy feature matrix"
 
 [[lane]]
+id = "clippy-nodefault-bot"
+group = "clippy"
+surfaces = "local ci"
+required = true
+command = "cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings"
+ci_step = "Clippy lgwks-bot with no default features"
+
+[[lane]]
 id = "clippy-nodefault"
 group = "clippy"
 surfaces = "local ci"
 required = true
 command = """\
-cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml --all-targets --no-default-features -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml --all-targets --no-default-features --features parser -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets --no-default-features -- -D warnings && \

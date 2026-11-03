@@ -196,22 +196,30 @@ jobs:
           - { suite: workspace, archive: workspace, partition: "slice:8/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
           - { suite: workspace, archive: workspace, partition: "slice:9/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
           - { suite: workspace, archive: workspace, partition: "slice:10/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:3/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:4/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:5/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:6/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:7/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:8/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:9/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:10/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:11/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:12/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:13/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:14/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:15/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:16/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:1/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:2/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:3/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:4/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:5/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:6/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:7/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:8/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:9/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:10/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:11/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:12/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:13/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:14/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:15/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:16/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:17/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:18/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:19/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:20/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:21/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:22/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:23/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:24/24", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:1/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:2/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
     env:
@@ -290,11 +298,13 @@ jobs:
           - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
           - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
           # The review-path binary under the saturation filter (T31-T34), in
-          # thirds: whole, it ran 46 tests past the limit after a 184 s build
-          # (run 41702461553).
-          - { suite: saturation, archive: bot-rest, partition: "slice:1/3", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:2/3", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:3/3", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          # fifths: whole, it ran 46 tests past the limit after a 184 s build
+          # (run 41702461553), and a third was cancelled at 294 s (68bef2d12).
+          - { suite: saturation, archive: bot-rest, partition: "slice:1/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:2/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:3/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:4/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:5/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -573,7 +583,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [workspace, features, scan, reduced]
+        # The reduced feature sets in three legs: one leg running all six took
+        # 297 s and was cancelled at the limit (run for 68bef2d12).
+        part: [workspace, features, scan, reduced-bot, reduced, process]
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
@@ -612,11 +624,12 @@ jobs:
           --all-targets --all-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml
           --all-targets --features tokio-full -- -D warnings
+      - name: Clippy lgwks-bot with no default features
+        if: matrix.part == 'reduced-bot'
+        run: cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings
       - name: Clippy no default features
         if: matrix.part == 'reduced'
         run: >
-          cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
-          --all-targets --no-default-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml
           --all-targets --no-default-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml
@@ -626,7 +639,7 @@ jobs:
           cargo clippy --locked --manifest-path crates/lgwks-macros/Cargo.toml
           --all-targets --no-default-features -- -D warnings
       - name: Clippy process-only
-        if: matrix.part == 'reduced'
+        if: matrix.part == 'process'
         # `process` alone is a supported consumer shape (issue #131).
         run: >
           cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
