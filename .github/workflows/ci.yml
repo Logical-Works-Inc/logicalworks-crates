@@ -246,17 +246,18 @@ jobs:
         if: ${{ always() }}
         run: sccache --show-stats
 
-  # The macOS shards, built in place like the Linux ones. Each test process runs
-  # through the `churn-slot` wrapper the suite's setup script builds
-  # (INV-CI-SLOT-1); the `ci` profile leaves lgwks_bot's review-path binary and
-  # `sim_scale` module to the saturation shard on macOS (`.config/nextest.toml`),
-  # and that shard's report joins the receipt. The workspace suite is split by
-  # package, because on 3 vCPU the whole of it was still compiling at the job
-  # limit (310 s of build, run 41610587060). Every macOS shard builds through
-  # the `ci-it` profile, dependencies at opt-level 1 and workspace crates at 0:
-  # cold, at the test profile's opt-level 3 dependencies, every bot and
-  # workspace-core shard was still compiling at the limit (run 41698583571).
-  # The root Cargo.toml says what the profile keeps.
+  # The macOS shards hold the Darwin seams (province#9: macos-15 for the darwin
+  # syscall seams, Miri darwin and the timing gates; Miri and the timing gates
+  # are jobs of their own): lgwks_std, whose fs, process and time seams take
+  # the Darwin branch, and lgwks_bot's own process-boundary binaries and
+  # review-path saturation set. The full lgwks_bot and workspace suites run on
+  # the Linux shards. On 3 vCPU a cold macOS shard compiles dependencies for
+  # 138 s even at opt-level 1 and was still compiling `lgwks_bot`'s `it` binary
+  # at the 5-minute limit (run 41700839783), so `it` does not run here. Each test
+  # process runs through the `churn-slot` wrapper the suite's setup script
+  # builds (INV-CI-SLOT-1). Every macOS shard builds through the `ci-it`
+  # profile, dependencies at opt-level 1 and workspace crates at 0; the root
+  # Cargo.toml says what the profile keeps.
   tests_macos:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.partition }})
     runs-on: macos-15
@@ -265,23 +266,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: workspace, archive: workspace-deps, partition: "slice:1/3", build: "-p lgwks_deps --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace-deps, partition: "slice:2/3", build: "-p lgwks_deps --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace-deps, partition: "slice:3/3", build: "-p lgwks_deps --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace-core, partition: "slice:1/2", build: "--workspace --exclude lgwks_bot --exclude lgwks_deps --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "--workspace --exclude lgwks_bot --exclude lgwks_deps --locked --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:3/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:4/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:5/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:6/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:7/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:8/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
-          # The saturation set is `sim_scale` in `it` and the review-path
-          # binary, one shard each, so each builds only its own binary.
-          - { suite: saturation, archive: bot-it, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test it", sat_filter: "package(lgwks_bot) & binary(it) & test(/^sim_scale::/)" }
+          - { suite: workspace, archive: workspace-core, partition: "slice:1/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
+          # The review-path binary under the saturation filter (T31-T34).
           - { suite: saturation, archive: bot-rest, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
     env:
       PARTITION: ${{ matrix.partition }}
@@ -1085,5 +1073,6 @@ jobs:
           CARGO_BUILD_WARNINGS=warn CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" cargo +nightly-2026-10-01 miri setup --target x86_64-pc-windows-msvc && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target aarch64-apple-darwin process::darwin::tests && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target x86_64-pc-windows-msvc process::windows::tests
+
 
 
