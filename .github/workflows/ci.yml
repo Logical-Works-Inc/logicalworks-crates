@@ -538,14 +538,21 @@ jobs:
       # overran this step's three-minute bound by 7 s on run 39379487172 while
       # every test passed. Image 20261018.339.1 added stable 1.99.1 beside the
       # pinned 1.99.0 and did exactly that; main's run on image 20261012.334.1
-      # still restored the cache. The job selects 1.99.0 and nothing else, so
-      # nothing else is installed when the key is computed.
+      # still restored the cache. The job keeps the toolchain
+      # `rust-toolchain.toml` pins and nothing else, so nothing else is
+      # installed when the key is computed. The pin is read from that file:
+      # when it moved to 1.99.1 this step still kept 1.99.0 and uninstalled the
+      # pinned toolchain, so rust-cache computed an empty key ("No cache
+      # found.") and every run compiled the full feature set cold, 2 m 21 s of
+      # the step's three minutes (run 41557121719).
       - name: Set up the pinned toolchain alone
         run: |
-          rustup default 1.99.0
+          pinned=$(awk -F'"' '/^channel/ { print $2 }' rust-toolchain.toml)
+          test -n "${pinned}"
+          rustup default "${pinned}"
           for installed in $(rustup toolchain list --quiet); do
             case "$installed" in
-              1.99.0*) ;;
+              "${pinned}"-*) ;;
               *) rustup toolchain uninstall "$installed" ;;
             esac
           done
