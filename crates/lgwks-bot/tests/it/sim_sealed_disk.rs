@@ -345,13 +345,35 @@ fn prove_idempotent(op: &mut Op<'_>, handles: Handles) -> Result<Handles, Box<dy
     Ok(handles)
 }
 
+/// Append one event and keep it as acknowledged: the one append path the
+/// steady-state and post-loss arms share.
+fn append_kept(
+    handles: &mut Handles,
+    op: &mut Op<'_>,
+    key: EffectKey,
+    before: u64,
+    why: &str,
+) -> Result<(), Box<dyn Error>> {
+    let tenant = op.tenant;
+    let at = op.at;
+    append_journal_event(&mut handles.journals[tenant], &journal_event(key)).map_err(
+        |error| -> Box<dyn Error> {
+            format!(
+                "seed {} step {} op {} tenant {tenant}: {why} refused: {error}",
+                at.seed, at.step, at.op
+            )
+            .into()
+        },
+    )?;
+    op.model.tenants[tenant].live.push(key);
+    op.model.tenants[tenant].frames.push(before);
+    sync_fold(handles, &mut *op.model);
+    Ok(())
+}
+
 /// Append one event for the acting tenant and keep it as acknowledged.
 fn op_append(mut handles: Handles, op: &mut Op<'_>) -> Result<Handles, Box<dyn Error>> {
     let tenant = op.tenant;
-    let at = op.at;
-    let seed = at.seed;
-    let step = at.step;
-    let op_code = at.op;
     let before = match std::fs::metadata(&op.ctx.paths[tenant]) {
         Ok(metadata) => metadata.len(),
         Err(_) => 0,
@@ -359,15 +381,7 @@ fn op_append(mut handles: Handles, op: &mut Op<'_>) -> Result<Handles, Box<dyn E
     let index = u64::try_from(tenant)?;
     let attempt = op.model.tenants[tenant].next_attempt(index);
     let key = journal_key(&attempt.to_string())?;
-    append_journal_event(&mut handles.journals[tenant], &journal_event(key)).map_err(
-        |error| -> Box<dyn Error> {
-            format!("seed {seed} step {step} op {op_code} tenant {tenant}: append refused: {error}")
-                .into()
-        },
-    )?;
-    op.model.tenants[tenant].live.push(key);
-    op.model.tenants[tenant].frames.push(before);
-    sync_fold(&handles, &mut *op.model);
+    append_kept(&mut handles, op, key, before, "append")?;
     op.trace.record("appended");
     Ok(handles)
 }
@@ -484,9 +498,6 @@ fn op_dirent_loss(handles: Handles, op: &mut Op<'_>) -> Result<Handles, Box<dyn 
     drop(handles);
     let tenant = op.tenant;
     let at = op.at;
-    let seed = at.seed;
-    let step = at.step;
-    let op_code = at.op;
     std::fs::remove_file(&op.ctx.paths[tenant])?;
     let mut handles = reopen(&mut *op.ctx, at)?;
     op.model.tenants[tenant].live.clear();
@@ -499,17 +510,7 @@ fn op_dirent_loss(handles: Handles, op: &mut Op<'_>) -> Result<Handles, Box<dyn 
     let attempt = op.model.tenants[tenant].next_attempt(index);
     let key = journal_key(&attempt.to_string())?;
     let before = std::fs::metadata(&op.ctx.paths[tenant])?.len();
-    append_journal_event(&mut handles.journals[tenant], &journal_event(key)).map_err(
-        |error| -> Box<dyn Error> {
-            format!(
-                "seed {seed} step {step} op {op_code} tenant {tenant}: post-loss append refused: {error}"
-            )
-            .into()
-        },
-    )?;
-    op.model.tenants[tenant].live.push(key);
-    op.model.tenants[tenant].frames.push(before);
-    sync_fold(&handles, &mut *op.model);
+    append_kept(&mut handles, op, key, before, "post-loss append")?;
     op.trace.record("dirent-lost");
     Ok(handles)
 }

@@ -293,6 +293,8 @@ mod script_refusals;
 mod script_trail;
 #[cfg(feature = "sealed")]
 mod sealed;
+#[cfg(feature = "sealed")]
+mod sealed_disk_torn;
 #[cfg(feature = "edge")]
 mod serve;
 #[cfg(feature = "edge")]
