@@ -271,7 +271,15 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Restore on every run, save only from `main`, as the GPUI Windows job
+          # does. Every ref saving filled the repository's 10 GiB cache: 10.66
+          # GiB on 2026-11-03, main 1.41 GiB against 5.18 for #812 and 4.05 for
+          # two Dependabot pull requests, so main's std-full, docs and feature
+          # matrix entries were evicted and each new pull request compiled those
+          # jobs cold (std-full 2 m 21 s of its three-minute step, run
+          # 41557121719). Saved from main alone, the entries are one ref's
+          # worth and a pull request restores the last merged build.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: gate
       - name: nextest is installed
@@ -541,10 +549,9 @@ jobs:
       # still restored the cache. The job keeps the toolchain
       # `rust-toolchain.toml` pins and nothing else, so nothing else is
       # installed when the key is computed. The pin is read from that file:
-      # when it moved to 1.99.1 this step still kept 1.99.0 and uninstalled the
-      # pinned toolchain, so rust-cache computed an empty key ("No cache
-      # found.") and every run compiled the full feature set cold, 2 m 21 s of
-      # the step's three minutes (run 41557121719).
+      # when it moved to 1.99.1 this step still installed 1.99.0 and
+      # uninstalled the pinned toolchain, which the first cargo call then
+      # downloaded again inside the timed test step (run 41557121719).
       - name: Set up the pinned toolchain alone
         run: |
           pinned=$(awk -F'"' '/^channel/ { print $2 }' rust-toolchain.toml)
@@ -559,7 +566,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: std-full
       - name: nextest is installed
@@ -720,7 +728,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: clippy-${{ matrix.part }}
       - name: Clippy all workspace targets
@@ -804,7 +813,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: docs
       - name: Doc build with broken-link denial
@@ -1086,7 +1096,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: feature-${{ matrix.part }}
       - name: Compile cache for the workspace crates
@@ -1289,7 +1300,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: process-windows-dev
       - uses: taiki-e/install-action@nextest

@@ -106,7 +106,7 @@ emit = ["script", "dep:quote"]
 # in `lgwks-deps` because the `lgwks` binary there depends on this crate for
 # parse and emit (#787), and a tool beside its reader keeps the one-parser rule
 # obvious.
-tool = ["script", "dep:lgwks_std"]
+tool = ["script", "dep:lgwks_std", "lgwks_std/standard"]
 # The zero-gate source detectors (INV-SCAN-ZERO, #408): `lgwks_ast::scan` and
 # the `lgwks-ast scan` subcommand, which read Rust through the one parser and
 # need nothing it does not already hold: the Rust grammar and the checked parse.
@@ -116,8 +116,13 @@ scan = ["lang-rust"]
 # The CODE half of legacy comprehension (#777): the COBOL and JCL reader with
 # its PERFORM, CALL, file, field and job graphs and line-pinned summaries,
 # and their JSON verdicts for agents. Needs the refusal signal and the JSON
-# value type, so it builds everywhere `tool` does.
-legacy = ["dep:tracing", "dep:lgwks_std"]
+# value type, so it builds everywhere `tool` does. It names the two
+# `lgwks_std` features it reads, `json` and `legacy`, and never the default
+# set: that set carries `hash`, whose `blake3` build script needs a C
+# toolchain, and `lgwks_deps` enables this feature, so the default set put
+# `blake3` in every `lgwks_deps` build and failed the target matrix on
+# aarch64-unknown-linux-gnu and freebsd (run 41558177012).
+legacy = ["dep:tracing", "dep:lgwks_std", "lgwks_std/legacy"]
 full = [
     "lang-rust",
     "lang-python",
@@ -174,8 +179,10 @@ tree-sitter = { version = "0.27", optional = true }
 # locations) and `quote` and nothing else here.
 proc-macro2 = { version = "1", features = ["span-locations"], optional = true }
 quote = { version = "1", optional = true }
-# The script tool's tree walk and JSON (feature `tool`, #384).
-lgwks_std = { workspace = true, features = ["json"], optional = true }
+# The script tool's tree walk and JSON (feature `tool`, #384), and the legacy
+# reader's JSON verdicts (feature `legacy`, #777). Default features off: `tool`
+# asks for the standard set and `legacy` for its two features by name.
+lgwks_std = { workspace = true, default-features = false, features = ["json"], optional = true }
 
 [dev-dependencies]
 # The script parser's line-tree properties (#273) moved here with the parser
