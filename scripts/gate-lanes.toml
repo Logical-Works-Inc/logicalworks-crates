@@ -182,7 +182,7 @@ required = true
 # suite's cargo selection, the default of NEXTEST_BUILD in the lane that runs it;
 # on macOS the `churn-slot` wrapper is built first so the archive carries it
 # (`.config/nextest.toml`, `[profile.default.archive]`).
-command = "if [ \"$RUNNER_OS\" = macOS ]; then cargo build --locked -p lgwks_deps --bin churn-slot; fi && cargo nextest archive ${ARCHIVE_BUILD} --archive-file nextest-archive/suite.tar.zst"
+command = "if [ \"$RUNNER_OS\" = macOS ]; then cargo build --locked -p lgwks_deps --bin churn-slot; fi && mkdir -p nextest-archive && cargo nextest archive ${ARCHIVE_BUILD} --archive-file nextest-archive/suite.tar.zst"
 ci_step = "Build the test archive"
 
 [[lane]]
