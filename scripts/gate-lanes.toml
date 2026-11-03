@@ -358,7 +358,7 @@ required = true
 # binary. The default is taken only when SATURATION_BINARIES is unset (`-`, not
 # `:-`): run from an archive, CI sets it empty, because nextest refuses `--test`
 # beside `--archive-file` and SATURATION_FILTER already names both binaries.
-command = "cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E \"${SATURATION_FILTER:-binary(sim_review_path)}\""
+command = "cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E \"${SATURATION_FILTER:-binary(sim_review_path)}\" ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run lgwks-bot saturation tiers"
 
 [[lane]]

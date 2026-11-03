@@ -60,7 +60,7 @@ concurrency:
 # profile change alone kept the old key and every run rebuilt from a cache built
 # with the old profile (#272, run 38400754429). Change both together.
 env:
-  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: "0"
   CARGO_PROFILE_TEST_OPT_LEVEL: "1"
   # sccache refuses to cache an incremental compilation, and a hosted target
   # directory never outlives its job, so incremental state is only cost.
@@ -269,8 +269,12 @@ jobs:
           - { suite: workspace, archive: workspace-core, partition: "slice:1/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
           - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
           - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
-          # The review-path binary under the saturation filter (T31-T34).
-          - { suite: saturation, archive: bot-rest, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          # The review-path binary under the saturation filter (T31-T34), in
+          # thirds: whole, it ran 46 tests past the limit after a 184 s build
+          # (run 41702461553).
+          - { suite: saturation, archive: bot-rest, partition: "slice:1/3", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:2/3", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:3/3", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -303,7 +307,7 @@ jobs:
         env:
           SATURATION_BINARIES: ${{ matrix.sat_bins }}
           SATURATION_FILTER: ${{ matrix.sat_filter }}
-        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}"
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
       - name: Upload lgwks-bot JUnit report

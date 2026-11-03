@@ -63,13 +63,13 @@ codegen-units = 256
 # the cache, so they are paid for once.
 [profile.test]
 opt-level = 1
-# Line tables, not full debuginfo. A backtrace or a debugger still names the
-# function, file and line; what goes is variable and type information. CI's
-# bot shards each spent 152 s of a 233 s job compiling and linking test
-# binaries on a full dependency-cache hit (#272); line tables shrink what
-# rustc emits and the linker copies. Nothing in the workspace reads debuginfo.
-# CI repeats it as `CARGO_PROFILE_TEST_DEBUG` so its cache keys on it.
-debug = "line-tables-only"
+# No debuginfo: a panic still names its file and line, which the message
+# carries. CI's bot shards compile and link test binaries cold in every job
+# (#272; run 41702461553: one Linux shard compiled 179 s and ended at 305 s),
+# and debuginfo is what rustc emits and the linker copies beyond the code.
+# Nothing in the workspace reads it. CI repeats the value as
+# `CARGO_PROFILE_TEST_DEBUG` so its cache keys on it.
+debug = 0
 
 [profile.test.package."*"]
 opt-level = 3
