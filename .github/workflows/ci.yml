@@ -196,18 +196,22 @@ jobs:
           - { suite: workspace, archive: workspace, partition: "slice:8/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
           - { suite: workspace, archive: workspace, partition: "slice:9/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
           - { suite: workspace, archive: workspace, partition: "slice:10/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:3/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:4/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:5/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:6/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:7/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:8/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:9/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:10/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:11/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:12/12", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:1/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:2/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:3/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:4/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:5/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:6/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:7/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:8/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:9/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:10/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:11/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:12/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:13/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:14/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:15/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:16/16", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:1/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:2/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
     env:
@@ -1093,9 +1097,3 @@ jobs:
           CARGO_BUILD_WARNINGS=warn CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" cargo +nightly-2026-10-01 miri setup --target x86_64-pc-windows-msvc && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target aarch64-apple-darwin process::darwin::tests && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target x86_64-pc-windows-msvc process::windows::tests
-
-
-
-
-
-
