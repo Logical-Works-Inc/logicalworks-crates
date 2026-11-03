@@ -401,6 +401,8 @@ mod sim_script_words;
 #[cfg(feature = "sealed")]
 mod sim_sealed;
 #[cfg(feature = "sealed")]
+mod sim_sealed_disk;
+#[cfg(feature = "sealed")]
 mod sim_sealed_shred;
 #[cfg(feature = "edge")]
 mod sim_serve;
