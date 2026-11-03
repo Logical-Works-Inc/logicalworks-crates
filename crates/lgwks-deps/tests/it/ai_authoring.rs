@@ -53,23 +53,11 @@ const VALVE_SECONDS: u32 = 60;
 /// The oracle bound of the tests that do not exercise it, in seconds.
 const ORACLE_BOUND: u32 = 120;
 
-/// The least oracle bound of the test that does, in seconds: what `measured_bound`
-/// starts from, long enough for a cold compile of one oracle on an idle host and
-/// short enough to wait out.
-const SHORT_ORACLE_BOUND: u32 = 12;
-
-/// The most that test will wait out, in seconds.
-const LONGEST_SHORT_BOUND: u32 = 90;
-
-/// How many times the cost of one un-gated oracle, measured on this host a moment
-/// before, the test's oracle bound is. The test runs first in its job (see
-/// `nextest.toml`), so it measures inside the start burst, when an oracle costs most,
-/// and the stopped oracle then runs its whole bound: the test took 232.8 s of a
-/// 245 s test phase (PR 600, run 39053271707) against 21 s on a quiet host. A bound
-/// of twice the cost is an estimate to be measured by the next run, not a result;
-/// `gated_within` widens a bound that cut an oracle off, so the first rung need not
-/// be the widest.
-const BOUND_MARGIN: f64 = 2.0;
+/// The oracle bound of the test that exercises it, in seconds. It covers the
+/// oracle's run only (the runner compiles under the build bound first), so the
+/// un-gated oracle, a test binary of two clauses plus cargo's freshness check,
+/// finishes far inside it at any load, and the gated one is stopped at it.
+const STOP_BOUND: u32 = 10;
 
 /// A directory removed when the test ends.
 struct Dir {
@@ -610,103 +598,21 @@ fn gated(fixture: &Fixture, args: &[String], kill: bool) -> Result<Gated, Box<dy
     })
 }
 
-/// The bound after one that cut an oracle off: `LONGEST_SHORT_BOUND`, and `None` once
-/// `seconds` is already there. A cut-off says the host's load moved past what was
-/// measured, and every attempt runs the stopped oracle its whole bound, so climbing
-/// 12, 24, 48 and 90 s cost 174 s of waiting where one step to the top costs 90 (PR
-/// 601's run 39055584424: the test took 205.9 s).
-fn wider(seconds: u32) -> Option<u32> {
-    (seconds < LONGEST_SHORT_BOUND).then_some(LONGEST_SHORT_BOUND)
-}
-
-/// Whether the un-gated task's own oracle was cut off by the bound: a run that
-/// finished clean and recorded a `timeout` clause for `alpha`.
-fn ungated_timed_out(fixture: &Fixture, shown: &Gated) -> Result<bool, Box<dyn Error>> {
-    if shown.runner.code != Some(0) {
-        return Ok(false);
-    }
-    let found = records(&fixture.out.join("results.jsonl"))?;
-    Ok(verdicts(of_task(&found, "alpha")?)?
-        .iter()
-        .any(|clause| clause.1 == "timeout"))
-}
-
-/// Runs the dry run with the second oracle gated under an oracle bound of `first`
-/// seconds, and once more under `LONGEST_SHORT_BOUND` if the runner ended before the
-/// oracle announced itself or the un-gated task's oracle was cut off by the bound.
-/// The bound covers the oracle's whole `cargo test`, compile
-/// included, so an oracle cut off before its gate, or the un-gated one cut off at all,
-/// says the host's load moved after the bound was measured (main run 39050234041:
-/// both of `alpha`'s clauses read `timeout` 110 s into the job's start burst), which
-/// the stop under test did not cause; one that announced itself and then misbehaves
-/// is never run again. Returns the fixture, what the gate showed, and the bound that
-/// reached the gate.
-fn gated_within(first: u32) -> Result<(Fixture, Gated, u32), Box<dyn Error>> {
-    let mut seconds = first;
-    loop {
-        let fixture = Fixture::new("timeout", seconds)?;
-        let attempt = gated(&fixture, &fixture.run_args("--dry-run"), false);
-        let cut_off = match attempt.as_ref() {
-            Ok(shown) => ungated_timed_out(&fixture, shown)?,
-            Err(error) => error.downcast_ref::<Unannounced>().is_some(),
-        };
-        if let Some(next) = wider(seconds).filter(|_| cut_off) {
-            lgwks_std::trace::debug!(bound = ?seconds, next = ?next, "the bound cut an oracle off before it was measured");
-            seconds = next;
-            continue;
-        }
-        return match attempt {
-            Ok(shown) => Ok((fixture, shown, seconds)),
-            Err(error) => {
-                lgwks_std::trace::debug!(bound = ?seconds, failure = ?error, "the gated run failed");
-                Err(format!("under a bound of {seconds} s: {error}").into())
-            }
-        };
-    }
-}
-
-/// The oracle bound, in seconds, that the un-gated task fits inside on this host
-/// now: `BOUND_MARGIN` times the wall time one dry-run oracle of that task takes,
-/// from `SHORT_ORACLE_BOUND` up to `LONGEST_SHORT_BOUND`. An oracle run is a whole
-/// `cargo test`, compile included, so what it costs is the host's load and not a
-/// constant a test can write down.
-fn measured_bound() -> Result<u32, Box<dyn Error>> {
-    let fixture = Fixture::new("measure", ORACLE_BOUND)?;
-    let mut args = fixture.run_args("--dry-run");
-    args.extend(["--tasks".to_owned(), "alpha".to_owned()]);
-    let run = fixture.run(&args)?;
-    assert_eq!(
-        run.code,
-        Some(0),
-        "the measuring dry run must finish clean: {:?} {:?}",
-        run.stdout,
-        run.stderr
-    );
-    let found = records(&fixture.out.join("results.jsonl"))?;
-    let cost = of_task(&found, "alpha")?
-        .get("oracle_wall_ms")
-        .and_then(Value::as_f64)
-        .ok_or("the measuring run recorded no oracle_wall_ms for alpha")?;
-    let mut seconds = SHORT_ORACLE_BOUND;
-    while seconds < LONGEST_SHORT_BOUND && f64::from(seconds) * 1000.0 < cost * BOUND_MARGIN {
-        seconds = seconds.saturating_add(1);
-    }
-    Ok(seconds)
-}
-
 /// Source: #270's "process-group kill ... a 1,800 s oracle timeout recorded as a failure"
-/// and "no orphan process after a run"; CI run 38985141189, where the un-gated task's
-/// own `cargo test` ran past 12 s at a host load of 70 and read `timeout`, and main run
-/// 39006985065, where the gated task's oracle never announced itself (`read ""`) inside
-/// a bound measured moments earlier, on a host whose load had run from 3.5 to 27. A
-/// bound that cut the oracle off before its gate is widened and the run repeated. Requirement:
-/// an oracle still running at its bound is stopped as a group (its process is gone
-/// when the runner returns), its clauses are recorded `timeout` after at least the
-/// bound, the other task is graded as usual under a bound measured on this host, the
-/// run is not a crash and exits 0.
+/// and "no orphan process after a run"; CI runs 38985141189 and 39006985065, where a
+/// bound that also covered the oracle's compile cut oracles off at host loads of 27
+/// to 70, and PR 807's run on lwc-3, where measuring the host and widening the bound
+/// ran this test past 180 s. The runner now compiles the oracle under the build
+/// bound and runs it under the oracle bound, so the bound here is a constant.
+/// Requirement: an oracle still running at its bound is stopped as a group (its
+/// process is gone when the runner returns), its clauses are recorded `timeout`
+/// after at least the bound, the other task is graded as usual under the same
+/// bound, the run is not a crash and exits 0.
 #[test]
 fn an_oracle_past_its_bound_is_stopped_with_its_group_and_recorded_as_a_timeout() -> TestResult {
-    let (fixture, shown, bound) = gated_within(measured_bound()?)?;
+    let bound = STOP_BOUND;
+    let fixture = Fixture::new("timeout", bound)?;
+    let shown = gated(&fixture, &fixture.run_args("--dry-run"), false)?;
     assert!(
         !shown.after_announcement.contains("VALVE"),
         "the oracle outlived its bound and was stopped only by its own valve"
@@ -751,33 +657,6 @@ fn an_oracle_past_its_bound_is_stopped_with_its_group_and_recorded_as_a_timeout(
         "a process of the run is still alive"
     );
     Ok(())
-}
-
-/// Source: main run 39050234041, where the un-gated task's oracle read `timeout` under
-/// a bound measured moments before, and PR 601's run 39055584424, where climbing the
-/// rungs one by one made the test 205.9 s. Requirement: a bound that cut an oracle off
-/// is followed by `LONGEST_SHORT_BOUND` at once, never past it, and nothing follows
-/// that, so a cut-off is retried once and a run that never fits still fails.
-#[test]
-fn a_cut_off_bound_is_followed_by_the_longest_and_nothing_follows_that() {
-    for cut_off in [0, 1, SHORT_ORACLE_BOUND, LONGEST_SHORT_BOUND - 1] {
-        assert_eq!(
-            wider(cut_off),
-            Some(LONGEST_SHORT_BOUND),
-            "a bound of {cut_off} s that cut an oracle off is followed by the longest"
-        );
-    }
-    assert_eq!(wider(LONGEST_SHORT_BOUND), None, "no bound above the top");
-    assert_eq!(
-        wider(LONGEST_SHORT_BOUND.saturating_add(1)),
-        None,
-        "a bound past the top has nothing above it either"
-    );
-    assert_eq!(
-        wider(u32::MAX),
-        None,
-        "the widest value has nothing above it"
-    );
 }
 
 /// Source: the Director's contract ("`kill -9` and restart") and #270's "no orphan

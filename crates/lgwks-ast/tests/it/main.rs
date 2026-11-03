@@ -22,6 +22,8 @@ mod scan_verdicts;
 mod script_read;
 mod script_tool;
 mod sim_diagnostics;
+#[cfg(feature = "legacy")]
+mod sim_legacy_cobol;
 mod sim_parse_bounds;
 mod sim_parse_deadline;
 mod sim_scan_detectors;

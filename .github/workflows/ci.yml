@@ -180,7 +180,7 @@ jobs:
       LWC_CHURN_SLOTS: "12"
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -215,7 +215,7 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -261,7 +261,7 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -271,7 +271,15 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Restore on every run, save only from `main`, as the GPUI Windows job
+          # does. Every ref saving filled the repository's 10 GiB cache: 10.66
+          # GiB on 2026-11-03, main 1.41 GiB against 5.18 for #812 and 4.05 for
+          # two Dependabot pull requests, so main's std-full, docs and feature
+          # matrix entries were evicted and each new pull request compiled those
+          # jobs cold (std-full 2 m 21 s of its three-minute step, run
+          # 41557121719). Saved from main alone, the entries are one ref's
+          # worth and a pull request restores the last merged build.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: gate
       - name: nextest is installed
@@ -452,7 +460,7 @@ jobs:
       LWC_CHURN_SLOTS: "12"
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -527,7 +535,7 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -538,21 +546,28 @@ jobs:
       # overran this step's three-minute bound by 7 s on run 39379487172 while
       # every test passed. Image 20261018.339.1 added stable 1.99.1 beside the
       # pinned 1.99.0 and did exactly that; main's run on image 20261012.334.1
-      # still restored the cache. The job selects 1.99.0 and nothing else, so
-      # nothing else is installed when the key is computed.
+      # still restored the cache. The job keeps the toolchain
+      # `rust-toolchain.toml` pins and nothing else, so nothing else is
+      # installed when the key is computed. The pin is read from that file:
+      # when it moved to 1.99.1 this step still installed 1.99.0 and
+      # uninstalled the pinned toolchain, which the first cargo call then
+      # downloaded again inside the timed test step (run 41557121719).
       - name: Set up the pinned toolchain alone
         run: |
-          rustup default 1.99.0
+          pinned=$(awk -F'"' '/^channel/ { print $2 }' rust-toolchain.toml)
+          test -n "${pinned}"
+          rustup default "${pinned}"
           for installed in $(rustup toolchain list --quiet); do
             case "$installed" in
-              1.99.0*) ;;
+              "${pinned}"-*) ;;
               *) rustup toolchain uninstall "$installed" ;;
             esac
           done
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: std-full
       - name: nextest is installed
@@ -578,7 +593,7 @@ jobs:
       LWC_CHURN_SLOTS: "12"
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -636,7 +651,7 @@ jobs:
         suite: [targets workspace, bot-full]
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -685,9 +700,14 @@ jobs:
   # Lints, the rustdoc lanes and the two release-build gates. Clippy and
   # rustdoc compile the same dependency graph as `cargo check`, so they share a
   # target; the release gates run last, on the build the scan step left.
-  # Three legs, each on its own hosted runner: the whole job took 5 m 18 s and
-  # was cancelled before its last two steps (run 38416328077). Every step is
-  # unchanged and runs in exactly one leg.
+  # Four legs, each on its own hosted runner: the whole job took 5 m 18 s and
+  # was cancelled before its last two steps (run 38416328077). The feature
+  # matrix left the workspace leg for a leg of its own after a lock change
+  # (#788, async-executor 1.14.0 yanked) keyed every cache cold: the workspace
+  # leg ran clippy over all targets and then the matrix, and was cancelled at
+  # the budget on runs 41550387704 and 41551628776. A cancelled job saves no
+  # cache, so that leg could not warm itself. Every step is unchanged and runs
+  # in exactly one leg.
   clippy:
     name: Clippy and scan (${{ matrix.part }})
     runs-on: macos-latest
@@ -695,10 +715,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [workspace, scan, reduced]
+        part: [workspace, features, scan, reduced]
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -708,7 +728,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: clippy-${{ matrix.part }}
       - name: Clippy all workspace targets
@@ -737,7 +758,7 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: "false"
         run: cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- script check
       - name: Clippy feature matrix
-        if: matrix.part == 'workspace'
+        if: matrix.part == 'features'
         # Per-crate all-features (gpui excluded: it needs the Xcode Metal
         # toolchain and is checked by its own lane in the matrix job).
         run: >
@@ -784,7 +805,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -792,7 +813,8 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: docs
       - name: Doc build with broken-link denial
@@ -859,7 +881,7 @@ jobs:
             partition: slice:2/2
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -952,7 +974,7 @@ jobs:
       CARGO_INCREMENTAL: "0"
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -985,7 +1007,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -1021,7 +1043,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"
@@ -1067,14 +1089,15 @@ jobs:
           - part: lgwks-bot WASI
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: feature-${{ matrix.part }}
       - name: Compile cache for the workspace crates
@@ -1216,7 +1239,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
@@ -1270,14 +1293,15 @@ jobs:
       CARGO_HOME: D:\cargo-home
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.99.1"
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          save-if: "true"
+          # Saved from main alone, as the gate job says.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: "true"
           key: process-windows-dev
       - uses: taiki-e/install-action@nextest
@@ -1297,7 +1321,7 @@ jobs:
 
   # The repository's ruleset requires a check named exactly "Clippy and scan".
   # The lint job above is a matrix, whose legs report as "Clippy and scan
-  # (workspace)", "(scan)" and "(reduced)", so no check of the required name was
+  # (workspace)", "(features)", "(scan)" and "(reduced)", so no check of the required name was
   # ever reported and a pull request could not satisfy the ruleset. This job is
   # that name. Its verdict is the matrix's own: `needs.clippy.result` is
   # `success` only when every leg succeeded, so a leg added or renamed above
@@ -1379,7 +1403,7 @@ jobs:
       # One small binary (`acceptance-receipts`, std only) reads the XML files,
       # so it costs seconds, not a second run of the tests.
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.0
+      - name: Pin Rust 1.99.1
         uses: ./.github/actions/local-rust
         with:
           toolchain: "1.99.1"

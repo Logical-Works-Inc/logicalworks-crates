@@ -297,6 +297,8 @@ USAGE
   lgwks check [file] [--json]   parse and admit the file without building it
   lgwks expand [file] [--json]  print the Rust the file's script! compiles to
   lgwks run [file] [--json]     build and serve the file, printing build times
+  lgwks legacy <codec> ...      read and write EBCDIC, COMP-3, copybooks, OLE
+                                compound files, VBA, Access and fax TIFF
 
 Every command takes --json: the same facts as JSON for agents.
 Exit 0 on success, 2 on a refusal or a refused invocation.

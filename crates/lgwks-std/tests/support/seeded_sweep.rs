@@ -159,6 +159,26 @@ pub fn assert_same_seed_replays(sweep: impl Fn(u64) -> u64, seed: u64) {
     );
 }
 
+/// Reads one hostile input twice and asserts both verdicts are the same.
+///
+/// A codec handed corrupt bytes may accept or refuse them, but its answer is
+/// a function of the bytes alone: a second read that answers differently
+/// read state the input does not hold. The verdict is kept and compared
+/// instead of discarded, so the read is an observation and not a call made
+/// only to see whether it panics.
+pub fn assert_verdict_replays<T: PartialEq + std::fmt::Debug>(
+    seed: u64,
+    what: &str,
+    read: impl Fn() -> T,
+) {
+    let first = read();
+    assert_eq!(
+        first,
+        read(),
+        "seed {seed:#018x}: the {what} must answer the same verdict on every read"
+    );
+}
+
 /// Asserts that two distinct seeds do not collapse to the same trace.
 ///
 /// Without this, a sweep that ignores its seed entirely would pass the replay
@@ -177,9 +197,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::{
-        FNV_BASIS, SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays, fold,
-        fold_nanos, fold_score, fold_usize, initial_trace, nanos_of, next_index, next_seed,
-        seeded_stream, word_of,
+        FNV_BASIS, SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays,
+        assert_verdict_replays, fold, fold_nanos, fold_score, fold_usize, initial_trace, nanos_of,
+        next_index, next_seed, seeded_stream, word_of,
     };
 
     /// A stand-in family: it makes every draw this module offers, so the stream
@@ -312,6 +332,23 @@ mod tests {
             low, high,
             "two counts differing only above the low 64 bits folded alike"
         );
+    }
+
+    #[test]
+    /// A read that is a function of its input replays, refusal included.
+    fn sim_a_pure_verdict_replays() {
+        assert_verdict_replays(SWEEP_SEEDS[0], "pure read", || u8::try_from(300_u16));
+    }
+
+    #[test]
+    #[should_panic(expected = "the stateful read must answer the same verdict on every read")]
+    /// A read answering 1 then 2 consulted hidden state, and fails the replay.
+    fn sim_a_verdict_that_reads_hidden_state_does_not_replay() {
+        let calls = std::cell::Cell::new(0_u8);
+        assert_verdict_replays(SWEEP_SEEDS[0], "stateful read", || {
+            calls.set(calls.get().wrapping_add(1));
+            calls.get()
+        });
     }
 
     #[test]

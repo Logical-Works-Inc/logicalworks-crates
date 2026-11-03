@@ -87,11 +87,15 @@ pattern = ["dep:regex"]
 json = ["dep:serde", "dep:serde_json"]
 ron = ["dep:serde", "dep:ron"]
 wire = ["dep:rkyv"]
+# Legacy format codecs: EBCDIC, packed and zoned decimal, COBOL copybooks,
+# MS-CFB with VBA, Jet/ACE databases and bilevel TIFF fax. Pure Rust, no
+# third-party dependency.
+legacy = []
 http = ["dep:ureq", "dep:iri-string"]
 online = []
 fs-raw = ["dep:rustix"]
 process = ["dep:rustix", "rustix?/process"]
-standard = ["trace", "trace-install", "random", "hash", "build", "sign", "pattern", "json", "ron", "wire", "online", "fs-raw", "process"]
+standard = ["trace", "trace-install", "random", "hash", "build", "sign", "pattern", "json", "ron", "wire", "online", "fs-raw", "process", "legacy"]
 full = ["standard", "http"]
 
 [dependencies]
@@ -146,6 +150,12 @@ rustls = { version = "0.23", default-features = false, features = ["std", "tls12
 [[example]]
 name = "latency_tails"
 test = true
+
+# Legacy codec throughput and tails in release, with the inputs written out
+# for the system readers it is compared against (#792).
+[[example]]
+name = "legacy_bench"
+required-features = ["legacy"]
 
 # The workspace lint table, copied because Cargo cannot override one inherited
 # lint (`workspace = true` admits no per-member entry). ONE line differs:
@@ -263,4 +273,3 @@ required-features = ["http"]
 [[test]]
 name = "sim_task_pool_public"
 path = "tests/sim_task_pool_public.rs"
-
