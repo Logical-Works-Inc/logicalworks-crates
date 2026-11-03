@@ -23,9 +23,12 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 # is a binary: a first version through /bin/sh and lockf lost the DYLD_* variables
 # macOS removes at a protected binary, and a proc-macro crate's tests failed to
 # load libstd). The setup script builds it once per run, in the target directory
-# the run already uses, so a job that builds only lgwks_bot still has it.
+# the run already uses, so a job that builds only lgwks_bot still has it. The
+# wrapper needs none of the storefront's features: with them the build pulled
+# gpui and took about 150 s of a hosted macOS archive job (run 41630759634);
+# without, 13.5 s cold locally.
 [scripts.setup.build-churn-slot]
-command = ['cargo', 'build', '--locked', '-p', 'lgwks_deps', '--bin', 'churn-slot']
+command = ['cargo', 'build', '--locked', '-p', 'lgwks_deps', '--no-default-features', '--bin', 'churn-slot']
 
 [scripts.wrapper.churn-slot]
 command = { command-line = "debug/churn-slot", relative-to = "target" }
