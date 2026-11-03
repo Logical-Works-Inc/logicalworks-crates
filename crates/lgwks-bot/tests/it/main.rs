@@ -193,6 +193,7 @@ mod bot_front_door;
 mod cas;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 mod cell_edge;
+mod ceremony_reference;
 mod clock_restart;
 mod core_boundary;
 mod credential;
