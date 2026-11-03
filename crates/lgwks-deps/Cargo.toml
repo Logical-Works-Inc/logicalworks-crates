@@ -224,11 +224,11 @@ chacha20poly1305 = { version = "=0.10.1", default-features = false, features = [
 # no-flag build stays portable: the engines are selected, never the crates.
 prettyplease = { version = "=0.2.37", default-features = false, optional = true }
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing"], optional = true }
-# The one script reader and emitter (#787): `lgwks_ast` with the `emit`
-# feature. A workspace member, so it needs no register entry; default features
-# off so no tree-sitter grammar rides along, only the token reader and the one
-# emitter.
-lgwks_ast = { workspace = true, default-features = false, features = ["emit"], optional = true }
+# The one script reader and emitter (#787): `lgwks_ast` with the `emit` and
+# `legacy` features. A workspace member, so it needs no register entry;
+# default features off so no tree-sitter grammar rides along, only the token
+# reader, the one emitter, and the COBOL and JCL reader.
+lgwks_ast = { workspace = true, default-features = false, features = ["emit", "legacy"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"], optional = true }

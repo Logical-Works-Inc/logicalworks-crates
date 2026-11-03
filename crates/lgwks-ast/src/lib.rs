@@ -85,6 +85,11 @@ pub use parser::{
 #[cfg(feature = "scan")]
 pub mod scan;
 
+/// The CODE half of legacy comprehension (#777): COBOL and JCL as read, with
+/// PERFORM, CALL, file, field and job graphs and line-pinned summaries.
+#[cfg(feature = "legacy")]
+pub mod legacy;
+
 /// The `script!` language's one reader (SL-2, #383): `script::parse` turns a
 /// token stream into the typed script tree with every refusal decided, the
 /// tree `lgwks_macros::script!` compiles and any tool reads.

@@ -471,6 +471,184 @@ fn sweep(dir: &Path, seed: u64) -> Result<u64, Box<dyn Error>> {
     Ok(fold(trace, &std::fs::read(dir.join("sweep.bin"))?))
 }
 
+/// A month-end job explains itself in human text and JSON: steps, sentences, edges and COPY (#777).
+#[test]
+fn sim_explain_month_end_job_reports_human_and_json() -> TestResult {
+    let scratch = Scratch::fresh("legacy-explain")?;
+    let dir = scratch.dir();
+    let job_text = "//MONTHEND JOB (ACCT),'MONTH END',CLASS=A\n//SETUP    SET HLQ=PROD.MONTH\n//PAY      EXEC PGM=PAYROLL\n//IN       DD DSN=&HLQ..CUST,DISP=SHR\n//OUT      DD DSN=&HLQ..REPORT,DISP=(NEW,CATLG)\n//RPT      EXEC PGM=REPORTER\n//LISTING  DD SYSOUT=*\n";
+    std::fs::write(dir.join("job.jcl"), job_text)?;
+    let pay_text = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. PAYROLL.\n       ENVIRONMENT DIVISION.\n       INPUT-OUTPUT SECTION.\n       FILE-CONTROL.\n           SELECT CUST-FILE ASSIGN TO \"CUST.DAT\".\n       DATA DIVISION.\n       FILE SECTION.\n       FD CUST-FILE.\n       01 CUST-REC PIC X(80).\n       PROCEDURE DIVISION.\n       MAIN-PARA.\n           OPEN INPUT CUST-FILE.\n           READ CUST-FILE INTO CUST-REC.\n           CALL \"CALC-TAX\" USING CUST-REC.\n           PERFORM WRITE-REPORT.\n           CLOSE CUST-FILE.\n       WRITE-REPORT.\n           WRITE CUST-REC FROM WS-LINE.\n";
+    std::fs::write(dir.join("pay.cbl"), pay_text)?;
+    let report_text = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. REPORTER.\n       PROCEDURE DIVISION.\n       MAIN-PARA.\n           COPY FIELDS REPLACING ==WS-A== BY ==WS-X==.\n           CALL WS-PROG.\n";
+    std::fs::write(dir.join("report.cbl"), report_text)?;
+    std::fs::create_dir(dir.join("copy"))?;
+    std::fs::write(
+        dir.join("copy").join("FIELDS"),
+        "           MOVE WS-A TO WS-B.\n",
+    )?;
+    let outcome = run_lgwks(dir, &["legacy", "explain", "job.jcl"])?;
+    if outcome.code != Some(0) {
+        return refuse(format!(
+            "explain job.jcl exited {:?}: {}",
+            outcome.code, outcome.stderr
+        ));
+    }
+    let human = String::from_utf8(outcome.stdout)
+        .map_err(|error| format!("explain printed no UTF-8 text: {error}"))?;
+    for needle in [
+        "job MONTHEND",
+        "reads dataset PROD.MONTH.CUST",
+        "writes dataset PROD.MONTH.REPORT",
+    ] {
+        if !human.contains(needle) {
+            return refuse(format!("the human summary names no {needle}: {human}"));
+        }
+    }
+    let verdict = legacy(dir, &["explain", "job.jcl"])?;
+    let job = verdict
+        .get("job")
+        .ok_or_else(|| format!("the JSON names no job: {verdict}"))?;
+    let steps = job.get("steps").and_then(Value::as_array);
+    let Some(steps) = steps else {
+        return refuse(format!("the JSON names no steps: {verdict}"));
+    };
+    if steps.len() != 2 {
+        return refuse(format!("two steps must be explained: {verdict}"));
+    }
+    check_sentences_in_source(job, job_text, "job.jcl")?;
+    let program = legacy(dir, &["explain", "pay.cbl"])?;
+    let named = match program.get("program") {
+        Some(named) => named,
+        None => return refuse(format!("the JSON names no program: {program}")),
+    };
+    if text_at(named, "name")? != "PAYROLL" {
+        return refuse(format!("the JSON names no PAYROLL program: {program}"));
+    }
+    let performed = named
+        .get("graphs")
+        .and_then(|graphs| graphs.get("perform"))
+        .and_then(Value::as_array);
+    let Some(performed) = performed else {
+        return refuse(format!("the JSON names no PERFORM edges: {program}"));
+    };
+    if performed.len() != 1 {
+        return refuse(format!("one PERFORM edge must be graphed: {program}"));
+    }
+    check_sentences_in_source(named, pay_text, "pay.cbl")?;
+    let resolved = legacy(dir, &["explain", "report.cbl", "--copy-dir=copy"])?;
+    let replacing = resolved
+        .get("program")
+        .ok_or_else(|| format!("the JSON names no program: {resolved}"))?;
+    let copies = replacing.get("copies").and_then(Value::as_array);
+    let Some(copies) = copies else {
+        return refuse(format!("the JSON names no copies: {resolved}"));
+    };
+    if copies
+        .iter()
+        .any(|copy| copy.get("resolved") != Some(&Value::Bool(true)))
+    {
+        return refuse(format!(
+            "the COPY must resolve through --copy-dir: {resolved}"
+        ));
+    }
+    let statements = replacing
+        .get("statements")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("the JSON names no statements: {resolved}"))?;
+    if !statements.iter().any(|statement| {
+        statement
+            .get("text")
+            .and_then(Value::as_str)
+            .is_some_and(|text| text.contains("WS-X"))
+    }) {
+        return refuse(format!("REPLACING must rewrite WS-A to WS-X: {resolved}"));
+    }
+    check_sentences_in_source(replacing, report_text, "report.cbl")?;
+    let gapped = legacy(dir, &["explain", "report.cbl"])?;
+    let gapped_program = gapped
+        .get("program")
+        .ok_or_else(|| format!("the JSON names no program: {gapped}"))?;
+    let sentences = gapped_program.get("sentences").and_then(Value::as_array);
+    let Some(sentences) = sentences else {
+        return refuse(format!("the JSON names no sentences: {gapped}"));
+    };
+    if !sentences
+        .iter()
+        .any(|line| match line.get("text").and_then(Value::as_str) {
+            Some(text) => text.contains("cannot tell"),
+            None => false,
+        })
+    {
+        return refuse(format!(
+            "an unresolved COPY must say it cannot tell: {gapped}"
+        ));
+    }
+    Ok(())
+}
+
+/// Every sentence's line ranges exist in the source file that proved them.
+fn check_sentences_in_source(verdict: &Value, source: &str, name: &str) -> TestResult {
+    let physical: Vec<&str> = source.lines().collect();
+    let sentences = verdict
+        .get("sentences")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("the JSON names no sentences for {name}: {verdict}"))?;
+    if sentences.is_empty() {
+        return refuse(format!("the JSON names no sentences for {name}"));
+    }
+    for sentence in sentences.iter() {
+        let ranges = sentence
+            .get("lines")
+            .and_then(Value::as_array)
+            .ok_or_else(|| format!("a sentence names no lines for {name}: {sentence}"))?;
+        if ranges.is_empty() {
+            return refuse(format!(
+                "a sentence must rest on lines for {name}: {sentence}"
+            ));
+        }
+        for range in ranges.iter() {
+            let start = range
+                .get("start")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| format!("a range names no start for {name}: {range}"))?;
+            let end = range
+                .get("end")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| format!("a range names no end for {name}: {range}"))?;
+            if start < 1 || end < start || end > u64::try_from(physical.len())? {
+                return refuse(format!("range {start}-{end} is outside {name}"));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Past a ceiling is `bound-exceeded`; an unknown file, card or second file is
+/// `malformed`; each exits 2 (#777).
+#[test]
+fn sim_explain_refusals_carry_their_kind() -> TestResult {
+    let scratch = Scratch::fresh("legacy-explain-refusals")?;
+    let dir = scratch.dir();
+    std::fs::write(dir.join("notes.txt"), "just some notes\n")?;
+    std::fs::write(dir.join("bad.jcl"), "//A JOB X\n//S FROB PGM=A\n")?;
+    std::fs::write(dir.join("tiny.cbl"), "       PROGRAM-ID. TINY.\n")?;
+    if refused(dir, &["explain", "tiny.cbl", "--max-bytes=4"])? != "bound-exceeded" {
+        return refuse("four bytes past a four-byte ceiling must be bound-exceeded");
+    }
+    for args in [
+        &["explain", "notes.txt"][..],
+        &["explain", "absent.cbl"][..],
+        &["explain", "bad.jcl"][..],
+        &["explain", "tiny.cbl", "tiny.cbl"][..],
+    ] {
+        if refused(dir, args)? != "malformed" {
+            return refuse(format!("{args:?} must be refused as malformed"));
+        }
+    }
+    Ok(())
+}
+
 /// The same seed replays the same trace, and distinct seeds diverge.
 #[test]
 fn sim_the_same_seed_replays_the_same_trace() -> TestResult {
