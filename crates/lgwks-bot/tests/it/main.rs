@@ -438,6 +438,10 @@ mod spec_front_door;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod spec_materialize;
 mod stability;
+#[cfg(feature = "script")]
+mod start_gate;
+#[cfg(all(feature = "edge", feature = "ephemeral"))]
+mod start_gate_edge;
 mod store_read_failure;
 mod sys_process_binding;
 mod sys_process_portable;
