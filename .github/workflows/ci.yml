@@ -119,6 +119,24 @@ jobs:
       - name: Build all workspace targets
         if: matrix.suite == 'workspace' && runner.os == 'Linux'
         run: cargo test --workspace --all-targets --locked --no-run
+      # The lane lists every workspace test (`cargo nextest list --workspace`),
+      # which compiles them all: here, after the build above, it reads that
+      # build in seconds, where a job of its own compiled the workspace again
+      # (4 min 53 s, cancelled at the job limit, run 41603644965).
+      - name: Deterministic simulation evidence
+        if: matrix.suite == 'workspace' && runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          mkdir -p gate-evidence
+          cargo run --locked -p lgwks_deps --bin ci-local -- --lane simulation-evidence | tee gate-evidence/simulation-evidence.txt
+      - name: Upload simulation evidence
+        if: matrix.suite == 'workspace' && runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-evidence-simulation
+          path: gate-evidence/
+          if-no-files-found: error
+          retention-days: 7
       - name: Build the test archive
         run: if [ "$RUNNER_OS" = macOS ]; then cargo build --locked -p lgwks_deps --bin churn-slot; fi && cargo nextest archive ${ARCHIVE_BUILD} --archive-file nextest-archive/suite.tar.zst
       - name: Upload the test archive
@@ -283,11 +301,6 @@ jobs:
           path: receipts-tool/
           if-no-files-found: error
           retention-days: 1
-      - name: Deterministic simulation evidence
-        run: |
-          set -euo pipefail
-          mkdir -p gate-evidence
-          cargo run --locked -p lgwks_deps --bin ci-local -- --lane simulation-evidence | tee gate-evidence/simulation-evidence.txt
       - name: Debug doctor end-to-end journey
         run: |
           set -euo pipefail
@@ -389,18 +402,20 @@ jobs:
         run: cargo audit --file Cargo.lock
 
   # The two results the checks list names on every pull request. Each reads the
-  # report its lane wrote in the evidence job and passes only on that lane's own
-  # pass line, so the row is exactly the lane's verdict on this commit.
+  # report its lane wrote (simulation evidence in the Linux workspace archive
+  # job, the debug journey in the evidence job) and passes only on that lane's
+  # own pass line, so the row is exactly the lane's verdict on this commit.
   simulation_evidence:
     name: successful simulation result
-    needs: workspace_tail
+    needs: archive
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - name: Download gate evidence
         uses: actions/download-artifact@v8
         with:
-          name: gate-evidence
+          name: gate-evidence-simulation
           path: gate-evidence
       - name: Check successful simulation result
         run: |
