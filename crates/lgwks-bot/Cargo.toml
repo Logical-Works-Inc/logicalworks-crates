@@ -357,6 +357,11 @@ name = "sealed_overhead"
 path = "examples/sealed_overhead.rs"
 required-features = ["sealed"]
 
+[[example]]
+name = "durable_step_bench"
+path = "examples/durable_step_bench.rs"
+required-features = ["sealed"]
+
 [[bin]]
 name = "edge-load"
 path = "src/bin/edge_load.rs"
