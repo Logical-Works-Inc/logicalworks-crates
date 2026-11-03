@@ -214,3 +214,13 @@ disallowed_types = "deny"
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"
+
+# lgwks_bot keeps the test profile's opt-level 1 inside `ci-it` (the profile is
+# defined with the others above; this sits last so the lint lines the guides
+# cite do not move). Its stack-bound regression,
+# sim_clock_wiring::a_deep_nest_of_clock_governed_steps_is_stack_bounded, is
+# calibrated at opt-level 1 (1,024 levels on 1,536 KiB overflow only with the
+# `select!` arms unboxed); at opt-level 0 it overflowed either way on macOS (run
+# 41664993612), so the test no longer discriminated.
+[profile.ci-it.package.lgwks_bot]
+opt-level = 1
