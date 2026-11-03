@@ -113,30 +113,6 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.suite }}
           nextest: "true"
-      # Every workspace target compiles, benches and examples included, which
-      # the archive (test targets only) does not prove. The archive after it
-      # reuses this build.
-      - name: Build all workspace targets
-        if: matrix.suite == 'workspace' && runner.os == 'Linux'
-        run: cargo test --workspace --all-targets --locked --no-run
-      # The lane lists every workspace test (`cargo nextest list --workspace`),
-      # which compiles them all: here, after the build above, it reads that
-      # build in seconds, where a job of its own compiled the workspace again
-      # (4 min 53 s, cancelled at the job limit, run 41603644965).
-      - name: Deterministic simulation evidence
-        if: matrix.suite == 'workspace' && runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          mkdir -p gate-evidence
-          cargo run --locked -p lgwks_deps --bin ci-local -- --lane simulation-evidence | tee gate-evidence/simulation-evidence.txt
-      - name: Upload simulation evidence
-        if: matrix.suite == 'workspace' && runner.os == 'Linux'
-        uses: actions/upload-artifact@v7
-        with:
-          name: gate-evidence-simulation
-          path: gate-evidence/
-          if-no-files-found: error
-          retention-days: 7
       - name: Build the test archive
         # nextest writes the archive into an existing directory only (run
         # 41605078279: "No such file or directory" after the whole compile).
@@ -148,6 +124,43 @@ jobs:
           path: nextest-archive/suite.tar.zst
           if-no-files-found: error
           retention-days: 1
+      - name: Cache hit rate
+        if: ${{ always() }}
+        run: sccache --show-stats
+
+  # Every workspace target compiles, benches and examples included, which the
+  # archives (test targets only) do not prove; then the simulation lane lists
+  # every workspace test (`cargo nextest list --workspace`) from that build. In
+  # the archive job the two took it past its limit (run 41607020833: 244 s of
+  # build, cancelled 22 s into the listing), so they run beside it.
+  workspace_build:
+    name: Workspace build and simulation evidence
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: workspace
+          nextest: "true"
+      - name: Build all workspace targets
+        run: cargo test --workspace --all-targets --locked --no-run
+      - name: Deterministic simulation evidence
+        run: |
+          set -euo pipefail
+          mkdir -p gate-evidence
+          cargo run --locked -p lgwks_deps --bin ci-local -- --lane simulation-evidence | tee gate-evidence/simulation-evidence.txt
+      - name: Upload simulation evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-evidence-simulation
+          path: gate-evidence/
+          if-no-files-found: error
+          retention-days: 7
       - name: Cache hit rate
         if: ${{ always() }}
         run: sccache --show-stats
@@ -404,13 +417,12 @@ jobs:
         run: cargo audit --file Cargo.lock
 
   # The two results the checks list names on every pull request. Each reads the
-  # report its lane wrote (simulation evidence in the Linux workspace archive
-  # job, the debug journey in the evidence job) and passes only on that lane's
-  # own pass line, so the row is exactly the lane's verdict on this commit.
+  # report its lane wrote (simulation evidence in the workspace build job, the
+  # debug journey in the evidence job) and passes only on that lane's own pass
+  # line, so the row is exactly the lane's verdict on this commit.
   simulation_evidence:
     name: successful simulation result
-    needs: archive
-    if: ${{ !cancelled() }}
+    needs: workspace_build
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -684,11 +696,13 @@ jobs:
         if: matrix.targets == 'aarch64-unknown-linux-gnu'
         run: cargo check --locked -p lgwks_std --features full --target aarch64-unknown-linux-gnu && cargo check --locked -p lgwks_ast --target aarch64-unknown-linux-gnu
 
-  # The two release-build timing gates, on macOS, the platform their bounds
-  # were measured on, and apart from the lints: each measures wall time.
+  # The two release-build timing gates, apart from the lints: each measures wall
+  # time. On arm64 Linux, the server class the services ship to (province#9
+  # keeps macOS for darwin-only lanes), with the bounds unchanged: on the 3-vCPU
+  # macOS VM json parse read p50 512 ns, p99 1 561 ns (run 41607020833).
   timing_gates:
     name: Timing gates (dudect, async fairness, latency tails)
-    runs-on: macos-15
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -710,7 +724,7 @@ jobs:
   # ways (the suite, a mutant check, the tiers and the matrix).
   timing_async:
     name: Async fairness gate and concurrency ladder
-    runs-on: macos-15
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
@@ -940,7 +954,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [archive, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [archive, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -949,7 +963,8 @@ jobs:
     steps:
       - name: Every workspace test job passed
         env:
-          BUILD: ${{ needs.archive.result }}
+          # The compile is two jobs: the archives and the all-targets build.
+          BUILD: ${{ needs.archive.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
           TAIL: ${{ needs.workspace_tail.result }}
           LINUX: ${{ needs.tests_linux.result }}
           MACOS: ${{ needs.tests_macos.result }}

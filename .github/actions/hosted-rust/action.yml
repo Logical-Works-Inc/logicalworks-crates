@@ -65,11 +65,15 @@ runs:
             *) rustup toolchain uninstall "${installed}" ;;
           esac
         done
-    # `.cargo/config.toml` links macOS builds with Homebrew's ld64.lld.
-    - name: Install lld on macOS
+    # `.cargo/config.toml` links macOS builds with /opt/homebrew/bin/ld64.lld.
+    # The pinned toolchain ships the same linker as `rust-lld`, which takes the
+    # Mach-O flavour from the name it is called by, so a link to it stands in
+    # for `brew install lld` (27 s of every macOS job, run 41607020833, which
+    # cancelled the workspace archive 4 s past its limit).
+    - name: Link the toolchain's lld as ld64.lld on macOS
       if: runner.os == 'macOS'
       shell: bash
-      run: brew install lld
+      run: ln -sf "$(rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
     - name: Cache the registry and the dependency build
       if: inputs.caches == 'true'
       uses: Swatinem/rust-cache@v2

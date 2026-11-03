@@ -35,8 +35,8 @@ fork's pull request on the Director's Mac.
 
 | Runner | Jobs |
 |---|---|
-| `ubuntu-24.04-arm` (4 vCPU) | the Linux archives and shards (in `rust:1.99.1-trixie`, for util-linux 2.41 `setpriv` and Landlock, #337), the evidence job, gate, advisories, std-full, no-default, docs, feature matrix, target matrix, portable storefront legs, Pages, both check rows |
-| `macos-15` (3 vCPU) | the macOS archives and shards (through `churn-slot`, INV-CI-SLOT-1), clippy, GPUI and Metal storefronts, AppCUI, the timing gates, Miri (the darwin seam) |
+| `ubuntu-24.04-arm` (4 vCPU) | the Linux archives and shards (in `rust:1.99.1-trixie`, for util-linux 2.41 `setpriv` and Landlock, #337), the workspace build and simulation evidence, the evidence job, gate, advisories, std-full, no-default, docs, feature matrix, target matrix, portable storefront legs, the timing gates, Pages, both check rows |
+| `macos-15` (3 vCPU) | the macOS archives and shards (through `churn-slot`, INV-CI-SLOT-1), clippy, GPUI and Metal storefronts, AppCUI, Miri (the darwin seam); `ld64.lld` is the toolchain's `rust-lld` |
 | `windows-latest` | GPUI Windows, process containment on Windows, AppCUI Windows |
 
 ### Compile once, test wide
