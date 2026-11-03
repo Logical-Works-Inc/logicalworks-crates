@@ -192,9 +192,11 @@ required = true
 # Integration tests write under CARGO_TARGET_TMPDIR, compiled in as
 # `<checkout>/target/tmp`; a shard runs an archive and builds nothing, so it
 # makes the directory first (run 41616846936: sim_deep_cancel failed with "No
-# such file or directory").
-command = "mkdir -p target/tmp"
-ci_step = "Create the compiled-in test scratch directory"
+# such file or directory"). It also fetches the locked registry, which probe
+# tests resolve against offline (run 41619678074: "no matching package named
+# `rkyv` found" on a shard that never built).
+command = "mkdir -p target/tmp && cargo fetch --locked"
+ci_step = "Prepare the checkout for an archive run"
 
 [[lane]]
 id = "bot-archive-targets"

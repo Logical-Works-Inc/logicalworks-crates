@@ -258,8 +258,8 @@ jobs:
       # builds nothing, so the directory is made here (run 41616846936: the
       # deep-cancel and ai_authoring tests failed with "No such file or
       # directory").
-      - name: Create the compiled-in test scratch directory
-        run: mkdir -p target/tmp
+      - name: Prepare the checkout for an archive run
+        run: mkdir -p target/tmp && cargo fetch --locked
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -322,8 +322,8 @@ jobs:
         with:
           name: nextest-archive-${{ matrix.archive }}-macOS
           path: nextest-archive
-      - name: Create the compiled-in test scratch directory
-        run: mkdir -p target/tmp
+      - name: Prepare the checkout for an archive run
+        run: mkdir -p target/tmp && cargo fetch --locked
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
