@@ -175,6 +175,25 @@ jobs:
   # every workspace test (`cargo nextest list --workspace`) from that build. In
   # the archive job the two took it past its limit (run 41607020833: 244 s of
   # build, cancelled 22 s into the listing), so they run beside it.
+  # Run 41625615189: build and listing together passed every step and ended
+  # past the job limit (261 s of build, 25 s of listing), so the listing, which
+  # compiles test targets only, runs in its own job beside the all-targets build.
+  workspace_all_targets:
+    name: Build all workspace targets
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: workspace
+      - name: Build all workspace targets
+        run: cargo test --workspace --all-targets --locked --no-run
+
   workspace_build:
     name: Workspace build and simulation evidence
     runs-on: ubuntu-24.04-arm
@@ -189,8 +208,6 @@ jobs:
           toolchain: "1.99.1"
           cache-key: workspace
           nextest: "true"
-      - name: Build all workspace targets
-        run: cargo test --workspace --all-targets --locked --no-run
       # The two lgwks_bot archives name their test targets; a target added to
       # the crate and named in neither would never run, so the job refuses it.
       - name: Every lgwks_bot test target is in a bot archive
@@ -1021,7 +1038,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [archive, archive_macos, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [archive, archive_macos, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -1031,7 +1048,7 @@ jobs:
       - name: Every workspace test job passed
         env:
           # The compile is two jobs: the archives and the all-targets build.
-          BUILD: ${{ needs.archive.result == 'success' && needs.archive_macos.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
+          BUILD: ${{ needs.archive.result == 'success' && needs.archive_macos.result == 'success' && needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
           TAIL: ${{ needs.workspace_tail.result }}
           LINUX: ${{ needs.tests_linux.result }}
           MACOS: ${{ needs.tests_macos.result }}
