@@ -1129,7 +1129,7 @@ jobs:
           cache-on-failure: "true"
           key: feature-${{ matrix.part }}
       - name: Compile cache for the workspace crates
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: mozilla-actions/sccache-action@v0.0.11
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
         # docs.rs builds with whatever `[package.metadata.docs.rs]` declares,
