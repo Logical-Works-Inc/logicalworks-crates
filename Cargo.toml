@@ -74,8 +74,8 @@ debug = "line-tables-only"
 [profile.test.package."*"]
 opt-level = 3
 
-# The macOS `bot-it` test archive only (province#9). lgwks_bot's `it` binary
-# links, so sccache cannot hold it, and at opt-level 1 its compile outlasted
+# The macOS `bot-it` and `bot-rest` test archives only (province#9). lgwks_bot's
+# test binaries link, so sccache cannot hold them, and at opt-level 1 `it` outlasted
 # the 5-minute job on the 3-vCPU hosted runner (run 41644011516, still
 # compiling at 325 s). A named profile changes only the workspace crates' codegen:
 # dependencies keep opt-level 3 and the same rustc arguments, so they hit the

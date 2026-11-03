@@ -142,13 +142,15 @@ jobs:
             build: -p lgwks_deps --locked
           - suite: workspace-core
             build: --workspace --exclude lgwks_bot --exclude lgwks_deps --locked
-          # The `it` binary links, so sccache cannot hold it; this archive
-          # builds the workspace crates at opt-level 0 through the `ci-it`
-          # profile (the root Cargo.toml says why and what it keeps).
+          # Test binaries link, so sccache cannot hold them; both bot archives
+          # build the workspace crates at opt-level 0 through the `ci-it`
+          # profile (the root Cargo.toml says why and what it keeps). Run
+          # 41657975959: bot-it built in 161 s under it, bot-rest at opt-level 1
+          # took 245 s and was cancelled while archiving.
           - suite: bot-it
             build: -p lgwks_bot --test it --locked --features full --cargo-profile ci-it
           - suite: bot-rest
-            build: -p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full
+            build: -p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-it
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
       ARCHIVE_BUILD: ${{ matrix.build }}
