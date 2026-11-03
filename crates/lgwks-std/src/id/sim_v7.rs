@@ -25,14 +25,8 @@ use super::v7::{V7Error, V7Generator};
 use super::{ParseError, Uuid};
 use crate::seeded::{DrawError, Seeded};
 
-/// The seeds the sweeps replay, named so a failure names the one that
-/// reproduces it.
-const SEEDS: [u64; 4] = [
-    0x5EED_0000_0000_0001,
-    0x5EED_0000_0000_0002,
-    0x5EED_0000_FFFF_FFFF,
-    0xDEAD_BEEF_CAFE_0001,
-];
+/// The seeds the sweeps replay: the estate's one named table.
+const SEEDS: [u64; 4] = crate::seeded::SWEEP_SEEDS;
 
 /// The mixing constant of the trace fold: the 64-bit FNV-1a prime.
 const FNV_PRIME: u64 = 1_099_511_628_211;

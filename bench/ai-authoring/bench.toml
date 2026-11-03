@@ -101,7 +101,8 @@ env = [
 # the 33 references on a loaded host took one `capture` oracle 94.6 s. Two
 # solutions that spun or parked stalled that matrix for 583 s and 386 s before
 # they were stopped by hand; 300 s is 3.2 times the slowest oracle measured and
-# ends a hang at five minutes.
+# ends a hang at five minutes. The oracle is compiled (`cargo test --no-run`)
+# under build_s first, so oracle_s bounds the oracle's run alone.
 [limits]
 model_call_s = 900
 build_s = 1800

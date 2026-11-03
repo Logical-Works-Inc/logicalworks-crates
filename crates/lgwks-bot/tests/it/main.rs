@@ -236,6 +236,8 @@ mod journal_liveness;
 mod journal_scale;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod journal_writer_fence;
+#[cfg(all(feature = "script", feature = "legacy"))]
+mod legacy_script;
 mod locator_eligibility;
 mod net_split;
 mod no_default;

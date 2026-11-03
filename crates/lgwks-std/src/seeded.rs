@@ -49,6 +49,16 @@ use std::fmt;
 /// splitmix64's increment: the 64-bit golden ratio.
 const GOLDEN_GAMMA: u64 = 0x9e37_79b9_7f4a_7c15;
 
+/// The seeds the crate's in-tree simulation sweeps replay, named rather than
+/// drawn so a failure prints the exact seed that reproduces it.
+#[cfg(test)]
+pub(crate) const SWEEP_SEEDS: [u64; 4] = [
+    0x5EED_0000_0000_0001,
+    0x5EED_0000_0000_0002,
+    0x5EED_0000_FFFF_FFFF,
+    0xDEAD_BEEF_CAFE_0001,
+];
+
 /// One step of splitmix64 over `counter`, returning the mixed word.
 fn splitmix64(counter: &mut u64) -> u64 {
     *counter = counter.wrapping_add(GOLDEN_GAMMA);

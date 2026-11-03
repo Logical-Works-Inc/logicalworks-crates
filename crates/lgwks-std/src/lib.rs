@@ -40,6 +40,9 @@
 //!   (the sealed message carries the BLAKE3 of the record).
 //! - `pattern` — pattern. Adds `regex`.
 //! - `json` — json. Adds `serde`, `serde_json`.
+//! - `legacy` — legacy. EBCDIC, packed and zoned decimal, COBOL copybooks,
+//!   OLE compound files with VBA, Jet/ACE databases and bilevel TIFF fax.
+//!   Pure Rust, no third-party dependency.
 //! - `ron` — ron. Adds `serde`, `ron`.
 //! - `wire` — wire. Adds `rkyv`.
 //! - `http` — http. Adds `ureq` (rustls-only TLS), `iri-string`.
@@ -98,6 +101,10 @@ pub mod json;
 /// LEB128 variable-length integer encoding.
 #[doc(hidden)]
 pub mod leb128;
+/// Legacy format codecs: EBCDIC, decimal, copybooks, CFB/VBA, Access and fax (feature `legacy`).
+#[cfg(feature = "legacy")]
+#[doc(hidden)]
+pub mod legacy;
 /// TCP reachability probing, zero-dep (feature `online`).
 #[cfg(feature = "online")]
 #[doc(hidden)]

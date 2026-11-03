@@ -165,9 +165,34 @@ impl<'run> Cargo<'run> {
         })
     }
 
-    /// `cargo test --locked --offline -- --test-threads=1` in `trial`, timed.
+    /// The oracle in `trial`, in two phases: `cargo test --locked --offline
+    /// --no-run` compiles it under the build bound, then `cargo test --locked
+    /// --offline -- --test-threads=1` runs it under the oracle bound, timed.
+    ///
+    /// The oracle bound covers the oracle's own run, never its compile: a bound
+    /// that covered both measured the host's load (a cold compile at load 70 cut
+    /// oracles off in CI runs 38985141189 and 39006985065), so a test of the stop
+    /// had to measure the host first and wait out a bound of up to 90 s. The
+    /// wall time, peak resident set and timeout are the run phase's. A compile
+    /// that fails or times out is reported as the oracle's output with no run,
+    /// so its clauses read as not run.
     pub(super) fn test(&self, trial: &Path) -> Result<Tested, BenchError> {
         let _gate = self.gate()?;
+        let compiled = self.children.capture(&Launch {
+            argv: &argv(&["cargo", "test", "--locked", "--offline", "--no-run"]),
+            root: trial,
+            env: &self.env,
+            stdin: None,
+            bound: self.build_bound,
+        });
+        if compiled.code != 0 {
+            return Ok(Tested {
+                output: format!("{}{}", compiled.stdout, compiled.stderr),
+                wall_ms: 0.0,
+                peak_rss: None,
+                timed_out: compiled.code == TIMED_OUT,
+            });
+        }
         let timed = Path::new(TIME_TOOL).is_file();
         let mut command = if timed {
             argv(&[TIME_TOOL, TIME_FLAG, "cargo"])

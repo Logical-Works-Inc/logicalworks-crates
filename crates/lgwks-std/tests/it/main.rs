@@ -91,6 +91,20 @@ mod sim_join_all;
 mod sim_json;
 mod sim_kernel_owners;
 mod sim_leb128;
+#[cfg(feature = "legacy")]
+mod sim_legacy_access;
+#[cfg(feature = "legacy")]
+mod sim_legacy_cfb;
+#[cfg(feature = "legacy")]
+mod sim_legacy_copybook;
+#[cfg(feature = "legacy")]
+mod sim_legacy_decimal;
+#[cfg(feature = "legacy")]
+mod sim_legacy_ebcdic;
+#[cfg(feature = "legacy")]
+mod sim_legacy_edges;
+#[cfg(feature = "legacy")]
+mod sim_legacy_fax;
 mod sim_locale;
 mod sim_measured_paths;
 mod sim_orphan_reap;

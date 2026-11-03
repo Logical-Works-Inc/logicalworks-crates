@@ -155,6 +155,11 @@ wire = ["lgwks_std/wire"]
 # `ron`: the human-facing document notation (`lgwks_std::ron`). Default-on
 # because `FlowSpec` reads it beside JSON.
 ron = ["lgwks_std/ron"]
+# `legacy`: the `lgwks_std` legacy format codecs (EBCDIC, decimal, copybook,
+# CFB/VBA, Access, fax), reached through `script!` flows. Default-off because
+# it is a migration surface, not orchestration; `full` turns it on so the gate
+# exercises the script-to-codec path rather than letting it rot.
+legacy = ["lgwks_std/legacy"]
 # `testing`: the run-store conformance suite (`lgwks_bot::script::run_store::
 # conformance`) a caller runs against their own `RunRecords` implementation.
 # Default-off because it is a test harness, not a capability; it implies
@@ -193,6 +198,7 @@ full = [
     "ron",
     "testing",
     "sealed",
+    "legacy",
 ]
 
 [dependencies]
