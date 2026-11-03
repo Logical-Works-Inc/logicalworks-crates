@@ -25,7 +25,7 @@
 //! CLOSE, SELECT with ASSIGN, FD records, EXEC SQL SELECT, INSERT, UPDATE and
 //! DELETE with their table names, EXEC CICS LINK and XCTL with their program,
 //! and MOVE, COMPUTE, ADD and SUBTRACT with their targets. Any other line is
-//! an [`StatementKind::Other`] node: kept with its lines, never skipped, and
+//! an `Other` statement node: kept with its lines, never skipped, and
 //! never claimed to mean anything. Statements expanded from a copybook carry
 //! the COPY statement's own line, the line that brought them.
 

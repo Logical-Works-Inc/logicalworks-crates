@@ -18,7 +18,8 @@
 //! No file input or output happens here: COPY expansion reads through a
 //! caller-supplied resolver, so the parser stays pure and the caller owns the
 //! filesystem. Every bound is checked before the allocation it prices, and
-//! past a bound the readers refuse with a typed [`LegacyError`].
+//! past a bound the readers refuse with a
+//! [typed legacy error](crate::legacy::LegacyError).
 
 /// The COBOL source reader: fixed and free format, COPY expansion, divisions,
 ///

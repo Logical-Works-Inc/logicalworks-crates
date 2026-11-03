@@ -2,7 +2,7 @@
 //!
 //! Every refusal names what was read and where it sat: a byte count, a line
 //! number, or the offending statement text with its line. A refusal past a
-//! [`LegacyLimits`](super::LegacyLimits) ceiling is the caller raising the
+//! [limits](crate::legacy::LegacyLimits) ceiling is the caller raising the
 //! bound; any other refusal is the input's own shape. Nothing here guesses.
 
 /// Why a legacy source read has no program or job to return.
