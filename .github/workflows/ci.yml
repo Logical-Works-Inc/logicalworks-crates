@@ -193,13 +193,27 @@ jobs:
           cache-key: workspace
       - name: Build all workspace targets
         run: cargo test --workspace --all-targets --locked --no-run
+      # The two lgwks_bot archives name their test targets; a target added to
+      # the crate and named in neither would never run, so the job refuses it.
+      - name: Every lgwks_bot test target is in a bot archive
+        run: |
+          test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"
 
+  # The simulation lane lists the Linux test archives the archive jobs built
+  # (SIMULATION_ARCHIVES) instead of compiling every workspace test again:
+  # compiling them cold took past the job limit (run 41627777207, cancelled
+  # at 293 s). It runs in the archives' container, whose glibc they need.
   workspace_build:
     name: Workspace build and simulation evidence
+    needs: archive
     runs-on: ubuntu-24.04-arm
+    container:
+      image: "rust:1.99.1-trixie"
+      options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
     timeout-minutes: 5
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
+      SIMULATION_ARCHIVES: nextest-archive/nextest-archive-workspace-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-rest-Linux/suite.tar.zst
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
@@ -208,11 +222,11 @@ jobs:
           toolchain: "1.99.1"
           cache-key: workspace
           nextest: "true"
-      # The two lgwks_bot archives name their test targets; a target added to
-      # the crate and named in neither would never run, so the job refuses it.
-      - name: Every lgwks_bot test target is in a bot archive
-        run: |
-          test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"
+      - name: Download the Linux test archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: nextest-archive-*-Linux
+          path: nextest-archive
       - name: Deterministic simulation evidence
         run: |
           set -euo pipefail
