@@ -186,6 +186,16 @@ command = "if [ \"$RUNNER_OS\" = macOS ]; then cargo build --locked -p lgwks_dep
 ci_step = "Build the test archive"
 
 [[lane]]
+id = "bot-archive-targets"
+surfaces = "ci"
+required = true
+# lgwks_bot full is archived in two parts that name their test targets (bot-it:
+# `it`, `sim_review_path`; bot-rest: the rest), so a target added to the crate
+# and named in neither would never run. This refuses that drift.
+command = '''test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"'''
+ci_step = "Every lgwks_bot test target is in a bot archive"
+
+[[lane]]
 id = "storefront-consumers"
 group = "storefront"
 surfaces = "local ci"
