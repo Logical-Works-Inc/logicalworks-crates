@@ -14,12 +14,11 @@
 # braid-ir, braid-governance, braid-test-support) stay in Braid.
 
 [policy]
-# Schema 2 adds the exact-origin identity (`origin`), the admitted-capability
-# policy keys (`features`, `required_features`, `uses_default_features`,
-# `optional`, `target`) and the explicit alias list (`aliases`). Schema 1 was a
-# class-only register; this one is migrated in place. See CHANGELOG "lgwks_deps
-# Changed".
-schema = 2
+# Schema 3 adds every edge's exit mortgage: each `[[approved]]` entry carries
+# a required `[approved.retire]` table (`replacement`, `blocker`, `cost`,
+# `review`). Schema 2 registers are refused with a typed error naming this
+# migration (#788).
+schema = 3
 enforce = true
 repository = "https://github.com/srinji-kaggss/logicalworks-crates"
 # This repository's own policy. The gate is a published crate that audits
@@ -63,6 +62,11 @@ reason = "policy-only: no workspace code consumes this edge yet; Native terminal
 approved_by = "maintainer"
 approved_on = "2026-09-17"
 review = "docs/appcui-admission.md"
+[approved.retire]
+replacement = "drishti::ink_lab"
+blocker = "Native terminal widgets and event dispatch need a first-party host the estate does not own yet."
+cost = { cold_build_s = 9.59, crates = 35, binary_bytes = 64469768, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features appcui --prefix none (55 distinct, 35 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-appcui cargo build --locked -p lgwks_deps --no-default-features --features appcui (18.86s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-appcui/debug/deps (107933288 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "ed25519-dalek"
@@ -80,6 +84,11 @@ reason = "Detached ed25519 seals that verify offline from the public key alone (
 approved_by = "maintainer"
 approved_on = "2026-10-07"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/316"
+[approved.retire]
+replacement = "lgwks_std::sign"
+blocker = "Detached verification needs an lgwks_std signer module the estate has not written yet."
+cost = { cold_build_s = 1.35, crates = 15, binary_bytes = 13373104, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-ed25519-dalek/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-ed25519-dalek/Cargo.toml -e normal --prefix none (16 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-ed25519-dalek/Cargo.toml (1.35s); rlib bytes summed under /private/tmp/probe-ed25519-dalek/target/debug/deps (13373104 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "serde"
@@ -95,6 +104,11 @@ reason = "Derive-based serialization needs compiler introspection the standard l
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::json"
+blocker = "A derive-capable serialization facade needs a proc-macro bridge the estate has not built yet."
+cost = { cold_build_s = 1.10, crates = 2, binary_bytes = 6595944, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-serde/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-serde/Cargo.toml -e normal --prefix none (3 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-serde/Cargo.toml (1.10s); rlib bytes summed under /private/tmp/probe-serde/target/debug/deps (6595944 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "serde_json"
@@ -110,6 +124,11 @@ reason = "Interoperable JSON parsing requires a standards-complete parser beyond
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::json"
+blocker = "A standards-complete JSON parser with serde integration needs an estate module the tree does not own yet."
+cost = { cold_build_s = 1.45, crates = 5, binary_bytes = 10094112, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-serde_json/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-serde_json/Cargo.toml -e normal --prefix none (6 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-serde_json/Cargo.toml (1.45s); rlib bytes summed under /private/tmp/probe-serde_json/target/debug/deps (10094112 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "thiserror"
@@ -125,6 +144,11 @@ reason = "Typed diagnostics and ParseError surfaces need Display and source deri
 approved_by = "maintainer"
 approved_on = "2026-09-13"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/pull/4"
+[approved.retire]
+replacement = "lgwks_ast::error"
+blocker = "Typed diagnostic and ParseError derives need an lgwks_ast error-derive helper the parser does not own yet."
+cost = { cold_build_s = 3.70, crates = 6, binary_bytes = 5843216, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-thiserror/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-thiserror/Cargo.toml -e normal --prefix none (7 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-thiserror/Cargo.toml (3.70s); rlib bytes summed under /private/tmp/probe-thiserror/target/debug/deps (5843216 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "blake3"
@@ -140,6 +164,11 @@ reason = "BLAKE3 compatibility requires the audited algorithm implementation abs
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::hash"
+blocker = "BLAKE3 compatibility needs the audited algorithm implementation the standard library does not carry."
+cost = { cold_build_s = 2.19, crates = 4, binary_bytes = 3510616, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-blake3/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-blake3/Cargo.toml -e normal --prefix none (5 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-blake3/Cargo.toml (2.19s); rlib bytes summed under /private/tmp/probe-blake3/target/debug/deps (3510616 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "regex"
@@ -155,6 +184,11 @@ reason = "Linear-time regular expression matching is not provided by the standar
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::pattern"
+blocker = "Linear-time regular expression matching needs an estate engine the pattern module does not own yet."
+cost = { cold_build_s = 3.30, crates = 5, binary_bytes = 29078136, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-regex/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-regex/Cargo.toml -e normal --prefix none (6 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-regex/Cargo.toml (3.30s); rlib bytes summed under /private/tmp/probe-regex/target/debug/deps (29078136 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rkyv"
@@ -170,6 +204,11 @@ reason = "Validated zero-copy archived values require a wire implementation beyo
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::wire"
+blocker = "Validated zero-copy archiving needs a wire implementation the estate has not written yet."
+cost = { cold_build_s = 10.39, crates = 17, binary_bytes = 33350192, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-rkyv/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-rkyv/Cargo.toml -e normal --prefix none (18 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-rkyv/Cargo.toml (10.39s); rlib bytes summed under /private/tmp/probe-rkyv/target/debug/deps (33350192 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "ron"
@@ -185,6 +224,11 @@ reason = "Rust-native human-readable data interchange requires a parser absent f
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::ron"
+blocker = "Rust-native human-readable data interchange needs a parser the estate does not own yet."
+cost = { cold_build_s = 5.17, crates = 10, binary_bytes = 16667040, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-ron/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-ron/Cargo.toml -e normal --prefix none (11 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-ron/Cargo.toml (5.17s); rlib bytes summed under /private/tmp/probe-ron/target/debug/deps (16667040 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "getrandom"
@@ -200,6 +244,11 @@ reason = "Portable operating-system entropy access is not exposed uniformly by t
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::random"
+blocker = "Portable operating-system entropy access needs a uniform facade the standard library does not expose."
+cost = { cold_build_s = 0.70, crates = 3, binary_bytes = 3053352, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-getrandom/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-getrandom/Cargo.toml -e normal --prefix none (4 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-getrandom/Cargo.toml (0.70s); rlib bytes summed under /private/tmp/probe-getrandom/target/debug/deps (3053352 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tempfile"
@@ -215,6 +264,11 @@ reason = "Race-safe temporary directory lifecycle handling exceeds standard libr
 approved_by = "maintainer"
 approved_on = "2026-08-30"
 review = "https://github.com/srinji-kaggss/Braid/issues/91"
+[approved.retire]
+replacement = "lgwks_std::fs"
+blocker = "Race-safe temporary directory handling needs a test helper the fs module does not own yet."
+cost = { cold_build_s = 1.31, crates = 9, binary_bytes = 8184576, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-tempfile/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-tempfile/Cargo.toml -e normal --prefix none (10 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-tempfile/Cargo.toml (1.31s); rlib bytes summed under /private/tmp/probe-tempfile/target/debug/deps (8184576 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "ureq"
@@ -230,6 +284,11 @@ reason = "The standard library has no HTTP client, TLS session handling, or redi
 approved_by = "maintainer"
 approved_on = "2026-09-04"
 review = "https://crates.io/crates/ureq"
+[approved.retire]
+replacement = "lgwks_std::http"
+blocker = "A minimal pure-Rust HTTP client with TLS and redirect handling needs an estate module the http facade does not own yet."
+cost = { cold_build_s = 9.62, crates = 27, binary_bytes = 48684760, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-ureq/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-ureq/Cargo.toml -e normal --prefix none (28 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-ureq/Cargo.toml (9.62s); rlib bytes summed under /private/tmp/probe-ureq/target/debug/deps (48684760 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "iri-string"
@@ -245,6 +304,11 @@ reason = "Strict absolute-URI validation is absent from the standard library; ir
 approved_by = "maintainer"
 approved_on = "2026-09-04"
 review = "https://crates.io/crates/iri-string"
+[approved.retire]
+replacement = "lgwks_std::http"
+blocker = "Strict absolute-URI validation needs a zero-dependency leaf the http facade does not own yet."
+cost = { cold_build_s = 0.83, crates = 1, binary_bytes = 5396080, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-iri-string/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-iri-string/Cargo.toml -e normal --prefix none (2 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-iri-string/Cargo.toml (0.83s); rlib bytes summed under /private/tmp/probe-iri-string/target/debug/deps (5396080 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "proc-macro2"
@@ -260,6 +324,11 @@ reason = "The script! language is read from token streams with the line and colu
 approved_by = "srinji-kaggss"
 approved_on = "2026-09-04"
 review = "https://github.com/srinji-kaggss/logicalworks-crates"
+[approved.retire]
+replacement = "lgwks_ast::script"
+blocker = "First-party proc-macro authoring still reaches token streams through the storefront instead of an estate facade."
+cost = { cold_build_s = 0.54, crates = 1, binary_bytes = 2390840, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features script --prefix none (20 distinct, 0 over the 20-crate base: proc-macro2 rides with serde_derive, so crates counts the approved crate itself); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-script cargo build --locked -p lgwks_deps --no-default-features --features script (9.81s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-script/debug/deps (45854360 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "quote"
@@ -275,6 +344,11 @@ reason = "Emitting Rust tokens from the lgwks_macros script! proc macro needs qu
 approved_by = "srinji-kaggss"
 approved_on = "2026-09-30"
 review = "https://github.com/srinji-kaggss/logicalworks-crates"
+[approved.retire]
+replacement = "lgwks_ast::script"
+blocker = "Token quasi-quotation still reaches the storefront instead of an estate emitter facade."
+cost = { cold_build_s = 0.61, crates = 1, binary_bytes = 3418096, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features macro --prefix none (20 distinct, 0 over the 20-crate base: quote rides with serde_derive, so crates counts the approved crate itself); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-macro cargo build --locked -p lgwks_deps --no-default-features --features macro (9.88s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-macro/debug/deps (46881616 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "ast-grep-core"
@@ -290,6 +364,11 @@ reason = "One shared multi-language tree-sitter parse core; consumers identify a
 approved_by = "maintainer"
 approved_on = "2026-09-11"
 review = "https://github.com/srinji-kaggss/logicalworks-crates"
+[approved.retire]
+replacement = "lgwks_ast::parser"
+blocker = "Multi-language tree-sitter parsing needs the shared core lgwks_ast does not reimplement."
+cost = { cold_build_s = 8.92, crates = 17, binary_bytes = 53601408, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-ast-grep-core/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-ast-grep-core/Cargo.toml -e normal --prefix none (18 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-ast-grep-core/Cargo.toml (8.92s); rlib bytes summed under /private/tmp/probe-ast-grep-core/target/debug/deps (53601408 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tree-sitter"
@@ -305,6 +384,11 @@ reason = "A checked parse must stop at a deadline, and only tree-sitter's own Pa
 approved_by = "Director"
 approved_on = "2026-10-05"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/277"
+[approved.retire]
+replacement = "lgwks_ast::parser"
+blocker = "Deadline-checked parsing needs the Parser progress callback only tree-sitter exposes."
+cost = { cold_build_s = 5.78, crates = 8, binary_bytes = 45726696, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-tree-sitter/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-tree-sitter/Cargo.toml -e normal --prefix none (9 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-tree-sitter/Cargo.toml (5.78s); rlib bytes summed under /private/tmp/probe-tree-sitter/target/debug/deps (45726696 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "ast-grep-language"
@@ -320,6 +404,11 @@ reason = "Per-language tree-sitter grammars behind carbon-copy cargo features, s
 approved_by = "maintainer"
 approved_on = "2026-09-11"
 review = "https://github.com/srinji-kaggss/logicalworks-crates"
+[approved.retire]
+replacement = "lgwks_ast::parser"
+blocker = "Per-language tree-sitter grammars need the versioned grammar set the estate does not publish."
+cost = { cold_build_s = 18.61, crates = 58, binary_bytes = 133664440, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-ast-grep-language/Cargo.toml (online); cargo tree --locked --manifest-path /private/tmp/probe-ast-grep-language/Cargo.toml -e normal --prefix none (59 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-ast-grep-language/Cargo.toml (18.61s); rlib bytes summed under /private/tmp/probe-ast-grep-language/target/debug/deps (133664440 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rustix"
@@ -335,6 +424,11 @@ reason = "Filesystem capacity, process-group termination, and non-reaping exit o
 approved_by = "maintainer"
 approved_on = "2026-09-12"
 review = "https://github.com/srinji-kaggss/logicalworks-crates"
+[approved.retire]
+replacement = "lgwks_std::process"
+blocker = "Filesystem capacity, process-group termination, and non-reaping exit observation need safe facades the estate has not written yet."
+cost = { cold_build_s = 0.87, crates = 4, binary_bytes = 4198112, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-rustix/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-rustix/Cargo.toml -e normal --prefix none (5 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-rustix/Cargo.toml (0.87s); rlib bytes summed under /private/tmp/probe-rustix/target/debug/deps (4198112 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tokio"
@@ -350,6 +444,11 @@ reason = "A portable async runtime with an I/O and timer reactor is absent from 
 approved_by = "maintainer"
 approved_on = "2026-09-12"
 review = "https://github.com/srinji-kaggss/logicalworks-crates"
+[approved.retire]
+replacement = "lgwks_bot::rt"
+blocker = "A portable async I/O and timer reactor needs a safe estate runtime the bot facade does not own yet."
+cost = { cold_build_s = 0.84, crates = 1, binary_bytes = 7474856, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features tokio --prefix none (21 distinct, 1 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-tokio cargo build --locked -p lgwks_deps --no-default-features --features tokio (10.11s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-tokio/debug/deps (50938376 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "gpui"
@@ -365,6 +464,11 @@ reason = "Zed's GPU-accelerated desktop UI framework has no standard-library equ
 approved_by = "maintainer"
 approved_on = "2026-09-12"
 review = "https://crates.io/crates/gpui"
+[approved.retire]
+replacement = "drishti::native"
+blocker = "GPU-accelerated desktop UI needs a native framework the estate does not own yet."
+cost = { cold_build_s = 141.73, crates = 407, binary_bytes = 881934504, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features gpui --prefix none (427 distinct, 407 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-gpui cargo build --locked -p lgwks_deps --no-default-features --features gpui (151.00s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-gpui/debug/deps (925398024 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "candle-core"
@@ -381,6 +485,11 @@ reason = "policy-only: no workspace code consumes this edge yet; Dense tensor co
 approved_by = "maintainer"
 approved_on = "2026-09-18"
 review = "docs/candle-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::semantic"
+blocker = "Dense tensor computation with device dispatch needs an estate substrate the tree does not own yet."
+cost = { cold_build_s = 60.73, crates = 121, binary_bytes = 369621144, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features ml-candle --prefix none (141 distinct, 121 over the 20-crate base; shared ml-candle feature with candle-nn and candle-transformers); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-ml-candle cargo build --locked -p lgwks_deps --no-default-features --features ml-candle (70.00s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-ml-candle/debug/deps (413084664 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "candle-nn"
@@ -397,6 +506,11 @@ reason = "policy-only: no workspace code consumes this edge yet; Neural network 
 approved_by = "maintainer"
 approved_on = "2026-09-18"
 review = "docs/candle-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::semantic"
+blocker = "Neural network layers and parameter containers need an estate substrate the tree does not own yet."
+cost = { cold_build_s = 60.73, crates = 121, binary_bytes = 369621144, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features ml-candle --prefix none (141 distinct, 121 over the 20-crate base; shared ml-candle feature with candle-core and candle-transformers); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-ml-candle cargo build --locked -p lgwks_deps --no-default-features --features ml-candle (70.00s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-ml-candle/debug/deps (413084664 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "candle-transformers"
@@ -413,6 +527,11 @@ reason = "policy-only: no workspace code consumes this edge yet; Transformer mod
 approved_by = "maintainer"
 approved_on = "2026-09-18"
 review = "docs/candle-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::semantic"
+blocker = "Transformer model execution needs an estate runtime the tree does not own yet."
+cost = { cold_build_s = 60.73, crates = 121, binary_bytes = 369621144, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features ml-candle --prefix none (141 distinct, 121 over the 20-crate base; shared ml-candle feature with candle-core and candle-nn); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-ml-candle cargo build --locked -p lgwks_deps --no-default-features --features ml-candle (70.00s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-ml-candle/debug/deps (413084664 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tokenizers"
@@ -428,6 +547,11 @@ reason = "policy-only: no workspace code consumes this edge yet; Vocabulary-driv
 approved_by = "maintainer"
 approved_on = "2026-09-18"
 review = "docs/candle-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::semantic"
+blocker = "Vocabulary-driven subword tokenisation needs a tokenizer the estate does not own yet."
+cost = { cold_build_s = 21.10, crates = 63, binary_bytes = 139990352, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features ml-tokenizers --prefix none (83 distinct, 63 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-ml-tokenizers cargo build --locked -p lgwks_deps --no-default-features --features ml-tokenizers (30.37s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-ml-tokenizers/debug/deps (183453872 vs 43463520 base)" }
+review = "2027-02-01"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ECS substrate (2026-09-20).
@@ -463,6 +587,11 @@ reason = "Archetypal storage, per-component change ticks, and a topologically va
 approved_by = "maintainer"
 approved_on = "2026-09-20"
 review = "docs/bevy-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::ecs"
+blocker = "Archetypal storage with change ticks and a validated schedule needs an estate substrate the bot does not own yet."
+cost = { cold_build_s = 17.34, crates = 47, binary_bytes = 80010368, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features bevy-ecs --prefix none (67 distinct, 47 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-bevy-ecs cargo build --locked -p lgwks_deps --no-default-features --features bevy-ecs (26.61s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-bevy-ecs/debug/deps (123473888 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "bevy_app"
@@ -481,6 +610,11 @@ reason = "policy-only: no workspace code consumes this edge yet; Plugin composit
 approved_by = "maintainer"
 approved_on = "2026-09-20"
 review = "docs/bevy-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::ecs"
+blocker = "Plugin composition with a manually stepped loop needs an estate runtime the bot does not own yet."
+cost = { cold_build_s = 18.67, crates = 50, binary_bytes = 86755688, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features bevy-app --prefix none (70 distinct, 50 over the 20-crate base; feature implies bevy-ecs, so numbers are the feature full marginal); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-bevy-app cargo build --locked -p lgwks_deps --no-default-features --features bevy-app (27.94s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-bevy-app/debug/deps (130219208 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "bevy_time"
@@ -497,6 +631,11 @@ reason = "policy-only: no workspace code consumes this edge yet; A clock with pa
 approved_by = "maintainer"
 approved_on = "2026-09-20"
 review = "docs/bevy-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::ecs"
+blocker = "A pausable virtual clock with fixed-timestep accumulation needs an estate time source the bot does not own yet."
+cost = { cold_build_s = 19.68, crates = 51, binary_bytes = 91481984, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features bevy-time --prefix none (71 distinct, 51 over the 20-crate base; feature implies bevy-ecs, so numbers are the feature full marginal); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-bevy-time cargo build --locked -p lgwks_deps --no-default-features --features bevy-time (28.95s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-bevy-time/debug/deps (134945504 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "bevy_state"
@@ -513,6 +652,11 @@ reason = "policy-only: no workspace code consumes this edge yet; A declared stat
 approved_by = "maintainer"
 approved_on = "2026-09-20"
 review = "docs/bevy-admission.md"
+[approved.retire]
+replacement = "lgwks_bot::ecs"
+blocker = "A declared state machine with generational transitions needs an estate control plane the bot does not own yet."
+cost = { cold_build_s = 18.94, crates = 49, binary_bytes = 83319208, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features bevy-state --prefix none (69 distinct, 49 over the 20-crate base; feature implies bevy-ecs, so numbers are the feature full marginal); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-bevy-state cargo build --locked -p lgwks_deps --no-default-features --features bevy-state (28.21s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-bevy-state/debug/deps (126782728 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tracing"
@@ -528,6 +672,11 @@ reason = "The print ban forbids println!/eprintln! in library code and names tra
 approved_by = "maintainer"
 approved_on = "2026-09-20"
 review = "crates/lgwks-std/src/trace.rs"
+[approved.retire]
+replacement = "lgwks_std::trace"
+blocker = "A no-dependency structured logging facade needs an estate implementation the trace module does not own yet."
+cost = { cold_build_s = 5.94, crates = 9, binary_bytes = 12320656, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-tracing/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-tracing/Cargo.toml -e normal --prefix none (10 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-tracing/Cargo.toml (5.94s); rlib bytes summed under /private/tmp/probe-tracing/target/debug/deps (12320656 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tracing"
@@ -543,6 +692,11 @@ reason = "The standalone AST crate refuses parses without a recorded signal, and
 approved_by = "maintainer"
 approved_on = "2026-10-02"
 review = "crates/lgwks-ast/src/lib.rs"
+[approved.retire]
+replacement = "lgwks_ast::diagnostic"
+blocker = "A standalone parse-signal recorder needs a diagnostic channel the AST crate does not own yet."
+cost = { cold_build_s = 5.94, crates = 9, binary_bytes = 12320656, measured = "2026-11-02", command = "shared probe with the lgwks_std tracing edge: cargo generate-lockfile --manifest-path /private/tmp/probe-tracing/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-tracing/Cargo.toml -e normal --prefix none (10 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-tracing/Cargo.toml (5.94s); rlib bytes summed under /private/tmp/probe-tracing/target/debug/deps (12320656 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tracing-subscriber"
@@ -558,6 +712,11 @@ reason = "Structured events alone do not give a developer a working debugger: a 
 approved_by = "maintainer"
 approved_on = "2026-09-28"
 review = "crates/lgwks-std/src/trace.rs"
+[approved.retire]
+replacement = "lgwks_std::trace"
+blocker = "A default process subscriber with env filtering needs an installer the trace module does not own yet."
+cost = { cold_build_s = 1.10, crates = 11, binary_bytes = 8510592, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-tracing-subscriber/Cargo.toml (online); cargo tree --locked --manifest-path /private/tmp/probe-tracing-subscriber/Cargo.toml -e normal --prefix none (12 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-tracing-subscriber/Cargo.toml (1.10s); rlib bytes summed under /private/tmp/probe-tracing-subscriber/target/debug/deps (8510592 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "proptest"
@@ -578,6 +737,11 @@ reason = "Property tests that shrink a failing input to its minimal form and per
 approved_by = "srinji"
 approved_on = "2026-10-04"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/273"
+[approved.retire]
+replacement = "lgwks_std::seeded"
+blocker = "Shrinking property tests with seed persistence need an estate harness the seeded module does not own yet."
+cost = { cold_build_s = 2.78, crates = 13, binary_bytes = 30318320, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-proptest/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-proptest/Cargo.toml -e normal --prefix none (14 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-proptest/Cargo.toml (2.78s); rlib bytes summed under /private/tmp/probe-proptest/target/debug/deps (30318320 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "jiff"
@@ -593,6 +757,11 @@ reason = "policy-only: no workspace code consumes this edge yet; interim zoned t
 approved_by = "Director"
 approved_on = "2026-10-23"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/153"
+[approved.retire]
+replacement = "lgwks_std::time"
+blocker = "DST-aware calendar arithmetic with IANA zones needs an estate time module the UTC core does not own yet."
+cost = { cold_build_s = 1.03, crates = 2, binary_bytes = 14369072, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features time-jiff --prefix none (22 distinct, 2 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-time-jiff cargo build --locked -p lgwks_deps --no-default-features --features time-jiff (10.30s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-time-jiff/debug/deps (57832592 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rusqlite"
@@ -610,6 +779,11 @@ reason = "The one durable store every estate service opens instead of declaring 
 approved_by = "Director"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/696"
+[approved.retire]
+replacement = "lgwks_deps::sqlite"
+blocker = "A durable file-backed store with WAL readers and migrations needs an estate engine the sqlite facade does not own."
+cost = { cold_build_s = 10.38, crates = 6, binary_bytes = 17947976, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features sqlite --prefix none (26 distinct, 6 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-sqlite cargo build --locked -p lgwks_deps --no-default-features --features sqlite (19.65s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-sqlite/debug/deps (61411496 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rcgen"
@@ -627,6 +801,11 @@ reason = "Throwaway test PKI generated at test time for the lgwks_std::http TLS 
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+[approved.retire]
+replacement = "lgwks_std::sign"
+blocker = "Throwaway test PKI issuance needs a generator the sign module does not own yet."
+cost = { cold_build_s = 4.74, crates = 14, binary_bytes = 22831976, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-rcgen/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-rcgen/Cargo.toml -e normal --prefix none (15 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-rcgen/Cargo.toml (4.74s); rlib bytes summed under /private/tmp/probe-rcgen/target/debug/deps (22831976 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rsa"
@@ -644,6 +823,11 @@ reason = "Pure-Rust RSA key generation for the throwaway test PKI (#714): rcgen'
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+[approved.retire]
+replacement = "lgwks_std::sign"
+blocker = "Pure-Rust RSA key generation for test PKI needs a generator the sign module does not own yet."
+cost = { cold_build_s = 3.47, crates = 21, binary_bytes = 28109104, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-rsa/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-rsa/Cargo.toml -e normal --prefix none (22 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-rsa/Cargo.toml (3.47s); rlib bytes summed under /private/tmp/probe-rsa/target/debug/deps (28109104 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rand_core"
@@ -660,6 +844,11 @@ reason = "The RNG trait between the estate's seeded stream and rsa key generatio
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+[approved.retire]
+replacement = "lgwks_std::seeded"
+blocker = "The RNG trait bridging the seeded stream and key generation needs a facade the estate does not name yet."
+cost = { cold_build_s = 0.17, crates = 1, binary_bytes = 145976, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-rand_core/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-rand_core/Cargo.toml -e normal --prefix none (2 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-rand_core/Cargo.toml (0.17s); rlib bytes summed under /private/tmp/probe-rand_core/target/debug/deps (145976 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "rustls"
@@ -677,6 +866,11 @@ reason = "Loopback TLS server for the lgwks_std::http mTLS end-to-end proof (#71
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+[approved.retire]
+replacement = "lgwks_std::http"
+blocker = "A private-CA loopback TLS peer for end-to-end tests needs a server the http facade does not own yet."
+cost = { cold_build_s = 7.47, crates = 11, binary_bytes = 29898464, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-rustls/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-rustls/Cargo.toml -e normal --prefix none (12 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-rustls/Cargo.toml (7.47s); rlib bytes summed under /private/tmp/probe-rustls/target/debug/deps (29898464 bytes)" }
+review = "2027-02-01"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Day-0 revenue slice (2026-10-26, #721).
@@ -704,6 +898,11 @@ reason = "lgwks_bot's HTTP edge (`rt::edge`, feature `edge`, ADR 0006 R4) serves
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+[approved.retire]
+replacement = "lgwks_bot::rt"
+blocker = "Tower-compatible HTTP routing needs an estate router the bot edge does not own yet."
+cost = { cold_build_s = 5.30, crates = 28, binary_bytes = 45845824, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features axum --prefix none (48 distinct, 28 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-axum cargo build --locked -p lgwks_deps --no-default-features --features axum (14.57s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-axum/debug/deps (89309344 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "tower-http"
@@ -721,6 +920,11 @@ reason = "policy-only: no shipped workspace code consumes this edge yet; revenue
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+[approved.retire]
+replacement = "lgwks_bot::rt"
+blocker = "HTTP middleware layers for cors, trace and compression need estate handlers the bot edge does not own yet."
+cost = { cold_build_s = 1.77, crates = 20, binary_bytes = 16060168, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features tower-http --prefix none (40 distinct, 20 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-tower-http cargo build --locked -p lgwks_deps --no-default-features --features tower-http (11.04s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-tower-http/debug/deps (59523688 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "llm-guard"
@@ -738,6 +942,11 @@ reason = "policy-only: no shipped workspace code consumes this edge yet; AI secu
 approved_by = "maintainer"
 approved_on = "2026-10-26"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+[approved.retire]
+replacement = "lgwks_bot::frontier"
+blocker = "Pure-Rust prompt-injection and secret scanners need estate filters the frontier policy does not own yet."
+cost = { cold_build_s = 3.48, crates = 10, binary_bytes = 39616328, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features llm-guard --prefix none (30 distinct, 10 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-llm-guard cargo build --locked -p lgwks_deps --no-default-features --features llm-guard (12.75s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-llm-guard/debug/deps (83079848 vs 43463520 base)" }
+review = "2027-02-01"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Sealed records at rest (#785).
@@ -766,6 +975,11 @@ reason = "Sealed journal and run-store records need authenticated encryption und
 approved_by = "maintainer"
 approved_on = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/785"
+[approved.retire]
+replacement = "lgwks_bot::sealed"
+blocker = "Authenticated encryption under a fresh key per record needs an estate AEAD the sealed store does not own."
+cost = { cold_build_s = 0.55, crates = 13, binary_bytes = 5463728, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features sealed-aead --prefix none (33 distinct, 13 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-sealed-aead cargo build --locked -p lgwks_deps --no-default-features --features sealed-aead (9.82s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-sealed-aead/debug/deps (48927248 vs 43463520 base)" }
+review = "2027-02-01"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # One-file apps and the Rust they compile to (#787).
@@ -795,6 +1009,11 @@ reason = "The script! language is read from token streams with the line and colu
 approved_by = "maintainer"
 approved_on = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+[approved.retire]
+replacement = "lgwks_ast::script"
+blocker = "Token-stream span locations need a reader outside any storefront cycle the parser does not own."
+cost = { cold_build_s = 0.81, crates = 2, binary_bytes = 1539944, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-proc-macro2/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-proc-macro2/Cargo.toml -e normal --prefix none (3 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-proc-macro2/Cargo.toml (0.81s); rlib bytes summed under /private/tmp/probe-proc-macro2/target/debug/deps (1539944 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "quote"
@@ -810,6 +1029,11 @@ reason = "The one script! emitter (lgwks_ast::script::emit, #787) writes Rust to
 approved_by = "maintainer"
 approved_on = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+[approved.retire]
+replacement = "lgwks_ast::script"
+blocker = "Token quasi-quotation needs an emitter companion the script module does not own yet."
+cost = { cold_build_s = 0.91, crates = 3, binary_bytes = 2260200, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-quote/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-quote/Cargo.toml -e normal --prefix none (4 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-quote/Cargo.toml (0.91s); rlib bytes summed under /private/tmp/probe-quote/target/debug/deps (2260200 bytes)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "prettyplease"
@@ -826,6 +1050,11 @@ reason = "`lgwks expand` prints the emitted Rust formatted, so a reviewer reads 
 approved_by = "maintainer"
 approved_on = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+[approved.retire]
+replacement = "lgwks_ast::script"
+blocker = "Formatted Rust printing for expand needs a pretty-printer the script module does not own yet."
+cost = { cold_build_s = 3.68, crates = 2, binary_bytes = 25932456, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features prettyplease --prefix none (22 distinct, 2 over the 20-crate base; shared prettyplease feature with syn); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-prettyplease cargo build --locked -p lgwks_deps --no-default-features --features prettyplease (12.95s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-prettyplease/debug/deps (69395976 vs 43463520 base)" }
+review = "2027-02-01"
 
 [[approved]]
 crate = "syn"
@@ -842,3 +1071,8 @@ reason = "`lgwks expand` parses the emitted tokens into a syn::File for prettypl
 approved_by = "maintainer"
 approved_on = "2026-11-02"
 review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+[approved.retire]
+replacement = "lgwks_ast::script"
+blocker = "Parsing emitted tokens into a file tree needs a Rust grammar the script module does not own yet."
+cost = { cold_build_s = 3.68, crates = 2, binary_bytes = 25932456, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features prettyplease --prefix none (22 distinct, 2 over the 20-crate base; shared prettyplease feature with prettyplease); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-prettyplease cargo build --locked -p lgwks_deps --no-default-features --features prettyplease (12.95s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-prettyplease/debug/deps (69395976 vs 43463520 base)" }
+review = "2027-02-01"

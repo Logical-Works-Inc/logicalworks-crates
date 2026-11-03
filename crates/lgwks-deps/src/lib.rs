@@ -168,6 +168,12 @@ pub mod patches;
 /// superseded, never edited, under one rule with one owner.
 #[doc(hidden)]
 pub mod requirements;
+/// The schema-3 exit mortgage: what replaces every approved edge, what the
+/// edge costs, when it was last reviewed, and the report that renders them.
+pub mod retire;
+/// The schema-3 exit mortgage reader: `[approved.retire]` tables and cost
+/// inline tables, parsed into the crate's retire mortgages.
+mod retire_read;
 /// The spec-owner check's one implementation (#695): `lgwks_deps` owns the
 /// rule, the `check-spec-owners` binary is a thin shim over the shared entry,
 /// and `logical_ci`'s `governance` gate is its designated library consumer
@@ -625,6 +631,9 @@ pub fn check_verdict(
         refusals.extend(deferral::refusals(&register, deferred.as_ref()));
         refusals.extend(patches::refusals(supply.as_ref(), &locked, &today));
         refusals.extend(lifecycle::refusals(&register, lifecycle.as_ref()));
+        // Schema 3's exit mortgage (#788): every approval names how it ends,
+        // and the review date is judged against the same day the pins are.
+        refusals.extend(retire::refusals(&register, &members, root, today.as_str()));
         Verdict {
             register,
             refusals,

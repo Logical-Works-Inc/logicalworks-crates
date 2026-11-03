@@ -102,6 +102,10 @@ USAGE
   second PATH exits 2 without auditing anything. --contract's FILE is a
   register and never the audit target, whichever order the two appear in.
   lgwks-deps invariants [PATH]         audit the optional invariant register
+   lgwks-deps retire --report [PATH]     render every edge's exit mortgage:
+              [--json]                   replacement, blocker, measured cost
+                                         and review, with the summed distance
+                                         to zero. One JSON object with --json
   lgwks-deps request <CRATE> <VERSION> print the approval block a third-party
                                        edge needs. An estate crate
                                        (`lgwks_std`, `lgwks_bot`, …) needs
@@ -474,6 +478,7 @@ fn dispatch(
 ) -> io::Result<ExitCode> {
     match command {
         Some("check") => handle_check(&args[1..], out, err),
+        Some("retire") => handle_retire(&args[1..], out, err),
         Some("invariants") => handle_invariants(&args[1..], out, err),
         Some("request") => run_request(args.get(1), args.get(2), out, err),
         Some("init") => run_init(args.get(1).map(PathBuf::from), out, err),
@@ -709,6 +714,8 @@ mod debug_cmd;
 mod freshness_cmd;
 mod gate_cmd;
 mod request_cmd;
+mod retire_cmd;
+mod vendor_cmd;
 
 use check_report::{
     CheckOutcome, InvariantReport, report_check, report_check_with_invariant_error,
@@ -718,6 +725,8 @@ use debug_cmd::handle_debug;
 use freshness_cmd::handle_freshness;
 use gate_cmd::handle_gate;
 use request_cmd::{run_init, run_request};
+use retire_cmd::handle_retire;
+use vendor_cmd::handle_vendor;
 
 /// Resolves a repository root into the command's string-refusal vocabulary.
 pub(crate) fn resolve_repository_root(start: &Path) -> Result<PathBuf, String> {
@@ -782,93 +791,6 @@ pub(crate) fn locked_graph(resolved: &[lgwks_deps::lock::Resolved]) -> freshness
             })
             .collect(),
     )
-}
-
-// ── vendor ──────────────────────────────────────────────────────────────────
-
-/// Handles `vendor check`, rejecting any other `vendor` subcommand.
-fn handle_vendor(
-    args: &[String],
-    out: &mut impl io::Write,
-    err: &mut impl io::Write,
-) -> io::Result<ExitCode> {
-    if args.first().map(String::as_str) != Some("check") {
-        write!(err, "{USAGE}")?;
-        return Ok(ExitCode::from(2));
-    }
-    let positional: Vec<&String> = args[1..]
-        .iter()
-        .filter(|arg| !arg.starts_with("--"))
-        .collect();
-    let start = subject_path(
-        positional
-            .first()
-            .map(|candidate| Path::new(candidate.as_str())),
-    );
-    run_vendor_check(&start, out, err)
-}
-
-/// Writes the refusal for a lock file the vendor tree does not cover: how many
-/// locked packages are missing, each one by name and version, and the repair.
-fn write_missing_packages(
-    root: &Path,
-    tree: &Path,
-    report: &lgwks_deps::vendor::Report,
-    err: &mut impl io::Write,
-) -> io::Result<()> {
-    writeln!(
-        err,
-        "REFUSED  {} — {} of {} locked packages missing from {}\n",
-        root.display(),
-        report.missing().len(),
-        // Both operands are counts of entries in one lock file, so the
-        // sum is bounded by its package count and cannot overflow.
-        report.covered().saturating_add(report.missing().len()),
-        tree.display()
-    )?;
-    for missing in report.missing() {
-        writeln!(err, "  {} {}", missing.name(), missing.version())?;
-    }
-    writeln!(
-        err,
-        "\nRe-run the vendor sync for this repo, then re-check."
-    )
-}
-
-/// Proves every locked package resolves to the shared vendor tree.
-///
-/// Exit 0 when the tree covers the lock file and 2 when any locked package is
-/// missing from it, since an uncovered package means the offline build would
-/// reach the network.
-fn run_vendor_check(
-    start: &Path,
-    out: &mut impl io::Write,
-    err: &mut impl io::Write,
-) -> io::Result<ExitCode> {
-    let root = unwrap_or_refuse!(resolve_repository_root(start), err);
-    let tree = match lgwks_deps::vendor::tree_for(&root) {
-        Ok(tree) => tree,
-        Err(error) => return refuse(&error.to_string(), err),
-    };
-    let lock_text = unwrap_or_refuse!(read_lock_text(&root), err);
-    match lgwks_deps::vendor::check_coverage(&lock_text, &tree) {
-        Ok(report) if report.is_complete() => {
-            writeln!(
-                out,
-                "OK  {} — {} locked packages covered by {}, {} local skipped",
-                root.display(),
-                report.covered(),
-                tree.display(),
-                report.skipped_local()
-            )?;
-            Ok(ExitCode::SUCCESS)
-        }
-        Ok(report) => {
-            write_missing_packages(&root, &tree, &report, err)?;
-            Ok(ExitCode::from(2))
-        }
-        Err(error) => refuse(&error.to_string(), err),
-    }
 }
 
 // ── sqlite ──────────────────────────────────────────────────────────────────

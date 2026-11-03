@@ -213,13 +213,14 @@
 "crates/lgwks-bot/src/verb.rs" = 9
 "crates/lgwks-deps/src/audit.rs" = 2
 "crates/lgwks-deps/src/catalog.rs" = 13
+"crates/lgwks-deps/src/contract/error.rs" = 1
 "crates/lgwks-deps/src/contract.rs" = 16
 "crates/lgwks-deps/src/deferral.rs" = 4
 "crates/lgwks-deps/src/invariants.rs" = 21
 "crates/lgwks-deps/src/invariants/binding.rs" = 1
 "crates/lgwks-deps/src/invariants/resolve.rs" = 2
 "crates/lgwks-deps/src/invariants/verdict.rs" = 16
-"crates/lgwks-deps/src/lib.rs" = 32
+"crates/lgwks-deps/src/lib.rs" = 33
 "crates/lgwks-deps/src/ledger.rs" = 5
 "crates/lgwks-deps/src/lifecycle.rs" = 3
 "crates/lgwks-deps/src/lock.rs" = 9
@@ -230,6 +231,7 @@
 "crates/lgwks-deps/src/metadata/types.rs" = 16
 "crates/lgwks-deps/src/patches.rs" = 6
 "crates/lgwks-deps/src/refusal.rs" = 4
+"crates/lgwks-deps/src/retire.rs" = 4
 "crates/lgwks-deps/src/sqlite.rs" = 12
 "crates/lgwks-deps/src/vendor.rs" = 11
 "crates/lgwks-macros/src/lib.rs" = 1

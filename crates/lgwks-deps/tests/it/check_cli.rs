@@ -344,6 +344,7 @@ fn conflicting_approval_keys_cannot_admit_a_real_path_edge() -> TestResult {
     let prefix = format!(
         concat!(
             "[policy]\n",
+            "schema = 3\n",
             "enforce = true\n",
             "accepted_licenses = \"MIT, Apache-2.0\"\n",
             "[[approved]]\n",
@@ -365,6 +366,12 @@ fn conflicting_approval_keys_cannot_admit_a_real_path_edge() -> TestResult {
         "approved_by = \"reviewer\"\n",
         "approved_on = \"2026-09-20\"\n",
         "review = \"tests/check_cli.rs\"\n",
+        "[approved.retire]\n",
+        "replacement = \"std::path\"\n",
+        "blocker = \"The fixture's helper stands for any path edge a consumer still carries.\"\n",
+        "cost = { cold_build_s = 0.1, crates = 1, binary_bytes = 1, measured = \"2026-11-02\", ",
+        "command = \"fixture: a path crate of one function\" }\n",
+        "review = \"2099-01-01\"\n",
     );
     std::fs::write(&register, format!("{prefix}{suffix}"))?;
     let valid = check_from(
@@ -415,8 +422,8 @@ fn conflicting_approval_keys_cannot_admit_a_real_path_edge() -> TestResult {
         refused
             .stderr
             .contains("duplicate key \"allowed_consumers\"")
-            && refused.stderr.contains("first assignment is at line 13")
-            && refused.stderr.contains("line 14"),
+            && refused.stderr.contains("first assignment is at line 14")
+            && refused.stderr.contains("line 15"),
         "the CLI refusal must name the field and both positions: {:?}",
         refused.stderr
     );
@@ -682,7 +689,7 @@ fn the_human_receipt_binds_contract_subject_and_mode() -> TestResult {
         );
     }
     assert!(
-        enforcement.stdout.contains(&format!("schema={}", 1_u32)),
+        enforcement.stdout.contains(&format!("schema={}", 3_u32)),
         "the contract version is bound: {:?}",
         enforcement.stdout
     );
@@ -707,7 +714,7 @@ fn the_json_receipt_has_stable_identity_fields() -> TestResult {
     assert_eq!(enforcement.code, Some(0), "stderr {:?}", enforcement.stderr);
     let payload: lgwks_std::json::Value = lgwks_std::json::from_str(&enforcement.stdout)?;
     assert_eq!(payload["mode"], "enforcement");
-    assert_eq!(payload["contract"]["schema"], 1);
+    assert_eq!(payload["contract"]["schema"], 3);
     assert_eq!(payload["contract"]["entries"], 0);
     assert_eq!(payload["subject"]["resolved"], true);
     assert_eq!(payload["subject"]["edges"], 0);

@@ -347,6 +347,9 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 proptest = { version = "1.11", default-features = false, features = ["std"] }
+# The retire simulation hashes its verdicts through the estate primitive
+# (#788): test-only, so the `hash` backend never enters the shipped closure.
+lgwks_std = { workspace = true, default-features = false, features = ["core", "trace", "json", "hash"] }
 
 [lints]
 workspace = true
