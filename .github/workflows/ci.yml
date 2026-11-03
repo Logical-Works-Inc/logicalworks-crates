@@ -1302,7 +1302,7 @@ jobs:
 
   # The repository's ruleset requires a check named exactly "Clippy and scan".
   # The lint job above is a matrix, whose legs report as "Clippy and scan
-  # (workspace)", "(scan)" and "(reduced)", so no check of the required name was
+  # (workspace)", "(features)", "(scan)" and "(reduced)", so no check of the required name was
   # ever reported and a pull request could not satisfy the ruleset. This job is
   # that name. Its verdict is the matrix's own: `needs.clippy.result` is
   # `success` only when every leg succeeded, so a leg added or renamed above
