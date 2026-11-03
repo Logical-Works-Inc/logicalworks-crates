@@ -40,6 +40,18 @@ platform = 'cfg(target_os = "macos")'
 filter = 'all()'
 run-wrapper = 'churn-slot'
 
+# CI builds each suite once into a `cargo nextest archive` and runs its shards
+# from that archive on other runners. The wrapper above resolves against the
+# archive's extracted `target`, while the setup script builds into the
+# checkout's, so a macOS shard run from an archive without the wrapper failed
+# every test with "failed to exec .../target/debug/churn-slot" (probed on
+# lgwks_macros, nextest 0.9.149). The archive job builds the wrapper first and
+# the archive carries it; a Linux archive has none, which is why it only warns.
+[profile.default.archive]
+include = [
+    { path = "debug/churn-slot", relative-to = "target", depth = 0, on-missing = "warn" },
+]
+
 # journal_scale measures how many OS threads the process can create and then
 # holds that many tenant journals open. On Linux the thread limit is per user,
 # so a sibling test forked meanwhile can fail to spawn with EAGAIN (main CI run

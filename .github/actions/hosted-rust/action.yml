@@ -1,0 +1,104 @@
+name: Hosted Rust toolchain and caches
+description: >
+  Prepares a job on a GitHub-hosted runner (province#9: every job is hosted;
+  the repository is public, so a self-hosted runner would execute a fork's
+  pull request on the Director's Mac). It pins the toolchain alone, so the
+  cache key never rotates on a toolchain the image adds, and sets up the two
+  cache layers, each with one owner: Swatinem/rust-cache holds the registry and
+  the dependency build, keyed by the lane group the job builds and saved from
+  `main` alone; sccache, on the GitHub Actions backend, holds compiled crates,
+  workspace crates included, because every hosted job checks out at the same
+  path. Tools arrive prebuilt and pinned (taiki-e/install-action), never
+  compiled in CI. WORKFLOW.md §12 is the specification.
+inputs:
+  toolchain:
+    description: The toolchain the gate pins (scripts/gate-lanes.toml `[toolchain]`).
+    required: true
+  cache-key:
+    description: >
+      The rust-cache shared key: the `group` of scripts/gate-lanes.toml whose
+      feature sets this job builds, so jobs that build one group share one
+      entry instead of saving a copy each. rust-cache adds the OS, the
+      architecture, the toolchain and the lockfile to it.
+    required: true
+  components:
+    description: Extra rustup components, comma-separated.
+    required: false
+    default: ""
+  nextest:
+    description: Whether the job runs cargo-nextest.
+    required: false
+    default: "false"
+  caches:
+    description: >
+      Whether the job compiles. A shard that runs a test archive builds nothing,
+      so it skips restoring a dependency build it would never read.
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Pin Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ inputs.toolchain }}
+        components: ${{ inputs.components }}
+    # rust-cache hashes every installed toolchain, so one the image adds rotates
+    # the key and throws the cache away (run 39379487172: image 20261018.339.1
+    # added stable beside the pin and the std-full job compiled cold).
+    - name: Set up the pinned toolchain alone
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The pin is stated three times (rust-toolchain.toml, the lane table's
+        # `[toolchain]`, every `toolchain:` of the workflows) and the parity
+        # check holds the last two together; this holds the first to them.
+        pinned="$(awk -F'"' '/^channel/ { print $2 }' rust-toolchain.toml)"
+        if [ "${pinned}" != "${{ inputs.toolchain }}" ]; then
+          echo "::error::rust-toolchain.toml pins '${pinned}', the gate pins ${{ inputs.toolchain }}"
+          exit 1
+        fi
+        rustup default "${{ inputs.toolchain }}"
+        for installed in $(rustup toolchain list --quiet); do
+          case "${installed}" in
+            "${{ inputs.toolchain }}"-*) ;;
+            *) rustup toolchain uninstall "${installed}" ;;
+          esac
+        done
+    # `.cargo/config.toml` links macOS builds with Homebrew's ld64.lld.
+    - name: Install lld on macOS
+      if: runner.os == 'macOS'
+      shell: bash
+      run: brew install lld
+    - name: Cache the registry and the dependency build
+      if: inputs.caches == 'true'
+      uses: Swatinem/rust-cache@v2
+      with:
+        shared-key: ${{ inputs.cache-key }}
+        # Every ref saving filled the 10 GiB cap and evicted main's entries,
+        # so pull requests compiled cold (10.66 GiB on 2026-11-03, main 1.41).
+        # Saved from main alone, the cache is one ref's worth and a pull
+        # request restores the last merged build.
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+        cache-on-failure: "true"
+    - name: Install sccache
+      if: inputs.caches == 'true'
+      uses: mozilla-actions/sccache-action@v0.0.11
+      with:
+        version: v0.18.0
+    # sccache cannot cache an incremental compilation, and a hosted target
+    # directory never outlives its job, so incremental state is only cost here.
+    - name: Set up sccache as the compiler wrapper
+      if: inputs.caches == 'true'
+      shell: bash
+      run: |
+        {
+          echo "SCCACHE_GHA_ENABLED=true"
+          echo "RUSTC_WRAPPER=sccache"
+          echo "CARGO_INCREMENTAL=0"
+        } >> "${GITHUB_ENV}"
+    - name: Install cargo-nextest
+      if: inputs.nextest == 'true'
+      uses: taiki-e/install-action@v2
+      with:
+        tool: nextest@0.9.149
