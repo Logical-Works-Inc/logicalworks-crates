@@ -576,6 +576,19 @@ jobs:
         # Stops before the job limit so the cache is saved (see the build job).
         timeout-minutes: 3
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full ${PARTITION:+--partition $PARTITION}
+      # A step cut by its timeout leaves the processes it started running, and
+      # they kept writing into `target/`: main's save after the cut on run
+      # 41561323534 failed with "tar: target/debug/deps: file changed as we
+      # read it", so no cache was saved and every later run compiled cold
+      # (run 41563372316). This stops them, on every outcome, before the cache
+      # step's post action archives the target.
+      - name: Cache save, after stopping what the test step left running
+        if: ${{ always() }}
+        run: |
+          pkill -KILL -f "${GITHUB_WORKSPACE}/target/" || true
+          pkill -KILL -x cargo-nextest || true
+          pkill -KILL -x cargo || true
+          timeout 10 bash -c 'while pgrep -f "${GITHUB_WORKSPACE}/target/" > /dev/null; do sleep 0.2; done'
 
   # The lgwks-bot suite at no default features, in a job of its own. The
   # lgwks-std per-feature suites live in the feature-matrix job below: they
