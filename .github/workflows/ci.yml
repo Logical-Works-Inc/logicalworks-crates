@@ -446,6 +446,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: gate
+          sccache: "false"
           components: clippy, rustfmt
           nextest: "true"
       - name: Verify lockfile is up-to-date
@@ -564,6 +565,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: std-full
+          sccache: "false"
           nextest: "true"
       - name: Build lgwks-std full-feature tests
         # Stops before the job limit so the cache is saved.
@@ -621,6 +623,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: clippy-${{ matrix.part }}
+          sccache: "false"
           components: clippy
       - name: Clippy all workspace targets
         if: matrix.part == 'workspace'
@@ -686,6 +689,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: docs
+          sccache: "false"
           components: clippy
       - name: Doc build with broken-link denial
         run: ./scripts/doc-lanes.sh all-features
@@ -724,6 +728,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.cache }}
+          sccache: "false"
           nextest: "true"
       - name: Check lgwks-deps
         if: matrix.part == 'deps'
@@ -857,6 +862,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: feature-${{ matrix.part }}
+          sccache: "false"
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
         # docs.rs builds with whatever `[package.metadata.docs.rs]` declares,
@@ -973,6 +979,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: storefront-fixture-target
+          sccache: "false"
       - name: Check GPUI Windows renderer fixture
         run: >
           cargo check --locked
@@ -1003,6 +1010,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: process-windows-dev
+          sccache: "false"
           nextest: "true"
       - name: Run the Windows containment and row tests
         # The `dev` profile: the `test` one builds every dependency at opt-level 3.

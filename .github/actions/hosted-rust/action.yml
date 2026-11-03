@@ -35,6 +35,15 @@ inputs:
       so it skips restoring a dependency build it would never read.
     required: false
     default: "true"
+  sccache:
+    description: >
+      Whether the job reads and writes sccache. A job whose rust-cache entry main
+      already saves restores its whole dependency build from that entry, so its
+      sccache objects only took room: the repository's 10 GiB held 5.24 GiB of
+      them, sccache logged 143 write errors on the macOS bot archive and every
+      run compiled it cold (run 41633491192).
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -86,7 +95,7 @@ runs:
         save-if: ${{ github.ref == 'refs/heads/main' }}
         cache-on-failure: "true"
     - name: Install sccache
-      if: inputs.caches == 'true'
+      if: inputs.caches == 'true' && inputs.sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.11
       with:
         version: v0.18.0
@@ -97,8 +106,10 @@ runs:
       shell: bash
       run: |
         {
-          echo "SCCACHE_GHA_ENABLED=true"
-          echo "RUSTC_WRAPPER=sccache"
+          if [ "${{ inputs.sccache }}" = "true" ]; then
+            echo "SCCACHE_GHA_ENABLED=true"
+            echo "RUSTC_WRAPPER=sccache"
+          fi
           echo "CARGO_INCREMENTAL=0"
         } >> "${GITHUB_ENV}"
     - name: Install cargo-nextest
