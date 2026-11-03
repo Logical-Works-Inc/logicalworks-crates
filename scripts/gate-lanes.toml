@@ -216,7 +216,7 @@ command = '''set -euo pipefail
 for attempt in $(seq 1 60); do
   listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
   missing=""
-  for suite in workspace bot-it bot-rest; do
+  for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
     case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
   done
   if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi

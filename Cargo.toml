@@ -100,6 +100,8 @@ unsafe_code = "forbid"
 unused_must_use = "forbid"
 improper_ctypes = "forbid"
 improper_ctypes_definitions = "forbid"
+# `lwc_it_group` selects one group of lgwks_bot's `it` test modules for a CI job.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(lwc_it_group, values(none(), "scale", "surface", "refusals", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8"))'] }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Anti-pattern contract.
