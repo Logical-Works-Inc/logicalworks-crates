@@ -566,8 +566,13 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
-          # Saved from main alone, as the gate job says.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Saved from every ref, unlike the jobs the gate job's comment covers.
+          # Cold, this job ends near four minutes, so a cold run can never meet
+          # the 300 s run wall; saved from main alone, a pull request opened
+          # while main's entry was missing could never warm it (run
+          # 41565016718). It is about 400 MB a ref, a tenth of what the clippy,
+          # gate and Windows families saved per ref.
+          save-if: "true"
           cache-on-failure: "true"
           key: std-full
       - name: nextest is installed
@@ -575,15 +580,16 @@ jobs:
       # The compile and the tests are bounded apart. As one three-minute step, a
       # cold compile (2 m 12 s on run 41563372316) left the 1,324 tests 48 s,
       # and they take 42 s warm (run 41559642263), so every cold run timed out.
-      # Pull requests restore main's cache and save none, so a pull request was
-      # cold whenever main's entry was missing. Cold, the job is about 22 s of
-      # setup, 132 s of compile, 42 s of tests and the save: inside five minutes.
+      # Cold, the job is about 15 s of setup, 132-154 s of compile, 42-70 s of
+      # tests and the save: inside five minutes (run 41565016718).
       - name: Build lgwks-std full-feature tests
         # Stops before the job limit so the cache is saved (see the build job).
         timeout-minutes: 3
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full --no-run
       - name: Run lgwks-std full-feature tests
-        timeout-minutes: 1
+        # 42 s on a warm runner, but its first probe alone took 30 s on a fresh
+        # one and a one-minute bound cut the suite (run 41565016718).
+        timeout-minutes: 2
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full ${PARTITION:+--partition $PARTITION}
       # A step cut by its timeout leaves the processes it started running, and
       # they kept writing into `target/`: main's save after the cut on run
