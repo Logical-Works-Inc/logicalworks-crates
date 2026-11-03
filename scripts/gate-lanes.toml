@@ -166,8 +166,86 @@ required = true
 # lgwks_bot's tests are not in this lane: the `tests-bot-full` and
 # `tests-bot-nodefault` lanes run them under the feature sets a consumer builds,
 # and the `build-verdict` row requires both with this one.
-command = "cargo nextest run --workspace --locked -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}"
+# NEXTEST_BUILD is the cargo selection nextest builds and runs: unset, the whole
+# workspace; CI sets it per shard to the packages that shard runs, which the
+# `suite-build` lane compiled in the same job.
+command = "cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run all workspace tests"
+
+[[lane]]
+id = "suite-build"
+surfaces = "ci"
+required = true
+# Each CI shard compiles the suite it runs, in its own job, before the lane that
+# runs it (province#9): NEXTEST_BUILD is the suite's cargo selection, the one the
+# run lane then builds from. Listing builds every test binary of the selection
+# and runs none, so the step's time is the compile alone. Building in the shard
+# replaced a build-once archive whose upload, second runner and download put
+# 60 to 90 s between the compile and the tests (run 41671270220).
+command = "cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null"
+ci_step = "Build the suite"
+
+[[lane]]
+id = "simulation-archive"
+surfaces = "ci"
+required = true
+# The first Linux shard of each suite archives the binaries it built, and the
+# `simulation-evidence` lane lists those archives (SIMULATION_ARCHIVES) instead
+# of compiling every workspace test again. nextest writes into an existing
+# directory only (run 41605078279).
+command = "mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst"
+ci_step = "Archive the suite for the simulation lane"
+
+[[lane]]
+id = "simulation-lane-build"
+surfaces = "ci"
+required = true
+# The simulation job starts with the shards and builds its lane runner while
+# they compile, so the runner is ready when their archives land (run
+# 41698583571: after the shards, it put 40 s on the run's wall).
+command = "cargo build --locked -p lgwks_deps --bin ci-local"
+ci_step = "Build the simulation lane"
+
+[[lane]]
+id = "simulation-archives-ready"
+surfaces = "ci"
+required = true
+# Waits, bounded at 60 polls, until the first Linux shard of every suite has
+# uploaded its archive to this run, and fails naming the suites that never did.
+command = '''set -euo pipefail
+for attempt in $(seq 1 60); do
+  listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
+  missing=""
+  for suite in workspace bot-it bot-rest; do
+    case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
+  done
+  if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi
+  echo "attempt ${attempt}: waiting on${missing}"
+  sleep 4
+done
+echo "::error::the suite archives never arrived:${missing}"
+exit 1
+'''
+ci_step = "Wait for the Linux suite archives"
+
+[[lane]]
+id = "sqlite3-program"
+surfaces = "ci"
+required = true
+# The receipt tests drive the sqlite3 program, which the trixie container lacks
+# (run 41621737724), so it is installed where absent.
+command = "command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }"
+ci_step = "Prepare the checkout"
+
+[[lane]]
+id = "bot-shard-targets"
+surfaces = "ci"
+required = true
+# lgwks_bot full is built in two parts that name their test targets (bot-it:
+# `it`; bot-rest: the rest), so a target added to the crate
+# and named in neither would never run. This refuses that drift.
+command = '''test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"'''
+ci_step = "Every lgwks_bot test target is in a bot shard"
 
 [[lane]]
 id = "storefront-consumers"
@@ -228,7 +306,7 @@ required = true
 # other three, and set the whole run's wall at 481 s. On macOS the `ci` profile
 # also leaves out the `sim_review_path` binary, which `tests-bot-saturation` runs
 # (`.config/nextest.toml`); on Linux the container run keeps every test.
-command = "cargo nextest run -p lgwks_bot --all-targets --locked --features full --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}"
+command = "cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run lgwks-bot async runner tests"
 
 [[lane]]
@@ -239,23 +317,27 @@ required = true
 # full suite and the saturation legs, one directory each) and the Linux and
 # Windows legs' (`acceptance-junit`, one directory per leg). The
 # `acceptance-receipts` binary reads the XML and records into SQLite
-# through the sqlite3 program, so the job builds one std-only binary -- it
-# costs seconds, and it does not run the suite a second time.
-command = "cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision \"$REVISION\" --platform \"$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)\" && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-junit/acceptance-junit-linux/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision \"$REVISION\" --platform linux-aarch64 && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --map docs/acceptance/t-rows-windows.toml --features process --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision \"$REVISION\" --platform windows-x86_64"
+# through the sqlite3 program, and does not run the suite a second time. The
+# binary is built by the workspace evidence job, beside the suites, and handed
+# to the required row as an artifact (`receipts-tool/`): that row is the run's
+# last link, and on a fresh hosted runner a `cargo run` there compiles the
+# lgwks_deps library first. An artifact keeps no file mode, hence the `chmod`.
+command = "chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision \"$REVISION\" --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision \"$REVISION\" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision \"$REVISION\" --platform windows-x86_64"
 ci_step = "Record acceptance receipts"
 
 [[lane]]
 id = "tests-linux"
 surfaces = "ci"
 required = true
-# CI runs on the self-hosted macOS runner; this lane runs the workspace and
-# lgwks-bot full suites in a Linux container on it, so the Linux-only paths
-# execute on every run, and builds the two §4.7 cells (`lgwks_std --features
-# full` and `lgwks_ast`) for `aarch64-unknown-linux-gnu`, whose C compiler the
-# container's own architecture supplies. A local macOS run covers the same
-# suites natively.
-command = "cargo run --locked -p lgwks_deps --no-default-features --bin linux-container-tests"
-ci_step = "Run the workspace and lgwks-bot full suites on Linux"
+# The two §4.7 cells (`lgwks_std --features full` and `lgwks_ast`) for
+# `aarch64-unknown-linux-gnu`, built natively on the hosted arm64 Linux runner,
+# whose own C compiler targets that triple (province#9). The Linux-only paths
+# the container leg used to carry run in the `tests` and `tests-bot-full` lanes'
+# Linux shards, in a `rust:<pin>-trixie` job container: its util-linux 2.41
+# `setpriv` applies Landlock (#337), which the runner image's older one cannot.
+# On a Mac, `linux-container-tests` still runs the same suites in a container.
+command = "cargo check --locked -p lgwks_std --features full --target aarch64-unknown-linux-gnu && cargo check --locked -p lgwks_ast --target aarch64-unknown-linux-gnu"
+ci_step = "Check the aarch64-unknown-linux-gnu target cells"
 
 [[lane]]
 id = "tests-bot-saturation"
@@ -273,8 +355,10 @@ required = true
 # every binary it needs, with SATURATION_BINARIES naming both test binaries
 # and SATURATION_FILTER both families (two jobs of their own cost the run a
 # second job's hop, run 40321492424); unset, it is the whole `sim_review_path`
-# binary.
-command = "cargo nextest run -p lgwks_bot --locked --features full --profile ci --ignore-default-filter ${SATURATION_BINARIES:---test sim_review_path} -E \"${SATURATION_FILTER:-binary(sim_review_path)}\""
+# binary. The default is taken only when SATURATION_BINARIES is unset (`-`, not
+# `:-`): run from an archive, CI sets it empty, because nextest refuses `--test`
+# beside `--archive-file` and SATURATION_FILTER already names both binaries.
+command = "cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E \"${SATURATION_FILTER:-binary(sim_review_path)}\" ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run lgwks-bot saturation tiers"
 
 [[lane]]
@@ -502,12 +586,19 @@ cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets
 ci_step = "Clippy feature matrix"
 
 [[lane]]
+id = "clippy-nodefault-bot"
+group = "clippy"
+surfaces = "local ci"
+required = true
+command = "cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings"
+ci_step = "Clippy lgwks-bot with no default features"
+
+[[lane]]
 id = "clippy-nodefault"
 group = "clippy"
 surfaces = "local ci"
 required = true
 command = """\
-cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml --all-targets --no-default-features -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml --all-targets --no-default-features --features parser -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets --no-default-features -- -D warnings && \
@@ -809,29 +900,32 @@ command = "test \"${LEGS}\" = success"
 ci_step = "Every clippy leg passed"
 reason = "dedicated PR check row whose job name is the ruleset's required Clippy and scan"
 
-# The ruleset also requires "Build and workspace tests". The workspace job runs
-# every test but lgwks_bot's, and the lgwks_bot jobs (full with its saturation
-# step, no default features) run those; this row carries the required name and
-# passes only when all four passed (the fourth is the workspace job's tail:
-# evidence, doc tests, smoke)
-# and, in a second step of the same job, the run's wall was at most 300 s
+# The ruleset also requires "Build and workspace tests". The suites are built
+# once per platform into test archives and run from them in Linux and macOS
+# shards (the workspace suite, lgwks_bot full and its saturation shard), and
+# lgwks_bot at no default features runs in a job of its own; this row carries
+# the required name and passes only when the archives, both platforms' shards,
+# the evidence job (evidence, doc tests, smoke) and the no-default suite passed
+# and, in a later step of the same job, the run's wall was at most 300 s
 # (`ci-wall`).
 [[lane]]
 id = "build-verdict"
 surfaces = "ci"
 required = true
-command = "test \"${BUILD}\" = success && test \"${TAIL}\" = success && test \"${BOT_FULL}\" = success && test \"${BOT_NODEFAULT}\" = success"
+command = "test \"${BUILD}\" = success && test \"${TAIL}\" = success && test \"${LINUX}\" = success && test \"${MACOS}\" = success && test \"${BOT_NODEFAULT}\" = success"
 ci_step = "Every workspace test job passed"
 reason = "dedicated PR check row whose job name is the ruleset's required Build and workspace tests"
 
 # The Director, 2026-10-26: CI fails when a run is over 5 minutes, whatever the
 # excuse. No GitHub setting bounds a run, so the required row's job, which needs
 # every other job, reads the attempt's start from the runs API and fails past
-# 300 s.
+# 300 s. The start is read with GNU `date -d` and, where that is refused, BSD
+# `date -j -f`, so the row holds on the hosted Linux runner and on a Mac.
 [[lane]]
 id = "ci-wall"
 surfaces = "ci"
 required = true
-command = "started=$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT\" --jq .run_started_at) && wall=$(( $(date -u +%s) - $(date -j -u -f %Y-%m-%dT%H:%M:%SZ \"$started\" +%s) )) && echo \"run wall ${wall} s since ${started}, limit 300 s\" && test \"$wall\" -le 300"
+command = "started=$(gh api \"repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT\" --jq .run_started_at) && epoch=$(date -u -d \"$started\" +%s 2>/dev/null || date -j -u -f %Y-%m-%dT%H:%M:%SZ \"$started\" +%s) && wall=$(( $(date -u +%s) - epoch )) && echo \"run wall ${wall} s since ${started}, limit 300 s\" && test \"$wall\" -le 300"
 ci_step = "Run wall is at most 300 seconds"
 reason = "a run's wall clock exists only in CI"
+
