@@ -301,6 +301,9 @@ impl ServeReport {
 mod route;
 pub use route::TypedRoute;
 
+/// The OpenAPI 3.1 projection of the route registry (#830).
+pub mod openapi;
+
 /// The request body as the Host request-key path sees it.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 #[rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug))]

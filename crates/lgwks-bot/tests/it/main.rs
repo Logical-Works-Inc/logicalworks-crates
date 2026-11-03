@@ -295,6 +295,8 @@ mod script_trail;
 mod sealed;
 #[cfg(feature = "edge")]
 mod serve;
+#[cfg(all(feature = "edge", feature = "script"))]
+mod serve_openapi;
 #[cfg(feature = "edge")]
 mod serve_process;
 mod session;

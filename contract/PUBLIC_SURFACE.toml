@@ -128,8 +128,9 @@
 "crates/lgwks-bot/src/rt/process/confine.rs" = 25
 "crates/lgwks-bot/src/rt/process/frames.rs" = 17
 "crates/lgwks-bot/src/rt/runtime.rs" = 17
-"crates/lgwks-bot/src/rt/serve.rs" = 18
-"crates/lgwks-bot/src/rt/serve/route.rs" = 4
+"crates/lgwks-bot/src/rt/serve.rs" = 19
+"crates/lgwks-bot/src/rt/serve/openapi.rs" = 9
+"crates/lgwks-bot/src/rt/serve/route.rs" = 6
 "crates/lgwks-bot/src/rt/signal.rs" = 1
 "crates/lgwks-bot/src/rt/supervise.rs" = 25
 "crates/lgwks-bot/src/rt/supervise/admit.rs" = 1
