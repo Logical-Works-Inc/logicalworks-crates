@@ -631,7 +631,6 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: clippy-${{ matrix.part }}
-          sccache: "false"
           components: clippy
       - name: Clippy all workspace targets
         if: matrix.part == 'workspace'
