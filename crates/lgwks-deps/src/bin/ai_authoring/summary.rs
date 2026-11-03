@@ -189,11 +189,7 @@ pub(super) fn render(entries: &[(&str, Value)]) -> String {
                         .collect();
                     format!("[\n{}\n  ]", rows.join(",\n"))
                 }
-                Value::Null
-                | Value::Bool(_)
-                | Value::Number(_)
-                | Value::String(_)
-                | Value::Object(_) => canonical(value),
+                _ => canonical(value),
             };
             format!("  {}: {body}", canonical(&Value::from(key.to_owned())))
         })

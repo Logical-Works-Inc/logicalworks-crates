@@ -243,11 +243,11 @@ fn decode_records(
 /// notation, a date with its raw bytes, a group as an array.
 fn value_json(value: &FieldValue) -> Value {
     match *value {
-        FieldValue::Text(ref text) => Value::String(text.clone()),
-        FieldValue::Number(number) => Value::String(number.to_string()),
+        FieldValue::Text(ref text) => Value::from(text.as_str()),
+        FieldValue::Number(number) => Value::from(number.to_string()),
         FieldValue::Date(ref date) => date_json(date),
         FieldValue::Group(ref items) => Value::Array(items.iter().map(value_json).collect()),
-        ref other => Value::String(format!("{other:?}")),
+        ref other => Value::from(format!("{other:?}")),
     }
 }
 

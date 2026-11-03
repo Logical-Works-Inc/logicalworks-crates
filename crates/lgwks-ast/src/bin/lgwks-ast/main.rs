@@ -757,10 +757,5 @@ fn write_json(verb: Verb, readings: &[FileReading], out: &mut impl Write) -> io:
 
 /// A JSON object from its fields.
 fn object(fields: Vec<(&str, Value)>) -> Value {
-    Value::Object(
-        fields
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<Map<String, Value>>(),
-    )
+    Value::Object(Map::from_iter(fields))
 }

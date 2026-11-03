@@ -4,11 +4,48 @@
 //!
 //! INV-JSON-UTF8: all output is valid UTF-8. Input is validated as
 //! UTF-8 during deserialization.
+//!
+//! [`Value`] is this crate's own tree, not `serde_json`'s: a string of up to
+//! 22 bytes is stored inline and an object is one sorted
+//! allocation, so a small document parses with one allocation per array or
+//! object instead of one per key, string and tree node (#831). `serde_json`
+//! still reads and writes the text; `From` converts between the two trees.
+
+/// How a [`Value`] is built, compared, written, read and converted.
+mod convert;
+/// The object type.
+mod map;
+/// The inline-or-heap string.
+mod text;
+/// The value tree.
+mod value;
 
 // ── Re-exports ──────────────────────────────────────────────────────────────
 
+pub use map::{IntoIter, Iter, Map};
 pub use serde::{self, Deserialize, Serialize};
-pub use serde_json::{Deserializer, Error, Map, Number, Value, json};
+pub use serde_json::{Deserializer, Error, Number};
+pub use text::Text;
+pub use value::{Value, ValueIndex};
+
+/// Builds a [`Value`] from JSON-shaped tokens, as `serde_json::json!` does:
+/// `json!({"key": [1, "two", null], "flag": true})`. An interpolated
+/// expression must implement [`Serialize`].
+pub use crate::__lgwks_json_value as json;
+
+/// The `serde_json` macro the [`json!`] macro expands to; not API.
+#[doc(hidden)]
+pub use serde_json::json as __serde_json_value;
+
+/// The expansion behind [`json!`](crate::json::json): `serde_json` builds its
+/// tree from the tokens and the tree converts into this crate's [`Value`].
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __lgwks_json_value {
+    ($($json:tt)+) => {
+        $crate::json::Value::from($crate::json::__serde_json_value!($($json)+))
+    };
+}
 
 // ── Encoding ────────────────────────────────────────────────────────────────
 
@@ -63,13 +100,13 @@ pub fn from_reader<R: std::io::Read, T: serde::de::DeserializeOwned>(
 
 /// Deserialize a [`Value`] into the requested type.
 pub fn from_value<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, Error> {
-    serde_json::from_value(value)
+    serde_json::from_value(serde_json::Value::from(value))
 }
 
 /// Build a [`Value`] tree from `value`. Fails when `value` contains a map whose
 /// keys are not strings, or when its `Serialize` impl reports an error.
 pub fn to_value<T: Serialize + ?Sized>(value: &T) -> Result<Value, Error> {
-    serde_json::to_value(value)
+    serde_json::to_value(value).map(Value::from)
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

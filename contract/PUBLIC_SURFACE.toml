@@ -249,7 +249,10 @@
 "crates/lgwks-std/src/http/tls.rs" = 4
 "crates/lgwks-std/src/id.rs" = 9
 "crates/lgwks-std/src/id/v7.rs" = 1
-"crates/lgwks-std/src/json.rs" = 11
+"crates/lgwks-std/src/json.rs" = 15
+"crates/lgwks-std/src/json/map.rs" = 14
+"crates/lgwks-std/src/json/text.rs" = 3
+"crates/lgwks-std/src/json/value.rs" = 16
 "crates/lgwks-std/src/leb128.rs" = 9
 "crates/lgwks-std/src/online.rs" = 3
 "crates/lgwks-std/src/pattern.rs" = 29

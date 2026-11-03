@@ -104,8 +104,8 @@ impl Refusal {
 
     /// This refusal as a JSON value, with the stable `check --json` keys.
     pub(crate) fn to_json(&self) -> lgwks_std::json::Value {
-        let suggestion = match self.suggestion.clone() {
-            Some(word) => lgwks_std::json::Value::String(word),
+        let suggestion = match self.suggestion.as_deref() {
+            Some(word) => lgwks_std::json::Value::from(word),
             None => lgwks_std::json::Value::Null,
         };
         lgwks_std::json::json!({

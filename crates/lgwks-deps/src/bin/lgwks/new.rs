@@ -25,7 +25,7 @@ is refused rather than clobbered.
 const BOT_VERSION: &str = "6.1.0";
 
 /// The `lgwks_std` release the scaffold pins, kept beside the workspace's.
-const STD_VERSION: &str = "3.2.2";
+const STD_VERSION: &str = "4.0.0";
 
 /// The marker the manifest template names the app with.
 const NAME_MARK: &str = "@@NAME@@";

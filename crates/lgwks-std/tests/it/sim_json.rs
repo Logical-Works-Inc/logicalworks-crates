@@ -13,10 +13,14 @@
 //!   whitespace is accepted and trailing content is refused;
 //! - a stray invalid UTF-8 byte anywhere is refused (INV-JSON-UTF8);
 //! - a non-finite float encodes as `null`, never as text JSON cannot carry;
+//! - `Value`, the crate's own tree (#831), converts to `serde_json::Value` and
+//!   back unchanged, writes the text `serde_json`'s tree writes, parses as it
+//!   parses (repeated keys keeping the last value), and stores a string
+//!   inline exactly when it is at most 22 bytes;
 //! - the same seed replays the same documents and distinct seeds diverge.
 //!
-//! Sources: RFC 8259 (§2 whitespace, §6 numbers with no NaN or Infinity, §7
-//! string escapes, §8.1 UTF-8), and INV-JSON-UTF8.
+//! Sources: RFC 8259 (§2 whitespace, §4 member names, §6 numbers with no NaN
+//! or Infinity, §7 string escapes, §8.1 UTF-8), INV-JSON-UTF8, and #831.
 #![cfg(feature = "json")]
 
 use std::error::Error;
@@ -27,7 +31,10 @@ use crate::seeded_sweep::{
     seeded_stream,
 };
 
-use lgwks_std::json::{self, Map, Number, Value};
+use lgwks_std::json::{self, Map, Number, Text, Value};
+
+/// The inline cut of `json::Text`, in bytes (#831).
+const INLINE_BYTES: usize = 22;
 use lgwks_std::seeded::Seeded;
 
 /// How many documents each family draws per seed.
@@ -44,9 +51,10 @@ const GLYPHS: [char; 12] = [
 /// A family's result.
 type Outcome = Result<(), Box<dyn Error>>;
 
-/// Up to 12 drawn glyphs.
+/// Up to 24 drawn glyphs, one to four bytes each, so strings land on both
+/// sides of the 22-byte inline capacity of `Value`'s strings (#831).
 fn drawn_string(state: &mut Seeded) -> String {
-    (0..below(state, 13))
+    (0..below(state, 25))
         .map(|_| match GLYPHS.get(below(state, GLYPHS.len())) {
             Some(glyph) => *glyph,
             None => 'a',
@@ -80,7 +88,7 @@ fn drawn_value(state: &mut Seeded, depth: usize) -> Value {
         0 => Value::Null,
         1 => Value::Bool(next_byte(state) & 1 == 1),
         2 => drawn_number(state),
-        3 => Value::String(drawn_string(state)),
+        3 => Value::from(drawn_string(state)),
         4 => Value::Array(
             (0..below(state, 4))
                 .map(|_| drawn_value(state, depth.saturating_sub(1)))
@@ -91,7 +99,7 @@ fn drawn_value(state: &mut Seeded, depth: usize) -> Value {
 }
 
 /// A drawn object whose members are no deeper than `depth`.
-fn drawn_object(state: &mut Seeded, depth: usize) -> Map<String, Value> {
+fn drawn_object(state: &mut Seeded, depth: usize) -> Map {
     (0..below(state, 4))
         .map(|_| (drawn_string(state), drawn_value(state, depth)))
         .collect()
@@ -276,6 +284,116 @@ fn sim_a_non_finite_float_encodes_as_null() -> Outcome {
         );
         Ok(())
     })
+}
+
+#[test]
+/// A tree converts to `serde_json`'s tree and back unchanged, and both trees
+/// write one text.
+fn sim_a_tree_round_trips_through_the_serde_json_tree() -> Outcome {
+    sweep(|seed, _, document| {
+        let theirs = serde_json::Value::from(document.clone());
+        assert_eq!(
+            serde_json::to_string(&theirs)?,
+            json::to_string(document)?,
+            "seed {seed:#018x}: both trees write one text"
+        );
+        assert_eq!(
+            &Value::from(theirs),
+            document,
+            "seed {seed:#018x}: the round trip is the identity"
+        );
+        let text = json::to_string_pretty(document)?;
+        let parsed: serde_json::Value = serde_json::from_str(&text)?;
+        assert_eq!(
+            json::from_str::<Value>(&text)?,
+            Value::from(parsed),
+            "seed {seed:#018x}: both parsers read one tree from {text}"
+        );
+        Ok(())
+    })
+}
+
+/// Object text with members in drawn order and keys drawn from three names,
+/// so keys repeat: text no `Value` writes but a peer may send.
+fn repeated_member_text(state: &mut Seeded) -> Result<String, Box<dyn Error>> {
+    let names = ["id", "a-member-name-past-the-cut", "ß"];
+    let mut members = Vec::new();
+    for _ in 0..below(state, 8) {
+        let name = names.get(below(state, names.len())).ok_or("a name")?;
+        let member = json::to_string(&drawn_value(state, 1))?;
+        members.push(format!("{}:{member}", json::to_string(name)?));
+    }
+    Ok(format!("{{{}}}", members.join(",")))
+}
+
+#[test]
+/// Repeated keys read as `serde_json` reads them: the last value kept, keys
+/// in ascending order, each key once.
+fn sim_a_repeated_key_keeps_its_last_value() -> Outcome {
+    sweep(|seed, state, _| {
+        let text = repeated_member_text(state)?;
+        let ours: Value = json::from_str(&text)?;
+        let theirs: serde_json::Value = serde_json::from_str(&text)?;
+        let keys: Vec<&str> = ours.as_object().ok_or("an object")?.keys().collect();
+        assert!(
+            keys.windows(2)
+                .all(|pair| matches!(*pair, [left, right] if left < right)),
+            "seed {seed:#018x}: keys strictly ascend in {text}"
+        );
+        assert_eq!(ours, Value::from(theirs), "seed {seed:#018x}: {text}");
+        Ok(())
+    })
+}
+
+#[test]
+/// A drawn string on either side of the 22-byte inline cut reads back whole,
+/// as text and as a parsed value; which side it is stored on is held by
+/// `json::text::tests`.
+fn sim_a_string_is_inline_exactly_up_to_the_capacity() -> Outcome {
+    sweep(|seed, state, _| {
+        let drawn = drawn_string(state);
+        let text = Text::from(drawn.as_str());
+        assert_eq!(text.as_str(), drawn, "seed {seed:#018x}: reads back whole");
+        assert_eq!(
+            text.len(),
+            drawn.len(),
+            "seed {seed:#018x}: keeps its length"
+        );
+        let parsed: Value = json::from_str(&json::to_string(&drawn)?)?;
+        assert_eq!(parsed, drawn, "seed {seed:#018x}: parses whole");
+        Ok(())
+    })
+}
+
+#[test]
+/// The inline boundary at its declared length: 22 bytes (inline), 23 (heap)
+/// and 23 whose last character straddles the cut each parse, read back and
+/// key an object whole.
+fn the_inline_boundary_holds_at_its_declared_length() -> Outcome {
+    let at = "k".repeat(INLINE_BYTES);
+    let past = "k".repeat(INLINE_BYTES.saturating_add(1));
+    let straddle = format!("{}€", "k".repeat(INLINE_BYTES.saturating_sub(2)));
+    assert_eq!(
+        straddle.len(),
+        23,
+        "twenty ASCII bytes and a three-byte euro"
+    );
+    for text in [&at, &past, &straddle] {
+        let parsed: Value = json::from_str(&json::to_string(text)?)?;
+        let Value::String(ref stored) = parsed else {
+            return Err("a string parses as a string".into());
+        };
+        assert_eq!(
+            stored.as_str(),
+            text.as_str(),
+            "{} bytes read back",
+            text.len()
+        );
+        let mut members = Map::new();
+        members.insert(text.as_str(), Value::Null);
+        assert!(members.contains_key(text), "{} bytes is a key", text.len());
+    }
+    Ok(())
 }
 
 /// The replay trace of every document drawn under `seed`.
