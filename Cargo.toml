@@ -74,6 +74,21 @@ debug = "line-tables-only"
 [profile.test.package."*"]
 opt-level = 3
 
+# The macOS `bot-it` test archive only (province#9). lgwks_bot's `it` binary
+# links, so sccache cannot hold it, and at opt-level 1 its compile outlasted
+# the 5-minute job on the 3-vCPU hosted runner (run 41644011516, still
+# compiling at 325 s). A named profile changes only the workspace crates' codegen:
+# dependencies keep opt-level 3 and the same rustc arguments, so they hit the
+# objects the other archive jobs cache, which an environment override cannot
+# (sccache hashes `CARGO_*` variables; run 41648299237 hit 55% where the same
+# job hit 80%). Assertions and overflow checks stay on.
+[profile.ci-it]
+inherits = "test"
+opt-level = 0
+
+[profile.ci-it.package."*"]
+opt-level = 3
+
 # Shared lint contract: every member opts in with `[lints] workspace = true`.
 # Mirrors the crate-level attributes the crates already carried, plus
 # `broken_intra_doc_links`, which CI enforces on the docs lanes.

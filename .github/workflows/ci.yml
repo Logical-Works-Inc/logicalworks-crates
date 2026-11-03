@@ -142,21 +142,16 @@ jobs:
             build: -p lgwks_deps --locked
           - suite: workspace-core
             build: --workspace --exclude lgwks_bot --exclude lgwks_deps --locked
-          # The `it` binary links, so sccache cannot hold it, and at opt-level 1
-          # its compile outlasted the job on the 3-vCPU runner after a warm
-          # dependency restore (run 41644011516: lgwks_bot still compiling at
-          # 325 s). It builds the workspace crates at opt-level 0; dependencies
-          # keep `[profile.test.package."*"]` opt-level 3 and every assertion
-          # and overflow check stays on.
+          # The `it` binary links, so sccache cannot hold it; this archive
+          # builds the workspace crates at opt-level 0 through the `ci-it`
+          # profile (the root Cargo.toml says why and what it keeps).
           - suite: bot-it
-            build: -p lgwks_bot --test it --locked --features full
-            opt: "0"
+            build: -p lgwks_bot --test it --locked --features full --cargo-profile ci-it
           - suite: bot-rest
             build: -p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
       ARCHIVE_BUILD: ${{ matrix.build }}
-      CARGO_PROFILE_TEST_OPT_LEVEL: ${{ matrix.opt || '1' }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
