@@ -209,7 +209,7 @@ full = [
 # subscriber (#687). `net` adds `lgwks_std/http`, `process` adds
 # `lgwks_std/process`, `ephemeral` adds `lgwks_std/random`, `wire` and `ron`
 # carry the encodings; each gated module implies the feature it reads through.
-lgwks_std = { workspace = true, default-features = false, features = ["json", "hash", "trace"] }
+lgwks_std = { workspace = true, default-features = false, features = ["json", "hash", "trace", "random"] }
 # Optional, and behind the default-on `ecs` feature. `Bot` *is* the ECS bot, so
 # the default build keeps the substrate; a consumer that only supervises
 # processes opts out with `default-features = false` and never compiles

@@ -190,6 +190,7 @@ mod apps;
 mod authority;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod bot_front_door;
+mod cap_tokens;
 mod cas;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 mod cell_edge;
