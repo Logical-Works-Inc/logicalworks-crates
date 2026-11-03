@@ -197,6 +197,16 @@ command = "cargo nextest run -p lgwks_bot --all-targets --locked --no-default-fe
 ci_step = "Run lgwks-bot no-default-feature tests"
 
 [[lane]]
+id = "tests-std-full-build"
+group = "bot-full"
+surfaces = "ci"
+required = true
+# The std-full suite's compile, bounded apart from its tests so a cold cache
+# fits the job (ci.yml, run 41563372316). Locally the test lane builds them.
+command = "cargo nextest run -p lgwks_std --all-targets --locked --features full --no-run"
+ci_step = "Build lgwks-std full-feature tests"
+
+[[lane]]
 id = "tests-std-full"
 group = "bot-full"
 surfaces = "local ci"

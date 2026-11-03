@@ -572,9 +572,18 @@ jobs:
           key: std-full
       - name: nextest is installed
         uses: taiki-e/install-action@nextest
-      - name: Run lgwks-std full-feature tests
+      # The compile and the tests are bounded apart. As one three-minute step, a
+      # cold compile (2 m 12 s on run 41563372316) left the 1,324 tests 48 s,
+      # and they take 42 s warm (run 41559642263), so every cold run timed out.
+      # Pull requests restore main's cache and save none, so a pull request was
+      # cold whenever main's entry was missing. Cold, the job is about 22 s of
+      # setup, 132 s of compile, 42 s of tests and the save: inside five minutes.
+      - name: Build lgwks-std full-feature tests
         # Stops before the job limit so the cache is saved (see the build job).
         timeout-minutes: 3
+        run: cargo nextest run -p lgwks_std --all-targets --locked --features full --no-run
+      - name: Run lgwks-std full-feature tests
+        timeout-minutes: 1
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full ${PARTITION:+--partition $PARTITION}
       # A step cut by its timeout leaves the processes it started running, and
       # they kept writing into `target/`: main's save after the cut on run
