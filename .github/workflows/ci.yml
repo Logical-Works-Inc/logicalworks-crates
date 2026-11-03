@@ -23,13 +23,16 @@ on:
 # the Miri darwin seam, the timing gates and the macOS lints); `windows-latest`
 # the Windows legs.
 #
-# Compile once, test wide. A suite is built once per platform into a nextest
-# archive, and its shards download that archive and run on runners of their
-# own, so no shard compiles what another built. Before this layout the 13
-# pinned self-hosted instances each kept their own warm target, and a job that
-# landed cold (or a push that edited a test) compiled for most of its budget:
-# main's push runs 41566626944, 41561323534 and 41554422537 failed at 311 s,
-# 289 s and 364 s, and dispatched run 41569522596 passed at 280 s warm.
+# Build where you test. Each shard compiles the suite it runs and runs its
+# partition in the same job, so the run's critical path is one compile plus one
+# partition. The earlier layout built each suite once into a nextest archive and
+# ran its shards from it, which put the archive upload, a second runner start,
+# the download and the extract between the compile and the tests: 611 s of wall
+# in run 41671270220, where the `lgwks_bot` library and `it` binary alone
+# compiled for 150 s on Linux and 180 s on macOS after the dependencies, on
+# every pull request that touches them, warm cache or not. Shards compile side
+# by side, so more of them shortens the partition without lengthening the
+# compile.
 #
 # Caching has one owner per layer (`.github/actions/hosted-rust`): rust-cache
 # holds the registry and the dependency build, keyed by the lane group the job
@@ -67,124 +70,9 @@ env:
   CARGO_BUILD_WARNINGS: deny
 
 jobs:
-  # Each suite compiled once per platform. The Linux legs build and run in the
-  # `rust:<pin>-trixie` container the Mac's Linux leg used: its util-linux 2.41
-  # `setpriv` applies the Landlock rules `Confinement::Landlock` wraps (#337),
-  # which the runner image's older util-linux cannot. `--init` gives PID 1 a
-  # reaper, as a Linux host has, and `/tmp` is an executable tmpfs, because the
-  # suites run scripts they write there and fsync every durable record.
-  archive:
-    name: Test archive (${{ matrix.suite }}, ubuntu-24.04-arm)
-    runs-on: ubuntu-24.04-arm
-    container:
-      image: "rust:1.99.1-trixie"
-      options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # lgwks_bot's own tests run from the bot-full archive, so the
-          # workspace archive leaves its test binaries out (the `tests` lane
-          # filters `not package(lgwks_bot)` either way).
-          # lgwks_bot full is two archives: its consolidated `it` binary alone,
-          # which sccache cannot cache (it links), and every other target. One
-          # archive took 269 to 295 s of build and was cancelled at the limit
-          # on both platforms (run 41614009810); `it` with `sim_review_path`
-          # still took 291 s on macOS (run 41616846936).
-          - suite: workspace
-            build: --workspace --exclude lgwks_bot --locked
-          - suite: bot-it
-            build: -p lgwks_bot --test it --locked --features full
-          - suite: bot-rest
-            build: -p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full
-    env:
-      # Lints run once, in the Clippy jobs; the compiled code is identical.
-      RUSTC_WORKSPACE_WRAPPER: ""
-      ARCHIVE_BUILD: ${{ matrix.build }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
-        uses: ./.github/actions/hosted-rust
-        with:
-          toolchain: "1.99.1"
-          cache-key: ${{ matrix.suite }}
-          nextest: "true"
-          seed: "true"
-      - name: Build the test archive
-        # nextest writes the archive into an existing directory only (run
-        # 41605078279: "No such file or directory" after the whole compile).
-        run: if [ "$RUNNER_OS" = macOS ]; then cargo build --locked -p lgwks_deps --no-default-features --bin churn-slot; fi && mkdir -p nextest-archive && cargo nextest archive ${ARCHIVE_BUILD} --archive-file nextest-archive/suite.tar.zst
-      - name: Upload the test archive
-        uses: actions/upload-artifact@v7
-        with:
-          name: nextest-archive-${{ matrix.suite }}-${{ runner.os }}
-          path: nextest-archive/suite.tar.zst
-          if-no-files-found: error
-          retention-days: 1
-      - name: Cache hit rate
-        if: ${{ always() }}
-        run: sccache --show-stats
-
-  # The macOS archives, a job of their own so the Linux shards wait only on the
-  # Linux archives: in one matrix, a cancelled macOS leg skipped every Linux
-  # shard (run 41610587060). The workspace suite is two archives split by
-  # package, because on 3 vCPU the whole of it was still compiling at the job
-  # limit (310 s of build, same run).
-  archive_macos:
-    name: Test archive (${{ matrix.suite }}, macos-15)
-    runs-on: macos-15
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - suite: workspace-deps
-            build: -p lgwks_deps --locked
-          - suite: workspace-core
-            build: --workspace --exclude lgwks_bot --exclude lgwks_deps --locked
-          # Test binaries link, so sccache cannot hold them; both bot archives
-          # build the workspace crates at opt-level 0 through the `ci-it`
-          # profile (the root Cargo.toml says why and what it keeps). Run
-          # 41657975959: bot-it built in 161 s under it, bot-rest at opt-level 1
-          # took 245 s and was cancelled while archiving.
-          - suite: bot-it
-            build: -p lgwks_bot --test it --locked --features full --cargo-profile ci-it
-          - suite: bot-rest
-            build: -p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-it
-    env:
-      RUSTC_WORKSPACE_WRAPPER: ""
-      ARCHIVE_BUILD: ${{ matrix.build }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
-        uses: ./.github/actions/hosted-rust
-        with:
-          toolchain: "1.99.1"
-          cache-key: ${{ matrix.suite }}
-          nextest: "true"
-          seed: "true"
-      - name: Build the test archive
-        run: if [ "$RUNNER_OS" = macOS ]; then cargo build --locked -p lgwks_deps --no-default-features --bin churn-slot; fi && mkdir -p nextest-archive && cargo nextest archive ${ARCHIVE_BUILD} --archive-file nextest-archive/suite.tar.zst
-      - name: Upload the test archive
-        uses: actions/upload-artifact@v7
-        with:
-          name: nextest-archive-${{ matrix.suite }}-${{ runner.os }}
-          path: nextest-archive/suite.tar.zst
-          if-no-files-found: error
-          retention-days: 1
-      - name: Cache hit rate
-        if: ${{ always() }}
-        run: sccache --show-stats
-
   # Every workspace target compiles, benches and examples included, which the
-  # archives (test targets only) do not prove; then the simulation lane lists
-  # every workspace test (`cargo nextest list --workspace`) from that build. In
-  # the archive job the two took it past its limit (run 41607020833: 244 s of
-  # build, cancelled 22 s into the listing), so they run beside it.
-  # Run 41625615189: build and listing together passed every step and ended
-  # past the job limit (261 s of build, 25 s of listing), so the listing, which
-  # compiles test targets only, runs in its own job beside the all-targets build.
+  # test shards (test targets only) do not prove. The listing for the
+  # simulation lane comes from the shards' own builds (`workspace_build`).
   workspace_all_targets:
     name: Build all workspace targets
     runs-on: ubuntu-24.04-arm
@@ -200,19 +88,20 @@ jobs:
           cache-key: workspace
       - name: Build all workspace targets
         run: cargo test --workspace --all-targets --locked --no-run
-      # The two lgwks_bot archives name their test targets; a target added to
-      # the crate and named in neither would never run, so the job refuses it.
-      - name: Every lgwks_bot test target is in a bot archive
+      # The bot shards name their test targets; a target added to the crate and
+      # named in no shard would never run, so the job refuses it.
+      - name: Every lgwks_bot test target is in a bot shard
         run: |
           test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"
 
-  # The simulation lane lists the Linux test archives the archive jobs built
-  # (SIMULATION_ARCHIVES) instead of compiling every workspace test again:
-  # compiling them cold took past the job limit (run 41627777207, cancelled
-  # at 293 s). It runs in the archives' container, whose glibc they need.
+  # The simulation lane lists the test binaries the Linux shards built: the
+  # first shard of each suite writes them into a nextest archive after its
+  # build (SIMULATION_ARCHIVES), so nothing compiles every workspace test again
+  # (cold, that alone was cancelled at 293 s in run 41627777207). It runs in
+  # the shards' container, whose glibc the binaries need.
   workspace_build:
     name: Workspace build and simulation evidence
-    needs: archive
+    needs: tests_linux
     runs-on: ubuntu-24.04-arm
     container:
       image: "rust:1.99.1-trixie"
@@ -250,11 +139,21 @@ jobs:
         if: ${{ always() }}
         run: sccache --show-stats
 
-  # The Linux shards, in the archive's container. The lgwks-bot full suite's
+  # The Linux shards. They build and run in the `rust:<pin>-trixie` container
+  # the Mac's Linux leg used: its util-linux 2.41 `setpriv` applies the
+  # Landlock rules `Confinement::Landlock` wraps (#337), which the runner
+  # image's older util-linux cannot. `--init` gives PID 1 a reaper, as a Linux
+  # host has, and `/tmp` is an executable tmpfs, because the suites run scripts
+  # they write there and fsync every durable record. The lgwks-bot full suite's
   # JUnit reports are the Linux receipt (#271), one per shard.
+  #
+  # lgwks_bot full is two builds: its consolidated `it` binary, and every other
+  # target. The workspace suite leaves lgwks_bot's test binaries out (the
+  # `tests` lane filters `not package(lgwks_bot)` either way). Partitions are
+  # sized on run 41664993612: `it` ran 95 and 106 s a half, the workspace 73
+  # and 133 s.
   tests_linux:
     name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.partition }})
-    needs: archive
     runs-on: ubuntu-24.04-arm
     container:
       image: "rust:1.99.1-trixie"
@@ -264,18 +163,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: workspace, archive: workspace, partition: "slice:1/2" }
-          - { suite: workspace, archive: workspace, partition: "slice:2/2" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/2" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/2" }
-          - { suite: bot-full, archive: bot-rest, partition: "" }
+          - { suite: workspace, archive: workspace, partition: "slice:1/3", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:2/3", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:3/3", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:1/4", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:2/4", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:3/4", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:4/4", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full" }
     env:
       PARTITION: ${{ matrix.partition }}
-      # Extracted into the checkout, so `target/debug/<bin>` is where the build
-      # put it: tests compile in that path (`env!("CARGO_BIN_EXE_*")`), and in a
-      # temporary directory ai_authoring failed with "No such file or
-      # directory" (run 41616846936; reproduced and fixed in a trixie container).
-      NEXTEST_BUILD: --archive-file nextest-archive/suite.tar.zst --workspace-remap . --extract-to . --extract-overwrite
+      NEXTEST_BUILD: ${{ matrix.build }}
+      # Lints run once, in the Clippy jobs; the compiled code is identical.
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
@@ -285,19 +184,24 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.archive }}
           nextest: "true"
-          caches: "false"
-      - name: Download the test archive
-        uses: actions/download-artifact@v8
+      - name: Prepare the checkout
+        run: command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }
+      - name: Build the suite
+        run: cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null
+      # The simulation lane's input: the binaries this build already made,
+      # archived once per suite (nextest writes into an existing directory
+      # only, run 41605078279).
+      - name: Archive the suite for the simulation lane
+        if: startsWith(matrix.partition, 'slice:1/') || matrix.partition == ''
+        run: mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst
+      - name: Upload the suite archive
+        if: startsWith(matrix.partition, 'slice:1/') || matrix.partition == ''
+        uses: actions/upload-artifact@v7
         with:
           name: nextest-archive-${{ matrix.archive }}-Linux
-          path: nextest-archive
-      # Integration tests write under CARGO_TARGET_TMPDIR, a path compiled in
-      # as `<checkout>/target/tmp`. A shard checks out at the same path but
-      # builds nothing, so the directory is made here (run 41616846936: the
-      # deep-cancel and ai_authoring tests failed with "No such file or
-      # directory").
-      - name: Prepare the checkout for an archive run
-        run: mkdir -p target/tmp && cargo fetch --locked && { command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }; }
+          path: nextest-archive/suite.tar.zst
+          if-no-files-found: error
+          retention-days: 1
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -312,40 +216,45 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
+      - name: Cache hit rate
+        if: ${{ always() }}
+        run: sccache --show-stats
 
-  # The macOS shards. Each test process runs through the `churn-slot` wrapper
-  # the archive carries (INV-CI-SLOT-1); the `ci` profile leaves lgwks_bot's
-  # review-path binary and `sim_scale` module to the saturation shard on macOS
-  # (`.config/nextest.toml`), and that shard's report joins the receipt.
+  # The macOS shards, built in place like the Linux ones. Each test process runs
+  # through the `churn-slot` wrapper the suite's setup script builds
+  # (INV-CI-SLOT-1); the `ci` profile leaves lgwks_bot's review-path binary and
+  # `sim_scale` module to the saturation shard on macOS (`.config/nextest.toml`),
+  # and that shard's report joins the receipt. The workspace suite is split by
+  # package, because on 3 vCPU the whole of it was still compiling at the job
+  # limit (310 s of build, run 41610587060). The bot shards build the workspace
+  # crates at opt-level 0 through the `ci-it` profile (the root Cargo.toml says
+  # why and what it keeps).
   tests_macos:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.partition }})
-    needs: archive_macos
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { suite: workspace, archive: workspace-deps, partition: "slice:1/2" }
-          - { suite: workspace, archive: workspace-deps, partition: "slice:2/2" }
-          - { suite: workspace, archive: workspace-core, partition: "" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/3" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/3" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:3/3" }
-          - { suite: bot-full, archive: bot-rest, partition: "" }
-          # The saturation filter names a binary from each archive, so it runs
-          # once per archive and each run picks its own half.
-          - { suite: saturation, archive: bot-it, partition: "" }
-          - { suite: saturation, archive: bot-rest, partition: "" }
+          - { suite: workspace, archive: workspace-deps, partition: "slice:1/2", build: "-p lgwks_deps --locked" }
+          - { suite: workspace, archive: workspace-deps, partition: "slice:2/2", build: "-p lgwks_deps --locked" }
+          - { suite: workspace, archive: workspace-core, partition: "", build: "--workspace --exclude lgwks_bot --exclude lgwks_deps --locked" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:1/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:2/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:3/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:4/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:5/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:6/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
+          # The saturation filter picks `sim_scale` from `it` and the
+          # review-path binary; the shard builds just those two.
+          - { suite: saturation, archive: bot-it, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it" }
     env:
       PARTITION: ${{ matrix.partition }}
-      # Extracted into the checkout, so `target/debug/<bin>` is where the build
-      # put it: tests compile in that path (`env!("CARGO_BIN_EXE_*")`), and in a
-      # temporary directory ai_authoring failed with "No such file or
-      # directory" (run 41616846936; reproduced and fixed in a trixie container).
-      NEXTEST_BUILD: --archive-file nextest-archive/suite.tar.zst --workspace-remap . --extract-to . --extract-overwrite
+      NEXTEST_BUILD: ${{ matrix.build }}
       RUSTC_WORKSPACE_WRAPPER: ""
-      # The bot archives are built under `ci-it` (workspace crates at opt-level
+      # The bot shards are built under `ci-it` (workspace crates at opt-level
       # 0), whose unoptimized frames overflowed the 2 MiB test thread in
       # pr_review_journey and sim_review_path (run 41661639388; the same tests
       # pass at opt-level 1 on the Linux shards). Test threads get the 8 MiB a
@@ -353,21 +262,12 @@ jobs:
       RUST_MIN_STACK: "8388608"
     steps:
       - uses: actions/checkout@v7
-      # The suite's setup script builds the wrapper into the checkout; the
-      # cache keeps that a seconds-long build.
       - name: Pin Rust 1.99.1
         uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.archive }}
           nextest: "true"
-      - name: Download the test archive
-        uses: actions/download-artifact@v8
-        with:
-          name: nextest-archive-${{ matrix.archive }}-macOS
-          path: nextest-archive
-      - name: Prepare the checkout for an archive run
-        run: mkdir -p target/tmp && cargo fetch --locked && { command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }; }
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -377,13 +277,10 @@ jobs:
       # The saturation tiers (100, 1,000 and 10,000 concurrent runs through a
       # real process boundary), the review-path simulations and `sim_scale`,
       # with `--ignore-default-filter` lifting the `ci` profile's macOS filter.
-      # From an archive the filter alone picks the binaries, since nextest
-      # refuses `--test` beside `--archive-file`, so SATURATION_BINARIES is set
-      # empty (the lane takes its default only when it is unset).
       - name: Run lgwks-bot saturation tiers
         if: matrix.suite == 'saturation'
         env:
-          SATURATION_BINARIES: ""
+          SATURATION_BINARIES: "--test it --test sim_review_path"
           SATURATION_FILTER: "binary(sim_review_path) | (package(lgwks_bot) & binary(it) & test(/^sim_scale::/))"
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}"
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
@@ -396,6 +293,9 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
+      - name: Cache hit rate
+        if: ${{ always() }}
+        run: sccache --show-stats
 
   # The workspace's evidence lanes, doc tests and package smoke, and the
   # receipts tool the required row runs: each reads a build rather than a test
@@ -1072,7 +972,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [archive, archive_macos, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -1081,14 +981,15 @@ jobs:
     steps:
       - name: Every workspace test job passed
         env:
-          # The compile is two jobs: the archives and the all-targets build.
-          BUILD: ${{ needs.archive.result == 'success' && needs.archive_macos.result == 'success' && needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
+          # The compile beyond the shards: the all-targets build and the
+          # simulation listing.
+          BUILD: ${{ needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
           TAIL: ${{ needs.workspace_tail.result }}
           LINUX: ${{ needs.tests_linux.result }}
           MACOS: ${{ needs.tests_macos.result }}
           BOT_NODEFAULT: ${{ needs.tests_nodefault.result }}
         run: |
-          echo "archives ${BUILD}, evidence ${TAIL}, Linux shards ${LINUX}, macOS shards ${MACOS}, lgwks_bot no default ${BOT_NODEFAULT}"
+          echo "builds ${BUILD}, evidence ${TAIL}, Linux shards ${LINUX}, macOS shards ${MACOS}, lgwks_bot no default ${BOT_NODEFAULT}"
           test "${BUILD}" = success && test "${TAIL}" = success && test "${LINUX}" = success && test "${MACOS}" = success && test "${BOT_NODEFAULT}" = success
       - uses: actions/checkout@v7
       - name: Install sqlite3, the program the receipts are recorded through
@@ -1151,3 +1052,4 @@ jobs:
           CARGO_BUILD_WARNINGS=warn CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" cargo +nightly-2026-10-01 miri setup --target x86_64-pc-windows-msvc && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target aarch64-apple-darwin process::darwin::tests && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target x86_64-pc-windows-msvc process::windows::tests
+

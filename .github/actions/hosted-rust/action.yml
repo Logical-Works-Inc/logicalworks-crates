@@ -44,16 +44,6 @@ inputs:
       run compiled it cold (run 41633491192).
     required: false
     default: "true"
-  seed:
-    description: >
-      Whether a pull request saves this job's dependency build when main holds
-      no entry under its key. Main saves every entry it restores from; a pull
-      request that introduces a job or a key has no main entry to restore, so
-      every run of it compiled cold and the archive-then-test chain ran 570 s
-      against the 300 s run wall (run 41661639388). Once main saves under the
-      key, the pull request stops saving and restores main's entry.
-    required: false
-    default: "false"
 runs:
   using: composite
   steps:
@@ -93,27 +83,6 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: ln -sf "$(rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
-    # With a shared key, rust-cache names an entry `v0-rust-<shared-key>-<OS>-`
-    # then the architecture and hashes (run 41667629945 saved
-    # `v0-rust-bot-it-Darwin-arm64-...`); the list API matches the prefix, so
-    # this asks whether main holds any build of it. curl, not gh: the Linux
-    # archive jobs run in the `rust` image, which has no gh (same run).
-    - name: Find whether main holds this dependency build
-      id: seed
-      if: inputs.caches == 'true' && inputs.seed == 'true' && github.ref != 'refs/heads/main'
-      shell: bash
-      env:
-        TOKEN: ${{ github.token }}
-        PREFIX: v0-rust-${{ inputs.cache-key }}-${{ runner.os == 'macOS' && 'Darwin' || runner.os == 'Windows' && 'Windows_NT' || 'Linux' }}-
-      run: |
-        set -euo pipefail
-        listing="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github+json" \
-          "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/caches?ref=refs/heads/main&per_page=1&key=${PREFIX}" | tr -d ' \n')"
-        case "${listing}" in
-          *'"total_count":0,'*) echo "main holds no entry under ${PREFIX}: this run seeds it"; echo missing=true >> "${GITHUB_OUTPUT}" ;;
-          *'"total_count":'*) echo "main holds ${PREFIX}: restore only"; echo missing=false >> "${GITHUB_OUTPUT}" ;;
-          *) echo "::error::the cache listing was not understood: ${listing:0:200}"; exit 1 ;;
-        esac
     - name: Cache the registry and the dependency build
       if: inputs.caches == 'true'
       uses: Swatinem/rust-cache@v2
@@ -122,9 +91,10 @@ runs:
         # Every ref saving filled the 10 GiB cap and evicted main's entries,
         # so pull requests compiled cold (10.66 GiB on 2026-11-03, main 1.41).
         # Saved from main alone, the cache is one ref's worth and a pull
-        # request restores the last merged build; a `seed` job also saves from
-        # a pull request while main holds nothing under its key.
-        save-if: ${{ github.ref == 'refs/heads/main' || steps.seed.outputs.missing == 'true' }}
+        # request restores the last merged build. A pull request never saves
+        # to warm its own next run: the budget holds on the run that lands
+        # cold, so a second run's cache hit proves nothing.
+        save-if: ${{ github.ref == 'refs/heads/main' }}
         cache-on-failure: "true"
     - name: Install sccache
       if: inputs.caches == 'true' && inputs.sccache == 'true'
