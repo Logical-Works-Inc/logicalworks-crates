@@ -197,6 +197,38 @@ command = "mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --
 ci_step = "Archive the suite for the simulation lane"
 
 [[lane]]
+id = "simulation-lane-build"
+surfaces = "ci"
+required = true
+# The simulation job starts with the shards and builds its lane runner while
+# they compile, so the runner is ready when their archives land (run
+# 41698583571: after the shards, it put 40 s on the run's wall).
+command = "cargo build --locked -p lgwks_deps --bin ci-local"
+ci_step = "Build the simulation lane"
+
+[[lane]]
+id = "simulation-archives-ready"
+surfaces = "ci"
+required = true
+# Waits, bounded at 60 polls, until the first Linux shard of every suite has
+# uploaded its archive to this run, and fails naming the suites that never did.
+command = '''set -euo pipefail
+for attempt in $(seq 1 60); do
+  listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
+  missing=""
+  for suite in workspace bot-it bot-rest; do
+    case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
+  done
+  if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi
+  echo "attempt ${attempt}: waiting on${missing}"
+  sleep 4
+done
+echo "::error::the suite archives never arrived:${missing}"
+exit 1
+'''
+ci_step = "Wait for the Linux suite archives"
+
+[[lane]]
 id = "sqlite3-program"
 surfaces = "ci"
 required = true

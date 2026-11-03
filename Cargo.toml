@@ -74,20 +74,20 @@ debug = "line-tables-only"
 [profile.test.package."*"]
 opt-level = 3
 
-# The macOS `bot-it` and `bot-rest` test archives only (province#9). lgwks_bot's
-# test binaries link, so sccache cannot hold them, and at opt-level 1 `it` outlasted
-# the 5-minute job on the 3-vCPU hosted runner (run 41644011516, still
-# compiling at 325 s). A named profile changes only the workspace crates' codegen:
-# dependencies keep opt-level 3 and the same rustc arguments, so they hit the
-# objects the other archive jobs cache, which an environment override cannot
-# (sccache hashes `CARGO_*` variables; run 41648299237 hit 55% where the same
-# job hit 80%). Assertions and overflow checks stay on.
+# The macOS test shards only (province#9). Test binaries link, so sccache
+# cannot hold them, and on the 3-vCPU hosted runner a cold shard was still
+# compiling at the 5-minute limit with dependencies at opt-level 3 (run
+# 41698583571: every bot and workspace-core shard cancelled at 320 to 328 s).
+# Here dependencies build at opt-level 1 and workspace crates at 0, lgwks_bot
+# at 1 (below). A named profile, not an environment override, because sccache
+# hashes `CARGO_*` variables. Assertions and overflow checks stay on; the
+# simulations run slower and the shards are cut finer for it.
 [profile.ci-it]
 inherits = "test"
 opt-level = 0
 
 [profile.ci-it.package."*"]
-opt-level = 3
+opt-level = 1
 
 # Shared lint contract: every member opts in with `[lints] workspace = true`.
 # Mirrors the crate-level attributes the crates already carried, plus

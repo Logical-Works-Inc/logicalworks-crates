@@ -98,10 +98,12 @@ jobs:
   # first shard of each suite writes them into a nextest archive after its
   # build (SIMULATION_ARCHIVES), so nothing compiles every workspace test again
   # (cold, that alone was cancelled at 293 s in run 41627777207). It runs in
-  # the shards' container, whose glibc the binaries need.
+  # the shards' container, whose glibc the binaries need. It starts with the
+  # shards rather than after them: it builds the lane runner while they
+  # compile and takes each archive as it is uploaded, so it ends before the
+  # slowest shard instead of 40 s after it (run 41698583571).
   workspace_build:
     name: Workspace build and simulation evidence
-    needs: tests_linux
     runs-on: ubuntu-24.04-arm
     container:
       image: "rust:1.99.1-trixie"
@@ -118,6 +120,25 @@ jobs:
           toolchain: "1.99.1"
           cache-key: workspace
           nextest: "true"
+      - name: Build the simulation lane
+        run: cargo build --locked -p lgwks_deps --bin ci-local
+      - name: Wait for the Linux suite archives
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
+            missing=""
+            for suite in workspace bot-it bot-rest; do
+              case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
+            done
+            if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi
+            echo "attempt ${attempt}: waiting on${missing}"
+            sleep 4
+          done
+          echo "::error::the suite archives never arrived:${missing}"
+          exit 1
       - name: Download the Linux test archives
         uses: actions/download-artifact@v8
         with:
@@ -150,8 +171,9 @@ jobs:
   # lgwks_bot full is two builds: its consolidated `it` binary, and every other
   # target. The workspace suite leaves lgwks_bot's test binaries out (the
   # `tests` lane filters `not package(lgwks_bot)` either way). Partitions are
-  # sized on run 41664993612: `it` ran 95 and 106 s a half, the workspace 73
-  # and 133 s.
+  # sized on cold run 41698583571: `it` compiled 135 to 139 s and ran 67 to
+  # 79 s a quarter; the workspace compiled 92 to 103 s and its first third ran
+  # 144 s, past the job limit.
   tests_linux:
     name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.partition }})
     runs-on: ubuntu-24.04-arm
@@ -163,13 +185,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: workspace, archive: workspace, partition: "slice:1/3", build: "--workspace --exclude lgwks_bot --locked" }
-          - { suite: workspace, archive: workspace, partition: "slice:2/3", build: "--workspace --exclude lgwks_bot --locked" }
-          - { suite: workspace, archive: workspace, partition: "slice:3/3", build: "--workspace --exclude lgwks_bot --locked" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/4", build: "-p lgwks_bot --test it --locked --features full" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/4", build: "-p lgwks_bot --test it --locked --features full" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:3/4", build: "-p lgwks_bot --test it --locked --features full" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:4/4", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: workspace, archive: workspace, partition: "slice:1/6", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:2/6", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:3/6", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:4/6", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:5/6", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: workspace, archive: workspace, partition: "slice:6/6", build: "--workspace --exclude lgwks_bot --locked" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:1/5", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:2/5", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:3/5", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:4/5", build: "-p lgwks_bot --test it --locked --features full" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:5/5", build: "-p lgwks_bot --test it --locked --features full" }
           - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full" }
     env:
       PARTITION: ${{ matrix.partition }}
@@ -226,9 +252,11 @@ jobs:
   # `sim_scale` module to the saturation shard on macOS (`.config/nextest.toml`),
   # and that shard's report joins the receipt. The workspace suite is split by
   # package, because on 3 vCPU the whole of it was still compiling at the job
-  # limit (310 s of build, run 41610587060). The bot shards build the workspace
-  # crates at opt-level 0 through the `ci-it` profile (the root Cargo.toml says
-  # why and what it keeps).
+  # limit (310 s of build, run 41610587060). Every macOS shard builds through
+  # the `ci-it` profile, dependencies at opt-level 1 and workspace crates at 0:
+  # cold, at the test profile's opt-level 3 dependencies, every bot and
+  # workspace-core shard was still compiling at the limit (run 41698583571).
+  # The root Cargo.toml says what the profile keeps.
   tests_macos:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.partition }})
     runs-on: macos-15
@@ -237,19 +265,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: workspace, archive: workspace-deps, partition: "slice:1/2", build: "-p lgwks_deps --locked" }
-          - { suite: workspace, archive: workspace-deps, partition: "slice:2/2", build: "-p lgwks_deps --locked" }
-          - { suite: workspace, archive: workspace-core, partition: "", build: "--workspace --exclude lgwks_bot --exclude lgwks_deps --locked" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:1/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:2/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:3/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:4/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:5/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-it, partition: "slice:6/6", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-deps, partition: "slice:1/3", build: "-p lgwks_deps --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-deps, partition: "slice:2/3", build: "-p lgwks_deps --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-deps, partition: "slice:3/3", build: "-p lgwks_deps --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-core, partition: "slice:1/2", build: "--workspace --exclude lgwks_bot --exclude lgwks_deps --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "--workspace --exclude lgwks_bot --exclude lgwks_deps --locked --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:1/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:2/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:3/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:4/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:5/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:6/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:7/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it, partition: "slice:8/8", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-it" }
           - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
-          # The saturation filter picks `sim_scale` from `it` and the
-          # review-path binary; the shard builds just those two.
-          - { suite: saturation, archive: bot-it, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it" }
+          # The saturation set is `sim_scale` in `it` and the review-path
+          # binary, one shard each, so each builds only its own binary.
+          - { suite: saturation, archive: bot-it, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test it", sat_filter: "package(lgwks_bot) & binary(it) & test(/^sim_scale::/)" }
+          - { suite: saturation, archive: bot-rest, partition: "", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -280,8 +313,8 @@ jobs:
       - name: Run lgwks-bot saturation tiers
         if: matrix.suite == 'saturation'
         env:
-          SATURATION_BINARIES: "--test it --test sim_review_path"
-          SATURATION_FILTER: "binary(sim_review_path) | (package(lgwks_bot) & binary(it) & test(/^sim_scale::/))"
+          SATURATION_BINARIES: ${{ matrix.sat_bins }}
+          SATURATION_FILTER: ${{ matrix.sat_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}"
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
@@ -1052,4 +1085,5 @@ jobs:
           CARGO_BUILD_WARNINGS=warn CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" cargo +nightly-2026-10-01 miri setup --target x86_64-pc-windows-msvc && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target aarch64-apple-darwin process::darwin::tests && \
           CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER="" MIRIFLAGS=-Zmiri-strict-provenance cargo +nightly-2026-10-01 miri test -p lgwks_std --no-default-features --features process --locked --lib --target x86_64-pc-windows-msvc process::windows::tests
+
 
