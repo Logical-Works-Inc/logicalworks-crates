@@ -224,3 +224,16 @@ broken_intra_doc_links = "deny"
 # 41664993612), so the test no longer discriminated.
 [profile.ci-it.package.lgwks_bot]
 opt-level = 1
+
+# The Linux lgwks_bot shards only: `ci-it` with dependencies at opt-level 0.
+# Cold, a bot-it shard spent 248 to 259 s building with dependencies at
+# opt-level 1 and was cancelled at the limit with its tests barely started
+# (run 41713569268). lgwks_bot keeps opt-level 1 for the stack-bound test above.
+[profile.ci-bot]
+inherits = "ci-it"
+
+[profile.ci-bot.package."*"]
+opt-level = 0
+
+[profile.ci-bot.package.lgwks_bot]
+opt-level = 1
