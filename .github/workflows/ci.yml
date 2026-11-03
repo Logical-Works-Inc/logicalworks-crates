@@ -259,7 +259,7 @@ jobs:
       # deep-cancel and ai_authoring tests failed with "No such file or
       # directory").
       - name: Prepare the checkout for an archive run
-        run: mkdir -p target/tmp && cargo fetch --locked
+        run: mkdir -p target/tmp && cargo fetch --locked && { command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }; }
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -323,7 +323,7 @@ jobs:
           name: nextest-archive-${{ matrix.archive }}-macOS
           path: nextest-archive
       - name: Prepare the checkout for an archive run
-        run: mkdir -p target/tmp && cargo fetch --locked
+        run: mkdir -p target/tmp && cargo fetch --locked && { command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }; }
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}

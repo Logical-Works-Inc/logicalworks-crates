@@ -194,8 +194,10 @@ required = true
 # makes the directory first (run 41616846936: sim_deep_cancel failed with "No
 # such file or directory"). It also fetches the locked registry, which probe
 # tests resolve against offline (run 41619678074: "no matching package named
-# `rkyv` found" on a shard that never built).
-command = "mkdir -p target/tmp && cargo fetch --locked"
+# `rkyv` found" on a shard that never built). The receipt tests drive the
+# sqlite3 program, which the trixie container lacks (run 41621737724), so it is
+# installed where absent.
+command = "mkdir -p target/tmp && cargo fetch --locked && { command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }; }"
 ci_step = "Prepare the checkout for an archive run"
 
 [[lane]]
