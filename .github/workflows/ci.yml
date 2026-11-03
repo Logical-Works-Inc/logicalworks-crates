@@ -343,6 +343,12 @@ jobs:
       # directory" (run 41616846936; reproduced and fixed in a trixie container).
       NEXTEST_BUILD: --archive-file nextest-archive/suite.tar.zst --workspace-remap . --extract-to . --extract-overwrite
       RUSTC_WORKSPACE_WRAPPER: ""
+      # The bot archives are built under `ci-it` (workspace crates at opt-level
+      # 0), whose unoptimized frames overflowed the 2 MiB test thread in
+      # pr_review_journey and sim_review_path (run 41661639388; the same tests
+      # pass at opt-level 1 on the Linux shards). Test threads get the 8 MiB a
+      # macOS main thread has.
+      RUST_MIN_STACK: "8388608"
     steps:
       - uses: actions/checkout@v7
       # The suite's setup script builds the wrapper into the checkout; the
