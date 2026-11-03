@@ -110,6 +110,7 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.suite }}
           nextest: "true"
+          seed: "true"
       - name: Build the test archive
         # nextest writes the archive into an existing directory only (run
         # 41605078279: "No such file or directory" after the whole compile).
@@ -162,6 +163,7 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.suite }}
           nextest: "true"
+          seed: "true"
       - name: Build the test archive
         run: if [ "$RUNNER_OS" = macOS ]; then cargo build --locked -p lgwks_deps --no-default-features --bin churn-slot; fi && mkdir -p nextest-archive && cargo nextest archive ${ARCHIVE_BUILD} --archive-file nextest-archive/suite.tar.zst
       - name: Upload the test archive

@@ -44,6 +44,16 @@ inputs:
       run compiled it cold (run 41633491192).
     required: false
     default: "true"
+  seed:
+    description: >
+      Whether a pull request saves this job's dependency build when main holds
+      no entry under its key. Main saves every entry it restores from; a pull
+      request that introduces a job or a key has no main entry to restore, so
+      every run of it compiled cold and the archive-then-test chain ran 570 s
+      against the 300 s run wall (run 41661639388). Once main saves under the
+      key, the pull request stops saving and restores main's entry.
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -83,6 +93,19 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: ln -sf "$(rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
+    # rust-cache keys an entry `v0-rust-<shared-key>-<job>-<OS>-...`; the list
+    # API matches the prefix, so this asks whether main holds any build of it.
+    - name: Find whether main holds this dependency build
+      id: seed
+      if: inputs.caches == 'true' && inputs.seed == 'true' && github.ref != 'refs/heads/main'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PREFIX: v0-rust-${{ inputs.cache-key }}-${{ github.job }}-${{ runner.os == 'macOS' && 'Darwin' || runner.os == 'Windows' && 'Windows_NT' || 'Linux' }}-
+      run: |
+        held="$(gh api -X GET "repos/${GITHUB_REPOSITORY}/actions/caches" -f ref=refs/heads/main -f key="${PREFIX}" --jq .total_count)"
+        echo "main holds ${held} entries under ${PREFIX}"
+        if [ "${held}" = 0 ]; then echo missing=true; else echo missing=false; fi >> "${GITHUB_OUTPUT}"
     - name: Cache the registry and the dependency build
       if: inputs.caches == 'true'
       uses: Swatinem/rust-cache@v2
@@ -91,8 +114,9 @@ runs:
         # Every ref saving filled the 10 GiB cap and evicted main's entries,
         # so pull requests compiled cold (10.66 GiB on 2026-11-03, main 1.41).
         # Saved from main alone, the cache is one ref's worth and a pull
-        # request restores the last merged build.
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        # request restores the last merged build; a `seed` job also saves from
+        # a pull request while main holds nothing under its key.
+        save-if: ${{ github.ref == 'refs/heads/main' || steps.seed.outputs.missing == 'true' }}
         cache-on-failure: "true"
     - name: Install sccache
       if: inputs.caches == 'true' && inputs.sccache == 'true'
