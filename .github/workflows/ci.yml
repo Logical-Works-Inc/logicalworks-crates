@@ -685,9 +685,14 @@ jobs:
   # Lints, the rustdoc lanes and the two release-build gates. Clippy and
   # rustdoc compile the same dependency graph as `cargo check`, so they share a
   # target; the release gates run last, on the build the scan step left.
-  # Three legs, each on its own hosted runner: the whole job took 5 m 18 s and
-  # was cancelled before its last two steps (run 38416328077). Every step is
-  # unchanged and runs in exactly one leg.
+  # Four legs, each on its own hosted runner: the whole job took 5 m 18 s and
+  # was cancelled before its last two steps (run 38416328077). The feature
+  # matrix left the workspace leg for a leg of its own after a lock change
+  # (#788, async-executor 1.14.0 yanked) keyed every cache cold: the workspace
+  # leg ran clippy over all targets and then the matrix, and was cancelled at
+  # the budget on runs 41550387704 and 41551628776. A cancelled job saves no
+  # cache, so that leg could not warm itself. Every step is unchanged and runs
+  # in exactly one leg.
   clippy:
     name: Clippy and scan (${{ matrix.part }})
     runs-on: macos-latest
@@ -695,7 +700,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [workspace, scan, reduced]
+        part: [workspace, features, scan, reduced]
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.0
@@ -737,7 +742,7 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: "false"
         run: cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- script check
       - name: Clippy feature matrix
-        if: matrix.part == 'workspace'
+        if: matrix.part == 'features'
         # Per-crate all-features (gpui excluded: it needs the Xcode Metal
         # toolchain and is checked by its own lane in the matrix job).
         run: >
