@@ -970,7 +970,8 @@ jobs:
         if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq '"cache: \(.active_caches_count) entries, \(.active_caches_size_in_bytes / 1048576 | floor) MiB of 10240"'
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq '"cache: \(.active_caches_count) entries, \(.active_caches_size_in_bytes / 1048576 | floor) MiB of 10240"'
       - name: Run wall is at most 300 seconds
         if: ${{ always() }}
         env:
