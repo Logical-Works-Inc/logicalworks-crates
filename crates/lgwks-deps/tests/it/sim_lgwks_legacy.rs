@@ -348,7 +348,7 @@ fn sim_access_tables_pack_and_read_back() -> TestResult {
                 let note = if notes.is_empty() {
                     Value::Null
                 } else {
-                    Value::String(notes)
+                    Value::from(notes)
                 };
                 expected.push(lgwks_std::json::json!([
                     name,

@@ -166,7 +166,7 @@ fn a_record_without_a_positive_version_is_refused() -> TestResult {
             .get_mut("records")
             .and_then(Value::as_object_mut)
             .ok_or("the store holds a records object")?;
-        let names: Vec<String> = records.keys().cloned().collect();
+        let names: Vec<String> = records.keys().map(str::to_owned).collect();
         let name = names
             .get(index_below(&mut rng, names.len())?)
             .ok_or("a record name in range")?;

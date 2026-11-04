@@ -562,7 +562,7 @@ fn decode(text: &str) -> Result<StoreState, CasError> {
                     cause: format!("record {name} has no string value"),
                 })?;
             records.insert(
-                name.clone(),
+                name.to_owned(),
                 Record {
                     version,
                     value: content.to_owned(),

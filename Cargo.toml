@@ -20,7 +20,7 @@ resolver = "2"
 # crates.io.
 # ─────────────────────────────────────────────────────────────────────────────
 [workspace.dependencies]
-lgwks_std = { version = "3.2.2", path = "crates/lgwks-std" }
+lgwks_std = { version = "4.0.0", path = "crates/lgwks-std" }
 # Drishti's command orchestrates through `script!`; members opt into features.
 lgwks_bot = { version = "6.1.0", path = "crates/lgwks-bot", default-features = false }
 lgwks_ast = { version = "4.1.0", path = "crates/lgwks-ast" }

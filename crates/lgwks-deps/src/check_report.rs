@@ -446,11 +446,8 @@ pub(crate) fn print_check_json(
     let mut refusal_rows = Vec::with_capacity(refusals.len());
     for refusal in refusals {
         let mut row = Map::new();
-        row.insert(
-            "crate".to_owned(),
-            Value::String(refusal.krate().to_owned()),
-        );
-        row.insert("detail".to_owned(), Value::String(refusal.to_string()));
+        row.insert("crate".to_owned(), Value::from(refusal.krate().to_owned()));
+        row.insert("detail".to_owned(), Value::from(refusal.to_string()));
         refusal_rows.push(Value::Object(row));
     }
 
@@ -458,7 +455,7 @@ pub(crate) fn print_check_json(
     payload.insert(
         "root".to_owned(),
         match outcome.root {
-            Some(path) => Value::String(format!("{}", path.display())),
+            Some(path) => Value::from(format!("{}", path.display())),
             None => Value::Null,
         },
     );
@@ -466,13 +463,13 @@ pub(crate) fn print_check_json(
     // the verdict, and the two identities it is bound to.
     payload.insert(
         "mode".to_owned(),
-        Value::String(outcome.mode.as_str().to_owned()),
+        Value::from(outcome.mode.as_str().to_owned()),
     );
     let mut contract = Map::new();
     contract.insert(
         "digest".to_owned(),
         match register {
-            Some(register) => Value::String(register.digest().to_owned()),
+            Some(register) => Value::from(register.digest().to_owned()),
             None => Value::Null,
         },
     );
@@ -490,7 +487,7 @@ pub(crate) fn print_check_json(
     contract.insert(
         "repository".to_owned(),
         match register.and_then(|register| register.repository.as_ref()) {
-            Some(repository) => Value::String(repository.clone()),
+            Some(repository) => Value::from(repository.clone()),
             None => Value::Null,
         },
     );
@@ -503,7 +500,7 @@ pub(crate) fn print_check_json(
             Some(accepted) => Value::Array(
                 accepted
                     .iter()
-                    .map(|licence| Value::String(licence.clone()))
+                    .map(|licence| Value::from(licence.clone()))
                     .collect(),
             ),
             None => Value::Null,
@@ -514,7 +511,7 @@ pub(crate) fn print_check_json(
     subject.insert(
         "digest".to_owned(),
         match verdict {
-            Some(verdict) => Value::String(verdict.subject().digest().to_owned()),
+            Some(verdict) => Value::from(verdict.subject().digest().to_owned()),
             None => Value::Null,
         },
     );
@@ -527,10 +524,7 @@ pub(crate) fn print_check_json(
     );
     subject.insert("resolved".to_owned(), Value::Bool(verdict.is_some()));
     payload.insert("subject".to_owned(), Value::Object(subject));
-    payload.insert(
-        "scope".to_owned(),
-        Value::String(INVARIANT_SCOPE.to_owned()),
-    );
+    payload.insert("scope".to_owned(), Value::from(INVARIANT_SCOPE.to_owned()));
     payload.insert(
         "enforce".to_owned(),
         match register {
@@ -562,7 +556,7 @@ pub(crate) fn print_check_json(
     payload.insert(
         "error".to_owned(),
         match error {
-            Some(message) => Value::String(message.to_owned()),
+            Some(message) => Value::from(message.to_owned()),
             None => Value::Null,
         },
     );
@@ -571,8 +565,8 @@ pub(crate) fn print_check_json(
         if let Some(audit) = json.audit {
             for refusal in audit.refusals() {
                 let mut row = Map::new();
-                row.insert("id".to_owned(), Value::String(refusal.id().to_owned()));
-                row.insert("detail".to_owned(), Value::String(refusal.to_string()));
+                row.insert("id".to_owned(), Value::from(refusal.id().to_owned()));
+                row.insert("detail".to_owned(), Value::from(refusal.to_string()));
                 invariant_rows.push(Value::Object(row));
             }
         }
@@ -580,10 +574,10 @@ pub(crate) fn print_check_json(
         if let Some(audit) = json.audit {
             for outcome in audit.outcomes() {
                 let mut row = Map::new();
-                row.insert("id".to_owned(), Value::String(outcome.id().to_owned()));
+                row.insert("id".to_owned(), Value::from(outcome.id().to_owned()));
                 row.insert(
                     "status".to_owned(),
-                    Value::String(outcome.status.as_str().to_owned()),
+                    Value::from(outcome.status.as_str().to_owned()),
                 );
                 outcome_rows.push(Value::Object(row));
             }
@@ -621,16 +615,13 @@ pub(crate) fn print_check_json(
             "attested".to_owned(),
             Value::Number(serde_json_number(attested)),
         );
-        invariant_payload.insert(
-            "scope".to_owned(),
-            Value::String(INVARIANT_SCOPE.to_owned()),
-        );
+        invariant_payload.insert("scope".to_owned(), Value::from(INVARIANT_SCOPE.to_owned()));
         invariant_payload.insert("outcomes".to_owned(), Value::Array(outcome_rows));
         invariant_payload.insert("refusals".to_owned(), Value::Array(invariant_rows));
         invariant_payload.insert(
             "error".to_owned(),
             match json.error {
-                Some(message) => Value::String(message.to_owned()),
+                Some(message) => Value::from(message.to_owned()),
                 None => Value::Null,
             },
         );

@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_std 4.0.0 - unreleased: [notes](docs/changelog/08-own-json-value-2026-11-03.md)
 - lgwks_std 3.2.2 / lgwks_deps 5.1.2 / lgwks_ast 4.1.0 / lgwks_macros 1.3.0 / lgwks_bot 6.1.0 / drishti 0.1.0 - 2026-10-29: [notes](docs/changelog/07-durable-words-2026-10-29.md)
 - lgwks_std 3.2.1 / lgwks_deps 5.1.1 / lgwks_ast 4.0.0 / lgwks_macros 1.2.0 / lgwks_bot 6.0.0 - 2026-10-28: [notes](docs/changelog/06-script-words-2026-10-28.md)
 - lgwks_std 3.2.0 / lgwks_deps 5.1.0 / lgwks_ast 3.1.0 / lgwks_bot 5.0.0 - 2026-10-27: [notes](docs/changelog/05-http-store-ledger-2026-10-27.md)
