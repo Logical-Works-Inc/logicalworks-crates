@@ -554,6 +554,19 @@ command = "cargo run --locked --release -p lgwks_ast --no-default-features --fea
 ci_step = "Scan reports zero findings"
 
 [[lane]]
+id = "examples"
+group = "quality"
+surfaces = "local ci"
+required = true
+fast = true
+# INV-DOC-6 (ADR 0012): every public library item a change adds shows a fenced
+# example, the Tokio bar. The opt-in missing-example rule judges only the lines
+# added since the base, so the items written before the rule are counted by a
+# bare run and never block a change. The same build as the `scan` lane.
+command = "cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- scan --rule missing-example --base ${DOCS_BASE:-origin/main} crates"
+ci_step = "New public items show an example"
+
+[[lane]]
 id = "script-check"
 group = "quality"
 surfaces = "local ci"

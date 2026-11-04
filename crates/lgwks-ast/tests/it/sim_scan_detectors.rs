@@ -172,7 +172,7 @@ fn a_rule_selection_is_the_whole_scan_filtered() -> TestResult {
 /// detector reports selects nothing rather than a default.
 #[test]
 fn every_rule_name_round_trips() -> TestResult {
-    for rule in Rule::ALL {
+    for rule in Rule::ALL.into_iter().chain(Rule::OPT_IN) {
         assert_eq!(
             Rule::from_name(rule.name()),
             Some(rule),

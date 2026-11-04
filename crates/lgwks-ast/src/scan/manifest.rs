@@ -57,6 +57,16 @@ enum Declared {
 }
 
 /// Scans one `Cargo.toml` for lint levels that silence, in source order.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::scan::scan_manifest;
+///
+/// let hits = scan_manifest("[lints.rust]\ndead_code = \"allow\"\nunsafe_code = \"forbid\"\n");
+/// let lines: Vec<usize> = hits.iter().map(|hit| hit.line()).collect();
+/// assert_eq!(lines, [2]);
+/// ```
 #[must_use]
 pub fn scan_manifest(text: &str) -> Vec<Hit> {
     let mut hits = Vec::new();

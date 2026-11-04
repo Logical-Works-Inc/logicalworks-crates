@@ -15,7 +15,23 @@
 //!
 //! [`scan_source_with`] runs a selection of [`Rule`]s and [`scan_source`] runs
 //! [`Rule::ALL`], so a consumer that gates one class of defect selects it by
-//! name and pays for one parse (#699).
+//! name and pays for one parse (#699). [`Rule::OPT_IN`] holds the detectors a
+//! whole scan leaves out and a caller names: today missing-example, the public
+//! item whose doc shows no call to copy, which the gate holds to the lines a
+//! change adds (ADR 0012).
+//!
+//! # Examples
+//!
+//! ```
+//! use lgwks_ast::scan::{Rule, scan_source, scan_source_with};
+//!
+//! let source = "/// Adds one.\npub fn bump(x: u8) -> u8 { x + 1 }\n";
+//! assert!(scan_source(source, "lib.rs")?.is_empty());
+//! let hits = scan_source_with(source, "lib.rs", &Rule::OPT_IN)?;
+//! assert_eq!(hits.len(), 1);
+//! assert_eq!(hits.first().map(|hit| hit.rule()), Some("missing-example"));
+//! # Ok::<(), lgwks_ast::scan::ScanError>(())
+//! ```
 //!
 //! The detectors read Rust through the one parser, [`crate::try_parse`], so the
 //! gate and structural inspection cannot disagree about a file, and the gate
@@ -37,12 +53,14 @@
 //! [`scan_source`]: crate::scan::scan_source
 //! [`Rule`]: crate::scan::Rule
 //! [`Rule::ALL`]: crate::scan::Rule::ALL
+//! [`Rule::OPT_IN`]: crate::scan::Rule::OPT_IN
 
 mod allow;
 mod binding;
 mod cfg;
 mod chain;
 mod doc;
+mod example;
 mod manifest;
 mod swallow;
 mod syntax;
@@ -63,6 +81,18 @@ use crate::{Language, ParseError, try_parse};
 /// Non-exhaustive because the detectors are its only constructors: a downstream
 /// consumer must destructure a `Hit` with `..`, so a later evidence field cannot
 /// be added by a caller and cannot break one either.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::scan::scan_source;
+///
+/// let source = "pub fn f() -> Option<u8> { let _ = \"1\".parse::<u8>(); None }\n";
+/// for hit in scan_source(source, "lib.rs")? {
+///     println!("lib.rs:{}: [{}] {}", hit.line(), hit.rule(), hit.snippet());
+/// }
+/// # Ok::<(), lgwks_ast::scan::ScanError>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Hit {
@@ -86,12 +116,32 @@ impl Hit {
     }
 
     /// The detector rule name, verbatim.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::{Rule, scan_source_with};
+    ///
+    /// let hits = scan_source_with("pub fn f() {}\n", "lib.rs", &Rule::OPT_IN)?;
+    /// assert_eq!(hits.first().map(|hit| hit.rule()), Some(Rule::MissingExample.name()));
+    /// # Ok::<(), lgwks_ast::scan::ScanError>(())
+    /// ```
     #[must_use]
     pub const fn rule(&self) -> &'static str {
         self.rule
     }
 
     /// The 1-based line the finding was observed on.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::{Rule, scan_source_with};
+    ///
+    /// let hits = scan_source_with("\n\npub fn f() {}\n", "lib.rs", &Rule::OPT_IN)?;
+    /// assert_eq!(hits.first().map(|hit| hit.line()), Some(3));
+    /// # Ok::<(), lgwks_ast::scan::ScanError>(())
+    /// ```
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
@@ -101,6 +151,16 @@ impl Hit {
     ///
     /// Borrowed, so a consumer renders a finding without being able to edit what
     /// it was shown.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::{Rule, scan_source_with};
+    ///
+    /// let hits = scan_source_with("pub fn f() {}\n", "lib.rs", &Rule::OPT_IN)?;
+    /// assert!(hits.first().is_some_and(|hit| hit.snippet().starts_with("pub fn f")));
+    /// # Ok::<(), lgwks_ast::scan::ScanError>(())
+    /// ```
     #[must_use]
     pub fn snippet(&self) -> &str {
         &self.snippet
@@ -113,6 +173,18 @@ impl Hit {
 ///
 /// Non-exhaustive so a caller cannot treat a future failure mode as impossible
 /// by matching every variant.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::scan::{ScanError, scan_source};
+///
+/// match scan_source("fn broken( {", "lib.rs") {
+///     Err(ScanError::Unparseable { path, cause }) => println!("{path}: {cause}"),
+///     Err(refusal) => println!("refused: {refusal}"),
+///     Ok(hits) => println!("{} findings", hits.len()),
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ScanError {
@@ -163,6 +235,17 @@ impl Error for ScanError {}
 ///
 /// Non-exhaustive so a later rule cannot break a caller that matches every
 /// variant today.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::scan::{Rule, scan_source_with};
+///
+/// let rule = Rule::from_name("long-try-chain").ok_or("no such detector")?;
+/// let hits = scan_source_with("fn f() {}\n", "lib.rs", &[rule])?;
+/// assert!(hits.is_empty());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum Rule {
@@ -176,11 +259,25 @@ pub enum Rule {
     LongTryChain,
     /// `tautological-doc`: a docstring that restates its own name.
     TautologicalDoc,
+    /// `missing-example`: a public library item whose doc opens no code
+    /// block. Opt-in ([`Rule::OPT_IN`]): a whole scan leaves it out.
+    MissingExample,
 }
 
 impl Rule {
-    /// Every detector, in the order the scan runs them. Findings are ordered by
-    /// line and then by rule name, whatever order the rules were selected in.
+    /// Every detector a whole scan runs, in the order the scan runs them.
+    /// Findings are ordered by line and then by rule name, whatever order the
+    /// rules were selected in.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::{Rule, scan_source, scan_source_with};
+    ///
+    /// let source = "fn f() {}\n";
+    /// assert_eq!(scan_source(source, "lib.rs")?, scan_source_with(source, "lib.rs", &Rule::ALL)?);
+    /// # Ok::<(), lgwks_ast::scan::ScanError>(())
+    /// ```
     pub const ALL: [Self; 5] = [
         Self::SwallowedError,
         Self::UnloggedError,
@@ -189,7 +286,31 @@ impl Rule {
         Self::TautologicalDoc,
     ];
 
+    /// The detectors a whole scan leaves out and a caller selects by name. Each
+    /// holds a bar the code written before it does not meet yet, so the gate
+    /// runs it over the lines a change adds rather than over the whole tree.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::{Rule, scan_source_with};
+    ///
+    /// let documented = "/// Adds one.\n///\n/// ```\n/// assert_eq!(bump(1), 2);\n/// ```\npub fn bump(x: u8) -> u8 { x + 1 }\n";
+    /// assert!(scan_source_with(documented, "lib.rs", &Rule::OPT_IN)?.is_empty());
+    /// # Ok::<(), lgwks_ast::scan::ScanError>(())
+    /// ```
+    pub const OPT_IN: [Self; 1] = [Self::MissingExample];
+
     /// The rule name a finding of this detector carries, verbatim.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::Rule;
+    ///
+    /// assert_eq!(Rule::MissingExample.name(), "missing-example");
+    /// assert_eq!(Rule::AllowSilence.name(), "ALLOW-SILENCE");
+    /// ```
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -198,25 +319,48 @@ impl Rule {
             Self::AllowSilence => "ALLOW-SILENCE",
             Self::LongTryChain => "long-try-chain",
             Self::TautologicalDoc => "tautological-doc",
+            Self::MissingExample => "missing-example",
         }
     }
 
-    /// The detector a rule name selects, or `None` for a name no detector
-    /// reports.
+    /// The detector a rule name selects, from [`Rule::ALL`] or
+    /// [`Rule::OPT_IN`], or `None` for a name no detector reports.
     ///
     /// Case-insensitive because a command line is typed by hand and the
     /// capitalisation of a rule name is not a fact a caller should have to
     /// remember.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::scan::Rule;
+    ///
+    /// assert_eq!(Rule::from_name("allow-silence"), Some(Rule::AllowSilence));
+    /// assert_eq!(Rule::from_name("missing-example"), Some(Rule::MissingExample));
+    /// assert_eq!(Rule::from_name("no-such-rule"), None);
+    /// ```
     #[must_use]
     pub fn from_name(name: &str) -> Option<Self> {
         Self::ALL
             .iter()
+            .chain(Self::OPT_IN.iter())
             .copied()
             .find(|rule| rule.name().eq_ignore_ascii_case(name))
     }
 }
 
-/// Scans one Rust source text with all five detectors, ordered by line.
+/// Scans one Rust source text with the five detectors of [`Rule::ALL`],
+/// ordered by line.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::scan::scan_source;
+///
+/// let hits = scan_source("#[allow(dead_code)]\nfn unused() {}\n", "lib.rs")?;
+/// assert_eq!(hits.first().map(|hit| hit.rule()), Some("ALLOW-SILENCE"));
+/// # Ok::<(), lgwks_ast::scan::ScanError>(())
+/// ```
 ///
 /// # Errors
 ///
@@ -233,6 +377,18 @@ pub fn scan_source(source: &str, path: &str) -> Result<Vec<Hit>, ScanError> {
 /// detector runs, so a caller that concatenates rule lists cannot make a file
 /// cost twice the work or report a finding twice. The text is parsed once
 /// whatever is selected, so a narrow selection costs no extra parse.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::scan::{Rule, scan_source_with};
+///
+/// let source = "#[allow(dead_code)]\npub fn unused() {}\n";
+/// let hits = scan_source_with(source, "lib.rs", &[Rule::MissingExample])?;
+/// let rules: Vec<&str> = hits.iter().map(|hit| hit.rule()).collect();
+/// assert_eq!(rules, ["missing-example"]);
+/// # Ok::<(), lgwks_ast::scan::ScanError>(())
+/// ```
 ///
 /// # Errors
 ///
@@ -253,13 +409,26 @@ pub fn scan_source_with(source: &str, path: &str, rules: &[Rule]) -> Result<Vec<
             Rule::AllowSilence => allow::detect(source, root, &mut hits),
             Rule::LongTryChain => chain::detect(source, root, &mut hits),
             Rule::TautologicalDoc => doc::detect(source, root, &mut hits),
+            Rule::MissingExample => example::detect(source, path, root, &mut hits),
         }
     }
     hits.sort_by(|left, right| (left.line, left.rule).cmp(&(right.line, right.rule)));
     Ok(hits)
 }
 
-/// Scans one `.rs` file from disk.
+/// Scans one `.rs` file from disk with the five detectors of [`Rule::ALL`].
+///
+/// # Examples
+///
+/// ```
+/// use std::path::Path;
+///
+/// use lgwks_ast::scan::scan_path;
+///
+/// let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/scan/mod.rs");
+/// assert!(scan_path(&path)?.is_empty());
+/// # Ok::<(), lgwks_ast::scan::ScanError>(())
+/// ```
 ///
 /// # Errors
 ///

@@ -448,7 +448,7 @@ fn execute(
     };
     let pages = prose::pages(root).map_err(read_error)?;
     let added = match base {
-        Some(base) => Some(prose::added_lines(root, base).map_err(read_error)?),
+        Some(base) => Some(lgwks_ast::hunks::added_since(root, base, "*.md").map_err(read_error)?),
         None => None,
     };
     for page in &pages {

@@ -17,14 +17,15 @@
 "crates/lgwks-ast/src/legacy/jcl.rs" = 2
 "crates/lgwks-ast/src/legacy/json.rs" = 2
 "crates/lgwks-ast/src/legacy/mod.rs" = 7
-"crates/lgwks-ast/src/lib.rs" = 5
+"crates/lgwks-ast/src/hunks.rs" = 1
+"crates/lgwks-ast/src/lib.rs" = 6
 "crates/lgwks-ast/src/parser.rs" = 22
 "crates/lgwks-ast/src/parser/check.rs" = 7
 "crates/lgwks-ast/src/parser/language.rs" = 14
 "crates/lgwks-ast/src/parser/markdown.rs" = 1
 "crates/lgwks-ast/src/parser/walk.rs" = 6
 "crates/lgwks-ast/src/scan/manifest.rs" = 1
-"crates/lgwks-ast/src/scan/mod.rs" = 13
+"crates/lgwks-ast/src/scan/mod.rs" = 14
 "crates/lgwks-ast/src/script/emit.rs" = 2
 "crates/lgwks-ast/src/script/find.rs" = 5
 "crates/lgwks-ast/src/script/json.rs" = 1
@@ -295,7 +296,12 @@
 
 # The doc-example ceiling (#526): per documentation file, how many fenced Rust
 # blocks name a workspace crate by path and hold no `script!`. Exact, like the one above.
+# The supported direct-use surfaces (`lgwks_ast::scan`, `lgwks_ast::hunks`) show
+# their own calls, as INV-DOC-6 asks of every new public item (ADR 0012).
 [examples]
+"crates/lgwks-ast/src/hunks.rs" = 1
+"crates/lgwks-ast/src/scan/manifest.rs" = 1
+"crates/lgwks-ast/src/scan/mod.rs" = 14
 "crates/lgwks-bot/src/script/scope.rs" = 1
 "crates/lgwks-std/src/http/pool.rs" = 1
 "crates/lgwks-std/src/http/stream.rs" = 1
