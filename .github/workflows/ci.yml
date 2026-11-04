@@ -79,11 +79,56 @@ env:
   CARGO_BUILD_WARNINGS: deny
 
 jobs:
+  # ADR 0011: a pull request that changes only reader-facing Markdown builds
+  # nothing a suite tests, so it runs the gate checks, whose `check-docs` step
+  # holds every page it touches to the docs bar, and skips the suites; #861 ran
+  # the whole suite for three governance pages and a slow macOS runner failed
+  # it. The pages are `docs/**/*.md` and the root `*.md` but `README.md`
+  # (the quickstart lane compiles it), and `llms.txt`. The two generated
+  # families (`docs/script-lexicon*.md`, `docs/catalog.md`) are code: tests
+  # render them. A push to `main`, a manual run and a failed listing are code.
+  changes:
+    name: Changed files
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - name: Classify the change
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [ -n "${PR}" ]; then
+            files="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')"
+            code=false
+            if [ -z "${files}" ]; then code=true; fi
+            while IFS= read -r file; do
+              case "${file}" in
+                docs/script-lexicon*.md|docs/catalog.md|README.md) code=true ;;
+                docs/*.md|llms.txt) ;;
+                */*) code=true ;;
+                *.md) ;;
+                *) code=true ;;
+              esac
+            done <<< "${files}"
+          fi
+          echo "code=${code}" >> "${GITHUB_OUTPUT}"
+          echo "code changed: ${code}"
+
   # Every workspace target compiles, benches and examples included, which the
   # test shards (test targets only) do not prove. The listing for the
   # simulation lane comes from the shards' own builds (`workspace_build`).
   workspace_all_targets:
     name: Build all workspace targets
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -128,6 +173,8 @@ jobs:
   # slowest shard instead of 40 s after it (run 41698583571).
   workspace_build:
     name: Workspace build and simulation evidence
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -204,6 +251,8 @@ jobs:
   # opt-level-0 workspace code.
   tests_linux:
     name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     container:
       image: "rust:1.99.1-trixie"
@@ -334,6 +383,8 @@ jobs:
   # Cargo.toml says what the profile keeps.
   tests_macos:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.it_group || matrix.partition }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -447,6 +498,8 @@ jobs:
   # archive, and none waits on the suites.
   workspace_tail:
     name: Workspace evidence and doc tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -498,7 +551,12 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
+      # Two commits deep, so `HEAD^1` is the base the docs check compares the
+      # change with: a pull request's merge commit has the base tip as its first
+      # parent, and a push to `main` the commit before it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - name: Pin Rust 1.99.1
         uses: ./.github/actions/hosted-rust
         with:
@@ -548,10 +606,14 @@ jobs:
         # #732: one register, one generated page, and a refusal for a row whose
         # owner file, feature or module is gone.
         run: cargo run --locked -p lgwks_deps --bin catalog -- --check .
-      - name: ADRs and PRDs hold their required fields
+      - name: Docs hold their fields and read plainly
         # ADR 0004: every ADR against ISO/IEC/IEEE 42010 and every PRD
-        # requirement against ISO/IEC/IEEE 29148.
-        run: cargo run --locked -p lgwks_deps --bin check-docs
+        # requirement against ISO/IEC/IEEE 29148. ADR 0011: every page this
+        # change touches against the docs bar, its added prose against the
+        # sentence and paragraph bounds.
+        env:
+          DOCS_BASE: HEAD^1
+        run: cargo run --locked -p lgwks_deps --bin check-docs -- . --base ${DOCS_BASE:-origin/main}
       - name: Root README quickstart matches its compiled example
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane readme-quickstart
 
@@ -612,6 +674,8 @@ jobs:
   # 41563372316) left the 1,324 tests 48 s.
   tests_std_full:
     name: Tests (lgwks-std full)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -648,6 +712,8 @@ jobs:
   # The lgwks-bot suite at no default features, in a job of its own.
   tests_nodefault:
     name: Tests (lgwks-bot no default features)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -668,6 +734,8 @@ jobs:
   # Mac's instances. Four legs, each its own feature family and cache.
   clippy:
     name: Clippy and scan (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -749,6 +817,8 @@ jobs:
   # reason for each lane, so this job and a contributor run the same ones.
   docs:
     name: Docs and release gates
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -777,6 +847,8 @@ jobs:
   # check runs exactly once per commit.
   storefront-matrix:
     name: Target and storefront matrix (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
@@ -837,6 +909,8 @@ jobs:
   # two §4.7 cells (`tests-linux`) the Mac could reach only from a container.
   target-matrix:
     name: Target matrix (${{ matrix.targets }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
@@ -874,6 +948,8 @@ jobs:
   # macOS VM json parse read p50 512 ns, p99 1 561 ns (run 41607020833).
   timing_gates:
     name: Timing gates (dudect, async fairness, latency tails)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -896,6 +972,8 @@ jobs:
   # ways (the suite, a mutant check, the tiers and the matrix).
   timing_async:
     name: Async fairness gate and concurrency ladder
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -913,6 +991,8 @@ jobs:
   # itself builds on Linux, so the docs.rs leg reads the platform it predicts.
   feature-matrix-bot-ast:
     name: Feature matrix (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
@@ -1001,6 +1081,8 @@ jobs:
 
   appcui-native:
     name: AppCUI native storefront
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     steps:
@@ -1018,6 +1100,8 @@ jobs:
   # The AppCUI legs on Windows and Linux, beside the macOS one.
   appcui-native-hosted:
     name: AppCUI native storefront hosted (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
@@ -1039,6 +1123,8 @@ jobs:
   # 194 s, and behind the AppCUI steps it made that leg the run's longest job.
   gpui-windows:
     name: GPUI Windows renderer
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -1064,6 +1150,8 @@ jobs:
   # (`docs/acceptance/t-rows-windows.toml`).
   process-windows:
     name: Process containment on Windows
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 5
     env:
@@ -1129,7 +1217,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -1139,7 +1227,19 @@ jobs:
     env:
       REVISION: ${{ github.sha }}
     steps:
+      # ADR 0011: a docs-only change skipped the suites, so the row is the
+      # classification and the gate. A failed classification leaves `code`
+      # empty, which takes the full path below and fails on the skipped jobs.
+      - name: A docs-only change passed the gate
+        if: needs.changes.outputs.code == 'false'
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          GATE: ${{ needs.gate.result }}
+        run: |
+          echo "docs-only change: classification ${CHANGES}, gate ${GATE}; the suites build nothing it changed"
+          test "${CHANGES}" = success && test "${GATE}" = success
       - name: Every workspace test job passed
+        if: needs.changes.outputs.code != 'false'
         env:
           # The compile beyond the shards: the all-targets build and the
           # simulation listing.
@@ -1152,26 +1252,33 @@ jobs:
           echo "builds ${BUILD}, evidence ${TAIL}, Linux shards ${LINUX}, macOS shards ${MACOS}, lgwks_bot no default ${BOT_NODEFAULT}"
           test "${BUILD}" = success && test "${TAIL}" = success && test "${LINUX}" = success && test "${MACOS}" = success && test "${BOT_NODEFAULT}" = success
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.code != 'false'
       - name: Install sqlite3, the program the receipts are recorded through
+        if: needs.changes.outputs.code != 'false'
         run: command -v sqlite3 || { sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3; }
       - name: Download the acceptance-receipts binary
+        if: needs.changes.outputs.code != 'false'
         uses: actions/download-artifact@v8
         with:
           name: receipts-tool
           path: receipts-tool
       - name: Download lgwks-bot JUnit reports
+        if: needs.changes.outputs.code != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: lgwks-bot-junit-*
           path: acceptance-artifact
       - name: Download the Linux and Windows JUnit reports
+        if: needs.changes.outputs.code != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: acceptance-junit-*
           path: acceptance-junit
       - name: Record acceptance receipts
+        if: needs.changes.outputs.code != 'false'
         run: chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
       - name: Upload acceptance receipt
+        if: needs.changes.outputs.code != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-receipts
@@ -1199,6 +1306,8 @@ jobs:
   # it is the toolchain's own `sysroot` package (run 40719181967).
   miri_unsafe:
     name: Miri unsafe seams
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     steps:

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 3.0.0 / lgwks_bot 3.0.0 / lgwks_ast 2.0.0 / lgwks_deps 4.0.0 / lgwks_macros 1.1.2 - 2026-10-18. Page 2 of 2. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — a run reads back as its script (#386, SL-6)
+## lgwks_bot — a run reads back as its script (#386, SL-6)
 
 - **Added** `script::Site` (word, source line, line as written), `Outcome`
   (`Succeeded`, `Retried`, `TimedOut`, `Cancelled`, `Failed`), `TrailEntry`
@@ -37,13 +37,13 @@ Release: lgwks_std 3.0.0 / lgwks_bot 3.0.0 / lgwks_ast 2.0.0 / lgwks_deps 4.0.0 
   p50 134 ns / p99 153 ns on main 86163649 and p50 143 ns / p99 170 ns with
   the trail, which also records each `within` line main did not record.
 
-### lgwks_ast — every construct knows its line (#386)
+## lgwks_ast — every construct knows its line (#386)
 
 - **Added** `script::Site` and a `site()` on `Each`, `Within`, `Retry`, `Step`,
   `For` and `Call`: the word, line and text the construct's map entry already
   carried, so the macro can emit them beside the structural label.
 
-### lgwks_ast — the script tool, a second caller of the one parser (#384)
+## lgwks_ast — the script tool, a second caller of the one parser (#384)
 
 - **Added** `script::read_source` and `script::Invocation`: every `script!` in
   a Rust file, found by token and read through `script::parse`, each with its
@@ -61,7 +61,7 @@ Release: lgwks_std 3.0.0 / lgwks_bot 3.0.0 / lgwks_ast 2.0.0 / lgwks_deps 4.0.0 
   architecture map: `lgwks_bot::script::Architecture`'s `Display` now prints
   through it, so the tool and the runtime cannot render a map differently.
 
-### lgwks_bot — the map renders through `lgwks_ast` (#384)
+## lgwks_bot — the map renders through `lgwks_ast` (#384)
 
 - The `script` feature now also enables the grammar-free `lgwks_ast/script`
   (already built by `lgwks_macros`) for `Architecture`'s rendering. The
@@ -73,7 +73,7 @@ Release: lgwks_std 3.0.0 / lgwks_bot 3.0.0 / lgwks_ast 2.0.0 / lgwks_deps 4.0.0 
 - The `script-check` gate lane runs `lgwks-ast script check` over the
   repository.
 
-### lgwks_ast — the typed-error derive without a parser (#367)
+## lgwks_ast — the typed-error derive without a parser (#367)
 
 The grammar stack (`ast-grep-core`, `ast-grep-language`, `tree-sitter`,
 `tracing`) is now the optional `parser` feature, which every `lang-*` feature
@@ -86,7 +86,7 @@ the parser with no grammar compiled; it is now `default-features = false,
 features = ["parser"]`. `diagnostic::diagnostics` and
 `diagnostic::recovery_count` walk a parsed tree and need `parser`.
 
-### lgwks_ast — the `script!` parser (#383)
+## lgwks_ast — the `script!` parser (#383)
 
 - **Added** the `script` feature (default off): `lgwks_ast::script::parse`
   reads the `script!` language into a typed tree (flows, steps, labels and the
@@ -96,7 +96,7 @@ features = ["parser"]`. `diagnostic::diagnostics` and
   included (SL-2, #383). The feature reaches `proc-macro2` through the
   `lgwks_deps` storefront and selects no grammar.
 
-### lgwks_macros
+## lgwks_macros
 
 - **Changed** `script!` is a shim over `lgwks_ast::script::parse`: the macro
   only writes Rust for the parsed tree. Expansions and refusals are unchanged.

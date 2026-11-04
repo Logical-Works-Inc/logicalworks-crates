@@ -2,15 +2,15 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 7 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - **`Observe::fingerprint`, and with it the lazy seam: a source that holds still
-  is no longer polled.** Change detection is an *equality* question — the
-  substrate reduces every observation to one bit and discards the value — so
-  making a source produce the value in order to ask the bit is the eager part of
-  the loop. `fn fingerprint(&self) -> Option<u128>` lets a source answer the
+  is no longer polled.** Change detection is an *equality* question. The
+  substrate reduces every observation to one bit and discards the value, so
+  making a source produce the value to ask the bit is the eager part of the
+  loop. A source with `fn fingerprint(&self) -> Option<u128>` answers the
   equality question from a key it already holds (an `ETag`, an `mtime`, a row
-  version, a mutation counter, a hash of a framebuffer), and the tick then
+  version, a mutation counter, a hash of a framebuffer). The tick then
   **never calls `poll`**: no value is constructed, nothing is boxed, and no
   future is built. The decision is taken *before* the future exists — a check
   inside the future would still have allocated the box carrying it, which on a

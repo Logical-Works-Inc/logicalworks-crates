@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 14 of 20. [Changelog index](../../CHANGELOG.md)
 
-### The saturation curve, the open-loop driver and the in-flight tiers (#269) (continued)
+## The saturation curve, the open-loop driver and the in-flight tiers (#269) (continued)
 
 `bench/async` gained an open-loop driver: offered rate as a parameter, each
 arrival's latency measured from its **intended** start rather than from when the
@@ -48,7 +48,7 @@ runnable thing, `--workers=2`, produced knees identical to `--workers=15` becaus
 every body in the sweep is a timer, so a thread count is not a vCPU count and
 this workload would not separate them.
 
-### Acceptance evidence is now executable (#271)
+## Acceptance evidence is now executable (#271)
 
 Every T01–T36 falsifier row in `docs/orchestration-acceptance.spec.md` names
 the tests that address it, in `docs/acceptance/t-rows.toml`. That claim was
@@ -81,6 +81,6 @@ their trace hash. They are new tests rather than renames precisely so that every
 existing citation of an existing test keeps resolving. No crate's public API
 changed.
 
-### lgwks_ast — the parse had no time bound, and the walk was quadratic (#277)
+## lgwks_ast — the parse had no time bound, and the walk was quadratic (#277)
 
 Two bounds the crate already claimed, and the numbers behind them.

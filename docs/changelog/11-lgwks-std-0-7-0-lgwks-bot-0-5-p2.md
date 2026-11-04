@@ -2,7 +2,7 @@
 
 Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Page 2 of 5. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
   The walk decides by the rung's own anchor and by nothing else. One hit
   resolves; two or more is `Ambiguous` and is **not** retried at a weaker rung —
@@ -54,7 +54,6 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   `--features full`, so the ephemeral tests execute in CI rather than only
   compiling.
 
-
 - **Write-ahead dispatch.** `IntentAdmitted` and `DispatchPrepared` are committed
   to the journal before the effect leaves the process, and `Broker::revalidate`
   re-checks the environment generation at the handoff, with no await between mint
@@ -82,8 +81,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   sibling constructors already carried. `must_use_candidate` does not reach
   `-> Self` constructors, which is how the inconsistency survived a green build.
 
-
-### lgwks_bot Breaking
+## lgwks_bot Breaking
 
 - `Execute::effect_lifetime` declares whether the action's effect reaches
   outside this process. The default is `EffectLifetime::External`, the
@@ -107,10 +105,10 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   both `InputIdentity` and `PartialEq` — content equality is not event
   identity.
 
-### lgwks_bot Added
+## lgwks_bot Added
 
 - `InputIdentity` and `EventId`. The first names an admitted observation for
   the purpose of a dispatch digest; the second tags a payload with an event id
   so two equal payloads are two events.
 
-### lgwks_bot Fixed
+## lgwks_bot Fixed

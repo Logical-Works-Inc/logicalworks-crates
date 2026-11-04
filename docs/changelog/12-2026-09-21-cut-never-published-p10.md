@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 10 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Fixed (continued)
+## lgwks_bot Fixed (continued)
 
 - **A tick can no longer be run from inside an async runtime through the
   synchronous adapter.** `Bot::tick` drives the tick with a thread-parking
@@ -57,7 +57,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   `withdrawing_authority_after_build_means_building_again` pin the behaviour the
   prose now describes.
 
-### lgwks_bot Documentation
+## lgwks_bot Documentation
 
 - The README, the crate docs, and the `lgwks-bot` guides described the tick as
   one synchronous pass. They now document both adapters, the four phases, the
@@ -75,16 +75,16 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   `scripts/check-doc-citations.py` cannot catch, because it verifies that a
   citation resolves and not that it names the right item.
 
-### Fixed
+## Fixed
 
 - **A resolver measured its margin against a field the threshold had already
   emptied** (`lgwks_bot`). Below-threshold candidates were discarded before the
   lead was computed, so a winner holding a `0.02` lead against a required `0.08`
   reported its whole score as the lead and resolved where it should have stayed
-  ambiguous. The threshold and the margin are two questions asked in that order:
-  the threshold asks whether an option *may* win, the margin asks whether it
-  separated itself from the next best thing actually observed, and that second
-  question cannot be answered against a field the first has emptied. Both tiers
+  ambiguous. The threshold and the margin are two questions asked in that order.
+  The threshold asks whether an option *may* win, and the margin asks whether it
+  separated itself from the next best thing observed. That second question
+  cannot be answered against a field the first has emptied. Both tiers
   now hand every measured score to `decide`, which applies the threshold and
   then measures the lead against the real runner-up, including one below it.
 - **A comparison that was never made no longer reads as one that was**
@@ -103,4 +103,4 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   side contributes nothing — and the tag is a gate rather than a weight. The
   component weights are deliberately *not* renormalized: a missing component
   keeps its weight missing, which is what lets the acceptance threshold state
-  which facts a match actually requires.
+  which facts a match requires.

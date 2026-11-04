@@ -2,7 +2,7 @@
 
 Pages of this guide: [scope and finding](general-bot-fold.md) · [what is new](general-bot-fold-new.md) · [recorder, settlement, language](general-bot-fold-language.md) · [semantic tier and mapping](general-bot-fold-semantic.md) · [reaching a page](general-bot-fold-reach.md) · [evasion and injection](general-bot-fold-evasion.md) · [sequence 1 to 5](general-bot-fold-sequence.md) · [sequence 6 to 14](general-bot-fold-frontier.md)
 
-### 5.4 Per-execution randomization — the objection, and how it is answered
+## 5.4 Per-execution randomization — the objection, and how it is answered
 
 `puppeteer-extra-plugin-stealth`, `--disable-blink-features=AutomationControlled`,
 per-request user-agent and hardware randomization.
@@ -24,7 +24,7 @@ fingerprints an element, and a bot that randomizes what the page observes about
 *it* while scoring what it observes about the page is measuring two different
 worlds. A recorded seed makes both sides readable.
 
-### 5.5 Evasion — a granted, recorded capability
+## 5.5 Evasion — a granted, recorded capability
 
 Where a polite, declared, session-holding crawler is still refused access,
 evasion is the remaining remedy and it is **built**, under three conditions that
@@ -47,7 +47,7 @@ the grant log rather than with an argument. What is refused outright is the
 version where evasion is unconditional, unrecorded, and indistinguishable in the
 artefact from an ordinary run — which is what a launch flag gives you.
 
-### 5.6 Code injection — and the locus distinction that makes this coherent
+## 5.6 Code injection — and the locus distinction that makes this coherent
 
 `page.exposeFunction`, `addInitScript`, and in-page analyzer injection are
 **permitted**, and the reason is the distinction the security case already
@@ -61,7 +61,7 @@ estate's automation browser may not be the session that observes a consumer's
 page. Injection into the second is what the whole design exists to avoid — so
 the fold adds capability, not ambiguity, provided the locus stays explicit.
 
-### 5.7 Free-text model output controlling the browser
+## 5.7 Free-text model output controlling the browser
 
 The described platform already gets most of this right: it forces a strict JSON
 grammar and enumerates the actions (`click`, `type`, `press`, `select`, `scroll`,

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 13 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std — the test sweep's own fixtures, held to the same contract (9-axis sweep) (continued)
+## lgwks_std — the test sweep's own fixtures, held to the same contract (9-axis sweep) (continued)
 
 - **The seeded stream is finalised.** `seeded_sweep::next_seed` was an
   unfinalised linear-congruential step, which has period `2**k` in its low `k`
@@ -45,7 +45,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   no trailing content being refused for having some. Each now draws or states the
   case it means.
 
-### lgwks_bot — `Supervisor::wait_idle`: the drain no longer pays a timer tick (#269)
+## lgwks_bot — `Supervisor::wait_idle`: the drain no longer pays a timer tick (#269)
 
 `Supervisor` had no awaitable join, so a caller that wanted every task finished
 polled `reap()` in a sleep loop, and Tokio's 1 ms timer granularity charged each
@@ -74,7 +74,7 @@ against raw Tokio's 107 ms. Peak memory footprint 2.6 MB. The 10,000-tier group-
 64 at a time, so it exercises batching and finishes in 10–12 s alone instead of
 83–116 s.
 
-### lgwks_bot — the supervisor's per-task cost, measured and cut (#269)
+## lgwks_bot — the supervisor's per-task cost, measured and cut (#269)
 
 Measured on an Apple M5 Pro with `bench/async`'s allocation attribution, 1,024
 tasks at bound 8, release: **`Supervisor`'s per-task allocations went from 15.33
@@ -114,4 +114,4 @@ by item breakdown, the six-bound saturation curve, the in-flight tiers to
 1,048,576 concurrently admitted tasks and the overload/recovery run are in
 `bench/async/README.md`.
 
-### The saturation curve, the open-loop driver and the in-flight tiers (#269)
+## The saturation curve, the open-loop driver and the in-flight tiers (#269)

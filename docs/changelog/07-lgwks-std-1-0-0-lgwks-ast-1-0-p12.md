@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 12 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - `task::{Host, Task, Report}`, the front door (#87 step 1): build a `Host` once
   (tenant, stop token, admission ceiling, default deadline, trail capacity, all
@@ -64,7 +64,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   and a `measure_overhead` example prints p50/p95/p99 for `Host::run` and
   `sys::Process`.
 
-### lgwks_deps Added
+## lgwks_deps Added
 
 - `[[approved]]` entries accept an optional `origin`: the exact admitted origin
   for the entry's source class — a complete registry source, a Git repository
@@ -100,7 +100,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
 - A register may author `[policy] schema`; the committed register is migrated to
   `schema = 2`. Schema 1 remains readable (#158 A7).
 
-### lgwks_deps Changed
+## lgwks_deps Changed
 
 - **Breaking for a Git or path edge: a class-only approval is insufficient.**
   An `[[approved]]` entry whose `source` is `git` or `path` and that authors no
@@ -117,4 +117,4 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   collision-checked and names exactly one package. The committed register uses
   exact names throughout and needs no alias (#158 A2, INV-DEP-14).
 
-### lgwks_bot Changed
+## lgwks_bot Changed

@@ -68,3 +68,10 @@ of the tuple layer and the ECS identity surface.
 | `legacy` | legacy documents read through the estate parsers |
 | `id` | `lgwks id new\|key\|read`: version 7 ids and their FoundationDB key bytes (INV-ID-5) |
 | `common` | `Refusal`, its kinds, and the shared human and `--json` reporting |
+
+### `check-docs` (a `lgwks_deps` gate binary)
+
+| Module | Owns | Invariant |
+|---|---|---|
+| `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV` | INV-DOC-3 |
+| `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs; the pages a change added lines to | INV-DOC-5 |
