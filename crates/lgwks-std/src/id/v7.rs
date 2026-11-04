@@ -90,13 +90,65 @@ pub(super) struct V7Generator {
     /// The stamp and counter of the last identifier issued, or `None` before
     /// the first.
     last: Option<(u64, u16)>,
+    /// The eight OS-drawn bytes of the last random field issued, all zero
+    /// before the first: what [`V7Generator::issue_clamped`] carries forward
+    /// when the OS refuses a fresh read.
+    tail: [u8; TAIL_BYTES],
 }
+
+/// The entropy bytes that fill the random field, after the two counter bytes.
+const TAIL_BYTES: usize = 8;
 
 impl V7Generator {
     /// A generator that has issued nothing.
     #[must_use]
     pub(super) const fn new() -> Self {
-        Self { last: None }
+        Self {
+            last: None,
+            tail: [0; TAIL_BYTES],
+        }
+    }
+
+    /// Issues the next identifier and never refuses (#851): the infallible
+    /// rule behind [`Uuid::now_v7`](crate::id::Uuid::now_v7).
+    ///
+    /// `entropy` is `None` when the OS refused the read. Nothing is drawn in
+    /// its place: the counter seed is zero and the random field is the last one
+    /// the OS gave, so the counter step alone keeps the value strictly greater
+    /// than the one before it. A stamp past 48 bits is pinned at the largest
+    /// stamp; there the counter climbs to 4,095 and then holds, the one case
+    /// where order and uniqueness rest on the random field alone (the year
+    /// 10889, or a clock that reads past it).
+    pub(super) fn issue_clamped(
+        &mut self,
+        now_ms: u64,
+        entropy: Option<[u8; ENTROPY_BYTES]>,
+    ) -> Uuid {
+        let drawn = match entropy {
+            Some(drawn) => drawn,
+            None => self.carried_entropy(),
+        };
+        match self.issue_at(now_ms, drawn) {
+            Ok(issued) => issued,
+            Err(_past_the_stamp) => {
+                let counter = match self.last {
+                    Some((stamp, counter)) if stamp == MAX_UNIX_MS => {
+                        counter.saturating_add(1).min(COUNTER_MAX)
+                    }
+                    _ => counter_seed(drawn),
+                };
+                self.last = Some((MAX_UNIX_MS, counter));
+                self.tail = random_tail(drawn);
+                assemble(MAX_UNIX_MS, counter, drawn)
+            }
+        }
+    }
+
+    /// Ten entropy bytes made of no new randomness: a zero counter seed and the
+    /// last random field the OS gave.
+    fn carried_entropy(&self) -> [u8; ENTROPY_BYTES] {
+        let [t0, t1, t2, t3, t4, t5, t6, t7] = self.tail;
+        [0, 0, t0, t1, t2, t3, t4, t5, t6, t7]
     }
 
     /// Issues the next identifier for a clock reading of `now_ms` milliseconds
@@ -112,6 +164,7 @@ impl V7Generator {
     ) -> Result<Uuid, V7Error> {
         let (stamp, counter) = self.next_position(now_ms, counter_seed(entropy))?;
         self.last = Some((stamp, counter));
+        self.tail = random_tail(entropy);
         Ok(assemble(stamp, counter, entropy))
     }
 
@@ -135,6 +188,12 @@ impl V7Generator {
 fn counter_seed(entropy: [u8; ENTROPY_BYTES]) -> u16 {
     let [high, low, ..] = entropy;
     u16::from_be_bytes([high, low]) & COUNTER_SEED_MASK
+}
+
+/// The eight entropy bytes that become the random field.
+fn random_tail(entropy: [u8; ENTROPY_BYTES]) -> [u8; TAIL_BYTES] {
+    let [_, _, t0, t1, t2, t3, t4, t5, t6, t7] = entropy;
+    [t0, t1, t2, t3, t4, t5, t6, t7]
 }
 
 /// The stamp and counter after one more identifier in a stamp already issued:
@@ -219,6 +278,52 @@ pub(super) fn new_v7() -> Result<Uuid, V7Error> {
         Err(poisoned) => poisoned.into_inner(),
     };
     generator.issue_at(now_ms, entropy)
+}
+
+/// Logs a refusal `now_v7` clamped instead of returning, under `trace`.
+#[cfg(feature = "trace")]
+fn note_clamp(error: &dyn Error, clamp: &'static str) {
+    crate::trace::debug!(%error, clamp, "now_v7 clamped a refusal");
+}
+
+/// Without `trace` there is nowhere to log a clamped refusal.
+#[cfg(not(feature = "trace"))]
+const fn note_clamp(_error: &dyn Error, _clamp: &'static str) {}
+
+/// Issues from the process-wide generator and never refuses (#851).
+///
+/// A clock before 1970 reads as millisecond zero, which the ordering rule
+/// treats as a clock that stepped backwards: the last stamp is kept. A refused
+/// entropy read issues with no new randomness, as
+/// [`V7Generator::issue_clamped`] says. Both refusals are logged under
+/// `trace`, so a host whose identifiers stopped carrying fresh entropy can see
+/// it.
+pub(super) fn now_v7() -> Uuid {
+    let now_ms = match wall_clock_ms() {
+        Ok(now_ms) => now_ms,
+        Err(before_epoch) => {
+            note_clamp(
+                &before_epoch,
+                "the clock reads before the epoch; the last stamp is kept",
+            );
+            0
+        }
+    };
+    let entropy = match random::bytes() {
+        Ok(drawn) => Some(drawn),
+        Err(refused) => {
+            note_clamp(
+                &refused,
+                "entropy refused; the counter alone orders this id",
+            );
+            None
+        }
+    };
+    let mut generator = match SHARED.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    generator.issue_clamped(now_ms, entropy)
 }
 
 /// Why a version 7 identifier was not issued.

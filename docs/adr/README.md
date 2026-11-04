@@ -45,5 +45,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0007](0007-process-only-defaults.md) | Process-only defaults hold without the substrate |
 | [0008](0008-script-is-the-entrypoint.md) | Every capability is an SDK, an entrypoint and a `script!` word, or named here with why not |
 | [0009](0009-human-approval-parks-the-run.md) | A human decision parks the run; `act` is gated by policy |
+| [0010](0010-estate-uuid-replaces-the-uuid-crate.md) | The estate UUID serializes, issues v7 infallibly and packs as an FDB tuple element |
 
 New records go at the bottom of that table.

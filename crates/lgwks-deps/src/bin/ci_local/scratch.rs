@@ -135,13 +135,7 @@ fn fresh_identity() -> Option<String> {
 /// UUID, 62 random bits behind a millisecond stamp and a counter.
 #[cfg(not(target_family = "wasm"))]
 fn fresh_identity() -> Option<String> {
-    match Uuid::new_v7() {
-        Ok(identity) => Some(identity.to_string()),
-        Err(error) => {
-            lgwks_std::trace::debug!(%error, "no identity for a scratch name; the lanes use the system temporary directory");
-            None
-        }
-    }
+    Some(Uuid::now_v7().to_string())
 }
 
 /// The millisecond the run that made `stem` started, when its name says so.

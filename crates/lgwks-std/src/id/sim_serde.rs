@@ -109,9 +109,11 @@ fn fold_bytes(trace: &mut u64, bytes: &[u8]) {
 
 /// One identifier of 128 drawn bits, no version imposed.
 fn draw_uuid(stream: &mut Seeded) -> Uuid {
-    let high = u128::from(stream.next_u64());
-    let low = u128::from(stream.next_u64());
-    Uuid::from(((high << 64) | low).to_be_bytes())
+    let [h0, h1, h2, h3, h4, h5, h6, h7] = stream.next_u64().to_be_bytes();
+    let [l0, l1, l2, l3, l4, l5, l6, l7] = stream.next_u64().to_be_bytes();
+    Uuid::from([
+        h0, h1, h2, h3, h4, h5, h6, h7, l0, l1, l2, l3, l4, l5, l6, l7,
+    ])
 }
 
 /// A non-human-readable input: the raw form, or the same bytes as a sequence.
