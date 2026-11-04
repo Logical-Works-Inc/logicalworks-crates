@@ -111,7 +111,7 @@ jobs:
     timeout-minutes: 5
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
-      SIMULATION_ARCHIVES: nextest-archive/nextest-archive-workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8-Linux/suite.tar.zst
+      SIMULATION_ARCHIVES: nextest-archive/nextest-archive-workspace-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-rest-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-scale-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-surface-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-refusals-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g1-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g2-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g3-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g4-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g5-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g6-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g7-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g8-Linux/suite.tar.zst
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
@@ -301,13 +301,19 @@ jobs:
           - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
           - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
           # The review-path binary under the saturation filter (T31-T34), in
-          # fifths: whole, it ran 46 tests past the limit after a 184 s build
-          # (run 41702461553), and a third was cancelled at 294 s (68bef2d12).
-          - { suite: saturation, archive: bot-rest, partition: "slice:1/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:2/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:3/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:4/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:5/5", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          # tenths: whole, it ran 46 tests past the limit after a 184 s build
+          # (run 41702461553), a third was cancelled at 294 s (68bef2d12), and
+          # a fifth at 298 s (417e9ea93).
+          - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:4/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:5/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:6/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:7/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -587,8 +593,10 @@ jobs:
       fail-fast: false
       matrix:
         # The reduced feature sets in three legs: one leg running all six took
-        # 297 s and was cancelled at the limit (run for 68bef2d12).
-        part: [workspace, features, scan, reduced-bot, reduced, process]
+        # 297 s and was cancelled at the limit (run for 68bef2d12). The
+        # all-features leg likewise split: lgwks-bot alone, since the three
+        # crates in one leg were cancelled at 296 s (run for 417e9ea93).
+        part: [workspace, features, features-bot, scan, reduced-bot, reduced, process]
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
@@ -621,12 +629,13 @@ jobs:
         # Per-crate all-features (gpui excluded: it needs the Xcode Metal
         # toolchain and is checked by its own lane in the matrix job).
         run: >
-          cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
-          --all-targets --all-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml
           --all-targets --all-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml
           --all-targets --features tokio-full -- -D warnings
+      - name: Clippy lgwks-bot with all features
+        if: matrix.part == 'features-bot'
+        run: cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --all-features -- -D warnings
       - name: Clippy lgwks-bot with no default features
         if: matrix.part == 'reduced-bot'
         run: cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings

@@ -579,11 +579,18 @@ group = "clippy"
 surfaces = "local ci"
 required = true
 command = """\
-cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --all-features -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml --all-targets --all-features -- -D warnings && \
 cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets --features tokio-full -- -D warnings\
 """
 ci_step = "Clippy feature matrix"
+
+[[lane]]
+id = "clippy-feature-bot"
+group = "clippy"
+surfaces = "local ci"
+required = true
+command = "cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --all-features -- -D warnings"
+ci_step = "Clippy lgwks-bot with all features"
 
 [[lane]]
 id = "clippy-nodefault-bot"
