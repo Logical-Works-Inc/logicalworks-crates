@@ -243,8 +243,10 @@ jobs:
           # 145 s and the row 283 s, the run's critical path (run 41786790129);
           # no receipt names it (docs/acceptance/t-rows.toml), and the arm64
           # Linux container runs the same binary under the same five features.
-          # Its own cache key: the other bot rows build `full`.
-          - { suite: saturation, archive: bot-saturation, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
+          # Its own cache key: the other bot rows build `full`. It builds the one
+          # binary it runs: without `--test` the list built every lgwks_bot test
+          # target, 181 s of the row's 283 s (run 41791513019).
+          - { suite: saturation, archive: bot-saturation, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --test sim_review_path --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -678,6 +680,12 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: clippy-${{ matrix.part }}
+          # No sccache here: twice the reduced-bot leg sat silent from its
+          # last `Checking` line to the 5-minute cancel (runs 41777272472 and
+          # 41791513019, both stopped before `rkyv`), where it otherwise ends
+          # in 35 to 50 s. A check build is cheap, and rust-cache keeps the
+          # dependencies.
+          sccache: "false"
           components: clippy
       - name: Clippy all workspace targets
         if: matrix.part == 'workspace'
