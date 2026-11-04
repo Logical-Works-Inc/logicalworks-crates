@@ -553,6 +553,25 @@ jobs:
           retention-days: 7
       - name: Doc tests
         run: cargo test --workspace --doc --locked
+
+  # The package smoke beside the doc tests, not after them: it reads no build of
+  # theirs, and in line it ran 39 s past their 172 s, the run's last job to end
+  # (run 41843057626).
+  package_smoke:
+    name: Package smoke
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: workspace
       - name: Run package smoke test
         run: ./scripts/lgwks-std-package-smoke.sh
 
@@ -1231,7 +1250,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, package_smoke, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -1258,7 +1277,7 @@ jobs:
           # The compile beyond the shards: the all-targets build and the
           # simulation listing.
           BUILD: ${{ needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
-          TAIL: ${{ needs.workspace_tail.result }}
+          TAIL: ${{ needs.workspace_tail.result == 'success' && needs.package_smoke.result == 'success' && 'success' || 'failure' }}
           LINUX: ${{ needs.tests_linux.result }}
           MACOS: ${{ needs.tests_macos.result }}
           BOT_NODEFAULT: ${{ needs.tests_nodefault.result }}
