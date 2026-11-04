@@ -223,7 +223,10 @@ jobs:
       # says how they are grouped). That build leaves some fixtures unused,
       # so its dead-code warnings stay warnings; the clippy legs build every
       # module with warnings denied.
-      RUSTFLAGS: ${{ matrix.it_group && format('--cfg lwc_it_group="{0}"', matrix.it_group) || '' }}
+      # Both spellings: `not(lwc_it_group)` reads the bare name, which the
+      # keyed `lwc_it_group="<group>"` alone does not set (b92496e0e built
+      # every module in every row).
+      RUSTFLAGS: ${{ matrix.it_group && format('--cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '' }}
       CARGO_BUILD_WARNINGS: ${{ matrix.it_group && 'warn' || 'deny' }}
       # `ci-it` builds workspace crates at opt-level 0, whose deeper frames
       # need the 8 MiB test threads the macOS shards run with.

@@ -174,6 +174,8 @@ unsafe_code = "allow"
 unused_must_use = "forbid"
 improper_ctypes = "forbid"
 improper_ctypes_definitions = "forbid"
+# The workspace's `lwc_it_group` declaration, copied with the rest (lgwks_bot's `it` groups).
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(lwc_it_group, values(none(), "scale", "surface", "refusals", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8"))'] }
 
 [lints.clippy]
 allow_attributes = "forbid"

@@ -10,7 +10,8 @@
 //! Each test module belongs to one group: `scale`, `surface`, `refusals` or
 //! `g1` to `g8`. A build with no `lwc_it_group` cfg compiles every module, and
 //! that build is what clippy, the local gate and a contributor run. A build
-//! with `--cfg lwc_it_group="<group>"` compiles that group's modules and every
+//! with `--cfg lwc_it_group --cfg lwc_it_group="<group>"` (the bare name too,
+//! which `not(lwc_it_group)` reads) compiles that group's modules and every
 //! fixture, which is what one CI job builds. Compiling this binary whole took
 //! about 110 s of a 4-vCPU job's 300 s (68bef2d12), so each job builds one
 //! group, and the groups are balanced by each module's measured test time.
