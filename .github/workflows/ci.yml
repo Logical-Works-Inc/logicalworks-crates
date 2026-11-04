@@ -300,7 +300,7 @@ jobs:
   # profile, dependencies at opt-level 1 and workspace crates at 0; the root
   # Cargo.toml says what the profile keeps.
   tests_macos:
-    name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.partition }})
+    name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -316,17 +316,21 @@ jobs:
           # a fifth at 298 s (417e9ea93). The binary compiles only under the
           # five features its `#![cfg]` names, so a row builds those and not
           # `full`: under `full` the build alone took 190 s and the 10,000 tier
-          # was cancelled 69 s into its run (4fdcb439e).
-          - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:4/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:5/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:6/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:7/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          # was cancelled 69 s into its run (4fdcb439e). The 10,000-run tier
+          # has a row of its own: its 50,000 fake-`gh` starts are kernel time
+          # on 3 vCPU, and beside its tenth's other tests it ran past 157 s
+          # and was cancelled at 325 s (445bd997f).
+          - { suite: saturation, archive: bot-rest, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:4/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:5/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:6/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:7/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
