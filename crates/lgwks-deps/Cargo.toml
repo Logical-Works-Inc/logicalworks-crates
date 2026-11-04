@@ -173,7 +173,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tower-http = { version = "0.7", default-features = false, features = ["cors", "trace", "compression-gzip", "compression-deflate"], optional = true }
 llm-guard = { version = "0.2", default-features = false, features = ["fuzzy"], optional = true }
 gpui = { version = "0.2", optional = true }
-appcui = { version = "=0.5.5", default-features = false, optional = true }
+appcui = { version = "=0.5.7", default-features = false, optional = true }
 # Bevy's ECS and the three crates that make it a runtime. `default-features =
 # false` throughout, and two omissions are deliberate: `bevy_reflect` stays off
 # (it is the expensive half of `bevy_ecs`'s default set and this workspace does not
@@ -213,7 +213,7 @@ jiff = { version = "0.2", default-features = false, features = ["std", "tz-syste
 # (estate issues #696, #700), bundled so no system library is needed, and no
 # default features so the no-flag build stays portable: the engine is
 # selected, never the crate.
-rusqlite = { version = "=0.41.0", default-features = false, features = ["bundled"], optional = true }
+rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled"], optional = true }
 # Sealed records: the one AEAD every sealed estate record seals under.
 # Pinned exactly (estate issue #785). ChaCha20-Poly1305 is pure Rust with no
 # C toolchain, so the no-flag build stays portable: the engine is selected,
