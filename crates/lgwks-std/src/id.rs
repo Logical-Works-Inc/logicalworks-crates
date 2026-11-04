@@ -11,8 +11,12 @@ use std::fmt;
 use crate::hex::DecodeError;
 use crate::random::{self, EntropyError};
 
+#[cfg(any(feature = "json", feature = "ron"))]
+mod serde_impl;
 mod v7;
 
+#[cfg(all(test, feature = "json", feature = "ron"))]
+mod sim_serde;
 #[cfg(test)]
 mod sim_v7;
 
