@@ -1,6 +1,6 @@
 # Consumer guides
 
-Five Rust crates ship from this repository. Each is usable on its own, and each
+Six Rust crates ship from this repository. Each is usable on its own, and each
 has its own version. Pick the one whose problem you have, then read its guide
 for the version you are installing.
 
@@ -13,6 +13,7 @@ for the version you are installing.
 | Hex, base64, timestamps, UUIDs, hashing, globs, LEB128, retry budgets, a single-threaded executor, and default structured debugging | `lgwks_std` | [lgwks-std](lgwks-std/index.md) |
 | One AST type across several languages, with bounded traversal, and the reader of the `script!` language | `lgwks_ast` | [lgwks-ast](lgwks-ast/index.md) |
 | A place to opt into a third-party stack, plus commands that prove no unowned dependency or missing debugger wiring entered a build | `lgwks_deps` | [lgwks-deps](lgwks-deps/index.md) |
+| The Drishti frontend's brand tokens, ink effects, GPU residency model and GPUI host | `drishti` | [docs.rs](https://docs.rs/drishti) |
 
 `lgwks_bot` depends on `lgwks_macros`, `lgwks_std`, `lgwks_ast` and
 `lgwks_deps`; `lgwks_macros` depends on `lgwks_ast`, `lgwks_deps` and
@@ -32,11 +33,12 @@ after the upload it names.
 
 | Crate | `Cargo.toml` version | Read it at |
 |---|---|---|
-| `lgwks_std` | 3.0.2 | [docs.rs/lgwks_std](https://docs.rs/lgwks_std) |
-| `lgwks_bot` | 3.1.1 | [docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) |
-| `lgwks_ast` | 2.2.0 | [docs.rs/lgwks_ast](https://docs.rs/lgwks_ast) |
-| `lgwks_deps` | 4.2.0 | [docs.rs/lgwks_deps](https://docs.rs/lgwks_deps) |
-| `lgwks_macros` | 1.1.4 | [docs.rs/lgwks_macros](https://docs.rs/lgwks_macros) |
+| `lgwks_std` | 4.0.0 | [docs.rs/lgwks_std](https://docs.rs/lgwks_std) |
+| `lgwks_bot` | 7.0.0 | [docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) |
+| `lgwks_ast` | 5.0.0 | [docs.rs/lgwks_ast](https://docs.rs/lgwks_ast) |
+| `lgwks_deps` | 6.0.0 | [docs.rs/lgwks_deps](https://docs.rs/lgwks_deps) |
+| `lgwks_macros` | 2.0.0 | [docs.rs/lgwks_macros](https://docs.rs/lgwks_macros) |
+| `drishti` | 0.1.0 | [docs.rs/drishti](https://docs.rs/drishti) |
 
 From those versions on, three surfaces carry a compatibility promise. The
 orchestration surface is `script!`, `try_join!` and the `script` module of

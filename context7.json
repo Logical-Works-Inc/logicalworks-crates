@@ -1,7 +1,7 @@
 {
   "$schema": "https://context7.com/schema/context7.json",
   "projectTitle": "Logical Works Crates",
-  "description": "Five Rust crates for orchestration and dependency discipline: lgwks_bot's script! language for bounded, tenant-keyed async flows; lgwks_std primitives; lgwks_ast parsers; lgwks_deps the audited dependency storefront.",
+  "description": "Six Rust crates for orchestration and dependency discipline: lgwks_bot's script! language for bounded, tenant-keyed async flows; lgwks_std primitives; lgwks_ast parsers; lgwks_deps the audited dependency storefront; drishti the frontend core.",
   "folders": [
     "crates"
   ],
@@ -55,19 +55,19 @@
   ],
   "previousVersions": [
     {
-      "tag": "lgwks_std-v3.0.3"
+      "tag": "lgwks_std-v3.2.2"
     },
     {
-      "tag": "lgwks_bot-v3.1.2"
+      "tag": "lgwks_bot-v6.1.0"
     },
     {
-      "tag": "lgwks_ast-v2.2.1"
+      "tag": "lgwks_ast-v4.1.0"
     },
     {
-      "tag": "lgwks_deps-v4.2.1"
+      "tag": "lgwks_deps-v5.1.2"
     },
     {
-      "tag": "lgwks_macros-v1.1.5"
+      "tag": "lgwks_macros-v1.3.0"
     }
   ]
 }

@@ -103,7 +103,8 @@ the rest of this table is design history and contributor policy.
 | [`docs/governance/ledger-2026-09-23.md`](governance/ledger-2026-09-23.md) | Governance §5 ledger, 2026-09-23 and 2026-09-27. |
 | [`docs/governance/ledger-2026-09-21.md`](governance/ledger-2026-09-21.md) | Governance §5 ledger, 2026-09-21 and 2026-09-22. |
 | [`docs/governance/ledger-2026-09-12.md`](governance/ledger-2026-09-12.md) | Governance §5 ledger: the 2026-09-21 campaigns and the standing doctrine of 2026-09-12. |
-| [`CHANGELOG.md`](../CHANGELOG.md) | Per-release changes across all five crates. |
+| [`CHANGELOG.md`](../CHANGELOG.md) | Per-release changes across all six crates. |
+| [`docs/changelog/12-2026-09-21-cut-never-published-p1.md`](changelog/12-2026-09-21-cut-never-published-p1.md) | The unpublished 2026-09-21 cut, page 1, linking its other twelve pages. |
 | [`SECURITY.md`](../SECURITY.md) | Attack surface, reporting process, and advisories assessed. |
 
 Each crate also carries its own README: [`lgwks_std`](../crates/lgwks-std/README.md),

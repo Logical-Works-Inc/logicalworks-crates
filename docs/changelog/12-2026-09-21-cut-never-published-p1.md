@@ -1,6 +1,6 @@
 # 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above (1/13)
 
-Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 1 of 13. [Changelog index](../../CHANGELOG.md)
+Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 1 of 13, then [2](12-2026-09-21-cut-never-published-p2.md) · [3](12-2026-09-21-cut-never-published-p3.md) · [4](12-2026-09-21-cut-never-published-p4.md) · [5](12-2026-09-21-cut-never-published-p5.md) · [6](12-2026-09-21-cut-never-published-p6.md) · [7](12-2026-09-21-cut-never-published-p7.md) · [8](12-2026-09-21-cut-never-published-p8.md) · [9](12-2026-09-21-cut-never-published-p9.md) · [10](12-2026-09-21-cut-never-published-p10.md) · [11](12-2026-09-21-cut-never-published-p11.md) · [12](12-2026-09-21-cut-never-published-p12.md) · [13](12-2026-09-21-cut-never-published-p13.md). [Changelog index](../../CHANGELOG.md)
 
 ### Proofs
 
