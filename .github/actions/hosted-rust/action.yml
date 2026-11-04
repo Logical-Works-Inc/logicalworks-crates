@@ -111,6 +111,12 @@ runs:
           if [ "${{ inputs.sccache }}" = "true" ]; then
             echo "SCCACHE_GHA_ENABLED=true"
             echo "RUSTC_WRAPPER=sccache"
+            # Writes from main alone, as rust-cache saves: a pull request's
+            # writes warm only its own next run, and with eighty jobs writing
+            # at once the throttled cache calls stalled whole compiles (run
+            # 41777272472: the reduced-bot clippy leg printed nothing for
+            # 4 m 25 s after 94 requests, with every miss a write error).
+            echo "SCCACHE_GHA_RW_MODE=${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
           fi
           echo "CARGO_INCREMENTAL=0"
         } >> "${GITHUB_ENV}"
