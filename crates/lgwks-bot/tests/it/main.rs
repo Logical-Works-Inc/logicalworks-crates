@@ -526,6 +526,8 @@ mod sim_request_key;
 mod sim_retry_proxy;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_review_pr;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+mod sim_review_wire;
 #[cfg(all(feature = "rt", feature = "time", feature = "sync"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_rt_front_door;

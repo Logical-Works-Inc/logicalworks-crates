@@ -54,6 +54,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.ref_name != 'main' }}
 
+# The job token is least privilege, declared rather than inherited from the org
+# default (CodeQL actions/missing-workflow-permissions, alerts 1-24): it checks
+# out and nothing more. The two jobs that read this run through the Actions API
+# (`workspace_build` lists its artifacts, `build_verdict` reads the cache usage
+# and the run's start) add `actions: read`. Caches and artifacts authenticate
+# with the runner's own token, not this one.
+permissions:
+  contents: read
+
 # The same values as `[profile.test]` in Cargo.toml, which cargo already reads;
 # they are repeated here for the cache. Swatinem/rust-cache keys on every
 # `CARGO*` variable but drops `[profile]` from the manifests it hashes, so a
@@ -115,6 +124,9 @@ jobs:
   workspace_build:
     name: Workspace build and simulation evidence
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      actions: read
     container:
       image: "rust:1.99.1-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
@@ -186,7 +198,7 @@ jobs:
   # limit (run 41704600214, no cache). Partitions are cut finer for the slower
   # opt-level-0 workspace code.
   tests_linux:
-    name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.partition }})
+    name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
     runs-on: ubuntu-24.04-arm
     container:
       image: "rust:1.99.1-trixie"
@@ -226,6 +238,13 @@ jobs:
           - { suite: bot-full, archive: bot-it-g8, it_group: g8, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:1/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:2/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
+          # The 10,000-run saturation tier: 50,000 fake-`gh` starts through a
+          # real process boundary. On a 3-vCPU macos-15 VM the test alone took
+          # 145 s and the row 283 s, the run's critical path (run 41786790129);
+          # no receipt names it (docs/acceptance/t-rows.toml), and the arm64
+          # Linux container runs the same binary under the same five features.
+          # Its own cache key: the other bot rows build `full`.
+          - { suite: saturation, archive: bot-saturation, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -259,10 +278,10 @@ jobs:
       # archived once per suite (nextest writes into an existing directory
       # only, run 41605078279).
       - name: Archive the suite for the simulation lane
-        if: startsWith(matrix.partition, 'slice:1/') || matrix.partition == ''
+        if: matrix.suite != 'saturation' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         run: mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst
       - name: Upload the suite archive
-        if: startsWith(matrix.partition, 'slice:1/') || matrix.partition == ''
+        if: matrix.suite != 'saturation' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         uses: actions/upload-artifact@v7
         with:
           name: nextest-archive-${{ matrix.archive }}-Linux
@@ -275,8 +294,14 @@ jobs:
       - name: Run lgwks-bot async runner tests
         if: matrix.suite == 'bot-full'
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
+      - name: Run lgwks-bot saturation tiers
+        if: matrix.suite == 'saturation'
+        env:
+          SATURATION_BINARIES: ${{ matrix.sat_bins }}
+          SATURATION_FILTER: ${{ matrix.sat_filter }}
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
       - name: Upload Linux lgwks-bot JUnit report
-        if: matrix.suite == 'bot-full'
+        if: matrix.suite != 'workspace'
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-junit-linux-${{ strategy.job-index }}
@@ -323,10 +348,9 @@ jobs:
           # five features its `#![cfg]` names, so a row builds those and not
           # `full`: under `full` the build alone took 190 s and the 10,000 tier
           # was cancelled 69 s into its run (4fdcb439e). The 10,000-run tier
-          # has a row of its own: its 50,000 fake-`gh` starts are kernel time
-          # on 3 vCPU, and beside its tenth's other tests it ran past 157 s
-          # and was cancelled at 325 s (445bd997f).
-          - { suite: saturation, archive: bot-rest, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
+          # runs on the Linux shards: its 50,000 fake-`gh` starts are kernel
+          # time on 3 vCPU, and as a row of its own here it was still the
+          # run's critical path at 283 s (run 41786790129).
           - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
           - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
           - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
@@ -1096,6 +1120,9 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     env:
       REVISION: ${{ github.sha }}
     steps:
