@@ -502,8 +502,9 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
+      # The group rows start no sccache; their dependency build is rust-cache's.
       - name: Cache hit rate
-        if: ${{ always() }}
+        if: ${{ always() && matrix.suite != 'bot-it' }}
         run: sccache --show-stats
 
   # The workspace's evidence lanes, doc tests and package smoke, and the
