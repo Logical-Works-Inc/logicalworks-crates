@@ -293,14 +293,15 @@ jobs:
   # the Darwin branch, and lgwks_bot's own process-boundary binaries and
   # review-path saturation set. The full lgwks_bot and workspace suites run on
   # the Linux shards. On 3 vCPU a cold macOS shard compiles dependencies for
-  # 138 s even at opt-level 1 and was still compiling `lgwks_bot`'s `it` binary
-  # at the 5-minute limit (run 41700839783), so `it` does not run here. Each test
+  # 138 s even at opt-level 1 and was still compiling `lgwks_bot`'s whole `it`
+  # binary at the 5-minute limit (run 41700839783), so `it` runs here one
+  # group per row, and only the T-row modules the Darwin receipt names. Each test
   # process runs through the `churn-slot` wrapper the suite's setup script
   # builds (INV-CI-SLOT-1). Every macOS shard builds through the `ci-it`
   # profile, dependencies at opt-level 1 and workspace crates at 0; the root
   # Cargo.toml says what the profile keeps.
   tests_macos:
-    name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
+    name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.it_group || matrix.partition }})
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -336,6 +337,22 @@ jobs:
           - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
           - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
           - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          # The Darwin receipt (`build_verdict`, `--platform darwin-arm64`)
+          # names 293 tests in docs/acceptance/t-rows.toml, 278 of them in
+          # `it` and `lgwks_bot`'s own unit tests; with none of those run here
+          # it failed 283 of them (run 41784471298). A row builds one `it`
+          # group (the `lwc_it_group` cfg the Linux shards use) under the ten
+          # features the T-row modules gate on, not `full`, and runs the
+          # T-row modules of that group; the surface group runs its named
+          # tests alone, and one row runs the two library modules named.
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g3, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g4, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g5, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g6, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g7, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g8, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: surface, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & (test(=t02_compile_surface::a_correct_local_borrowed_non_send_consumer_compiles) | test(=t02_compile_surface::a_cross_schema_result_binding_is_refused) | test(=t02_compile_surface::a_local_borrowed_non_send_body_runs_on_the_host) | test(=t02_compile_surface::a_source_condition_action_mismatch_is_refused_t02) | test(=t22_process_surface::a_process_description_cannot_deref_to_an_engine) | test(=t22_process_surface::a_process_description_cannot_produce_output) | test(=t22_process_surface::a_process_description_cannot_report_a_status) | test(=t22_process_surface::a_process_description_exposes_no_mutable_engine_handle) | test(=t22_process_surface::public_process_description_rejects_direct_execution_t22) | test(=t22_process_surface::supervisor_is_the_sanctioned_process_runner) | test(=t22_process_surface::the_readable_description_surface_compiles_for_an_external_consumer) | test(=t22_process_surface::the_sanctioned_runner_accepts_the_same_description))" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: "", tier: "lib", partition: "", build: "-p lgwks_bot --lib --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary_id(lgwks_bot) & test(/^(broker::tests::|rt::supervise::tests::cleanup::)/)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -369,6 +386,17 @@ jobs:
           SATURATION_BINARIES: ${{ matrix.sat_bins }}
           SATURATION_FILTER: ${{ matrix.sat_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
+      # The Darwin T-row tests. `RUSTFLAGS` replaces `.cargo/config.toml`'s
+      # target rustflags, so it names the ld64.lld link argument again beside
+      # the group cfg (both spellings, as the Linux shards set them). A group
+      # build leaves fixtures unused, which warns rather than denies there too.
+      - name: Run lgwks-bot Darwin T-row tests
+        if: matrix.suite == 'bot-it'
+        env:
+          RUSTFLAGS: ${{ matrix.it_group && format('-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld --cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld' }}
+          CARGO_BUILD_WARNINGS: warn
+          IT_FILTER: ${{ matrix.it_filter }}
+        run: cargo nextest run ${NEXTEST_BUILD} --profile ci -E "${IT_FILTER}"
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
       - name: Upload lgwks-bot JUnit report
