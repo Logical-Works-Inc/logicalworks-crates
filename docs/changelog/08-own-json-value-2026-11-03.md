@@ -1,6 +1,6 @@
 # lgwks_std 4.0.0
 
-2026-11-03 (unreleased)
+2026-11-03, released 2026-11-04 with the [09 notes](09-sealed-ids-script-edge-2026-11-04.md)
 
 `lgwks_std::json::Value` is this crate's own tree, not a re-export of
 `serde_json::Value` (#831). Parsing the 120-byte `latency_tails` document made
