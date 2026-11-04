@@ -5,7 +5,7 @@
 //! INV-JSON-UTF8: all output is valid UTF-8. Input is validated as
 //! UTF-8 during deserialization.
 //!
-//! [`Value`] is this crate's own tree, not `serde_json`'s: a string of up to
+//! [`Value`](crate::json::Value) is this crate's own tree, not `serde_json`'s: a string of up to
 //! 22 bytes is stored inline and an object is one sorted
 //! allocation, so a small document parses with one allocation per array or
 //! object instead of one per key, string and tree node (#831). `serde_json`
