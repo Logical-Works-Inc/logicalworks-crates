@@ -4,7 +4,7 @@ Everyday Rust primitives with no async runtime required, each behind one
 audited dependency stack. The package is `lgwks_std` (underscore) in the
 directory `crates/lgwks-std` (hyphen), used as `use lgwks_std::...`.
 
-Current version: `3.2.0`. MSRV: Rust 1.98.0, edition 2024
+Current version: `4.0.0`. MSRV: Rust 1.98.0, edition 2024
 (`crates/lgwks-std/Cargo.toml`).
 
 ## Install
@@ -14,7 +14,6 @@ cargo add lgwks_std                                     # core + trace
 cargo add lgwks_std --features json,http                # pick what you need
 cargo add lgwks_std --no-default-features --features core   # zero external deps
 ```
-
 ## Feature selection
 
 The default is `core` plus `trace`. That is two features, and the second one
@@ -46,11 +45,10 @@ it needs both halves:
 
 ```toml
 [dependencies]
-lgwks_std = { version = "3", default-features = false, features = ["core"] }
+lgwks_std = { version = "4", default-features = false, features = ["core"] }
 ```
-
 `default-features = false` removes `trace`. `features = ["core"]` puts the core
-modules back. A bare `lgwks_std = "3"` is **not** zero-dependency: it is
+modules back. A bare `lgwks_std = "4"` is **not** zero-dependency: it is
 `core` plus `trace`.
 
 This is checkable rather than assertable. From a clean project:
@@ -58,9 +56,8 @@ This is checkable rather than assertable. From a clean project:
 ```sh
 cargo tree -e normal | grep lgwks_std
 ```
-
 Against this repository, `cargo tree -p lgwks_std --no-default-features
---features core -e normal` prints a single line, `lgwks_std v3.2.0`, and nothing
+--features core -e normal` prints a single line, `lgwks_std v4.0.0`, and nothing
 beneath it. The default build prints the tracing facade and subscriber stack
 under it.
 
@@ -84,10 +81,11 @@ under it.
 | `retry` | retry budgets: attempts, exponential backoff with caller jitter, deadlines |
 | `task` | single-threaded executor: `block_on`, concurrent `join_all`, off-thread `spawn_blocking` |
 | `time` | RFC 3339 timestamps, calendar math |
-| `random`, `id` | OS entropy, UUID v4 |
+| `random`, `id` | OS entropy, UUID v4 and v7, serde for `Uuid`, the FoundationDB tuple UUID element |
 | `hash` | BLAKE3 |
 | `pattern` | compiled regex |
-| `json`, `ron`, `wire` | serialization |
+| `json`, `ron`, `wire` | serialization; `json::Value` is this crate's own tree |
+| `legacy` | EBCDIC, packed decimal, COBOL copybooks, compound files and VBA, Access rows, fax images |
 | `http` | blocking HTTPS client, rustls-only TLS |
 | `online` | TCP reachability probing |
 
