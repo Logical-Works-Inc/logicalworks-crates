@@ -11,11 +11,17 @@ use std::fmt;
 use crate::hex::DecodeError;
 use crate::random::{self, EntropyError};
 
+mod tuple;
 mod v7;
 
 #[cfg(test)]
+mod sim_tuple;
+#[cfg(test)]
 mod sim_v7;
+#[cfg(test)]
+mod sim_v7_clamped;
 
+pub use tuple::TupleError;
 pub use v7::V7Error;
 
 /// A 128-bit RFC 4122 identifier, stored as raw bytes in network order.
@@ -61,6 +67,27 @@ impl Uuid {
     /// is substituted for it.
     pub fn new_v7() -> Result<Self, V7Error> {
         v7::new_v7()
+    }
+
+    /// Generates a version 7 UUID from the same process-wide generator as
+    /// [`Uuid::new_v7`], and never refuses (#851, INV-ID-4).
+    ///
+    /// Where `new_v7` refuses, this clamps, and the value stays strictly
+    /// greater than every one the process issued before it:
+    ///
+    /// - a clock before 1970 reads as a clock that stepped backwards, so the
+    ///   last stamp is kept and the counter steps;
+    /// - a refused entropy read draws nothing in its place: the counter steps
+    ///   and the random field is the last one the OS gave, so the value is
+    ///   ordered and unique in the process but carries no new randomness;
+    /// - a stamp past 48 bits is pinned at the largest stamp, where the
+    ///   counter climbs to 4,095 and then holds: from there, past the year
+    ///   10889, uniqueness rests on the random field alone.
+    ///
+    /// Each clamp is logged under the `trace` feature.
+    #[must_use]
+    pub fn now_v7() -> Self {
+        v7::now_v7()
     }
 
     /// The millisecond a version 7 value was stamped with, since the Unix epoch,

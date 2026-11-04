@@ -74,6 +74,8 @@ mod sim_lgwks_check;
 #[cfg(feature = "lgwks")]
 mod sim_lgwks_expand;
 #[cfg(feature = "lgwks")]
+mod sim_lgwks_id;
+#[cfg(feature = "lgwks")]
 mod sim_lgwks_legacy;
 mod sim_license_policy;
 mod sim_lock_dependencies;
