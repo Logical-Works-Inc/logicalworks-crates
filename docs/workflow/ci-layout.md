@@ -50,6 +50,10 @@ The archive carries `target/debug/churn-slot` (`[profile.default.archive]` in
 `.config/nextest.toml`), because an archive run resolves the wrapper inside the
 extracted target. The acceptance-receipts binary is built by the evidence job
 and handed to the required row as an artifact, off the run's critical path.
+The `compile` lane (every target, benches and examples included) runs nothing,
+so it builds under `ci-bot`, dependencies at opt-level 0: under the test
+profile it was cancelled cold at the limit on main (run 41793810191), and main
+never saved the cache pull requests restore.
 
 ### Caching
 
