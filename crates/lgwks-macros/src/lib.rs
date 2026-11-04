@@ -107,6 +107,23 @@ use lgwks_deps::proc_macro2::TokenStream;
 /// by `lgwks_ast::script::emit::script`: this macro parses then calls that
 /// one emitter, so what it compiles is byte-for-byte what `lgwks expand`
 /// prints.
+///
+/// # Examples
+///
+/// Call it through `lgwks_bot`, which re-exports it beside the runtime the
+/// expansion calls. A flow takes the tenant `Scope` first and returns
+/// `Result<Output, FlowError>`:
+///
+/// ```text
+/// lgwks_bot::script! {
+///     /// Double every number, at most two at once.
+///     pub flow double(numbers: Vec<u32>) -> Vec<u32>:
+///         let doubled = each n in numbers, at most (2) at once:
+///             within 1s:
+///                 n.saturating_mul(2)
+///         give back doubled
+/// }
+/// ```
 #[proc_macro]
 pub fn script(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let expanded = lgwks_ast::script::parse(TokenStream::from(input))

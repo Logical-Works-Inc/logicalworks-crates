@@ -35,6 +35,9 @@ and 1 in `lgwks_macros`.
    git cannot read is a refusal with exit 2, never a pass. CI passes `HEAD^1`.
 4. **One diff reader.** `lgwks_ast::hunks` reads `git diff --unified=0` for this command and for
    `check-docs --base`, so the two gates agree on what a change wrote.
+5. **A crate at zero is held whole.** The `examples-held` lane runs the rule with no base over
+   every crate the backfill has brought to zero: `lgwks_ast` and `lgwks_macros` today. An edit
+   inside an old item of a held crate cannot drop its example. The list grows crate by crate.
 
 ## Alternatives rejected
 
@@ -49,9 +52,9 @@ and 1 in `lgwks_macros`.
 
 - Every new public item lands with an example that `cargo test --doc` compiles and runs.
 - A bare `lgwks-ast scan --rule missing-example crates` prints the remaining count, which only
-  falls. The scan module and the diff reader carry examples on every public item already.
-- INV-EXAMPLE-1 still holds. An example on a supported direct-use surface, such as `scan` or
-  `hunks`, calls it directly and is recorded in the `[examples]` table of
+  falls. `lgwks_ast` and `lgwks_macros` carry an example on every public item.
+- INV-EXAMPLE-1 still holds. An example on a supported direct-use surface (the parser,
+  diagnostics, the script reader, the legacy readers, `scan` and `hunks`) calls it directly and is recorded in the `[examples]` table of
   `contract/PUBLIC_SURFACE.toml`. Any other item's example goes through `script!`.
 - An edit inside an older item does not require its example. The rule judges the line the item's
   name is on, so a new item or a changed signature does.
@@ -64,6 +67,7 @@ ADR 0001 and ADR 0002, since the rule reads Rust through the one parser.
 ## Verification
 
 - The `examples` lane and its CI step "New public items show an example".
+- The `examples-held` lane and its CI step "Crates at zero keep every example".
 - `sim_scan_examples`: `sim_every_drawn_file_agrees_with_the_model` and
   `sim_the_same_seed_replays_to_one_trace` over 2,048 seeds, and
   `the_shipped_scan_holds_a_change_to_its_added_lines` against the binary.

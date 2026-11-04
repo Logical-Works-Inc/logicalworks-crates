@@ -36,6 +36,16 @@ use crate::AstNode;
 /// 1-based `line` and `column`, zero-based `byte`. `column` counts characters
 /// rather than bytes, so a line containing multi-byte text reports the column a
 /// person would count; `byte` is the offset a slice takes.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::Pos;
+///
+/// let first = Pos::new(0, 0, 0);
+/// assert_eq!((first.line, first.column, first.byte), (1, 1, 0));
+/// assert!(first < Pos::new(1, 0, 10));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub struct Pos {
@@ -54,6 +64,15 @@ impl Pos {
     /// A zero line or column becomes 1, because position zero is what the
     /// underlying grammar emits for the first line's first column, and a report
     /// reading "line 0" is a defect in the report rather than in the file.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::Pos;
+    ///
+    /// let pos = Pos::new(2, 4, 30);
+    /// assert_eq!((pos.line, pos.column, pos.byte), (3, 5, 30));
+    /// ```
     #[must_use]
     pub fn new(line: usize, column: usize, byte: usize) -> Self {
         Self {
@@ -65,6 +84,16 @@ impl Pos {
 }
 
 /// A half-open byte range, with the 1-based line/column of each end.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::diagnostic::end_of;
+///
+/// let span = end_of("fn main() {}\n");
+/// assert_eq!(span.start, span.end);
+/// assert_eq!(span.start.line, 2);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub struct Span {
@@ -76,6 +105,15 @@ pub struct Span {
 
 impl Span {
     /// The byte range this span covers, for slicing a source file.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::diagnostic::end_of;
+    ///
+    /// let source = "let x = 1;";
+    /// assert_eq!(end_of(source).byte_range(), source.len()..source.len());
+    /// ```
     #[must_use]
     pub fn byte_range(&self) -> Range<usize> {
         self.start.byte..self.end.byte
@@ -86,6 +124,16 @@ impl Span {
     /// A refusal about a file's size is not a position inside the file, so it is
     /// reported at the end of the file rather than at some invented interior
     /// line. A renderer should not underline an empty span.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Pos, Span};
+    ///
+    /// let span = Span::at(Pos::new(0, 3, 3));
+    /// assert!(span.is_empty());
+    /// assert_eq!(span.byte_range(), 3..3);
+    /// ```
     #[must_use]
     pub fn at(pos: Pos) -> Self {
         Self {
@@ -95,6 +143,14 @@ impl Span {
     }
 
     /// Whether this span covers no bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Pos, Span};
+    ///
+    /// assert!(Span::at(Pos::new(0, 0, 0)).is_empty());
+    /// ```
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.start.byte == self.end.byte
@@ -108,6 +164,16 @@ impl Span {
 /// A recovery node is [`Severity::Warning`]: the tool got an answer, and the
 /// answer may be wrong from that point on. Collapsing the two loses the only
 /// information a reader needs to decide whether to trust the rest of the parse.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Diagnostic, Pos, Severity, Span};
+///
+/// let found = Diagnostic::new("unused import", Span::at(Pos::new(0, 0, 0)));
+/// assert_eq!(found.severity(), Severity::Warning);
+/// assert_eq!(found.with_severity(Severity::Error).severity(), Severity::Error);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Severity {
@@ -119,6 +185,15 @@ pub enum Severity {
 
 impl Severity {
     /// The conventional single-character label for this severity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::Severity;
+    ///
+    /// assert_eq!(Severity::Error.label(), 'E');
+    /// assert_eq!(Severity::Warning.label(), 'W');
+    /// ```
     #[must_use]
     pub fn label(self) -> char {
         match self {
@@ -139,6 +214,17 @@ impl Severity {
 /// [`Diagnostic::new`]; [`Diagnostic::with_severity`] is the one adjustment this
 /// type supports, and it exists because escalating or dropping a warning is a
 /// decision a policy layer makes, not a field poke.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Diagnostic, Pos, Severity, Span};
+///
+/// let found = Diagnostic::new("expected a semicolon", Span::at(Pos::new(4, 9, 80)))
+///     .in_file("src/lib.rs")
+///     .with_severity(Severity::Error);
+/// assert_eq!(found.render(), "src/lib.rs:5:10: E: expected a semicolon");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Diagnostic {
@@ -156,6 +242,16 @@ pub struct Diagnostic {
 
 impl Diagnostic {
     /// A warning-level finding at `span`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Diagnostic, Pos, Severity, Span};
+    ///
+    /// let found = Diagnostic::new("unused variable", Span::at(Pos::new(0, 4, 4)));
+    /// assert_eq!(found.message(), "unused variable");
+    /// assert_eq!(found.severity(), Severity::Warning);
+    /// ```
     #[must_use]
     pub fn new(message: impl Into<String>, span: Span) -> Self {
         Self {
@@ -170,6 +266,17 @@ impl Diagnostic {
     ///
     /// A label only: this crate does not read the path, so nothing here checks
     /// that the bytes it parsed are the bytes that path holds now.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// use lgwks_ast::{Diagnostic, Pos, Span};
+    ///
+    /// let found = Diagnostic::new("unused variable", Span::at(Pos::new(0, 0, 0))).in_file("src/main.rs");
+    /// assert_eq!(found.file(), Path::new("src/main.rs"));
+    /// ```
     #[must_use]
     pub fn in_file(mut self, file: impl Into<PathBuf>) -> Self {
         self.file = file.into();
@@ -177,6 +284,15 @@ impl Diagnostic {
     }
 
     /// The same finding at a different severity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Diagnostic, Pos, Severity, Span};
+    ///
+    /// let found = Diagnostic::new("deny lint", Span::at(Pos::new(0, 0, 0))).with_severity(Severity::Error);
+    /// assert_eq!(found.severity(), Severity::Error);
+    /// ```
     #[must_use]
     pub fn with_severity(mut self, severity: Severity) -> Self {
         self.severity = severity;
@@ -184,24 +300,65 @@ impl Diagnostic {
     }
 
     /// The file this finding is reported against.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::path::Path;
+    ///
+    /// use lgwks_ast::{Diagnostic, Pos, Span};
+    ///
+    /// let bare = Diagnostic::new("no file yet", Span::at(Pos::new(0, 0, 0)));
+    /// assert_eq!(bare.file(), Path::new(""));
+    /// assert_eq!(bare.in_file("a.rs").file(), Path::new("a.rs"));
+    /// ```
     #[must_use]
     pub fn file(&self) -> &Path {
         &self.file
     }
 
     /// How much the finding matters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Diagnostic, Pos, Severity, Span};
+    ///
+    /// let found = Diagnostic::new("recovered", Span::at(Pos::new(0, 0, 0)));
+    /// assert_eq!(found.severity(), Severity::Warning);
+    /// ```
     #[must_use]
     pub fn severity(&self) -> Severity {
         self.severity
     }
 
     /// What to say, in one line.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Diagnostic, Pos, Span};
+    ///
+    /// let found = Diagnostic::new("missing semicolon", Span::at(Pos::new(0, 0, 0)));
+    /// assert_eq!(found.message(), "missing semicolon");
+    /// ```
     #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
     /// Where in the file the finding is.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Diagnostic, Pos, Span};
+    ///
+    /// let at = Span::at(Pos::new(1, 2, 12));
+    /// let found = Diagnostic::new("here", at);
+    /// assert_eq!(found.span(), &at);
+    /// assert_eq!(found.span().start.line, 2);
+    /// ```
     #[must_use]
     pub fn span(&self) -> &Span {
         &self.span
@@ -212,6 +369,15 @@ impl Diagnostic {
     ///
     /// Built from the fields on every call rather than stored, so a caller that
     /// adjusts a field before rendering does not get the pre-edit text back.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Diagnostic, Pos, Span};
+    ///
+    /// let found = Diagnostic::new("unused import", Span::at(Pos::new(0, 0, 0))).in_file("src/lib.rs");
+    /// assert_eq!(found.render(), "src/lib.rs:1:1: W: unused import");
+    /// ```
     #[must_use]
     pub fn render(&self) -> String {
         format!(
@@ -331,6 +497,19 @@ impl<'src> LineIndex<'src> {
 /// an off-by-one that reads as a real finding at a plausible line. The safe
 /// entry point is [`tree_diagnostics`](crate::tree_diagnostics), which takes
 /// the source from the tree and cannot be handed the wrong one.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, Severity, diagnostic::diagnostics, parse};
+///
+/// let source = "fn main() {}\nfn broken( {\n";
+/// let tree = parse(source, Language::Rust);
+/// let found = diagnostics("src/lib.rs", &tree.root(), source, "Rust");
+/// assert!(!found.is_empty());
+/// assert!(found.iter().all(|d| d.severity() == Severity::Warning));
+/// assert_eq!(found[0].span().start.line, 2);
+/// ```
 #[must_use]
 #[cfg(feature = "parser")]
 pub fn diagnostics<L: LanguageExt>(
@@ -367,6 +546,15 @@ pub fn diagnostics<L: LanguageExt>(
 /// function reports a single sticky bit, which cannot say *how many* nodes the
 /// parser gave up on or *where*. Use it to decide whether to keep going; use
 /// this to tell a reader where the damage is.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, diagnostic::recovery_count, parse};
+///
+/// assert_eq!(recovery_count(&parse("fn main() {}", Language::Rust).root()), 0);
+/// assert!(recovery_count(&parse("fn broken( {}", Language::Rust).root()) > 0);
+/// ```
 #[must_use]
 #[cfg(feature = "parser")]
 pub fn recovery_count<L: LanguageExt>(root: &AstNode<'_, L>) -> usize {
@@ -517,6 +705,16 @@ fn labeled(path: PathBuf) -> PathBuf {
 /// The end of a file is where a whole-file refusal is reported, so this is what
 /// the parser's `ParseError::to_diagnostic` anchors its
 /// size refusals to.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::diagnostic::end_of;
+///
+/// let span = end_of("ab\ncd");
+/// assert_eq!((span.start.line, span.start.column, span.start.byte), (2, 3, 5));
+/// assert!(span.is_empty());
+/// ```
 #[must_use]
 pub fn end_of(source: &str) -> Span {
     LineIndex::new(source).span(source.len()..source.len())
@@ -535,227 +733,7 @@ pub(crate) fn span_of(source: &str, range: Range<usize>) -> Span {
 // span arithmetic itself is language-independent and lives in `LineIndex`,
 // which is exercised by the clamped-position test below without a grammar.
 #[cfg(all(test, feature = "lang-rust"))]
-mod tests {
-    use super::*;
-    use crate::{Language, parse};
-
-    /// A file whose second function is malformed, so the recovery is confined to
-    /// a known line and the byte offset is predictable.
-    const BROKEN: &str = "fn main() { let x = 1; }\nfn broken( {\n";
-
-    /// A wide, shallow tree: many top-level functions, each only a few nodes
-    /// deep. This is the shape that separates a depth-proportional walk from a
-    /// sibling-frontier one.
-    fn wide_source(count: usize) -> String {
-        (0..count)
-            .map(|index| format!("fn f{index}() {{}}\n"))
-            .collect::<String>()
-    }
-
-    #[test]
-    fn a_clean_tree_reports_nothing() {
-        let source = "fn main() {}\n";
-        let tree = parse(source, Language::Rust);
-        assert_eq!(
-            diagnostics("ok.rs", &tree.root(), source, "Rust"),
-            Vec::new(),
-            "a clean tree has nothing to report"
-        );
-        assert_eq!(recovery_count(&tree.root()), 0);
-    }
-
-    #[test]
-    fn a_recovery_is_reported_on_the_line_that_carries_it() {
-        let tree = parse(BROKEN, Language::Rust);
-        let found = diagnostics("bad.rs", &tree.root(), BROKEN, "Rust");
-        assert_eq!(found.len(), 1, "one malformed function reports once");
-        let first = &found[0];
-        assert_eq!(
-            first.span().start.line,
-            2,
-            "the recovery is on the second line, not the clean first one"
-        );
-        // The byte range is a real slice of the source, and it is exactly the
-        // malformed text: not an approximation of it, and not an offset past it.
-        let range = first.span().byte_range();
-        assert!(
-            range.start <= range.end && range.end <= BROKEN.len(),
-            "span {range:?} is not inside a source of {} bytes",
-            BROKEN.len()
-        );
-        assert_eq!(
-            &BROKEN[range], "fn broken( {",
-            "the span covers the malformed text and nothing else"
-        );
-    }
-
-    #[test]
-    fn a_recovery_is_never_reported_as_an_error() {
-        let tree = parse(BROKEN, Language::Rust);
-        let found = diagnostics("bad.rs", &tree.root(), BROKEN, "Rust");
-        assert!(
-            found.iter().all(|one| one.severity() == Severity::Warning),
-            "a recovered parse is a warning; only a refusal is an error"
-        );
-        assert_eq!(recovery_count(&tree.root()), found.len());
-    }
-
-    #[test]
-    fn findings_come_back_in_source_order() {
-        let source = "fn a( {\nfn b( {\nfn c( {\n";
-        let tree = parse(source, Language::Rust);
-        let found = diagnostics("many.rs", &tree.root(), source, "Rust");
-        assert!(found.len() > 1, "three broken functions report separately");
-        let starts: Vec<usize> = found.iter().map(|one| one.span().start.byte).collect();
-        let mut sorted = starts.clone();
-        sorted.sort_unstable();
-        assert_eq!(starts, sorted, "findings are not in source order");
-    }
-
-    #[test]
-    fn lines_and_columns_are_one_based_and_bytes_are_zero_based() {
-        let tree = parse(BROKEN, Language::Rust);
-        let found = diagnostics("p.rs", &tree.root(), BROKEN, "Rust");
-        let first = &found[0];
-        assert!(
-            first.span().start.line >= 1,
-            "a report reading line 0 is a defect in the report"
-        );
-        assert!(
-            first.span().start.column >= 1,
-            "a report reading column 0 is a defect in the report"
-        );
-        // The 1-based convention is what makes the second line report 2. A
-        // 0-based reading of the same byte offset would say 1, so this is the
-        // assertion that pins the convention rather than the arithmetic.
-        assert_eq!(
-            first.span().start.line,
-            BROKEN[..first.span().start.byte]
-                .matches('\n')
-                .count()
-                .saturating_add(1),
-            "the reported line is one more than the newlines before it"
-        );
-    }
-
-    #[test]
-    fn a_column_counts_characters_and_not_bytes() {
-        // `é` is two bytes and one character. A report pointing after it must
-        // not claim the reader typed two characters more than they did.
-        let source = "// é\nfn broken( {\n";
-        let tree = parse(source, Language::Rust);
-        let found = diagnostics("u.rs", &tree.root(), source, "Rust");
-        let first = &found[0];
-        let line_start = match source[..first.span().start.byte].rfind('\n') {
-            Some(at) => at.saturating_add(1),
-            None => 0,
-        };
-        let column_chars = source[line_start..first.span().start.byte].chars().count();
-        assert_eq!(
-            first.span().start.column,
-            column_chars.saturating_add(1),
-            "column is 1-based and counted in characters"
-        );
-        // The byte offset is genuinely further along than the character count,
-        // which is the whole reason this distinction exists.
-        assert!(
-            first.span().start.byte > first.span().start.column,
-            "the multi-byte line should separate byte and character offsets"
-        );
-    }
-
-    #[test]
-    fn an_end_of_file_position_is_the_last_line_and_zero_width() {
-        let source = "fn ok() {}\n";
-        let span = end_of(source);
-        assert!(span.is_empty(), "a whole-file condition has no width");
-        assert_eq!(span.start.byte, source.len());
-        assert_eq!(
-            span.start.line, 2,
-            "the trailing newline opens the second line"
-        );
-    }
-
-    #[test]
-    fn an_unlabeled_file_renders_as_a_placeholder_and_not_a_bare_colon() {
-        let tree = parse(BROKEN, Language::Rust);
-        let found = diagnostics("", &tree.root(), BROKEN, "Rust");
-        let rendered = found[0].render();
-        assert!(
-            rendered.starts_with("<source>:"),
-            "an empty path rendered as {rendered}, which reads as a truncated filename"
-        );
-    }
-
-    #[test]
-    fn the_render_matches_the_documented_shape() {
-        let tree = parse(BROKEN, Language::Rust);
-        let rendered = diagnostics("src/a.rs", &tree.root(), BROKEN, "Rust")[0].render();
-        assert!(rendered.starts_with("src/a.rs:"), "{rendered}");
-        assert!(
-            rendered.contains(": W: "),
-            "a warning renders as ` W: `: {rendered}"
-        );
-        assert!(
-            !rendered.ends_with('\n'),
-            "render carries no trailing newline"
-        );
-    }
-
-    #[test]
-    fn a_message_names_the_grammar_it_came_from() {
-        let tree = parse(BROKEN, Language::Rust);
-        let found = diagnostics("m.rs", &tree.root(), BROKEN, "Rust");
-        assert!(
-            found[0].message().contains("Rust"),
-            "the message names the grammar: {}",
-            found[0].message()
-        );
-    }
-
-    #[test]
-    fn the_walk_retains_depth_and_not_the_sibling_frontier() {
-        // The resource half of INV-AST-3, held by this walk: a wide tree must
-        // not accumulate one retained entry per sibling, or a file with N
-        // top-level items costs O(N) resident memory.
-        let source = wide_source(4_096);
-        let tree = parse(&source, Language::Rust);
-        assert_eq!(
-            tree.root().children().len(),
-            4_096,
-            "the fixture presents 4,096 immediate siblings to the walk"
-        );
-        let peak = peak_retained_frames(&tree.root());
-        assert!(
-            peak < 64,
-            "descended {peak} levels for 4,096 wide siblings; that is fan-out, not depth"
-        );
-    }
-
-    #[test]
-    fn a_deep_narrow_tree_still_descends_one_level_per_ancestor() {
-        // The other half of the same invariant: a deep tree does cost depth,
-        // and the cost is the active depth rather than the total node count.
-        let depth = 200;
-        let source = format!(
-            "{}fn f() {{}}{}",
-            "fn f() {".repeat(depth),
-            "}".repeat(depth)
-        );
-        let tree = parse(&source, Language::Rust);
-        let peak = peak_retained_frames(&tree.root());
-        assert!(
-            peak > 1,
-            "a {depth}-deep tree descended only {peak} levels; the walk is not descending"
-        );
-        let nodes = crate::inspect_ast(&tree.root(), None).nodes;
-        assert!(
-            peak < nodes,
-            "descended {peak} levels for a tree of {nodes} nodes; that is not \
-             depth-proportional"
-        );
-    }
-}
+mod tests;
 
 /// The line arithmetic, with no grammar involved.
 ///
@@ -763,110 +741,4 @@ mod tests {
 /// [`LineIndex`] honest even in a build carrying no grammar at all — the case a
 /// consumer of `--no-default-features` is in.
 #[cfg(test)]
-mod line_index_tests {
-    use super::{LineIndex, Pos, Span};
-
-    /// A grammar may report a range past the text it was given. This crate does
-    /// not vouch for a third-party grammar's arithmetic, so the position is
-    /// clamped into the source rather than reported as-is.
-    #[test]
-    fn a_range_past_the_source_is_clamped_rather_than_trusted() {
-        let source = "fn broken( {";
-        let index = LineIndex::new(source);
-        let span = index.span(usize::MAX..usize::MAX);
-        assert!(span.start.byte <= source.len(), "start clamped");
-        assert!(span.end.byte <= source.len(), "end clamped");
-    }
-
-    #[test]
-    fn an_offset_inside_a_character_is_floored_to_its_first_byte() {
-        let source = "\u{e9}\u{e9}\nb";
-        let index = LineIndex::new(source);
-        let span = index.span(1..3);
-        assert_eq!(span.start.byte, 0, "inside the first character");
-        assert_eq!(span.start.column, 1, "columns are 1-based");
-        assert_eq!(span.end.byte, 2, "inside the second character");
-        assert_eq!(span.end.column, 2, "the second character's column");
-    }
-
-    #[test]
-    fn a_range_entirely_past_the_source_resolves_to_the_last_line() {
-        let source = "one\ntwo\nthree\n";
-        let index = LineIndex::new(source);
-        let span = index.span(9_000..9_001);
-        assert_eq!(span.start.byte, source.len());
-        assert_eq!(
-            span.start.line, 4,
-            "the trailing newline opens a fourth line"
-        );
-    }
-
-    #[test]
-    fn the_first_byte_of_the_file_is_line_one_column_one_byte_zero() {
-        let source = "alpha\nbeta\n";
-        let index = LineIndex::new(source);
-        assert_eq!(
-            index.position(0),
-            Pos {
-                line: 1,
-                column: 1,
-                byte: 0
-            },
-            "1-based line and column over a 0-based byte offset"
-        );
-    }
-
-    #[test]
-    fn a_byte_on_a_line_start_belongs_to_that_line_not_the_previous_one() {
-        let source = "alpha\nbeta\n";
-        let index = LineIndex::new(source);
-        // Byte 6 is the `b` of `beta`, the first byte of the second line.
-        assert_eq!(index.position(6).line, 2);
-        assert_eq!(index.position(6).column, 1);
-    }
-
-    #[test]
-    fn a_multi_byte_line_reports_characters_in_the_column_and_bytes_in_the_offset() {
-        let source = "éé\n";
-        let index = LineIndex::new(source);
-        // Two two-byte characters, so byte 4 is the end of the line and is two
-        // characters past its start.
-        let pos = index.position(4);
-        assert_eq!(pos.column, 3, "four bytes is two characters, one-based");
-        assert_eq!(pos.byte, 4, "the byte offset is the byte offset");
-    }
-
-    #[test]
-    fn an_empty_source_resolves_to_the_only_position_it_has() {
-        let index = LineIndex::new("");
-        let span = index.span(0..0);
-        assert_eq!(span.start.byte, 0);
-        assert_eq!(span.start.line, 1);
-        assert!(span.is_empty());
-    }
-
-    #[test]
-    fn a_span_covers_exactly_the_bytes_between_its_ends() {
-        let source = "alpha\nbeta\ngamma\n";
-        let index = LineIndex::new(source);
-        let span = index.span(6..10);
-        assert_eq!(&source[span.byte_range()], "beta");
-        assert_eq!(span.start.line, 2);
-        assert_eq!(span.end.line, 2);
-    }
-
-    #[test]
-    fn a_zero_width_span_is_empty_and_keeps_its_position() {
-        let source = "alpha\nbeta\n";
-        let span = Span::at(index_position(source, 6));
-        assert!(span.is_empty());
-        assert_eq!(span.start, span.end);
-        assert_eq!(span.start.line, 2);
-    }
-
-    /// The position of `byte` in `source`, through the same index the span
-    /// helpers use.
-    fn index_position(source: &str, byte: usize) -> Pos {
-        LineIndex::new(source).position(byte)
-    }
-}
+mod line_index_tests;

@@ -140,6 +140,16 @@ pub(super) fn any_extension_matches(known: &[&str], extension: &str) -> bool {
 impl Language {
     /// Language of a path by extension, or `None` without a compiled grammar.
     /// Case-insensitive without allocating a normalized copy.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::Language;
+    ///
+    /// assert_eq!(Language::of_path("src/lib.RS"), Some(Language::Rust));
+    /// assert_eq!(Language::of_path("tool.py"), Some(Language::Python));
+    /// assert_eq!(Language::of_path("Makefile"), None);
+    /// ```
     #[must_use]
     pub fn of_path(path: &str) -> Option<Self> {
         let extension = extension_of(path)?;
@@ -288,6 +298,15 @@ impl Language {
     /// no shebang at all each name no language; the unit tests
     /// `a_shebang_names_the_language_of_an_extensionless_file` and
     /// `an_unknown_interpreter_names_no_language` run those cases.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::Language;
+    ///
+    /// assert_eq!(Language::of_shebang("#!/usr/bin/env python3\nprint(1)\n"), Some(Language::Python));
+    /// assert_eq!(Language::of_shebang("print(1)\n"), None);
+    /// ```
     #[must_use]
     pub fn of_shebang(source: &str) -> Option<Self> {
         let first = match source.split_once('\n') {
@@ -322,6 +341,19 @@ impl Language {
 /// A grammar a consumer here needs should be contributed upstream and the local
 /// registration deleted once `ast-grep-language` ships it; keeping it behind
 /// this type makes that a localized change, not a fork of upstream's tables.
+///
+/// # Examples
+///
+/// ```
+/// use ast_grep_core::tree_sitter::LanguageExt;
+/// use ast_grep_language::SupportLang;
+/// use lgwks_ast::CustomLang;
+///
+/// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+/// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+/// assert_eq!(mine.name(), "mine");
+/// assert!(CustomLang::of_path("src/lib.mine", &[mine]).is_some());
+/// ```
 #[derive(Clone)]
 pub struct CustomLang {
     /// Stable lowercase name, reported in findings and diagnostics and used by
@@ -345,6 +377,18 @@ pub struct CustomLang {
 impl CustomLang {
     /// Register `grammar` under `name`. `$` is assumed valid in the language's
     /// patterns; use [`CustomLang::with_expando`] when it is not.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ast_grep_core::tree_sitter::LanguageExt;
+    /// use ast_grep_language::SupportLang;
+    /// use lgwks_ast::CustomLang;
+    ///
+    /// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+    /// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+    /// assert_eq!(mine.name(), "mine");
+    /// ```
     #[must_use]
     pub fn new(name: &'static str, grammar: TSLanguage) -> Self {
         Self {
@@ -357,6 +401,20 @@ impl CustomLang {
 
     /// Replace the character standing in for `$` while parsing patterns, for a
     /// language where `$` is an identifier character.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ast_grep_core::tree_sitter::LanguageExt;
+    /// use ast_grep_language::SupportLang;
+    /// use lgwks_ast::CustomLang;
+    ///
+    /// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+    /// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+    /// // A language whose identifiers may hold a dollar sign stands patterns in with another character.
+    /// let mine = mine.with_expando('µ');
+    /// assert_eq!(mine.name(), "mine");
+    /// ```
     #[must_use]
     pub fn with_expando(mut self, expando: char) -> Self {
         self.expando = expando;
@@ -364,6 +422,18 @@ impl CustomLang {
     }
 
     /// Declare the file extensions this language answers for.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ast_grep_core::tree_sitter::LanguageExt;
+    /// use ast_grep_language::SupportLang;
+    /// use lgwks_ast::CustomLang;
+    ///
+    /// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+    /// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+    /// assert_eq!(mine.extensions(), ["mine"]);
+    /// ```
     #[must_use]
     pub fn with_extensions(mut self, extensions: &'static [&'static str]) -> Self {
         self.extensions = extensions;
@@ -371,12 +441,36 @@ impl CustomLang {
     }
 
     /// The lowercase, stable name used in findings and diagnostics.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ast_grep_core::tree_sitter::LanguageExt;
+    /// use ast_grep_language::SupportLang;
+    /// use lgwks_ast::CustomLang;
+    ///
+    /// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+    /// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+    /// assert_eq!(mine.name(), "mine");
+    /// ```
     #[must_use]
     pub fn name(&self) -> &'static str {
         self.name
     }
 
     /// Extensions answered for, without the leading dot.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ast_grep_core::tree_sitter::LanguageExt;
+    /// use ast_grep_language::SupportLang;
+    /// use lgwks_ast::CustomLang;
+    ///
+    /// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+    /// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+    /// assert_eq!(mine.extensions(), ["mine"]);
+    /// ```
     #[must_use]
     pub fn extensions(&self) -> &'static [&'static str] {
         self.extensions
@@ -385,6 +479,20 @@ impl CustomLang {
     /// The first candidate claiming `path`'s extension, case-insensitively.
     /// Registered grammars are selected explicitly; they never join
     /// [`Language::ALL`] or content detection.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use ast_grep_core::tree_sitter::LanguageExt;
+    /// use ast_grep_language::SupportLang;
+    /// use lgwks_ast::CustomLang;
+    ///
+    /// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+    /// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+    /// let found = CustomLang::of_path("src/LIB.MINE", std::slice::from_ref(&mine));
+    /// assert_eq!(found.map(|language| language.name()), Some("mine"));
+    /// assert!(CustomLang::of_path("src/lib.rs", &[mine]).is_none());
+    /// ```
     #[must_use]
     pub fn of_path(path: &str, candidates: &[CustomLang]) -> Option<CustomLang> {
         let extension = extension_of(path)?;

@@ -385,6 +385,7 @@ jobs:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.it_group || matrix.partition }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    # mac-specific: the darwin-arm64 acceptance receipt and the Darwin seams.
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -762,14 +763,15 @@ jobs:
       - name: Run lgwks-bot no-default-feature tests
         run: cargo nextest run -p lgwks_bot --all-targets --locked --no-default-features ${PARTITION:+--partition $PARTITION}
 
-  # Lints, on macOS: the Darwin `cfg` paths are the ones the suites' Linux legs
-  # cannot reach, and the lint legs have run there since they moved off the
-  # Mac's instances. Four legs, each its own feature family and cache.
+  # Lints, on hosted arm64 Linux: nothing in a lint leg is Mac-specific, and on
+  # #863 every macOS leg sat in the hosted macOS queue until it was cancelled.
+  # The Darwin `cfg` paths compile in the macOS shards, which build them on the
+  # platform they model. Each leg is its own feature family and cache.
   clippy:
     name: Clippy and scan (${{ matrix.part }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: macos-15
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
       fail-fast: false
@@ -817,6 +819,12 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: "false"
           DOCS_BASE: HEAD^1
         run: cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- scan --rule missing-example --base ${DOCS_BASE:-origin/main} crates
+      # INV-DOC-6 (ADR 0012): the crates already at zero stay at zero whole.
+      - name: Crates at zero keep every example
+        if: matrix.part == 'scan'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+        run: cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- scan --rule missing-example crates/lgwks-ast/src crates/lgwks-macros/src
       # #384: every `script!` in the tree, read by the one parser the macro
       # calls (SL-2), without compiling it.
       - name: Every script! in the repository reads
@@ -901,6 +909,7 @@ jobs:
       matrix:
         include:
           - { part: deps, os: ubuntu-24.04-arm, cache: storefront-deps }
+          # mac-specific: the three Apple legs build against Xcode's Metal toolchain.
           - { part: gpui, os: macos-15, cache: storefront-gpui }
           - { part: gpui-fixture, os: macos-15, cache: storefront-gpui-fixture }
           - { part: ml, os: macos-15, cache: storefront-ml }
@@ -1128,6 +1137,7 @@ jobs:
     name: AppCUI native storefront
     needs: changes
     if: needs.changes.outputs.code == 'true'
+    # mac-specific: AppCUI's macOS terminal backend.
     runs-on: macos-15
     timeout-minutes: 5
     steps:
@@ -1344,8 +1354,9 @@ jobs:
 
   # INV-STD-UNSAFE-1: the Miri proof, on every change. The two `unsafe` modules
   # carry a function-pointer seam each so the interpreter can drive the exact
-  # call sites. Both seams are cross-interpreted by name; the job runs on macOS
-  # so the darwin seam is interpreted on the platform it models. The step
+  # call sites. Both seams are cross-interpreted by `--target`: Miri interprets
+  # the darwin and windows seams without linking for either, so the job runs on
+  # hosted arm64 Linux and needs no Apple linker. The step
   # carries the lane's command text verbatim, so `check-gate-parity` compares
   # them; each target's sysroot is built first with warnings allowed, because
   # it is the toolchain's own `sysroot` package (run 40719181967).
@@ -1353,18 +1364,10 @@ jobs:
     name: Miri unsafe seams
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: macos-15
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      # The linker the repository's cargo configuration names, as the hosted-rust
-      # action links it: the toolchain's own rust-lld, called as ld64.lld. `brew
-      # install lld` took 35 s and put Miri on the run's critical path (run
-      # 41841536946: 312 s wall, Miri ending at 295 s). It is the pinned
-      # toolchain's: the nightly's rust-lld loads @rpath/libLLVM.dylib, which
-      # its bin directory does not hold (run 41842704850, abort trap 6).
-      - name: Set up the pinned toolchain's lld as ld64.lld
-        run: rustup toolchain install 1.99.1 --profile minimal && ln -sf "$(rustc +1.99.1 --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
       - name: Prove the process unsafe seams under Miri
         run: |
           rustup toolchain install nightly-2026-10-01 --profile minimal --component miri --component rust-src && \
