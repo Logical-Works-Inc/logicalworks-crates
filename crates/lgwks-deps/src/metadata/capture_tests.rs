@@ -57,16 +57,33 @@ fn stdout_flood() -> (&'static str, Vec<OsString>) {
     )
 }
 
+/// The Windows probes that must answer run under `cmd.exe`, not PowerShell:
+/// on hosted `windows-latest` a cold PowerShell start outlasted the 30 s
+/// ceiling for all four of them at once (run 41777272472), and `cmd` starts in
+/// milliseconds. `/S` strips the one pair of quotes the standard library puts
+/// around an argument holding spaces, so the loop reaches `cmd` as written.
 #[cfg(not(unix))]
-fn stdout_flood() -> (&'static str, Vec<OsString>) {
+fn cmd(command: &str) -> (&'static str, Vec<OsString>) {
     (
-        "powershell",
+        "cmd",
         vec![
-            OsString::from("-NoProfile"),
-            OsString::from("-Command"),
-            OsString::from("Write-Output ('x' * 2000000)"),
+            OsString::from("/D"),
+            OsString::from("/S"),
+            OsString::from("/C"),
+            OsString::from(command),
         ],
     )
+}
+
+/// A loop that writes about 5 MB, far past the 32 KiB budget the flood tests
+/// set, which the sampled budget refuses long before the loop ends.
+#[cfg(not(unix))]
+const FLOOD_LOOP: &str =
+    "for /L %i in (1,1,100000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
+#[cfg(not(unix))]
+fn stdout_flood() -> (&'static str, Vec<OsString>) {
+    cmd(FLOOD_LOOP)
 }
 
 #[cfg(unix)]
@@ -82,15 +99,16 @@ fn stderr_flood() -> (&'static str, Vec<OsString>) {
 
 #[cfg(not(unix))]
 fn stderr_flood() -> (&'static str, Vec<OsString>) {
-    (
-        "powershell",
-        vec![
-            OsString::from("-NoProfile"),
-            OsString::from("-Command"),
-            OsString::from("[Console]::Error.Write(('x' * 2000000) -join '')"),
-        ],
-    )
+    cmd(&format!("{FLOOD_LOOP} 1>&2"))
 }
+
+/// What the small answer writes. `cmd` cannot echo a double quote that the
+/// standard library's argument quoting leaves intact, so on Windows the probe
+/// is a bare word; what is under test is that the bytes survive, not which.
+#[cfg(unix)]
+const SMALL_ANSWER: &str = "{\"ok\":true}";
+#[cfg(not(unix))]
+const SMALL_ANSWER: &str = "lgwks-probe-ok";
 
 #[cfg(unix)]
 fn small_answer() -> (&'static str, Vec<OsString>) {
@@ -98,21 +116,14 @@ fn small_answer() -> (&'static str, Vec<OsString>) {
         "sh",
         vec![
             OsString::from("-c"),
-            OsString::from("printf '{\"ok\":true}'"),
+            OsString::from(format!("printf '{SMALL_ANSWER}'")),
         ],
     )
 }
 
 #[cfg(not(unix))]
 fn small_answer() -> (&'static str, Vec<OsString>) {
-    (
-        "powershell",
-        vec![
-            OsString::from("-NoProfile"),
-            OsString::from("-Command"),
-            OsString::from("Write-Output '{\"ok\":true}'"),
-        ],
-    )
+    cmd(&format!("echo {SMALL_ANSWER}"))
 }
 
 /// A hung Cargo must be killed by the deadline, not waited out, and the
@@ -253,7 +264,7 @@ fn a_small_answer_passes_through_unchanged() -> TestResult {
         output.status
     );
     assert!(
-        String::from_utf8_lossy(&output.stdout).contains("{\"ok\":true}"),
+        String::from_utf8_lossy(&output.stdout).contains(SMALL_ANSWER),
         "the probe bytes must survive: {:?}",
         String::from_utf8_lossy(&output.stdout)
     );
@@ -339,10 +350,10 @@ fn cleanup_obligation_confirms_an_already_exited_child() -> TestResult {
 fn injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful() -> TestResult {
     /// A ceiling, never the property under test: each injected fault fires
     /// on its first observation, and the small answer must be allowed to
-    /// exit first. On hosted Windows that answer is a cold PowerShell start,
-    /// which took longer than the 3 s this used to allow, so the deadline
-    /// refusal landed before `ReadStdout` was reached. The same 30 s the
-    /// passthrough control allows.
+    /// exit first. On hosted Windows that answer was a cold PowerShell start,
+    /// which outlasted first the 3 s this used to allow and then 30 s, so the
+    /// deadline refusal landed before `ReadStdout` was reached; it is a `cmd`
+    /// echo now. The same 30 s the passthrough control allows.
     const CEILING: Duration = Duration::from_secs(30);
     let (small_program, small_args) = small_answer();
     let (sleep_program, sleep_args) = sleeper();

@@ -422,10 +422,11 @@ fn registry(samples: usize) -> Result<Vec<Row>, Box<dyn Error>> {
     #[cfg(feature = "json")]
     {
         let document = black_box(JSON_SUBJECT);
-        let parsed = lgwks_std::json::from_str::<lgwks_std::json::Value>(JSON_SUBJECT)?;
+        let parsed = JSON_SUBJECT.parse::<lgwks_std::json::Value>()?;
         let parsed = black_box(parsed);
+        // The tree's own reader (#831): `str::parse::<Value>()`.
         Row::light(&mut rows, "json parse", samples, move || {
-            let value = lgwks_std::json::from_str::<lgwks_std::json::Value>(black_box(document));
+            let value = black_box(document).parse::<lgwks_std::json::Value>();
             black_box(value.is_ok());
         });
         Row::light(&mut rows, "json write", samples, move || {

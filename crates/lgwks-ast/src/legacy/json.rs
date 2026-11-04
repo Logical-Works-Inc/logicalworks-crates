@@ -329,10 +329,5 @@ fn line_json(range: LineRange) -> Value {
 
 /// A JSON object from its fields, in the order given.
 fn object<const FIELDS: usize>(fields: [(&str, Value); FIELDS]) -> Value {
-    Value::Object(
-        fields
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<Map<String, Value>>(),
-    )
+    Value::Object(Map::from_iter(fields))
 }

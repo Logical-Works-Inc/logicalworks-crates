@@ -179,7 +179,7 @@ fn the_json_has_a_fixed_set_of_keys_and_an_array_of_edges() -> TestResult {
     assert_eq!(rows.len(), 3, "one object per package");
     for row in rows {
         let object = row.as_object().ok_or("a row is an object")?;
-        let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+        let mut keys: Vec<&str> = object.keys().collect();
         keys.sort_unstable();
         assert_eq!(
             keys,

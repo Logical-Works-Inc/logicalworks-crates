@@ -1,233 +1,472 @@
 name: ci
 on:
   # A pull request already runs this matrix for its head commit, so triggering
-  # on every branch push ran all eleven jobs a second time for the same tree.
-  # A branch is covered by its pull request; `main` is covered here, after the
-  # merge that put it there.
+  # on every branch push ran every job a second time for the same tree. A branch
+  # is covered by its pull request; `main` is covered here, after the merge that
+  # put it there.
   push:
     branches: [main]
   pull_request:
-  # The same matrix on a branch's head with no commit to carry it. #272's
-  # acceptance counts consecutive `main` runs under 300 s, and the only way to
-  # take one was a merge, so a run of the landed code had to wait for a change
-  # to land. `gh workflow run ci.yml --ref main` starts it; a run on `main`
-  # takes the `main` paths of the file (the cache saves, the receipts upload).
+  # The same matrix on a branch's head with no commit to carry it:
+  # `gh workflow run ci.yml --ref main` starts it; a run on `main` takes the
+  # `main` paths of the file (the cache saves, the receipts upload).
   workflow_dispatch:
 
 # WORKFLOW.md §12 is this workflow's specification: the nine axes it is held
 # to, the budget, and the measurements behind the layout below.
 #
-# The layout is set by one fact: every self-hosted job runs on one machine (15
-# cores, six runner instances). A run's wall clock is its job-seconds divided by
-# six, plus whatever waits in the queue, so the layout minimises duplicated work
-# rather than maximising the number of jobs. 35 jobs, each compiling its own copy
-# of the workspace, put 7,500 job-seconds through six instances and took
-# 21.4 minutes (run 37579691890). Lanes that build the same feature set share a
-# job (the lane table's `group`), and only the two check-row jobs wait on
-# another job (the required row also records the acceptance receipt): each of
-# them reads a result instead of building one.
+# Every job runs on a GitHub-hosted runner (province#9, Director 2026-11-03).
+# The repository is public, so hosted runners cost nothing, and a self-hosted
+# runner would execute a fork's pull request on the Director's Mac. The bulk
+# runs on `ubuntu-24.04-arm` (arm64, as the Mac is); `macos-15` holds the
+# lanes that need Darwin (the macOS suite legs, the Metal and GPUI storefronts,
+# the Miri darwin seam, the timing gates and the macOS lints); `windows-latest`
+# the Windows legs.
 #
-# Every job that builds names the one instance it runs on (`lwc-1` .. `lwc-13`,
-# runner labels). An instance keeps one target directory and one container
-# target volume; a job free to land on any instance found it cold, and the
-# first two runs on this layout spent their budgets compiling at a load average
-# of 70-85 (runs 37613720499, 37616318637). Pinned, an instance only holds its
-# own jobs' builds, and the second run is warm. Thirteen instances, one per job
-# that builds: with six a warm run's jobs queued behind one another (601 s,
-# run 37619560219 attempt 2). The jobs that build nothing run anywhere.
+# Build where you test. Each shard compiles the suite it runs and runs its
+# partition in the same job, so the run's critical path is one compile plus one
+# partition. The earlier layout built each suite once into a nextest archive and
+# ran its shards from it, which put the archive upload, a second runner start,
+# the download and the extract between the compile and the tests: 611 s of wall
+# in run 41671270220, where the `lgwks_bot` library and `it` binary alone
+# compiled for 150 s on Linux and 180 s on macOS after the dependencies, on
+# every pull request that touches them, warm cache or not. Shards compile side
+# by side, so more of them shortens the partition without lengthening the
+# compile.
 #
-# Each feature set is compiled by exactly one job. A suite split into shards
-# compiled the same set once per shard, at the same time (run 37630747929: 4-9
-# minutes each at a load near 150, while every shard's tests took 66-150 s). A
-# suite runs in one job, with the test threads of the shards it replaced
-# (`test-share`).
+# Caching has one owner per layer (`.github/actions/hosted-rust`): rust-cache
+# holds the registry and the dependency build, keyed by the lane group the job
+# builds and saved from `main` alone, so pull requests stop evicting main past
+# the repository's 10 GiB (9.71 GiB in 153 entries on 2026-11-03); sccache on
+# the GitHub Actions backend holds compiled crates, workspace crates included,
+# because every hosted job checks out at one path.
 #
-# The job timeout is the budget, 5 minutes: a job that passes its tests and
-# ends past it is cancelled (main run 39056822862: every step ended at 297 s).
-# Hung tests are bounded inside the suite by nextest's `slow-timeout` with
-# `terminate-after`.
-#
-# Compiler slots follow what a job compiles, not one rule for all. rustc draws
-# its codegen threads from cargo's slots, so at one slot a job's opt-level-3
-# lgwks-bot compile ran on one core: 6 m 55 s of an 8 m 16 s build on run
-# 38304128455, the run's critical path. The three jobs that compile lgwks-bot's
-# test binaries take three slots, the check, doc and opt-level-0 jobs two, the
-# rest one. Every job at two slots once filled swap to 96% and killed six jobs
-# (run 37675264254); this spends the slots where the codegen is, and the
-# per-feature checks and second LTO links it removed are compiles no job runs.
-#
-# The runners start under launchd with `ProcessType` Interactive
-# (`~/Library/LaunchAgents/logicalworks-crates.runner.watch.plist`), and a
-# listener started under the default type must be restarted after the change:
-# every job process inherits its listener's scheduling class. The saturation
-# 10,000-tier command (207 tests, nothing else running) took 50.5 s and 52.1 s
-# under a one-shot agent with Interactive, 70.4 s to 74.1 s with the default
-# type, 128.4 s from a terminal clamped to `taskpolicy -c utility`, and 105 s as
-# a job on the default-type listeners, against 51.9 s from a terminal; the
-# same job ran 77 s on the restarted ones. Every test was about twice as slow
-# (p50 0.82 s against 0.42 s) without any other process competing.
+# The job timeout is the budget, 5 minutes: a job that passes its tests and ends
+# past it is cancelled. Hung tests are bounded inside the suite by nextest's
+# `slow-timeout` with `terminate-after`. The run's own wall is held to 300 s by
+# the required row (`ci-wall`).
 
 # Supersede rather than duplicate. Two `pull_request` events in one group are
 # the same branch pushed twice, so the older run is cancelled. A run on `main`
 # never is: that run is the record of what shipped. Each `main` push is its own
-# group, keyed by commit: sharing one group made a merge's run sit pending until
-# the previous merge's run finished (measured 2026-09-30: 678 s queued before a
-# 293 s run), because a concurrency group admits one run at a time. A pull
-# request is keyed by its number, not its branch name: two fork PRs from
-# branches that share a name (`patch-1`) would otherwise cancel each other.
+# group, keyed by commit, and a pull request by its number, not its branch name.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.ref_name != 'main' }}
 
-# The same value as `[profile.test] debug` in Cargo.toml, which cargo already
-# reads; it is repeated here for the cache. Swatinem/rust-cache keys on every
+# The job token is least privilege, declared rather than inherited from the org
+# default (CodeQL actions/missing-workflow-permissions, alerts 1-24): it checks
+# out and nothing more. The two jobs that read this run through the Actions API
+# (`workspace_build` lists its artifacts, `build_verdict` reads the cache usage
+# and the run's start) add `actions: read`. Caches and artifacts authenticate
+# with the runner's own token, not this one.
+permissions:
+  contents: read
+
+# The same values as `[profile.test]` in Cargo.toml, which cargo already reads;
+# they are repeated here for the cache. Swatinem/rust-cache keys on every
 # `CARGO*` variable but drops `[profile]` from the manifests it hashes, so a
-# profile change alone kept the old key: the restore was a full match, nothing
-# was saved, and every run would rebuild its dependencies with the new profile
-# from a cache built with the old one (#272). Change both together.
+# profile change alone kept the old key and every run rebuilt from a cache built
+# with the old profile (#272, run 38400754429). Change both together.
 env:
-  CARGO_PROFILE_TEST_DEBUG: line-tables-only
-  # The test profile's opt-level (Cargo.toml `[profile.test]`), repeated for the
-  # same reason: moving it from 3 to 1 left the cache key unchanged, so the
-  # opt-3 cache restored as a full match, nothing was saved, and every run
-  # recompiled the workspace from nothing (run 38400754429: "Cache up-to-date"
-  # after a 3-minute step timeout). Change both together.
+  CARGO_PROFILE_TEST_DEBUG: "0"
   CARGO_PROFILE_TEST_OPT_LEVEL: "1"
-  # The machine's cargo configuration declares `incremental = true` for `dev`,
-  # which `test` inherits, and a target directory on these runners is kept
-  # across runs, so a rebuild after a one-file change should reuse the rest.
-  # It did not: with the runner's environment, cargo wrote no incremental
-  # session at all, and every target directory's `incremental/` was empty, so
-  # every warm run recompiled each changed crate and its dependents from
-  # nothing (5m40s for the workspace's tests on run 37633462471). Measured on
-  # this machine, 2026-10-07: the same `cargo test --no-run` writes sessions
-  # without `CI=true` in its environment and none with it, which every Actions
-  # job has. This restores the declared setting; it changes how much is
-  # recompiled, not what is built.
-  CARGO_INCREMENTAL: "1"
-  # One warning fails the run, in every job and every cargo command, not only
-  # where a clippy leg passes `-D warnings` (Director 2026-10-28: "YOU WILL
-  # EDIT CI.YML TO FAIL ON A SINGLE CLIPPY WARNING"). Cargo's `build.warnings`
-  # denies the warnings of the workspace's own packages, rustc's and clippy's
-  # alike, without touching `RUSTFLAGS` and so without a second cache key.
+  # sccache refuses to cache an incremental compilation, and a hosted target
+  # directory never outlives its job, so incremental state is only cost.
+  CARGO_INCREMENTAL: "0"
+  # One warning fails the run, in every job and every cargo command (Director
+  # 2026-10-28: "YOU WILL EDIT CI.YML TO FAIL ON A SINGLE CLIPPY WARNING").
   CARGO_BUILD_WARNINGS: deny
 
-# `LWC_CHURN_SLOTS` is the machine-wide count of test processes the nextest
-# wrapper `churn-slot` lets run at once (`.config/nextest.toml`); unset it is 6.
-# The three suites of the first wave set 12 and the saturation legs of the second
-# leave it at 6 (#272). The lgwks-bot full suite alone on an idle host, 4,735
-# tests, test files on a RAM disk, nine threads: 78.96 s at 3 slots, 54.08 s at 6,
-# 46.01 s at 12 and 45.89 s at 64. The first wave ended at 150 s (bot-full 145 s)
-# with 12 for every job and at 160 s with 12 for the first wave only (runs
-# 39105571862 and 39105969151), against 166 to 179 s at 6. The second wave is
-# bound by the kernel's file and process work whatever the slots or the order:
-# the two legs took 77.7 s and 73.5 s at 12 slots and 68.5 s and 61.5 s at 6 with
-# the 10,000 tier ordered first, against 67.4 s and 17.9 s with it last, so the
-# order is the one it was and the legs keep 6.
-
 jobs:
-  # The gate lanes and the workspace suite, in two shards of one nextest run.
-  # The fast lanes (seconds each, most of them reading files) ride on the first
-  # shard instead of holding a runner instance for a job of their own, and the
-  # lanes that need the workspace built run after the shard that built it.
-  build:
-    name: Workspace build and tests
-    # The instance keeps its target directory across runs, so a warm run
-    # recompiles only what changed: 250 s on run 38365526454. A push that edits
-    # a test source is the cold case: the changed test binaries compiled for
-    # 184 to 249 s at a load average of 45-90 (runs 38870029835, 38936864320,
-    # 38941034251), against 22 s with nothing changed, so the first run after the
-    # edit is cancelled at the bound and the next is the job's measurement.
-    #
-    # lgwks_bot's tests run in the lgwks_bot jobs below, and `build_verdict`
-    # reports this check's required name only when those three, this job and its
-    # tail job all passed, so every test is still required.
-    #
-    # Two shards on two instances: one instance ran the compile and the 1,431
-    # tests to 5 m 25 s and the cap cancelled it (run 39824581301, started
-    # 17:39:18, cancelled 17:44:43), against 2 m 17 s for the same job on a quiet
-    # host. `sccache` is shared across the instances, so the second shard's
-    # compile reads what the first wrote.
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.instance }}"]
+  # Every workspace target compiles, benches and examples included, which the
+  # test shards (test targets only) do not prove. The listing for the
+  # simulation lane comes from the shards' own builds (`workspace_build`).
+  workspace_all_targets:
+    name: Build all workspace targets
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # `slice:`, not `count:`: nextest deprecates counted partitioning as
-          # neither even nor stable; a slice deals the tests round-robin.
-          - instance: lwc-3
-            partition: slice:1/2
-          - instance: lwc-4
-            partition: slice:2/2
     env:
-      PARTITION: ${{ matrix.partition }}
-      # sccache refuses to cache an incremental compilation, and the workflow's
-      # `CARGO_INCREMENTAL: "1"` therefore left these shards rebuilding every
-      # dependency on a cold instance: shard 1 finished in 1 m 21 s on its warm
-      # target and shard 2 spent 5 m 23 s on the identical work and was
-      # cancelled at the cap (run 39826369522). Off here, the two shards share
-      # one compile through the cache across instances; a persistent target
-      # directory is what incremental would have helped, and a shard only has
-      # one when it is already warm.
-      CARGO_INCREMENTAL: "0"
-      # The Clippy job is where lints run, with `-D warnings`, over the same
-      # workspace. `.cargo/config.toml` also routes every workspace compile
-      # through clippy-driver so a plain local build enforces them; repeating
-      # the lint pass here only adds to the compile that gates the run. Empty
-      # is "no wrapper" to cargo, and the compiled code is identical.
       RUSTC_WORKSPACE_WRAPPER: ""
-      LWC_CHURN_SLOTS: "12"
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-          nextest: "true"
-          # Eight, the share bot-full is green at (its comment names the limit).
-          # Run 38867517459 ran the suite, then 5,569 tests with lgwks_bot's, in
-          # 186 s at six threads for 1,005 s of summed test time, so 5.4 of the 6
-          # were busy: the cap, not the machine, set the wall. The suite is now
-          # the 1,431 tests that are not lgwks_bot's, so this is headroom.
-          test-share: "8"
-          build-share: "3"
-          # The critical path: its first cargo call is the one that must not
-          # queue behind the others' (#272, run 39021102172).
-          defer: "0"
+          cache-key: workspace
+      # `--timings` records what each unit costs, the measurement every cut to
+      # the cold build is judged by.
       - name: Build all workspace targets
-        run: cargo test --workspace --all-targets --locked --no-run
-      - name: Run all workspace tests
-        run: cargo nextest run --workspace --locked -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
-  # The workspace job's tail, on the instance whose target directory that job
-  # just filled, so it builds nothing. The five steps took 40 s of the job's
-  # 300: on main run 39056822862 every step ended at 297 s with 1,559 of 1,559
-  # tests passed and the cap cancelled the job in its cleanup. The two evidence
-  # lanes print the result their check rows expose; each row reads that report
-  # rather than listing the tests again (as a job of its own the listing cost
-  # 364 s on run 37579691890 and 6 s here). `build_verdict` requires this job.
-  workspace_tail:
-    name: Workspace evidence and doc tests
-    needs: build
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-3]
+        run: cargo test --workspace --all-targets --locked --no-run --timings
+      - name: Upload the build timings
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-timings-all-targets
+          path: target/cargo-timings/cargo-timing.html
+          if-no-files-found: error
+          retention-days: 7
+      # The bot shards name their test targets; a target added to the crate and
+      # named in no shard would never run, so the job refuses it.
+      - name: Every lgwks_bot test target is in a bot shard
+        run: |
+          test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"
+
+  # The simulation lane lists the test binaries the Linux shards built: the
+  # first shard of each suite writes them into a nextest archive after its
+  # build (SIMULATION_ARCHIVES), so nothing compiles every workspace test again
+  # (cold, that alone was cancelled at 293 s in run 41627777207). It runs in
+  # the shards' container, whose glibc the binaries need. It starts with the
+  # shards rather than after them: it builds the lane runner while they
+  # compile and takes each archive as it is uploaded, so it ends before the
+  # slowest shard instead of 40 s after it (run 41698583571).
+  workspace_build:
+    name: Workspace build and simulation evidence
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      actions: read
+    container:
+      image: "rust:1.99.1-trixie"
+      options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
     timeout-minutes: 5
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
+      SIMULATION_ARCHIVES: nextest-archive/nextest-archive-workspace-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-rest-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-scale-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-surface-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-refusals-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g1-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g2-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g3-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g4-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g5-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g6-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g7-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g8-Linux/suite.tar.zst
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: workspace
           nextest: "true"
-          test-share: "8"
-          build-share: "3"
-          defer: "0"
+      - name: Build the simulation lane
+        run: cargo build --locked -p lgwks_deps --bin ci-local
+      - name: Wait for the Linux suite archives
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
+            missing=""
+            for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
+              case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
+            done
+            if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi
+            echo "attempt ${attempt}: waiting on${missing}"
+            sleep 4
+          done
+          echo "::error::the suite archives never arrived:${missing}"
+          exit 1
+      - name: Download the Linux test archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: nextest-archive-*-Linux
+          path: nextest-archive
       - name: Deterministic simulation evidence
         run: |
           set -euo pipefail
           mkdir -p gate-evidence
           cargo run --locked -p lgwks_deps --bin ci-local -- --lane simulation-evidence | tee gate-evidence/simulation-evidence.txt
+      - name: Upload simulation evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: gate-evidence-simulation
+          path: gate-evidence/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Cache hit rate
+        if: ${{ always() }}
+        run: sccache --show-stats
+
+  # The Linux shards. They build and run in the `rust:<pin>-trixie` container
+  # the Mac's Linux leg used: its util-linux 2.41 `setpriv` applies the
+  # Landlock rules `Confinement::Landlock` wraps (#337), which the runner
+  # image's older util-linux cannot. `--init` gives PID 1 a reaper, as a Linux
+  # host has, and `/tmp` is an executable tmpfs, because the suites run scripts
+  # they write there and fsync every durable record. The lgwks-bot full suite's
+  # JUnit reports are the Linux receipt (#271), one per shard.
+  #
+  # lgwks_bot full is two builds: its consolidated `it` binary, and every other
+  # target. The workspace suite leaves lgwks_bot's test binaries out (the
+  # `tests` lane filters `not package(lgwks_bot)` either way). Every shard
+  # builds through `ci-it`: the test profile's dependencies at opt-level 3 took
+  # 187 s cold before lgwks_bot began, and every shard was cancelled at the
+  # limit (run 41704600214, no cache). Partitions are cut finer for the slower
+  # opt-level-0 workspace code.
+  tests_linux:
+    name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: "rust:1.99.1-trixie"
+      options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { suite: workspace, archive: workspace, partition: "slice:1/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:2/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:3/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:4/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:5/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:6/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:7/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:8/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:9/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:10/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:1/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:2/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:3/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:4/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-surface, it_group: surface, partition: "slice:1/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-surface, it_group: surface, partition: "slice:2/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-surface, it_group: surface, partition: "slice:3/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-surface, it_group: surface, partition: "slice:4/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-refusals, it_group: refusals, partition: "slice:1/2", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-refusals, it_group: refusals, partition: "slice:2/2", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g1, it_group: g1, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g2, it_group: g2, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g3, it_group: g3, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g4, it_group: g4, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g5, it_group: g5, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g6, it_group: g6, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g7, it_group: g7, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g8, it_group: g8, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-rest, partition: "slice:1/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-rest, partition: "slice:2/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
+          # The 10,000-run saturation tier: 50,000 fake-`gh` starts through a
+          # real process boundary. On a 3-vCPU macos-15 VM the test alone took
+          # 145 s and the row 283 s, the run's critical path (run 41786790129);
+          # no receipt names it (docs/acceptance/t-rows.toml), and the arm64
+          # Linux container runs the same binary under the same five features.
+          # Its own cache key: the other bot rows build `full`. It builds the one
+          # binary it runs: without `--test` the list built every lgwks_bot test
+          # target, 181 s of the row's 283 s (run 41791513019).
+          - { suite: saturation, archive: bot-saturation, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --test sim_review_path --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
+    env:
+      PARTITION: ${{ matrix.partition }}
+      NEXTEST_BUILD: ${{ matrix.build }}
+      # A bot-it row builds one group of the `it` modules (tests/it/main.rs
+      # says how they are grouped). That build leaves some fixtures unused,
+      # so its dead-code warnings stay warnings; the clippy legs build every
+      # module with warnings denied.
+      # Both spellings: `not(lwc_it_group)` reads the bare name, which the
+      # keyed `lwc_it_group="<group>"` alone does not set (b92496e0e built
+      # every module in every row).
+      RUSTFLAGS: ${{ matrix.it_group && format('--cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '' }}
+      CARGO_BUILD_WARNINGS: ${{ matrix.it_group && 'warn' || 'deny' }}
+      # `ci-it` builds workspace crates at opt-level 0, whose deeper frames
+      # need the 8 MiB test threads the macOS shards run with.
+      RUST_MIN_STACK: "8388608"
+      # Lints run once, in the Clippy jobs; the compiled code is identical.
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: ${{ matrix.archive }}
+          nextest: "true"
+      - name: Prepare the checkout
+        run: command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }
+      - name: Build the suite
+        run: cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null
+      # The simulation lane's input: the binaries this build already made,
+      # archived once per suite (nextest writes into an existing directory
+      # only, run 41605078279).
+      - name: Archive the suite for the simulation lane
+        if: matrix.suite != 'saturation' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        run: mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst
+      - name: Upload the suite archive
+        if: matrix.suite != 'saturation' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        uses: actions/upload-artifact@v7
+        with:
+          name: nextest-archive-${{ matrix.archive }}-Linux
+          path: nextest-archive/suite.tar.zst
+          if-no-files-found: error
+          retention-days: 1
+      - name: Run all workspace tests
+        if: matrix.suite == 'workspace'
+        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
+      - name: Run lgwks-bot async runner tests
+        if: matrix.suite == 'bot-full'
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
+      - name: Run lgwks-bot saturation tiers
+        if: matrix.suite == 'saturation'
+        env:
+          SATURATION_BINARIES: ${{ matrix.sat_bins }}
+          SATURATION_FILTER: ${{ matrix.sat_filter }}
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
+      - name: Upload Linux lgwks-bot JUnit report
+        if: matrix.suite != 'workspace'
+        uses: actions/upload-artifact@v7
+        with:
+          name: acceptance-junit-linux-${{ strategy.job-index }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Cache hit rate
+        if: ${{ always() }}
+        run: sccache --show-stats
+
+  # The macOS shards hold the Darwin seams (province#9: macos-15 for the darwin
+  # syscall seams, Miri darwin and the timing gates; Miri and the timing gates
+  # are jobs of their own): lgwks_std, whose fs, process and time seams take
+  # the Darwin branch, and lgwks_bot's own process-boundary binaries and
+  # review-path saturation set. The full lgwks_bot and workspace suites run on
+  # the Linux shards. On 3 vCPU a cold macOS shard compiles dependencies for
+  # 138 s even at opt-level 1 and was still compiling `lgwks_bot`'s whole `it`
+  # binary at the 5-minute limit (run 41700839783), so `it` runs here one
+  # group per row, and only the T-row modules the Darwin receipt names. Each test
+  # process runs through the `churn-slot` wrapper the suite's setup script
+  # builds (INV-CI-SLOT-1). Every macOS shard builds through the `ci-it`
+  # profile, dependencies at opt-level 1 and workspace crates at 0; the root
+  # Cargo.toml says what the profile keeps.
+  tests_macos:
+    name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.it_group || matrix.partition }})
+    runs-on: macos-15
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { suite: workspace, archive: workspace-core, partition: "slice:1/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
+          # The four binaries gate on rt, time, sync, macros, net and script
+          # (`process_job` is empty off Windows), so the row builds those, not
+          # `full`: 134 dependencies against 201, where `full` built for 4 m 02 s
+          # cold and the job was cancelled at 306 s (4f110e185). The same 19
+          # tests run.
+          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --no-default-features --features rt,time,sync,macros,io,net,script,process,ephemeral --cargo-profile ci-bot" }
+          # The review-path binary under the saturation filter (T31-T34), in
+          # tenths: whole, it ran 46 tests past the limit after a 184 s build
+          # (run 41702461553), a third was cancelled at 294 s (68bef2d12), and
+          # a fifth at 298 s (417e9ea93). The binary compiles only under the
+          # five features its `#![cfg]` names, so a row builds those and not
+          # `full`: under `full` the build alone took 190 s and the 10,000 tier
+          # was cancelled 69 s into its run (4fdcb439e). The 10,000-run tier
+          # runs on the Linux shards: its 50,000 fake-`gh` starts are kernel
+          # time on 3 vCPU, and as a row of its own here it was still the
+          # run's critical path at 283 s (run 41786790129).
+          - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:4/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:5/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:6/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:7/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & not test(=saturation_r32_tier_10000)" }
+          # The Darwin receipt (`build_verdict`, `--platform darwin-arm64`)
+          # names 293 tests in docs/acceptance/t-rows.toml, 278 of them in
+          # `it` and `lgwks_bot`'s own unit tests; with none of those run here
+          # it failed 283 of them (run 41784471298). A row builds one `it`
+          # group (the `lwc_it_group` cfg the Linux shards use) under the ten
+          # features the T-row modules gate on, not `full`, and runs the
+          # T-row modules of that group; the surface group runs its named
+          # tests alone, and one row runs the two library modules named.
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g3, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g4, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g5, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g6, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g7, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: g8, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: surface, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & (test(=t02_compile_surface::a_correct_local_borrowed_non_send_consumer_compiles) | test(=t02_compile_surface::a_cross_schema_result_binding_is_refused) | test(=t02_compile_surface::a_local_borrowed_non_send_body_runs_on_the_host) | test(=t02_compile_surface::a_source_condition_action_mismatch_is_refused_t02) | test(=t22_process_surface::a_process_description_cannot_deref_to_an_engine) | test(=t22_process_surface::a_process_description_cannot_produce_output) | test(=t22_process_surface::a_process_description_cannot_report_a_status) | test(=t22_process_surface::a_process_description_exposes_no_mutable_engine_handle) | test(=t22_process_surface::public_process_description_rejects_direct_execution_t22) | test(=t22_process_surface::supervisor_is_the_sanctioned_process_runner) | test(=t22_process_surface::the_readable_description_surface_compiles_for_an_external_consumer) | test(=t22_process_surface::the_sanctioned_runner_accepts_the_same_description))" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: "", tier: "lib", partition: "", build: "-p lgwks_bot --lib --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary_id(lgwks_bot) & test(/^(broker::tests::|rt::supervise::tests::cleanup::)/)" }
+    env:
+      PARTITION: ${{ matrix.partition }}
+      NEXTEST_BUILD: ${{ matrix.build }}
+      RUSTC_WORKSPACE_WRAPPER: ""
+      # The bot shards are built under `ci-it` (workspace crates at opt-level
+      # 0), whose unoptimized frames overflowed the 2 MiB test thread in
+      # pr_review_journey and sim_review_path (run 41661639388; the same tests
+      # pass at opt-level 1 on the Linux shards). Test threads get the 8 MiB a
+      # macOS main thread has.
+      RUST_MIN_STACK: "8388608"
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: ${{ matrix.archive }}
+          nextest: "true"
+      - name: Run all workspace tests
+        if: matrix.suite == 'workspace'
+        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
+      - name: Run lgwks-bot async runner tests
+        if: matrix.suite == 'bot-full'
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
+      # The saturation tiers (100, 1,000 and 10,000 concurrent runs through a
+      # real process boundary), the review-path simulations and `sim_scale`,
+      # with `--ignore-default-filter` lifting the `ci` profile's macOS filter.
+      - name: Run lgwks-bot saturation tiers
+        if: matrix.suite == 'saturation'
+        env:
+          SATURATION_BINARIES: ${{ matrix.sat_bins }}
+          SATURATION_FILTER: ${{ matrix.sat_filter }}
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
+      # The Darwin T-row tests. `RUSTFLAGS` replaces `.cargo/config.toml`'s
+      # target rustflags, so it names the ld64.lld link argument again beside
+      # the group cfg (both spellings, as the Linux shards set them). A group
+      # build leaves fixtures unused, which warns rather than denies there too.
+      - name: Run lgwks-bot Darwin T-row tests
+        if: matrix.suite == 'bot-it'
+        env:
+          RUSTFLAGS: ${{ matrix.it_group && format('-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld --cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld' }}
+          CARGO_BUILD_WARNINGS: warn
+          IT_FILTER: ${{ matrix.it_filter }}
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E "${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}"
+      # Under the `lgwks-bot-junit-*` name the required row downloads: the
+      # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
+      - name: Upload lgwks-bot JUnit report
+        if: matrix.suite != 'workspace'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lgwks-bot-junit-${{ matrix.suite }}-${{ strategy.job-index }}
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Cache hit rate
+        if: ${{ always() }}
+        run: sccache --show-stats
+
+  # The workspace's evidence lanes, doc tests and package smoke, and the
+  # receipts tool the required row runs: each reads a build rather than a test
+  # archive, and none waits on the suites.
+  workspace_tail:
+    name: Workspace evidence and doc tests
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: workspace
+          nextest: "true"
+      - name: Install the acceptance-receipts binary
+        run: |
+          set -euo pipefail
+          cargo build --locked -p lgwks_deps --bin acceptance-receipts
+          mkdir -p receipts-tool
+          cp target/debug/acceptance-receipts receipts-tool/
+      - name: Upload the acceptance-receipts binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: receipts-tool
+          path: receipts-tool/
+          if-no-files-found: error
+          retention-days: 1
       - name: Debug doctor end-to-end journey
         run: |
           set -euo pipefail
@@ -246,44 +485,23 @@ jobs:
         run: ./scripts/lgwks-std-package-smoke.sh
 
   # The checks that read the tree rather than test it, in a job of their own:
-  # none builds the workspace's tests, so they need not wait on that compile,
-  # and the job that compiles it need not wait on them.
+  # none builds the workspace's tests, so they need not wait on that compile.
   gate:
     name: Gate checks
-    runs-on: macos-latest
-    # Every event, pull requests included: nothing skips (the Director,
-    # 2026-10-26). A pull request merged on the self-hosted jobs alone left these
-    # lanes, clippy, the docs, the advisories, Miri and the Windows legs to fail
-    # first on `main`. On main run 40323588476 every hosted job ended inside
-    # 3 m 15 s of a 253 s run, so the 300 s wall holds with them in.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: gate
+          sccache: "false"
           components: clippy, rustfmt
-      - name: Install lld, the linker the repository's cargo configuration names
-        run: brew install lld
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Restore on every run, save only from `main`, as the GPUI Windows job
-          # does. Every ref saving filled the repository's 10 GiB cache: 10.66
-          # GiB on 2026-11-03, main 1.41 GiB against 5.18 for #812 and 4.05 for
-          # two Dependabot pull requests, so main's std-full, docs and feature
-          # matrix entries were evicted and each new pull request compiled those
-          # jobs cold (std-full 2 m 21 s of its three-minute step, run
-          # 41557121719). Saved from main alone, the entries are one ref's
-          # worth and a pull request restores the last merged build.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: "true"
-          key: gate
-      - name: nextest is installed
-        uses: taiki-e/install-action@nextest
+          nextest: "true"
       - name: Verify lockfile is up-to-date
         run: >
           cargo metadata --locked --format-version 1 >/dev/null ||
@@ -300,12 +518,6 @@ jobs:
         # source for the two failures a manifest cannot show: a `use` no
         # manifest declares, and a capability hand-rolled beside the
         # `lgwks_std` module that already provides it.
-        #
-        # The audit is the `check-std-first` binary, ported from the Python
-        # script it replaces because a repository holds Rust and C++ only. Its
-        # own tests moved with it: they are unit tests of the binary now, run by
-        # the workspace test lane above rather than behind a `--test` flag, so
-        # the audit is still tested by the same run that reports it.
         run: cargo run --locked -p lgwks_deps --bin check-std-first
       - name: Forbid unwrap outside tests
         # Safety bar: library code fails loud with typed errors or named
@@ -316,76 +528,60 @@ jobs:
       - name: Requirements sentences unedited without supersession
         run: cargo run --locked -p lgwks_deps --bin check-requirements && cargo run --locked -p lgwks_deps --bin check-spec-owners
       - name: llms.txt matches the documentation index
-        # `llms.txt` is generated from the README's own tables by
-        # the `llms-txt` binary. Regenerate and fail if the committed copy
-        # differs, so the index cannot drift from the documents it points at: a
-        # stale index is worse than none, because an agent trusts it and stops
-        # looking. The script also fails when a document in `docs/` is missing
-        # from the table, so a new document cannot be invisible to every reader
-        # that arrives through this file.
+        # `llms.txt` is generated from the README's own tables by the
+        # `llms-txt` binary. Regenerate and fail if the committed copy differs,
+        # so the index cannot drift from the documents it points at.
         run: |
           set -eu
           cargo run --locked -p lgwks_deps --bin llms-txt
           git diff --exit-code -- llms.txt
       - name: Documentation citations resolve
-        # The guides cite `path:NNN` for each factual claim, and every merge
-        # moves the lines under them. A rotted citation is invisible: the page
-        # still reads as sourced, and a reader who checks one and finds
-        # something unrelated stops trusting the rest. This checks the part
-        # that is not a judgement call — the file exists, and the line exists
-        # in it. `docs/bevy-admission.md` is exempt because it cites Bevy's own
-        # repository; the script names that exemption rather than guessing.
+        # The guides cite `path:NNN` for each factual claim; this checks that
+        # the file exists and the line exists in it.
         run: cargo run --locked -p lgwks_deps --bin check-doc-citations
       - name: The capability catalog matches the tree
         # #732: one register, one generated page, and a refusal for a row whose
-        # owner file, feature or module is gone, for an owner the std-first gate
-        # can name with no row, and for a page that is not a fresh render.
+        # owner file, feature or module is gone.
         run: cargo run --locked -p lgwks_deps --bin catalog -- --check .
       - name: ADRs and PRDs hold their required fields
         # ADR 0004: every ADR against ISO/IEC/IEEE 42010 and every PRD
-        # requirement against ISO/IEC/IEEE 29148. A record missing a field a
-        # reader or an auditor needs is refused here rather than in review.
+        # requirement against ISO/IEC/IEEE 29148.
         run: cargo run --locked -p lgwks_deps --bin check-docs
       - name: Root README quickstart matches its compiled example
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane readme-quickstart
 
-  # The RustSec advisories (#635), beside the gate rather than a step of it. The
-  # audit is a network read: a tool install plus a clone of the advisory database,
-  # neither of which this file can bound. The gate job's steps have measured 190
-  # to 225 s of its 300 s cap, so a slow fetch there would cancel a job that never
-  # failed. A job of its own also gives the lane a check row under its own name,
-  # and on a hosted Linux runner it takes no instance on this machine, whose
-  # job-seconds divided by thirteen are what set a run's wall clock.
+  # The RustSec advisories (#635), beside the gate rather than a step of it: the
+  # audit is a network read (the advisory database), which this file cannot
+  # bound, and a job of its own gives the lane its own check row.
   advisories:
     name: RustSec advisories
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       # The prebuilt release, checksum-verified, rather than a `cargo install`
       # that compiles the audit's own dependency stack before it can run.
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.22.2
       - name: Audit RustSec advisories
         run: cargo audit --file Cargo.lock
 
-
   # The two results the checks list names on every pull request. Each reads the
-  # report its lane wrote in the job above and passes only on that lane's own
-  # pass line, so the row is exactly the lane's verdict on this commit.
+  # report its lane wrote (simulation evidence in the workspace build job, the
+  # debug journey in the evidence job) and passes only on that lane's own pass
+  # line, so the row is exactly the lane's verdict on this commit.
   simulation_evidence:
     name: successful simulation result
-    needs: workspace_tail
-    # On an instance that holds no suite (this row and `debug_e2e` took 12 s each
-    # on lwc-2 and lwc-13 on main run 39097949541, and the 10,000-tier saturation
-    # leg, queued 04:44:03 for lwc-2, started 04:44:13 behind the first of them).
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-1]
+    needs: workspace_build
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - name: Download gate evidence
         uses: actions/download-artifact@v8
         with:
-          name: gate-evidence
+          name: gate-evidence-simulation
           path: gate-evidence
       - name: Check successful simulation result
         run: |
@@ -394,10 +590,7 @@ jobs:
   debug_e2e:
     name: successful end-to-end journey result
     needs: workspace_tail
-    # On lwc-7, whose no-default suite ends about a minute into the run. lwc-6
-    # holds both storefront consumer shards and a target leg, and this 6 s row
-    # queued 82 s behind them there, the run's tail at 358 s (run 40774539269).
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-7]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - name: Download gate evidence
@@ -409,194 +602,36 @@ jobs:
         run: |
           cat gate-evidence/debug-e2e.txt && grep -q '^<== debug-e2e: pass' gate-evidence/debug-e2e.txt
 
-  tests_bot_full:
-    name: Tests (lgwks-bot full, lgwks-std full)
-    # Two shards, both on the instance that holds this graph warm. A shard on an
-    # instance that has never built it pays the whole compile: 5 m 30 s against
-    # 1 m 33 s for the warm shard of the same commit (run 39827897865, lwc-10
-    # against lwc-5). The two shards queue on the one instance instead, so each
-    # job's own clock covers a shard rather than a compile.
-    #
-    # A push that edits lgwks_bot is the cold case. Run 39902657263 compiled its
-    # 23 test binaries for 3 m 15 s and built the `build-churn-slot` setup script
-    # for 28 s, and the cap cancelled the job at 5 m 24 s with the tests 78 s in;
-    # the same suite on main's source had passed inside 4 m 7 s on run
-    # 39902057915. The instance holds one build of the crate: run 39899054364
-    # compiled this source here, runs of main's source followed, and the next run
-    # compiled it again. So the run after an edit is cancelled at the bound, and
-    # the next one, with no other source built here between them, is the job's
-    # measurement.
-    #
-    # One job, not two shards. The two shards queued on lwc-5 behind each other
-    # and behind the lgwks-bot feature matrix: on run 40289939847 the second shard
-    # ran 08:06:00-08:08:22 (its compile and tests 1 m 53 s), the matrix took the
-    # instance until 08:09:25, and the first shard ran its 28 s of tests from
-    # 08:09:35, so the saturation wave that needs this job started at 08:10:30
-    # and the run's wall was 8 m 23 s.
-    #
-    #
-    # Not two slices on two instances. The suite is bound by `churn-slot`, the
-    # machine-wide pool of `LWC_CHURN_SLOTS` lock files every job's test
-    # processes share (#272), not by its instance: on run 40319385404 the two
-    # slices (lwc-5, lwc-1) and both workspace shards were all still running 4 m
-    # in, the lwc-1 slice's processes parked at 0% CPU waiting on a slot, where
-    # the one job had ended at 2 m 36 s on run 40311162932.
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.instance }}"]
-    timeout-minutes: 5
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - instance: lwc-5
-    # One job, so the full feature set is compiled once (see the header).
-    env:
-      PARTITION: ${{ matrix.partition }}
-      # As in the workspace job: sccache cannot cache an incremental build, and
-      # the second shard landed on a cold instance and spent 5 m 40 s on the
-      # compile the first shard did in 2 m 30 s (run 39826369522).
-      CARGO_INCREMENTAL: "0"
-      # As in the workspace job: lints run once, in the Clippy job.
-      RUSTC_WORKSPACE_WRAPPER: ""
-      LWC_CHURN_SLOTS: "12"
-    steps:
-      - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
-        with:
-          toolchain: "1.99.1"
-          nextest: "true"
-          # Eight is the share this suite was green at: ten threads failed the
-          # drain-grace test (`shutdown_reports_every_draining_cleanup_...`,
-          # INV-BOT-156) under the run's process-table storm — the grace is
-          # calibrated for loaded, not oversubscribed, hosts.
-          test-share: "8"
-          build-share: "6" # 3 compiled an edited lgwks_bot for 127 s at 2.8 of 3 cores; cancelled at 301 s (run 40734828832)
-          # The other half of the critical path (296 s on run 39021102172).
-          defer: "0"
-      - name: Run lgwks-bot async runner tests
-        run: cargo nextest run -p lgwks_bot --all-targets --locked --features full --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
-      # The JUnit report of what this shard actually ran, uploaded per shard so
-      # the acceptance job can build one receipt from the suite's own output.
-      # Writing the report costs the run nothing: the `ci` profile only adds a
-      # serialiser. Each shard uploads into its own directory, because both
-      # reports are called junit.xml and two artifacts with one path collide on
-      # download. nextest keeps its store under the workspace's own `target/`
-      # whatever CARGO_TARGET_DIR says, so the report is read from there; a
-      # shard that wrote none fails here rather than leaving the receipt job to
-      # find an empty glob (run 37536766485).
-      - name: Upload lgwks-bot JUnit report
-        uses: actions/upload-artifact@v7
-        with:
-          name: lgwks-bot-junit-full-${{ matrix.instance }}-${{ strategy.job-index }}
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: error
-          retention-days: 7
-      # The saturation tiers (100, 1,000 and 10,000 concurrent runs through a
-      # real process boundary, the review-path simulations and lgwks-bot's
-      # `sim_scale` module), after the suite and in this job (#272: after the
-      # suites that share the machine's kernel, not beside them). The suite
-      # above built every binary they run (`--all-targets --features full
-      # --profile ci`), so this step compiles nothing. As two jobs of their own
-      # they waited on this one: run 40321492424 ended these tests at 12:20:57,
-      # and the legs began theirs at 12:21:28 after the upload, finalisation,
-      # pick-up, checkout and pin of a second job, and the run's wall was 301 s.
-      # The legs were bound by the kernel's file and process work, not by their
-      # instances (85 s and 83 s for 166 and 44 tests), so one step holds them.
-      # The lane's own command, with the binaries set in SATURATION_BINARIES and
-      # the tests in SATURATION_FILTER, as the sharded lanes set PARTITION: the
-      # gate-parity check compares this text with scripts/gate-lanes.toml.
-      # `--ignore-default-filter` lifts the `ci` profile's macOS filter, which
-      # keeps them out of the suite above. Six slots, as the legs ran: 68.5 s
-      # and 61.5 s at 6 against 77.7 s and 73.5 s at 12 (see the header).
-      - name: Run lgwks-bot saturation tiers
-        env:
-          SATURATION_BINARIES: "--test sim_review_path --test it"
-          SATURATION_FILTER: "binary(sim_review_path) | (package(lgwks_bot) & binary(it) & test(/^sim_scale::/))"
-          LWC_CHURN_SLOTS: "6"
-        run: cargo nextest run -p lgwks_bot --locked --features full --profile ci --ignore-default-filter ${SATURATION_BINARIES:---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}"
-      # Under the `lgwks-bot-junit-*` name the acceptance job downloads: the
-      # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
-      # The suite's report was uploaded above, before this run rewrote the file.
-      - name: Upload lgwks-bot saturation JUnit report
-        uses: actions/upload-artifact@v7
-        with:
-          name: lgwks-bot-junit-saturation-${{ matrix.instance }}
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: error
-          retention-days: 7
-
-  # The lgwks-std full-feature suite, apart from the lgwks-bot suite it shared a
-  # job with: the pair compiled two feature sets and ran past 5 minutes.
+  # The lgwks-std full-feature suite. Its compile and its tests are bounded
+  # apart: as one three-minute step a cold compile (2 m 12 s on run
+  # 41563372316) left the 1,324 tests 48 s.
   tests_std_full:
     name: Tests (lgwks-std full)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-      # rust-cache hashes every installed toolchain, not the one this job builds
-      # with, so a toolchain the image happens to add rotates the key and throws
-      # away a 400 MB cache. That is not a slow suite: it is a cold build of
-      # lgwks_std's full feature set (118 s) plus its 863 tests (64.9 s), which
-      # overran this step's three-minute bound by 7 s on run 39379487172 while
-      # every test passed. Image 20261018.339.1 added stable 1.99.1 beside the
-      # pinned 1.99.0 and did exactly that; main's run on image 20261012.334.1
-      # still restored the cache. The job keeps the toolchain
-      # `rust-toolchain.toml` pins and nothing else, so nothing else is
-      # installed when the key is computed. The pin is read from that file:
-      # when it moved to 1.99.1 this step still installed 1.99.0 and
-      # uninstalled the pinned toolchain, which the first cargo call then
-      # downloaded again inside the timed test step (run 41557121719).
-      - name: Set up the pinned toolchain alone
-        run: |
-          pinned=$(awk -F'"' '/^channel/ { print $2 }' rust-toolchain.toml)
-          test -n "${pinned}"
-          rustup default "${pinned}"
-          for installed in $(rustup toolchain list --quiet); do
-            case "$installed" in
-              "${pinned}"-*) ;;
-              *) rustup toolchain uninstall "$installed" ;;
-            esac
-          done
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Saved from every ref, unlike the jobs the gate job's comment covers.
-          # Cold, this job ends near four minutes, so a cold run can never meet
-          # the 300 s run wall; saved from main alone, a pull request opened
-          # while main's entry was missing could never warm it (run
-          # 41565016718). It is about 400 MB a ref, a tenth of what the clippy,
-          # gate and Windows families saved per ref.
-          save-if: "true"
-          cache-on-failure: "true"
-          key: std-full
-      - name: nextest is installed
-        uses: taiki-e/install-action@nextest
-      # The compile and the tests are bounded apart. As one three-minute step, a
-      # cold compile (2 m 12 s on run 41563372316) left the 1,324 tests 48 s,
-      # and they take 42 s warm (run 41559642263), so every cold run timed out.
-      # Cold, the job is about 15 s of setup, 132-154 s of compile, 42-70 s of
-      # tests and the save: inside five minutes (run 41565016718).
+          cache-key: std-full
+          sccache: "false"
+          nextest: "true"
       - name: Build lgwks-std full-feature tests
-        # Stops before the job limit so the cache is saved (see the build job).
+        # Stops before the job limit so the cache is saved.
         timeout-minutes: 3
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full --no-run
       - name: Run lgwks-std full-feature tests
-        # 42 s on a warm runner, but its first probe alone took 30 s on a fresh
-        # one and a one-minute bound cut the suite (run 41565016718).
         timeout-minutes: 2
         run: cargo nextest run -p lgwks_std --all-targets --locked --features full ${PARTITION:+--partition $PARTITION}
       # A step cut by its timeout leaves the processes it started running, and
       # they kept writing into `target/`: main's save after the cut on run
       # 41561323534 failed with "tar: target/debug/deps: file changed as we
-      # read it", so no cache was saved and every later run compiled cold
-      # (run 41563372316). This stops them, on every outcome, before the cache
-      # step's post action archives the target.
+      # read it". This stops them, on every outcome, before the cache step's
+      # post action archives the target.
       - name: Cache save, after stopping what the test step left running
         if: ${{ always() }}
         run: |
@@ -605,181 +640,67 @@ jobs:
           pkill -KILL -x cargo || true
           timeout 10 bash -c 'while pgrep -f "${GITHUB_WORKSPACE}/target/" > /dev/null; do sleep 0.2; done'
 
-  # The lgwks-bot suite at no default features, in a job of its own. The
-  # lgwks-std per-feature suites live in the feature-matrix job below: they
-  # build narrow feature sets of lgwks-std, as its checks do, so they share
-  # that job's target rather than this one's, and this job holds the one suite
-  # whose threads it sizes for.
+  # The lgwks-bot suite at no default features, in a job of its own.
   tests_nodefault:
     name: Tests (lgwks-bot no default features)
-    # The instance's own target directory: 77 s on run 38365526454.
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-7]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
-      # As in the workspace job: lints run once, in the Clippy job.
       RUSTC_WORKSPACE_WRAPPER: ""
-      LWC_CHURN_SLOTS: "12"
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: bot-nodefault
           nextest: "true"
-          test-share: "6"
-          build-share: "3"
-          # On the critical path since the saturation job needs this suite: its
-          # 30 s default wait made "Pin Rust" 36 s against bot-full's 6 s, and the
-          # job ended 18 s after bot-full on run 39088344101, which the saturation
-          # job then waited for.
-          defer: "0"
       - name: Run lgwks-bot no-default-feature tests
         run: cargo nextest run -p lgwks_bot --all-targets --locked --no-default-features ${PARTITION:+--partition $PARTITION}
 
-  # The Linux leg. Every other job runs on the self-hosted macOS runner, so the
-  # Linux-only paths (`/proc` child lists, the Linux reap) execute here, in a
-  # container on the same machine, with the same cargo configuration. The
-  # workspace suite and the two §4.7 target cells are one job; the lgwks-bot
-  # full suite is the other, each with its own target volume. The AppCUI
-  # storefront rode the bot-full leg until run 39503601863: its three commands
-  # (lib tests, doc tests, clippy, each an appcui compile) sat on top of a
-  # suite with 46 s of headroom alone (run 39021102172), and the leg was
-  # cancelled at the cap with its suite still running on runs 39250803813,
-  # 39251780293, 39253542698 and 39503601863. The three commands are exactly
-  # the AppCUI native storefront job's, so the storefront moved there, which
-  # gains a Linux leg on a hosted runner and leaves each feature set compiled
-  # by exactly one job.
-  tests_linux:
-    name: Tests (Linux container)
-    # Each suite on its own instance, whose container target volume keeps the
-    # Linux build across runs: 175 s and 195 s on run 38365526454. A hosted
-    # Linux runner restores a cache without the workspace crates and compiled
-    # lgwks_std, lgwks_deps and lgwks_bot for over three minutes before the
-    # first test (run 38401426445). Measured again on a free hosted
-    # `ubuntu-24.04-arm` runner (4 vCPU) in a trixie job container, with the
-    # dependencies restored by rust-cache and sccache's GitHub backend on: the
-    # test profile still compiled for 3 m 12 s, 11 of 2,707 tests had run when
-    # a four-minute bound cut it (run on cd974bf8, job 124823633811), because
-    # the 35 test binaries are bin crates and sccache caches no bin crate. The
-    # feature matrix, which compiles no test binary, moved there instead.
-    #
-    # `targets workspace` adds the two cells #642 closes: `lgwks_std --features
-    # full` and `lgwks_ast` for `aarch64-unknown-linux-gnu`. The container is
-    # arm64, so its own C compiler targets that triple, which the macOS host's
-    # `target-matrix` lane cannot reach. They run first, in the workspace leg's
-    # container, sharing its `/target` with the suite that follows.
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.suite == 'targets workspace' && 'lwc-8' || 'lwc-9' }}"]
-    timeout-minutes: 5
-    env:
-      # The tool is built on the host: lints run once, in the Clippy job.
-      RUSTC_WORKSPACE_WRAPPER: ""
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: [targets workspace, bot-full]
-    steps:
-      - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
-        with:
-          toolchain: "1.99.1"
-          nextest: "true"
-          # 254 s for the bot-full leg on run 39021102172: 46 s inside the cap,
-          # so it yielded 15 s. On a loaded host that margin is gone: the
-          # bot-full leg's suite ended inside the cap and the job still lost it
-          # in teardown, by 5 s, 14 s and 7 s (runs 39241327366, 39242679913,
-          # 39245570492). The job timer runs from job start, so the delay counts
-          # against the cap; it yields nothing now.
-          defer: "0"
-          # The tests run in the container, whose /tmp is its own tmpfs and
-          # whose only host mount of files is the checkout (`plan.rs`), so the
-          # host RAM disk this input makes held nothing the leg read: 13 s of
-          # the 288 s on run 39252665926, and the same four `diskutil` calls
-          # every job makes at one second (#272).
-          tmp-gib: "0"
-          # `NEXTEST_TEST_THREADS` reaches the container, and the leg ran at
-          # two: 185 s for 5,015 tests on run 39252665926, and the leg was
-          # cancelled at the cap on runs 39250803813, 39251780293 and
-          # 39253542698 with its suite still running. Four, against the nine
-          # the macOS bot-full suite is green at.
-          test-share: "4"
-      # The container image is Debian trixie, whose util-linux 2.41 `setpriv`
-      # applies the Landlock rules `Confinement::Landlock` wraps (#337);
-      # bookworm's 2.38 cannot, and the Landlock simulations failed there with
-      # `Unsupported` (run 38455031363). The tool builds the derived image with
-      # lld and sqlite3 itself (the acceptance-receipt binary holds its receipts
-      # through the sqlite3 program, run 38404124109). `lgwks_deps` has no default
-      # feature since the scan moved to `lgwks_ast` (#408); the flag is kept so
-      # the command stays the text `scripts/gate-lanes.toml` holds.
-      - name: Run the workspace and lgwks-bot full suites on Linux
-        run: cargo run --locked -p lgwks_deps --no-default-features --bin linux-container-tests -- ${{ matrix.suite }}
-      # The Linux receipt (#271): the bot-full suite's JUnit, under a name the
-      # macOS shards' `lgwks-bot-junit-*` download pattern does not match, so
-      # the receipt job records it as its own platform.
-      - name: Upload Linux lgwks-bot JUnit report
-        if: matrix.suite == 'bot-full'
-        uses: actions/upload-artifact@v7
-        with:
-          name: acceptance-junit-linux
-          path: target/nextest/ci/junit.xml
-          if-no-files-found: error
-          retention-days: 7
-
-  # Lints, the rustdoc lanes and the two release-build gates. Clippy and
-  # rustdoc compile the same dependency graph as `cargo check`, so they share a
-  # target; the release gates run last, on the build the scan step left.
-  # Four legs, each on its own hosted runner: the whole job took 5 m 18 s and
-  # was cancelled before its last two steps (run 38416328077). The feature
-  # matrix left the workspace leg for a leg of its own after a lock change
-  # (#788, async-executor 1.14.0 yanked) keyed every cache cold: the workspace
-  # leg ran clippy over all targets and then the matrix, and was cancelled at
-  # the budget on runs 41550387704 and 41551628776. A cancelled job saves no
-  # cache, so that leg could not warm itself. Every step is unchanged and runs
-  # in exactly one leg.
+  # Lints, on macOS: the Darwin `cfg` paths are the ones the suites' Linux legs
+  # cannot reach, and the lint legs have run there since they moved off the
+  # Mac's instances. Four legs, each its own feature family and cache.
   clippy:
     name: Clippy and scan (${{ matrix.part }})
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        part: [workspace, features, scan, reduced]
+        # The reduced feature sets in three legs: one leg running all six took
+        # 297 s and was cancelled at the limit (run for 68bef2d12). The
+        # all-features leg likewise split: lgwks-bot alone, since the three
+        # crates in one leg were cancelled at 296 s (run for 417e9ea93).
+        part: [workspace, features, features-bot, scan, reduced-bot, reduced, process]
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: clippy-${{ matrix.part }}
+          # No sccache here: twice the reduced-bot leg sat silent from its
+          # last `Checking` line to the 5-minute cancel (runs 41777272472 and
+          # 41791513019, both stopped before `rkyv`), where it otherwise ends
+          # in 35 to 50 s. A check build is cheap, and rust-cache keeps the
+          # dependencies.
+          sccache: "false"
           components: clippy
-      - name: Install lld, the linker the repository's cargo configuration names
-        run: brew install lld
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Saved from main alone, as the gate job says.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: "true"
-          key: clippy-${{ matrix.part }}
       - name: Clippy all workspace targets
         if: matrix.part == 'workspace'
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      # INV-SCAN-ZERO. `scan` was the gate's own debt ledger and no lane ran it,
-      # so 433 findings sat in shipped source while the name was advertised as
-      # an invariant nothing checked. It is a lane now, and it refuses on any
-      # finding rather than reporting a count.
-      # The two tool runs build optimised binaries without the release profile's
-      # fat LTO: the link-time pass was most of a 3 m 28 s build for a tool that
-      # reads files for seconds (run 38304128455), and what it reports does not
-      # depend on how its own binary was linked.
+      # INV-SCAN-ZERO: the scan refuses on any finding rather than reporting a
+      # count. The two tool runs build optimised binaries without the release
+      # profile's fat LTO: what they report does not depend on how their own
+      # binary was linked.
       - name: Scan reports zero findings
         if: matrix.part == 'scan'
         env:
           CARGO_PROFILE_RELEASE_LTO: "false"
         run: cargo run --locked --release -p lgwks_ast --no-default-features --features tool,scan --bin lgwks-ast -- scan
       # #384: every `script!` in the tree, read by the one parser the macro
-      # calls (SL-2), without compiling it. Refuses on any construct the
-      # language refuses and on any file that is not Rust tokens, at the
-      # line and column `cargo build` would report.
+      # calls (SL-2), without compiling it.
       - name: Every script! in the repository reads
         if: matrix.part == 'scan'
         env:
@@ -790,17 +711,19 @@ jobs:
         # Per-crate all-features (gpui excluded: it needs the Xcode Metal
         # toolchain and is checked by its own lane in the matrix job).
         run: >
-          cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
-          --all-targets --all-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml
           --all-targets --all-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-deps/Cargo.toml
           --all-targets --features tokio-full -- -D warnings
+      - name: Clippy lgwks-bot with all features
+        if: matrix.part == 'features-bot'
+        run: cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --all-features -- -D warnings
+      - name: Clippy lgwks-bot with no default features
+        if: matrix.part == 'reduced-bot'
+        run: cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml --all-targets --no-default-features -- -D warnings
       - name: Clippy no default features
         if: matrix.part == 'reduced'
         run: >
-          cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
-          --all-targets --no-default-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml
           --all-targets --no-default-features -- -D warnings &&
           cargo clippy --locked --manifest-path crates/lgwks-ast/Cargo.toml
@@ -810,114 +733,67 @@ jobs:
           cargo clippy --locked --manifest-path crates/lgwks-macros/Cargo.toml
           --all-targets --no-default-features -- -D warnings
       - name: Clippy process-only
-        if: matrix.part == 'reduced'
-        # `process` alone is a supported consumer shape: a bot that starts
-        # children and nothing else. It was missing from the matrix, so a
-        # deadline path naming the `time` module compiled under `--all-features`
-        # and broke this build (issue #131).
+        if: matrix.part == 'process'
+        # `process` alone is a supported consumer shape (issue #131).
         run: >
           cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
           --all-targets --no-default-features --features process -- -D warnings
 
-
-  # The documentation lanes, apart from the lints: rustdoc builds its own
-  # output for each feature set, and beside clippy the two made one 513 s job
-  # (run 37633462471) whose halves share nothing but the checkout.
+  # The documentation lanes, apart from the lints: rustdoc builds its own output
+  # for each feature set. `scripts/doc-lanes.sh` holds the commands and the
+  # reason for each lane, so this job and a contributor run the same ones.
   docs:
     name: Docs and release gates
-    # A GitHub-hosted runner: the local machine's 15 cores were shared by 13
-    # jobs and this one measured 8m44s there (run 38339936125). Every step and
-    # command is as it was; only the capacity under them changed. It runs on
-    # every event, as the gate job says.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: docs
+          sccache: "false"
           components: clippy
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Saved from main alone, as the gate job says.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: "true"
-          key: docs
       - name: Doc build with broken-link denial
-        # Every feature on, per crate (gpui excluded: it needs the Xcode Metal
-        # toolchain and is checked by its own lane in the matrix job).
-        # `scripts/doc-lanes.sh` holds the commands and the reason for each
-        # lane, so this job and a contributor run the same four of them.
         run: ./scripts/doc-lanes.sh all-features
       - name: Doc build without default features
-        # No features on. A module in `core` that links to a feature-gated
-        # module resolves under `--all-features` and breaks here.
+        # A module in `core` that links to a feature-gated module resolves
+        # under `--all-features` and breaks here.
         run: ./scripts/doc-lanes.sh no-default-features
       - name: Doc build at the default feature set
         # The set `cargo add lgwks_std` hands a consumer, which neither boundary
-        # lane builds: `--all-features` resolves a link into a gated module, and
-        # `--no-default-features` does not compile the module holding the link,
-        # so a default-on to default-off link is invisible to both.
+        # lane builds.
         run: ./scripts/doc-lanes.sh default
-      # The per-feature doc build and the docs.rs metadata build run in the
-      # lgwks-bot/lgwks-ast matrix job below: that instance finished in under a
-      # minute while this one held them for four of its nine (run 38339936125).
 
-  # The compile-only matrices that remain: targets, grammars, the Metal
-  # storefronts and the standalone consumer packages. lgwks_std has no feature
-  # subsets to test: every module is part of it (Director, 2026-10-13).
-
-  # The lgwks-deps storefronts, the target matrix and the standalone consumers,
-  # apart from the lgwks-std feature matrix: the two share no feature set, and
-  # as one job they took 454 s (run 37633462471).
+  # The lgwks-deps storefronts and the standalone consumer packages. The GPUI,
+  # GPUI fixture and Metal ML legs need Apple's toolchain; the rest are
+  # portable and run on Linux. A leg runs only the steps named for it, so every
+  # check runs exactly once per commit.
   storefront-matrix:
     name: Target and storefront matrix (${{ matrix.part }})
-    # Four legs, each holding one family of checks, because the six checks in one
-    # job took 5 m 16 s on run 39819450072: the GPUI and ML storefronts each
-    # compile a hundred crates of their own, and together with the fixture
-    # renderer they reached the cap with two steps never run. A leg runs only the
-    # steps named for it, so every check still runs exactly once per commit.
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.instance }}"]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 5
-    # A leg compiles one storefront family, and a leg on an instance that has
-    # never built it pays the whole compile: the consumer shard on lwc-11 spent
-    # 5 m 53 s where the shard on lwc-6 took 1 m 21 s (run 39827897865). Both
-    # consumer shards therefore queue on lwc-6, which holds the consumer
-    # families warm; `CARGO_INCREMENTAL` is off so sccache can serve whatever is
-    # not already there.
-    env:
-      CARGO_INCREMENTAL: "0"
     strategy:
       fail-fast: false
       matrix:
         include:
-          - part: deps
-            instance: lwc-13
-          - part: gpui
-            instance: lwc-2
-          - part: gpui-fixture
-            instance: lwc-2
-          - part: ml
-            instance: lwc-11
-          - part: consumers-1
-            instance: lwc-6
-            partition: slice:1/2
-          - part: consumers-2
-            instance: lwc-6
-            partition: slice:2/2
+          - { part: deps, os: ubuntu-24.04-arm, cache: storefront-deps }
+          - { part: gpui, os: macos-15, cache: storefront-gpui }
+          - { part: gpui-fixture, os: macos-15, cache: storefront-gpui-fixture }
+          - { part: ml, os: macos-15, cache: storefront-ml }
+          - { part: consumers-1, os: ubuntu-24.04-arm, cache: storefront, partition: "slice:1/3" }
+          - { part: consumers-2, os: ubuntu-24.04-arm, cache: storefront, partition: "slice:2/3" }
+          - { part: consumers-3, os: ubuntu-24.04-arm, cache: storefront, partition: "slice:3/3" }
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: ${{ matrix.cache }}
+          sccache: "false"
           nextest: "true"
-          build-share: "1"
-          # Cut in its last step at the cap on run 39069794871 (host idle), so it
-          # yields nothing: 20 of 20 tests passed there, 225 to 241 s earlier.
-          defer: "0"
       - name: Check lgwks-deps
         if: matrix.part == 'deps'
         run: cargo check --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets
@@ -933,9 +809,7 @@ jobs:
       - name: Check normal GPUI renderer feature
         if: matrix.part == 'gpui-fixture'
         # The fixture is its own workspace, so it compiles the GPUI stack into
-        # the target directory this leg owns. In the leg with the storefront
-        # feature check it was the second full GPUI compile of the same job and
-        # the pair took 5 m 23 s on run 39821047107, so it has a leg of its own.
+        # the target directory this leg owns.
         run: >
           cargo check --locked
           --manifest-path crates/lgwks-deps/tests/fixtures/storefront-matrix/Cargo.toml
@@ -944,173 +818,103 @@ jobs:
       - name: Check Candle Metal storefront features
         if: matrix.part == 'ml'
         run: cargo check --locked -p lgwks_deps --all-targets --features ml-candle-metal,ml-tokenizers
-      # Standalone consumer packages, one cargo build per storefront family. The
-      # seventeen families are separate `cargo check` calls that share one target
-      # directory, and all of them on one instance took 5 m 31 s and the cap
-      # cancelled the job (run 39824581301), so the tests are sharded across two.
+      # Standalone consumer packages, one cargo build per storefront family,
+      # sharing one target directory, sharded across three runners.
       - name: Build storefront consumers
         if: startsWith(matrix.part, 'consumers')
         env:
           PARTITION: ${{ matrix.partition }}
         run: cargo nextest run --locked -p lgwks_deps --test storefront_consumers ${PARTITION:+--partition $PARTITION}
 
-  # The declared target matrix, one leg per group of targets. Run in one job it
-  # took over 7 minutes (run 38412846693: the sixth of seven targets was
-  # reached at 5 m 29 s with the cancel at 5 m 00 s), so each leg holds the
-  # targets it is named for and the host triple the script always adds. Only
-  # registered, online instances may be named: lwc-6 and lwc-1 were offline
-  # (runner list, 2026-10-13) and a job pinned to one waited for ever; all
-  # thirteen were online on 2026-10-18. No leg is pinned to an instance that
-  # holds a critical-path suite: lwc-5 is the lgwks-bot full suite and lwc-9 the
-  # Linux bot-full one, lwc-7 the no-default suite. The musl and wasm leg shared
-  # lwc-5, so that suite started 2 m 04 s late and the run's wall was 6 m 42 s
-  # (run 38880610389, the suite's start 3 s after the leg's end). The freebsd,
-  # android and ios leg shared lwc-7, and the no-default suite started 63 s late
-  # on main runs 39087783845 and the pull request run 39087447996 before it, so it
-  # is on lwc-6, which holds no job.
-  #
-  # After the workspace job, not beside it. On run 40311162932 lwc-4 ran the
-  # second workspace shard first and both legs after it, ending at 4 m 09 s; on
-  # run 40318746945 the musl leg took lwc-4 first and the shard started 3 m 51 s
-  # into the run, which runner pick-up order alone decided. Spread to idle
-  # instances instead (run 40319385404), the legs' cross-target compiles ran at
-  # t=0 beside every suite. `needs: build` fixes the order: both legs follow the
-  # shard on lwc-4, whose target directory holds their cross-target builds. On
-  # lwc-9 (run 40320724987) the aarch64 leg queued 42 s behind the Linux suite
-  # and its check compiled cold for over 2 m; on lwc-4 the same check took 5 s
-  # (run 40311162932), and both legs together end before the saturation tiers.
+  # The declared target matrix, one leg per group of targets, each with the host
+  # triple the script always adds. The hosted runner is arm64 Linux, so its own
+  # C compiler reaches `aarch64-unknown-linux-gnu`, and that leg also builds the
+  # two §4.7 cells (`tests-linux`) the Mac could reach only from a container.
   target-matrix:
     name: Target matrix (${{ matrix.targets }})
-    needs: build
-    runs-on: [self-hosted, macOS, ARM64, lwc, "${{ matrix.instance }}"]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - targets: aarch64-unknown-linux-gnu
-            instance: lwc-4
-          - targets: x86_64-unknown-linux-musl wasm32-wasip1
-            instance: lwc-4
-          - targets: x86_64-unknown-freebsd aarch64-linux-android aarch64-apple-ios
-            instance: lwc-6
-    env:
-      # As in the workspace job: sccache cannot cache an incremental build, and
-      # with the workflow's `CARGO_INCREMENTAL: "1"` these legs rebuilt every
-      # cross-target dependency from nothing on a cold instance and the cap
-      # cancelled two of them at 271 s and 273 s (run 40408433583).
-      CARGO_INCREMENTAL: "0"
+        targets:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl wasm32-wasip1
+          - x86_64-unknown-freebsd aarch64-linux-android aarch64-apple-ios
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-          build-share: "1"
-          # No test runs here, so no RAM disk for temporary files (the input's
-          # description says why).
-          tmp-gib: "0"
+          cache-key: targets
       - name: Check lgwks-std across the declared target matrix
         # `cargo check --target <t>` for every declared target and crate. The
         # runner installs the target with rustup first, requires the Rust-only
         # surface everywhere, and records with its exact error any check this
-        # runner has no C toolchain to reach. A *required* check names a set with
-        # no C in it: `lgwks_std`'s default set carries `hash`, whose backend
-        # compiles C per target, so the default set is the recorded check and
-        # the required one is the Rust-only surface (ADR 0003, "the target
-        # veto"). MATRIX_TARGETS names the targets this leg checks (unset, the
-        # runner checks them all), as SATURATION_FILTER does for the saturation
-        # tiers: the gate-parity check compares this text with
+        # runner has no C toolchain to reach (ADR 0003, "the target veto").
+        # MATRIX_TARGETS names the targets this leg checks (unset, the runner
+        # checks them all): the gate-parity check compares this text with
         # scripts/gate-lanes.toml.
         env:
           MATRIX_TARGETS: ${{ matrix.targets }}
         run: cargo run --locked -q -p lgwks_deps --bin check-target-matrix -- ${MATRIX_TARGETS:-}
+      - name: Check the aarch64-unknown-linux-gnu target cells
+        if: matrix.targets == 'aarch64-unknown-linux-gnu'
+        run: cargo check --locked -p lgwks_std --features full --target aarch64-unknown-linux-gnu && cargo check --locked -p lgwks_ast --target aarch64-unknown-linux-gnu
 
-  # The two release-build timing gates, apart from the lints: each measures
-  # wall time, and a measurement taken beside a clippy pass on the same
-  # instance measures the clippy pass.
+  # The two release-build timing gates, apart from the lints: each measures wall
+  # time. On arm64 Linux, the server class the services ship to (province#9
+  # keeps macOS for darwin-only lanes), with the bounds unchanged: on the 3-vCPU
+  # macOS VM json parse read p50 512 ns, p99 1 561 ns (run 41607020833).
   timing_gates:
     name: Timing gates (dudect, async fairness, latency tails)
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-10]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: timing
       - name: Digest constant-time equality (dudect)
-        # 250,000 samples per class, not the harness's 1,000,000 default: the
-        # wall is linear in samples (47 s idle at 1M, ~12 s at 250k) while the
-        # power stays far above any exploitable leak. t scales with √N: the
-        # early-exit control reads t ≈ 10,000 at 1M, ≈ 5,000 at 250k, still
-        # four orders past the 4.5 threshold, and a 0.5%-of-mean leak reads
-        # t ≈ 8 at 250k against the same threshold. The threshold, the
-        # batching, the cropping and the control are untouched.
+        # 250,000 samples per class: t scales with √N, and the early-exit
+        # control still reads four orders past the 4.5 threshold.
         run: cargo run --release --locked -p lgwks_std --features hash --example digest_timing -- --samples 250000
       - name: The hot calls hold their latency tails
-        # Every leaf call in lgwks_std, not a sample of them: nineteen rows —
-        # digest and hex, hex and base64 round trips, glob, LEB128 both ways,
-        # the seeded stream, edit distance, digest hex, digest comparison, JSON
-        # parsed and written, UUID parsed, rendered and generated, and a compiled
-        # regex match. Each row is bounded at 500 ns p50 and 1 500 ns p99, and
-        # the example fails over either, so a slower implementation cannot land
-        # behind a green suite (ADR 0003). The entropy row is bounded on its
-        # tail alone and says why. Default features carry every row.
+        # Every leaf call in lgwks_std, each bounded at 500 ns p50 and 1 500 ns
+        # p99 (ADR 0003).
         run: cargo run --release --locked -p lgwks_std --example latency_tails
 
-  # The async fairness gate and concurrency ladder, in a job of its own: beside
-  # the two digest measurements it took the instance to 5 m 24 s on run
-  # 39819450072, and both of those had already passed. It compiles the bench
-  # workspace and runs it four ways (the suite, a mutant check, the tiers and the
-  # matrix), which is a job's work on its own instance rather than a step behind
-  # two others.
+  # The async fairness gate and concurrency ladder: the bench workspace run four
+  # ways (the suite, a mutant check, the tiers and the matrix).
   timing_async:
     name: Async fairness gate and concurrency ladder
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-2]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-          # It measures wall time, so it takes no share of the machine's test
-          # slots and yields its first cargo call at once.
-          defer: "0"
+          cache-key: bench-async
       - name: Async fairness gate and concurrency ladder
         run: cargo test --locked --manifest-path bench/async/Cargo.toml --bin lgwks-bench-async && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --mutant-check && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --tiers && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --matrix
 
-  # The lgwks-bot and lgwks-ast compile matrices and the grammar execution, apart
-  # from the lgwks-std, lgwks-deps and target matrices: together the two halves
-  # were the longest job of a warm run (450 s, run 37619560219 attempt 2), and
-  # neither half builds what the other does.
-  # Four legs (the WASI check took 1 m 53 s beside the 3 m 08 s bot matrix on a
-  # contended instance, run 38437338031), each step unchanged and run in exactly one: as one job it took
-  # 5 m 24 s on a pinned instance (run 38429086342: docs.rs metadata 2 m 13 s,
-  # the bot matrix 2 m 02 s, the AST matrix cut off at 24 s).
+  # The lgwks-bot and lgwks-ast compile matrices and the grammar execution, on
+  # hosted arm64 Linux: every leg checks or runs portable code, and docs.rs
+  # itself builds on Linux, so the docs.rs leg reads the platform it predicts.
   feature-matrix-bot-ast:
     name: Feature matrix (${{ matrix.part }})
-    # Hosted arm64 Linux, free for this public repository. Every leg checks or
-    # runs portable code, and docs.rs itself builds on Linux, so the docs.rs
-    # leg now reads the platform it predicts. The five legs held five of the
-    # Mac's instances beside the suites; here they take none, and each leg's
-    # cache is keyed by its part, so a leg restores the build it saved.
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
-    env:
-      CARGO_INCREMENTAL: "0"
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: sccache
     strategy:
       fail-fast: false
       matrix:
         include:
           - part: docs.rs
-          # Two resolutions per leg: a leg that compiled four on a cold target
-          # spent 5 m 33 s and was cancelled at the cap (run 39837239411), so
-          # the no-default and default builds are here, the feature subsets and
-          # all-features on the leg below.
           - part: lgwks-bot
           - part: lgwks-bot all
           - part: lgwks-ast
@@ -1118,32 +922,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Saved from main alone, as the gate job says.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: "true"
-          key: feature-${{ matrix.part }}
-      - name: Compile cache for the workspace crates
-        uses: mozilla-actions/sccache-action@v0.0.9
+          cache-key: feature-${{ matrix.part }}
+          sccache: "false"
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
         # docs.rs builds with whatever `[package.metadata.docs.rs]` declares,
-        # and a failure there is invisible from the repository: the crate page
-        # just shows a build error. `all-features = true` on a crate whose
-        # features include platform-bound ones fails on every publish, which is
-        # what happened to lgwks_deps: `gpui` pulls `objc2`, which refuses to
-        # compile off Apple targets. Build with the declared set so an
-        # unbuildable declaration fails here instead of on docs.rs.
-        #
-        # The lane builds with a nightly toolchain that carries no clippy, and
+        # and a failure there is invisible from the repository. The lane builds
+        # with a nightly toolchain that carries no clippy, and
         # `.cargo/config.toml` routes workspace compiles through clippy-driver
-        # (run 41296957496: `'clippy-driver' is not installed for the toolchain
-        # 'nightly-aarch64-unknown-linux-gnu'`). The check legs keep the lints.
+        # (run 41296957496), so the wrapper is off here; the check legs keep the
+        # lints.
         env:
           RUSTC_WORKSPACE_WRAPPER: ""
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane docsrs-metadata
@@ -1175,24 +966,11 @@ jobs:
            cargo check --locked --manifest-path crates/lgwks-ast/Cargo.toml --all-targets --all-features
       - name: Execute the lgwks-ast grammar matrix
         if: matrix.part == 'lgwks-ast'
-        # The check above proves each combination compiles; this executes it. A
-        # grammar that compiles but does not read its own language is the
-        # failure `cargo check` cannot see, and the grammar features are
-        # admitted independently, so each standalone grammar is exercised on its
-        # own rather than inferred from the all-features lane.
-        #
-        # The 28 grammars go in ONE `cargo test` invocation, not a loop of 28.
-        # Each separate invocation re-resolves the feature set and relinks the
-        # whole ast-grep and tree-sitter stack, which was ~6 minutes of this
-        # run's wall clock; listing the features together builds the shared
-        # stack once and runs every grammar in one process. The no-default and
-        # all-features legs stay separate — they are two more feature sets, not
-        # 28, and each is a different resolution the combined call cannot make.
-        #
-        # Opt-level 0, as the per-feature suites: each leg parses a fixture per
-        # grammar in milliseconds, and at the workspace's opt-level 3 the
-        # combined leg spent 3 m 59 s compiling lgwks-std, lgwks-deps and
-        # lgwks-ast (run 38304128455). Assertions are unchanged.
+        # The check above proves each combination compiles; this executes it.
+        # The 28 grammars go in ONE `cargo test` invocation, not a loop of 28:
+        # each invocation re-resolves the feature set and relinks the whole
+        # ast-grep and tree-sitter stack. Opt-level 0: each leg parses a fixture
+        # per grammar in milliseconds. Assertions are unchanged.
         env:
           CARGO_PROFILE_TEST_OPT_LEVEL: "0"
         run: |
@@ -1207,14 +985,10 @@ jobs:
             echo "::endgroup::"
           }
           execute cargo test --locked -p lgwks_ast --lib --no-default-features
-          # The parser with no grammar compiled: what `--no-default-features`
-          # meant before the grammar stack became optional (#367).
+          # The parser with no grammar compiled (#367).
           execute cargo test --locked -p lgwks_ast --lib --no-default-features --features parser
           execute cargo test --locked -p lgwks_ast --lib
-          # Every standalone grammar, one build. A grammar that fails to parse
-          # its own language still fails here: the per-grammar test reads that
-          # grammar's fixture, and nextest/cargo reports the failing test by
-          # name either way.
+          # Every standalone grammar, one build.
           execute cargo test --locked -p lgwks_ast --lib --no-default-features \
             --features lang-bash,lang-c,lang-cpp,lang-csharp,lang-css,lang-dart,lang-elixir,lang-go,lang-haskell,lang-hcl,lang-html,lang-java,lang-javascript,lang-json,lang-kotlin,lang-lua,lang-md,lang-nix,lang-php,lang-python,lang-ruby,lang-rust,lang-scala,lang-solidity,lang-swift,lang-tsx,lang-typescript,lang-yaml
           execute cargo test --locked -p lgwks_ast --lib --all-features
@@ -1222,37 +996,35 @@ jobs:
 
   appcui-native:
     name: AppCUI native storefront
-    # The mac leg rides the Linux-workspace instance, not the bot-full one: both
-    # legs used to share lwc-5 with the bot-full suite, so the suite started two
-    # minutes late behind a 123 s leg and the instance's wall was their sum.
-    # lwc-8's own job is the 158 s Linux workspace suite in a container with its
-    # own target volume, so this leg queues behind that and the instance stays
-    # under the budget once warm.
-    runs-on: [self-hosted, macOS, ARM64, lwc, lwc-8]
+    runs-on: macos-15
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/local-rust
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: appcui
+          components: clippy
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --lib
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --doc
       - run: cargo clippy --locked -p lgwks_deps --no-default-features --features appcui --all-targets -- -D warnings
 
-  # The hosted native legs, a job of their own beside the self-hosted one. They
-  # run on every event, as the gate job says.
+  # The AppCUI legs on Windows and Linux, beside the macOS one.
   appcui-native-hosted:
     name: AppCUI native storefront hosted (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: appcui
           components: clippy
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --lib
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --doc
@@ -1263,27 +1035,15 @@ jobs:
   gpui-windows:
     name: GPUI Windows renderer
     runs-on: windows-latest
-    # Every event, as the gate job says.
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Restore on every run, save only from `main`: a pull request reads the
-          # last merged build instead of writing a cache entry per branch.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # The fixture is its own workspace, so it built into its own target
-          # directory, which this cache never saved: every run compiled the
-          # whole GPUI stack again (3 min 03 s, 134 crates). It now builds into
-          # the cached `target`. The key is new so the first `main` run misses
-          # and saves those artifacts; an exact hit skips the save, and the old
-          # key would never have picked them up.
-          key: storefront-fixture-target
+          cache-key: storefront-fixture-target
+          sccache: "false"
       - name: Check GPUI Windows renderer fixture
         run: >
           cargo check --locked
@@ -1295,47 +1055,30 @@ jobs:
   # kernel's own membership list, so the only evidence that containment works is
   # a Windows host running the supervisor's real path and reading that list empty
   # (`crates/lgwks-bot/tests/process_job.rs`). #271: the same step runs the `it`
-  # tests named for their row (`_tNN`), the portable half of the row map. Every
-  # other Windows job of this file builds or lints; this one's JUnit report is the
-  # Windows receipt (`docs/acceptance/t-rows-windows.toml`).
+  # tests named for their row (`_tNN`); its JUnit report is the Windows receipt
+  # (`docs/acceptance/t-rows-windows.toml`).
   process-windows:
     name: Process containment on Windows
     runs-on: windows-latest
-    # Every event, as the gate job says: the Windows receipt is recorded before
-    # a merge, not after it.
     timeout-minutes: 5
     env:
-      # Lints run once, in the Clippy job.
       RUSTC_WORKSPACE_WRAPPER: ""
-      # The acceptance receipts (recorded in the required row) wait on this job, and its first cargo
-      # line, `Updating crates.io index`, took 75 s and 93 s of its 221 s and 290 s
-      # on main runs 39106771175 and 39107070152: the second ended the run at
-      # 326 s, 47 s after the saturation legs. On a hosted Windows runner the
-      # default CARGO_HOME is on the C: drive, and `cargo metadata --locked` took
-      # 23 s and 25 s there against 10 s with CARGO_HOME on D:, where the
-      # workspace already is (run 39108008198). The same runs timed cargo's TLS
-      # certificate-status checks off at 22 s and Defender exclusions at 32 s, so
-      # neither is the cause. A restored cache keeps no index entries, so `CARGO_NET_OFFLINE`
-      # after a full match failed here (`no matching package named blake3`, PR
-      # #620's first run).
+      # On a hosted Windows runner the default CARGO_HOME is on the C: drive,
+      # and `cargo metadata --locked` took 23 s and 25 s there against 10 s with
+      # CARGO_HOME on D:, where the workspace already is (run 39108008198).
       CARGO_HOME: D:\cargo-home
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
-        uses: dtolnay/rust-toolchain@stable
+        uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Saved from main alone, as the gate job says.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: "true"
-          key: process-windows-dev
-      - uses: taiki-e/install-action@nextest
+          cache-key: process-windows-dev
+          sccache: "false"
+          nextest: "true"
       - name: Run the Windows containment and row tests
         # The `dev` profile: the `test` one builds every dependency at opt-level 3.
-        # Stops before the job limit so the cache is saved (see the build job).
+        # Stops before the job limit so the cache is saved.
         timeout-minutes: 4
         run: cargo nextest run --locked -p lgwks_bot --no-default-features --features 'process,script,ephemeral' --test process_job --test it --cargo-profile dev --profile ci --no-fail-fast -E 'binary(process_job) | test(/_t[0-9]{2}$/)'
       - name: Upload the Windows JUnit report
@@ -1348,23 +1091,14 @@ jobs:
           retention-days: 7
 
   # The repository's ruleset requires a check named exactly "Clippy and scan".
-  # The lint job above is a matrix, whose legs report as "Clippy and scan
-  # (workspace)", "(features)", "(scan)" and "(reduced)", so no check of the required name was
-  # ever reported and a pull request could not satisfy the ruleset. This job is
-  # that name. Its verdict is the matrix's own: `needs.clippy.result` is
-  # `success` only when every leg succeeded, so a leg added or renamed above
-  # needs no change here, and a failed or cancelled leg fails this row.
+  # The lint job is a matrix whose legs report under their own names; this row
+  # carries the required name, and `needs.clippy.result` is `success` only when
+  # every leg succeeded.
   clippy_verdict:
     name: Clippy and scan
     needs: clippy
     if: ${{ always() }}
-    # A row of two shell commands, on a hosted runner: the legs it reads run on
-    # `main`, where a pull request's five-minute budget is not at stake, and a
-    # pull request reports this required name as a pass when the legs are
-    # skipped, which is the posture the hosted legs were moved to. Hosted runners
-    # cost a public repository nothing, so a row that compiles nothing leaves the
-    # thirteen `lwc` instances on this machine to the jobs that do.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - name: Every clippy leg passed
@@ -1375,69 +1109,51 @@ jobs:
           test "${LEGS}" = success || test "${LEGS}" = skipped
 
   # The repository's ruleset requires a check named exactly "Build and workspace
-  # tests". That name used to be the one job that ran every test; the workspace
-  # job above now runs all but lgwks_bot's, which the lgwks_bot jobs run under
-  # the feature sets a consumer builds (full, and none). This row carries the
-  # required name and passes only when all four passed, so no test is left out
-  # of the required check: on run 38871028285 each of the 4,138 lgwks_bot tests
-  # the workspace job ran was among the 4,870 the full job ran, and the
-  # no-default job adds 3,190 under the other feature set, where before the
-  # required check held the default set alone. The workspace job's tail (evidence
-  # lanes, doc tests, package smoke) is the fifth job the row requires. The saturation job runs the 45
-  # tests of `sim_review_path` (42 simulations and the three tiers) that the full
-  # job leaves to it on macOS, so it is part of the row. A cancelled or skipped
-  # job is not `success`, so it fails this row too.
+  # tests". This row carries it and passes only when the archives, every shard
+  # on both platforms (the saturation shard included), the evidence job and the
+  # no-default suite passed, so no test is left out of the required check; a
+  # cancelled or skipped job is not `success`, so it fails the row too.
   #
   # The row also holds the run's wall. The Director, 2026-10-26: "U WILL ADD A
   # GLOBAL RULE OF CI FAILING IF OVER 5 MINUTES. AND I DO NOT CARE WHAT FUCKING
-  # EXCUSE THERE IS". GitHub has no run-level timeout (`timeout-minutes` bounds
-  # one job) and no context holds a run's duration, so this job needs every other
-  # job, reads the attempt's own start from the runs API, and fails past 300 s;
-  # the ruleset requires this row, so a run over 5 minutes cannot merge. The wall
-  # was a job of its own before this one on run 40311162932: two pickups and two
-  # jobs in series, 29 s of a 268 s run, for one API call.
+  # EXCUSE THERE IS". GitHub has no run-level timeout and no context holds a
+  # run's duration, so this job needs every other job, reads the attempt's own
+  # start from the runs API, and fails past 300 s.
+  #
+  # The acceptance receipt is recorded here, from the JUnit reports the test
+  # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [build, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_bot_full, tests_std_full, tests_nodefault, tests_linux, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
-    # On an instance, not a hosted runner: this row starts when the bot-full
-    # job ends and is the run's last link, and a hosted runner's pick-up took
-    # 2 s on main run 39090275332 and 56 s on run 39091155164 (queued 02:48:38,
-    # started 02:49:34, the run's wall 314 s against the 300 s #272 requires).
-    #
-    # The acceptance receipt is recorded here, not in a job of its own. As its
-    # own job it was a second pickup, setup and teardown in series with this
-    # one on the run's last link: on run 41157994919 the bot-full job ended at
-    # 02:04:47, the receipts job ran 02:04:51-02:05:36 (45 s for 8 s of
-    # recording), this row started at 02:05:39, and the wall was 301 s. The
-    # receipts read the JUnit reports of tests_bot_full, tests_linux and
-    # process-windows, all of which this row already needs, and a receipt that
-    # cannot be recorded now fails the required row.
-    runs-on: [self-hosted, macOS, ARM64, lwc]
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     env:
       REVISION: ${{ github.sha }}
     steps:
       - name: Every workspace test job passed
         env:
-          BUILD: ${{ needs.build.result }}
+          # The compile beyond the shards: the all-targets build and the
+          # simulation listing.
+          BUILD: ${{ needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
           TAIL: ${{ needs.workspace_tail.result }}
-          BOT_FULL: ${{ needs.tests_bot_full.result }}
+          LINUX: ${{ needs.tests_linux.result }}
+          MACOS: ${{ needs.tests_macos.result }}
           BOT_NODEFAULT: ${{ needs.tests_nodefault.result }}
         run: |
-          echo "workspace ${BUILD}, its tail ${TAIL}, lgwks_bot full and saturation ${BOT_FULL}, lgwks_bot no default ${BOT_NODEFAULT}"
-          test "${BUILD}" = success && test "${TAIL}" = success && test "${BOT_FULL}" = success && test "${BOT_NODEFAULT}" = success
-      # The receipt, built from the JUnit reports the test jobs already wrote.
-      # One small binary (`acceptance-receipts`, std only) reads the XML files,
-      # so it costs seconds, not a second run of the tests.
+          echo "builds ${BUILD}, evidence ${TAIL}, Linux shards ${LINUX}, macOS shards ${MACOS}, lgwks_bot no default ${BOT_NODEFAULT}"
+          test "${BUILD}" = success && test "${TAIL}" = success && test "${LINUX}" = success && test "${MACOS}" = success && test "${BOT_NODEFAULT}" = success
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
-        uses: ./.github/actions/local-rust
+      - name: Install sqlite3, the program the receipts are recorded through
+        run: command -v sqlite3 || { sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3; }
+      - name: Download the acceptance-receipts binary
+        uses: actions/download-artifact@v8
         with:
-          toolchain: "1.99.1"
-          # It runs no tests and it is the last link of the run's critical path.
-          tmp-gib: "0"
-          defer: "0"
+          name: receipts-tool
+          path: receipts-tool
       - name: Download lgwks-bot JUnit reports
         uses: actions/download-artifact@v8
         with:
@@ -1449,53 +1165,41 @@ jobs:
           pattern: acceptance-junit-*
           path: acceptance-junit
       - name: Record acceptance receipts
-        run: cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --platform "$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)" && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --from-junit acceptance-junit/acceptance-junit-linux/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && cargo run --locked -p lgwks_deps --bin acceptance-receipts -- --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
+        run: chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
       - name: Upload acceptance receipt
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-receipts
           path: acceptance-artifact/
           retention-days: 30
+      - name: Cache usage stays inside the repository's 10 GiB
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/cache/usage" --jq '"cache: \(.active_caches_count) entries, \(.active_caches_size_in_bytes / 1048576 | floor) MiB of 10240"'
       - name: Run wall is at most 300 seconds
         if: ${{ always() }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .run_started_at) && wall=$(( $(date -u +%s) - $(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s) )) && echo "run wall ${wall} s since ${started}, limit 300 s" && test "$wall" -le 300
+          started=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" --jq .run_started_at) && epoch=$(date -u -d "$started" +%s 2>/dev/null || date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s) && wall=$(( $(date -u +%s) - epoch )) && echo "run wall ${wall} s since ${started}, limit 300 s" && test "$wall" -le 300
 
   # INV-STD-UNSAFE-1: the Miri proof, on every change. The two `unsafe` modules
   # carry a function-pointer seam each so the interpreter can drive the exact
-  # call sites, and until this job existed nothing re-ran that proof.
-  #
-  # A hosted runner, for the reason the docs.rs matrix is one: this lane installs
-  # a nightly toolchain and builds a Miri sysroot per target, which is a download
-  # the single macOS machine cannot make cheap, and neither proof needs a native
-  # kernel. Both seams are cross-interpreted by name, so `process::darwin` runs
-  # its sysctl code on a Linux runner and `process::windows` runs its `kernel32`
-  # code without a Windows one; the live-kernel tests are `#[cfg(not(miri))]` in
-  # both modules, so the interpreter never reaches a foreign call. The mTLS test
-  # PKI (rcgen and rustls on ring, which is C and assembly) sits in lgwks_std's
-  # `cfg(not(miri))` dev-dependency table, so `cargo miri test --lib` never
-  # builds it (run 40568803851 failed compiling ring before the table existed).
-  #
-  # The step carries the lane's command text verbatim, so `check-gate-parity`
-  # compares them: the nightly is pinned in the lane table, not in
-  # `rust-toolchain.toml`, and `rust-src` is installed up front because
-  # `cargo miri` otherwise stops to ask before adding it. Each target's sysroot
-  # is built first by `cargo miri setup` with warnings allowed: it is the
-  # toolchain's own `sysroot` package, and the workflow's warnings deny made
-  # its unused-dependency warning fail the job (run 40719181967). The tests
-  # that follow run with the deny on lgwks_std.
-  #
-  # Measured cold in the repository's Linux container: the install 12 s, the
-  # darwin seam 33 s (7 tests), the Windows seam 30 s (10 tests), 71 s for the
-  # whole lane inside this job's 5-minute bound.
+  # call sites. Both seams are cross-interpreted by name; the job runs on macOS
+  # so the darwin seam is interpreted on the platform it models. The step
+  # carries the lane's command text verbatim, so `check-gate-parity` compares
+  # them; each target's sysroot is built first with warnings allowed, because
+  # it is the toolchain's own `sysroot` package (run 40719181967).
   miri_unsafe:
     name: Miri unsafe seams
-    runs-on: ubuntu-latest
+    runs-on: macos-15
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
+      - name: Install lld, the linker the repository's cargo configuration names
+        run: brew install lld
       - name: Prove the process unsafe seams under Miri
         run: |
           rustup toolchain install nightly-2026-10-01 --profile minimal --component miri --component rust-src && \

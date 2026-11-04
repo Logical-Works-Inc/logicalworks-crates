@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_std"
 description = "Everyday Rust primitives with no async runtime required: codecs, timestamps, ids, hashing, regex, JSON/RON/wire, HTTP, and default structured-debugging install. One audited stack per feature — a stack is not always one crate (json is serde + serde_json, ron is serde + ron, http is ureq + iri-string)."
-version = "3.2.2"
+version = "4.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -174,6 +174,8 @@ unsafe_code = "allow"
 unused_must_use = "forbid"
 improper_ctypes = "forbid"
 improper_ctypes_definitions = "forbid"
+# The workspace's `lwc_it_group` declaration, copied with the rest (lgwks_bot's `it` groups).
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(lwc_it_group, values(none(), "scale", "surface", "refusals", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8"))'] }
 
 [lints.clippy]
 allow_attributes = "forbid"

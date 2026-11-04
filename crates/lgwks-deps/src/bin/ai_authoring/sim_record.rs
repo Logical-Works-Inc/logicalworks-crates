@@ -69,7 +69,7 @@ fn a_line_has_sorted_keys_whatever_order_its_fields_were_assembled_in() -> Resul
         let Value::Object(whole) = written.to_value() else {
             return Err("a record is not a JSON object".into());
         };
-        let mut keys: Vec<String> = whole.keys().cloned().collect();
+        let mut keys: Vec<String> = whole.keys().map(str::to_owned).collect();
         for top in (1..keys.len()).rev() {
             let other = count(rng, 0, u32::try_from(top)?)?;
             keys.swap(top, other);

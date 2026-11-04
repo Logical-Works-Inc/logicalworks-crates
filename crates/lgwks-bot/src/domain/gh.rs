@@ -723,11 +723,13 @@ fn stage_input(input: &[u8]) -> Result<StagedInput, GhError> {
         path: path.display().to_string(),
         source: source.to_string(),
     })?;
+    // No `sync_all`: the one reader is the child this call starts, on the same
+    // kernel, which reads the page cache, and the file is removed when the call
+    // returns, so a flush makes nothing durable that anyone reads. On macOS it is
+    // `F_FULLFSYNC`, a drive-cache flush on the async worker, and in the 10,000
+    // review saturation tier those flushes and the `open`s queued behind them
+    // were the largest blocked frames of the test (`sample`, 2026-11-04).
     file.write_all(input).map_err(|source| GhError::Staging {
-        path: path.display().to_string(),
-        source: source.to_string(),
-    })?;
-    file.sync_all().map_err(|source| GhError::Staging {
         path: path.display().to_string(),
         source: source.to_string(),
     })?;
