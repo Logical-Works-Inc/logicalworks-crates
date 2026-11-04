@@ -309,7 +309,12 @@ jobs:
         include:
           - { suite: workspace, archive: workspace-core, partition: "slice:1/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
           - { suite: workspace, archive: workspace-core, partition: "slice:2/2", build: "-p lgwks_std --locked --cargo-profile ci-it" }
-          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --features full --cargo-profile ci-it" }
+          # The four binaries gate on rt, time, sync, macros, net and script
+          # (`process_job` is empty off Windows), so the row builds those, not
+          # `full`: 134 dependencies against 201, where `full` built for 4 m 02 s
+          # cold and the job was cancelled at 306 s (4f110e185). The same 19
+          # tests run.
+          - { suite: bot-full, archive: bot-rest, partition: "", build: "-p lgwks_bot --test ecs_tick --test process_job --test sim_deep_cancel --test t03_non_yielding --locked --no-default-features --features rt,time,sync,macros,io,net,script,process,ephemeral --cargo-profile ci-bot" }
           # The review-path binary under the saturation filter (T31-T34), in
           # tenths: whole, it ran 46 tests past the limit after a 184 s build
           # (run 41702461553), a third was cancelled at 294 s (68bef2d12), and
