@@ -74,8 +74,8 @@ ecosystem, a support contract, or a package whose bus factor you can ignore.
 No telemetry backend, no hosted service, no model access, no sandbox, no
 credentials broker, and no guarantee that a red build on your machine is a red
 build here. The security case states its own ceiling in
-[`security-posture.md`](../security-posture.md); the readiness gaps are listed in
-[`production-readiness/`](../production-readiness).
+[`security-posture.md`](security-posture.md); the readiness gaps are listed in
+[`production-readiness.md`](production-readiness.md).
 
 ## What is proven, and how to check it
 
@@ -95,7 +95,6 @@ cargo add lgwks_std --features json,http     # primitives, no async runtime
 cargo add lgwks_bot                          # automation with checked authority
 cargo install lgwks_deps && lgwks-deps init . && lgwks-deps check .
 ```
-
 ## The name
 
 Logical Works Incorporated publishes these crates; the repository is

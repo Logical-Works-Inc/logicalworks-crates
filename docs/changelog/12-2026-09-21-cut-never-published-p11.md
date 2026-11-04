@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 11 of 13. [Changelog index](../../CHANGELOG.md)
 
-### Fixed (continued)
+## Fixed (continued)
 
 - **The invariant audit reported "enforced" for states it never examined**
   (`lgwks_deps`). A register entry naming a lint no manifest declares, a file

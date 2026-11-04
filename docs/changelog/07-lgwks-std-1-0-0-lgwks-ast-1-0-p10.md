@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 10 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - The run store's durable write reaches the disk off the executor (#87 step 5).
   `remember` awaited `RunStore::commit` directly, so a step's `write_all` plus

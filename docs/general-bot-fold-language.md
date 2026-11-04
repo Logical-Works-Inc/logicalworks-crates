@@ -2,7 +2,7 @@
 
 Pages of this guide: [scope and finding](general-bot-fold.md) · [what is new](general-bot-fold-new.md) · [recorder, settlement, language](general-bot-fold-language.md) · [semantic tier and mapping](general-bot-fold-semantic.md) · [reaching a page](general-bot-fold-reach.md) · [evasion and injection](general-bot-fold-evasion.md) · [sequence 1 to 5](general-bot-fold-sequence.md) · [sequence 6 to 14](general-bot-fold-frontier.md)
 
-### 3.3 The recorder, and what a compiler over it may not do
+## 3.3 The recorder, and what a compiler over it may not do
 
 Recording is `Observe` plus an acquisition system on the ECS substrate: the
 snapshot the browser already produces is the observation, and
@@ -27,7 +27,7 @@ applied behind the author's back. The compiled artefact and the authored
 artefact differ by a *visible* delta, and that delta is the review surface. If a
 compilation cannot be represented as a declared delta, it does not happen.
 
-### 3.4 The settlement policy, and why it is declared rather than heuristic
+## 3.4 The settlement policy, and why it is declared rather than heuristic
 
 The described platform chooses its wait strategy by inspecting downstream
 operations: a DOM-only scrape navigates with `domcontentloaded` to skip
@@ -55,7 +55,7 @@ needs layout", "this step needs content" — rather than a heuristic the engine
 applies. A heuristic here means two runs of the same flow can take different
 navigation paths, which is precisely what the determinism section forbids.
 
-### 3.5 Language understanding — **landed in this change**
+## 3.5 Language understanding — **landed in this change**
 
 The described platform forces a model's output into a strict JSON grammar; it
 says nothing about understanding what a *person* typed, which is the harder
@@ -74,7 +74,7 @@ The resolution reports **which tier won**, and that is not decoration: an
 is Soundex's English bias, and a `Fuzzy` miss is a threshold. Three different
 repairs, and a bare `usize` names none of them.
 
-#### The linguistic-change question, answered in two parts
+### The linguistic-change question, answered in two parts
 
 "Linguistic change" is two unrelated problems and one mechanism cannot cover
 both:
@@ -99,7 +99,7 @@ degrades to the fuzzy tier. And Soundex preserves the first letter verbatim, so
 conservative side of the trade, because in a resolver a false positive silently
 selects the wrong option while a false negative only re-asks.
 
-#### The resolver seam changed shape
+### The resolver seam changed shape
 
 `Resolver::resolve` returned `Option<usize>`, which is the same two-way collapse
 §3.1 exists to remove: an answer that fits two options equally well is reported

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 8 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std — the nine-axis sweep: one poison recovery per lock shape, and a thread that is owned (9-axis sweep) (continued)
+## lgwks_std — the nine-axis sweep: one poison recovery per lock shape, and a thread that is owned (9-axis sweep) (continued)
 
 - **`task`'s lock-poison recovery is written once per lock shape.** `lock`, `wait`
   and `wait_timeout` each answer a poisoned guard with `into_inner()` in a
@@ -17,12 +17,12 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   starts is a named `thread::Builder` thread whose handle the future owns and the
   test joins, so nothing is detached. A spawn refusal is recorded on the future
   so the test reports it instead of hanging on a wake that never comes.
-- **A capacity refusal reports the bound that was actually reached.**
+- **A capacity refusal reports the bound that was reached.**
   `queue_limit.unwrap_or(usize::MAX)` named an unreachable queue limit as 2^64
   jobs; the refusal now reports the caller's own limit, with the observed queue
   depth as the stated fallback.
 - **`unreachable!` is gone from the pool tests.** A refusal of another shape is
-  now reported with the shape it actually had — an OS error's kind and message, or
+  now reported with the shape it had — an OS error's kind and message, or
   the unexpected refusal — instead of a panic claiming none could arrive.
 - **`glob`'s three sentinels are gone**: a class close index reads the terminal
   entry that says "unclosed", a scalar offset past the end of the input measures
@@ -37,7 +37,7 @@ their replay oracles) and 61 for the `glob`/`pattern` family (including
 `glob_agrees_with_a_regex_oracle_on_generated_patterns`); clippy clean with
 `--all-features` and `--no-default-features`.
 
-### lgwks_std — the nine-axis sweep: a refusal is a fact, and a test may not silence a lint (9-axis sweep)
+## lgwks_std — the nine-axis sweep: a refusal is a fact, and a test may not silence a lint (9-axis sweep)
 
 - **`online` no longer carries four `#[expect]`s.** Each parked a thread with
   `std::thread::sleep`, which this workspace bans; the tests now use
@@ -62,7 +62,7 @@ their replay oracles) and 61 for the `glob`/`pattern` family (including
 Tests: 63 pass (the online budget family, the similarity evidence contract, and
 both seeded pool simulations including `sim_a_seed_replays_its_pool_lifetime_trace`).
 
-### lgwks_std — the nine-axis sweep: the calendar divides where it is bounded (9-axis sweep)
+## lgwks_std — the nine-axis sweep: the calendar divides where it is bounded (9-axis sweep)
 
 `time`'s conversions carried a `divide` helper whose `checked_div` refusal was
 answered with `0`, a sentinel narrower than any real quotient; a `days_in_month`
@@ -99,10 +99,10 @@ Behaviour is unchanged for every value the RFC 3339 profile admits: 13
 `calendar_roundtrips_endpoints_neighbors_and_overflow_transition` and
 `t5_endpoints_are_exact_under_the_repaired_narrowing`.
 
-### lgwks_std — the nine-axis sweep: the codec and policy primitives, one value per width (9-axis sweep)
+## lgwks_std — the nine-axis sweep: the codec and policy primitives, one value per width (9-axis sweep)
 
 Every line of this crate now meets the nine axes and every rust-guard finding is
 repaired at its cause instead of annotated. This first group is the codecs and
 the pure policies: each `unwrap_or` that stood in for a value that is not there
-is gone, replaced by what its case actually means. No public signature changes;
+is gone, replaced by what its case means. No public signature changes;
 the one public field-width change is stated below.

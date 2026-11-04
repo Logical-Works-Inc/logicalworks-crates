@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.2.0 / lgwks_bot 2.2.0 / lgwks_deps 3.0.1 - 2026-10-07. Page 1 of 2. [Changelog index](../../CHANGELOG.md)
 
-### Upgrading
+## Upgrading
 
 Two minor bumps and a patch; nothing a 2.1.0 or 3.0.0 caller wrote stops
 compiling. `lgwks_ast` and `lgwks_macros` are unchanged (`lgwks_ast`'s only
@@ -22,7 +22,7 @@ change since 1.1.0 is inside its tests).
   `long-try-chain` rule no longer charges a `#[test]` function nested in
   production code to the function around it.
 
-### lgwks_std — a request to an IP address starts no thread
+## lgwks_std — a request to an IP address starts no thread
 
 ureq bounds a lookup by running it on a detached OS thread, and did so for every
 request, including one whose host is an IP literal and needs no lookup. Each
@@ -39,7 +39,7 @@ reached 119 us against a bare 11 us and failed the probe's 8x bound on main.
 **Not claimed:** a call with `Options::deadline` set still starts the thread,
 because ureq times the resolve phase against the hop's global timeout.
 
-### lgwks_deps — the innermost function decides `long-try-chain`
+## lgwks_deps — the innermost function decides `long-try-chain`
 
 The rule exempts test functions (`#[test]`, `#[tokio::test]`, any `#[test_*]`),
 but only at the top level. An exempt function nested inside a production
@@ -58,7 +58,7 @@ line, rule and evidence text, across 1,024 mixed files and 29 property families:
 permutation, line shifts, 64 concurrent tenants, torn input, and disk against
 text. With the old walk, all eight mixed bands fail.
 
-### lgwks_std — a predicate walk with per-entry `lstat` (#343)
+## lgwks_std — a predicate walk with per-entry `lstat` (#343)
 
 A caller that wanted to skip `.git` or `target` had to walk them and filter
 afterwards, paying every read and every budget charge, and then stat each kept
@@ -77,7 +77,7 @@ path a second time to learn its size or mtime.
   existing path walk returns `WalkReport<PathBuf>` as before. The path walks run
   the same engine with an always-enter predicate and stat nothing new.
 
-### lgwks_std — the HTTP latency probe measures the client, not the host
+## lgwks_std — the HTTP latency probe measures the client, not the host
 
 - `tests/http_alloc.rs` held the loopback p99 under a fixed 50 ms, a number
   that measures the machine: with six CI runners on one host it read 198 ms
@@ -90,7 +90,7 @@ path a second time to learn its size or mtime.
   writes its measurements through a locked stdout and propagates a write
   error instead of `println!`.
 
-### lgwks_bot — a supervised child can start from an empty environment (#337)
+## lgwks_bot — a supervised child can start from an empty environment (#337)
 
 A supervised child inherited the supervisor's whole environment, less whatever
 the caller remembered to `env_remove` one name at a time. A CI lane run this way
@@ -102,7 +102,7 @@ read every tenant's signing key (logical_ci#84).
 - Not in this change: the after-fork containment hook #337 also asks for needs
   `unsafe`, which the crate forbids.
 
-### Tests
+## Tests
 
 - **lgwks_std's simulation fixtures draw `seeded::Seeded`.** `tests/support/rng.rs`
   and `tests/support/seeded_sweep.rs` carried a private xorshift64* generator, a
@@ -114,4 +114,4 @@ read every tenant's signing key (logical_ci#84).
   assertion contradicted `PoolShutdown::Drained`'s contract (it counts the idle
   threads a shutdown joins); the assertion now states the contract.
 
-### Fixed
+## Fixed

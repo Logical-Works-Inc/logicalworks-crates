@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 11 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_deps — the policy refusals report what the register said (continued)
+## lgwks_deps — the policy refusals report what the register said (continued)
 
 - **`declared_scope` is published.** Cargo spells an unconditional dependency
   with no `target` key; the register spells the same declaration `target = ""`
@@ -40,7 +40,7 @@ verdict assertion and be unreadable to the operator who has to act on it.
 `python3 scripts/check-doc-citations.py`: 100 pinned lines across 13 pages, all
 unchanged. `cargo clippy -p lgwks_deps --all-targets` passes on both
 `--all-features` and `--no-default-features`. 303 crate tests pass.
-### lgwks_deps — the metadata collection answers for what it could not read
+## lgwks_deps — the metadata collection answers for what it could not read
 
 - **`poll_quantum` parks instead of sleeping.** The `#[expect(clippy::disallowed_methods)]`
   on `std::thread::sleep` named a substitution where the ban already names a
@@ -70,7 +70,7 @@ refusals, exit 0, with the same contract and subject digests as before;
 `lgwks-deps invariants .` resolves 4 invariants; `lgwks-deps scan` reports 383
 files and zero findings. 176 lib tests pass, including the real-process deadline,
 descendant-capture and flood families.
-### lgwks_deps — the invariant register answers for what it did not read
+## lgwks_deps — the invariant register answers for what it did not read
 
 `build` read `id` through `.map_or_else(|| "<unnamed>".to_owned(), …)`, so every
 refusal about a block that declared no identifier named an invariant no register
@@ -103,7 +103,7 @@ Verified end to end: `lgwks-deps invariants .` on this repository resolves 4
 invariants; a truncated register reports `line 1: invariant block is missing
 required field "id"`, and a named block reports its own line. 176 lib tests and
 44 register tests pass.
-### lgwks_deps — a `cfg` the scanner cannot evaluate is its own verdict
+## lgwks_deps — a `cfg` the scanner cannot evaluate is its own verdict
 
 The `test`-scope detectors decided "is this item test-only?" by evaluating its
 `cfg` expression under every assignment of its free atoms. An atom the

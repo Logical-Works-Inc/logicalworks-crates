@@ -1,8 +1,8 @@
 # lgwks_std 2.1.0 / lgwks_bot 2.1.0 - 2026-10-06
 
-Release: lgwks_std 2.1.0 / lgwks_bot 2.1.0 - 2026-10-06. Page 1 of 1. [Changelog index](../../CHANGELOG.md)
+The release notes, page 1 of 1. [Changelog index](../../CHANGELOG.md)
 
-### Upgrading
+## Upgrading
 
 Two minor bumps; nothing a 2.0.0 caller wrote stops compiling. `lgwks_ast`,
 `lgwks_deps` and `lgwks_macros` are unchanged.
@@ -19,7 +19,7 @@ Two minor bumps; nothing a 2.0.0 caller wrote stops compiling. `lgwks_ast`,
   deadline or cancel kill is unchanged. Read `CleanupReceipt` for "the group is
   gone" and `Containment` for "nothing else survived".
 
-### lgwks_std — a seeded stream every estate simulation can share (#344)
+## lgwks_std — a seeded stream every estate simulation can share (#344)
 
 Every estate repository writing deterministic simulations carried its own
 generator: logical_ci a splitmix64 whose bounded draw was a biased remainder,
@@ -34,7 +34,7 @@ entropy only, by INV-RANDOM-ONE-SOURCE.
   seed recorded against this workspace's simulations keeps its meaning. It is not
   randomness and must never feed a key, token or id. INV-STD-SEEDED-1.
 
-### lgwks_bot — a supervisor killed with SIGKILL leaves a record its successor reaps by (#318)
+## lgwks_bot — a supervisor killed with SIGKILL leaves a record its successor reaps by (#318)
 
 A supervisor's guards kill its children's process groups on drop, cancel and
 shutdown, and none of them runs when the supervisor's own process is killed
@@ -56,7 +56,7 @@ outright: the groups keep running with nobody left who owns them.
   `rt::process` re-exports the record, its error, the reap and its answer.
   INV-BOT-157.
 
-### lgwks_bot — a process that exits on its own no longer claims a tree it never saw (#347, #345)
+## lgwks_bot — a process that exits on its own no longer claims a tree it never saw (#347, #345)
 
 When a supervised process exits on its own, the kernel re-parents its children
 at the exit, so a capture walked from it afterwards reaches nothing. The cleanup

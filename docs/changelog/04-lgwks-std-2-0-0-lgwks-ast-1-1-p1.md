@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 1 of 20. [Changelog index](../../CHANGELOG.md)
 
-### Upgrading
+## Upgrading
 
 Three crates take a major bump; each breaking change is stated in its section below.
 
@@ -24,7 +24,7 @@ Three crates take a major bump; each breaking change is stated in its section be
   and the typed refusals on the non-exhaustive `ParseError` (#277).
 - **lgwks_macros 1.1.1** — no public change; internal fixes from the nine-axis sweep.
 
-### lgwks_bot — a tenanted admission joins a bounded backlog (#268)
+## lgwks_bot — a tenanted admission joins a bounded backlog (#268)
 
 `spawn_for` and `run_process_for` on a tenanted supervisor joined every finished
 task before admitting, twice. A tenant whose bodies end at once therefore put the
@@ -40,7 +40,7 @@ retained set stays at the in-flight ceiling. `Supervisor::reap`,
 `rt::supervise::tests::a_tenanted_admission_joins_a_bounded_backlog_and_keeps_the_set_at_the_ceiling`
 (10,000 admissions; an unbounded reap fails it with 32 joins in one call).
 
-### lgwks_bot — the supervised tree is captured, signalled by pid, and reported (#263)
+## lgwks_bot — the supervised tree is captured, signalled by pid, and reported (#263)
 
 **After the reap the cleanup observes, it does not capture.** The post-reap pass
 used to walk the tree from the reaped leader once more. The leader's id is free

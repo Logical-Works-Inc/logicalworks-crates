@@ -71,8 +71,32 @@ fast = true
 # ADRs hold the ISO/IEC/IEEE 42010 fields and PRDs the ISO/IEC/IEEE 29148
 # attributes (ADR 0004). The reader refuses the record that omits one, so a
 # decision cannot be recorded in a shape no reader can find its rationale in.
-command = "cargo run --locked -p lgwks_deps --bin check-docs"
-ci_step = "ADRs and PRDs hold their required fields"
+# Every page changed since DOCS_BASE (default `origin/main`; CI sets `HEAD^1`)
+# is held to the docs bar, and its added prose to the sentence and paragraph
+# bounds (ADR 0011). Bare, `check-docs` audits every page.
+command = "cargo run --locked -p lgwks_deps --bin check-docs -- . --base ${DOCS_BASE:-origin/main}"
+ci_step = "Docs hold their fields and read plainly"
+
+[[lane]]
+id = "changes"
+surfaces = "ci"
+required = true
+# ADR 0011: lists the pull request's files and says whether any is code. Only
+# reader-facing Markdown and `llms.txt` are not; a push, a manual run or an
+# empty listing is code, so the suites run unless the change is plainly docs.
+command = "gh api \"repos/${GITHUB_REPOSITORY}/pulls/${PR}/files\" --paginate --jq '.[].filename'"
+ci_step = "Classify the change"
+reason = "a pull request's file list exists only in CI"
+
+[[lane]]
+id = "docs-only-verdict"
+surfaces = "ci"
+required = true
+# The required "Build and workspace tests" row on a docs-only change: the
+# classification and the gate passed, and the suites built nothing it changed.
+command = "test \"${CHANGES}\" = success && test \"${GATE}\" = success"
+ci_step = "A docs-only change passed the gate"
+reason = "dedicated PR check row whose job name is the ruleset's required Build and workspace tests"
 
 [[lane]]
 id = "latency-tails"
