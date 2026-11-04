@@ -12,14 +12,12 @@ public items carry that type takes a major bump with it.
 - `legacy`: EBCDIC, packed decimal, COBOL copybooks, the compound-file
   container and its VBA streams, Access rows and fax images, each under
   `legacy::limits` (#792).
-- `id::Uuid` implements serde: text when the format is human-readable, 16
-  network-order bytes otherwise (INV-ID-3, #851).
 - `Uuid::now_v7() -> Uuid` never refuses. It shares `new_v7`'s generator, and
-  a stamp past 48 bits pins at the ceiling (INV-ID-4).
+  a stamp past 48 bits pins at the ceiling (INV-ID-4, #851).
 - `Uuid::pack_tuple` / `unpack_tuple`: the FoundationDB tuple-layer UUID
   element, `0x30` then 16 bytes, with typed `TupleError` refusals
-  (INV-ID-5). The rest of the tuple layer, the ECS identity surface and CBOR
-  stay open on #851 (ADR 0010).
+  (INV-ID-5). `Uuid` implements no serde trait (ADR 0010). The rest of the
+  tuple layer and the ECS identity surface stay open on #851.
 
 ## lgwks_ast 5.0.0 (breaking)
 

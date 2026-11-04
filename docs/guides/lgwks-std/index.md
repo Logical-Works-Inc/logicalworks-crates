@@ -81,7 +81,7 @@ under it.
 | `retry` | retry budgets: attempts, exponential backoff with caller jitter, deadlines |
 | `task` | single-threaded executor: `block_on`, concurrent `join_all`, off-thread `spawn_blocking` |
 | `time` | RFC 3339 timestamps, calendar math |
-| `random`, `id` | OS entropy, UUID v4 and v7, serde for `Uuid`, the FoundationDB tuple UUID element |
+| `random`, `id` | OS entropy, UUID v4 and v7, the FoundationDB tuple UUID element |
 | `hash` | BLAKE3 |
 | `pattern` | compiled regex |
 | `json`, `ron`, `wire` | serialization; `json::Value` is this crate's own tree |
