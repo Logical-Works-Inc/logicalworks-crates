@@ -304,16 +304,16 @@ jobs:
           # tenths: whole, it ran 46 tests past the limit after a 184 s build
           # (run 41702461553), a third was cancelled at 294 s (68bef2d12), and
           # a fifth at 298 s (417e9ea93).
-          - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:4/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:5/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:6/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:7/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
-          - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-it", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:1/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:2/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:3/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:4/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:5/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:6/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:7/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:8/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:9/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
+          - { suite: saturation, archive: bot-rest, partition: "slice:10/10", build: "-p lgwks_bot --locked --features full --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
