@@ -79,6 +79,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.ref_name != 'main' }}
 
+# The job token is least privilege, declared here instead of inherited from the
+# org default (CodeQL actions/missing-workflow-permissions, alerts 1-24).
+# `contents: read` checks out; `actions: read` lets the run-wall step read its
+# own run's start time. Caches and artifacts use the runner's own token.
+permissions:
+  contents: read
+  actions: read
+
 # The same value as `[profile.test] debug` in Cargo.toml, which cargo already
 # reads; it is repeated here for the cache. Swatinem/rust-cache keys on every
 # `CARGO*` variable but drops `[profile]` from the manifests it hashes, so a

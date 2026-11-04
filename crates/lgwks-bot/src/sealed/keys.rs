@@ -642,8 +642,13 @@ impl KeyProvider for SoftwareProvider {
     fn wrap_key(&self, id: &KeyId) -> Result<Vec<u8>, KeyError> {
         let state = self.lock()?;
         let key = state.live_key(id)?;
-        let mut nonce = [0_u8; NONCE_BYTES];
-        nonce.copy_from_slice(&id.id[..NONCE_BYTES]);
+        // Built from the identity's bytes alone, never a constant buffer filled
+        // afterwards (CodeQL rust/hard-coded-cryptographic-value, alert 34).
+        const _: () = assert!(
+            NONCE_BYTES <= 16,
+            "a nonce is a prefix of the 16-byte identity"
+        );
+        let nonce: [u8; NONCE_BYTES] = std::array::from_fn(|i| id.id[i]);
         seal(&state.master, &nonce, key.bytes())
             .map_err(|error| {
                 lgwks_std::trace::debug!(error = ?error, "provider-wrap: the seal step refused");
