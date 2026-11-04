@@ -142,7 +142,9 @@ group = "workspace"
 surfaces = "local ci"
 required = true
 fast = true
-command = "cargo test --workspace --all-targets --locked --no-run"
+# `--timings` writes target/cargo-timings/cargo-timing.html, what each unit of
+# the build cost; CI uploads it.
+command = "cargo test --workspace --all-targets --locked --no-run --timings"
 ci_step = "Build all workspace targets"
 
 [[lane]]
