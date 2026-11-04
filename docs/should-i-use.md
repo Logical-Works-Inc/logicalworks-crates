@@ -1,11 +1,13 @@
 # Should I use logicalworks-crates?
 
 `logicalworks-crates` is the Rust repository of Logical Works Incorporated: six
-independently versioned crates, each usable alone (`lgwks_std` 3.2.2, `lgwks_bot`
-6.1.0, `lgwks_ast` 4.1.0, `lgwks_macros` 1.3.0, `lgwks_deps` 5.1.2 and `drishti`
+independently versioned crates, each usable alone (`lgwks_std` 4.0.0, `lgwks_bot`
+7.0.0, `lgwks_ast` 5.0.0, `lgwks_macros` 2.0.0, `lgwks_deps` 6.0.0 and `drishti`
 0.1.0 in this tree). It is not a framework and not a rewrite of the
 ecosystem: it is the layer where a program's authority, its dependency graph and
 its code reading are decided once instead of in every project.
+
+For an in-depth architectural comparison against external workflow clusters and bare async runtimes, see [Durable Execution & Workflow Orchestration: lgwks_bot vs. Temporal vs. Raw Tokio](comparison-vs-temporal-tokio.md).
 
 **It is not part of Braid.** Braid is one consumer of these crates, pinned to an
 older commit of its own choosing; nothing here depends on Braid, imports it, or
@@ -90,6 +92,7 @@ build here. The security case states its own ceiling in
 
 ## Start in two minutes
 
+Run in your project:
 ```sh
 cargo add lgwks_std --features json,http     # primitives, no async runtime
 cargo add lgwks_bot                          # automation with checked authority

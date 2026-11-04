@@ -1,6 +1,6 @@
 [package]
 name = "lgwks_bot"
-description = "Workflow orchestration on one ECS world: script! flows with bounded fan-out, deadlines, retries under a shared budget and tenant-keyed steps, over one tokio driver used only where rebuilding makes no sense."
+description = "Resilient workflow orchestration & durable execution on one ECS world: script! flows with bounded fan-out, deadlines, retry budgets, sagas, and agent plan admission."
 version = "7.0.0"
 edition = "2024"
 rust-version = "1.98"

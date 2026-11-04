@@ -1,9 +1,6 @@
 # logicalworks-crates
 
-**logicalworks-crates is the Rust crate estate behind Logical Works: six
-independently versioned crates — primitives with no async runtime required,
-automation that runs unattended, one AST across many languages, the `script!`
-proc macro, an audited dependency storefront, and the Drishti frontend.**
+**logicalworks-crates is the Rust crate estate behind Logical Works: six independently versioned crates — primitives with no async runtime required, automation that runs unattended, one AST across many languages, the `script!` proc macro, an audited dependency storefront, and the Drishti frontend.**
 
 [![CI](https://github.com/srinji-kaggss/logicalworks-crates/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/srinji-kaggss/logicalworks-crates/actions/workflows/ci.yml) ![status: unstable](https://img.shields.io/badge/status-unstable-orange) ![license: Apache-2.0 and MPL-2.0](https://img.shields.io/badge/license-Apache--2.0%20%7C%20MPL--2.0-blue)
 [![lgwks_std](https://img.shields.io/crates/v/lgwks_std?label=lgwks_std)](https://crates.io/crates/lgwks_std) [![lgwks_bot](https://img.shields.io/crates/v/lgwks_bot?label=lgwks_bot)](https://crates.io/crates/lgwks_bot) [![lgwks_ast](https://img.shields.io/crates/v/lgwks_ast?label=lgwks_ast)](https://crates.io/crates/lgwks_ast) [![lgwks_macros](https://img.shields.io/crates/v/lgwks_macros?label=lgwks_macros)](https://crates.io/crates/lgwks_macros) [![lgwks_deps](https://img.shields.io/crates/v/lgwks_deps?label=lgwks_deps)](https://crates.io/crates/lgwks_deps)
@@ -12,8 +9,7 @@ proc macro, an audited dependency storefront, and the Drishti frontend.**
 
 [Should I use logicalworks-crates?](docs/should-i-use.md) — where each crate is right, where it is wrong, and what to use instead; the estate is not part of Braid, which pins three of these crates and depends on them, never the reverse.
 
-`lgwks_std`'s default features are not dependency-free; that caveat and the
-exact dependency graph are in [Choosing a crate](docs/choosing-a-crate.md).
+`lgwks_std`'s default features are not dependency-free; that caveat and the exact dependency graph are in [Choosing a crate](docs/choosing-a-crate.md).
 
 ## Crates
 
@@ -30,6 +26,13 @@ Versions move independently from one repository and one tag; the table lists thi
 
 > **Names.** `lgwks_std` (underscore) lives in `crates/lgwks-std` (hyphen) and is
 > imported `use lgwks_std::...`; `cargo install lgwks_deps` builds `lgwks-deps`.
+
+## Why Developers & AI Choose logicalworks-crates
+
+Resilient execution engineered for production autonomy:
+1. **Declarative Workflows (`lgwks_bot`)**: `script!` indented flows with compiler-bounded fan-out, shared deadlines, retry budgets, sagas, and agent plan admission.
+2. **Zero-Async Primitives (`lgwks_std`)**: HTTP, JSON, codecs, retry, and structured logging with zero async runtime required.
+3. **In-Process Durability**: Honest state journaling on ECS without external clusters or Temporal replay traps. See [comparison](docs/comparison-vs-temporal-tokio.md).
 
 ## Quickstart
 
