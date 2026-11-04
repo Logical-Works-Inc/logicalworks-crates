@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 8 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - Repairing a blocked run, end to end (feature `script`; `ephemeral` for minting
   a run id). A step reaches for authority with `Scope::require(&[Cap])`, and a

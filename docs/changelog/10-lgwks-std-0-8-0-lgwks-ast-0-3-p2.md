@@ -2,7 +2,7 @@
 
 Release: lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 / lgwks_macros 0.1.0 - 2026-09-30. Page 2 of 2. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - `script!` and the `script` module (feature `script`, default on):
   orchestration written as indented flows (`each x in xs:`, `within 2s:`,
@@ -36,19 +36,19 @@ Release: lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 
   tree was not recorded, measured 267,000 while the hand-written Rust ways held
   about 348,000. It needs 11 lines to their 23-46.
 
-### lgwks_macros 0.1.0 Added
+## lgwks_macros 0.1.0 Added
 
 - New crate: the syntax of `lgwks_bot::script!`. Parses indentation from token
   spans, expands each block to one call into `lgwks_bot::script`, and refuses
   unbounded, panicking, blocking or machine-specific code with a compile error
   naming the replacement.
 
-### lgwks_deps Added
+## lgwks_deps Added
 
 - Feature `macro`: `syn`, `proc-macro2` and `quote` (new edge, registered in
   `contract/APPROVED.toml`) re-exported for first-party proc-macro crates.
 
-### lgwks_std Breaking
+## lgwks_std Breaking
 
 - `time::format::from_unix_parts`, `unix_parts`, `to_rfc3339`, and
   `time::now_rfc3339` now return `Result` so clock-range failures and

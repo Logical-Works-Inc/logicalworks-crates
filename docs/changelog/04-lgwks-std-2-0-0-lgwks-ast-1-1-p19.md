@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 19 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — one score comparator, one predicate walk, one field under test (nine-axis sweep) (continued)
+## lgwks_bot — one score comparator, one predicate walk, one field under test (nine-axis sweep) (continued)
 
 - **`session::by_score_descending` is the crate's one ranker.** The lexicon and
   the semantic tier each sorted with `partial_cmp(..).unwrap_or(Ordering::Equal)`;
@@ -31,7 +31,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   documentation describes — instead of `unwrap_or_default()`, which said nothing
   about which of the two limit sets a request-less document is held to.
 
-### lgwks_bot — inspect and frontier stop substituting values for answers (nine-axis sweep)
+## lgwks_bot — inspect and frontier stop substituting values for answers (nine-axis sweep)
 
 - **`macro_head` splits once.** `split(..).next().unwrap_or("")` cannot fail —
   `split` always yields a piece — and a headless invocation was reported as the
@@ -53,7 +53,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
 - **Two frontier tests refuse rather than default**: a selection round trip with
   no host selected, and an origin index whose `checked_rem` cannot fail.
 
-### lgwks_bot — the lexicon ranks a score it cannot order last, not as a tie (nine-axis sweep)
+## lgwks_bot — the lexicon ranks a score it cannot order last, not as a tie (nine-axis sweep)
 
 `score_all` ranked candidates with `partial_cmp(..).unwrap_or(Ordering::Equal)`.
 
@@ -70,14 +70,14 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   that the resolver does not apply. `the_digest_input_bound_is_the_shipped_bound`
   asserts the two spellings are one number; run as a mutant (512 → 256) it fails.
 
-### lgwks_bot — a lost publication response and a contradicted one are one match (nine-axis sweep)
+## lgwks_bot — a lost publication response and a contradicted one are one match (nine-axis sweep)
 
 `review.rs` selected between `Reconcile::None` twice — once through a guard that
 proved `created_id` was `Some` and then read it through
 `created_id.unwrap_or_default()`. The two arms are now one match on the id
 itself, so the value that decides the outcome is the value the arms read.
 
-### lgwks_bot — `retry`'s contract tests start from one fixture (nine-axis sweep)
+## lgwks_bot — `retry`'s contract tests start from one fixture (nine-axis sweep)
 
 Eight of `retry`'s tests wrote out the same `RetryFacts::new(...)` preamble by
 hand, and two of them were byte-identical. They differ from each other in
@@ -94,7 +94,7 @@ attributable if nothing else moved.
 
 No behaviour change.
 
-### lgwks_bot — the broker's dispatch tests build their subject once (nine-axis sweep)
+## lgwks_bot — the broker's dispatch tests build their subject once (nine-axis sweep)
 
 Four of `broker`'s tests each assembled the same five lines — a broker, a
 registered environment, the key carrying its generation, a journal, and an
@@ -114,4 +114,4 @@ and every assertion after that is about a situation the module cannot produce.
 
 No behaviour change.
 
-### lgwks_bot — the logical clock saturates in its own arithmetic (nine-axis sweep)
+## lgwks_bot — the logical clock saturates in its own arithmetic (nine-axis sweep)

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 17 of 20. [Changelog index](../../CHANGELOG.md)
 
-### The gate: the saturation tiers spawn the fake the way a default binding does (#272) (continued)
+## The gate: the saturation tiers spawn the fake the way a default binding does (#272) (continued)
 
 - The `sim_review_path` saturation tiers bound the fake `gh` through a `PATH`
   override and a bare program name. With that combination `std` cannot hand the
@@ -29,7 +29,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   Swatinem/rust-cache ignores `[profile]` when it hashes manifests: without
   it the restore stayed a full match on the old key and nothing was saved.
 
-### lgwks_ast — `parse_budget`: a column with no measurement prints `-`
+## lgwks_ast — `parse_budget`: a column with no measurement prints `-`
 
 The measurement rig converted its own numbers with `unwrap_or` defaults, so a row
 that never reached the parser printed a rate of zero. A rate over nothing is not
@@ -59,7 +59,7 @@ Verified by running the shipped example: `--grammar rust --shape nested --tier 1
 admitted), `--grammar markdown --shape nested` prints the `-` columns above, and
 `--tier 0`, `--bytes 0` and `--grammar cobol` each refuse by name.
 
-### lgwks_macros — the nine-axis sweep: no stand-in for a value that is not there
+## lgwks_macros — the nine-axis sweep: no stand-in for a value that is not there
 
 Every `unwrap_or`/`unwrap_or_else`/`unwrap_or_default` in `lgwks_macros` read a
 missing value as a plausible one. Each is now either the thing itself or a typed
@@ -76,7 +76,7 @@ shared reading.
   `rewrite` and `run_only` carry the tail rather than re-deriving an index, and
   `run_only`'s "the call is the whole line" test is `remaining.is_empty()`.
 - **`Line::keyword` returns the `&Ident`** and `Line::starts_with` answers the
-  question each emitter was really asking, which removes the empty keyword string
+  question each emitter was asking, which removes the empty keyword string
   three call sites defaulted to — and the per-line `String` allocation with it.
 - **`Line::finish` returns `Option<Line>`**: a line with no tokens is not a line
   whose position and span are invented from `Span::call_site`.
@@ -101,7 +101,7 @@ Behaviour is unchanged. All 10 `lgwks_macros` tests pass, including the property
 suite that renders trees, reads them back and asserts a line moved off its column
 is refused at that line, and `lgwks_bot`'s 192 `script!` tests pass against the
 rewritten emitter.
-### lgwks_bot — `sim_observe_refresh`: a schedule cell the run did not draw is `None`
+## lgwks_bot — `sim_observe_refresh`: a schedule cell the run did not draw is `None`
 
 The observe/refresh simulation had 60 places where a failed width conversion was
 folded onto a number, and four where a *missing* schedule cell became a real one.

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 18 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — `sim_observe_refresh`: a schedule cell the run did not draw is `None` (continued)
+## lgwks_bot — `sim_observe_refresh`: a schedule cell the run did not draw is `None` (continued)
 
 - **`TenantSchedule::tenant` and `PacePlan::at` return `Option`.** Every caller
   propagates, and the assertions that already compared a report against the
@@ -16,7 +16,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
 
 (9-axis sweep)
 
-### lgwks_bot — the journal and inspection test fixtures are read, not re-spelled
+## lgwks_bot — the journal and inspection test fixtures are read, not re-spelled
 
 Four test files each carried their own copy of an identity the shared fixture
 already owns, and three carried a bounded wait whose "no deadline" arm turned
@@ -48,7 +48,7 @@ the bound off.
   `inspect_support/mod.rs`'s `allow(dead_code)` is gone, because every fixture in
   it is reachable from the one integration binary (#272).
 
-### lgwks_bot — the measurement examples: no sentinel stands in for a reading
+## lgwks_bot — the measurement examples: no sentinel stands in for a reading
 
 Every `unwrap_or` family call across the ten example harnesses was a fabricated
 number, a fabricated identity, or a fabricated error, and each is now either the
@@ -85,7 +85,7 @@ nobody made.
   refusal nobody produced, and `examples/probes/invariant_probe.rs` propagates
   the two `unwrap()`s it used to carry so the audit record demonstrates one
   claim rather than two.
-### lgwks_bot — `spec`'s test doubles are declared once, and the sleep is no longer suppressed (nine-axis sweep)
+## lgwks_bot — `spec`'s test doubles are declared once, and the sleep is no longer suppressed (nine-axis sweep)
 
 - **`hold_pool_thread_for` parks instead of sleeping.** It carried an
   `#[expect(clippy::disallowed_methods)]` because `rt::time::sleep` has no
@@ -103,7 +103,7 @@ nobody made.
   one `FakeSource` instead of two. A double that appears twice can differ in its
   cap as well as its value, and the cap is what those tests are about.
 
-### docs — citations re-anchored after the ranker and predicate walks moved lines
+## docs — citations re-anchored after the ranker and predicate walks moved lines
 
 `check-doc-citations.py` pins the *text* of every line a guide cites, so code
 added above a cited line moves it. 24 citations across `general-bot-fold.md`,
@@ -112,4 +112,4 @@ re-anchored to the line that now holds the pinned text; 11 were dropped by the
 tool as duplicates of an anchor already recorded. No citation changed what it
 points at.
 
-### lgwks_bot — one score comparator, one predicate walk, one field under test (nine-axis sweep)
+## lgwks_bot — one score comparator, one predicate walk, one field under test (nine-axis sweep)

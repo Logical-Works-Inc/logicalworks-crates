@@ -1,5 +1,7 @@
 # Contributing
 
+This page lists the rules a change meets before it merges.
+
 ## Dependency policy
 
 Read [`docs/dependency-doctrine.md`](docs/dependency-doctrine.md) before adding a
@@ -33,7 +35,6 @@ cargo fmt --all -- --check
 cargo run -p lgwks_deps -- check .
 ./scripts/lgwks-std-package-smoke.sh
 ```
-
 ## Contributions and copyright
 
 **This repository takes no outside contributions, to any crate.** Pull

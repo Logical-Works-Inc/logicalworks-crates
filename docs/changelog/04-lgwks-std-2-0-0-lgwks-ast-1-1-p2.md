@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 2 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — the supervised tree is captured, signalled by pid, and reported (#263) (continued)
+## lgwks_bot — the supervised tree is captured, signalled by pid, and reported (#263) (continued)
 
 - **A real `setsid` escape is stopped, and observed stopped.**
   `tests/it/process_escape.rs::a_session_escape_is_captured_and_stopped_by_pid`
@@ -26,7 +26,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   pipe. That was the "by design" `leaky` verdict the module used to explain away.
   The sibling now `exec`s its sleep.
 
-### lgwks_std — `process`: descendant capture, per-process signals, running-set observation (#263)
+## lgwks_std — `process`: descendant capture, per-process signals, running-set observation (#263)
 
 The `process` feature could stop a group and could not stop a tree. These four
 primitives are the other half, and every one of them is additive.
@@ -75,7 +75,7 @@ Seeded family: `tests/it/sim_descendants.rs`
 `a_vacant_root_captures_nothing_and_names_its_mechanism`), over real forked
 trees with `setsid` escapees.
 
-### lgwks_bot — a change tick, and the sources that can report one (#279)
+## lgwks_bot — a change tick, and the sources that can report one (#279)
 
 `Observe::revision` is a source's own answer to "has anything moved?", read on
 the calling thread **before** the poll it may skip. A source that reports the
@@ -113,5 +113,4 @@ comparison is the whole cost of an unchanged check.
   (seeded: both paths fire on the same ticks, wrap and regression are changes,
   a forced refresh beats a quiet revision, one movement fires once, replay).
 
-
-### lgwks_bot — a tick is measured stage by stage, and the rig that measures it runs again (#279)
+## lgwks_bot — a tick is measured stage by stage, and the rig that measures it runs again (#279)

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 12 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_deps — a `cfg` the scanner cannot evaluate is its own verdict (continued)
+## lgwks_deps — a `cfg` the scanner cannot evaluate is its own verdict (continued)
 
 - **`Verdict` is three states** — `Satisfied`, `Unsatisfied`, `Unevaluated` —
   and `all` / `any` / `not` fold between them. `may_hold` resolves `Unevaluated`
@@ -23,7 +23,7 @@ in production is reported; the same line under `#[cfg(test)]` is clean; under
 `#[cfg(feature = "never")]`, `#[cfg(not(test))]` and `#[cfg(any(test, …))]` it
 is reported, which is the fail-open-for-findings direction. `lgwks-deps scan` on
 this repository: 383 files, zero findings. 176 lib tests and 51 scan tests pass.
-### lgwks_deps — the resolved graph, the vendor report and the CLI's target resolution
+## lgwks_deps — the resolved graph, the vendor report and the CLI's target resolution
 
 The readers that build the gate's inputs each answered a value it did not have,
 and the CLI each resolved "no path given" on its own.
@@ -62,7 +62,7 @@ and the CLI each resolved "no path given" on its own.
   that is not UTF-8 was read as empty, and an empty name matches no excluded
   directory only by inventing a name the filesystem does not carry.
 
-### lgwks_deps — the seeded generators draw through one total generator
+## lgwks_deps — the seeded generators draw through one total generator
 
 The simulation suites substituted a value for every draw they could not make: a
 zero table length became `1`, a failed `u64`/`usize` conversion became index `0`,
@@ -96,7 +96,7 @@ Behaviour is unchanged for every reachable case: every table the suites draw fro
 is a non-empty constant or a slice whose emptiness the caller already tested.
 The new arms are what an emptied fixture table *means*, and each is reachable
 only by editing a fixture.
-### lgwks_std — the test sweep's own fixtures, held to the same contract (9-axis sweep)
+## lgwks_std — the test sweep's own fixtures, held to the same contract (9-axis sweep)
 
 Every rust-guard finding in `crates/lgwks-std/tests/` is fixed at its cause. No
 library behaviour changed; the traces every seeded family folds differ, because

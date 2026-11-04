@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 4 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — row 1 of #278: a torn read is pending, never a change (continued)
+## lgwks_bot — row 1 of #278: a torn read is pending, never a change (continued)
 
 - `stability` (new module) owns the stable-read protocol an `Observe` adapter
   needs. `read_stable` requires two *independent* readings of a subject to
@@ -40,7 +40,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   and the same seed replays to the same trace hash with adjacent seeds
   diverging. `docs/production-readiness.md` §4.4 moves the
   "a file was half-written when read" row on those tests.
-### lgwks_deps — `long-try-chain` charges each `?` to its own statement
+## lgwks_deps — `long-try-chain` charges each `?` to its own statement
 
 The scan's `long-try-chain` rule counted every `?` inside a `for`, `while`,
 `loop` or `if` body against the enclosing statement as well as against the
@@ -52,7 +52,7 @@ is counted once, at its own line; a loop header is still its own statement's.
 `scan::tests::a_loop_is_not_charged_with_the_statements_in_its_body` and
 `a_chain_inside_a_loop_body_is_still_a_chain` failed before the change.
 
-### lgwks_bot — the effect journal continues as new instead of stopping at its ceiling (#267)
+## lgwks_bot — the effect journal continues as new instead of stopping at its ceiling (#267)
 
 A `FileJournal` refused every append at 100,000 events or 64 MiB, so a bot acting
 once a minute stopped after about seventeen days. A journal opened with
@@ -98,4 +98,4 @@ Measured over 10,000,000 attempts and 488 continuations (production-readiness
 live memory flat at about 20 MB, reopen p50 58–89 µs behind 1 K to 1 M attempts.
 `SIGKILL` at each of the four seal boundaries leaves exactly one authoritative
 journal. INV-BOT-152.
-### lgwks_bot — per-tenant capacity: one tenant cannot starve another (#268)
+## lgwks_bot — per-tenant capacity: one tenant cannot starve another (#268)

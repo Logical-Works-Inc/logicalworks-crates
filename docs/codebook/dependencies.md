@@ -7,14 +7,13 @@ Part of [`CODEBOOK.md`](../../CODEBOOK.md), sections 10 to 12.
 Estate first, in this order. The **reuse ladder** (std → `lgwks_std` →
 `lgwks_bot` → `lgwks_ast` → `lgwks_deps`) is an ownership order, and it is not
 the dependency graph. The graph, read from the manifests, is:
-```
+```text
 lgwks_std      (depends on nothing in this workspace)
 lgwks_ast      (depends on nothing in this workspace)
 lgwks_macros   (proc-macro support crate; no workspace deps)
 lgwks_bot      → lgwks_std, and optionally lgwks_macros (feature `script`)
 lgwks_deps     → lgwks_std, unconditionally and twice (features `json`, `random`)
 ```
-
 So `lgwks_ast` sits at the end of the ladder while sitting at the *top* of the
 dependency graph, `lgwks_deps` depends only on `lgwks_std` and not on
 `lgwks_bot`, and `lgwks_macros` is absent from the ladder entirely. Reach for a

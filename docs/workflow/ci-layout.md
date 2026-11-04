@@ -39,6 +39,15 @@ fork's pull request on the Director's Mac.
 | `macos-15` (3 vCPU) | the macOS archives and shards (through `churn-slot`, INV-CI-SLOT-1), clippy, GPUI and Metal storefronts, AppCUI, Miri (the darwin seam); `ld64.lld` is the toolchain's `rust-lld` |
 | `windows-latest` | GPUI Windows, process containment on Windows, AppCUI Windows |
 
+### A docs-only change
+
+The `changes` job lists a pull request's files (ADR 0011). When every one is a
+`docs/**/*.md` page, a root page other than `README.md`, or `llms.txt`, the
+suites are skipped and the gate decides. Its `check-docs` step holds every page
+the change touches to the docs bar. `Build and workspace tests` then reads the
+classification and the gate, and still holds the 300 s wall. A push to `main`
+runs everything.
+
 ### Compile once, test wide
 
 Each suite (the workspace without lgwks_bot, and lgwks_bot full) is compiled
@@ -80,7 +89,7 @@ Tools arrive prebuilt and pinned through `taiki-e/install-action`
 | Frontier | Measured against the 13-instance self-hosted layout it replaces: main 41569522596 passed at 280 s warm, and cold pushes failed at 289 to 364 s. | the PR's before/after table, `ci-runs.md` |
 | Hyperscale | Every resource is bounded: `timeout-minutes` on every job, nextest `slow-timeout` with `terminate-after` on every test, artifacts with a retention, caches saved from one ref. Shards add runners, not load on one machine. | `ci.yml`, `.config/nextest.toml` |
 | Idiomatic | One definition of the gate: `scripts/gate-lanes.toml`. CI steps carry the lane commands verbatim and `check-gate-parity` refuses drift. Standard actions only. | `cargo run --locked -p lgwks_deps --bin check-gate-parity` |
-| Generalized | Every lane runs on every pull request: every feature set, the target matrix, WASI, all 28 grammars, macOS, Linux and Windows. | parity: 66 lanes, 52 shared |
+| Generalized | Every lane runs on every pull request that changes code: every feature set, the target matrix, WASI, all 28 grammars, macOS, Linux and Windows. A docs-only change runs the gate lanes (ADR 0011). | parity: 76 lanes, 54 shared |
 | Decoupled | A shard waits only on its archive; the check rows and the receipt read what other jobs wrote and build nothing. | `needs:` in `ci.yml` |
 | Ephemeral | A hosted runner is destroyed after its job. The caches are caches: losing one costs a cold build and never changes an outcome. | `hosted-rust` |
 | Portable | arm64 Linux natively and in trixie, arm64 macOS, x86_64 Windows, and `cargo check` across the declared target matrix. The wall check reads GNU and BSD `date`. | `check-target-matrix`, the `ci-wall` lane |

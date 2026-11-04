@@ -1,5 +1,7 @@
 # lgwks_deps: embedding the gate
 
+This page shows how to run the dependency gate from your own code and from CI.
+
 ## Embedding the gate
 
 Call `lgwks_deps::check_dependencies(root)?.into_parts()`: it yields the
@@ -60,7 +62,7 @@ step.
 
 Using `lgwks_bot`, `lgwks_std`, or `lgwks_ast` in your application does not
 require adopting this gate. Those crates are libraries; the dependency policy in
-[`../../AGENTS.md`](../../AGENTS.md) is how *this repository* is built.
+[`AGENTS.md`](../../../AGENTS.md) is how *this repository* is built.
 
 Reach for `lgwks_deps` when you want the same property in your own workspace:
 every external edge named by a semantic owner, verified by a command that fails

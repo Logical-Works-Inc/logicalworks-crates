@@ -79,11 +79,56 @@ env:
   CARGO_BUILD_WARNINGS: deny
 
 jobs:
+  # ADR 0011: a pull request that changes only reader-facing Markdown builds
+  # nothing a suite tests, so it runs the gate checks, whose `check-docs` step
+  # holds every page it touches to the docs bar, and skips the suites; #861 ran
+  # the whole suite for three governance pages and a slow macOS runner failed
+  # it. The pages are `docs/**/*.md` and the root `*.md` but `README.md`
+  # (the quickstart lane compiles it), and `llms.txt`. The two generated
+  # families (`docs/script-lexicon*.md`, `docs/catalog.md`) are code: tests
+  # render them. A push to `main`, a manual run and a failed listing are code.
+  changes:
+    name: Changed files
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - name: Classify the change
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          code=true
+          if [ -n "${PR}" ]; then
+            files="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')"
+            code=false
+            if [ -z "${files}" ]; then code=true; fi
+            while IFS= read -r file; do
+              case "${file}" in
+                docs/script-lexicon*.md|docs/catalog.md|README.md) code=true ;;
+                docs/*.md|llms.txt) ;;
+                */*) code=true ;;
+                *.md) ;;
+                *) code=true ;;
+              esac
+            done <<< "${files}"
+          fi
+          echo "code=${code}" >> "${GITHUB_OUTPUT}"
+          echo "code changed: ${code}"
+
   # Every workspace target compiles, benches and examples included, which the
   # test shards (test targets only) do not prove. The listing for the
   # simulation lane comes from the shards' own builds (`workspace_build`).
   workspace_all_targets:
     name: Build all workspace targets
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -128,6 +173,8 @@ jobs:
   # slowest shard instead of 40 s after it (run 41698583571).
   workspace_build:
     name: Workspace build and simulation evidence
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -204,6 +251,8 @@ jobs:
   # opt-level-0 workspace code.
   tests_linux:
     name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     container:
       image: "rust:1.99.1-trixie"
@@ -334,6 +383,8 @@ jobs:
   # Cargo.toml says what the profile keeps.
   tests_macos:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.it_group || matrix.partition }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -375,19 +426,29 @@ jobs:
           # group (the `lwc_it_group` cfg the Linux shards use) under the ten
           # features the T-row modules gate on, not `full`, and runs the
           # T-row modules of that group; the surface group runs its named
-          # tests alone, and one row runs the two library modules named.
+          # tests alone, and one row runs the two library modules named. The
+          # surface group is two rows: each T02 test builds a consumer crate,
+          # three of them past 60 s on 3 vCPU, and as one row it was the run's
+          # 296 s critical path (run 41835517293).
           - { suite: bot-it, archive: bot-it-darwin, it_group: g3, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
           - { suite: bot-it, archive: bot-it-darwin, it_group: g4, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
           - { suite: bot-it, archive: bot-it-darwin, it_group: g5, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
           - { suite: bot-it, archive: bot-it-darwin, it_group: g6, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
           - { suite: bot-it, archive: bot-it-darwin, it_group: g7, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
           - { suite: bot-it, archive: bot-it-darwin, it_group: g8, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & test(/^(durable_crash_observation|durable_dispatch|effect_journal|ephemeral|gh_binding|observe_refresh|orphan_reap|owner_epoch_takeover|pr_review_journey|process_escape|process_ownership|proposal|ready|repair|request_key|rt_process|sim_dispatch|sim_journal|sim_observe_refresh|sim_permit_release|sim_progress_overflow|sim_proposal|sim_ready|sim_repair|sim_repeat_ceiling|sim_replay_drift|sim_request_key|sim_spec_materialize|sim_t_rows|sim_t_rows_default|sim_task|spec_materialize|store_read_failure|sys_process_binding|t_rows|t_rows_default|task_front_door|wrong_identity_evidence)::/)" }
-          - { suite: bot-it, archive: bot-it-darwin, it_group: surface, partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & (test(=t02_compile_surface::a_correct_local_borrowed_non_send_consumer_compiles) | test(=t02_compile_surface::a_cross_schema_result_binding_is_refused) | test(=t02_compile_surface::a_local_borrowed_non_send_body_runs_on_the_host) | test(=t02_compile_surface::a_source_condition_action_mismatch_is_refused_t02) | test(=t22_process_surface::a_process_description_cannot_deref_to_an_engine) | test(=t22_process_surface::a_process_description_cannot_produce_output) | test(=t22_process_surface::a_process_description_cannot_report_a_status) | test(=t22_process_surface::a_process_description_exposes_no_mutable_engine_handle) | test(=t22_process_surface::public_process_description_rejects_direct_execution_t22) | test(=t22_process_surface::supervisor_is_the_sanctioned_process_runner) | test(=t22_process_surface::the_readable_description_surface_compiles_for_an_external_consumer) | test(=t22_process_surface::the_sanctioned_runner_accepts_the_same_description))" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: surface, tier: "surface t02", partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & (test(=t02_compile_surface::a_correct_local_borrowed_non_send_consumer_compiles) | test(=t02_compile_surface::a_cross_schema_result_binding_is_refused) | test(=t02_compile_surface::a_local_borrowed_non_send_body_runs_on_the_host) | test(=t02_compile_surface::a_source_condition_action_mismatch_is_refused_t02))" }
+          - { suite: bot-it, archive: bot-it-darwin, it_group: surface, tier: "surface t22", partition: "", build: "-p lgwks_bot --test it --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary(it) & (test(=t22_process_surface::a_process_description_cannot_deref_to_an_engine) | test(=t22_process_surface::a_process_description_cannot_produce_output) | test(=t22_process_surface::a_process_description_cannot_report_a_status) | test(=t22_process_surface::a_process_description_exposes_no_mutable_engine_handle) | test(=t22_process_surface::public_process_description_rejects_direct_execution_t22) | test(=t22_process_surface::supervisor_is_the_sanctioned_process_runner) | test(=t22_process_surface::the_readable_description_surface_compiles_for_an_external_consumer) | test(=t22_process_surface::the_sanctioned_runner_accepts_the_same_description))" }
           - { suite: bot-it, archive: bot-it-darwin, it_group: "", tier: "lib", partition: "", build: "-p lgwks_bot --lib --locked --no-default-features --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --cargo-profile ci-bot", it_filter: "binary_id(lgwks_bot) & test(/^(broker::tests::|rt::supervise::tests::cleanup::)/)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
       RUSTC_WORKSPACE_WRAPPER: ""
+      # The `it` group rows pass their group cfg through this wrapper, to
+      # workspace crates alone (scripts/it_group_rustc.rs). Its path is in the
+      # job env so rust-cache keys on it: the entry saved while the cfg sat in
+      # RUSTFLAGS matched one group's fingerprints, and a key that hits exactly
+      # is never saved again.
+      RUST_IT_GROUP_RUSTC: ${{ matrix.suite == 'bot-it' && '/tmp/it-group-rustc' || '' }}
       # The bot shards are built under `ci-it` (workspace crates at opt-level
       # 0), whose unoptimized frames overflowed the 2 MiB test thread in
       # pr_review_journey and sim_review_path (run 41661639388; the same tests
@@ -402,6 +463,8 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.archive }}
           nextest: "true"
+          # The group rows restore their whole dependency build from rust-cache.
+          sccache: ${{ matrix.suite == 'bot-it' && 'false' || 'true' }}
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -417,17 +480,18 @@ jobs:
           SATURATION_BINARIES: ${{ matrix.sat_bins }}
           SATURATION_FILTER: ${{ matrix.sat_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
-      # The Darwin T-row tests. `RUSTFLAGS` replaces `.cargo/config.toml`'s
-      # target rustflags, so it names the ld64.lld link argument again beside
-      # the group cfg (both spellings, as the Linux shards set them). A group
-      # build leaves fixtures unused, which warns rather than denies there too.
+      # The Darwin T-row tests. The group cfg reaches workspace crates through
+      # the wrapper, so every row builds its dependencies under the same
+      # `.cargo/config.toml` flags and one rust-cache entry serves them all. A
+      # group build leaves fixtures unused, which warns rather than denies.
       - name: Run lgwks-bot Darwin T-row tests
         if: matrix.suite == 'bot-it'
         env:
-          RUSTFLAGS: ${{ matrix.it_group && format('-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld --cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld' }}
+          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
+          LWC_IT_GROUP: ${{ matrix.it_group }}
           CARGO_BUILD_WARNINGS: warn
           IT_FILTER: ${{ matrix.it_filter }}
-        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E "${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}"
+        run: rustc --edition 2024 -O -o "$RUSTC_WORKSPACE_WRAPPER" scripts/it_group_rustc.rs && cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E "${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}"
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
       - name: Upload lgwks-bot JUnit report
@@ -438,8 +502,9 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
+      # The group rows start no sccache; their dependency build is rust-cache's.
       - name: Cache hit rate
-        if: ${{ always() }}
+        if: ${{ always() && matrix.suite != 'bot-it' }}
         run: sccache --show-stats
 
   # The workspace's evidence lanes, doc tests and package smoke, and the
@@ -447,6 +512,8 @@ jobs:
   # archive, and none waits on the suites.
   workspace_tail:
     name: Workspace evidence and doc tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -486,6 +553,25 @@ jobs:
           retention-days: 7
       - name: Doc tests
         run: cargo test --workspace --doc --locked
+
+  # The package smoke beside the doc tests, not after them: it reads no build of
+  # theirs, and in line it ran 39 s past their 172 s, the run's last job to end
+  # (run 41843057626).
+  package_smoke:
+    name: Package smoke
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust 1.99.1
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: workspace
       - name: Run package smoke test
         run: ./scripts/lgwks-std-package-smoke.sh
 
@@ -498,7 +584,12 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
+      # Two commits deep, so `HEAD^1` is the base the docs check compares the
+      # change with: a pull request's merge commit has the base tip as its first
+      # parent, and a push to `main` the commit before it.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
       - name: Pin Rust 1.99.1
         uses: ./.github/actions/hosted-rust
         with:
@@ -548,10 +639,14 @@ jobs:
         # #732: one register, one generated page, and a refusal for a row whose
         # owner file, feature or module is gone.
         run: cargo run --locked -p lgwks_deps --bin catalog -- --check .
-      - name: ADRs and PRDs hold their required fields
+      - name: Docs hold their fields and read plainly
         # ADR 0004: every ADR against ISO/IEC/IEEE 42010 and every PRD
-        # requirement against ISO/IEC/IEEE 29148.
-        run: cargo run --locked -p lgwks_deps --bin check-docs
+        # requirement against ISO/IEC/IEEE 29148. ADR 0011: every page this
+        # change touches against the docs bar, its added prose against the
+        # sentence and paragraph bounds.
+        env:
+          DOCS_BASE: HEAD^1
+        run: cargo run --locked -p lgwks_deps --bin check-docs -- . --base ${DOCS_BASE:-origin/main}
       - name: Root README quickstart matches its compiled example
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane readme-quickstart
 
@@ -612,6 +707,8 @@ jobs:
   # 41563372316) left the 1,324 tests 48 s.
   tests_std_full:
     name: Tests (lgwks-std full)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -648,6 +745,8 @@ jobs:
   # The lgwks-bot suite at no default features, in a job of its own.
   tests_nodefault:
     name: Tests (lgwks-bot no default features)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -668,6 +767,8 @@ jobs:
   # Mac's instances. Four legs, each its own feature family and cache.
   clippy:
     name: Clippy and scan (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     strategy:
@@ -749,6 +850,8 @@ jobs:
   # reason for each lane, so this job and a contributor run the same ones.
   docs:
     name: Docs and release gates
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -777,6 +880,8 @@ jobs:
   # check runs exactly once per commit.
   storefront-matrix:
     name: Target and storefront matrix (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
@@ -837,6 +942,8 @@ jobs:
   # two §4.7 cells (`tests-linux`) the Mac could reach only from a container.
   target-matrix:
     name: Target matrix (${{ matrix.targets }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
@@ -874,6 +981,8 @@ jobs:
   # macOS VM json parse read p50 512 ns, p99 1 561 ns (run 41607020833).
   timing_gates:
     name: Timing gates (dudect, async fairness, latency tails)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -896,6 +1005,8 @@ jobs:
   # ways (the suite, a mutant check, the tiers and the matrix).
   timing_async:
     name: Async fairness gate and concurrency ladder
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -913,6 +1024,8 @@ jobs:
   # itself builds on Linux, so the docs.rs leg reads the platform it predicts.
   feature-matrix-bot-ast:
     name: Feature matrix (${{ matrix.part }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
@@ -1001,6 +1114,8 @@ jobs:
 
   appcui-native:
     name: AppCUI native storefront
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     steps:
@@ -1018,6 +1133,8 @@ jobs:
   # The AppCUI legs on Windows and Linux, beside the macOS one.
   appcui-native-hosted:
     name: AppCUI native storefront hosted (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
@@ -1039,6 +1156,8 @@ jobs:
   # 194 s, and behind the AppCUI steps it made that leg the run's longest job.
   gpui-windows:
     name: GPUI Windows renderer
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -1064,6 +1183,8 @@ jobs:
   # (`docs/acceptance/t-rows-windows.toml`).
   process-windows:
     name: Process containment on Windows
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 5
     env:
@@ -1129,7 +1250,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, package_smoke, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -1139,12 +1260,24 @@ jobs:
     env:
       REVISION: ${{ github.sha }}
     steps:
+      # ADR 0011: a docs-only change skipped the suites, so the row is the
+      # classification and the gate. A failed classification leaves `code`
+      # empty, which takes the full path below and fails on the skipped jobs.
+      - name: A docs-only change passed the gate
+        if: needs.changes.outputs.code == 'false'
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          GATE: ${{ needs.gate.result }}
+        run: |
+          echo "docs-only change: classification ${CHANGES}, gate ${GATE}; the suites build nothing it changed"
+          test "${CHANGES}" = success && test "${GATE}" = success
       - name: Every workspace test job passed
+        if: needs.changes.outputs.code != 'false'
         env:
           # The compile beyond the shards: the all-targets build and the
           # simulation listing.
           BUILD: ${{ needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
-          TAIL: ${{ needs.workspace_tail.result }}
+          TAIL: ${{ needs.workspace_tail.result == 'success' && needs.package_smoke.result == 'success' && 'success' || 'failure' }}
           LINUX: ${{ needs.tests_linux.result }}
           MACOS: ${{ needs.tests_macos.result }}
           BOT_NODEFAULT: ${{ needs.tests_nodefault.result }}
@@ -1152,26 +1285,33 @@ jobs:
           echo "builds ${BUILD}, evidence ${TAIL}, Linux shards ${LINUX}, macOS shards ${MACOS}, lgwks_bot no default ${BOT_NODEFAULT}"
           test "${BUILD}" = success && test "${TAIL}" = success && test "${LINUX}" = success && test "${MACOS}" = success && test "${BOT_NODEFAULT}" = success
       - uses: actions/checkout@v7
+        if: needs.changes.outputs.code != 'false'
       - name: Install sqlite3, the program the receipts are recorded through
+        if: needs.changes.outputs.code != 'false'
         run: command -v sqlite3 || { sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3; }
       - name: Download the acceptance-receipts binary
+        if: needs.changes.outputs.code != 'false'
         uses: actions/download-artifact@v8
         with:
           name: receipts-tool
           path: receipts-tool
       - name: Download lgwks-bot JUnit reports
+        if: needs.changes.outputs.code != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: lgwks-bot-junit-*
           path: acceptance-artifact
       - name: Download the Linux and Windows JUnit reports
+        if: needs.changes.outputs.code != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: acceptance-junit-*
           path: acceptance-junit
       - name: Record acceptance receipts
+        if: needs.changes.outputs.code != 'false'
         run: chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
       - name: Upload acceptance receipt
+        if: needs.changes.outputs.code != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-receipts
@@ -1199,12 +1339,20 @@ jobs:
   # it is the toolchain's own `sysroot` package (run 40719181967).
   miri_unsafe:
     name: Miri unsafe seams
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-15
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Install lld, the linker the repository's cargo configuration names
-        run: brew install lld
+      # The linker the repository's cargo configuration names, as the hosted-rust
+      # action links it: the toolchain's own rust-lld, called as ld64.lld. `brew
+      # install lld` took 35 s and put Miri on the run's critical path (run
+      # 41841536946: 312 s wall, Miri ending at 295 s). It is the pinned
+      # toolchain's: the nightly's rust-lld loads @rpath/libLLVM.dylib, which
+      # its bin directory does not hold (run 41842704850, abort trap 6).
+      - name: Set up the pinned toolchain's lld as ld64.lld
+        run: rustup toolchain install 1.99.1 --profile minimal && ln -sf "$(rustc +1.99.1 --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
       - name: Prove the process unsafe seams under Miri
         run: |
           rustup toolchain install nightly-2026-10-01 --profile minimal --component miri --component rust-src && \

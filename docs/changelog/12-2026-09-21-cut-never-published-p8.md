@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 8 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - **A decision carries its provenance, and its receipt is written before the
   transition.** `Resolver::resolve` returns `Verdict`: the `Resolution` and its
@@ -18,7 +18,6 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   index that moves, and the route. Because the receipt is written first, a
   refused write aborts the answer with `BotError::ReceiptNotRecorded` and leaves
   cursor, scope, transcript and receipt list untouched.
-
 
 - **`Deficit`, `Shortage` and `Demand`: the whole capability shortfall, and the
   repair it derives.** `Auth::check` and `GrantSet::admit` return
@@ -48,4 +47,4 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   are in `bench/README.md`: 12.9 microseconds for 128 capabilities against 3.4
   nanoseconds for one, growing with the *product* of the two counts.
 
-### lgwks_bot Fixed
+## lgwks_bot Fixed

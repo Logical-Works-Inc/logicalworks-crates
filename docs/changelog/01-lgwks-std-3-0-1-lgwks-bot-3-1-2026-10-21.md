@@ -1,9 +1,9 @@
 # lgwks_std 3.0.1 / lgwks_bot 3.1.0 / lgwks_ast 2.1.0 / lgwks_deps 4.1.0 / lgwks_macros 1.1.3 - 2026-10-21
 
-Release: lgwks_std 3.0.1 / lgwks_bot 3.1.0 / lgwks_ast 2.1.0 / lgwks_deps 4.1.0 / lgwks_macros 1.1.3 - 2026-10-21.
+The release notes for the versions above.
 [Changelog index](../../CHANGELOG.md)
 
-### Upgrading
+## Upgrading
 
 No item is removed or renamed. `lgwks_bot` takes a minor bump because a host's
 retry budget is now shared by every run it admits, which can make a run
@@ -11,7 +11,7 @@ retry budget is now shared by every run it admits, which can make a run
 `lgwks_deps` gain a subcommand and a binary. `lgwks_std` and `lgwks_macros`
 carry documentation corrections only.
 
-### lgwks_bot — one effect per caller key (#676)
+## lgwks_bot — one effect per caller key (#676)
 
 - **Added** the doc-hidden `keyed` module: `KeyedReceiver`, `open_once`,
   `Settlement` and `KeyedError` keep one effect per caller key on a receiver
@@ -23,7 +23,7 @@ carry documentation corrections only.
   and never a second create. `gh::issue` is the first adapter; its find reads
   past a lagging listing by issue number.
 
-### lgwks_bot — a step key carries its run (#646)
+## lgwks_bot — a step key carries its run (#646)
 
 - `Scope::key` hashes the tenant, the run and the structural path, so one run's
   attempts and restarts share a key and two runs of one flow never do.
@@ -32,7 +32,7 @@ carry documentation corrections only.
 - The retry jitter byte comes from the step key, so two runs of one flow no
   longer wait the same interval and retry in lockstep.
 
-### lgwks_bot — one retry budget per host (#647)
+## lgwks_bot — one retry budget per host (#647)
 
 - **Changed** a `Host` now admits every run under one shared retry budget
   (INV-BOT-171): the reserve is the host's, credit above it is earned by the
@@ -44,14 +44,14 @@ carry documentation corrections only.
   the pool ceiling, the income bound, expiry, earning after expiry and racing
   runs; a journey test drives two real runs on one host.
 
-### lgwks_bot — other
+## lgwks_bot — other
 
 - **Changed** `script!` flows settle on the flow's clock, and a keyed create
   settles before the create.
 - **Added** `act` carries external effects, and `gh::issue` opens one issue per
   key.
 
-### lgwks_ast — the script diff (#655)
+## lgwks_ast — the script diff (#655)
 
 - **Added** `lgwks-ast script diff <base> <head> [--json]` (feature `tool`),
   which reads two checked-out source roots from disk and classifies the
@@ -60,7 +60,7 @@ carry documentation corrections only.
   source, 1 on an unapproved widening, and 2 on a usage or parse error.
 - The command makes no git call; the caller supplies the two roots.
 
-### lgwks_deps — published-consumer in Rust (#633, #634)
+## lgwks_deps — published-consumer in Rust (#633, #634)
 
 - **Added** the `published-consumer` binary, which builds every published crate
   from crates.io at its newest tag with the README's own quickstart and prints
@@ -69,7 +69,7 @@ carry documentation corrections only.
 - The seeded simulation family covers the program builder that decides what each
   consumer compiles and runs.
 
-### lgwks_std and lgwks_macros — documentation
+## lgwks_std and lgwks_macros — documentation
 
 - **lgwks_std 3.0.1**: the process modules name both `unsafe` modules and
   INV-STD-UNSAFE-1, and the proof runs under the `miri-unsafe` gate lane. No

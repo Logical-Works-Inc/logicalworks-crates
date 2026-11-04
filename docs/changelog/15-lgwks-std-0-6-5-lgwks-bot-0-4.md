@@ -1,12 +1,12 @@
 # lgwks_std 0.6.5 / lgwks_bot 0.4.1 / lgwks_ast 0.2.1 / lgwks_deps 0.1.10 - 2026-09-20
 
-Release: lgwks_std 0.6.5 / lgwks_bot 0.4.1 / lgwks_ast 0.2.1 / lgwks_deps 0.1.10 - 2026-09-20. Page 1 of 1. [Changelog index](../../CHANGELOG.md)
+The release notes, page 1 of 1. [Changelog index](../../CHANGELOG.md)
 
 Documentation release. No API change and no behaviour change in any crate. The
 published packages carry a rewritten public surface, which is what a reader
 arriving from crates.io or docs.rs reads first.
 
-### Shared Changed
+## Shared Changed
 
 - The root README is restructured as an index: a crate table, a quickstart, the
   use cases, the adjacent-crate comparison, and a documentation index into
