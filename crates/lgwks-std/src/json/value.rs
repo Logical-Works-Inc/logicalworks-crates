@@ -254,7 +254,12 @@ impl fmt::Display for Value {
 impl std::str::FromStr for Value {
     type Err = super::Error;
 
+    /// Reads the tree in one direct pass; text that pass leaves alone is read
+    /// by `serde_json`, so the value and any refusal are `serde_json`'s.
     fn from_str(text: &str) -> Result<Self, Self::Err> {
-        super::from_str(text)
+        match super::read::document(text) {
+            Some(value) => Ok(value),
+            None => super::from_str(text),
+        }
     }
 }

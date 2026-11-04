@@ -9,12 +9,16 @@
 //! 22 bytes is stored inline and an object is one sorted
 //! allocation, so a small document parses with one allocation per array or
 //! object instead of one per key, string and tree node (#831). `serde_json`
-//! still reads and writes the text; `From` converts between the two trees.
+//! writes the text and reads it into any other type; `text.parse::<Value>()`
+//! reads the tree in one direct pass, handing `serde_json` every token and
+//! every refusal it does not read plainly; `From` converts between the trees.
 
 /// How a [`Value`] is built, compared, written, read and converted.
 mod convert;
 /// The object type.
 mod map;
+/// The direct reader behind `str::parse::<Value>()`.
+mod read;
 /// The inline-or-heap string.
 mod text;
 /// The value tree.

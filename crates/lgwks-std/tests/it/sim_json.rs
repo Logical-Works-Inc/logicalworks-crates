@@ -313,6 +313,110 @@ fn sim_a_tree_round_trips_through_the_serde_json_tree() -> Outcome {
     })
 }
 
+/// The texts the direct reader must read as `serde_json` does: numbers at and
+/// past every 64-bit edge, leading zeros, signs, fractions and exponents,
+/// escapes and surrogates, controls, literals, nesting at and past 128 levels,
+/// and broken punctuation (RFC 8259 §§2, 6, 7).
+fn edge_texts() -> Vec<String> {
+    let mut texts: Vec<String> = [
+        "0",
+        "-0",
+        "-0.0",
+        "01",
+        "-01",
+        "1.",
+        ".5",
+        "1e5",
+        "1E+2",
+        "-1e-2",
+        "1e400",
+        "-",
+        "+1",
+        "18446744073709551615",
+        "18446744073709551616",
+        "-9223372036854775808",
+        "-9223372036854775809",
+        "1.5.3",
+        "1-2",
+        r#""é😀""#,
+        r#""\ud800""#,
+        r#""\x""#,
+        "\"a\u{1}b\"",
+        r#""\"\\\/\b\f\n\r\t""#,
+        "nul",
+        "truex",
+        "[1,]",
+        "[,1]",
+        "{\"a\":1,}",
+        "{\"a\" 1}",
+        "{1:2}",
+        "{\"a\":1}{",
+        " \t\n\r[ 1 , {\"b\" : [] } ]\r\n",
+        "",
+        "  ",
+        "[",
+        "{\"k\":\"v\",\"k\":2}",
+    ]
+    .iter()
+    .map(|text| (*text).to_owned())
+    .collect();
+    for depth in [127_usize, 128, 129, 200] {
+        texts.push(format!("{}{}", "[".repeat(depth), "]".repeat(depth)));
+    }
+    texts
+}
+
+/// `text.parse::<Value>()` returns what `json::from_str::<Value>` returns: the
+/// same tree, or a refusal with the same message, line and column.
+fn assert_reads_as_serde(text: &str) -> Outcome {
+    let direct = text.parse::<Value>();
+    let through_serde = json::from_str::<Value>(text);
+    match (direct, through_serde) {
+        (Ok(ours), Ok(theirs)) => assert_eq!(ours, theirs, "{text:?} reads one tree"),
+        (Err(ours), Err(theirs)) => assert_eq!(
+            ours.to_string(),
+            theirs.to_string(),
+            "{text:?} is refused with serde_json's error"
+        ),
+        (ours, theirs) => assert_eq!(
+            ours.is_ok(),
+            theirs.is_ok(),
+            "{text:?}: direct {ours:?}, serde {theirs:?}"
+        ),
+    }
+    Ok(())
+}
+
+#[test]
+/// The direct reader behind `parse::<Value>()` reads every drawn document, its
+/// pretty form, every prefix cut and every edge text exactly as `serde_json`
+/// does (#831): one tree, or `serde_json`'s refusal.
+fn sim_the_direct_reader_reads_as_serde_json_reads() -> Outcome {
+    for text in edge_texts() {
+        assert_reads_as_serde(&text)?;
+    }
+    sweep(|seed, state, document| {
+        let compact = json::to_string(document)?;
+        let pretty = json::to_string_pretty(document)?;
+        assert_eq!(
+            &compact.parse::<Value>()?,
+            document,
+            "seed {seed:#018x}: {compact}"
+        );
+        assert_reads_as_serde(&pretty)?;
+        let boundaries: Vec<usize> = (0..compact.len())
+            .filter(|cut| compact.is_char_boundary(*cut))
+            .collect();
+        let cut = boundaries
+            .get(below(state, boundaries.len()))
+            .copied()
+            .ok_or("a boundary")?;
+        assert_reads_as_serde(compact.get(..cut).ok_or("a char boundary")?)?;
+        assert_reads_as_serde(&repeated_member_text(state)?)?;
+        Ok(())
+    })
+}
+
 /// Object text with members in drawn order and keys drawn from three names,
 /// so keys repeat: text no `Value` writes but a peer may send.
 fn repeated_member_text(state: &mut Seeded) -> Result<String, Box<dyn Error>> {

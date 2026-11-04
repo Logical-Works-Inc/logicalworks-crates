@@ -95,9 +95,9 @@ impl Text {
         }
         let len = u8::try_from(text.len()).ok()?;
         let mut bytes = [0; INLINE_CAPACITY];
-        for (slot, byte) in bytes.iter_mut().zip(text.bytes()) {
-            *slot = byte;
-        }
+        bytes
+            .get_mut(..text.len())?
+            .copy_from_slice(text.as_bytes());
         Some(Self {
             storage: Storage::Inline { len, bytes },
         })
