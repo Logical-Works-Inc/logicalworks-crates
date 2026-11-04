@@ -75,7 +75,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/guidance-runner-spec.md`](guidance-runner-spec.md) | The session, flow and invariant-register workstreams: what each delivers, the seam every borrowed part sits behind, and the corrections two research sweeps made to the original design. |
 | [`docs/estate-asset-inventory.md`](estate-asset-inventory.md) | The adjacent repositories searched before any of it was written, what was taken, and what was deliberately left behind. |
 | [`docs/frontier.md`](frontier.md) | The state of the art across the nine areas this bot competes in, with measured anchors and the design decision each forces. |
-| [`docs/framework-comparison.md`](framework-comparison.md) | Why the field looks the same, the four axes it actually differs on, and the axis nobody occupies. |
+| [`docs/framework-comparison.md`](framework-comparison.md) | Why the field looks the same, the four axes it differs on, and the axis nobody occupies. |
 | [`docs/production-readiness.md`](production-readiness.md) | Nine-axis production readiness of `lgwks_bot`, the case that it replaces non-AI automation and RPA, and the rows that currently fail their own gate. |
 | [`docs/std-ast-deps-closure-matrix.md`](std-ast-deps-closure-matrix.md) | All twenty-one `lgwks_std` modules, `lgwks_ast` and `lgwks_deps`: each with its feature, its evidence state, the test that exists on the named revision, and its owning issue. |
 | [`docs/invariants-long-form.md`](invariants-long-form.md) | The reasoning, measurements and stated limits behind each one-line rule in `INVARIANTS.md`. |
@@ -88,6 +88,11 @@ the rest of this table is design history and contributor policy.
 | [`docs/workflow/agents.md`](workflow/agents.md) | Workflow §8 and §9: agent economics, data safety, and the five guard rules. |
 | [`docs/workflow/ci-layout.md`](workflow/ci-layout.md) | Workflow §12: the CI budget, what sets the wall clock, and the nine axes the CI is held to. |
 | [`docs/workflow/ci-runs.md`](workflow/ci-runs.md) | Workflow §12: the 25 measured CI runs, their layouts, wall clocks and verdicts. |
+| [`docs/codebook/lints.md`](codebook/lints.md) | Codebook §1 and §2: precedence and the lint contract. |
+| [`docs/codebook/anti-slop.md`](codebook/anti-slop.md) | Codebook §3: anti-slop invariants, types, errors, arithmetic, patterns and locks. |
+| [`docs/codebook/api.md`](codebook/api.md) | Codebook §4 to §6: API shape, concurrency and resources, observability. |
+| [`docs/codebook/tests.md`](codebook/tests.md) | Codebook §7 to §9: tests, comments and naming, suppressions. |
+| [`docs/codebook/dependencies.md`](codebook/dependencies.md) | Codebook §10 to §12: dependencies, banned constructs, and what a green gate does not prove. |
 | [`docs/governance/gates.md`](governance/gates.md) | Governance §3 and §4: the gates, and change control for governance. |
 | [`docs/governance/open-work.md`](governance/open-work.md) | Governance §6 and §7: open correctness and acceptance work, and the decisions requiring the Director. |
 | [`docs/governance/ledger-2026-10-26.md`](governance/ledger-2026-10-26.md) | Governance §5 ledger, 2026-10-26: the newest part. |
