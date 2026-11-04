@@ -1329,10 +1329,11 @@ jobs:
       # The linker the repository's cargo configuration names, as the hosted-rust
       # action links it: the toolchain's own rust-lld, called as ld64.lld. `brew
       # install lld` took 35 s and put Miri on the run's critical path (run
-      # 41841536946: 312 s wall, Miri ending at 295 s). The lane command below
-      # installs the same toolchain again, which is then a no-op.
-      - name: Set up the Miri toolchain's lld as ld64.lld
-        run: rustup toolchain install nightly-2026-10-01 --profile minimal --component miri --component rust-src && ln -sf "$(rustc +nightly-2026-10-01 --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
+      # 41841536946: 312 s wall, Miri ending at 295 s). It is the pinned
+      # toolchain's: the nightly's rust-lld loads @rpath/libLLVM.dylib, which
+      # its bin directory does not hold (run 41842704850, abort trap 6).
+      - name: Set up the pinned toolchain's lld as ld64.lld
+        run: rustup toolchain install 1.99.1 --profile minimal && ln -sf "$(rustc +1.99.1 --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
       - name: Prove the process unsafe seams under Miri
         run: |
           rustup toolchain install nightly-2026-10-01 --profile minimal --component miri --component rust-src && \
