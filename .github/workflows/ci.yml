@@ -396,7 +396,7 @@ jobs:
           RUSTFLAGS: ${{ matrix.it_group && format('-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld --cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld' }}
           CARGO_BUILD_WARNINGS: warn
           IT_FILTER: ${{ matrix.it_filter }}
-        run: cargo nextest run ${NEXTEST_BUILD} --profile ci -E "${IT_FILTER}"
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E "${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}"
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
       - name: Upload lgwks-bot JUnit report
