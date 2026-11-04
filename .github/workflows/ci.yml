@@ -443,6 +443,12 @@ jobs:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
       RUSTC_WORKSPACE_WRAPPER: ""
+      # The `it` group rows pass their group cfg through this wrapper, to
+      # workspace crates alone (scripts/it_group_rustc.rs). Its path is in the
+      # job env so rust-cache keys on it: the entry saved while the cfg sat in
+      # RUSTFLAGS matched one group's fingerprints, and a key that hits exactly
+      # is never saved again.
+      RUST_IT_GROUP_RUSTC: ${{ matrix.suite == 'bot-it' && '/tmp/it-group-rustc' || '' }}
       # The bot shards are built under `ci-it` (workspace crates at opt-level
       # 0), whose unoptimized frames overflowed the 2 MiB test thread in
       # pr_review_journey and sim_review_path (run 41661639388; the same tests
@@ -457,6 +463,8 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.archive }}
           nextest: "true"
+          # The group rows restore their whole dependency build from rust-cache.
+          sccache: ${{ matrix.suite == 'bot-it' && 'false' || 'true' }}
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -472,17 +480,18 @@ jobs:
           SATURATION_BINARIES: ${{ matrix.sat_bins }}
           SATURATION_FILTER: ${{ matrix.sat_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
-      # The Darwin T-row tests. `RUSTFLAGS` replaces `.cargo/config.toml`'s
-      # target rustflags, so it names the ld64.lld link argument again beside
-      # the group cfg (both spellings, as the Linux shards set them). A group
-      # build leaves fixtures unused, which warns rather than denies there too.
+      # The Darwin T-row tests. The group cfg reaches workspace crates through
+      # the wrapper, so every row builds its dependencies under the same
+      # `.cargo/config.toml` flags and one rust-cache entry serves them all. A
+      # group build leaves fixtures unused, which warns rather than denies.
       - name: Run lgwks-bot Darwin T-row tests
         if: matrix.suite == 'bot-it'
         env:
-          RUSTFLAGS: ${{ matrix.it_group && format('-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld --cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '-C link-arg=-fuse-ld=/opt/homebrew/bin/ld64.lld' }}
+          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
+          LWC_IT_GROUP: ${{ matrix.it_group }}
           CARGO_BUILD_WARNINGS: warn
           IT_FILTER: ${{ matrix.it_filter }}
-        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E "${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}"
+        run: rustc --edition 2024 -O -o "$RUSTC_WORKSPACE_WRAPPER" scripts/it_group_rustc.rs && cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E "${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}"
       # Under the `lgwks-bot-junit-*` name the required row downloads: the
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
       - name: Upload lgwks-bot JUnit report
