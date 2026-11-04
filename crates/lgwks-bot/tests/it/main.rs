@@ -197,7 +197,7 @@ mod ambiguous_commit;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod app;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod approval;
 #[cfg(all(feature = "edge", feature = "script"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
@@ -256,10 +256,10 @@ mod estate;
 mod flow_ron;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod gh_binding;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g2"))]
 mod gh_issue;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod grant_replace;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod inspect;
@@ -278,7 +278,7 @@ mod journal_continuation;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod journal_liveness;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod journal_scale;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
@@ -317,7 +317,7 @@ mod process_escape;
 mod process_fire;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod process_ownership;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod prop_each;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
@@ -325,7 +325,7 @@ mod prop_journal;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod proposal;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod readme_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod ready;
@@ -348,7 +348,7 @@ mod rt_async_tier;
 mod rt_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod rt_joinset;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod rt_process;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod rt_process_files;
@@ -360,11 +360,11 @@ mod rt_runtime_stack;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod run_events;
 #[cfg(feature = "testing")]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod run_records;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod script_domains;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod script_flow;
 #[cfg(feature = "script")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
@@ -386,14 +386,14 @@ mod serve;
 mod serve_process;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod session;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod session_front_door;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_append_verdict;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_approval;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_approval_extra;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_approval_scale;
@@ -404,11 +404,11 @@ mod sim_apps;
 mod sim_cancel_under_load;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_cas;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_cas_corrupt;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_cas_disk;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_cas_execute;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
@@ -426,7 +426,7 @@ mod sim_confinement;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod sim_continuation;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod sim_continuation_seal;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_credential;
@@ -437,7 +437,7 @@ mod sim_dispatch;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_dist_lease;
 #[cfg(all(feature = "net", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_dist_lease_tcp;
 #[cfg(feature = "ecs")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
@@ -466,7 +466,7 @@ mod sim_journal_liveness;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_journal_tail;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g2"))]
 mod sim_keyed;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_landlock;
@@ -537,21 +537,21 @@ mod sim_run_events;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "scale"))]
 mod sim_scale;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_script_domains;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_durable;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_fanout;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_feeds;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_steps;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_vocab;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_words;
 #[cfg(feature = "sealed")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
@@ -570,7 +570,7 @@ mod sim_skew;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_source_matrix;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_spec_materialize;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_stability;
@@ -589,7 +589,7 @@ mod sim_supervise_wait;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_t_rows;
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_t_rows_default;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_task;
@@ -619,7 +619,7 @@ mod skew;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod spec_front_door;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod spec_materialize;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod stability;
