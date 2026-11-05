@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 3 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std Added (continued)
+## lgwks_std Added (continued)
 
 - **`ron::Error` and `ron::error::SpannedError` are re-exported.** The `ron`
   module's own functions returned them and no caller could name them, because
@@ -10,7 +10,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   A facade that returns a type has to let a caller write it down, which is the
   same reason `wire` re-exports `rkyv`. Additive.
 
-### lgwks_bot Breaking
+## lgwks_bot Breaking
 
 **There is no longer any public API that starts concurrent work or a process and
 hands the caller something droppable.** A `JoinHandle` a caller can drop is a
@@ -110,4 +110,4 @@ Changed:
 **No crate version is bumped.** The change is unpublished like the five public
 modules above it, and it ships in the same release.
 
-### lgwks_bot Added
+## lgwks_bot Added

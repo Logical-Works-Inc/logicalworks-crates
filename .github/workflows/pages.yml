@@ -21,16 +21,19 @@ concurrency:
 jobs:
   deploy:
     name: Publish the project page
-    runs-on: [self-hosted, macOS, ARM64, lwc]
+    # Hosted, as every job of `ci.yml` is (province#9): the repository is
+    # public, and no workflow of it routes to the self-hosted runners.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
-      - uses: ./.github/actions/local-rust
+      - uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
+          cache-key: pages
       # The deploy is conditional on a site existing. Creating one needs an
       # admin token the workflow cannot hold: the first run on 184d819e0 failed
       # with `Resource not accessible by integration` from the create-site

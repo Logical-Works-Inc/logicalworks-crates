@@ -10,7 +10,7 @@ signatures. `lgwks_ast` changes the return type of `try_detect_content`.
 moves with both of them. `lgwks_macros` is new and must be uploaded before
 `lgwks_bot`, which depends on it.
 
-### lgwks_std Added
+## lgwks_std Added
 
 - `fs`: `walk_dir_bounded` and `walk_dir_tolerant_bounded` under
   `WalkLimits` (entries, per-directory entries, path bytes, omissions), charged
@@ -34,7 +34,7 @@ moves with both of them. `lgwks_macros` is new and must be uploaded before
 - `time::format::unix_parts_lossy` / `from_unix_parts_lossy`, the explicit
   names for the old infallible behaviour.
 
-### lgwks_std Fixed
+## lgwks_std Fixed
 
 - `similarity::Geometry::score` accepts `BoundingBox` as documented, not only
   `[f64; 4]`.
@@ -49,7 +49,7 @@ moves with both of them. `lgwks_macros` is new and must be uploaded before
   every stage, never a transport outage and never proof of no effect; an
   `HTTPS://` URL's TLS failures are filed under the TLS stage.
 
-### lgwks_ast Breaking
+## lgwks_ast Breaking
 
 - `try_detect_content` returns `Result<ContentDetection, ParseError>`
   (`NoMatch`, `Unique(Language)`, `Ambiguous`) instead of
@@ -59,7 +59,7 @@ moves with both of them. `lgwks_macros` is new and must be uploaded before
 - `AstMetrics` gains `complete`, `node_limit` and `stop_reason`
   (`InspectionStopReason`), so a partial walk is visible.
 
-### lgwks_ast Added
+## lgwks_ast Added
 
 - `diagnostic`: positioned `Diagnostic`s (`Pos`, `Span`, `Severity`, `render`)
   and `diagnostics` / `recovery_count` over a tree.
@@ -69,12 +69,12 @@ moves with both of them. `lgwks_macros` is new and must be uploaded before
 - `Language::of_shebang` resolves extensionless scripts, reading at most
   `MAX_SHEBANG_BYTES`.
 
-### lgwks_deps Breaking
+## lgwks_deps Breaking
 
 - The metadata records' public fields are private behind getters:
   `consumer()`, `package()`, `requirement()` and `name()`.
 
-### lgwks_deps Added
+## lgwks_deps Added
 
 - Features `bevy-app`, `bevy-time` and `bevy-state` now export
   `bevy_app`, `bevy_time` and `bevy_state`; before, they were enableable and
@@ -83,10 +83,10 @@ moves with both of them. `lgwks_macros` is new and must be uploaded before
   confirm the child is gone; `retry_cleanup` retries it, and dropping it makes
   a bounded last attempt to kill and reap the child instead of leaking it.
 
-### lgwks_bot
+## lgwks_bot
 
 - Moves with `lgwks_std` 0.8 and `lgwks_deps` 0.2 (it re-exports
   `lgwks_std::json`). The `lgwks_bot` and `lgwks_macros` entries below ship
   in this release.
 
-### lgwks_bot Added
+## lgwks_bot Added

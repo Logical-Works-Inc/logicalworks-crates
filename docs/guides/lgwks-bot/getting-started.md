@@ -16,5 +16,5 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-lgwks_bot = "2"
+lgwks_bot = "7"
 ```

@@ -266,7 +266,7 @@ fn verdicts(record: &Value) -> Result<Vec<(String, String)>, Box<dyn Error>> {
     let mut found = Vec::new();
     for clause in clauses {
         let verdict = clause.1.as_str().ok_or("a verdict is not text")?;
-        found.push((clause.0.clone(), verdict.to_owned()));
+        found.push((clause.0.to_owned(), verdict.to_owned()));
     }
     Ok(found)
 }

@@ -23,9 +23,12 @@ slow-timeout = { period = "60s", terminate-after = 5 }
 # is a binary: a first version through /bin/sh and lockf lost the DYLD_* variables
 # macOS removes at a protected binary, and a proc-macro crate's tests failed to
 # load libstd). The setup script builds it once per run, in the target directory
-# the run already uses, so a job that builds only lgwks_bot still has it.
+# the run already uses, so a job that builds only lgwks_bot still has it. The
+# wrapper needs none of the storefront's features: with them the build pulled
+# gpui and took about 150 s of a hosted macOS archive job (run 41630759634);
+# without, 13.5 s cold locally.
 [scripts.setup.build-churn-slot]
-command = ['cargo', 'build', '--locked', '-p', 'lgwks_deps', '--bin', 'churn-slot']
+command = ['cargo', 'build', '--locked', '-p', 'lgwks_deps', '--no-default-features', '--bin', 'churn-slot']
 
 [scripts.wrapper.churn-slot]
 command = { command-line = "debug/churn-slot", relative-to = "target" }
@@ -39,6 +42,18 @@ setup = 'build-churn-slot'
 platform = 'cfg(target_os = "macos")'
 filter = 'all()'
 run-wrapper = 'churn-slot'
+
+# CI builds each suite once into a `cargo nextest archive` and runs its shards
+# from that archive on other runners. The wrapper above resolves against the
+# archive's extracted `target`, while the setup script builds into the
+# checkout's, so a macOS shard run from an archive without the wrapper failed
+# every test with "failed to exec .../target/debug/churn-slot" (probed on
+# lgwks_macros, nextest 0.9.149). The archive job builds the wrapper first and
+# the archive carries it; a Linux archive has none, which is why it only warns.
+[profile.default.archive]
+include = [
+    { path = "debug/churn-slot", relative-to = "target", depth = 0, on-missing = "warn" },
+]
 
 # journal_scale measures how many OS threads the process can create and then
 # holds that many tenant journals open. On Linux the thread limit is per user,

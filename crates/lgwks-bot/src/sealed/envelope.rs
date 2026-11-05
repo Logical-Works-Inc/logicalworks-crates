@@ -160,46 +160,58 @@ pub(crate) fn open(
 
 #[cfg(test)]
 mod tests {
-    //! The envelope's white-box properties: redaction with known bytes and a
-    //! deterministic seal/open round trip. The behaviour over files, restarts
-    //! and faults is proved by `tests/it/sealed.rs` and
-    //! `tests/it/sim_sealed.rs` through the public interface; these two pin
-    //! the one thing only white-box access can name — the exact secret bytes.
+    //! The envelope's white-box properties: redaction of a key's bytes and the
+    //! seal/open round trip. The behaviour over files, restarts and faults is
+    //! proved by `tests/it/sealed.rs` and `tests/it/sim_sealed.rs` through the
+    //! public interface; these two pin the one thing only white-box access can
+    //! name — the exact secret bytes. Keys and nonces come from the entropy
+    //! source production provisions from, never a literal: a fixed vector is a
+    //! key nobody deploys, and the case a test must hold is the one shipped.
 
-    use super::{DataKey, EnvelopeError, KEY_BYTES, NONCE_BYTES, open, seal};
+    use super::{DataKey, KEY_BYTES, NONCE_BYTES, open, seal};
+
+    /// What these tests report when a step refuses.
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     /// `Debug` on a data key names the type and never the bytes (CWE-532):
     /// the exact rendering is pinned, so a key that slips into it fails the
     /// test rather than reaching a log.
     #[test]
-    fn debug_names_the_type_and_never_the_key_bytes() {
-        let rendered = format!("{:?}", DataKey::from_bytes([0xAB_u8; KEY_BYTES]));
+    fn debug_names_the_type_and_never_the_key_bytes() -> TestResult {
+        let bytes = lgwks_std::random::bytes::<KEY_BYTES>()?;
+        let rendered = format!("{:?}", DataKey::from_bytes(bytes));
         assert_eq!(
             rendered, "DataKey([redacted])",
             "a data key renders as its type, never its bytes"
         );
+        Ok(())
     }
 
-    /// Seal and open round-trip under fixed vectors, and refuse a wrong key,
-    /// a wrong nonce and a truncated ciphertext — deterministically, with no
-    /// entropy and no clock.
+    /// Seal and open round-trip under a drawn key and nonce, and refuse
+    /// another key, another nonce and a truncated ciphertext. "Another" is the
+    /// drawn value with one bit flipped, the nearest wrong value there is.
     #[test]
-    fn seal_open_round_trip_and_refusals() -> Result<(), EnvelopeError> {
-        let key = DataKey::from_bytes([0x11_u8; KEY_BYTES]);
-        let nonce = [0x22_u8; NONCE_BYTES];
-        let plaintext = b"a fixed test vector";
-        let sealed = seal(&key, &nonce, plaintext)?;
+    fn seal_open_round_trip_and_refusals() -> TestResult {
+        let key_bytes = lgwks_std::random::bytes::<KEY_BYTES>()?;
+        let key = DataKey::from_bytes(key_bytes);
+        let nonce = lgwks_std::random::bytes::<NONCE_BYTES>()?;
+        let plaintext = lgwks_std::random::bytes::<64>()?;
+        let sealed = seal(&key, &nonce, &plaintext)?;
         assert_eq!(
             open(&key, &nonce, &sealed)?,
             plaintext,
             "a seal opens under its own key and nonce"
         );
+        let mut other_key = key_bytes;
+        other_key[0] ^= 1;
         assert!(
-            open(&DataKey::from_bytes([0x33_u8; KEY_BYTES]), &nonce, &sealed).is_err(),
+            open(&DataKey::from_bytes(other_key), &nonce, &sealed).is_err(),
             "a seal never opens under another key"
         );
+        let mut other_nonce = nonce;
+        other_nonce[0] ^= 1;
         assert!(
-            open(&key, &[0x44_u8; NONCE_BYTES], &sealed).is_err(),
+            open(&key, &other_nonce, &sealed).is_err(),
             "a seal never opens under another nonce"
         );
         assert!(

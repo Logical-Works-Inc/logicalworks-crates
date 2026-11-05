@@ -1,5 +1,8 @@
 # Security policy
 
+This page names what an attacker can reach, which advisories are assessed and
+left in place, and how to report a flaw.
+
 ## Attack surface in scope
 
 These crates parse untrusted bytes and open sockets: `lgwks_std::json` /

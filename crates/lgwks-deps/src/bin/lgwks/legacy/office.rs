@@ -153,14 +153,14 @@ fn open_access(call: &Invocation<'_>) -> Result<AccessDb, Refusal> {
 /// and milliseconds.
 fn cell_json(cell: &CellValue) -> Value {
     match *cell {
-        CellValue::Text(ref text) | CellValue::Memo(ref text) => Value::String(text.clone()),
+        CellValue::Text(ref text) | CellValue::Memo(ref text) => Value::from(text.as_str()),
         CellValue::Integer(number) => Value::from(number),
-        CellValue::Currency(amount) => Value::String(amount.to_string()),
+        CellValue::Currency(amount) => Value::from(amount.to_string()),
         CellValue::Date { days, millis } => {
             lgwks_std::json::json!({ "days": days, "millis": millis })
         }
         CellValue::Null => Value::Null,
-        ref other => Value::String(format!("{other:?}")),
+        ref other => Value::from(format!("{other:?}")),
     }
 }
 

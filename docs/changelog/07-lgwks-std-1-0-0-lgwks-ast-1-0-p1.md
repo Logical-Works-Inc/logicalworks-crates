@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 1 of 13. [Changelog index](../../CHANGELOG.md)
 
-### 1.0.0 — lgwks_std, lgwks_bot, lgwks_ast, lgwks_deps, lgwks_macros
+## 1.0.0 — lgwks_std, lgwks_bot, lgwks_ast, lgwks_deps, lgwks_macros
 
 First stable cut: from here the public API follows semantic versioning (a
 breaking change takes a major version). No public item changes relative to
@@ -16,7 +16,7 @@ register written for 0.4.0 must add it; a `Cargo.lock` with a nameless package
 block or no packages is refused (#209). `vendor/` is present but not configured
 as a Cargo source.
 
-### Benchmarks
+## Benchmarks
 
 - `bench/ai-authoring`: five fixed user profiles and a third held-out task.
   `--profiles` takes `first-time`, `expert-hurry`, `anxious`, `misuser` and
@@ -41,19 +41,20 @@ as a Cargo source.
   run's `protocol.skipped_cells`: the old `rt` surface has no durable run store,
   no `remember`, no run identity and no resume, so it cannot express the task.
 
-### lgwks_bot Breaking
+## lgwks_bot Breaking
 
 - `task::StoreError`: a new `FormatVersion { found, expected }` variant, and the
   run store's file format version moves from `\x01` to `\x02` (T15). **Migration:**
   opening a `\x01` run store is refused with `StoreError::FormatVersion { found:
   1, expected: 2 }`, which names both versions, instead of the generic
   `StoreError::NotAStore` it previously produced. The refusal is typed rather
-  than generic on purpose: `NotAStore` asserts the bytes were never this store's,
-  and a `\x01` store was written by an earlier version of this very crate, so
-  that message would tell an operator their own data was never theirs — the one
-  conclusion a refusal must never produce, because it is what makes someone
-  delete a file a system still relies on. There is no migration, deliberately:
-  the two available readings are to invent a `DefinitionIdentity` those records
+  than generic on purpose. The generic `NotAStore` asserts the bytes were never
+  this store's, and a `\x01` store was written by an earlier version of this
+  crate. That message would tell an operator their own data was never theirs.
+  No refusal may say that, because it is what makes someone delete a file a
+  system still relies on.
+
+  There is no migration, deliberately: the two available readings are to invent a `DefinitionIdentity` those records
   never carried, which would make every pre-version resume look exactly
   compatible, or to discard acknowledged evidence. The format has never shipped a
   version that could lose a record, so there is nothing to convert. A deployment
@@ -62,7 +63,7 @@ as a Cargo source.
   `tests/task_resume.rs::a_pre_version_store_is_refused_naming_both_versions` and
   `::a_foreign_file_is_still_refused_as_not_a_store`.
 
-### lgwks_bot Fixed
+## lgwks_bot Fixed
 
 - `tests/sim_repair.rs`: seven repair arms no longer reopen a store an earlier run
   on the same host left behind. The tests built their store directory under the
@@ -90,4 +91,4 @@ as a Cargo source.
   *before* reading the slot, or a publish landing between the two is a lost wakeup
   (INV-BOT-140). Both `journal::owner` tests from `#240` are kept.
 
-### lgwks_bot Added
+## lgwks_bot Added

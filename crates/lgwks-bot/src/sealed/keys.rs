@@ -642,8 +642,15 @@ impl KeyProvider for SoftwareProvider {
     fn wrap_key(&self, id: &KeyId) -> Result<Vec<u8>, KeyError> {
         let state = self.lock()?;
         let key = state.live_key(id)?;
-        let mut nonce = [0_u8; NONCE_BYTES];
-        nonce.copy_from_slice(&id.id[..NONCE_BYTES]);
+        // The identity's leading bytes, taken whole: no constant buffer is
+        // filled and then handed to `seal` (CodeQL
+        // rust/hard-coded-cryptographic-value, alert 34).
+        let Some(&nonce) = id.id.first_chunk::<NONCE_BYTES>() else {
+            lgwks_std::trace::debug!("provider-wrap: a key identity is shorter than a nonce");
+            return Err(KeyError::Corrupt {
+                reason: "a key identity is shorter than a nonce",
+            });
+        };
         seal(&state.master, &nonce, key.bytes())
             .map_err(|error| {
                 lgwks_std::trace::debug!(error = ?error, "provider-wrap: the seal step refused");

@@ -20,6 +20,7 @@
 //! | `emit` | on | `script::emit::script`, the one Rust emitter; implies `script` |
 //! | `tool` | off | `Script::to_json` and the `lgwks-ast script` binary; implies `script` |
 //! | `scan` | off | the zero-gate Rust source detectors and `lgwks-ast scan`; implies `lang-rust` |
+//! | `hunks` | on, through `tool` | `hunks`, the lines a change adds, read from `git diff` |
 //! | `full` | off | all 28 grammars |
 
 // Lint contract (missing_docs deny, unsafe_code forbid, broken intra-doc
@@ -84,6 +85,11 @@ pub use parser::{
 /// the checked parse: `scan::scan_source` and `scan::scan_path`.
 #[cfg(feature = "scan")]
 pub mod scan;
+
+/// The lines a change adds, file by file, read from `git diff`: the one reader
+/// the change-scoped gates share (`lgwks-ast scan --base`, `check-docs --base`).
+#[cfg(feature = "hunks")]
+pub mod hunks;
 
 /// The CODE half of legacy comprehension (#777): COBOL and JCL as read, with
 /// PERFORM, CALL, file, field and job graphs and line-pinned summaries.

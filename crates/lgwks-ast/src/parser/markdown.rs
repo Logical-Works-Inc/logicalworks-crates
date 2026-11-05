@@ -31,6 +31,15 @@ pub(super) const MARKDOWN: &str = "markdown";
 /// hostile source costs `O(bytes)` and nothing else. Returning `None` for a
 /// source inside the bound is the whole contract — the deepest count *within* the
 /// bound is not interesting to a caller, who has already been told it passed.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::markdown_containers;
+///
+/// assert_eq!(markdown_containers("- one\n- two\n", 64), None);
+/// assert_eq!(markdown_containers("> > > deep", 2), Some(3));
+/// ```
 #[must_use]
 pub fn markdown_containers(source: &str, limit: usize) -> Option<usize> {
     for line in source.split('\n') {

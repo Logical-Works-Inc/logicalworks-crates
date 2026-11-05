@@ -21,8 +21,14 @@ use proc_macro2::TokenTree;
 use super::lines::{Line, ident};
 
 mod vocab;
+mod words;
 
 /// What a word does, which is what the parser dispatches on.
+///
+/// # Examples
+/// ```
+/// assert_eq!(lgwks_ast::script::Kind::Retry.spelling(), "retry");
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum Kind {
@@ -90,6 +96,11 @@ pub enum Kind {
 
 impl Kind {
     /// The token a line starts with to say this word.
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(lgwks_ast::script::Kind::GiveBack.spelling(), "give");
+    /// ```
     #[must_use]
     pub const fn spelling(self) -> &'static str {
         match self {
@@ -128,6 +139,13 @@ impl Kind {
 }
 
 /// Where a word may stand.
+///
+/// # Examples
+/// ```
+/// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+/// assert_eq!(each.position(), lgwks_ast::script::Position::Block);
+/// # Ok::<(), &str>(())
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum Position {
@@ -143,6 +161,11 @@ pub enum Position {
 
 impl Position {
     /// The name the README table gives this position.
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(lgwks_ast::script::Position::Inline.name(), "inline");
+    /// ```
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -161,6 +184,13 @@ impl Position {
 /// serves today are variants here: a variant no row names would be dead code
 /// the workspace's `-D warnings` refuses, and adding it is part of admitting
 /// the word that first serves it.
+///
+/// # Examples
+/// ```
+/// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+/// assert!(each.guarantees().iter().any(|g| g.axis() == lgwks_ast::script::Axis::Hyperscale));
+/// # Ok::<(), &str>(())
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum Axis {
@@ -180,6 +210,11 @@ pub enum Axis {
 
 impl Axis {
     /// The axis as the README names it.
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(lgwks_ast::script::Axis::MultiTenant.name(), "multi-tenant");
+    /// ```
     #[must_use]
     pub const fn name(self) -> &'static str {
         match self {
@@ -195,6 +230,13 @@ impl Axis {
 
 /// The test that proves a guarantee: a compile-fail case or a deterministic
 /// simulation, the two kinds of evidence SL-4 accepts.
+///
+/// # Examples
+/// ```
+/// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+/// assert!(each.guarantees().iter().all(|g| matches!(g.evidence(), lgwks_ast::script::Evidence::Sim { .. })));
+/// # Ok::<(), &str>(())
+/// ```
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Evidence {
@@ -212,6 +254,14 @@ pub enum Evidence {
 }
 
 /// One thing that holds wherever a word is used, and the test that proves it.
+///
+/// # Examples
+/// ```
+/// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+/// let first = each.guarantees().first().ok_or("one guarantee")?;
+/// assert_eq!((first.axis(), first.claim()), (lgwks_ast::script::Axis::Hyperscale, "bounded fan-out"));
+/// # Ok::<(), &str>(())
+/// ```
 #[derive(Debug)]
 pub struct Guarantee {
     /// The axis it serves.
@@ -225,28 +275,44 @@ pub struct Guarantee {
 impl Guarantee {
     /// Which axis this guarantee is evidence for: one of the six [`Axis`]
     /// variants, the axes some word serves today.
+    ///
+    /// # Examples
+    /// ```
+    /// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+    /// assert_eq!(each.guarantees()[0].axis(), lgwks_ast::script::Axis::Hyperscale);
+    /// # Ok::<(), &str>(())
+    /// ```
     #[must_use]
     pub const fn axis(&self) -> Axis {
         self.axis
     }
 
     /// What holds, in one clause.
+    ///
+    /// # Examples
+    /// ```
+    /// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+    /// assert_eq!(each.guarantees()[0].claim(), "bounded fan-out");
+    /// # Ok::<(), &str>(())
+    /// ```
     #[must_use]
     pub const fn claim(&self) -> &'static str {
         self.claim
     }
 
     /// The test that fails if it stops holding.
+    ///
+    /// # Examples
+    /// ```
+    /// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+    /// let lgwks_ast::script::Evidence::Sim { test, .. } = each.guarantees()[0].evidence() else { return Err("a sim") };
+    /// assert_eq!(*test, "fan_bounded");
+    /// # Ok::<(), &str>(())
+    /// ```
     #[must_use]
     pub const fn evidence(&self) -> &Evidence {
         &self.evidence
     }
-}
-
-/// A guarantee proved by a simulation in `lgwks_bot`'s `sim_script.rs`, the
-/// file whose flows the real macro expanded.
-const fn script_sim(axis: Axis, claim: &'static str, test: &'static str) -> Guarantee {
-    script_sim_in(SCRIPT_SIMS, axis, claim, test)
 }
 
 /// A guarantee proved by a seeded simulation in the named `sim_` file.
@@ -272,20 +338,6 @@ const fn refused(axis: Axis, claim: &'static str, case: &'static str) -> Guarant
     }
 }
 
-/// The simulation file whose flows the real macro expanded.
-const SCRIPT_SIMS: &str = "crates/lgwks-bot/tests/it/sim_script.rs";
-
-/// The simulation file for the machine-sized and typed fan-outs: `each`
-/// without a bound and `FanOut`.
-const FANOUT_SIMS: &str = "crates/lgwks-bot/tests/it/sim_script_fanout.rs";
-
-/// The simulation file for the step words: `together`, `step`, `for`, `let`,
-/// `run` and `fail`.
-const STEP_SIMS: &str = "crates/lgwks-bot/tests/it/sim_script_steps.rs";
-
-/// The simulation file whose flows call registry domains (#388).
-const DOMAIN_SIMS: &str = "crates/lgwks-bot/tests/it/sim_script_domains.rs";
-
 /// A domain word's row: inline, and calling the runtime function it is
 /// spelled as.
 ///
@@ -310,34 +362,14 @@ const fn domain_word(
     }
 }
 
-/// What `observe` and `act` share: their trace is the `BotSpec` chain's.
-const SAME_AS_SPEC: Guarantee = domain_sim(
-    Axis::Generalized,
-    "the same polls and actions, in the same order, as the `BotSpec` chain over the same registry",
-    "the_script_trace_is_the_spec_trace",
-);
-
-/// What `observe` and `act` share: an undeclared identifier refuses the flow
-/// at its entry.
-const UNKNOWN_DOMAIN_REFUSED: Guarantee = domain_sim(
-    Axis::Decoupled,
-    "an identifier the registry lacks refuses the flow before its first step, naming the registry and the nearest identifier",
-    "an_unknown_domain_refuses_the_flow_before_any_step",
-);
-
-/// A guarantee proved by a simulation in `lgwks_bot`'s `sim_script_domains.rs`.
-const fn domain_sim(axis: Axis, claim: &'static str, test: &'static str) -> Guarantee {
-    Guarantee {
-        axis,
-        claim,
-        evidence: Evidence::Sim {
-            file: DOMAIN_SIMS,
-            test,
-        },
-    }
-}
-
 /// One written form of a word and what it means.
+///
+/// # Examples
+/// ```
+/// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+/// assert_eq!(each.forms()[0].written(), "`each x in xs:`");
+/// # Ok::<(), &str>(())
+/// ```
 #[derive(Debug)]
 pub struct Form {
     /// The form as an author writes it.
@@ -348,12 +380,26 @@ pub struct Form {
 
 impl Form {
     /// The form as an author writes it, as Markdown.
+    ///
+    /// # Examples
+    /// ```
+    /// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+    /// assert!(each.forms().iter().any(|f| f.written().contains("at most")));
+    /// # Ok::<(), &str>(())
+    /// ```
     #[must_use]
     pub const fn written(&self) -> &'static str {
         self.written
     }
 
     /// What it does, in one clause, as Markdown.
+    ///
+    /// # Examples
+    /// ```
+    /// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+    /// assert!(each.forms()[0].means().starts_with("every item"));
+    /// # Ok::<(), &str>(())
+    /// ```
     #[must_use]
     pub const fn means(&self) -> &'static str {
         self.means
@@ -361,6 +407,13 @@ impl Form {
 }
 
 /// One word of the language: the six things SL-1 names, plus where it stands.
+///
+/// # Examples
+/// ```
+/// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+/// assert_eq!(each.kind().spelling(), "each");
+/// # Ok::<(), &str>(())
+/// ```
 #[derive(Debug)]
 pub struct Word {
     /// What the word does; its spelling is [`Kind::spelling`].
@@ -381,12 +434,22 @@ pub struct Word {
 
 impl Word {
     /// What the word does; its spelling is [`Kind::spelling`].
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(lgwks_ast::script::LEXICON[0].kind(), lgwks_ast::script::Kind::Flow);
+    /// ```
     #[must_use]
     pub const fn kind(&self) -> Kind {
         self.kind
     }
 
     /// Where it may stand.
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(lgwks_ast::script::LEXICON[0].position(), lgwks_ast::script::Position::Flow);
+    /// ```
     #[must_use]
     pub const fn position(&self) -> Position {
         self.position
@@ -395,6 +458,11 @@ impl Word {
     /// The `lgwks_bot::script` primitive the word expands to a call of, as
     /// Markdown: code in backticks, and prose, such as a word that expands to
     /// plain Rust, as prose.
+    ///
+    /// # Examples
+    /// ```
+    /// assert_eq!(lgwks_ast::script::LEXICON[0].primitive(), "`Scope::enter`");
+    /// ```
     #[must_use]
     pub const fn primitive(&self) -> &'static str {
         self.primitive
@@ -402,6 +470,11 @@ impl Word {
 
     /// Its written forms. A word documented inside another word's form
     /// (`else` in `if`'s) has none of its own.
+    ///
+    /// # Examples
+    /// ```
+    /// assert!(lgwks_ast::script::LEXICON.iter().all(|w| w.kind() == lgwks_ast::script::Kind::Else || !w.forms().is_empty()));
+    /// ```
     #[must_use]
     pub const fn forms(&self) -> &'static [Form] {
         self.forms
@@ -409,18 +482,35 @@ impl Word {
 
     /// What the word itself refuses, beyond the refusals every passthrough
     /// line carries.
+    ///
+    /// # Examples
+    /// ```
+    /// let each = lgwks_ast::script::LEXICON.iter().find(|w| w.kind() == lgwks_ast::script::Kind::Each).ok_or("each")?;
+    /// assert!(each.refuses().contains(&"a bound outside `1..=65536`"));
+    /// # Ok::<(), &str>(())
+    /// ```
     #[must_use]
     pub const fn refuses(&self) -> &'static [&'static str] {
         self.refuses
     }
 
     /// What holds wherever the word is used, each with its proof (SL-4).
+    ///
+    /// # Examples
+    /// ```
+    /// assert!(lgwks_ast::script::LEXICON.iter().all(|w| !w.guarantees().is_empty()));
+    /// ```
     #[must_use]
     pub const fn guarantees(&self) -> &'static [Guarantee] {
         self.guarantees
     }
 
     /// A whole script using the word, which `lgwks_macros`' tests expand.
+    ///
+    /// # Examples
+    /// ```
+    /// assert!(lgwks_ast::script::LEXICON.iter().all(|w| w.example().starts_with("flow ")));
+    /// ```
     #[must_use]
     pub const fn example(&self) -> &'static str {
         self.example
@@ -432,331 +522,29 @@ const fn form(written: &'static str, means: &'static str) -> Form {
     Form { written, means }
 }
 
-/// `if` and `else` are one construct, so they share one example.
-const IF_ELSE_EXAMPLE: &str = "flow route(code: u16) -> u8:\n    if code < 400:\n        give back 0\n    else if code < 500:\n        give back 1\n    else:\n        give back 2\n";
-
 /// Every word, in the order the documentation lists them.
+///
+/// # Examples
+/// ```
+/// let words: Vec<&str> = lgwks_ast::script::LEXICON.iter().map(|w| w.kind().spelling()).collect();
+/// assert_eq!(&words[..3], ["flow", "each", "within"]);
+/// ```
 pub const LEXICON: [Word; 30] = [
-    Word {
-        kind: Kind::Flow,
-        position: Position::Flow,
-        primitive: "`Scope::enter`",
-        forms: &[form(
-            "`[pub] flow name(inputs) [-> Output]:`",
-            "an `async fn` taking the tenant [`Scope`] first and returning `Result<Output, FlowError>`",
-        )],
-        refuses: &["a promised output the last line never produces"],
-        guarantees: &[
-            script_sim(
-                Axis::MultiTenant,
-                "every step keyed by tenant and path",
-                "tenants_isolated",
-            ),
-            refused(
-                Axis::Idiomatic,
-                "the panicking calls refused by resolved path",
-                "unwrap by path",
-            ),
-        ],
-        example: "flow count(items: Vec<u8>) -> usize:\n    give back items.len()\n",
-    },
-    Word {
-        kind: Kind::Each,
-        position: Position::Block,
-        primitive: "`each`",
-        forms: &[
-            form(
-                "`each x in xs:`",
-                "every item, as many at once as the machine sustains, results in input order, first failure stops the rest",
-            ),
-            form(
-                "`each x in xs, at most (limit) at once:`",
-                "the same, under a limit that comes from somewhere named (an upstream's quota)",
-            ),
-        ],
-        refuses: &[
-            "a concurrency bound typed as a number",
-            "a bound outside `1..=65536`",
-        ],
-        guarantees: &[
-            script_sim(Axis::Hyperscale, "bounded fan-out", "fan_bounded"),
-            script_sim_in(
-                FANOUT_SIMS,
-                Axis::Generalized,
-                "results in input order",
-                "fan_machine_sized",
-            ),
-            script_sim(
-                Axis::Hyperscale,
-                "first failure cancels the rest",
-                "fan_fail_fast",
-            ),
-        ],
-        example: "flow sizes(pages: Vec<String>) -> Vec<usize>:\n    let sizes = each page in pages:\n        page.len()\n    give back sizes\n",
-    },
-    Word {
-        kind: Kind::Within,
-        position: Position::Block,
-        primitive: "`within`",
-        forms: &[form(
-            "`within 2s:`",
-            "the block, or `TimedOut` when the deadline passes",
-        )],
-        refuses: &["a zero duration", "a duration with no unit"],
-        guarantees: &[Guarantee {
-            axis: Axis::Hyperscale,
-            claim: "a deadline, on the scope's clock",
-            evidence: Evidence::Sim {
-                file: "crates/lgwks-bot/tests/it/sim_clock_wiring.rs",
-                test: "a_within_budget_is_refused_by_an_advance_with_no_real_wait",
-            },
-        }],
-        example: "flow ping(host: &Host) -> u16:\n    let code = within 2s:\n        host.ping().await.or_retry()?\n    give back code\n",
-    },
-    Word {
-        kind: Kind::Retry,
-        position: Position::Block,
-        primitive: "`retry`",
-        forms: &[form(
-            "`retry up to 3 times[, waiting 100ms]:`",
-            "the block again while it fails transiently, same key each attempt, within the run's retry budget",
-        )],
-        refuses: &["attempts outside `1..=1000`", "a zero wait"],
-        guarantees: &[
-            script_sim(
-                Axis::Ephemeral,
-                "one idempotency key across attempts",
-                "retry_one_key",
-            ),
-            script_sim(
-                Axis::Hyperscale,
-                "attempts within the run's retry budget",
-                "retry_budget_holds",
-            ),
-        ],
-        example: "flow fetch(site: &Site) -> Page:\n    let page = retry up to 3 times, waiting 200ms:\n        site.get(scope.key()).await.or_retry()?\n    give back page\n",
-    },
-    Word {
-        kind: Kind::Together,
-        position: Position::Block,
-        primitive: "`try_join!`",
-        forms: &[form(
-            "`together:`",
-            "each line underneath concurrently; `let x = ..` lines bind their result",
-        )],
-        refuses: &[
-            "anything before its `:`",
-            "an indent under a line that opens no block",
-        ],
-        guarantees: &[
-            script_sim_in(
-                STEP_SIMS,
-                Axis::Ephemeral,
-                "every branch owned by this task",
-                "together_owned",
-            ),
-            script_sim_in(
-                STEP_SIMS,
-                Axis::Hyperscale,
-                "first failure cancels the rest",
-                "together_fail_fast",
-            ),
-        ],
-        example: "flow both(left: &Api, right: &Api):\n    together:\n        let up = run probe(left)\n        let down = run probe(right)\n",
-    },
-    Word {
-        kind: Kind::Step,
-        position: Position::Block,
-        primitive: "`Scope::enter`",
-        forms: &[form(
-            "`step name:`",
-            "a named scope: its own key and error location",
-        )],
-        refuses: &["a name that is not one word"],
-        guarantees: &[
-            script_sim_in(
-                STEP_SIMS,
-                Axis::Ephemeral,
-                "its own step key",
-                "step_own_key",
-            ),
-            script_sim_in(
-                STEP_SIMS,
-                Axis::Decoupled,
-                "failures located at the step",
-                "step_failure_located",
-            ),
-        ],
-        example: "flow deploy(target: &Host):\n    step upload:\n        target.upload().await.or_fail()?\n",
-    },
-    Word {
-        kind: Kind::For,
-        position: Position::Block,
-        primitive: "`Scope::item`",
-        forms: &[form(
-            "`for x in xs:`",
-            "every item in turn, each in its own scope",
-        )],
-        refuses: &["a missing pattern or missing items"],
-        guarantees: &[
-            Guarantee {
-                axis: Axis::Generalized,
-                claim: "items in order, one at a time",
-                evidence: Evidence::Sim {
-                    file: STEP_SIMS,
-                    test: "for_in_order",
-                },
-            },
-            script_sim_in(
-                STEP_SIMS,
-                Axis::Ephemeral,
-                "one scope per item",
-                "for_scope_per_item",
-            ),
-        ],
-        example: "flow notify(users: Vec<User>):\n    for user in users:\n        run email(user)\n",
-    },
-    Word {
-        kind: Kind::If,
-        position: Position::Block,
-        primitive: "none: Rust `if`",
-        forms: &[form("`if cond:` / `else if cond:` / `else:`", "as written")],
-        refuses: &["a missing condition"],
-        guarantees: &[refused(
-            Axis::Idiomatic,
-            "a value only when an `else:` ends the chain",
-            "if with no else as the value",
-        )],
-        example: IF_ELSE_EXAMPLE,
-    },
-    Word {
-        kind: Kind::Else,
-        position: Position::Block,
-        primitive: "none: Rust `else`",
-        forms: &[],
-        refuses: &[
-            "an `else` not after an `if`",
-            "an `else:` that is not the last branch",
-        ],
-        guarantees: &[refused(
-            Axis::Idiomatic,
-            "only ever continues an `if` chain",
-            "else without if",
-        )],
-        example: IF_ELSE_EXAMPLE,
-    },
-    Word {
-        kind: Kind::Let,
-        position: Position::Block,
-        primitive: "the block's own",
-        forms: &[form(
-            "`let x = <block>:`",
-            "the block's last line becomes `x`",
-        )],
-        refuses: &["a `let` with no `=` or nothing after it"],
-        guarantees: &[script_sim_in(
-            STEP_SIMS,
-            Axis::Idiomatic,
-            "the block's failure propagates before `x` is bound",
-            "let_fails_before_binding",
-        )],
-        example: "flow total(xs: Vec<u8>) -> u8:\n    let sum = within 1s:\n        xs.iter().sum()\n    give back sum\n",
-    },
-    Word {
-        kind: Kind::Run,
-        position: Position::Inline,
-        primitive: "the callee flow",
-        forms: &[form(
-            "`run other(args)`",
-            "call another flow in this scope, await it, propagate its failure",
-        )],
-        refuses: &[],
-        guarantees: &[script_sim_in(
-            STEP_SIMS,
-            Axis::MultiTenant,
-            "the callee runs in this tenant's scope",
-            "run_in_callers_tenant",
-        )],
-        example: "flow outer(site: &Site) -> usize:\n    let pages = run crawl(site)\n    give back pages\n",
-    },
-    domain_word(
-        Kind::Observe,
-        "`observe`",
-        &[form(
-            "`observe domain::id of target`",
-            "poll the source the host's registry declares under `domain::id`, built from `target`, as a step of its own; bind it with a type, `let n: u16 = ..`",
-        )],
-        &["an identifier with no `of <target>`"],
-        &[
-            refused(
-                Axis::Idiomatic,
-                "an identifier with no `of <target>` is refused at the word, naming the form",
-                "observe with no target",
-            ),
-            UNKNOWN_DOMAIN_REFUSED,
-            SAME_AS_SPEC,
-            domain_sim(
-                Axis::MultiTenant,
-                "the source's capabilities are checked against this run's grant at the step",
-                "a_domain_short_of_authority_blocks_its_step",
-            ),
-        ],
-        "flow open(repo: &str) -> u16:\n    let open: u16 = observe github::pr_status of repo\n    give back open\n",
-    ),
-    domain_word(
-        Kind::Act,
-        "`act`",
-        &[form(
-            "`act domain::id on target with value`",
-            "run the action the host's registry declares under `domain::id`, built from `target`, on `value`, as a step of its own",
-        )],
-        &["an identifier with no `on <target> with <value>`"],
-        &[
-            refused(
-                Axis::Idiomatic,
-                "an identifier with no `on <target> with <value>` is refused at the word, naming the form",
-                "act with no value",
-            ),
-            domain_sim(
-                Axis::Ephemeral,
-                "the action runs once, under exactly the grants it declares; an external one settles a repeat by reading its receiver back",
-                "an_external_action_runs_once_under_its_grant",
-            ),
-            SAME_AS_SPEC,
-            UNKNOWN_DOMAIN_REFUSED,
-        ],
-        "flow page(count: u16):\n    if count > 2:\n        act notify::page on \"oncall\" with count\n",
-    ),
-    Word {
-        kind: Kind::GiveBack,
-        position: Position::Line,
-        primitive: "none: `return Ok`",
-        forms: &[form("`give back value`", "return from the flow")],
-        refuses: &["`give back` inside a block that has its own value"],
-        guarantees: &[refused(
-            Axis::Idiomatic,
-            "leaves the flow, never a nested block",
-            "give back from a nested block",
-        )],
-        example: "flow one() -> u8:\n    give back 1\n",
-    },
-    Word {
-        kind: Kind::Fail,
-        position: Position::Line,
-        primitive: "`FlowError::failed` / `FlowError::transient`",
-        forms: &[form(
-            "`fail with reason` / `fail transiently with reason`",
-            "stop with a permanent / retryable failure",
-        )],
-        refuses: &["a reason missing after `with`"],
-        guarantees: &[script_sim_in(
-            STEP_SIMS,
-            Axis::Decoupled,
-            "a typed failure the caller can classify",
-            "fail_is_classified",
-        )],
-        example: "flow check(ready: bool):\n    if !ready:\n        fail with \"not ready\"\n",
-    },
+    words::FLOW,
+    words::EACH,
+    words::WITHIN,
+    words::RETRY,
+    words::TOGETHER,
+    words::STEP,
+    words::FOR,
+    words::IF,
+    words::ELSE,
+    words::LET,
+    words::RUN,
+    words::OBSERVE,
+    words::ACT,
+    words::GIVE_BACK,
+    words::FAIL,
     vocab::GRAPH,
     vocab::NODE,
     vocab::SAGA,

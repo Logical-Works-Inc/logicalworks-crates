@@ -8,7 +8,7 @@ move; `WORKFLOW.md` is the index and keeps the § numbers.
 
 ## 2. The delivery loop
 
-```
+```text
 1. Read the task and query WWFD            (1 min, mandatory)
 2. Find the best OSS implementations       (5 min, non-trivial work only)
 3. Navigate with CodeGraph                 (2 min, find code and callers)
@@ -16,7 +16,6 @@ move; `WORKFLOW.md` is the index and keeps the § numbers.
 5. Test and verify                         (affected tests + regression tests)
 6. WWFD state sync, then PR                (mandatory before delivery)
 ```
-
 **Rule 1, first tool call.** The first substantive tool call reads source you
 will edit, runs a build or test, writes source, or queries CodeGraph to navigate
 to the code you will edit. It is not reading this file, loading a skill, running
