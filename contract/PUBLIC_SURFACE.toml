@@ -201,7 +201,8 @@
 "crates/lgwks-bot/src/spec.rs" = 24
 "crates/lgwks-bot/src/spec/admission.rs" = 12
 "crates/lgwks-bot/src/stability.rs" = 21
-"crates/lgwks-bot/src/task.rs" = 49
+"crates/lgwks-bot/src/task.rs" = 45
+"crates/lgwks-bot/src/task/disposition.rs" = 3
 "crates/lgwks-bot/src/task/admit.rs" = 1
 "crates/lgwks-bot/src/task/builder.rs" = 28
 "crates/lgwks-bot/src/task/definition.rs" = 13
@@ -209,9 +210,10 @@
 "crates/lgwks-bot/src/task/ledger.rs" = 15
 "crates/lgwks-bot/src/task/repair.rs" = 7
 "crates/lgwks-bot/src/task/request.rs" = 21
-"crates/lgwks-bot/src/task/store.rs" = 21
+"crates/lgwks-bot/src/task/store.rs" = 22
 "crates/lgwks-bot/src/task/store/error.rs" = 2
 "crates/lgwks-bot/src/task/store/sealed_impl.rs" = 11
+"crates/lgwks-bot/src/task/store/sink.rs" = 11
 "crates/lgwks-bot/src/task/submit.rs" = 2
 "crates/lgwks-bot/src/tenant_store.rs" = 3
 "crates/lgwks-bot/src/tenant_store/error.rs" = 1

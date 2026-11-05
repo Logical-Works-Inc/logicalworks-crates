@@ -59,7 +59,7 @@ fn host_runs(host: &Host) -> Result<Vec<u128>, Box<dyn std::error::Error>> {
         let started = Instant::now();
         let ran = lgwks_bot::block_on(host.run(&probe, input));
         samples.push(started.elapsed().as_micros());
-        if !ran.disposition().is_success() {
+        if ran.disposition() != lgwks_bot::task::Disposition::Succeeded {
             return refused(format!("run {input} did not succeed: {:?}", ran.error()));
         }
     }
@@ -80,7 +80,7 @@ fn event_to_effect(feed: &RunFeed) -> Result<Vec<u128>, Box<dyn std::error::Erro
     let mut samples = Vec::with_capacity(usize::try_from(RUNS)?);
     for input in 0..RUNS {
         let ran = lgwks_bot::block_on(host.run(&probe, input));
-        if !ran.disposition().is_success() {
+        if ran.disposition() != lgwks_bot::task::Disposition::Succeeded {
             return refused(format!("run {input} did not succeed: {:?}", ran.error()));
         }
         let started = Instant::now();

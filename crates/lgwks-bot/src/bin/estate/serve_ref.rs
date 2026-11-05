@@ -126,6 +126,15 @@ pub enum ServeRefError {
     Serve(lgwks_bot::rt::serve::ServeError),
     /// The serve route registry is undescribed or cannot become a document.
     Registry(String),
+    /// The durable sink gate refused the start before anything was bound: the
+    /// store directory cannot persist, so serving would fail one request at a
+    /// time.
+    StartGate {
+        /// The composite sink that refused, naming the failed child in `reason`.
+        sink: String,
+        /// The child's name and the failure kind.
+        reason: String,
+    },
     /// The port could not be bound.
     Bind(std::io::Error),
     /// The stop signal could not be watched.
@@ -146,6 +155,13 @@ impl std::fmt::Display for ServeRefError {
             ),
             Self::Serve(ref cause) => write!(formatter, "estate serve: {cause}"),
             Self::Registry(ref reason) => write!(formatter, "estate serve: {reason}"),
+            Self::StartGate {
+                ref sink,
+                ref reason,
+            } => write!(
+                formatter,
+                "estate serve: the durable sink '{sink}' is not ready: {reason}"
+            ),
             Self::Bind(ref cause) => write!(formatter, "estate serve could not bind: {cause}"),
             Self::Signal(ref cause) => {
                 write!(
@@ -163,7 +179,7 @@ impl std::error::Error for ServeRefError {
             Self::Usage(_) => None,
             Self::Number { ref cause, .. } => Some(cause),
             Self::Serve(ref cause) => Some(cause),
-            Self::Registry(_) => None,
+            Self::Registry(_) | Self::StartGate { .. } => None,
             Self::Bind(ref cause) | Self::Signal(ref cause) => Some(cause),
         }
     }
@@ -200,6 +216,30 @@ fn number<N: std::str::FromStr<Err = std::num::ParseIntError>>(
             cause,
         }),
     }
+}
+
+/// Fail fast before binding: the library `serve` consults the same gate, but a
+/// refused start must not claim a port it will never serve.
+///
+/// # Errors
+///
+/// [`ServeRefError::StartGate`] naming the composite sink and the failed child
+/// when the store directory cannot persist.
+fn check_store_gate(store_dir: &std::path::Path) -> Result<(), ServeRefError> {
+    let child: std::sync::Arc<dyn lgwks_bot::task::DurableSink> =
+        std::sync::Arc::new(lgwks_bot::task::StoreSink::for_dir(store_dir));
+    if let Err(refusal) = lgwks_bot::task::CompositeSink::new("durable-sink", [child]).readiness() {
+        lgwks_std::trace::debug!(
+            error = ?refusal,
+            probe = lgwks_bot::task::START_PROBE_FILE,
+            "estate-serve: the durable sink gate refused the start"
+        );
+        return refused(ServeRefError::StartGate {
+            sink: refusal.sink().to_owned(),
+            reason: refusal.reason().to_owned(),
+        });
+    }
+    Ok(())
 }
 
 /// Block until SIGINT, SIGTERM or `done`, then give `stop`.
@@ -294,6 +334,7 @@ pub fn run(args: &[String]) -> Result<(), ServeRefError> {
         )));
     };
     let store_dir = std::path::PathBuf::from(store);
+    check_store_gate(store_dir.as_path())?;
     let options = match port_flag {
         Some(text) => {
             lgwks_bot::rt::serve::ServeOptions::new(number("--port", text)?, 1_000, store_dir)

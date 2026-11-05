@@ -125,8 +125,9 @@ fn a_refused_run_never_entered_its_body() -> TestResult {
         "a run stopped at the admission gate is Refused: {:?}",
         report.error()
     );
-    assert!(
-        !report.disposition().was_admitted(),
+    assert_eq!(
+        report.disposition(),
+        Disposition::Refused,
         "a refused run was not admitted"
     );
     assert!(

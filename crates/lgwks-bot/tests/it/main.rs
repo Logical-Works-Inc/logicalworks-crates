@@ -628,6 +628,12 @@ mod spec_front_door;
 mod spec_materialize;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod stability;
+#[cfg(feature = "script")]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+mod start_gate;
+#[cfg(all(feature = "edge", feature = "ephemeral"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+mod start_gate_edge;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod store_read_failure;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
