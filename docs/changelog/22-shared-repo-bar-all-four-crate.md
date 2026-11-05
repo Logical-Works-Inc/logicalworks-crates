@@ -1,6 +1,6 @@
 # Shared repo bar (all four crates, 2026-09-13)
 
-Release: Shared repo bar (all four crates, 2026-09-13). Page 1 of 1. [Changelog index](../../CHANGELOG.md)
+The release notes, page 1 of 1. [Changelog index](../../CHANGELOG.md)
 
 - Root `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`,
   `docs/distributed-boundaries.md` (mesh transport/identity/time/
@@ -13,7 +13,7 @@ Release: Shared repo bar (all four crates, 2026-09-13). Page 1 of 1. [Changelog 
 - Crate docs on every `pub mod` listing; README quickstarts pinned at current
   versions.
 
-### Decisions (no code)
+## Decisions (no code)
 
 - **Declarative API stands; no proc-macro.** Measured: ~26 small heterogeneous
   verb impls; a macro would save tens of lines while dragging `syn` into every

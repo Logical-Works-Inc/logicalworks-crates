@@ -27,6 +27,7 @@ mod sim_legacy_cobol;
 mod sim_parse_bounds;
 mod sim_parse_deadline;
 mod sim_scan_detectors;
+mod sim_scan_examples;
 mod sim_scan_manifest;
 mod sim_scan_reading;
 mod sim_scan_unlogged;

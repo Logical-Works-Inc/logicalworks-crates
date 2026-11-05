@@ -64,6 +64,7 @@ type Shared<F> = Rc<Task<F>>;
 /// the scenario acts on. `microseconds` is small on purpose: it is a real
 /// timer, so it is real work, but it is small enough that which of two pending
 /// waits resolves first is decided by structure and not by scheduling noise.
+#[derive(Clone)]
 struct Plan {
     /// How deep the nesting goes, at least one.
     depth: u32,
@@ -81,26 +82,6 @@ struct Plan {
     cancelling_level: u32,
     /// A real, small duration a seeded timeout uses.
     microseconds: u64,
-}
-
-impl Clone for Plan {
-    /// Every field is `Copy` except the fault, which is one enum of three unit
-    /// variants, so a level's copy is the plan the seed drew and nothing more.
-    /// Hand-written so the copy stops compiling the moment a field stops being
-    /// `Copy` — a level that then cannot be cloned per call learns it here
-    /// rather than in a `Debug` line.
-    fn clone(&self) -> Self {
-        Self {
-            depth: self.depth,
-            fan_out: self.fan_out,
-            tenants: self.tenants,
-            failing: self.failing,
-            fault: self.fault,
-            cancels: self.cancels,
-            cancelling_level: self.cancelling_level,
-            microseconds: self.microseconds,
-        }
-    }
 }
 
 /// The one fault a seeded tree injects.
@@ -496,11 +477,12 @@ fn permits_conserve(band: Band) -> TestResult {
             "the scenario ran at least one task"
         );
         sim.record(&format!(
-            "ceiling={ceiling} depth={} fan={} admitted={} end={}",
+            "ceiling={ceiling} depth={} fan={} admitted={} end={} us={}",
             plan.depth,
             tree.fan_out,
             host.admission().admitted(),
-            report.disposition()
+            report.disposition(),
+            plan.microseconds
         ));
         Ok(())
     })
@@ -692,11 +674,13 @@ fn keys_never_collide_across_tenants(band: Band) -> TestResult {
             Some(again.keys.borrow().len()),
             "a rerun for one tenant enters the same number of steps"
         );
+        let keys_len = match all.first() {
+            Some(first) => first.len(),
+            None => 0,
+        };
         sim.record(&format!(
-            "tenants={tenants} depth={} fan={} keys={}",
-            plan.depth,
-            plan.fan_out,
-            all.first().map_or(0, Vec::len)
+            "tenants={tenants} depth={} fan={} keys={keys_len}",
+            plan.depth, plan.fan_out
         ));
         Ok(())
     })
@@ -744,7 +728,7 @@ fn ceiling_binds_the_peak(band: Band) -> TestResult {
             .collect::<Result<Vec<Report<u32>>, std::num::TryFromIntError>>()?;
         for report in &reports {
             assert!(
-                report.disposition().was_admitted(),
+                report.disposition() != lgwks_bot::task::Disposition::Refused,
                 "every queued run is admitted on an unstopped host: {:?}",
                 report.error()
             );
@@ -807,84 +791,44 @@ fn the_same_seed_replays(band: Band) -> TestResult {
 }
 
 band_family::band_family! {
-    permits_conserve_band_00 => permits_conserve, 0;
-    permits_conserve_band_01 => permits_conserve, 1;
-    permits_conserve_band_02 => permits_conserve, 2;
-    permits_conserve_band_03 => permits_conserve, 3;
-    permits_conserve_band_04 => permits_conserve, 4;
-    permits_conserve_band_05 => permits_conserve, 5;
-    permits_conserve_band_06 => permits_conserve, 6;
-    permits_conserve_band_07 => permits_conserve, 7;
-    permits_conserve_band_08 => permits_conserve, 8;
-    permits_conserve_band_09 => permits_conserve, 9;
-    permits_conserve_band_10 => permits_conserve, 10;
-    permits_conserve_band_11 => permits_conserve, 11;
-    permits_conserve_band_12 => permits_conserve, 12;
-    permits_conserve_band_13 => permits_conserve, 13;
-    permits_conserve_band_14 => permits_conserve, 14;
-    permits_conserve_band_15 => permits_conserve, 15;
-    disposition_matches_the_fault_band_00 => disposition_matches_the_fault, 0;
-    disposition_matches_the_fault_band_01 => disposition_matches_the_fault, 1;
-    disposition_matches_the_fault_band_02 => disposition_matches_the_fault, 2;
-    disposition_matches_the_fault_band_03 => disposition_matches_the_fault, 3;
-    disposition_matches_the_fault_band_04 => disposition_matches_the_fault, 4;
-    disposition_matches_the_fault_band_05 => disposition_matches_the_fault, 5;
-    disposition_matches_the_fault_band_06 => disposition_matches_the_fault, 6;
-    disposition_matches_the_fault_band_07 => disposition_matches_the_fault, 7;
-    disposition_matches_the_fault_band_08 => disposition_matches_the_fault, 8;
-    disposition_matches_the_fault_band_09 => disposition_matches_the_fault, 9;
-    disposition_matches_the_fault_band_10 => disposition_matches_the_fault, 10;
-    disposition_matches_the_fault_band_11 => disposition_matches_the_fault, 11;
-    disposition_matches_the_fault_band_12 => disposition_matches_the_fault, 12;
-    disposition_matches_the_fault_band_13 => disposition_matches_the_fault, 13;
-    disposition_matches_the_fault_band_14 => disposition_matches_the_fault, 14;
-    disposition_matches_the_fault_band_15 => disposition_matches_the_fault, 15;
-    keys_never_collide_across_tenants_band_00 => keys_never_collide_across_tenants, 0;
-    keys_never_collide_across_tenants_band_01 => keys_never_collide_across_tenants, 1;
-    keys_never_collide_across_tenants_band_02 => keys_never_collide_across_tenants, 2;
-    keys_never_collide_across_tenants_band_03 => keys_never_collide_across_tenants, 3;
-    keys_never_collide_across_tenants_band_04 => keys_never_collide_across_tenants, 4;
-    keys_never_collide_across_tenants_band_05 => keys_never_collide_across_tenants, 5;
-    keys_never_collide_across_tenants_band_06 => keys_never_collide_across_tenants, 6;
-    keys_never_collide_across_tenants_band_07 => keys_never_collide_across_tenants, 7;
-    keys_never_collide_across_tenants_band_08 => keys_never_collide_across_tenants, 8;
-    keys_never_collide_across_tenants_band_09 => keys_never_collide_across_tenants, 9;
-    keys_never_collide_across_tenants_band_10 => keys_never_collide_across_tenants, 10;
-    keys_never_collide_across_tenants_band_11 => keys_never_collide_across_tenants, 11;
-    keys_never_collide_across_tenants_band_12 => keys_never_collide_across_tenants, 12;
-    keys_never_collide_across_tenants_band_13 => keys_never_collide_across_tenants, 13;
-    keys_never_collide_across_tenants_band_14 => keys_never_collide_across_tenants, 14;
-    keys_never_collide_across_tenants_band_15 => keys_never_collide_across_tenants, 15;
-    ceiling_binds_the_peak_band_00 => ceiling_binds_the_peak, 0;
-    ceiling_binds_the_peak_band_01 => ceiling_binds_the_peak, 1;
-    ceiling_binds_the_peak_band_02 => ceiling_binds_the_peak, 2;
-    ceiling_binds_the_peak_band_03 => ceiling_binds_the_peak, 3;
-    ceiling_binds_the_peak_band_04 => ceiling_binds_the_peak, 4;
-    ceiling_binds_the_peak_band_05 => ceiling_binds_the_peak, 5;
-    ceiling_binds_the_peak_band_06 => ceiling_binds_the_peak, 6;
-    ceiling_binds_the_peak_band_07 => ceiling_binds_the_peak, 7;
-    ceiling_binds_the_peak_band_08 => ceiling_binds_the_peak, 8;
-    ceiling_binds_the_peak_band_09 => ceiling_binds_the_peak, 9;
-    ceiling_binds_the_peak_band_10 => ceiling_binds_the_peak, 10;
-    ceiling_binds_the_peak_band_11 => ceiling_binds_the_peak, 11;
-    ceiling_binds_the_peak_band_12 => ceiling_binds_the_peak, 12;
-    ceiling_binds_the_peak_band_13 => ceiling_binds_the_peak, 13;
-    ceiling_binds_the_peak_band_14 => ceiling_binds_the_peak, 14;
-    ceiling_binds_the_peak_band_15 => ceiling_binds_the_peak, 15;
-    the_same_seed_replays_band_00 => the_same_seed_replays, 0;
-    the_same_seed_replays_band_01 => the_same_seed_replays, 1;
-    the_same_seed_replays_band_02 => the_same_seed_replays, 2;
-    the_same_seed_replays_band_03 => the_same_seed_replays, 3;
-    the_same_seed_replays_band_04 => the_same_seed_replays, 4;
-    the_same_seed_replays_band_05 => the_same_seed_replays, 5;
-    the_same_seed_replays_band_06 => the_same_seed_replays, 6;
-    the_same_seed_replays_band_07 => the_same_seed_replays, 7;
-    the_same_seed_replays_band_08 => the_same_seed_replays, 8;
-    the_same_seed_replays_band_09 => the_same_seed_replays, 9;
-    the_same_seed_replays_band_10 => the_same_seed_replays, 10;
-    the_same_seed_replays_band_11 => the_same_seed_replays, 11;
-    the_same_seed_replays_band_12 => the_same_seed_replays, 12;
-    the_same_seed_replays_band_13 => the_same_seed_replays, 13;
-    the_same_seed_replays_band_14 => the_same_seed_replays, 14;
-    the_same_seed_replays_band_15 => the_same_seed_replays, 15;
+    permits_conserve_band_00 => permits_conserve, 0; permits_conserve_band_01 => permits_conserve, 1;
+    permits_conserve_band_02 => permits_conserve, 2; permits_conserve_band_03 => permits_conserve, 3;
+    permits_conserve_band_04 => permits_conserve, 4; permits_conserve_band_05 => permits_conserve, 5;
+    permits_conserve_band_06 => permits_conserve, 6; permits_conserve_band_07 => permits_conserve, 7;
+    permits_conserve_band_08 => permits_conserve, 8; permits_conserve_band_09 => permits_conserve, 9;
+    permits_conserve_band_10 => permits_conserve, 10; permits_conserve_band_11 => permits_conserve, 11;
+    permits_conserve_band_12 => permits_conserve, 12; permits_conserve_band_13 => permits_conserve, 13;
+    permits_conserve_band_14 => permits_conserve, 14; permits_conserve_band_15 => permits_conserve, 15;
+    disposition_matches_the_fault_band_00 => disposition_matches_the_fault, 0; disposition_matches_the_fault_band_01 => disposition_matches_the_fault, 1;
+    disposition_matches_the_fault_band_02 => disposition_matches_the_fault, 2; disposition_matches_the_fault_band_03 => disposition_matches_the_fault, 3;
+    disposition_matches_the_fault_band_04 => disposition_matches_the_fault, 4; disposition_matches_the_fault_band_05 => disposition_matches_the_fault, 5;
+    disposition_matches_the_fault_band_06 => disposition_matches_the_fault, 6; disposition_matches_the_fault_band_07 => disposition_matches_the_fault, 7;
+    disposition_matches_the_fault_band_08 => disposition_matches_the_fault, 8; disposition_matches_the_fault_band_09 => disposition_matches_the_fault, 9;
+    disposition_matches_the_fault_band_10 => disposition_matches_the_fault, 10; disposition_matches_the_fault_band_11 => disposition_matches_the_fault, 11;
+    disposition_matches_the_fault_band_12 => disposition_matches_the_fault, 12; disposition_matches_the_fault_band_13 => disposition_matches_the_fault, 13;
+    disposition_matches_the_fault_band_14 => disposition_matches_the_fault, 14; disposition_matches_the_fault_band_15 => disposition_matches_the_fault, 15;
+    keys_never_collide_across_tenants_band_00 => keys_never_collide_across_tenants, 0; keys_never_collide_across_tenants_band_01 => keys_never_collide_across_tenants, 1;
+    keys_never_collide_across_tenants_band_02 => keys_never_collide_across_tenants, 2; keys_never_collide_across_tenants_band_03 => keys_never_collide_across_tenants, 3;
+    keys_never_collide_across_tenants_band_04 => keys_never_collide_across_tenants, 4; keys_never_collide_across_tenants_band_05 => keys_never_collide_across_tenants, 5;
+    keys_never_collide_across_tenants_band_06 => keys_never_collide_across_tenants, 6; keys_never_collide_across_tenants_band_07 => keys_never_collide_across_tenants, 7;
+    keys_never_collide_across_tenants_band_08 => keys_never_collide_across_tenants, 8; keys_never_collide_across_tenants_band_09 => keys_never_collide_across_tenants, 9;
+    keys_never_collide_across_tenants_band_10 => keys_never_collide_across_tenants, 10; keys_never_collide_across_tenants_band_11 => keys_never_collide_across_tenants, 11;
+    keys_never_collide_across_tenants_band_12 => keys_never_collide_across_tenants, 12; keys_never_collide_across_tenants_band_13 => keys_never_collide_across_tenants, 13;
+    keys_never_collide_across_tenants_band_14 => keys_never_collide_across_tenants, 14; keys_never_collide_across_tenants_band_15 => keys_never_collide_across_tenants, 15;
+    ceiling_binds_the_peak_band_00 => ceiling_binds_the_peak, 0; ceiling_binds_the_peak_band_01 => ceiling_binds_the_peak, 1;
+    ceiling_binds_the_peak_band_02 => ceiling_binds_the_peak, 2; ceiling_binds_the_peak_band_03 => ceiling_binds_the_peak, 3;
+    ceiling_binds_the_peak_band_04 => ceiling_binds_the_peak, 4; ceiling_binds_the_peak_band_05 => ceiling_binds_the_peak, 5;
+    ceiling_binds_the_peak_band_06 => ceiling_binds_the_peak, 6; ceiling_binds_the_peak_band_07 => ceiling_binds_the_peak, 7;
+    ceiling_binds_the_peak_band_08 => ceiling_binds_the_peak, 8; ceiling_binds_the_peak_band_09 => ceiling_binds_the_peak, 9;
+    ceiling_binds_the_peak_band_10 => ceiling_binds_the_peak, 10; ceiling_binds_the_peak_band_11 => ceiling_binds_the_peak, 11;
+    ceiling_binds_the_peak_band_12 => ceiling_binds_the_peak, 12; ceiling_binds_the_peak_band_13 => ceiling_binds_the_peak, 13;
+    ceiling_binds_the_peak_band_14 => ceiling_binds_the_peak, 14; ceiling_binds_the_peak_band_15 => ceiling_binds_the_peak, 15;
+    the_same_seed_replays_band_00 => the_same_seed_replays, 0; the_same_seed_replays_band_01 => the_same_seed_replays, 1;
+    the_same_seed_replays_band_02 => the_same_seed_replays, 2; the_same_seed_replays_band_03 => the_same_seed_replays, 3;
+    the_same_seed_replays_band_04 => the_same_seed_replays, 4; the_same_seed_replays_band_05 => the_same_seed_replays, 5;
+    the_same_seed_replays_band_06 => the_same_seed_replays, 6; the_same_seed_replays_band_07 => the_same_seed_replays, 7;
+    the_same_seed_replays_band_08 => the_same_seed_replays, 8; the_same_seed_replays_band_09 => the_same_seed_replays, 9;
+    the_same_seed_replays_band_10 => the_same_seed_replays, 10; the_same_seed_replays_band_11 => the_same_seed_replays, 11;
+    the_same_seed_replays_band_12 => the_same_seed_replays, 12; the_same_seed_replays_band_13 => the_same_seed_replays, 13;
+    the_same_seed_replays_band_14 => the_same_seed_replays, 14; the_same_seed_replays_band_15 => the_same_seed_replays, 15;
 }

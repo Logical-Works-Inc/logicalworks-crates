@@ -173,7 +173,7 @@ fn report_concurrent(
                         let result =
                             lgwks_bot::rt::runtime::block_on(host.run(&work, (lane, index)));
                         local.push(at.elapsed().as_micros());
-                        if !result.disposition().is_success() {
+                        if result.disposition() != lgwks_bot::task::Disposition::Succeeded {
                             { let refusal = Err(format!(
                                 "lane {lane} append {index}: {:?}",
                                 result.error()
@@ -252,7 +252,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let started = Instant::now();
         let report = lgwks_bot::block_on(host.run(&one_step_task()?, (0, index)));
         stored.push(started.elapsed().as_micros());
-        if !report.disposition().is_success() {
+        if report.disposition() != lgwks_bot::task::Disposition::Succeeded {
             let refusal =
                 Err(format!("the stored measurement step failed: {:?}", report.error()).into());
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "main: returning an error to the caller");

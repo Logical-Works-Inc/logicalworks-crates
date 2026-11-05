@@ -9,7 +9,8 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
-- lgwks_std 3.2.2 / lgwks_deps 5.1.2 / lgwks_ast 4.1.0 / lgwks_macros 1.3.0 / lgwks_bot 6.1.0 / drishti 0.1.0 - 2026-10-29: [notes](docs/changelog/07-durable-words-2026-10-29.md)
+- lgwks_std 4.0.0 / lgwks_ast 5.0.0 / lgwks_deps 6.0.0 / lgwks_macros 2.0.0 / lgwks_bot 7.0.0 / drishti 0.1.0 - 2026-11-04: [1](docs/changelog/09-sealed-ids-script-edge-2026-11-04.md) · [2](docs/changelog/08-own-json-value-2026-11-03.md)
+- lgwks_std 3.2.2 / lgwks_deps 5.1.2 / lgwks_ast 4.1.0 / lgwks_macros 1.3.0 / lgwks_bot 6.1.0 - 2026-10-29, drishti 0.1.0 listed but not uploaded: [notes](docs/changelog/07-durable-words-2026-10-29.md)
 - lgwks_std 3.2.1 / lgwks_deps 5.1.1 / lgwks_ast 4.0.0 / lgwks_macros 1.2.0 / lgwks_bot 6.0.0 - 2026-10-28: [notes](docs/changelog/06-script-words-2026-10-28.md)
 - lgwks_std 3.2.0 / lgwks_deps 5.1.0 / lgwks_ast 3.1.0 / lgwks_bot 5.0.0 - 2026-10-27: [notes](docs/changelog/05-http-store-ledger-2026-10-27.md)
 - lgwks_std 3.1.0 / lgwks_deps 5.0.0 / lgwks_ast 3.0.0 / lgwks_bot 4.0.0 / lgwks_macros 1.1.6 - 2026-10-25: [notes](docs/changelog/04-v7-ids-estate-freshness-2026-10-25.md)
@@ -27,7 +28,7 @@ breaks are listed explicitly under the crate.
 - lgwks_std 0.9.0 / lgwks_deps 0.3.0 / lgwks_bot 0.7.0 / lgwks_macros 0.1.1 - 2026-09-30: [notes](docs/changelog/09-lgwks-std-0-9-0-lgwks-deps-0-3.md)
 - lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 / lgwks_macros 0.1.0 - 2026-09-30: [1](docs/changelog/10-lgwks-std-0-8-0-lgwks-ast-0-3-p1.md) · [2](docs/changelog/10-lgwks-std-0-8-0-lgwks-ast-0-3-p2.md)
 - lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28: [1](docs/changelog/11-lgwks-std-0-7-0-lgwks-bot-0-5-p1.md) · [2](docs/changelog/11-lgwks-std-0-7-0-lgwks-bot-0-5-p2.md) · [3](docs/changelog/11-lgwks-std-0-7-0-lgwks-bot-0-5-p3.md) · [4](docs/changelog/11-lgwks-std-0-7-0-lgwks-bot-0-5-p4.md) · [5](docs/changelog/11-lgwks-std-0-7-0-lgwks-bot-0-5-p5.md)
-- 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above: [1](docs/changelog/12-2026-09-21-cut-never-published-p1.md) · [2](docs/changelog/12-2026-09-21-cut-never-published-p2.md) · [3](docs/changelog/12-2026-09-21-cut-never-published-p3.md) · [4](docs/changelog/12-2026-09-21-cut-never-published-p4.md) · [5](docs/changelog/12-2026-09-21-cut-never-published-p5.md) · [6](docs/changelog/12-2026-09-21-cut-never-published-p6.md) · [7](docs/changelog/12-2026-09-21-cut-never-published-p7.md) · [8](docs/changelog/12-2026-09-21-cut-never-published-p8.md) · [9](docs/changelog/12-2026-09-21-cut-never-published-p9.md) · [10](docs/changelog/12-2026-09-21-cut-never-published-p10.md) · [11](docs/changelog/12-2026-09-21-cut-never-published-p11.md) · [12](docs/changelog/12-2026-09-21-cut-never-published-p12.md) · [13](docs/changelog/12-2026-09-21-cut-never-published-p13.md)
+- 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above: 13 parts from [part 1](docs/changelog/12-2026-09-21-cut-never-published-p1.md) (`-p1` to `-p13`)
 - lgwks_deps 0.1.12 - 2026-09-20: [notes](docs/changelog/13-lgwks-deps-0-1-12-2026-09-20.md)
 - lgwks_std 0.6.6 / lgwks_bot 0.4.2 / lgwks_ast 0.2.2 / lgwks_deps 0.1.11 - 2026-09-20: [notes](docs/changelog/14-lgwks-std-0-6-6-lgwks-bot-0-4.md)
 - lgwks_std 0.6.5 / lgwks_bot 0.4.1 / lgwks_ast 0.2.1 / lgwks_deps 0.1.10 - 2026-09-20: [notes](docs/changelog/15-lgwks-std-0-6-5-lgwks-bot-0-4.md)

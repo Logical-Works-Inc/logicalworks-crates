@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 9 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std — the nine-axis sweep: the codec and policy primitives, one value per width (9-axis sweep) (continued)
+## lgwks_std — the nine-axis sweep: the codec and policy primitives, one value per width (9-axis sweep) (continued)
 
 - **`leb128` encodes at four widths through one algorithm.** `group_byte` narrowed
   a masked group through `TryInto` and answered a refusal with `0`, a value no
@@ -44,7 +44,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
 
 Tests: 201 pass (`nextest -p lgwks_std --all-features`, the leb128, hex, hash,
 encoding, wire, retry and time families).
-### `bench/ai-authoring` — the reference solutions no longer blame a stage that succeeded
+## `bench/ai-authoring` — the reference solutions no longer blame a stage that succeeded
 
 Two of the three new-API reference solutions resolved a missing fact to a value
 that named the wrong thing. `new-aggregate` reported `SolveError::Fetch { id: 0 }`
@@ -73,7 +73,7 @@ oracle: `run.py --dry-run --apis new --tasks aggregate,pipeline,recovery
 (aggregate 2/6, pipeline 1/5, recovery 1/5) — the harness's ability to detect a
 wrong solution is unchanged.
 
-### `bench/ai-authoring` — the harness refuses a value no run produced
+## `bench/ai-authoring` — the harness refuses a value no run produced
 
 Four fixtures in the AI-authoring benchmark resolved a missing value to a number
 and three recovered from a poisoned lock four different ways. The first kind is

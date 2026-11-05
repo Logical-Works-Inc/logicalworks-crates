@@ -170,6 +170,9 @@ pub mod broker;
 /// Capability tokens and sealed authority proofs.
 #[doc(hidden)]
 pub mod cap;
+/// Bearer capability tokens with caveats and explainable policy decisions.
+#[doc(hidden)]
+pub mod cap_token;
 /// Versioned shared records: compare-and-set writes for concurrent editors.
 ///
 /// [`CasWrite`](crate::cas::CasWrite) applies a write only when the record still

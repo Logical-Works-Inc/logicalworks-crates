@@ -13,6 +13,18 @@ impl Script {
     /// "steps", "passthrough"}]}`, each step `{"kind", "subject", "detail",
     /// "line", "steps"}` and each passthrough line `{"line", "text"}`, the
     /// document `Architecture::to_json` writes for this script.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::script::parse;
+    ///
+    /// let script = parse("flow one() -> u8:\n    give back 1\n".parse()?)?;
+    /// let json = script.to_json();
+    /// let first = json.get("flows").and_then(|flows| flows.get(0)).ok_or("one flow")?;
+    /// assert_eq!(first.get("name").and_then(|name| name.as_str()), Some("one"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn to_json(&self) -> Value {
         let flows = self
@@ -71,10 +83,5 @@ fn passthrough_values(lines: &[Passthrough]) -> Value {
 
 /// A JSON object from its fields, in the order given.
 fn object<const FIELDS: usize>(fields: [(&str, Value); FIELDS]) -> Value {
-    Value::Object(
-        fields
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<Map<String, Value>>(),
-    )
+    Value::Object(Map::from_iter(fields))
 }

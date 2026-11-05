@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 7 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std — the nine-axis sweep: the ceiling assertion asserts, so the scan gate sees no unlogged refusal (9-axis sweep) (continued)
+## lgwks_std — the nine-axis sweep: the ceiling assertion asserts, so the scan gate sees no unlogged refusal (9-axis sweep) (continued)
 
 `INV-SCAN-ZERO` refused this branch on the first CI run: the new
 `assert_refused_at_small_ceiling` helper returned `Err`, and the repo's own
@@ -18,12 +18,11 @@ assertion carries that to the calling test with the answer in the message; a
 could say what it saw. The three ceiling families keep their own framing and
 their own wording.
 
-```
+```console
 $ cargo run --locked --release -p lgwks_deps --bin lgwks-deps -- scan
 OK  scan clean — 384 files, zero findings
 ```
-
-### lgwks_std — the nine-axis sweep: http names its spans, and every fixture thread is owned (9-axis sweep)
+## lgwks_std — the nine-axis sweep: http names its spans, and every fixture thread is owned (9-axis sweep)
 
 `http.rs` carried 19 findings: eight defaults, one suppression and ten repeated
 blocks. All are repaired, and no request, refusal, timeout stage or body ceiling
@@ -53,7 +52,7 @@ Tests: 47 pass, including `a_deadline_bounds_the_whole_redirect_chain`,
 `a_deadline_bounds_a_trickled_body`, `body_timeout_preserves_stage_and_class`,
 `eof_probe_timeout_preserves_stage_and_class` and the seeded `sim_http` families.
 
-### lgwks_std — the nine-axis sweep: the hash suite hashes whole slices and whole frames (9-axis sweep)
+## lgwks_std — the nine-axis sweep: the hash suite hashes whole slices and whole frames (9-axis sweep)
 
 `sim_hash.rs` built its expectations out of nine defaults. Each is repaired, and
 every trace hash is unchanged: `the_same_seed_replays_to_the_same_hash_trace`
@@ -72,7 +71,7 @@ and the other 22 tests pass.
 - The flipped bit is the draw itself, already below eight, so the mask is a
   shift of a byte by at most seven.
 
-### lgwks_std — the nine-axis sweep: INV-CODEC-1 is one property with two facades (9-axis sweep)
+## lgwks_std — the nine-axis sweep: INV-CODEC-1 is one property with two facades (9-axis sweep)
 
 `json` and `ron` are two codecs over one `serde` surface, so the invariant
 INV-CODEC-1 states is one property, not two: an unescaped field is borrowed from
@@ -101,4 +100,4 @@ The dudect harness runs on the release build at 40,000 samples per class:
 `digest_eq t = 0.005` (no leak detected) against the `early_exit control
 t = 1962.447` (leak detected, as it must be). 67 codec, RON and JSON tests pass.
 
-### lgwks_std — the nine-axis sweep: one poison recovery per lock shape, and a thread that is owned (9-axis sweep)
+## lgwks_std — the nine-axis sweep: one poison recovery per lock shape, and a thread that is owned (9-axis sweep)

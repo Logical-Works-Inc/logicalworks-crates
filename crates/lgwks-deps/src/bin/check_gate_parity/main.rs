@@ -20,6 +20,10 @@
 //!      text of the check exists once.
 //!   4. Toolchain agreement. The manifest's `toolchain.rust` is the version
 //!      every `toolchain:` pin in `ci.yml` and in `pages.yml` installs.
+//!   5. Hosted runners only. No `runs-on:` of `ci.yml` or `pages.yml` names
+//!      `self-hosted`: the repository is public, so a self-hosted runner would
+//!      execute a fork's pull request on the machine that hosts it (province#9,
+//!      INV-CI-RUNNER-CLASS-1).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
@@ -198,6 +202,21 @@ fn pin_problems(rust: &str, workflow: &str, text: &str) -> Vec<String> {
     problems
 }
 
+/// The rule-5 violations of one workflow: every `runs-on:` line that names a
+/// self-hosted runner, by line number.
+fn self_hosted_problems(workflow: &str, text: &str) -> Vec<String> {
+    text.lines()
+        .zip(1_usize..)
+        .filter(|&(line, _)| {
+            let line = line.trim_start();
+            line.starts_with("runs-on:") && line.contains("self-hosted")
+        })
+        .map(|(_, number)| {
+            format!("{workflow}:{number} routes a job to a self-hosted runner; every job is hosted")
+        })
+        .collect()
+}
+
 /// The rule violations between the lane table and the workflow. Empty means they agree.
 fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
     let mut problems: Vec<String> = Vec::new();
@@ -296,6 +315,7 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
     if !manifest.rust.is_empty() {
         problems.extend(pin_problems(&manifest.rust, "ci.yml", workflow_text));
     }
+    problems.extend(self_hosted_problems("ci.yml", workflow_text));
     problems
 }
 
@@ -313,6 +333,7 @@ fn execute(
     if !manifest.rust.is_empty() {
         problems.extend(pin_problems(&manifest.rust, "pages.yml", &pages_text));
     }
+    problems.extend(self_hosted_problems("pages.yml", &pages_text));
     if !problems.is_empty() {
         writeln!(err, "gate parity refused: {} problem(s)", problems.len())?;
         for problem in &problems {
@@ -359,7 +380,10 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{MANIFEST_REL, WORKFLOW_REL, check_parity, pin_problems, step_segments};
+    use super::{
+        MANIFEST_REL, PAGES_REL, WORKFLOW_REL, check_parity, pin_problems, self_hosted_problems,
+        step_segments,
+    };
     use std::error::Error;
     use std::path::{Path, PathBuf};
 
@@ -589,6 +613,48 @@ mod tests {
             pin_problems(&pin, "ci.yml", &stripped),
             vec!["ci.yml installs no pinned toolchain".to_owned()],
             "a workflow with no pin is named, and nothing else is said"
+        );
+        Ok(())
+    }
+
+    /// province#9, the Director's order of 2026-11-03: "lwc is public, so it must
+    /// never route to the self-hosted mac-pool group (fork-PR risk)". The
+    /// committed workflows route nowhere else, and one job moved back to the
+    /// Mac's runner labels is refused by its line.
+    #[test]
+    fn a_job_routed_to_a_self_hosted_runner_is_refused() -> TestResult {
+        let (manifest, workflow) = files()?;
+        let pages = std::fs::read_to_string(root().join(PAGES_REL))?;
+        assert_eq!(
+            self_hosted_problems("pages.yml", &pages),
+            Vec::<String>::new(),
+            "the Pages job is hosted"
+        );
+        let hosted = "    runs-on: ubuntu-24.04-arm\n";
+        let routed =
+            workflow.replacen(hosted, "    runs-on: [self-hosted, macOS, ARM64, lwc]\n", 1);
+        assert_ne!(
+            routed, workflow,
+            "the fixture text the control mutates must exist"
+        );
+        let problems = check_parity(&manifest, &routed);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems
+                .iter()
+                .all(|problem| problem.starts_with("ci.yml:") && problem.contains("self-hosted")),
+            "{problems:?}"
+        );
+        let indented = self_hosted_problems(
+            "pages.yml",
+            "jobs:\n  deploy:\n    runs-on:   [self-hosted]\n",
+        );
+        assert_eq!(
+            indented,
+            vec![
+                "pages.yml:3 routes a job to a self-hosted runner; every job is hosted".to_owned()
+            ],
+            "the line is named whatever its indentation"
         );
         Ok(())
     }

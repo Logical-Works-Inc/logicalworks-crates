@@ -5,7 +5,7 @@ Pages of this README: [overview](README.md) · [execution model](README-executio
 ## Orchestration: `script!`
 
 `script!` (feature `script`, on by default) writes orchestration the way it is
-said: indented flows of `each`, `within`, `retry`, `together`, `step`, `for`,
+said: indented flows of `each`, `within`, `retry`, `together`, `step`, `admit`, `for`,
 `if`, `graph`, `saga`, `whenever` and `justify`, which expand to plain
 `async fn`s over `lgwks_bot::script`. It exists
 because orchestration is where generated code fails most: fan-outs with no
@@ -38,7 +38,6 @@ fn main() -> Result<(), FlowError> {
     Ok(())
 }
 ```
-
 The code reads top to bottom like a synchronous script; what runs is
 asynchronous, concurrent and bounded. What every flow gets without asking:
 
@@ -69,7 +68,7 @@ asynchronous, concurrent and bounded. What every flow gets without asking:
   (`crawl/each:page#41/retry`), never a line number, so the key an effect is
   deduplicated by survives an edit, a retry and a restart, two tenants never
   share one, and two runs of one flow never share one either. The tenant is its
-trusted host's partition key, not an authenticated identity. Work that is one
+  trusted host's partition key, not an authenticated identity. Work that is one
   effect across runs — one charge per order — names itself with
   `scope.business_key(name, &input)` instead.
 - **Stop reaches everything.** The scope carries a `CancellationToken`; a

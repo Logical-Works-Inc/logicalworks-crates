@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 9 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Fixed (continued)
+## lgwks_bot Fixed (continued)
 
 - **A settlement is about one attempt, and a repeat of it can no longer land on
   the next one.** The ledger guarded the slot and the generation but not the

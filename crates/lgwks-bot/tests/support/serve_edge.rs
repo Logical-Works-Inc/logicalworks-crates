@@ -514,6 +514,20 @@ pub fn wait_ready(
     }
 }
 
+/// One `GET` from `tenant` `path` on a fresh connection.
+pub fn get(addr: SocketAddr, tenant: &str, path: &str) -> Result<(u16, String, String), String> {
+    let target = format!("/t/{tenant}{path}");
+    let head = format!("GET {target} HTTP/1.1\r\nhost: {addr}\r\nconnection: close\r\n\r\n");
+    let mut answer = String::new();
+    TcpStream::connect(addr)
+        .and_then(|mut stream| {
+            stream.write_all(head.as_bytes())?;
+            stream.read_to_string(&mut answer)
+        })
+        .map_err(|cause| format!("the exchange failed: {cause}"))?;
+    split_answer(&answer).ok_or_else(|| format!("not an HTTP answer: {answer:?}"))
+}
+
 /// POST a JSON draft to the reference route, or the refusal.
 pub fn post_draft(
     addr: SocketAddr,

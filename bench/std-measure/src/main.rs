@@ -432,18 +432,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_walk_reference_grows_with_the_attempt_index() {
+    fn the_walk_reference_grows_with_the_attempt_index() -> Result<(), Box<dyn std::error::Error>> {
         // The comparison row the flat-latency claim is made against must
         // actually get slower with the index, or the claim is measuring nothing.
+        // The per-call variation is drawn as the timed rows draw it, from a
+        // value nobody picked, so the property holds for whatever base it lands.
         let cap = Duration::from_secs(30).as_nanos();
-        let small = walk_backoff(1, cap, 0, 0);
-        let large = walk_backoff(1, cap, 40, 0);
-        assert!(small < large, "a longer walk reaches a larger delay");
-        assert_eq!(
-            walk_backoff(1, cap, 40, 0),
-            cap,
-            "the walk stops at the cap"
+        let variation = u64::from_le_bytes(lgwks_std::random::bytes::<8>()?);
+        let small = walk_backoff(1, cap, 0, variation);
+        let large = walk_backoff(1, cap, 40, variation);
+        assert!(
+            small < large,
+            "a longer walk reaches a larger delay (variation {variation})"
         );
+        assert_eq!(large, cap, "the walk stops at the cap (variation {variation})");
+        Ok(())
     }
 
     #[test]

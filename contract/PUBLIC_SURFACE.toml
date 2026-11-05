@@ -17,28 +17,35 @@
 "crates/lgwks-ast/src/legacy/jcl.rs" = 2
 "crates/lgwks-ast/src/legacy/json.rs" = 2
 "crates/lgwks-ast/src/legacy/mod.rs" = 7
-"crates/lgwks-ast/src/lib.rs" = 5
+"crates/lgwks-ast/src/hunks.rs" = 1
+"crates/lgwks-ast/src/lib.rs" = 6
 "crates/lgwks-ast/src/parser.rs" = 22
 "crates/lgwks-ast/src/parser/check.rs" = 7
 "crates/lgwks-ast/src/parser/language.rs" = 14
 "crates/lgwks-ast/src/parser/markdown.rs" = 1
 "crates/lgwks-ast/src/parser/walk.rs" = 6
 "crates/lgwks-ast/src/scan/manifest.rs" = 1
-"crates/lgwks-ast/src/scan/mod.rs" = 13
+"crates/lgwks-ast/src/scan/mod.rs" = 14
 "crates/lgwks-ast/src/script/emit.rs" = 2
 "crates/lgwks-ast/src/script/find.rs" = 5
 "crates/lgwks-ast/src/script/json.rs" = 1
 "crates/lgwks-ast/src/script/lexicon.rs" = 23
 "crates/lgwks-ast/src/script/mod.rs" = 10
-"crates/lgwks-ast/src/script/tree.rs" = 92
+"crates/lgwks-ast/src/script/tree.rs" = 37
+"crates/lgwks-ast/src/script/tree/blocks.rs" = 34
+"crates/lgwks-ast/src/script/tree/branch.rs" = 8
+"crates/lgwks-ast/src/script/tree/feeds.rs" = 12
+"crates/lgwks-ast/src/script/tree/map.rs" = 2
+"crates/lgwks-ast/src/script/tree/shape.rs" = 15
 "crates/lgwks-ast/src/script/tree/calls.rs" = 11
 "crates/lgwks-ast/src/script/tree/serve.rs" = 15
-"crates/lgwks-ast/src/script/tree/vocab.rs" = 40
+"crates/lgwks-ast/src/script/tree/vocab.rs" = 28
 "crates/lgwks-bot/src/app.rs" = 13
 "crates/lgwks-bot/src/app/check.rs" = 2
 "crates/lgwks-bot/src/app/error.rs" = 1
 "crates/lgwks-bot/src/broker.rs" = 15
 "crates/lgwks-bot/src/cap.rs" = 35
+"crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/cas.rs" = 31
 "crates/lgwks-bot/src/cell.rs" = 7
 "crates/lgwks-bot/src/clock.rs" = 19
@@ -128,8 +135,9 @@
 "crates/lgwks-bot/src/rt/process/confine.rs" = 25
 "crates/lgwks-bot/src/rt/process/frames.rs" = 17
 "crates/lgwks-bot/src/rt/runtime.rs" = 17
-"crates/lgwks-bot/src/rt/serve.rs" = 18
-"crates/lgwks-bot/src/rt/serve/route.rs" = 4
+"crates/lgwks-bot/src/rt/serve.rs" = 19
+"crates/lgwks-bot/src/rt/serve/openapi.rs" = 9
+"crates/lgwks-bot/src/rt/serve/route.rs" = 6
 "crates/lgwks-bot/src/rt/signal.rs" = 1
 "crates/lgwks-bot/src/rt/supervise.rs" = 25
 "crates/lgwks-bot/src/rt/supervise/admit.rs" = 1
@@ -194,7 +202,8 @@
 "crates/lgwks-bot/src/spec.rs" = 24
 "crates/lgwks-bot/src/spec/admission.rs" = 12
 "crates/lgwks-bot/src/stability.rs" = 21
-"crates/lgwks-bot/src/task.rs" = 49
+"crates/lgwks-bot/src/task.rs" = 45
+"crates/lgwks-bot/src/task/disposition.rs" = 4
 "crates/lgwks-bot/src/task/admit.rs" = 1
 "crates/lgwks-bot/src/task/builder.rs" = 28
 "crates/lgwks-bot/src/task/definition.rs" = 13
@@ -202,9 +211,10 @@
 "crates/lgwks-bot/src/task/ledger.rs" = 15
 "crates/lgwks-bot/src/task/repair.rs" = 7
 "crates/lgwks-bot/src/task/request.rs" = 21
-"crates/lgwks-bot/src/task/store.rs" = 21
+"crates/lgwks-bot/src/task/store.rs" = 22
 "crates/lgwks-bot/src/task/store/error.rs" = 2
 "crates/lgwks-bot/src/task/store/sealed_impl.rs" = 11
+"crates/lgwks-bot/src/task/store/sink.rs" = 11
 "crates/lgwks-bot/src/task/submit.rs" = 2
 "crates/lgwks-bot/src/tenant_store.rs" = 3
 "crates/lgwks-bot/src/tenant_store/error.rs" = 1
@@ -247,9 +257,13 @@
 "crates/lgwks-std/src/http/pool.rs" = 11
 "crates/lgwks-std/src/http/stream.rs" = 27
 "crates/lgwks-std/src/http/tls.rs" = 4
-"crates/lgwks-std/src/id.rs" = 9
+"crates/lgwks-std/src/id.rs" = 11
+"crates/lgwks-std/src/id/tuple.rs" = 3
 "crates/lgwks-std/src/id/v7.rs" = 1
-"crates/lgwks-std/src/json.rs" = 11
+"crates/lgwks-std/src/json.rs" = 15
+"crates/lgwks-std/src/json/map.rs" = 14
+"crates/lgwks-std/src/json/text.rs" = 3
+"crates/lgwks-std/src/json/value.rs" = 16
 "crates/lgwks-std/src/leb128.rs" = 9
 "crates/lgwks-std/src/online.rs" = 3
 "crates/lgwks-std/src/pattern.rs" = 29
@@ -291,7 +305,41 @@
 
 # The doc-example ceiling (#526): per documentation file, how many fenced Rust
 # blocks name a workspace crate by path and hold no `script!`. Exact, like the one above.
+# The supported direct-use surfaces (`lgwks_ast`'s documented parser and
+# diagnostics, the `script!` reader a tool calls, the COBOL and JCL readers
+# (`lgwks_ast::legacy`), `lgwks_ast::scan`,
+# `lgwks_ast::hunks`) show their own calls, as INV-DOC-6 asks of every new
+# public item (ADR 0012).
 [examples]
+"crates/lgwks-ast/src/diagnostic.rs" = 20
+"crates/lgwks-ast/src/hunks.rs" = 1
+"crates/lgwks-ast/src/legacy/cobol.rs" = 2
+"crates/lgwks-ast/src/legacy/error.rs" = 1
+"crates/lgwks-ast/src/legacy/jcl.rs" = 2
+"crates/lgwks-ast/src/legacy/json.rs" = 2
+"crates/lgwks-ast/src/legacy/mod.rs" = 2
+"crates/lgwks-ast/src/parser.rs" = 19
+"crates/lgwks-ast/src/parser/check.rs" = 7
+"crates/lgwks-ast/src/parser/language.rs" = 9
+"crates/lgwks-ast/src/parser/markdown.rs" = 1
+"crates/lgwks-ast/src/parser/walk.rs" = 6
+"crates/lgwks-ast/src/scan/manifest.rs" = 1
+"crates/lgwks-ast/src/scan/mod.rs" = 14
+"crates/lgwks-ast/src/script/emit.rs" = 1
+"crates/lgwks-ast/src/script/find.rs" = 5
+"crates/lgwks-ast/src/script/json.rs" = 1
+"crates/lgwks-ast/src/script/lexicon.rs" = 23
+"crates/lgwks-ast/src/script/mod.rs" = 6
+"crates/lgwks-ast/src/script/tree.rs" = 28
+"crates/lgwks-ast/src/script/tree/blocks.rs" = 34
+"crates/lgwks-ast/src/script/tree/branch.rs" = 8
+"crates/lgwks-ast/src/script/tree/calls.rs" = 11
+"crates/lgwks-ast/src/script/tree/feeds.rs" = 12
+"crates/lgwks-ast/src/script/tree/map.rs" = 2
+"crates/lgwks-ast/src/script/tree/serve.rs" = 15
+"crates/lgwks-ast/src/script/tree/shape.rs" = 15
+"crates/lgwks-ast/src/script/tree/vocab.rs" = 28
+"crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/script/scope.rs" = 1
 "crates/lgwks-std/src/http/pool.rs" = 1
 "crates/lgwks-std/src/http/stream.rs" = 1

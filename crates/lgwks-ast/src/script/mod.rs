@@ -66,6 +66,21 @@ pub use tree::{
 /// Every refusal names what to write instead (SL-5). The message is the one
 /// the macro reports through the compiler, at the same span, so a tool and
 /// `cargo build` say the same thing in the same place.
+///
+/// # Examples
+///
+/// ```
+/// use std::str::FromStr;
+///
+/// use lgwks_ast::script::parse;
+/// use proc_macro2::TokenStream;
+///
+/// let tokens = TokenStream::from_str("flow f():\n    std::process::exit(1)\n")?;
+/// let refusal = parse(tokens).err().ok_or("exit is refused")?;
+/// assert!(refusal.message().contains("ending the process"));
+/// assert_eq!(refusal.line(), 2);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
 pub struct Refusal {
@@ -85,24 +100,81 @@ impl Refusal {
     }
 
     /// The token the refusal is about.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use lgwks_ast::script::parse;
+    /// use proc_macro2::TokenStream;
+    ///
+    /// let tokens = TokenStream::from_str("flow f():\n    std::process::exit(1)\n")?;
+    /// let refusal = parse(tokens).err().ok_or("exit is refused")?;
+    /// assert_eq!(refusal.span().start().line, refusal.line());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn span(&self) -> Span {
         self.span
     }
 
     /// What is refused and what to write instead.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use lgwks_ast::script::parse;
+    /// use proc_macro2::TokenStream;
+    ///
+    /// let tokens = TokenStream::from_str("flow f():\n    std::process::exit(1)\n")?;
+    /// let refusal = parse(tokens).err().ok_or("exit is refused")?;
+    /// assert!(refusal.message().contains("ending the process"));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn message(&self) -> &str {
         self.message.as_str()
     }
 
     /// The 1-based source line of the token, as the compiler reports it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use lgwks_ast::script::parse;
+    /// use proc_macro2::TokenStream;
+    ///
+    /// let tokens = TokenStream::from_str("flow f():\n    std::process::exit(1)\n")?;
+    /// let refusal = parse(tokens).err().ok_or("exit is refused")?;
+    /// assert_eq!(refusal.line(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn line(&self) -> usize {
         self.span.start().line
     }
 
     /// The 0-based column of the token, in characters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::str::FromStr;
+    ///
+    /// use lgwks_ast::script::parse;
+    /// use proc_macro2::TokenStream;
+    ///
+    /// let tokens = TokenStream::from_str("flow f():\n    std::process::exit(1)\n")?;
+    /// let refusal = parse(tokens).err().ok_or("exit is refused")?;
+    /// // The refused token is `exit`, after `    std::process::`.
+    /// assert_eq!(refusal.column(), 18);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub fn column(&self) -> usize {
         self.span.start().column
@@ -123,6 +195,23 @@ type Result<T> = std::result::Result<T, Refusal>;
 ///
 /// Linear in the number of tokens. The tree is owned, so the call allocates in
 /// proportion to the script.
+///
+/// # Examples
+///
+/// ```
+/// use std::str::FromStr;
+///
+/// use lgwks_ast::script::{Kind, parse};
+/// use proc_macro2::TokenStream;
+///
+/// let source = "flow sizes(pages: Vec<String>) -> usize:\n    let sizes = each page in pages:\n        page.len()\n    give back sizes.len()\n";
+/// let script = parse(TokenStream::from_str(source)?)?;
+/// let flow = script.flows().first().ok_or("one flow")?;
+/// assert_eq!(flow.shape().signature(), "sizes(pages: Vec<String>) -> usize");
+/// let kinds: Vec<Kind> = flow.shape().steps().iter().map(|step| step.kind()).collect();
+/// assert_eq!(kinds, [Kind::Each, Kind::GiveBack]);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn parse(tokens: TokenStream) -> std::result::Result<Script, Refusal> {
     lines::tree(lines::split(tokens)).and_then(parse::script)
 }
