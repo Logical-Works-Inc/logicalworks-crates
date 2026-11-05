@@ -13,7 +13,6 @@ Starts a line of its own. Calls none: `return Ok`.
 Refuses: `give back` inside a block that has its own value.
 
 Guarantees: leaves the flow, never a nested block (idiomatic).
-
 ```text
 flow one() -> u8:
     give back 1
@@ -28,7 +27,6 @@ Starts a line of its own. Calls `FlowError::failed` / `FlowError::transient`.
 Refuses: a reason missing after `with`.
 
 Guarantees: a typed failure the caller can classify (decoupled).
-
 ```text
 flow check(ready: bool):
     if !ready:
@@ -45,7 +43,6 @@ Opens a block: its line ends in `:`. Calls `graph`.
 Refuses: a line under it that is not a `node`; a node needing itself, a node no line declares, or a cycle; a name declared twice; a concurrency bound typed as a number.
 
 Guarantees: a node starts only after every node it needs has succeeded; a node whose need failed never runs (generalized); at most the bound of nodes run at once, and each node runs once (hyperscale); each node runs in its own scope, `<graph>/<node>`, with its own key (ephemeral); a graph that cannot run is refused at the word, naming the node (idiomatic).
-
 ```text
 flow ship(repo: &Repo) -> usize:
     let report = graph:
@@ -66,8 +63,7 @@ Opens a block: its line ends in `:`. Calls `GraphNode::new`.
 
 Refuses: a `node` outside a `graph`; a name that is not one word.
 
-Guarantees: a node starts only after every node it needs has succeeded; a node whose need failed never runs (generalized); only ever stands inside a `graph` (idiomatic).
-
+Guarantees: only ever stands inside a `graph` (idiomatic).
 ```text
 flow ship(repo: &Repo) -> usize:
     let report = graph:
@@ -89,7 +85,27 @@ Opens a block: its line ends in `:`. Calls `compensated`.
 Refuses: a name that is not one word.
 
 Guarantees: when the saga fails, the finished steps' undos run in reverse order, once each; a saga that succeeds runs none (generalized); each undo runs under its own key, `<saga>/undo:<step>`, never the key of the step it reverses (ephemeral); an undo that fails is returned to the caller in place of the step's failure, and every undo still runs (decoupled); at most `MAX_COMPENSATIONS` undos registered; one past it fails the saga (hyperscale).
+```text
+flow book(trip: &Trip) -> Ticket:
+    let ticket = saga booking:
+        step charge:
+            trip.charge().await.or_fail()?
+        compensate charge:
+            trip.refund().await.or_fail()?
+        step issue:
+            trip.issue().await.or_fail()?
+    give back ticket
+```
 
+## `compensate`
+
+Opens a block: its line ends in `:`. Calls `Compensations::add`.
+
+- `compensate step:` — the undo of `step`, registered once that step has finished, run only if the saga later fails
+
+Refuses: a `compensate` outside a `saga`; a step no earlier line of the saga names.
+
+Guarantees: only ever undoes a step written before it in the same saga (idiomatic); a step the saga never ran is refused at the word, naming the steps it has (generalized).
 ```text
 flow book(trip: &Trip) -> Ticket:
     let ticket = saga booking:

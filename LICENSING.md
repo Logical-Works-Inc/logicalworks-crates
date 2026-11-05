@@ -53,7 +53,7 @@ license it commercially instead, on terms granting exactly that relief and
 nothing else.
 
 Commercial licensing enquiries: contact the repository owner through
-[srinji-kaggss/logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates).
+[Logical-Works-Inc/logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates).
 
 ## Contributions, and the one thing that must be in place first
 

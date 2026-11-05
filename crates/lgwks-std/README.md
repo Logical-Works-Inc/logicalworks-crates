@@ -18,7 +18,6 @@ keeps `tracing-attributes` off, so the `syn` macro stack stays out.
 ```sh
 cargo add lgwks_std --no-default-features --features core
 ```
-
 That is the only configuration in which this crate pulls nothing at all, and it
 is verified by command rather than asserted. `cargo tree -p lgwks_std
 --no-default-features --features core -e normal` prints one line: `lgwks_std`
@@ -33,7 +32,6 @@ cargo add lgwks_std --features http                    # add the HTTP client
 cargo add lgwks_std --no-default-features --features core   # zero deps
 cargo run -p lgwks_std --example quickstart            # 10-line tour (this repo)
 ```
-
 ## Usage
 
 The core modules (`hex`, `time`, `encoding`, `glob`) need no feature: call
@@ -67,7 +65,6 @@ lgwks_std = { version = "3", default-features = false, features = ["core"] }
 # Everything, the C-compiling HTTP stack included.
 # lgwks_std = { version = "3", features = ["full"] }
 ```
-
 The feature table, module reference, JSON and RON decoder notes, entropy target
 rules, walk threat models, time profile and glob text semantics are in the
 [reference](../../docs/guides/lgwks-std/reference.md) and the
@@ -115,5 +112,5 @@ when code or dependency requirements demand it.
 | [`lgwks_ast`](https://docs.rs/lgwks_ast) | Parse many languages into one AST type, with bounded traversal and typed diagnostics |
 | [`lgwks_deps`](https://docs.rs/lgwks_deps) | The audited storefront for third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
 
-Logical Works Incorporated publishes `lgwks_std` as one of six independently versioned crates in [logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it. License: Apache-2.0, Copyright 2026 Logical Works Incorporated.
+Logical Works Incorporated publishes `lgwks_std` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it. License: Apache-2.0, Copyright 2026 Logical Works Incorporated.

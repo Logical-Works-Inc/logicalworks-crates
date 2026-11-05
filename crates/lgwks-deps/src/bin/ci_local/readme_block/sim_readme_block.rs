@@ -109,8 +109,8 @@ impl Parts {
             publisher: "Logical Works Incorporated publishes".to_owned(),
             count: "one of six".to_owned(),
             crates: CRATES.iter().map(|listed| (*listed).to_owned()).collect(),
-            repository: "https://github.com/srinji-kaggss/logicalworks-crates#readme".to_owned(),
-            guide: "https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md"
+            repository: "https://github.com/Logical-Works-Inc/logicalworks-crates#readme".to_owned(),
+            guide: "https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md"
                 .to_owned(),
         }
     }

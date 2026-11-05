@@ -447,7 +447,7 @@ pub(super) fn contract_drift(context: &Context<'_>) -> Result<Verdict, GateError
         )));
     }
     let repository = package_field(context, "crates/lgwks-std/Cargo.toml", "repository")?;
-    if repository != "https://github.com/srinji-kaggss/logicalworks-crates" {
+    if repository != "https://github.com/Logical-Works-Inc/logicalworks-crates" {
         return Ok(refuse(format!(
             "Unexpected package repository URL: {repository}"
         )));

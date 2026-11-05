@@ -272,7 +272,7 @@ mod tests {
                 "owner = \"logical-DB\"\n",
                 "trigger = \"A paid multi-node replication requirement with a measured failover test.\"\n",
                 "replacement = \"openraft behind lgwks_deps with the estate log as the source of truth.\"\n",
-                "review = \"https://github.com/srinji-kaggss/logicalworks-crates/issues/725\"\n",
+                "review = \"https://github.com/Logical-Works-Inc/logicalworks-crates/issues/725\"\n",
                 "deferred_on = \"2026-10-26\"\n",
                 "{}"
             ),
@@ -319,7 +319,7 @@ mod tests {
         );
         assert_eq!(
             parsed.review(),
-            "https://github.com/srinji-kaggss/logicalworks-crates/issues/725"
+            "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/725"
         );
         assert_eq!(parsed.deferred_on(), "2026-10-26");
         Ok(())

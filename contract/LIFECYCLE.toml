@@ -25,70 +25,70 @@ crate = "ed25519-dalek"
 replacement = "An lgwks_std::sign module with no third-party edge once the curve arithmetic is eliminated."
 removal_trigger = "Sealed run records verify from the public key with no secret on the verifier and no dalek edge."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/316"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/316"
 
 [[lifecycle]]
 crate = "serde"
 replacement = "A first-party derive reader in lgwks_macros reaching token streams directly."
 removal_trigger = "Derives compile without the serde edge with equal build time and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "serde_json"
 replacement = "lgwks_std::json once it covers the full JSON surface without the serde_json edge."
 removal_trigger = "Interoperable parsing passes the corpus without serde_json and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "thiserror"
 replacement = "Hand-written Display and source chains in the lgwks_ast diagnostics."
 removal_trigger = "Diagnostics keep typed errors with no derive and the edge has no consumer."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/pull/4"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/pull/4"
 
 [[lifecycle]]
 crate = "blake3"
 replacement = "An lgwks_std::hash module with no third-party edge once the digest is eliminated."
 removal_trigger = "Digests match the BLAKE3 vectors without the edge and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "regex"
 replacement = "lgwks_std::pattern, which already bounds the engine the regex edge feeds."
 removal_trigger = "Pattern workloads pass without the regex edge and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "rkyv"
 replacement = "lgwks_std::wire once framed feeds need no rkyv backend."
 removal_trigger = "Wire round-trips pass without rkyv and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "ron"
 replacement = "lgwks_std::ron with a hand-written parser and no third-party edge."
 removal_trigger = "RON round-trips pass without the ron edge and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "getrandom"
 replacement = "Direct OS entropy reads behind the lgwks_std::random seam."
 removal_trigger = "Entropy fills pass on every declared target without getrandom."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "tempfile"
 replacement = "A test-only tempdir helper in the harness with no third-party edge."
 removal_trigger = "No test needs atomic tempdirs from tempfile and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/Braid/issues/91"
+review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
 crate = "ureq"
@@ -109,49 +109,49 @@ crate = "proc-macro2"
 replacement = "Token streams read through the compiler expansion directly with native span locations."
 removal_trigger = "The script reader keeps line and column without proc-macro2 and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 
 [[lifecycle]]
 crate = "quote"
 replacement = "Token emission written against proc-macro2 directly with no quasi-quoting edge."
 removal_trigger = "The macro emits without quasi-quoting and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 
 [[lifecycle]]
 crate = "ast-grep-core"
 replacement = "Parsers built directly on tree-sitter in lgwks_ast with no ast-grep edge."
 removal_trigger = "Every grammar parses without ast-grep-core and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 
 [[lifecycle]]
 crate = "tree-sitter"
 replacement = "A first-party incremental parser in lgwks_ast with deadline stops and no tree-sitter edge."
 removal_trigger = "Parse deadlines hold without the tree-sitter edge and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/277"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/277"
 
 [[lifecycle]]
 crate = "ast-grep-language"
 replacement = "Vendored grammars compiled in lgwks_ast with no ast-grep registry edge."
 removal_trigger = "Grammars load without ast-grep-language and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 
 [[lifecycle]]
 crate = "rustix"
 replacement = "Direct syscalls behind the lgwks_std process seam with no rustix edge."
 removal_trigger = "Capacity, group-kill and waitid proofs pass without rustix and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 
 [[lifecycle]]
 crate = "tokio"
 replacement = "lgwks_bot::rt once the estate owns an I/O and timer reactor with no unsafe."
 removal_trigger = "The runner proves its bounds without tokio and the storefront has no consumer."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 
 [[lifecycle]]
 crate = "gpui"
@@ -235,88 +235,167 @@ crate = "proptest"
 replacement = "Seeded sweeps with hand-written shrinkers and no proptest edge."
 removal_trigger = "No test needs shrinking beyond seeded sweeps and no consumer remains."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/273"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/273"
 
 [[lifecycle]]
 crate = "jiff"
 replacement = "ELIMINATE lands zoned time in lgwks_std::time with no third-party edge."
 removal_trigger = "Zoned arithmetic proves without jiff and the storefront has no consumer."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/153"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/153"
 
 [[lifecycle]]
 crate = "axum"
 replacement = "An estate HTTP facade in lgwks_std covering routing with equal p99."
 removal_trigger = "The estate router covers the same routes with equal p99 and the storefront has no consumer."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721"
 
 [[lifecycle]]
 crate = "tower-http"
 replacement = "Estate middleware layers covering cors, trace and compression."
 removal_trigger = "Estate middleware covers the same layers and the storefront has no consumer."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721"
 
 [[lifecycle]]
 crate = "llm-guard"
 replacement = "An estate detector matching the guard corpus with equal recall and p99."
 removal_trigger = "The estate detector matches the corpus and p99 and the storefront has no consumer."
 last_reviewed = "2026-10-26"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721"
 
 [[lifecycle]]
 crate = "rusqlite"
 replacement = "An estate storage engine in lgwks_std with WAL readers, a single writer and versioned migrations."
 removal_trigger = "The estate engine passes the lgwks_deps::sqlite journeys with equal p99 and no consumer opens rusqlite."
 last_reviewed = "2026-10-27"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/696"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/696"
 
 [[lifecycle]]
 crate = "rcgen"
 replacement = "An lgwks_std test PKI issuing CA, server and client certificates from seeded keys."
 removal_trigger = "The http TLS tests issue every certificate without the rcgen dev edge."
 last_reviewed = "2026-10-27"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/714"
 
 [[lifecycle]]
 crate = "rsa"
 replacement = "ECDSA-only test keys from the estate test PKI once the correspondence tests need no RSA key."
 removal_trigger = "The client and mismatch keys of the http TLS tests are generated without the rsa dev edge."
 last_reviewed = "2026-10-27"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/714"
 
 [[lifecycle]]
 crate = "rand_core"
 replacement = "The lgwks_std::seeded stream fed straight to the estate test PKI with no trait bridge."
 removal_trigger = "The rsa dev edge is removed, so no test key generator needs the RngCore trait."
 last_reviewed = "2026-10-27"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/714"
 
 [[lifecycle]]
 crate = "rustls"
 replacement = "An estate loopback TLS peer for tests, and OS reverse proxy termination for every shipped service."
 removal_trigger = "The http mTLS end-to-end test runs against an estate TLS peer with no rustls dev edge."
 last_reviewed = "2026-10-27"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/714"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/714"
 
 [[lifecycle]]
 crate = "chacha20poly1305"
 replacement = "An estate AEAD in lgwks_std with no third-party edge once the cipher is eliminated."
 removal_trigger = "Sealed records seal and open without the chacha20poly1305 edge and no consumer remains."
 last_reviewed = "2026-11-02"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/785"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/785"
 
 [[lifecycle]]
 crate = "prettyplease"
 replacement = "An estate Rust pretty-printer in lgwks_ast once formatting needs no third-party edge."
 removal_trigger = "`lgwks expand` formats without the prettyplease edge and no consumer remains."
 last_reviewed = "2026-11-02"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/787"
 
 [[lifecycle]]
 crate = "syn"
 replacement = "An estate Rust parser for the expand path, or formatting without a full syntax tree."
 removal_trigger = "`lgwks expand` parses its emitted tokens without the syn edge and no consumer remains."
 last_reviewed = "2026-11-02"
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/787"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/787"
+
+# Agent standards (ADR 0015, #869): one mortgage per new storefront edge.
+
+[[lifecycle]]
+crate = "reqwest"
+replacement = "lgwks_std::http, once it owns what the blocker names."
+removal_trigger = "The upstream clients are written against reqwest; retiring it means each client accepts an estate HTTP transport: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "rmcp"
+replacement = "lgwks_bot::script, once it owns what the blocker names."
+removal_trigger = "An estate MCP session needs a JSON-RPC peer, transports and spec-tracking the bot does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "genai"
+replacement = "lgwks_bot::script, once it owns what the blocker names."
+removal_trigger = "Provider adapters and streaming wire formats for every vendor are work the estate does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "jsonschema"
+replacement = "lgwks_std::json, once it owns what the blocker names."
+removal_trigger = "Draft 2020-12 validation needs a schema compiler lgwks_std::json does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "oauth2"
+replacement = "lgwks_bot::script, once it owns what the blocker names."
+removal_trigger = "The authorization-code and PKCE flow needs an estate OAuth client the bot does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "coset"
+replacement = "lgwks_std::sign, once it owns what the blocker names."
+removal_trigger = "A COSE envelope needs a CBOR encoder and the RFC 9052 structures lgwks_std does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "ct-merkle"
+replacement = "lgwks_bot::journal, once it owns what the blocker names."
+removal_trigger = "Inclusion and consistency proofs need an RFC 6962 tree the journal does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "opentelemetry"
+replacement = "lgwks_std::trace, once it owns what the blocker names."
+removal_trigger = "Exporting to an OpenTelemetry backend needs its data model, which lgwks_std::trace does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "opentelemetry_sdk"
+replacement = "lgwks_std::trace, once it owns what the blocker names."
+removal_trigger = "Batch processing and providers need an SDK lgwks_std::trace does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "opentelemetry-otlp"
+replacement = "lgwks_std::trace, once it owns what the blocker names."
+removal_trigger = "OTLP export needs protobuf encodings of the OpenTelemetry model the estate does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+[[lifecycle]]
+crate = "tracing-opentelemetry"
+replacement = "lgwks_std::trace, once it owns what the blocker names."
+removal_trigger = "Bridging tracing spans needs a layer lgwks_std::trace does not own: the edge goes when the estate owns it and the storefront journey passes without it."
+last_reviewed = "2026-11-05"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"

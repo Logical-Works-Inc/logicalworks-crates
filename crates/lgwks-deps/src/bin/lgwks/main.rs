@@ -19,6 +19,8 @@ mod id;
 mod legacy;
 mod new;
 mod run;
+#[cfg(feature = "tls-ring")]
+mod tls;
 
 use common::settle;
 
@@ -72,6 +74,16 @@ fn dispatch(
             writeln!(
                 err,
                 "lgwks id: this WebAssembly build carries no lgwks_std random feature to issue ids from"
+            )?;
+            Ok(ExitCode::from(2))
+        }
+        #[cfg(feature = "tls-ring")]
+        Some("tls") => tls::run(request.args.as_slice(), request.json, out, err),
+        #[cfg(not(feature = "tls-ring"))]
+        Some("tls") => {
+            writeln!(
+                err,
+                "lgwks tls: this build carries no tls-ring feature; install with --features tls-ring"
             )?;
             Ok(ExitCode::from(2))
         }

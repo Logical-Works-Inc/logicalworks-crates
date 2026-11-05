@@ -1,14 +1,14 @@
 [package]
 name = "lgwks_deps"
 description = "Dependency admission, supply-chain policy, and debugger-doctor CLI for a Rust workspace: every external edge and default trace install is verified."
-version = "6.0.1"
+version = "6.1.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/srinji-kaggss/logicalworks-crates"
+repository = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 documentation = "https://docs.rs/lgwks_deps"
 readme = "README.md"
-homepage = "https://github.com/srinji-kaggss/logicalworks-crates/tree/main/crates/lgwks-deps"
+homepage = "https://github.com/Logical-Works-Inc/logicalworks-crates/tree/main/crates/lgwks-deps"
 categories = ["development-tools", "config"]
 keywords = ["dependencies", "audit", "supply-chain", "cargo", "debug"]
 # The documentation spells its commands `cargo run -p lgwks_deps -- check .`
@@ -150,6 +150,45 @@ sqlite = ["dep:rusqlite"]
 # every other storefront group (ADR 0003); `lgwks_bot` selects it through its
 # `sealed` feature and reaches the engine only through the storefront (#785).
 sealed-aead = ["dep:chacha20poly1305"]
+# Agent standards (ADR 0015): the open protocols an agent harness speaks, so a
+# consumer wires a standard instead of writing its boilerplate. Default-off like
+# every storefront group (ADR 0003): each one carries the tokio network driver or
+# ring, neither of which builds for `wasm32-wasip1`, and each cost is measured in
+# contract/APPROVED.toml. `agent` selects all seven.
+#
+#   * `tls-ring` — one in-process TLS provider (rustls on ring, the provider the
+#     sealed #728 exception already excuses) for every client below, installed
+#     once by `lgwks_deps::tls::install_ring`. The `reqwest` edge exists only to
+#     select `rustls-no-provider` for the clients that bring reqwest; it is not
+#     re-exported, so `lgwks_std::http` stays the estate's HTTP client.
+#   * `mcp` — the Model Context Protocol SDK (rmcp): server, client, stdio,
+#     child-process and streamable-HTTP transports, OAuth. Its `macros` feature
+#     is declined: the macros expand to `::rmcp::` paths a storefront consumer
+#     cannot name (ADR 0015).
+#   * `model` — one client for every model provider (genai).
+#   * `json-schema` — JSON Schema 2020-12 validation of tool arguments.
+#   * `oauth2` — the OAuth 2.1 authorization-code flow with PKCE.
+#   * `cose` — COSE_Sign1 envelopes (RFC 9052), sealed with `lgwks_std::sign`.
+#   * `merkle-log` — the RFC 6962 append-only log with inclusion and consistency
+#     proofs, generic over its `digest` hasher (the journey uses lgwks_std's BLAKE3).
+#   * `otel` — OpenTelemetry traces, metrics and logs with OTLP/HTTP export and
+#     the bridge from `lgwks_std::trace` spans.
+tls-ring = ["dep:rustls", "dep:reqwest"]
+mcp = ["tls-ring", "tokio-io", "dep:rmcp"]
+model = ["tls-ring", "dep:genai"]
+json-schema = ["dep:jsonschema"]
+oauth2 = ["dep:oauth2"]
+cose = ["dep:coset"]
+merkle-log = ["dep:ct-merkle"]
+otel = [
+    "tls-ring",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+    "dep:tracing-subscriber",
+]
+agent = ["mcp", "model", "json-schema", "oauth2", "cose", "merkle-log", "otel"]
 
 [dependencies]
 # The foundation this gate is built on, named rather than inherited: `core` is
@@ -230,6 +269,22 @@ syn = { version = "=2.0.119", default-features = false, features = ["full", "par
 # token reader, the one emitter, the COBOL and JCL reader, and the diff reader
 # `check-docs --base` judges a change's added lines with.
 lgwks_ast = { workspace = true, default-features = false, features = ["emit", "legacy", "hunks"], optional = true }
+# Agent standards (ADR 0015). Every edge pinned exactly, default features off,
+# and one TLS provider for the lot: rustls on ring with `rustls-no-provider`
+# reqwest, so no aws-lc-sys, cmake or OpenSSL enters the tree.
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "tls12", "ring"], optional = true }
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"], optional = true }
+genai = { version = "=0.7.3", default-features = false, optional = true }
+jsonschema = { version = "=0.60.2", default-features = false, optional = true }
+oauth2 = { version = "=5.0.0", default-features = false, optional = true }
+coset = { version = "=0.4.2", default-features = false, optional = true }
+ct-merkle = { version = "=0.3.0", default-features = false, optional = true }
+opentelemetry = { version = "=0.33.1", default-features = false, features = ["trace", "metrics", "logs"], optional = true }
+opentelemetry_sdk = { version = "=0.33.1", default-features = false, features = ["trace", "metrics", "logs", "rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "=0.33.1", default-features = false, features = ["http-proto", "trace", "metrics", "logs", "reqwest-client"], optional = true }
+tracing-opentelemetry = { version = "=0.34.0", default-features = false, optional = true }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"], optional = true }

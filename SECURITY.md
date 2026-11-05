@@ -100,7 +100,7 @@ flagged path never ships. No fixed version exists, so no bump clears it.
 
 Report vulnerabilities privately to the repository owner via a GitHub private
 vulnerability report on
-[srinji-kaggss/logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates).
+[Logical-Works-Inc/logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates).
 Do not open a public issue for a suspected vulnerability.
 
 ## Response

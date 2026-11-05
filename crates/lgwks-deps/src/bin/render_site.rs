@@ -25,9 +25,9 @@ use std::process::ExitCode;
 use lgwks_deps::catalog;
 
 /// Where the page is served from, with its trailing slash.
-const SITE_URL: &str = "https://srinji-kaggss.github.io/logicalworks-crates/";
+const SITE_URL: &str = "https://logical-works-inc.github.io/logicalworks-crates/";
 /// The repository the page describes.
-const REPO_URL: &str = "https://github.com/srinji-kaggss/logicalworks-crates";
+const REPO_URL: &str = "https://github.com/Logical-Works-Inc/logicalworks-crates";
 /// The page title: the exact name, then what it is.
 const TITLE: &str = "logicalworks-crates — the Rust crates behind Logical Works";
 /// The description a result snippet uses, under 160 characters.

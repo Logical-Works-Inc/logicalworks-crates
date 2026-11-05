@@ -10,12 +10,14 @@
 #
 # Sealed provider exceptions (#728) excuse the blocked providers the resolved
 # tree cannot yet avoid: ring (Apache-2.0 AND ISC) and webpki-roots
-# (CDLA-Permissive-2.0) arrive transitively behind the admitted ureq edge. Day
-# 0 terminates TLS at the OS reverse proxy with zero new crates; in-process TLS
-# needs a provider whose license passes, and until one is verified these two
-# rows are the sealed exception with owner, date, blast radius and removal
-# path. An expired row is a refusal, and a blocked provider with no live row
-# is refused with the chain that pulled it in.
+# (CDLA-Permissive-2.0) arrive transitively behind the admitted ureq edge.
+# Inbound TLS still terminates at the OS reverse proxy; outbound in-process TLS
+# for the agent-standards clients (ADR 0015) rides the same ring through the
+# `tls-ring` feature, so the estate keeps one provider and no C toolchain.
+# Until a provider whose license passes is verified, these two rows are the
+# sealed exception with owner, date, blast radius and removal path. An expired
+# row is a refusal, and a blocked provider with no live row is refused with the
+# chain that pulled it in.
 #
 # Read by `lgwks_deps`: the ledger is opt-in, and a repository without one is
 # audited exactly as before.
@@ -68,11 +70,11 @@ patch_digest = "git:9515d410e3af803fd45efebfef8137f47d85a63d"
 crate = "ring"
 kind = "provider-exception"
 owner = "lgwks_std"
-reason = "The http feature resolves ring transitively through ureq and rustls with no passing provider verified."
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/728"
+reason = "The http feature resolves ring transitively through ureq and rustls, and lgwks_deps' tls-ring selects the same ring as the one outbound provider (ADR 0015), with no passing provider verified."
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/728"
 recorded_on = "2026-10-26"
 expires_on = "2027-04-26"
-blast_radius = "Default-off http feature only; no in-process TLS in the day-0 path and no direct edge."
+blast_radius = "Default-off features only: lgwks_std http, and lgwks_deps tls-ring with the mcp, model and otel features that select it; outbound in-process TLS, never inbound, and no direct ring edge."
 removal_trigger = "HTTP proofs pass with equal p99 and no ring in the resolved tree."
 
 [[patch]]
@@ -80,7 +82,7 @@ crate = "webpki-roots"
 kind = "provider-exception"
 owner = "lgwks_std"
 reason = "The http feature resolves webpki-roots transitively through ureq and rustls with no passing store verified."
-review = "https://github.com/srinji-kaggss/logicalworks-crates/issues/728"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/728"
 recorded_on = "2026-10-26"
 expires_on = "2027-04-26"
 blast_radius = "Default-off http feature only; no in-process TLS in the day-0 path and no direct edge."

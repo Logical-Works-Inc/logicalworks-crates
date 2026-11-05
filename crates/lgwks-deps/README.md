@@ -18,7 +18,6 @@ The binary is the gate; the library is the storefront.
 cargo install lgwks_deps    # the `lgwks-deps` binary
 cargo add lgwks_deps        # the storefront library
 ```
-
 No feature is on by default, so `cargo add lgwks_deps` pulls no third-party
 crate. The Rust source detectors the CLI once carried behind a default `scan`
 feature moved to `lgwks_ast` with the one Rust reader: run `lgwks-ast scan`
@@ -49,7 +48,6 @@ lgwks-deps vendor check [PATH]  # prove the lockfile is covered by the shared ve
 lgwks-deps debug [PATH]         # doctor the default lgwks_std debugger surface
 lgwks-deps sqlite <PATH> [TARGET [SQL ...]]  # open with estate defaults; report or migrate
 ```
-
 `check` runs as the first CI lane. The binary diagnoses; it never approves.
 Approval is a committed diff with a human's name on it, and the register format
 is documented in `contract/APPROVED.toml`.
@@ -58,7 +56,7 @@ is documented in `contract/APPROVED.toml`.
 a supported posture over a tree the gate admits: `check` still reports every
 refusal it finds, and a tree with no refusals still exits 0. What it no longer
 does is make a violating tree pass. A register that reads `enforce = false`
-while the tree actually carries dependency-edge violations is itself refused, by
+while the tree carries dependency-edge violations is itself refused, by
 a named `AdoptionModeRefusals` refusal that states how many violations the
 posture stood down, and `check` exits 2 — identically to `enforce = true`. The
 verdict is therefore a function of the refusals alone; flipping that one token
@@ -111,8 +109,8 @@ enforced.
 
 ## The other crates
 
-Logical Works Incorporated publishes `lgwks_deps` as one of six independently versioned crates in [logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+Logical Works Incorporated publishes `lgwks_deps` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
 
 ## License
 

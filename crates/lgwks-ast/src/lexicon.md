@@ -6,8 +6,7 @@ lgwks_bot::script! {
         give back items.len()
 }
 ```
-
-Each line is one step. It starts with one of the words below, or it is a line of Rust, passed through as written. What each word refuses and guarantees is on [the one-page lexicon](https://github.com/srinji-kaggss/logicalworks-crates/blob/main/docs/script-lexicon.md).
+Each line is one step. It starts with one of the words below, or it is a line of Rust, passed through as written. What each word refuses and guarantees is on [the one-page lexicon](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/main/docs/script-lexicon.md).
 
 | Written | Means |
 |---|---|

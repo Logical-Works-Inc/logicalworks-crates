@@ -209,7 +209,7 @@ pub trait Observe {
     ///
     /// Every source this crate ships takes the comparison path, and the table of
     /// which takes which, with the reason for each, is in
-    /// [`docs/bot-on-ecs.md`](https://github.com/srinji-kaggss/logicalworks-crates/blob/main/docs/bot-on-ecs.md)
+    /// [`docs/bot-on-ecs.md`](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/main/docs/bot-on-ecs.md)
     /// §4.1. It is a table rather than a claim because the answer is a property of
     /// each domain's poll, and a reader deciding whether to implement this is
     /// deciding whether their own source has a cheaper question to ask.

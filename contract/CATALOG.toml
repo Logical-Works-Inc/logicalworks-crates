@@ -515,3 +515,91 @@ default = "off"
 reason = "Authenticated encryption for sealed journal and run-store records has no std or estate equivalent; pure-Rust ChaCha20-Poly1305 with no C toolchain, never built unless selected. One flag: --features sealed-aead (ADR 0003)."
 words = ["aead", "chacha20poly1305", "chacha", "poly1305", "sealed records", "authenticated encryption", "encryption at rest"]
 replaces = ["chacha20poly1305 as a direct edge", "an unauthenticated cipher", "plaintext records"]
+
+[[capability]]
+name = "in-process tls"
+path = "lgwks_deps::storefront::tls"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "tls-ring"
+default = "off"
+reason = "The one TLS provider every agent-standards client shares: rustls on ring, installed once per process by tls::install_ring, with no C toolchain. Selected by the features that speak HTTPS. One flag: --features tls-ring (ADR 0015)."
+words = ["tls", "https", "rustls", "ring", "crypto provider", "install_default", "in-process tls"]
+replaces = ["rustls as a direct edge", "aws-lc-rs and its cmake build", "openssl", "two TLS providers in one process"]
+
+[[capability]]
+name = "model context protocol"
+path = "lgwks_deps::storefront::rmcp"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "mcp"
+default = "off"
+reason = "The MCP SDK: server, client, stdio, child-process and streamable HTTP transports and the OAuth 2.1 client, on the ring provider; its upstream macros are declined. One flag: --features mcp (ADR 0015)."
+words = ["mcp", "model context protocol", "rmcp", "tool server", "tools/call", "tools/list", "json-rpc", "agent tools"]
+replaces = ["rmcp as a direct edge", "a hand-rolled JSON-RPC tool protocol", "a bespoke stdio tool loop"]
+
+[[capability]]
+name = "model client"
+path = "lgwks_deps::storefront::genai"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "model"
+default = "off"
+reason = "One client for every model provider with streaming and tool calls, on the ring provider. One flag: --features model (ADR 0015)."
+words = ["llm", "model", "genai", "chat completion", "anthropic", "openai", "deepseek", "gemini", "model provider"]
+replaces = ["genai as a direct edge", "a hand-written provider adapter", "one HTTP client per model vendor"]
+
+[[capability]]
+name = "json schema validation"
+path = "lgwks_deps::storefront::jsonschema"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "json-schema"
+default = "off"
+reason = "JSON Schema 2020-12 validation for tool inputs and structured outputs, with remote $ref resolution off. One flag: --features json-schema (ADR 0015)."
+words = ["json schema", "jsonschema", "schema validation", "2020-12", "tool input schema", "structured output"]
+replaces = ["jsonschema as a direct edge", "hand-written field checks on a serde_json::Value"]
+
+[[capability]]
+name = "oauth 2.1 with pkce"
+path = "lgwks_deps::storefront::oauth2"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "oauth2"
+default = "off"
+reason = "The authorization-code flow with PKCE that MCP authorization names, with no HTTP client of its own. One flag: --features oauth2 (ADR 0015)."
+words = ["oauth", "oauth2", "oauth 2.1", "pkce", "authorization code", "csrf state", "token exchange"]
+replaces = ["oauth2 as a direct edge", "a hand-built authorize URL", "a hand-rolled PKCE verifier"]
+
+[[capability]]
+name = "cose receipts"
+path = "lgwks_deps::storefront::coset"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "cose"
+default = "off"
+reason = "COSE_Sign1 envelopes (RFC 9052) around lgwks_std::sign's ed25519 seal, so receipts have a standard wire form and one signer. One flag: --features cose (ADR 0015)."
+words = ["cose", "cose_sign1", "rfc 9052", "cbor", "signed receipt", "envelope", "coset"]
+replaces = ["coset as a direct edge", "a bespoke signed-receipt format", "a second signing library"]
+
+[[capability]]
+name = "merkle log"
+path = "lgwks_deps::storefront::ct_merkle"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "merkle-log"
+default = "off"
+reason = "The RFC 6962 append-only log with inclusion and consistency proofs, generic over its digest (the journey hashes with lgwks_std's BLAKE3). One flag: --features merkle-log (ADR 0015)."
+words = ["merkle", "merkle tree", "rfc 6962", "transparency log", "inclusion proof", "consistency proof", "append-only log"]
+replaces = ["ct-merkle as a direct edge", "a hand-rolled hash chain", "an unprovable append-only log"]
+
+[[capability]]
+name = "opentelemetry"
+path = "lgwks_deps::storefront::opentelemetry"
+file = "crates/lgwks-deps/src/agent_standards.rs"
+crate = "lgwks_deps"
+feature = "otel"
+default = "off"
+reason = "OpenTelemetry API and SDK with OTLP/HTTP export and the bridge from lgwks_std::trace spans, on the ring provider. One flag: --features otel (ADR 0015)."
+words = ["opentelemetry", "otel", "otlp", "gen_ai spans", "traces", "metrics", "tracing bridge", "observability"]
+replaces = ["opentelemetry as a direct edge", "a bespoke span exporter", "a second tracing facade"]

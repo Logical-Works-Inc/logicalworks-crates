@@ -342,7 +342,7 @@ fn intro() -> String {
     format!(
         "\nEverything needed to write `lgwks_bot::script!` flows. A script is one or \
          more `flow`s inside the macro:\n\n\
-         ```rust\nlgwks_bot::script! {{\n{}}}\n```\n\n\
+         ```rust\nlgwks_bot::script! {{\n{}}}\n```\n\
          Each line is one step: it starts with one of the words below, or it is a \
          line of Rust. A line ending in `:` opens a block of the lines indented four \
          spaces beneath it. Inside a flow, `scope` is the current step's scope. A \
@@ -416,7 +416,7 @@ fn section(row: &Word) -> Result<String, String> {
     let example = if row.kind() == Kind::Else {
         String::new()
     } else {
-        format!("\n```text\n{}```\n", row.example())
+        format!("```text\n{}```\n", row.example())
     };
     Ok(format!(
         "\n## `{}`\n\n{}. Calls {}.\n\n{forms}\nRefuses: {refuses}.\n\nGuarantees: {}.\n{example}",
@@ -551,7 +551,7 @@ const OPENER: &str = "#![doc = include_str!(\"lexicon.md\")]\n";
 
 /// Where a crate page reaches the full lexicon page.
 const PAGE_URL: &str =
-    "https://github.com/srinji-kaggss/logicalworks-crates/blob/main/docs/script-lexicon.md";
+    "https://github.com/Logical-Works-Inc/logicalworks-crates/blob/main/docs/script-lexicon.md";
 
 /// What every crate's front page opens with: the way in, one example and the
 /// block table, rendered from [`LEXICON`] so no page says what the parser does
@@ -562,7 +562,7 @@ fn front() -> String {
          language this workspace ships. Each crate page also documents its own library \
          front door; `script!` is the supported orchestration interface, not the only \
          way to use every crate.\n\n\
-         ```text\nlgwks_bot::script! {{\n{}}}\n```\n\n\
+         ```text\nlgwks_bot::script! {{\n{}}}\n```\n\
          Each line is one step. It starts with one of the words below, or it is a \
          line of Rust, passed through as written. What each word refuses and \
          guarantees is on [the one-page lexicon]({PAGE_URL}).\n\n\

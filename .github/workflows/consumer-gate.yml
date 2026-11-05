@@ -9,7 +9,7 @@ name: Consumer gate
 # ```yaml
 # jobs:
 #   gate:
-#     uses: srinji-kaggss/logicalworks-crates/.github/workflows/consumer-gate.yml@v1
+#     uses: Logical-Works-Inc/logicalworks-crates/.github/workflows/consumer-gate.yml@v1
 #     with:
 #       base: ${{ github.base_ref }}
 # ```

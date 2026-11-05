@@ -1,13 +1,13 @@
 [package]
 name = "lgwks_macros"
 description = "The script! orchestration language for lgwks_bot: indented, Python/AppleScript-like flows that expand to bounded, deadline-carrying, tenant-keyed async Rust and an architecture map."
-version = "2.0.1"
+version = "2.0.2"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/srinji-kaggss/logicalworks-crates"
+repository = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 documentation = "https://docs.rs/lgwks_macros"
-homepage = "https://github.com/srinji-kaggss/logicalworks-crates/tree/main/crates/lgwks-macros"
+homepage = "https://github.com/Logical-Works-Inc/logicalworks-crates/tree/main/crates/lgwks-macros"
 readme = "README.md"
 categories = ["development-tools::procedural-macro-helpers", "asynchronous"]
 keywords = ["orchestration", "workflow", "dsl", "async", "macro"]
