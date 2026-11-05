@@ -5,8 +5,18 @@ use std::time::Duration;
 use lgwks_std::json::{Deserialize, Serialize};
 
 use super::{
-    Authority, BearerToken, MAX_TEXT_LEN, MAX_TRACE, POLICY_VERSION, RevocationList, TokenError,
-    chain_over, under_scope, valid_resource, valid_text,
+    Authority,
+    BearerToken,
+    MAX_TEXT_LEN,
+    MAX_TRACE,
+    POLICY_VERSION,
+    // live revocation
+    RevocationList,
+    TokenError,
+    chain_over,
+    under_scope,
+    valid_resource,
+    valid_text,
 };
 use crate::clock::Clock;
 
@@ -71,8 +81,8 @@ impl Request {
 #[serde(crate = "lgwks_std::json::serde")]
 #[doc(hidden)]
 pub struct TraceStep {
-    /// The rule that ran: `signature`, `expiry`, `revocation`, `audience`,
-    /// `action` or `resource`.
+    /// The rule that ran: `signature`, `expiry`, `revocation` (live revocation),
+    /// `audience`, `action` or `resource`.
     rule: String,
     /// The policy version that ran it.
     version: u32,
@@ -82,8 +92,8 @@ pub struct TraceStep {
 }
 
 impl TraceStep {
-    /// Which walk step decided: signature, expiry, revocation, audience,
-    /// action or resource, in evaluation order.
+    /// Which walk step decided: signature, expiry, revocation (live revocation),
+    /// audience, action or resource, in evaluation order.
     #[must_use]
     #[doc(hidden)]
     pub fn rule(&self) -> &str {
@@ -191,6 +201,7 @@ impl Policy {
         authority: &Authority,
         token: &BearerToken,
         request: &Request,
+        // live revocation
         revocations: &RevocationList,
         clock: &Clock,
     ) -> Result<Decision, TokenError> {
@@ -248,8 +259,10 @@ impl Policy {
             return Ok(finish(false, trace, token, request, now));
         }
 
+        // live revocation check against token id
         let listed = revocations.contains(&token.id);
         push("revocation", stamp(request, now), &mut trace);
+        // live revocation
         if listed {
             return Ok(finish(false, trace, token, request, now));
         }

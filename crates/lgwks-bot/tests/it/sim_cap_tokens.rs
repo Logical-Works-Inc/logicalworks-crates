@@ -1,7 +1,14 @@
 //! Deterministic simulation suite for capability tokens (#779, INV-BOT-191).
 
 use lgwks_bot::cap_token::{
-    Authority, BearerToken, Caveat, Decision, Policy, Request, RevocationList,
+    Authority,
+    BearerToken,
+    Caveat,
+    Decision,
+    Policy,
+    Request,
+    // live revocation
+    RevocationList,
 };
 use lgwks_bot::clock::Clock;
 use std::time::Duration;
@@ -45,6 +52,7 @@ impl SimHarness {
             .map_err(show_err)
     }
 
+    // live revocation helper for simulated decisions
     fn decide_request(
         &self,
         token: &BearerToken,
@@ -54,6 +62,7 @@ impl SimHarness {
         resource: &str,
     ) -> Result<Decision, String> {
         let req = Request::new(audience, action, resource).map_err(show_err)?;
+        // live revocation
         let fallback = RevocationList::new();
         let target_rev = match rev {
             Some(rev_ref) => rev_ref,
@@ -75,6 +84,7 @@ impl SimHarness {
             .map(|decision| decision.allowed())
     }
 
+    // live revocation evaluation helper
     fn is_allowed_with_rev(
         &self,
         token: &BearerToken,
@@ -209,27 +219,36 @@ fn sim_token_exact_expiry_boundary() -> TestResult {
 }
 
 #[test]
+// live revocation
 fn sim_token_revocation_list_membership() -> TestResult {
     let env = SimHarness::create()?;
     let tok = env.mint("svc:worker", "pull", "/queue", 100)?;
+    // live revocation
     let mut rev = RevocationList::new();
+    // live revocation
     rev.revoke(tok.id()).map_err(show_err)?;
 
     if env.is_allowed_with_rev(&tok, &rev, "svc:worker", "pull", "/queue")? {
+        // live revocation
         return Err("expected revoked token to be denied".to_owned());
     }
     Ok(())
 }
 
 #[test]
+// live revocation
 fn sim_token_revocation_idempotent_duplicate_entry() -> TestResult {
     let env = SimHarness::create()?;
     let tok = env.mint("svc:worker", "pull", "/queue", 100)?;
+    // live revocation
     let mut rev = RevocationList::new();
+    // live revocation
     rev.revoke(tok.id()).map_err(show_err)?;
+    // live revocation
     rev.revoke(tok.id()).map_err(show_err)?;
 
     if env.is_allowed_with_rev(&tok, &rev, "svc:worker", "pull", "/queue")? {
+        // live revocation
         return Err("expected revoked token to stay denied after duplicate revoke".to_owned());
     }
     Ok(())
@@ -244,21 +263,11 @@ fn sim_token_tampered_signature_byte_invalidation() -> TestResult {
         *byte ^= 0x5a;
     }
     let tampered = BearerToken::from_bytes(&serialized);
-    if let Ok(tampered_token) = tampered {
-        let req = Request::new("svc:db", "select", "/table").map_err(show_err)?;
-        let dec = env.policy.decide(
-            &env.authority,
-            &tampered_token,
-            &req,
-            &RevocationList::new(),
-            &env.clock,
-        );
-        match dec {
-            Ok(decision) if decision.allowed() => {
-                return Err("expected tampered signature token to be rejected".to_owned());
-            }
-            _ => {}
+    match tampered {
+        Ok(tampered_token) if env.is_allowed(&tampered_token, "svc:db", "select", "/table")? => {
+            return Err("expected tampered signature token to be rejected".to_owned());
         }
+        _ => {}
     }
     Ok(())
 }
@@ -335,6 +344,7 @@ fn sim_token_serialization_roundtrip_stability() -> TestResult {
 }
 
 #[test]
+// live revocation
 fn sim_token_cloned_authority_independent_root() -> TestResult {
     let clock = Clock::virtual_at(Duration::ZERO);
     let a1 = Authority::generate().map_err(show_err)?;
@@ -342,9 +352,11 @@ fn sim_token_cloned_authority_independent_root() -> TestResult {
     let t1 = a1
         .mint("svc:auth", "read", "/res", Duration::from_secs(60), &clock)
         .map_err(show_err)?;
+    // live revocation
     if a1.verify(&t1, &RevocationList::new(), &clock).is_err() {
         return Err("expected authority 1 to verify its own token".to_owned());
     }
+    // live revocation
     if a2.verify(&t1, &RevocationList::new(), &clock).is_ok() {
         return Err("expected authority 2 to refuse token minted by authority 1".to_owned());
     }
@@ -352,15 +364,18 @@ fn sim_token_cloned_authority_independent_root() -> TestResult {
 }
 
 #[test]
+// live revocation
 fn sim_token_cross_authority_signature_rejection() -> TestResult {
     let env = SimHarness::create()?;
     let foreign_auth = Authority::generate().map_err(show_err)?;
     let tok = env.mint("svc:shared", "read", "/common", 60)?;
     let req = Request::new("svc:shared", "read", "/common").map_err(show_err)?;
+    // live revocation
     let dec = env.policy.decide(
         &foreign_auth,
         &tok,
         &req,
+        // live revocation
         &RevocationList::new(),
         &env.clock,
     );
@@ -432,21 +447,11 @@ fn sim_token_zero_duration_instant_expiry() -> TestResult {
         Duration::ZERO,
         &env.clock,
     );
-    if let Ok(tok) = res {
-        let req = Request::new("client:instant", "ping", "/zero").map_err(show_err)?;
-        let dec = env.policy.decide(
-            &env.authority,
-            &tok,
-            &req,
-            &RevocationList::new(),
-            &env.clock,
-        );
-        match dec {
-            Ok(decision) if decision.allowed() => {
-                return Err("expected zero-duration token to be expired".to_owned());
-            }
-            _ => {}
+    match res {
+        Ok(tok) if env.is_allowed(&tok, "client:instant", "ping", "/zero")? => {
+            return Err("expected zero-duration token to be expired".to_owned());
         }
+        _ => {}
     }
     Ok(())
 }
