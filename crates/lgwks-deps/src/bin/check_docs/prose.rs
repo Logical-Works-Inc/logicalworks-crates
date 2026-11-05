@@ -9,11 +9,9 @@
 //! generator: `docs/script-lexicon*.md` (`lgwks_macros::lexicon_docs`) and
 //! `docs/catalog.md` (`catalog --check`).
 
-use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// The most words one sentence may hold. Plain-language guidance (the US
 /// Federal Plain Language Guidelines, the GOV.UK style guide) puts the readable
@@ -118,82 +116,6 @@ impl Judged<'_> {
                 .any(|&(start, end)| start <= last && first <= end),
         }
     }
-}
-
-/// The added range of one `@@ -a,b +c,d @@` hunk header, or `None` for a hunk
-/// that only deletes.
-fn hunk_range(hunk: &str) -> Option<(usize, usize)> {
-    let added = hunk
-        .split_whitespace()
-        .find_map(|part| part.strip_prefix('+'))?;
-    let (start, count): (usize, usize) = match added.split_once(',') {
-        Some((start, count)) => (start.parse().ok()?, count.parse().ok()?),
-        None => (added.parse().ok()?, 1),
-    };
-    let last = start.checked_add(count)?.checked_sub(1)?;
-    if count == 0 {
-        None
-    } else {
-        Some((start, last))
-    }
-}
-
-/// Runs `git` in `root` and returns what it printed, refusing a failed run.
-fn git(root: &Path, arguments: &[&str]) -> io::Result<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(arguments)
-        .output()?;
-    if !output.status.success() {
-        lgwks_std::trace::warn!(?arguments, status = %output.status, "git refused the docs base");
-        return Err(io::Error::other(format!(
-            "git {} failed: {}",
-            arguments.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        )));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
-}
-
-/// The lines each Markdown page added since `base`, keyed by its path relative
-/// to `root`. A page git does not track yet is added whole.
-pub(crate) fn added_lines(
-    root: &Path,
-    base: &str,
-) -> io::Result<BTreeMap<String, Vec<(usize, usize)>>> {
-    let diff = git(
-        root,
-        &[
-            "diff",
-            "--unified=0",
-            "--no-color",
-            "--no-ext-diff",
-            "--no-renames",
-            base,
-            "--",
-            "*.md",
-        ],
-    )?;
-    let mut found: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
-    let mut current: Option<String> = None;
-    for line in diff.lines() {
-        if let Some(path) = line.strip_prefix("+++ ") {
-            current = path.strip_prefix("b/").map(str::to_owned);
-        } else if let (Some(hunk), Some(name)) = (line.strip_prefix("@@ "), current.as_ref())
-            && let Some(range) = hunk_range(hunk)
-        {
-            found.entry(name.clone()).or_default().push(range);
-        }
-    }
-    let untracked = git(
-        root,
-        &["ls-files", "--others", "--exclude-standard", "--", "*.md"],
-    )?;
-    for name in untracked.lines() {
-        found.insert(name.to_owned(), vec![(1, usize::MAX)]);
-    }
-    Ok(found)
 }
 
 /// A line's text with inline code, link targets and emphasis taken out, so a
@@ -518,7 +440,7 @@ pub(crate) fn check_page(root: &Path, page: &Page, judged: Judged<'_>) -> Vec<Fi
 /// The rules' own tests.
 #[cfg(test)]
 mod tests {
-    use super::{Judged, MAX_SENTENCE_WORDS, Page, check_page, hunk_range, plain, sentences};
+    use super::{Judged, MAX_SENTENCE_WORDS, Page, check_page, plain, sentences};
     use std::path::Path;
 
     /// Judges one page, under a root nothing is read from, over `judged`.
@@ -565,9 +487,6 @@ mod tests {
                 .any(|finding| finding.contains("words, past")),
             "{touched:?}"
         );
-        assert_eq!(hunk_range("-4,2 +7,3 @@ heading"), Some((7, 9)));
-        assert_eq!(hunk_range("-4 +7 @@"), Some((7, 7)));
-        assert_eq!(hunk_range("-4,2 +6,0 @@"), None);
     }
 
     /// A page shaped the way the rules ask passes, so each refusal below is the

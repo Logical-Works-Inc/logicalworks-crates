@@ -52,6 +52,20 @@ const DIVISION_WORDS: [&str; 4] = ["IDENTIFICATION", "ENVIRONMENT", "DATA", "PRO
 
 /// A COBOL program as read: its name, its paragraphs, and one node per
 /// statement in source order.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyLimits, cobol::parse_program, json::program_json};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// // Fixed format: code starts in column 8, after the sequence and indicator columns.
+/// let source = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. HELLO.\n       PROCEDURE DIVISION.\n       MAIN-PARA.\n           PERFORM SHOW-IT.\n           STOP RUN.\n       SHOW-IT.\n           DISPLAY \"HI\".\n";
+/// let program = parse_program(source, &limits, &|_copybook| None)?;
+/// let json = program_json(&program, &limits)?;
+/// assert_eq!(json.get("name").and_then(|name| name.as_str()), Some("HELLO"));
+/// # Ok::<(), lgwks_ast::legacy::LegacyError>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct CobolProgram {
@@ -289,6 +303,20 @@ impl StatementKind {
 /// # Errors
 ///
 /// A [`LegacyError`] past any ceiling, or the first refusal the source earns.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyLimits, cobol::parse_program, json::program_json};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// // Fixed format: code starts in column 8, after the sequence and indicator columns.
+/// let source = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. HELLO.\n       PROCEDURE DIVISION.\n       MAIN-PARA.\n           PERFORM SHOW-IT.\n           STOP RUN.\n       SHOW-IT.\n           DISPLAY \"HI\".\n";
+/// let program = parse_program(source, &limits, &|_copybook| None)?;
+/// let json = program_json(&program, &limits)?;
+/// assert_eq!(json.get("name").and_then(|name| name.as_str()), Some("HELLO"));
+/// # Ok::<(), lgwks_ast::legacy::LegacyError>(())
+/// ```
 pub fn parse_program(
     source: &str,
     limits: &LegacyLimits,

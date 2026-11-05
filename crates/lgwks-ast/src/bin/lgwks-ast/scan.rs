@@ -1,7 +1,8 @@
-//! `lgwks-ast scan [--json] [--rule NAME...] [PATH...]`: the zero-gate source
-//! detectors (INV-SCAN-ZERO, #408) over every `.rs` file under the paths named,
-//! narrowed to the detectors `--rule` names (#699) and extended to every
-//! `Cargo.toml` when ALLOW-SILENCE is among them.
+//! `lgwks-ast scan [--json] [--rule NAME...] [--base REV] [PATH...]`: the
+//! zero-gate source detectors (INV-SCAN-ZERO, #408) over every `.rs` file under
+//! the paths named, narrowed to the detectors `--rule` names (#699), extended to
+//! every `Cargo.toml` when ALLOW-SILENCE is among them, and held to the lines
+//! added since `REV` when `--base` names one (ADR 0012).
 //!
 //! The five detectors of `lgwks_ast::scan` run through the checked parse, so a
 //! file past the byte, node, depth or time bound is refused by name and counted,
@@ -17,9 +18,10 @@
 //! mistake, not the tree's.
 
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
+use lgwks_ast::hunks;
 use lgwks_ast::scan::{Hit, Rule, scan_manifest, scan_source_with};
 use lgwks_std::json::Value;
 
@@ -168,19 +170,33 @@ fn scan_path(path: PathBuf, rules: &[Rule], manifests: bool) -> ScanReading {
     }
 }
 
+/// What a scan judges: the detectors, and the revision whose added lines alone
+/// are judged.
+pub(super) struct Selection<'a> {
+    /// The detectors to run.
+    pub(super) rules: &'a [Rule],
+    /// `--base`: keep only findings on lines added since this git revision, so a
+    /// bar the older code does not meet yet holds every line a change writes.
+    pub(super) base: Option<&'a str>,
+}
+
 /// Run `scan` over `roots`: findings on stdout one per line as
 /// `path:line: [rule] evidence`, a refused file on stderr, then the summary.
 ///
 /// Each root is walked once. A manifest is kept by that walk only when
 /// ALLOW-SILENCE is selected, because a manifest carries lint levels and no other
 /// rule reads one; a root that cannot be walked is one refusal naming the root.
+/// With a base, a finding off the lines the change added is dropped, and a base
+/// git cannot read is one refusal naming it: the scan never passes a change it
+/// could not measure.
 pub(super) fn run(
     roots: &[PathBuf],
     json: bool,
-    rules: &[Rule],
+    selection: &Selection<'_>,
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> io::Result<ExitCode> {
+    let rules = selection.rules;
     let manifests = rules.contains(&Rule::AllowSilence);
     let mut readings = Vec::new();
     for root in roots {
@@ -196,6 +212,9 @@ pub(super) fn run(
             }),
         }
     }
+    if let Some(base) = selection.base {
+        keep_added(base, &mut readings);
+    }
     let counts = Counts::of(&readings);
     if json {
         write_json(&readings, &counts, out)?;
@@ -204,6 +223,44 @@ pub(super) fn run(
         write_summary(&counts, out, err)?;
     }
     Ok(counts.verdict().exit())
+}
+
+/// Drop every finding off the lines added since `base`, read by the one diff
+/// reader; a file the change did not touch keeps none. A base git cannot read
+/// becomes one refusal naming it.
+fn keep_added(base: &str, readings: &mut Vec<ScanReading>) {
+    let added = match hunks::added_since(Path::new("."), base, "*") {
+        Ok(added) => added,
+        Err(error) => {
+            readings.push(ScanReading {
+                path: PathBuf::from(format!("--base {base}")),
+                outcome: Err(format!("--base {base}: {error}")),
+            });
+            return;
+        }
+    };
+    for reading in readings.iter_mut() {
+        let Ok(ref mut hits) = reading.outcome else {
+            continue;
+        };
+        match added.get(&relative_name(&reading.path)) {
+            Some(ranges) => hits.retain(|hit| {
+                ranges
+                    .iter()
+                    .any(|&(first, last)| first <= hit.line() && hit.line() <= last)
+            }),
+            None => hits.clear(),
+        }
+    }
+}
+
+/// A walked path as git names it: `/`-separated, with no `.` component.
+fn relative_name(path: &Path) -> String {
+    path.components()
+        .filter(|component| *component != Component::CurDir)
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// The closing line: `OK` on stdout for a clean tree, `REFUSED` on stderr when

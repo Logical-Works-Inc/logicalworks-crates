@@ -19,16 +19,18 @@
 //! code paths.
 
 use super::{
-    Block, Bound, BranchValue, Call, Code, Construct, Domain, Duration, Each, Flow, FlowShape, For,
-    Fragment, IfChain, Kind, Outside, Retry, Script, Site, Statement, Step, StepShape, Together,
-    Within,
+    Block, Bound, BranchValue, Call, Code, Construct, Domain, Duration, Each, Flow, For, Fragment,
+    IfChain, Kind, Outside, Retry, Script, Site, Statement, Step, Together, Within,
 };
 use super::{Refusal, Result};
 use proc_macro2::{Group, Ident, Literal, Span, TokenStream, TokenTree};
 use quote::{ToTokens, quote};
 
+mod admit;
 mod serve;
 mod vocab;
+
+use admit::{domain_admission, flow_shape, outside_admission};
 
 /// The runtime every expansion calls into.
 fn runtime() -> TokenStream {
@@ -151,6 +153,18 @@ impl Body {
 /// # Errors
 ///
 /// A word this crate's version does not generate.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::script::{emit, parse};
+///
+/// let script = parse("flow one() -> u8:\n    give back 1\n".parse()?)?;
+/// let rust = emit::script(&script)?.to_string();
+/// assert!(rust.contains("async fn one"));
+/// assert!(rust.contains("ARCHITECTURE"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn script(script: &Script) -> Result<TokenStream> {
     let mut output = TokenStream::new();
     let mut flows = Vec::new();
@@ -613,78 +627,6 @@ fn outside(used: &Outside) -> Result<TokenStream> {
     Ok(quote!((#invoked).await))
 }
 
-/// The admission a flow runs before its first step when it names any domain.
-fn domain_admission(steps: &[StepShape]) -> Result<TokenStream> {
-    let mut uses: Vec<(Kind, &str)> = Vec::new();
-    collect_domains(steps, &mut uses);
-    if uses.is_empty() {
-        return Ok(TokenStream::new());
-    }
-    let script = runtime();
-    let mut entries = Vec::new();
-    for (kind, id) in uses {
-        entries.push(match kind {
-            Kind::Observe => quote!(#script::DomainUse::observe(#id)),
-            Kind::Act => quote!(#script::DomainUse::act(#id)),
-            _ => {
-                let refusal = newer_word("domain call");
-                tracing::debug!(error = %refusal, "domain_admission: returning an error to the caller");
-                return Err(refusal);
-            }
-        });
-    }
-    Ok(quote!(#script::admit_domains(scope, &[#(#entries),*])?;))
-}
-
-/// Every domain step in `steps` and their children, in source order.
-fn collect_domains<'shape>(steps: &'shape [StepShape], uses: &mut Vec<(Kind, &'shape str)>) {
-    for step in steps {
-        let kind = step.kind();
-        if matches!(kind, Kind::Observe | Kind::Act) {
-            let used = (kind, step.subject());
-            if !uses.contains(&used) {
-                uses.push(used);
-            }
-        }
-        collect_domains(step.children(), uses);
-    }
-}
-
-/// The admission a flow runs before its first step when it names any outside word.
-fn outside_admission(steps: &[StepShape]) -> Result<TokenStream> {
-    let mut uses: Vec<Kind> = Vec::new();
-    collect_outside(steps, &mut uses);
-    if uses.is_empty() {
-        return Ok(TokenStream::new());
-    }
-    let script = runtime();
-    let mut entries = Vec::new();
-    for kind in uses {
-        entries.push(match kind {
-            Kind::Fetch => quote!(#script::OutsideWord::Fetch),
-            Kind::Ask => quote!(#script::OutsideWord::Ask),
-            Kind::Send => quote!(#script::OutsideWord::Send),
-            _ => {
-                let refusal = newer_word("outside call");
-                tracing::debug!(error = %refusal, "outside_admission: returning an error to the caller");
-                return Err(refusal);
-            }
-        });
-    }
-    Ok(quote!(#script::admit_outside(scope, &[#(#entries),*])?;))
-}
-
-/// Every outside step in `steps` and their children, in source order.
-fn collect_outside(steps: &[StepShape], uses: &mut Vec<Kind>) {
-    for step in steps {
-        let kind = step.kind();
-        if matches!(kind, Kind::Fetch | Kind::Ask | Kind::Send) && !uses.contains(&kind) {
-            uses.push(kind);
-        }
-        collect_outside(step.children(), uses);
-    }
-}
-
 /// A `&'static Site` for `site`.
 fn site_of(site: &Site) -> TokenStream {
     site_static(site.kind(), site.line(), site.text())
@@ -725,36 +667,6 @@ fn line_literal(line: usize) -> Literal {
     match u32::try_from(line) {
         Ok(number) => Literal::u32_unsuffixed(number),
         Err(_more_lines_than_a_u32_holds) => Literal::u32_unsuffixed(u32::MAX),
-    }
-}
-
-/// A flow's `FlowShape::new(..)` entry in the map.
-fn flow_shape(shape: &FlowShape) -> TokenStream {
-    let script = runtime();
-    let name = shape.name();
-    let signature = shape.signature();
-    let line = line_literal(shape.line());
-    let steps = shape.steps().iter().map(step_shape);
-    let passthrough = shape.passthrough().iter().map(|passed| {
-        let line = line_literal(passed.line());
-        let text = passed.text();
-        quote!(#script::Passthrough::new(#line, #text))
-    });
-    quote! {
-        #script::FlowShape::new(#name, #signature, #line, &[#(#steps),*], &[#(#passthrough),*])
-    }
-}
-
-/// A step's `StepShape::new(..)` entry in the map.
-fn step_shape(shape: &StepShape) -> TokenStream {
-    let script = runtime();
-    let kind = Ident::new(&format!("{:?}", shape.kind()), Span::call_site());
-    let subject = shape.subject();
-    let detail = shape.detail();
-    let line = line_literal(shape.line());
-    let children = shape.children().iter().map(step_shape);
-    quote! {
-        #script::StepShape::new(#script::StepKind::#kind, #subject, #detail, #line, &[#(#children),*])
     }
 }
 

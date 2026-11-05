@@ -32,6 +32,19 @@ use cards::Card;
 use params::{include_member, read_dataset, split_pair, split_params, substitute};
 
 /// A JCL job: its name, its steps, and the symbolics and procs they read.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyLimits, jcl::parse_job, json::job_json};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// let source = "//PAYJOB   JOB (ACCT),'PAY'\n//STEP1    EXEC PGM=PAYROLL\n//IN       DD DSN=PAY.INPUT,DISP=SHR\n";
+/// let job = parse_job(source, &limits)?;
+/// let json = job_json(&job, &limits)?;
+/// assert_eq!(json.get("name").and_then(|name| name.as_str()), Some("PAYJOB"));
+/// # Ok::<(), lgwks_ast::legacy::LegacyError>(())
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Job {
@@ -165,6 +178,19 @@ pub(crate) struct Include {
 /// A [`LegacyError`] past any ceiling, or
 /// [`LegacyError::UnknownStatement`] for the first card outside the admitted
 /// set, at its line.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyLimits, jcl::parse_job, json::job_json};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// let source = "//PAYJOB   JOB (ACCT),'PAY'\n//STEP1    EXEC PGM=PAYROLL\n//IN       DD DSN=PAY.INPUT,DISP=SHR\n";
+/// let job = parse_job(source, &limits)?;
+/// let json = job_json(&job, &limits)?;
+/// assert_eq!(json.get("name").and_then(|name| name.as_str()), Some("PAYJOB"));
+/// # Ok::<(), lgwks_ast::legacy::LegacyError>(())
+/// ```
 pub fn parse_job(source: &str, limits: &LegacyLimits) -> Result<Job, LegacyError> {
     limits.check_bytes(source.len())?;
     let cards = cards::read_cards(source, limits)?;

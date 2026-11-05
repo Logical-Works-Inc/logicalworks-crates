@@ -56,19 +56,62 @@ pub use self::walk::{
 
 /// One parsed source file, owning its tree. Defaults to a built-in [`Language`];
 /// a caller-registered grammar parses to `Parsed<CustomLang>`.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, Parsed, try_parse};
+///
+/// let tree: Parsed = try_parse("fn main() {}", Language::Rust)?;
+/// assert_eq!(tree.root().kind(), "source_file");
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub type Parsed<L = SupportLang> = AstGrep<StrDoc<L>>;
 
 /// One node of a [`Parsed`] tree.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{AstNode, Language, try_parse};
+///
+/// let tree = try_parse("fn main() {}", Language::Rust)?;
+/// let root: AstNode<'_> = tree.root();
+/// let kinds: Vec<String> = root.children().map(|child| child.kind().into_owned()).collect();
+/// assert_eq!(kinds, ["function_item"]);
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub type AstNode<'t, L = SupportLang> = Node<'t, StrDoc<L>>;
 
 /// Largest source admitted to the checked parser (2 MiB). This is the input
 /// bound that keeps parse work linear in bytes.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_SOURCE_BYTES, ParseError, try_parse};
+///
+/// let oversized = " ".repeat(MAX_SOURCE_BYTES + 1);
+/// let refused = try_parse(&oversized, Language::Rust);
+/// assert!(matches!(refused, Err(ParseError::SourceTooLarge { .. })));
+/// ```
 pub const MAX_SOURCE_BYTES: usize = 2 * 1024 * 1024;
 
 /// Largest concrete syntax tree admitted; bounds downstream walks, which a
 /// byte bound alone does not price. Measured on the tree after tree-sitter has
 /// built it, so it does not cap the parser's own allocation. The walk is linear
 /// in tree size, so this ceiling prices its *worst case*, not its running cost.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_AST_NODES, inspect_ast, try_parse};
+///
+/// let tree = try_parse("fn f() {}", Language::Rust)?;
+/// let metrics = inspect_ast(&tree.root(), Some(MAX_AST_NODES));
+/// assert!(metrics.complete && metrics.nodes <= MAX_AST_NODES);
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub const MAX_AST_NODES: usize = 2_000_000;
 
 /// Deepest branch a checked parse admits, root counting as 1.
@@ -85,6 +128,18 @@ pub const MAX_AST_NODES: usize = 2_000_000;
 /// a tree on purpose may want the real depth of a malformed one; the ceiling's
 /// only producer is the checked parse, which reports it as
 /// [`ParseError::AstTooDeep`].
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_AST_DEPTH, ParseError, try_parse};
+///
+/// let open = "(".repeat(MAX_AST_DEPTH);
+/// let close = ")".repeat(MAX_AST_DEPTH);
+/// let nested = format!("fn f() -> u8 {{ {open}1{close} }}");
+/// let refused = try_parse(&nested, Language::Rust);
+/// assert!(matches!(refused, Err(ParseError::AstTooDeep { .. })));
+/// ```
 pub const MAX_AST_DEPTH: usize = 512;
 
 /// How long a checked parse may hold its thread when the caller names no
@@ -106,6 +161,19 @@ pub const MAX_AST_DEPTH: usize = 512;
 /// the measuring host and stops every adversarial row the rig recorded. A
 /// caller with a tighter budget, or a slower host, names its own through
 /// [`try_parse_within`].
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+///
+/// use lgwks_ast::{DEFAULT_PARSE_DEADLINE, Language, try_parse_within};
+///
+/// assert_eq!(DEFAULT_PARSE_DEADLINE, Duration::from_secs(10));
+/// let tree = try_parse_within("fn f() {}", Language::Rust, DEFAULT_PARSE_DEADLINE / 10)?;
+/// assert_eq!(tree.root().kind(), "source_file");
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub const DEFAULT_PARSE_DEADLINE: Duration = Duration::from_secs(10);
 
 /// Largest number of block containers one line of markdown may declare (64).
@@ -139,12 +207,32 @@ pub const DEFAULT_PARSE_DEADLINE: Duration = Duration::from_secs(10);
 /// and only on the checked parse. The count needs no grammar and no cargo
 /// feature, so the rule is present in every build rather than appearing only
 /// where `lang-md` happens to be on.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_MARKDOWN_CONTAINERS_PER_LINE, ParseError, try_parse};
+///
+/// let nested = format!("{}item\n", "- ".repeat(MAX_MARKDOWN_CONTAINERS_PER_LINE + 1));
+/// let refused = try_parse(&nested, Language::Markdown);
+/// assert!(matches!(refused, Err(ParseError::ContainerNestingTooDeep { .. })));
+/// ```
 pub const MAX_MARKDOWN_CONTAINERS_PER_LINE: usize = 64;
 
 /// Largest probe source admitted to [`try_detect_content`] (64 KiB). Content
 /// detection costs one full parse per distinct candidate grammar, so it is
 /// bounded far below [`MAX_SOURCE_BYTES`]; a language probe only needs enough bytes to
 /// show one clean reading.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_DETECT_BYTES, ParseError, try_detect_content};
+///
+/// let probe = " ".repeat(MAX_DETECT_BYTES + 1);
+/// let refused = try_detect_content(&probe, &[Language::Rust]);
+/// assert!(matches!(refused, Err(ParseError::SourceTooLarge { .. })));
+/// ```
 pub const MAX_DETECT_BYTES: usize = 64 * 1024;
 
 /// Longest `#!` line [`Language::of_shebang`] will read (256 bytes).
@@ -153,12 +241,47 @@ pub const MAX_DETECT_BYTES: usize = 64 * 1024;
 /// is well under 128 bytes. The bound is what makes the read safe to point at
 /// an arbitrary file: a binary whose first "line" is a megabyte of non-newline
 /// bytes is refused in constant time rather than scanned.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_SHEBANG_BYTES};
+///
+/// assert_eq!(Language::of_shebang("#!/usr/bin/env python3\n"), Some(Language::Python));
+/// let endless = format!("#!{}", "x".repeat(MAX_SHEBANG_BYTES));
+/// assert_eq!(Language::of_shebang(&endless), None);
+/// ```
 pub const MAX_SHEBANG_BYTES: usize = 256;
 
 /// Maximum recovery diagnostics retained from one checked parse.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, MAX_SYNTAX_DIAGNOSTICS, ParseError, try_parse};
+///
+/// let broken = "fn f( {}\n".repeat(100);
+/// if let Err(ParseError::InvalidSyntax { diagnostics, .. }) = try_parse(&broken, Language::Rust) {
+///     assert!(diagnostics.len() <= MAX_SYNTAX_DIAGNOSTICS);
+/// }
+/// ```
 pub const MAX_SYNTAX_DIAGNOSTICS: usize = 32;
 
 /// A checked-parse refusal. None of these may be reported as clean.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, ParseError, try_parse};
+///
+/// match try_parse("fn broken( {}", Language::Rust) {
+///     Err(ParseError::InvalidSyntax { language, diagnostics, .. }) => {
+///         println!("{language}: {} recovery nodes", diagnostics.len());
+///     }
+///     Err(refusal) => println!("refused: {refusal}"),
+///     Ok(_) => println!("clean"),
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum ParseError {
@@ -274,6 +397,16 @@ pub enum ParseError {
 ///
 /// A source whose second function is malformed reports its recovery on line 2, read from
 /// the tree itself; the unit test `tree_diagnostics_reads_the_source_from_the_tree` runs that.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, parse, tree_diagnostics};
+///
+/// let tree = parse("fn ok() {}\nfn broken( {}\n", Language::Rust);
+/// let found = tree_diagnostics("lib.rs", &tree, Language::Rust.name());
+/// assert!(!found.is_empty());
+/// ```
 #[must_use]
 pub fn tree_diagnostics<L: LanguageExt>(
     path: impl Into<std::path::PathBuf>,
@@ -287,6 +420,15 @@ pub fn tree_diagnostics<L: LanguageExt>(
 ///
 /// The count behind [`has_syntax_issues`], which collapses the same question to
 /// one sticky bit and cannot say where the damage is.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, parse, tree_recovery_count};
+///
+/// assert_eq!(tree_recovery_count(&parse("fn ok() {}", Language::Rust)), 0);
+/// assert!(tree_recovery_count(&parse("fn broken( {}", Language::Rust)) > 0);
+/// ```
 #[must_use]
 pub fn tree_recovery_count<L: LanguageExt>(tree: &Parsed<L>) -> usize {
     diagnostic::recovery_count(&tree.root())
@@ -320,6 +462,18 @@ impl ParseError {
     ///
     /// A whole-file refusal such as `SourceTooLarge` reports as an error with an empty span;
     /// the unit test `a_whole_file_refusal_reports_an_empty_error_span` runs that.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::{Language, try_parse};
+    ///
+    /// let source = "fn broken( {}";
+    /// if let Err(refusal) = try_parse(source, Language::Rust) {
+    ///     let diagnostic = refusal.to_diagnostic("lib.rs", source);
+    ///     println!("{diagnostic:?}");
+    /// }
+    /// ```
     #[must_use]
     pub fn to_diagnostic(&self, path: impl Into<std::path::PathBuf>, source: &str) -> Diagnostic {
         let span = match *self {
@@ -338,6 +492,18 @@ impl ParseError {
 }
 
 /// Kind of tree-sitter recovery node reported by a checked parse.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, ParseError, SyntaxIssueKind, try_parse};
+///
+/// if let Err(ParseError::InvalidSyntax { diagnostics, .. }) = try_parse("fn f( {}", Language::Rust) {
+///     for found in diagnostics {
+///         assert!(matches!(found.kind, SyntaxIssueKind::Error | SyntaxIssueKind::Missing));
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SyntaxIssueKind {
@@ -348,6 +514,19 @@ pub enum SyntaxIssueKind {
 }
 
 /// A bounded recovery diagnostic with byte offsets into the original source.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, ParseError, try_parse};
+///
+/// let source = "fn f( {}";
+/// if let Err(ParseError::InvalidSyntax { diagnostics, .. }) = try_parse(source, Language::Rust) {
+///     for found in diagnostics {
+///         assert!(found.start_byte <= found.end_byte && found.end_byte <= source.len());
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SyntaxDiagnostic {
@@ -360,6 +539,18 @@ pub struct SyntaxDiagnostic {
 }
 
 /// Why a bounded AST inspection stopped before visiting the full tree.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{InspectionStopReason, Language, inspect_ast, try_parse};
+///
+/// let tree = try_parse("fn f() { let x = 1; }", Language::Rust)?;
+/// let metrics = inspect_ast(&tree.root(), Some(1));
+/// assert!(!metrics.complete);
+/// assert_eq!(metrics.stop_reason, Some(InspectionStopReason::NodeLimitExceeded));
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum InspectionStopReason {
@@ -376,6 +567,20 @@ pub enum InspectionStopReason {
 }
 
 /// Complete content-detection result after every distinct candidate was checked.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{ContentDetection, Language, try_detect_content};
+///
+/// match try_detect_content("fn main() { let x: u8 = 1; }", &[Language::Rust, Language::Python])? {
+///     ContentDetection::Unique(language) => println!("reads as {}", language.name()),
+///     ContentDetection::Ambiguous => println!("several grammars accept it"),
+///     ContentDetection::NoMatch => println!("no candidate accepts it"),
+///     _ => println!("a later verdict"),
+/// }
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ContentDetection {
@@ -392,6 +597,18 @@ pub enum ContentDetection {
 /// There is no `Default`: every value comes from a walk, so `complete` always
 /// says whether that walk visited the whole tree. A default would be a value no
 /// walk produced, with `complete == false` reading as a partial inspection.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, inspect_ast, try_parse};
+///
+/// let tree = try_parse("fn f() {}", Language::Rust)?;
+/// let metrics = inspect_ast(&tree.root(), None);
+/// assert!(metrics.complete && !metrics.has_syntax_issues);
+/// assert!(metrics.nodes > 1 && metrics.max_depth > 1);
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AstMetrics {

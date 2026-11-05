@@ -73,5 +73,26 @@ of the tuple layer and the ECS identity surface.
 
 | Module | Owns | Invariant |
 |---|---|---|
-| `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV` | INV-DOC-3 |
-| `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs; the pages a change added lines to | INV-DOC-5 |
+| `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV`, read through `lgwks_ast::hunks` | INV-DOC-3 |
+| `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs | INV-DOC-5 |
+
+### `lgwks_ast::scan` and `lgwks_ast::hunks`
+
+| Module | Owns | Invariant |
+|---|---|---|
+| `scan` | `Rule`, `Rule::ALL` (the whole scan) and `Rule::OPT_IN`, `scan_source_with`; `lgwks-ast scan --base REV` keeps findings on added lines | INV-SCAN-ZERO |
+| `scan::example` | the opt-in `missing-example` rule: a `pub` library item whose doc opens no fenced block | INV-DOC-6 |
+| `hunks` | `added_since`: the lines a change adds per file, the one `git diff --unified=0` reader | INV-DOC-6, INV-DOC-5 |
+
+### `lgwks_ast::script` and `lgwks_ast::diagnostic`
+
+| Module | Owns | Invariant |
+|---|---|---|
+| `script::lexicon::words` | the core words' rows, `flow` to `fail`; `vocab` holds the structured words | SL-1 |
+| `script::tree::blocks` | `Flow`, `Block` and the block words `each`, `within`, `retry`, `step`, `for` | SL-2 |
+| `script::tree::branch` | `Together`, `Branch` and the `if` chain | SL-2 |
+| `script::tree::feeds` | `Whenever`, `Overflow` and `Justify` | SL-2 |
+| `script::tree::map` | `MapStep` and `write_map`, the one map rendering (#384) | SL-2 |
+| `script::tree::shape` | `FlowShape`, `StepShape` and `Passthrough`, the map's entries | SL-2 |
+| `script::emit::admit` | the domain and outside admissions a flow runs first, and the map entries it emits | SL-2 |
+| `diagnostic::tests`, `diagnostic::line_index_tests` | the located-diagnostic and line-index tests | INV-AST-2 |
