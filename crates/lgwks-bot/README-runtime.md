@@ -55,7 +55,6 @@ task is tracked in a `JoinSet` and observes a `CancellationToken`.
 runs sixteen inputs through `join_all_bounded(4, …)`, four at a time, and gets
 sixteen results.
 
-
 ## The other crates
 
 Five crates ship from this repository — the four in the table below plus
@@ -72,5 +71,5 @@ release process, not a dependency graph: `lgwks_bot` and `lgwks_deps` depend on
 | [`lgwks_ast`](https://docs.rs/lgwks_ast) | Parse many languages into one AST type, with bounded traversal and typed diagnostics |
 | [`lgwks_deps`](https://docs.rs/lgwks_deps) | The audited storefront for third-party stacks. The runtime's driver is selected through it, so this crate's driver edge is the workspace's only one |
 
-The [repository README](https://github.com/srinji-kaggss/logicalworks-crates#readme)
+The [repository README](https://github.com/Logical-Works-Inc/logicalworks-crates#readme)
 indexes the design documents.

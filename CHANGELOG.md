@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_deps 6.1.0 / lgwks_std 4.0.2 / lgwks_ast 5.1.1 / lgwks_macros 2.0.2 / lgwks_bot 7.1.1 / drishti 0.1.2 - 2026-11-05: [notes](docs/changelog/11-agent-standards-2026-11-05.md)
 - lgwks_std 4.0.1 / lgwks_ast 5.1.0 / lgwks_deps 6.0.1 / lgwks_macros 2.0.1 / lgwks_bot 7.1.0 / drishti 0.1.1 - 2026-11-05: [notes](docs/changelog/10-tokens-openapi-ceremony-adversary-2026-11-05.md)
 - lgwks_std 4.0.0 / lgwks_ast 5.0.0 / lgwks_deps 6.0.0 / lgwks_macros 2.0.0 / lgwks_bot 7.0.0 / drishti 0.1.0 - 2026-11-04: [1](docs/changelog/09-sealed-ids-script-edge-2026-11-04.md) · [2](docs/changelog/08-own-json-value-2026-11-03.md)
 - lgwks_std 3.2.2 / lgwks_deps 5.1.2 / lgwks_ast 4.1.0 / lgwks_macros 1.3.0 / lgwks_bot 6.1.0 - 2026-10-29, drishti 0.1.0 listed but not uploaded: [notes](docs/changelog/07-durable-words-2026-10-29.md)

@@ -81,7 +81,7 @@ tree-sitter has built it, so they bound the validation walk and every
 downstream walk, not the parser's own allocation. The parser's allocation
 is bounded by input, not by a counter in this crate: the worst case at the
 byte ceiling is **the measured peak RSS in
-[`bench/README.md`](https://github.com/srinji-kaggss/logicalworks-crates/blob/main/bench/README.md),
+[`bench/README.md`](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/main/bench/README.md),
 per grammar**, produced by the `parse_budget` example. Read that number for
 what one parse of a full [`MAX_SOURCE_BYTES`] source costs resident memory;
 the two tree bounds are what make the *walk* bounded, not the parser.

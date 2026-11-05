@@ -18,6 +18,9 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 #[path = "support/target_dir.rs"]
 mod target_dir;
 
+#[path = "storefront_consumers/sim_agent_standards.rs"]
+mod sim_agent_standards;
+
 use target_dir::workspace_target_dir;
 
 fn cargo_check(manifest: &Path, args: &[&str]) -> Result<Output, Box<dyn std::error::Error>> {
@@ -228,6 +231,75 @@ fn storefront_sqlite_runs_its_journey() -> TestResult {
     Ok(())
 }
 
+/// One `#[test]` per agent-standards journey (ADR 0015): each runs offline with
+/// only its own feature on and exits non-zero on its first refusal, so the
+/// status is the verdict.
+macro_rules! storefront_journeys {
+    ($($name:ident => ($feature:literal, $example:literal),)+) => {$(
+        #[test]
+        fn $name() -> TestResult {
+            let manifest = fixtures().join("storefront-matrix/Cargo.toml");
+            let output = cargo_run(
+                &manifest,
+                &["--no-default-features", "--features", $feature, "--example", $example],
+            )?;
+            assert!(
+                output.status.success(),
+                "{} journey failed:\n{}",
+                $example,
+                output_text(&output)
+            );
+            Ok(())
+        }
+    )+};
+}
+
+storefront_journeys! {
+    storefront_mcp_runs_its_journey => ("mcp", "mcp"),
+    storefront_model_runs_its_journey => ("model", "model"),
+    storefront_json_schema_runs_its_journey => ("json-schema", "json_schema"),
+    storefront_oauth2_runs_its_journey => ("oauth2", "oauth2"),
+    storefront_cose_runs_its_journey => ("cose", "cose"),
+    storefront_merkle_log_runs_its_journey => ("merkle-log", "merkle_log"),
+    storefront_otel_runs_its_journey => ("otel", "otel"),
+    storefront_script_json_schema_runs_its_journey => ("script-json-schema", "script_json_schema"),
+}
+
+/// Every agent-standards client shares rustls on ring: the `agent` tree holds
+/// no TLS provider that needs a C toolchain (aws-lc-sys and its cmake build, or
+/// OpenSSL), on the target this runs on.
+#[test]
+fn the_agent_feature_resolves_no_c_toolchain_provider() -> TestResult {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let tree = Command::new(env!("CARGO"))
+        .args(["tree", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--no-default-features",
+            "--features",
+            "agent",
+            "-e",
+            "normal,build",
+            "--prefix",
+            "none",
+        ])
+        .env("CARGO_TARGET_DIR", workspace_target_dir()?)
+        .output()?;
+    let tree_text = output_text(&tree);
+    assert!(tree.status.success(), "{tree_text}");
+    assert!(
+        tree_text.contains("ring v"),
+        "the agent tree lost its ring provider:\n{tree_text}"
+    );
+    for provider in ["aws-lc-sys v", "aws-lc-rs v", "openssl-sys v", "cmake v"] {
+        assert!(
+            !tree_text.contains(provider),
+            "the agent tree resolved {provider}:\n{tree_text}"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn the_storefront_matrix_default_graph_carries_no_optional_family() -> TestResult {
     let manifest = fixtures().join("storefront-matrix/Cargo.toml");
@@ -250,6 +322,15 @@ fn the_storefront_matrix_default_graph_carries_no_optional_family() -> TestResul
         "rusqlite v",
         "tokio v",
         "nix v",
+        "rmcp v",
+        "genai v",
+        "jsonschema v",
+        "oauth2 v",
+        "coset v",
+        "ct-merkle v",
+        "opentelemetry v",
+        "rustls v",
+        "reqwest v",
     ] {
         assert!(
             !tree_text.contains(optional_package),

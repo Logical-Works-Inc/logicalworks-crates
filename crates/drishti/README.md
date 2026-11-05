@@ -8,7 +8,6 @@
 cargo run --release --features ui --example ink_lab                       # open the ink lab
 cargo run --release --features ui --example ink_lab -- --frames 600 --json # measured session
 ```
-
 Drishti is a Rust-first frontend framework design grounded in immersive, context-preserving interaction: documents recall where work stopped, workflows become inspectable routes, and people compose automation from meaningful operations rather than callback plumbing. Ordinary forms and conventional applications remain first-class; immersion is not compulsory animation or a mandatory 3D world.
 
 The default presentation language is the Director's Logical Works brand — **flat build, liquid motion**: semantic tokens that name roles, nine flat colourways, and eleven ink effects that always settle on the crisp static mark. The brand is not a skin over the framework; its "everything resolves" rule is the same requirement as reduced-motion equivalence and accessible navigation, so the ink lab is part of the correctness surface.
@@ -52,7 +51,6 @@ drishti limits                      every bound the engine and the runtime decla
 drishti docs [PAGE]                 the design publication, one page at a time
 drishti lab                         the native window (feature `ui`)
 ```
-
 Each prints one JSON document; a refusal is one JSON line on stderr with a failing status. `tests/cli.rs` drives the built binary.
 
 Verification, from the workspace root:
@@ -62,7 +60,6 @@ cargo clippy -p drishti --all-targets --locked -- -D warnings
 cargo clippy -p drishti --all-targets --features ui --locked -- -D warnings
 cargo nextest run -p drishti --locked
 ```
-
 These commands do not discharge runtime, security, experience, performance, or Keel obligations; G01–G15 in `docs/decisions.md` stay blocked. There is deliberately no empty runtime scaffold or green placeholder lane.
 
 ## Finalized requirements amendment
@@ -71,5 +68,5 @@ The 2026-09-12 contract amendment in `docs/contract.md` captures the Director's 
 
 ## Publisher
 
-Logical Works Incorporated publishes `drishti` as one of six independently versioned crates in [logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+Logical Works Incorporated publishes `drishti` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.

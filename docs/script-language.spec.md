@@ -1,7 +1,7 @@
 # The script language: one lexicon, one parser
 
 Status: **Director direction of 2026-10-08; proposed, not implemented.**
-Baseline: `a23ad5890`. Tracker: [#390](https://github.com/srinji-kaggss/logicalworks-crates/issues/390), the ordered queue that names the issue making each rule true. Code-shaped blocks are design examples, labelled `text`. **Open decision (the Director's):** where the one parser lives — a default-off `script` feature of `lgwks_ast` (the proposal below) or a sixth member the Director names; #383 waits on it.
+Baseline: `a23ad5890`. Tracker: [#390](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/390), the ordered queue that names the issue making each rule true. Code-shaped blocks are design examples, labelled `text`. **Open decision (the Director's):** where the one parser lives — a default-off `script` feature of `lgwks_ast` (the proposal below) or a sixth member the Director names; #383 waits on it.
 
 ## What the language is for
 

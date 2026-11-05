@@ -32,7 +32,7 @@ Writing resilient async logic in Rust usually forces a bad compromise:
 | `await ready(&db, 30s)` | **Sleep-based readiness guesses**: Deterministic readiness probes instead of sleep loops. |
 | `admit the model's plan:` | **Untrusted AI execution**: Gated admission ensures untrusted LLM outputs cannot execute without validation. |
 
-For architectural comparisons and benchmarks against Temporal and raw Tokio, see [Durable Execution in Rust](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md).
+For architectural comparisons and benchmarks against Temporal and raw Tokio, see [Durable Execution in Rust](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md).
 
 ## Quickstart
 
@@ -71,13 +71,13 @@ The supported interface is `script!`, `try_join!` and the `script` module. [READ
 
 ## Architecture: one ECS world, one driver
 
-[ADR 0006](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/adr/0006-one-ecs-world-one-tokio-axum-driver.md)
+[ADR 0006](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/adr/0006-one-ecs-world-one-tokio-axum-driver.md)
 fixes the shape. One ECS world is the core: a source moving, a run admitted or
 settled, a timer firing is an event written to it, and effects leave through
 the journal. One driver on tokio and axum sits below the world, used only where
 rebuilding the piece makes no sense, and a consumer never names it: it is owned
-through the `lgwks_deps` storefront. `script!` is the framework above the world
-that an agent or a developer writes in.
+through the `lgwks_deps` storefront. Above the world sits `script!`, the
+framework an agent or a developer writes in.
 
 The boundary is a test, not a convention: `tests/it/core_boundary.rs` fails the
 build if a core module names the driver or a file outside `ecs/` names bevy.
@@ -102,8 +102,8 @@ Async-client limits are in [distributed-mesh boundaries](../../docs/distributed-
 
 ## Publisher
 
-Logical Works Incorporated publishes `lgwks_bot` as one of six independently versioned crates in [logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+Logical Works Incorporated publishes `lgwks_bot` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
 
 ## License
 

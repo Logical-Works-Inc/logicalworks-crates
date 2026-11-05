@@ -51,7 +51,6 @@ enum Diagnostic {
     Io(#[from] std::io::Error),
 }
 ```
-
 `#[derive(Error)]` expands to absolute `::thiserror::__private<N>::…` paths
 resolved in the consuming crate, so the `extern crate … as thiserror;` line is
 what makes the expansion resolve; the crate root re-exports the module it
@@ -63,7 +62,6 @@ grammar and no tree-sitter at all:
 ```toml
 lgwks_ast = { version = "3", default-features = false }
 ```
-
 Without default features the crate is the derive and the `diagnostic` types
 (`Diagnostic`, `Span`, `Pos`, `Severity`). The parser is the `parser` feature,
 which every `lang-*` feature enables; `default-features = false, features =
@@ -109,8 +107,8 @@ through its `script` and `tool` features.
 | [`lgwks_bot`](https://docs.rs/lgwks_bot) | A runtime for bots that run for weeks: four verbs, capability-gated authority, change-triggered execution, supervised background work |
 | [`lgwks_deps`](https://docs.rs/lgwks_deps) | The audited storefront for third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
 
-Logical Works Incorporated publishes `lgwks_ast` as one of six independently versioned crates in [logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+Logical Works Incorporated publishes `lgwks_ast` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
 
 ## License
 

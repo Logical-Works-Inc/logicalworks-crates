@@ -117,14 +117,11 @@ pub(super) const NODE: Word = block(
         "one node of the enclosing `graph`: its body runs once, after `a` and `b` have succeeded",
     )],
     &["a `node` outside a `graph`", "a name that is not one word"],
-    &[
-        NEEDS_RESPECTED,
-        refused(
-            Axis::Idiomatic,
-            "only ever stands inside a `graph`",
-            "node outside a graph",
-        ),
-    ],
+    &[refused(
+        Axis::Idiomatic,
+        "only ever stands inside a `graph`",
+        "node outside a graph",
+    )],
     GRAPH_EXAMPLE,
 );
 
@@ -171,7 +168,6 @@ pub(super) const COMPENSATE: Word = block(
         "a step no earlier line of the saga names",
     ],
     &[
-        REVERSE_ONCE,
         refused(
             Axis::Idiomatic,
             "only ever undoes a step written before it in the same saga",

@@ -67,7 +67,7 @@ fn approvals() -> impl Strategy<Value = Vec<Approval>> {
 /// The text a reviewer would commit for `approvals`.
 fn render_register(approvals: &[Approval]) -> String {
     let mut text = String::from(
-        "[policy]\nschema = 2\nenforce = true\nrepository = \"https://github.com/srinji-kaggss/logicalworks-crates\"\n",
+        "[policy]\nschema = 2\nenforce = true\nrepository = \"https://github.com/Logical-Works-Inc/logicalworks-crates\"\n",
     );
     for approval in approvals {
         text.push_str(&render_approval(approval));
@@ -96,7 +96,7 @@ fn render_approval(approval: &Approval) -> String {
         String::from("approved_by = \"maintainer\""),
         String::from("approved_on = \"2026-10-04\""),
         String::from(
-            "review = \"https://github.com/srinji-kaggss/logicalworks-crates/issues/273\"",
+            "review = \"https://github.com/Logical-Works-Inc/logicalworks-crates/issues/273\"",
         ),
         String::new(),
     ]
@@ -326,13 +326,16 @@ fn lock_duplicate_property(
     // line, unless the block already assigns `key` below it.
     let inserted_line = before.lines().count().saturating_add(1);
     let assigns = format!("{key} = ");
-    let line = text
+    let below = text
         .lines()
         .enumerate()
         .skip(inserted_line)
         .take_while(|&(_, row)| !row.is_empty())
-        .find(|&(_, row)| row.starts_with(&assigns))
-        .map_or(inserted_line, |(index, _)| index.saturating_add(1));
+        .find(|&(_, row)| row.starts_with(&assigns));
+    let line = match below {
+        Some((index, _)) => index.saturating_add(1),
+        None => inserted_line,
+    };
     let key_already_there = key == "name"
         || key == "version"
         || (target.checksum.is_some() && (key == "source" || key == "checksum"));

@@ -49,9 +49,23 @@ tokio-process = ["lgwks_deps/tokio-process"]
 tokio-fs = ["lgwks_deps/tokio-fs"]
 tokio-signal = ["lgwks_deps/tokio-signal"]
 tokio-full = ["lgwks_deps/tokio-full"]
+# Agent standards (ADR 0015). Each journey composes the estate owner it stands
+# on: lgwks_bot's runtime drives every future, lgwks_std::json builds every
+# schema, lgwks_std::sign seals COSE, lgwks_std::trace emits the bridged span and
+# lgwks_std::seeded drives each journey's `sim` mode.
+mcp = ["lgwks_deps/mcp", "dep:lgwks_bot", "dep:lgwks_std"]
+model = ["lgwks_deps/model", "dep:lgwks_bot", "dep:lgwks_std"]
+json-schema = ["lgwks_deps/json-schema", "dep:lgwks_std"]
+oauth2 = ["lgwks_deps/oauth2"]
+cose = ["lgwks_deps/cose", "dep:lgwks_std", "lgwks_std/sign"]
+merkle-log = ["lgwks_deps/merkle-log", "dep:lgwks_std", "lgwks_std/hash"]
+otel = ["lgwks_deps/otel", "dep:lgwks_bot", "dep:lgwks_std"]
+script-json-schema = ["json-schema", "dep:lgwks_bot", "lgwks_bot/script"]
 
 [dependencies]
 lgwks_deps = { path = "../../..", default-features = false }
+lgwks_std = { path = "../../../../lgwks-std", default-features = false, features = ["core", "json", "trace"], optional = true }
+lgwks_bot = { path = "../../../../lgwks-bot", default-features = false, features = ["rt", "io", "macros"], optional = true }
 
 [[example]]
 name = "appcui"
@@ -113,3 +127,27 @@ required-features = ["tokio-signal"]
 [[example]]
 name = "tokio_full"
 required-features = ["tokio-full"]
+[[example]]
+name = "mcp"
+required-features = ["mcp"]
+[[example]]
+name = "model"
+required-features = ["model"]
+[[example]]
+name = "json_schema"
+required-features = ["json-schema"]
+[[example]]
+name = "oauth2"
+required-features = ["oauth2"]
+[[example]]
+name = "cose"
+required-features = ["cose"]
+[[example]]
+name = "merkle_log"
+required-features = ["merkle-log"]
+[[example]]
+name = "otel"
+required-features = ["otel"]
+[[example]]
+name = "script_json_schema"
+required-features = ["script-json-schema"]

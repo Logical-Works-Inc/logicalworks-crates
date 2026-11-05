@@ -1,14 +1,14 @@
 [package]
 name = "lgwks_ast"
 description = "One multi-language AST parser: language identification from path or shebang, opt-in content parsing, tree-sitter grammar selection by cargo feature, bounded traversal, and span-carrying typed diagnostics. Includes a typed-diagnostic derive."
-version = "5.1.0"
+version = "5.1.1"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/srinji-kaggss/logicalworks-crates"
+repository = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 documentation = "https://docs.rs/lgwks_ast"
 readme = "README.md"
-homepage = "https://github.com/srinji-kaggss/logicalworks-crates/tree/main/crates/lgwks-ast"
+homepage = "https://github.com/Logical-Works-Inc/logicalworks-crates/tree/main/crates/lgwks-ast"
 categories = ["development-tools", "parser-implementations"]
 keywords = ["parser", "ast", "tree-sitter", "static-analysis", "code-analysis"]
 

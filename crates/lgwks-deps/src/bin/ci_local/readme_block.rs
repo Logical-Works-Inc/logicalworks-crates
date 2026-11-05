@@ -30,11 +30,11 @@ const CRATES: [&str; 6] = [
 ];
 
 /// The repository's README, as the block links it.
-const REPOSITORY_README: &str = "https://github.com/srinji-kaggss/logicalworks-crates#readme";
+const REPOSITORY_README: &str = "https://github.com/Logical-Works-Inc/logicalworks-crates#readme";
 
 /// `docs/should-i-use.md`, as the block links it.
 const SHOULD_I_USE: &str =
-    "https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md";
+    "https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md";
 
 /// The markdown link the front page carries to the agent-readable index.
 const LLMS_LINK: &str = "](llms.txt)";
@@ -177,7 +177,7 @@ mod tests {
     /// The block of crate `name`, as a README carries it.
     fn block_of(name: &str) -> String {
         format!(
-            "Logical Works Incorporated publishes `{name}` as one of six independently versioned crates in [logicalworks-crates](https://github.com/srinji-kaggss/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.\n[Should I use logicalworks-crates?](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.\n"
+            "Logical Works Incorporated publishes `{name}` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.\n[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.\n"
         )
     }
 

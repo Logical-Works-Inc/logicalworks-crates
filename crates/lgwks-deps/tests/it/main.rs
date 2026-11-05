@@ -58,6 +58,8 @@ mod identity_binding;
 mod lgwks_e2e;
 #[cfg(feature = "lgwks")]
 mod lgwks_json;
+#[cfg(feature = "lgwks")]
+mod lgwks_tls;
 mod metadata_dimensions;
 mod metadata_public_api;
 mod origin_binding;

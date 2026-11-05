@@ -13,7 +13,6 @@ Opens a block: its line ends in `:`. Calls `Scope::item`.
 Refuses: a missing pattern or missing items.
 
 Guarantees: items in order, one at a time (generalized); one scope per item (ephemeral).
-
 ```text
 flow notify(users: Vec<User>):
     for user in users:
@@ -29,7 +28,6 @@ Opens a block: its line ends in `:`. Calls none: Rust `if`.
 Refuses: a missing condition.
 
 Guarantees: a value only when an `else:` ends the chain (idiomatic).
-
 ```text
 flow route(code: u16) -> u8:
     if code < 400:
@@ -59,7 +57,6 @@ Opens a block: its line ends in `:`. Calls the block's own.
 Refuses: a `let` with no `=` or nothing after it.
 
 Guarantees: the block's failure propagates before `x` is bound (idiomatic).
-
 ```text
 flow total(xs: Vec<u8>) -> u8:
     let sum = within 1s:
@@ -76,7 +73,6 @@ Stands inside a line of Rust. Calls the callee flow.
 Refuses: nothing of its own.
 
 Guarantees: the callee runs in this tenant's scope (multi-tenant).
-
 ```text
 flow outer(site: &Site) -> usize:
     let pages = run crawl(site)
@@ -92,7 +88,6 @@ Stands inside a line of Rust. Calls `observe`.
 Refuses: an identifier with no `of <target>`.
 
 Guarantees: an identifier with no `of <target>` is refused at the word, naming the form (idiomatic); an identifier the registry lacks refuses the flow before its first step, naming the registry and the nearest identifier (decoupled); the same polls and actions, in the same order, as the `BotSpec` chain over the same registry (generalized); the source's capabilities are checked against this run's grant at the step (multi-tenant).
-
 ```text
 flow open(repo: &str) -> u16:
     let open: u16 = observe github::pr_status of repo
@@ -107,8 +102,7 @@ Stands inside a line of Rust. Calls `act`.
 
 Refuses: an identifier with no `on <target> with <value>`.
 
-Guarantees: an identifier with no `on <target> with <value>` is refused at the word, naming the form (idiomatic); the action runs once, under exactly the grants it declares; an external one settles a repeat by reading its receiver back (ephemeral); the same polls and actions, in the same order, as the `BotSpec` chain over the same registry (generalized); an identifier the registry lacks refuses the flow before its first step, naming the registry and the nearest identifier (decoupled).
-
+Guarantees: a missing receiver or value stops at the word, which shows `on <target> with <value>` (idiomatic); the action runs once, under exactly the grants it declares; an external one settles a repeat by reading its receiver back (ephemeral).
 ```text
 flow page(count: u16):
     if count > 2:

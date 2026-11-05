@@ -360,7 +360,7 @@ pub(super) const ACT: Word = domain_word(
     &[
         refused(
             Axis::Idiomatic,
-            "an identifier with no `on <target> with <value>` is refused at the word, naming the form",
+            "a missing receiver or value stops at the word, which shows `on <target> with <value>`",
             "act with no value",
         ),
         domain_sim(
@@ -368,8 +368,6 @@ pub(super) const ACT: Word = domain_word(
             "the action runs once, under exactly the grants it declares; an external one settles a repeat by reading its receiver back",
             "an_external_action_runs_once_under_its_grant",
         ),
-        SAME_AS_SPEC,
-        UNKNOWN_DOMAIN_REFUSED,
     ],
     "flow page(count: u16):\n    if count > 2:\n        act notify::page on \"oncall\" with count\n",
 );

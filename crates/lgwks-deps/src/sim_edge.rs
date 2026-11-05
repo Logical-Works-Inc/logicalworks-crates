@@ -53,8 +53,8 @@ const REGISTRIES: [&str; 5] = [
 
 /// Git repositories.
 const REPOSITORIES: [&str; 3] = [
-    "git+https://github.com/srinji-kaggss/a",
-    "git+https://github.com/srinji-kaggss/b",
+    "git+https://github.com/Logical-Works-Inc/a",
+    "git+https://github.com/Logical-Works-Inc/b",
     "git+ssh://git@host.test/x",
 ];
 

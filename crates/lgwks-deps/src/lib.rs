@@ -120,6 +120,15 @@
 //! | `time-jiff` | interim zoned time until ELIMINATE lands in `lgwks_std::time` |
 //! | `sqlite` | the one durable SQLite, opened with the estate's defaults |
 //! | `sealed-aead` | the one AEAD the sealed records seal under (#785) |
+//! | `tls-ring` | rustls on ring for in-process TLS, installed by `tls::install_ring` |
+//! | `mcp` | the Model Context Protocol SDK: server, client, stdio, child-process, streamable HTTP, OAuth |
+//! | `model` | one client for every model provider |
+//! | `json-schema` | JSON Schema 2020-12 validation |
+//! | `oauth2` | the OAuth 2.1 authorization-code flow with PKCE |
+//! | `cose` | COSE_Sign1 envelopes (RFC 9052) |
+//! | `merkle-log` | the RFC 6962 append-only log and its proofs |
+//! | `otel` | OpenTelemetry with OTLP/HTTP export and the `tracing` bridge |
+//! | `agent` | every agent-standards feature above (ADR 0015) |
 
 // Lint contract (missing_docs deny, unsafe_code forbid, broken intra-doc
 // links deny) comes from the workspace root.
@@ -215,21 +224,22 @@ pub use audit::{audit_direct, declared_scope};
 /// The verdict and the failures that keep one from being reached.
 pub use refusal::{GateError, Refusal};
 
+/// The one authored `tokio` edge, re-exported for the storefront.
+///
+/// `lgwks_deps` owns this edge so no other crate declares `tokio` directly
+/// (`INV-DEP-EDGE-OWNED`). `lgwks_bot` enables the `tokio` storefront feature
+/// and reaches the engine through this re-export; a consumer that wants the
+/// engine without the bot enables the feature here. `lgwks_bot::rt` is built
+/// on this edge, so it cannot route through `lgwks_bot::rt` without a cycle.
+#[cfg(feature = "tokio")]
+#[doc(hidden)]
+pub use ::tokio;
 #[cfg(any(feature = "macro", feature = "script"))]
 #[doc(hidden)]
 pub use proc_macro2;
 #[cfg(feature = "macro")]
 #[doc(hidden)]
 pub use quote;
-/// The one authored `tokio` edge, re-exported for the storefront.
-///
-/// `lgwks_deps` owns this edge so no other crate declares `tokio` directly
-/// (`INV-DEP-EDGE-OWNED`). `lgwks_bot` enables the `tokio` storefront feature
-/// and reaches the engine through this re-export; a consumer that wants the
-/// engine without the bot enables the feature here.
-#[cfg(feature = "tokio")]
-#[doc(hidden)]
-pub use tokio;
 
 /// The Bevy ECS substrate, selected through the storefront.
 ///
@@ -364,6 +374,33 @@ pub use llm_guard;
 #[doc(hidden)]
 pub use chacha20poly1305;
 
+/// The agent-standards storefront (ADR 0015): MCP, a model client, JSON
+/// Schema, OAuth 2.1, COSE, an RFC 6962 log, OpenTelemetry and the one TLS
+/// provider they share, each behind its own default-off feature.
+#[cfg(any(
+    feature = "tls-ring",
+    feature = "mcp",
+    feature = "model",
+    feature = "json-schema",
+    feature = "oauth2",
+    feature = "cose",
+    feature = "merkle-log",
+    feature = "otel"
+))]
+mod agent_standards;
+#[cfg(any(
+    feature = "tls-ring",
+    feature = "mcp",
+    feature = "model",
+    feature = "json-schema",
+    feature = "oauth2",
+    feature = "cose",
+    feature = "merkle-log",
+    feature = "otel"
+))]
+#[doc(hidden)]
+pub use agent_standards::*;
+
 /// The supported storefront: enable a feature and reach its engine here.
 ///
 /// Every path below is one audited edge this crate owns, so a consumer never
@@ -384,16 +421,30 @@ pub mod storefront {
     pub use crate::bevy_time;
     #[cfg(feature = "sealed-aead")]
     pub use crate::chacha20poly1305;
+    #[cfg(feature = "cose")]
+    pub use crate::coset;
+    #[cfg(feature = "merkle-log")]
+    pub use crate::ct_merkle;
+    #[cfg(feature = "model")]
+    pub use crate::genai;
     #[cfg(feature = "gpui")]
     pub use crate::gpui;
     #[cfg(feature = "time-jiff")]
     pub use crate::jiff;
+    #[cfg(feature = "json-schema")]
+    pub use crate::jsonschema;
     #[cfg(feature = "llm-guard")]
     pub use crate::llm_guard;
+    #[cfg(feature = "oauth2")]
+    pub use crate::oauth2;
+    #[cfg(feature = "mcp")]
+    pub use crate::rmcp;
     #[cfg(feature = "sqlite")]
     pub use crate::rusqlite;
     #[cfg(feature = "sqlite")]
     pub use crate::sqlite;
+    #[cfg(feature = "tls-ring")]
+    pub use crate::tls;
     #[cfg(feature = "ml-tokenizers")]
     pub use crate::tokenizers;
     #[cfg(feature = "tokio")]
@@ -402,6 +453,11 @@ pub mod storefront {
     pub use crate::tower_http;
     #[cfg(feature = "ml-candle")]
     pub use crate::{candle_core, candle_nn, candle_transformers};
+    #[cfg(feature = "otel")]
+    pub use crate::{
+        opentelemetry, opentelemetry_otlp, opentelemetry_sdk, tracing_opentelemetry,
+        tracing_subscriber,
+    };
 }
 
 use std::path::{Path, PathBuf};

@@ -67,6 +67,7 @@ of the tuple layer and the ECS identity surface.
 | `new`, `check`, `expand`, `run` | one-file apps and the Rust they compile to |
 | `legacy` | legacy documents read through the estate parsers |
 | `id` | `lgwks id new\|key\|read`: version 7 ids and their FoundationDB key bytes (INV-ID-5) |
+| `tls` | `lgwks tls`: installs rustls on ring, the agent clients' one TLS provider (`tls-ring`, ADR 0015) |
 | `common` | `Refusal`, its kinds, and the shared human and `--json` reporting |
 
 ### `check-docs` (a `lgwks_deps` gate binary)

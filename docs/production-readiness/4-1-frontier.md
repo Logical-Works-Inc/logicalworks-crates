@@ -35,7 +35,7 @@ about a quarter of the facade's lines.
 The oracle does not ask for what `lgwks_bot` adds over `futures` (durable steps,
 authority, repair), so this does not say the crate has no case; it says the case
 has not been measured on tasks that ask for it
-([#270](https://github.com/srinji-kaggss/logicalworks-crates/issues/270)). Until
+([#270](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/270)). Until
 it is, the frontier claim rests on the authority axis above and not on authoring.
 
 That measurement now exists for reference solutions, and it falls the honest

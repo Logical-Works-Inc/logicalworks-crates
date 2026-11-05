@@ -326,7 +326,7 @@ mod tests {
                 "replacement = \"An estate HTTP facade in lgwks_std covering routing with equal p99.\"\n",
                 "removal_trigger = \"The estate router covers the same routes with equal p99.\"\n",
                 "last_reviewed = \"2026-10-26\"\n",
-                "review = \"https://github.com/srinji-kaggss/logicalworks-crates/issues/721\"\n",
+                "review = \"https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721\"\n",
                 "{}"
             ),
             extra
@@ -349,7 +349,7 @@ mod tests {
                 "reason = \"Revenue slice HTTP routing needs Tower-compatible routing the standard library does not provide.\"\n",
                 "approved_by = \"maintainer\"\n",
                 "approved_on = \"2026-10-26\"\n",
-                "review = \"https://github.com/srinji-kaggss/logicalworks-crates/issues/721\"\n",
+                "review = \"https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721\"\n",
             ),
             name = crate_name
         )
@@ -372,7 +372,7 @@ mod tests {
         assert_eq!(parsed.last_reviewed(), "2026-10-26");
         assert_eq!(
             parsed.review,
-            "https://github.com/srinji-kaggss/logicalworks-crates/issues/721"
+            "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721"
         );
         Ok(())
     }

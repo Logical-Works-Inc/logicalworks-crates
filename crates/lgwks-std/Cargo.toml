@@ -1,14 +1,14 @@
 [package]
 name = "lgwks_std"
 description = "Everyday Rust primitives with no async runtime required: codecs, timestamps, ids, hashing, regex, JSON/RON/wire, HTTP, and default structured-debugging install. One audited stack per feature — a stack is not always one crate (json is serde + serde_json, ron is serde + ron, http is ureq + iri-string)."
-version = "4.0.1"
+version = "4.0.2"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
-repository = "https://github.com/srinji-kaggss/logicalworks-crates"
+repository = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 documentation = "https://docs.rs/lgwks_std"
 readme = "README.md"
-homepage = "https://github.com/srinji-kaggss/logicalworks-crates/tree/main/crates/lgwks-std"
+homepage = "https://github.com/Logical-Works-Inc/logicalworks-crates/tree/main/crates/lgwks-std"
 categories = ["development-tools", "encoding", "network-programming"]
 keywords = ["stdlib", "json", "uuid", "http-client", "tracing"]
 
