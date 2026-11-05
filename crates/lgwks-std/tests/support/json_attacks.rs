@@ -47,7 +47,7 @@ pub fn draw_value(attacker: &mut Attacker, depth: usize) -> Value {
         1 => Value::Bool(attacker.word().rem_euclid(2) == 1),
         2 => Value::from(i64::from_le_bytes(attacker.word().to_le_bytes())),
         3 => Value::from(f64::from_bits(attacker.word())),
-        4 | 5 => Value::String(draw_text(attacker, 12)),
+        4 | 5 => Value::from(draw_text(attacker, 12)),
         6 => Value::Array(
             (0..attacker.below(4))
                 .map(|_| draw_value(attacker, depth.saturating_sub(1)))

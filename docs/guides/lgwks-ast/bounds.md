@@ -1,5 +1,7 @@
 # lgwks_ast bounds
 
+This page lists every limit a checked parse enforces, and why each one is set.
+
 - `MAX_SOURCE_BYTES`: 2 MiB per checked parse. This bounds the bytes handed
   to tree-sitter. It is a byte bound, not a complexity guarantee: see the note
   on walk cost below.

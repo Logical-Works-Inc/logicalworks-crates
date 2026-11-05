@@ -199,6 +199,15 @@ fn the_commands_are_the_ones_the_lane_table_names() -> TestResult {
     let lanes = repo_file("scripts/gate-lanes.toml")?;
     for (suite, lane) in [("workspace", "tests"), ("bot-full", "tests-bot-full")] {
         let command = lane_command(&lanes, lane).ok_or("a lane is missing from the table")?;
+        // CI passes a test archive in `${NEXTEST_BUILD:-<selection>}` (province#9);
+        // a local run leaves it unset, so the shell runs the selection.
+        let command = match command.split_once("${NEXTEST_BUILD:-") {
+            Some((head, tail)) => {
+                let (selection, rest) = tail.split_once('}').ok_or("an unclosed slot")?;
+                format!("{head}{selection}{rest}")
+            }
+            None => command,
+        };
         let ours: Vec<String> = suite_commands(suite, None)
             .ok_or("a suite is unknown")?
             .iter()

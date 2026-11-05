@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 6 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep) (continued)
+## lgwks_bot — BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep) (continued)
 
 **Breaking.** `EffectKey::new(run, action, attempt, flow, digest, environment,
 epoch)` is removed. A key is built only as
@@ -92,7 +92,7 @@ The tests (`crates/lgwks-bot/tests`, and the `seed.rs` substrate `lgwks_ast` and
   - The seed bands move to `sim/band.rs`, so `sim_review_path` includes the
     bands and the generator and not the journal rig.
 
-```
+```console
 $ guard-files <every changed .rs file>
 98 file(s) checked, 0 finding block(s)
 $ cargo check --locked -p lgwks_bot --all-targets {--all-features | default | --no-default-features | --no-default-features --features process}
@@ -113,8 +113,7 @@ $ cargo nextest run -p lgwks_bot --locked --features full --test sim_review_path
 $ cargo nextest run -p lgwks_std --all-targets --locked --features full
 655 tests run: 655 passed, 0 skipped
 ```
-
 The `full` lane's 337 s is over the five-minute gate budget; it was 331–385 s
 before this change, and that is still open.
 
-### lgwks_std — the nine-axis sweep: the ceiling assertion asserts, so the scan gate sees no unlogged refusal (9-axis sweep)
+## lgwks_std — the nine-axis sweep: the ceiling assertion asserts, so the scan gate sees no unlogged refusal (9-axis sweep)

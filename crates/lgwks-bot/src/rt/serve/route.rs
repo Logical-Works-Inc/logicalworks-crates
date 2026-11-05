@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::RouteMethod;
+use super::openapi::RouteDescriptor;
 
 /// The boxed answer a typed route handler returns.
 pub(super) type BoxRouteFuture =
@@ -30,6 +31,8 @@ pub struct TypedRoute {
     pub(super) path: String,
     /// From tenant, content type and body bytes to response bytes.
     pub(super) handler: Arc<RouteHandler>,
+    /// The contract the OpenAPI projection renders, when one was attached.
+    descriptor: Option<RouteDescriptor>,
 }
 
 impl TypedRoute {
@@ -67,7 +70,37 @@ impl TypedRoute {
             method,
             path: path.to_owned(),
             handler: erased,
+            descriptor: None,
         }
+    }
+
+    /// Attach `descriptor` to this route, returning it for chaining.
+    ///
+    /// The parity check refuses a route with no descriptor and one whose
+    /// descriptor names another verb or path, so attaching is how a route
+    /// joins the emitted document.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// route.describe(descriptor)
+    /// ```
+    #[must_use]
+    pub fn describe(mut self, descriptor: RouteDescriptor) -> Self {
+        self.descriptor = Some(descriptor);
+        self
+    }
+
+    /// The descriptor this route carries, when one was attached.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// route.descriptor().map(|d| d.path())
+    /// ```
+    #[must_use]
+    pub fn descriptor(&self) -> Option<&RouteDescriptor> {
+        self.descriptor.as_ref()
     }
 
     /// The verb this route answers.

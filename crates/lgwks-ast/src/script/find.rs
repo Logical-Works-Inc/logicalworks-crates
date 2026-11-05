@@ -23,6 +23,19 @@ use super::tree::Script;
 use super::{Refusal, parse};
 
 /// One `script!` invocation found in a source file, and what the parser read.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::script::read_source;
+///
+/// let source = "fn main() {\n    lgwks_bot::script! {\n        flow one() -> u8:\n            give back 1\n    }\n}\n";
+/// let found = read_source(source)?;
+/// assert_eq!(found.len(), 1);
+/// assert_eq!(found[0].line(), 2);
+/// assert!(found[0].read().is_ok());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Invocation {
     /// The 1-based line of the macro's name.
@@ -35,12 +48,34 @@ pub struct Invocation {
 
 impl Invocation {
     /// The 1-based line of the macro's name, as the compiler reports it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::script::read_source;
+    ///
+    /// let source = "fn main() {\n    lgwks_bot::script! {\n        flow one() -> u8:\n            give back 1\n    }\n}\n";
+    /// let found = read_source(source)?;
+    /// assert_eq!(found[0].line(), 2);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn line(&self) -> usize {
         self.line
     }
 
     /// The 0-based column of the macro's name, in characters.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::script::read_source;
+    ///
+    /// let source = "fn main() {\n    lgwks_bot::script! {\n        flow one() -> u8:\n            give back 1\n    }\n}\n";
+    /// let found = read_source(source)?;
+    /// assert_eq!(found[0].column(), 15);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn column(&self) -> usize {
         self.column
@@ -51,6 +86,18 @@ impl Invocation {
     /// # Errors
     ///
     /// The refusal, when the language refuses this invocation.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::script::read_source;
+    ///
+    /// let source = "fn main() {\n    lgwks_bot::script! {\n        flow one() -> u8:\n            give back 1\n    }\n}\n";
+    /// let found = read_source(source)?;
+    /// let script = found[0].read().map_err(|refusal| refusal.to_string())?;
+    /// assert_eq!(script.flows().len(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub const fn read(&self) -> Result<&Script, &Refusal> {
         self.read.as_ref()
     }
@@ -73,6 +120,18 @@ enum Next {
 /// The source is not Rust tokens (an unterminated string or comment, a stray
 /// character), located where the tokenizer stopped. A refusal inside an
 /// invocation is not an error: it is that invocation's [`Invocation::read`].
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::script::read_source;
+///
+/// let source = "fn main() {\n    lgwks_bot::script! {\n        flow one() -> u8:\n            give back 1\n    }\n}\n";
+/// let found = read_source(source)?;
+/// assert_eq!(found.len(), 1);
+/// assert!(read_source("let s = \"unterminated;").is_err());
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn read_source(source: &str) -> Result<Vec<Invocation>, Refusal> {
     let tokens = match TokenStream::from_str(source) {
         Ok(tokens) => tokens,

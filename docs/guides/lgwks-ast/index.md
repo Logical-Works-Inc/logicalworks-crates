@@ -1,17 +1,16 @@
 # lgwks_ast consumer guide
 
 One AST type across several languages, with grammar selection by cargo feature
-and bounded traversal. Current version: `1.0.0`, MSRV Rust 1.98.0, edition 2024.
+and bounded traversal. Current version: `5.0.0`, MSRV Rust 1.98.0, edition 2024.
 
 ```sh
 cargo add lgwks_ast
 ```
-
 Adding this crate does not ask you to change anything else in your manifest. It
 stands alone: it does not depend on `lgwks_std`, `lgwks_bot`, or `lgwks_deps`,
 and adding it to a project that already uses tokio and serde_json leaves those
 alone. The dependency policy in
-[`../../AGENTS.md`](../../AGENTS.md) governs contributions to this repository,
+[`AGENTS.md`](../../../AGENTS.md) governs contributions to this repository,
 not your application.
 
 ## Grammar selection
@@ -21,21 +20,18 @@ build enables seven:
 
 ```toml
 [dependencies]
-lgwks_ast = "1"    # rust, python, typescript, javascript, go, java, swift
+lgwks_ast = "5"    # rust, python, typescript, javascript, go, java, swift
 ```
-
 Add the rest by name, or take everything:
 
 ```toml
 [dependencies]
-lgwks_ast = { version = "1", features = ["lang-c", "lang-cpp", "lang-scala", "lang-kotlin", "lang-tsx"] }
+lgwks_ast = { version = "5", features = ["lang-c", "lang-cpp", "lang-scala", "lang-kotlin", "lang-tsx"] }
 ```
-
 ```toml
 [dependencies]
-lgwks_ast = { version = "1", features = ["full"] }
+lgwks_ast = { version = "5", features = ["full"] }
 ```
-
 `full` enables all 28 grammars. A language whose feature is off does not exist in
 `Language::ALL` and is never returned by `Language::of_path`, so a consumer never
 compiles a grammar it cannot select. That also means an unselected language comes

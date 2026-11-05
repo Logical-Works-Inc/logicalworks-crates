@@ -25,6 +25,20 @@ use super::{LegacyLimits, LineRange};
 ///
 /// A [`LegacyError`] past any ceiling, or the first refusal the graphs or
 /// the summary earn.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyLimits, cobol::parse_program, json::program_json};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// // Fixed format: code starts in column 8, after the sequence and indicator columns.
+/// let source = "       IDENTIFICATION DIVISION.\n       PROGRAM-ID. HELLO.\n       PROCEDURE DIVISION.\n       MAIN-PARA.\n           PERFORM SHOW-IT.\n           STOP RUN.\n       SHOW-IT.\n           DISPLAY \"HI\".\n";
+/// let program = parse_program(source, &limits, &|_copybook| None)?;
+/// let json = program_json(&program, &limits)?;
+/// assert_eq!(json.get("name").and_then(|name| name.as_str()), Some("HELLO"));
+/// # Ok::<(), lgwks_ast::legacy::LegacyError>(())
+/// ```
 pub fn program_json(program: &CobolProgram, limits: &LegacyLimits) -> Result<Value, LegacyError> {
     let perform = perform_graph(program, limits)?;
     let calls = call_graph(program, limits)?;
@@ -154,6 +168,19 @@ pub fn program_json(program: &CobolProgram, limits: &LegacyLimits) -> Result<Val
 ///
 /// A [`LegacyError`] past any ceiling, or the first refusal the graph or the
 /// summary earns.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyLimits, jcl::parse_job, json::job_json};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// let source = "//PAYJOB   JOB (ACCT),'PAY'\n//STEP1    EXEC PGM=PAYROLL\n//IN       DD DSN=PAY.INPUT,DISP=SHR\n";
+/// let job = parse_job(source, &limits)?;
+/// let json = job_json(&job, &limits)?;
+/// assert_eq!(json.get("name").and_then(|name| name.as_str()), Some("PAYJOB"));
+/// # Ok::<(), lgwks_ast::legacy::LegacyError>(())
+/// ```
 pub fn job_json(job: &Job, limits: &LegacyLimits) -> Result<Value, LegacyError> {
     let graph = job_graph(job, limits)?;
     let summary = summarize_job(job, limits)?;
@@ -329,10 +356,9 @@ fn line_json(range: LineRange) -> Value {
 
 /// A JSON object from its fields, in the order given.
 fn object<const FIELDS: usize>(fields: [(&str, Value); FIELDS]) -> Value {
-    Value::Object(
-        fields
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<Map<String, Value>>(),
-    )
+    let mut map = Map::from_iter(fields);
+    if map.contains_key("") {
+        let _removed = map.remove("");
+    }
+    Value::Object(map)
 }

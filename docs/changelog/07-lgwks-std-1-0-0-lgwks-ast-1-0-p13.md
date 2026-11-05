@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 13 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Changed (continued)
+## lgwks_bot Changed (continued)
 
 - `BotSpec` carries a `version`, defaulted to `BotSpec::CURRENT_VERSION` when
   absent so a document written before the field existed still parses. A version
@@ -17,7 +17,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   first-wins result should pick the duplicate it means, or the registry should
   be repaired; `validate()` reports both positions.
 
-### lgwks_bot Fixed
+## lgwks_bot Fixed
 
 - The `registry` module documentation said "A duplicate is not refused: lookup
   is in declaration order and the first entry wins", which had been false since
@@ -52,7 +52,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   inspection, and the task front door). Only the identifiers moved; both
   invariants' `enforced by` references still resolve (#122, #118).
 
-### lgwks_bot Breaking
+## lgwks_bot Breaking
 
 - `Source::new` now requires `O::Output: Clone + PartialEq + InputIdentity`
   (was `PartialEq` only); every source usable in a chain already satisfied
@@ -71,7 +71,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   The state is a report of what the process wrote, so it is read, never edited
   in place.
 
-### Documentation
+## Documentation
 
 - The frontier comparisons now cite primary sources with pinned versions and an
   access date (2026-10-02). `docs/framework-comparison.md` and

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 5 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — per-tenant capacity: one tenant cannot starve another (#268) (continued)
+## lgwks_bot — per-tenant capacity: one tenant cannot starve another (#268) (continued)
 
 - **New: `rt::tenancy`.** `TenancyPolicy` (per-tenant ceiling, per-tenant queue
   bound, supervisor-wide waiting bound, per-tenant weights, each clamped to a
@@ -34,7 +34,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   within 10% of the median alone, no sleep before either timed window).
   INV-BOT-151.
 
-### lgwks_std tests — `fs::capability` is swept with hostile seeds
+## lgwks_std tests — `fs::capability` is swept with hostile seeds
 
 `fs::capability` had 28 unit tests and no seeded sweep. It is the sandbox
 boundary that `Dir` promises, so `tests/it/sim_fs_capability.rs` now draws
@@ -58,13 +58,11 @@ never given, which makes an escape observable rather than assumed absent:
 The `lgwks-deps` sim substrate doc no longer claims `lgwks_std` shares
 `seed.rs`: the crate sits below `lgwks_bot` and keeps its own generator.
 
-```
+```console
 $ cargo nextest run -p lgwks_std --locked --features full
 691 tests run: 691 passed, 0 skipped        (36 in sim_fs_capability)
 ```
-
-
-### tests — the simulation substrate's own contracts are swept, not assumed
+## tests — the simulation substrate's own contracts are swept, not assumed
 
 Every `sim_*` family rests on the seed substrate, the sweep and the scratch
 guard; nothing checked them. `lgwks_bot/tests/it/sim_substrate.rs` sweeps:
@@ -81,14 +79,12 @@ guard; nothing checked them. `lgwks_bot/tests/it/sim_substrate.rs` sweeps:
 a draw consuming one step whatever the table (empty included), and `receipt`
 refusing only an empty trace.
 
-```
+```console
 $ cargo nextest run --workspace --locked
 4339 tests run: 4339 passed (1 leaky), 0 skipped
 simulation-evidence: source_visible 1712/3383 = 50.61% (was 50.13%)
 ```
-
-
-### lgwks_deps tests — one seed substrate for every workspace simulation
+## lgwks_deps tests — one seed substrate for every workspace simulation
 
 The six `sim_*` policy families drew from their own LCG and hashed their replay
 receipts through `std`'s `DefaultHasher`, whose algorithm std leaves free to
@@ -105,12 +101,10 @@ seed meant a different stream here than in `lgwks_bot`, `lgwks_ast` and
 - Bit-twiddled draws (`>> 20 & 0x3ff` in a retry loop, `>> 33 % 3`, `>> 41 & 1`,
   `next_u64().checked_rem(3)`) are `between`, `below` and `coin`.
 
-```
+```console
 $ cargo nextest run -p lgwks_deps --locked -E 'not binary(storefront_consumers)'
 307 tests run: 307 passed, 0 skipped
 $ lgwks-deps scan
 OK  scan clean — 390 files, zero findings
 ```
-
-
-### lgwks_bot — BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep)
+## lgwks_bot — BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep)

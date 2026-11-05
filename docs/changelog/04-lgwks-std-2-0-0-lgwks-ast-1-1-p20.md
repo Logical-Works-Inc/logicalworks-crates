@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 20 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — the logical clock saturates in its own arithmetic (nine-axis sweep) (continued)
+## lgwks_bot — the logical clock saturates in its own arithmetic (nine-axis sweep) (continued)
 
 `Clock::virtual_at` narrows an origin `Duration` into the `u64` nanosecond
 counter every budget, deadline and snapshot is derived from, and it did that
@@ -31,7 +31,7 @@ through a `try_from` whose failure arm substituted `u64::MAX`.
 Behaviour is unchanged: the old fallback and the new saturation both report
 `u64::MAX` nanoseconds for an origin past the ceiling.
 
-### lgwks_bot — the four verb traits declare return-position `impl Future` (nine-axis sweep)
+## lgwks_bot — the four verb traits declare return-position `impl Future` (nine-axis sweep)
 
 The crate carried exactly one lint suppression: a crate-level
 `#![allow(async_fn_in_trait)]` whose reason was that the verbs must stay

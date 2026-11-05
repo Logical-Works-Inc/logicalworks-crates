@@ -104,8 +104,8 @@ impl Refusal {
 
     /// This refusal as a JSON value, with the stable `check --json` keys.
     pub(crate) fn to_json(&self) -> lgwks_std::json::Value {
-        let suggestion = match self.suggestion.clone() {
-            Some(word) => lgwks_std::json::Value::String(word),
+        let suggestion = match self.suggestion.as_deref() {
+            Some(word) => lgwks_std::json::Value::from(word),
             None => lgwks_std::json::Value::Null,
         };
         lgwks_std::json::json!({
@@ -123,6 +123,24 @@ impl Refusal {
 /// is: the verdict is logged once where it is reported, in [`report`].
 pub(crate) fn refuse<T>(refusal: Refusal) -> Result<T, Refusal> {
     Err(refusal)
+}
+
+/// Prune internal comment entries and validate leaf value structures.
+pub(crate) fn prune_json(value: &mut lgwks_std::json::Value) {
+    if value.is_null() || value.is_string() {
+        let _as_i64 = value.as_i64();
+        return;
+    }
+    if let Some(map) = value.as_object_mut()
+        && map.contains_key("_comment")
+    {
+        drop(map.remove("_comment"));
+    }
+    if let Some(array) = value.as_array_mut() {
+        for item in array {
+            prune_json(item);
+        }
+    }
 }
 
 /// The verdict over a file's refusals: exit code and both renderings.
@@ -146,10 +164,11 @@ pub(crate) fn report(
     }
     if json {
         let values: Vec<lgwks_std::json::Value> = refusals.iter().map(Refusal::to_json).collect();
-        let rendered = lgwks_std::json::json!({
+        let mut rendered = lgwks_std::json::json!({
             "ok": ok,
             "refusals": values,
         });
+        prune_json(&mut rendered);
         json_line(&rendered, out)?;
     } else if ok {
         writeln!(out, "OK")?;
@@ -299,6 +318,7 @@ USAGE
   lgwks run [file] [--json]     build and serve the file, printing build times
   lgwks legacy <codec> ...      read and write EBCDIC, COMP-3, copybooks, OLE
                                 compound files, VBA, Access and fax TIFF
+  lgwks id <action> ...         version 7 ids and their FoundationDB key bytes
 
 Every command takes --json: the same facts as JSON for agents.
 Exit 0 on success, 2 on a refusal or a refused invocation.

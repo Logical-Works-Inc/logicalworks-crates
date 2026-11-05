@@ -1,5 +1,7 @@
 # Contributing
 
+This page lists the rules a change meets before it merges.
+
 ## Dependency policy
 
 Read [`docs/dependency-doctrine.md`](docs/dependency-doctrine.md) before adding a
@@ -33,20 +35,19 @@ cargo fmt --all -- --check
 cargo run -p lgwks_deps -- check .
 ./scripts/lgwks-std-package-smoke.sh
 ```
-
 ## Contributions and copyright
 
-Three of the four crates are Apache-2.0 and take contributions on ordinary
-terms. `lgwks_bot` is offered under two licences, including a commercial one,
-and offering a work under two licences requires the licensor to hold sufficient
-rights in every contribution to it.
+**This repository takes no outside contributions, to any crate.** Pull
+requests, issues and comments are open to Logical Works collaborators only
+(the repository's interaction limit, `collaborators_only`), and a workflow
+run from a fork waits for a maintainer's approval
+(`fork-pr-contributor-approval`, `all_external_contributors`). A patch from
+outside is closed unmerged on arrival, whatever its content (Director
+2026-11-04: "NO EXTERNAL CONTRIBUTIONS ALLOWED").
 
-**`lgwks_bot` is therefore closed to outside contributions.** A signed
-contributor licence agreement would have to be in place before one could be
-merged, none has been selected, and choosing one is deferred — so a patch sent
-today has no path to merge and is refused on arrival rather than parked. The
-reason is in [`LICENSING.md`](LICENSING.md), not a judgement about the patch.
-Contributions to the other three crates are unaffected and welcome.
+`lgwks_bot` has a second reason: it is offered under two licences, including a
+commercial one, which requires the licensor to hold every right in every
+contribution ([`LICENSING.md`](LICENSING.md)).
 
 ## Standards
 

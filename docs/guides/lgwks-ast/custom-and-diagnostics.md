@@ -1,5 +1,8 @@
 # lgwks_ast custom languages and typed diagnostics
 
+This page shows how to register a grammar of your own and how to read a typed
+diagnostic.
+
 ## Custom languages
 
 `ast-grep` ships a fixed built-in set. Its documented extension point for
@@ -39,7 +42,6 @@ enum Diagnostic {
     Io(#[from] std::io::Error),
 }
 ```
-
 ## Where to go next
 
 - [Grammars](grammars.md) for the full language-and-extension table, and

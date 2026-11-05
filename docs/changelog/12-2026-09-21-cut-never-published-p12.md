@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 12 of 13. [Changelog index](../../CHANGELOG.md)
 
-### Fixed (continued)
+## Fixed (continued)
 
 - **Punctuation normalization turned a negative integer into a positive match**
   (`lgwks_bot`). The fold maps `-5` and `5` to the same normalized form, so an
@@ -79,7 +79,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   opaque non-clonable `InFlightPermit` that completion consumes, and the
   release/record methods that took a key are gone.
 
-### Added
+## Added
 
 - `DegradedReason::UnmeasurableEmbedding` (`lgwks_bot`) and
   `CosineError::NonFinite` (`lgwks_std`). A vector no angle can be computed from
@@ -102,4 +102,4 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 - `crates/lgwks-bot/examples/failed_tick.rs`, so the guide's program is compiled
   and run by the gate rather than being prose that nothing checks.
 
-### lgwks_bot Changed
+## lgwks_bot Changed

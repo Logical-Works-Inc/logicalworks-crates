@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 5 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - **`effect`, the durable effect identity the ledger was missing: a settlement
   now names *which attempt* it is about.** The ECS ledger already settles an
@@ -112,5 +112,5 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     or a persistent-state oracle, and the crate has none of the three, so
     neither case moves off `not_run` on the strength of this entry.
   - **Nothing is wired to a real store or to the ledger yet.** `MemoryJournal` is
-    a reference adapter that exists in order to be refused at the boundary, and
+    a reference adapter that exists to be refused at the boundary, and
     no call site outside the tests appends to it.

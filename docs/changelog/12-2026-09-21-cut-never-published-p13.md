@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 13 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Changed (continued)
+## lgwks_bot Changed (continued)
 
 - **Breaking, effective at the next `lgwks_bot` version published from this
   tree.** `BotError::CapabilityDenied`'s payload changes from
@@ -20,7 +20,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   `PolicyVersion` content-addresses through the estate's own `blake3` wrapper
   rather than adding a hashing dependency.
 
-### Changed
+## Changed
 
 - `Resolver` takes a `Question` — id, options and answer domain — instead of an
   option slice, because resolving a tier needs the question's identity.

@@ -1,11 +1,11 @@
 # lgwks_std 0.6.6 / lgwks_bot 0.4.2 / lgwks_ast 0.2.2 / lgwks_deps 0.1.11 - 2026-09-20
 
-Release: lgwks_std 0.6.6 / lgwks_bot 0.4.2 / lgwks_ast 0.2.2 / lgwks_deps 0.1.11 - 2026-09-20. Page 1 of 1. [Changelog index](../../CHANGELOG.md)
+The release notes, page 1 of 1. [Changelog index](../../CHANGELOG.md)
 
 Documentation release. No API change in any crate. This supersedes 0.6.5 / 0.4.1 /
 0.2.1 / 0.1.10, whose rustdoc carried internal project vocabulary.
 
-### Shared Changed
+## Shared Changed
 
 - The Rust doc comments in all four crates are rewritten. `docs.rs` renders the
   `lib.rs` and module `//!` documentation as the crate front page, not the
@@ -24,7 +24,7 @@ Documentation release. No API change in any crate. This supersedes 0.6.5 / 0.4.1
   intra-doc link targets, code fences, and fenced example content are byte
   identical to the previous release, so no documented example changed behaviour.
 
-### lgwks_std Fixed
+## lgwks_std Fixed
 
 - The `retry` module documentation linked to `crate::random`, which is behind
   the `random` feature. The link resolves under `--all-features`, so it built on
@@ -33,7 +33,7 @@ Documentation release. No API change in any crate. This supersedes 0.6.5 / 0.4.1
   linked. The `docs` CI job gained a `lgwks_std` no-default-features doc build,
   which is the lane that would have caught it.
 
-### lgwks_deps Changed
+## lgwks_deps Changed
 
 - The CLI help and admission-ladder text no longer carry internal vocabulary.
   The `about` line now reads `lgwks-deps: dependency admission for the core

@@ -9,6 +9,16 @@
 ///
 /// Each variant carries the position that earned it, so a caller reports the
 /// refusal where the input went wrong rather than as a whole-file verdict.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyError, LegacyLimits, jcl::parse_job};
+///
+/// let tight = LegacyLimits::new(8, 10_000, 10_000, 10_000, 64, 8, 256);
+/// let refused = parse_job("//PAYJOB   JOB (ACCT),'PAY'\n", &tight);
+/// assert_eq!(refused, Err(LegacyError::SourceTooLarge { bytes: 28, limit: 8 }));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum LegacyError {
