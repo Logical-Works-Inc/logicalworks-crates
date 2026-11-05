@@ -4,19 +4,19 @@ Part of [`GOVERNANCE.md`](../../GOVERNANCE.md), which indexes every section.
 
 ## 6. Open correctness and acceptance work
 
-Reconciled 2026-11-04 against the 39 open issues, after the 2026-11-04 cut
+Reconciled 2026-11-05 against the 34 open issues, after the 2026-11-05 cut
 (`ledger-2026-10-26.md`). Every row of the 2026-10-09 table had closed by
 2026-10-19. Per §1, unwired code is a wiring defect, not a closed item.
 
 | Priority | Work | Observed gap and completion evidence |
 |---|---|---|
-| P0 | Publish verification | Held for the 2026-11-04 cut: six crates uploaded from 2a601be28 and `published-consumer` printed ten passing receipts. Each later cut repeats it; a green dry-run is not evidence |
+| P0 | Publish verification | Six crates cut at 2026-11-05 and verified with `published-consumer` against published manifests |
 | P1 | Estate UUID (#851) | `now_v7` and the tuple UUID element shipped in lgwks_std 4.0.0 (#858); serde declined (ADR 0010). Open: the rest of the FoundationDB tuple layer and the ECS identity surface |
 | P1 | Source and age on every result (#778) | Nothing merged. Needs an enveloped `Observe::poll` (lgwks_bot 8.0.0), workbook and mail readers in lgwks_ast, and a matched benchmark |
 | P1 | Cold build in 90 s (#860) | 184 s cold under `ci-bot` (#857); the lgwks_bot `it`, lib-test and lib units are the critical path |
 | P1 | appcui consumer build (#841) | lgwks_deps 6.0.0 still pins `appcui =0.5.5` without its macro crate; a fresh resolve fails |
-| P1 | The app layer (#780) | Children #781 to #786, #790 and #791 shipped in lgwks_bot 7.0.0. Open: #815 durable cell log, #816 blocking provider effects, #830 OpenAPI, #823 2x axum, #845 supported surface |
-| P1 | Journal and policy authority | #817 model-call record and outbox, #818 pre-filter, #819 seeded journal faults, #820 fail-closed start, #821 effect broker, #779 capability tokens |
+| P1 | The app layer (#780) | #780 ceremony reference app shipped in lgwks_bot (#847); #830 OpenAPI 3.1 shipped in #832. Open: #815 durable cell log, #816 blocking provider effects, #823 2x axum, #845 supported surface |
+| P1 | Journal and policy authority | #819 seeded faults shipped in #824, #820 fail-closed start in #829, #779 tokens in #843. Open: #817 model-call record/outbox, #818 pre-filter, #821 effect broker |
 | P2 | Parsers in lgwks_ast | #834 SQL to a relational IR, #852 TOML and YAML; every parser lives in lgwks_ast (Director, 2026-11-04) |
 | P2 | Relational projections | #835 incremental projections over the journal, #828 and #839 the embedded SQL engine |
 | P2 | Process supervision | #798 one snapshot for many roots, #808 and #814 inherited-fd start gates |
