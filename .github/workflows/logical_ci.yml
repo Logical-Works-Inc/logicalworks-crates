@@ -5,7 +5,7 @@ on:
     branches: [main]
 jobs:
   gate:
-    uses: srinji-kaggss/logical_ci/.github/workflows/gate.yml@v0.1.0
+    uses: Logical-Works-Inc/logical_ci/.github/workflows/gate.yml@v0.1.0
     with:
       tenant: crates
       hardness: C
