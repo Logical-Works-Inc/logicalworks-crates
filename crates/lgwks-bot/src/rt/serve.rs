@@ -75,6 +75,14 @@ pub enum ServeError {
     },
     /// The OS refused the listener, the driver, or the run store.
     Io(std::io::Error),
+    /// The durable sink gate refused the start: the store directory cannot
+    /// persist, so serving would fail one request at a time.
+    StartGate {
+        /// The composite sink that refused, naming the failed child in `reason`.
+        sink: String,
+        /// The child's name and the failure kind.
+        reason: String,
+    },
     /// A tenant's host could not be built.
     Host {
         /// What the host refused.
@@ -101,6 +109,13 @@ impl std::fmt::Display for ServeError {
                 )
             }
             Self::Io(ref cause) => write!(formatter, "lgwks_bot: the serve edge failed: {cause}"),
+            Self::StartGate {
+                ref sink,
+                ref reason,
+            } => write!(
+                formatter,
+                "lgwks_bot: the durable sink '{sink}' is not ready: {reason}"
+            ),
             Self::Host { ref reason } => {
                 write!(formatter, "lgwks_bot: the serve host is refused: {reason}")
             }
@@ -113,6 +128,7 @@ impl std::error::Error for ServeError {
         match *self {
             Self::InvalidBound { .. } | Self::Env { .. } | Self::Host { .. } => None,
             Self::Io(ref cause) => Some(cause),
+            Self::StartGate { .. } => None,
         }
     }
 }
@@ -519,6 +535,17 @@ pub fn serve(
     ))
 }
 
+/// The start gate over the durable sink: refuse before the listener converts.
+///
+/// The store directory exists by now ([`std::fs::create_dir_all`] above), so a
+/// refusal means it cannot persist — read-only remount, replaced data
+/// directory, a squatter on the probe path — and serving would fail one
+/// request at a time instead of refusing to start.
+fn check_serve_store(dir: &Path) -> Result<(), crate::task::SinkRefusal> {
+    let child: Arc<dyn crate::task::DurableSink> = Arc::new(crate::task::StoreSink::for_dir(dir));
+    crate::task::CompositeSink::new("durable-sink", [child]).readiness()
+}
+
 /// Serve until `stop` is cancelled: accept, drain, cancel, report.
 ///
 /// The one spawned server task is owned by a `JoinSet`; `stop` cancels it
@@ -538,6 +565,13 @@ pub(crate) async fn serve_async(
         let refusal = ServeError::Io(error);
         lgwks_std::trace::debug!(error = ?refusal, "serve: the run store dir is refused");
         return Err(refusal);
+    }
+    if let Err(refusal) = check_serve_store(options.store_dir.as_path()) {
+        lgwks_std::trace::debug!(error = ?refusal, "serve: the durable sink gate refused the start");
+        return Err(ServeError::StartGate {
+            sink: refusal.sink().to_owned(),
+            reason: refusal.reason().to_owned(),
+        });
     }
     let bound_listener =
         lgwks_deps::tokio::net::TcpListener::from_std(listener).map_err(|cause| {

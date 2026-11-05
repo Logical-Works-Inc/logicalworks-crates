@@ -127,7 +127,8 @@ pub use request::{
 #[cfg(feature = "sealed")]
 pub use store::SealedAppend;
 pub use store::{
-    MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunStore, StoreError, StoreLimitKind,
+    CompositeSink, DurableSink, MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunStore,
+    START_PROBE_FILE, SinkRefusal, StoreError, StoreLimitKind, StoreSink,
 };
 
 /// The most top-level runs one host admits at once.

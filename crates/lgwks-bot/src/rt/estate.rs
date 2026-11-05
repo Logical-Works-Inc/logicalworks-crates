@@ -151,6 +151,14 @@ pub enum EstateError {
         /// The store's refusal.
         cause: StoreError,
     },
+    /// The durable sink gate refused the start: the store directory cannot
+    /// persist, so building would fail one run at a time.
+    StartGate {
+        /// The composite sink that refused, naming the failed child in `reason`.
+        sink: String,
+        /// The child's name and the failure kind.
+        reason: String,
+    },
 }
 
 impl fmt::Display for EstateError {
@@ -178,6 +186,15 @@ impl fmt::Display for EstateError {
                     "lgwks_bot: the estate run store is refused: {cause}"
                 )
             }
+            Self::StartGate {
+                ref sink,
+                ref reason,
+            } => {
+                write!(
+                    formatter,
+                    "lgwks_bot: the durable sink '{sink}' is not ready: {reason}"
+                )
+            }
         }
     }
 }
@@ -190,6 +207,7 @@ impl std::error::Error for EstateError {
             Self::Runtime { ref cause } => Some(cause),
             Self::Host { ref cause } => Some(cause),
             Self::Store { ref cause } => Some(cause),
+            Self::StartGate { .. } => None,
         }
     }
 }
@@ -244,6 +262,19 @@ fn store_io(cause: std::io::Error) -> EstateError {
     EstateError::Store {
         cause: StoreError::storage(cause),
     }
+}
+
+/// The start gate over the durable sink: refuse before the store opens.
+///
+/// The store directory exists by now ([`create_private_dir`] above, owner-only
+/// where the platform has modes), so a refusal means it cannot persist —
+/// read-only remount, replaced data directory, a squatter on the probe path —
+/// and building would fail one run at a time instead of refusing to start.
+#[cfg(feature = "ephemeral")]
+fn check_durable_store(dir: &std::path::Path) -> Result<(), crate::task::SinkRefusal> {
+    let child: std::sync::Arc<dyn crate::task::DurableSink> =
+        std::sync::Arc::new(crate::task::StoreSink::for_dir(dir));
+    crate::task::CompositeSink::new("durable-sink", [child]).readiness()
 }
 
 /// Where `RunStore::open_in` puts `tenant`'s store under `dir`.
@@ -412,6 +443,13 @@ impl Estate {
         refuse_case_twin(&store)?;
         let existed = store.exists();
         create_private_dir(dir)?;
+        check_durable_store(dir).map_err(|refusal| {
+            lgwks_std::trace::debug!(error = ?refusal, "estate: the durable sink gate refused the start");
+            EstateError::StartGate {
+                sink: refusal.sink().to_owned(),
+                reason: refusal.reason().to_owned(),
+            }
+        })?;
         let host = Host::builder(tenant)
             .map_err(invalid_tenant)?
             .max_concurrent_tasks(bound)
