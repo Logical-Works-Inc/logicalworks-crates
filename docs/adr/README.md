@@ -48,5 +48,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0010](0010-estate-uuid-replaces-the-uuid-crate.md) | The estate UUID issues v7 infallibly and packs as an FDB tuple element; serde is declined |
 | [0011](0011-docs-only-changes-run-the-docs-gate.md) | A docs-only change runs the docs gate, not the suites; `check-docs` reads every page as its reader does |
 | [0012](0012-every-new-public-item-shows-an-example.md) | Every public item a change adds shows an example; the rule judges added lines |
+| [0013](0013-serve-emits-openapi-from-route-registry.md) | Serve emits OpenAPI 3.1 schema from route registry |
 
 New records go at the bottom of that table.
