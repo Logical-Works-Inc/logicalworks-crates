@@ -382,6 +382,7 @@ mod sealed;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod serve;
 #[cfg(all(feature = "edge", feature = "script"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod serve_openapi;
 #[cfg(feature = "edge")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
