@@ -22,10 +22,10 @@ is refused rather than clobbered.
 ";
 
 /// The `lgwks_bot` release the scaffold pins, kept beside the workspace's.
-const BOT_VERSION: &str = "7.0.0";
+const BOT_VERSION: &str = "7.1.0";
 
 /// The `lgwks_std` release the scaffold pins, kept beside the workspace's.
-const STD_VERSION: &str = "4.0.0";
+const STD_VERSION: &str = "4.0.1";
 
 /// The marker the manifest template names the app with.
 const NAME_MARK: &str = "@@NAME@@";
