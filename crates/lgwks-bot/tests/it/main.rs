@@ -379,6 +379,7 @@ mod script_trail;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sealed;
 #[cfg(feature = "sealed")]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sealed_disk_torn;
 #[cfg(feature = "edge")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
