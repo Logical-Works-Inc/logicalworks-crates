@@ -20,14 +20,24 @@
 //!   criterion, verification method and trace. Each of those is a required
 //!   attribute of every requirement.
 //!
-//! Usage: `check-docs [ROOT]` (default: the working directory). Exit 2 on any
-//! finding.
+//! Every reader-facing page is also held to the plain shape in `prose.rs`: a
+//! title, an opening sentence, a language on every code block, no skipped
+//! heading level, no dead relative link, and sentences and paragraphs a reader
+//! holds at once.
+//!
+//! Usage: `check-docs [ROOT] [--base REV]` (default: the working directory).
+//! Bare, every rule judges every page: the audit of the whole set. With
+//! `--base`, the gate's form, a page changed since `REV` is held to every shape
+//! rule and its added prose to the sentence and paragraph bounds, so a change
+//! brings each page it touches up to the bar. Exit 2 on any finding.
 
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+mod prose;
 
 /// The directory holding the architecture decision records.
 const ADR_DIR: &str = "docs/adr";
@@ -412,6 +422,7 @@ fn say(handle: &mut impl Write, arguments: fmt::Arguments<'_>) -> Result<(), Che
 /// Runs the check over `root`, writing the verdict to the two handles.
 fn execute(
     root: &Path,
+    base: Option<&str>,
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> Result<ExitCode, CheckError> {
@@ -431,6 +442,27 @@ fn execute(
             findings.push(format!("{}: {finding}", record.name));
         }
     }
+    let read_error = |cause| CheckError::Io {
+        path: root.to_path_buf(),
+        cause,
+    };
+    let pages = prose::pages(root).map_err(read_error)?;
+    let added = match base {
+        Some(base) => Some(prose::added_lines(root, base).map_err(read_error)?),
+        None => None,
+    };
+    for page in &pages {
+        let judged = match added.as_ref() {
+            None => prose::Judged::Whole,
+            Some(added) => match added.get(&page.name) {
+                Some(ranges) => prose::Judged::Added(ranges),
+                None => continue,
+            },
+        };
+        for finding in prose::check_page(root, page, judged) {
+            findings.push(format!("{}:{}: {}", page.name, finding.line, finding.what));
+        }
+    }
     if counted == 0 {
         say(
             err,
@@ -446,7 +478,9 @@ fn execute(
             out,
             format_args!(
                 "OK  {counted} records — every ADR holds its 42010 fields, every one of the \
-                 {requirements} PRD requirements holds its 29148 attributes"
+                 {requirements} PRD requirements holds its 29148 attributes, and {} pages \
+                 read plainly",
+                pages.len()
             ),
         )?;
         return Ok(ExitCode::SUCCESS);
@@ -471,12 +505,20 @@ fn execute(
     Ok(ExitCode::from(2))
 }
 
-/// The directory named on the command line, else the working directory.
-fn root_argument() -> PathBuf {
-    match std::env::args_os().nth(1) {
-        Some(argument) => PathBuf::from(argument),
-        None => PathBuf::from("."),
+/// The root named on the command line (else the working directory) and the
+/// revision `--base REV` names, if any.
+fn arguments() -> (PathBuf, Option<String>) {
+    let mut root = PathBuf::from(".");
+    let mut base = None;
+    let mut given = std::env::args_os().skip(1);
+    while let Some(argument) = given.next() {
+        if argument == "--base" {
+            base = given.next().map(|rev| rev.to_string_lossy().into_owned());
+        } else {
+            root = PathBuf::from(argument);
+        }
     }
+    (root, base)
 }
 
 /// Runs the check and reports its exit code.
@@ -485,7 +527,8 @@ fn main() -> ExitCode {
     let mut out = stdout.lock();
     let stderr = io::stderr();
     let mut err = stderr.lock();
-    match execute(&root_argument(), &mut out, &mut err) {
+    let (root, base) = arguments();
+    match execute(&root, base.as_deref(), &mut out, &mut err) {
         Ok(code) => code,
         Err(error) => {
             if say(&mut err, format_args!("check-docs: {error}")).is_err() {

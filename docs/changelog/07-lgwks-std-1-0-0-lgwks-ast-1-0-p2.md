@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 2 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - `EcsBuilder::with_poll_deadline`, `DEFAULT_POLL_DEADLINE` and
   `MAX_POLL_DEADLINE` (INV-BOT-123). Every source poll in a tick's observation
@@ -50,7 +50,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   still reports what its sources had already declared. Every field is private
   behind an accessor. **Migration:** none; reading it is optional.
 - `TickReport::watchdogs` (INV-BOT-124). The deadline watchdog threads the tick
-  actually started, beside `stalled`: zero for the ordinary tick where every
+  started, beside `stalled`: zero for the ordinary tick where every
   source answered on its first poll, and one per observation wave that had a
   source still pending. **Migration:** none; it is an accessor.
 - Source-visible simulation evidence for the observation layer's deadline,
@@ -114,4 +114,4 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   so a stream cannot request an allocation by claiming a large record. Accepting
   rows T03, T05, T21 and T22. No existing item changed.
 - `rt::process::DEFAULT_FRAME_CEILING`, the one retained-byte ceiling a caller
-  needs in order to read a child's framed output without inventing a bound.
+  needs to read a child's framed output without inventing a bound.

@@ -1,34 +1,62 @@
 # lgwks_bot
 
+**Resilient workflow orchestration & durable execution engine for Rust: indented `script!` flows with compiler-guaranteed bounds, shared retry budgets, crash-safe step checkpoints, and native admission barriers for AI agent plans.**
+
 Pages of this README: [overview](README.md) · [execution model](README-execution.md) · [failure](README-failure.md) · [authority, domains and specs](README-authority.md) · [script!](README-script.md) · [async runtime](README-runtime.md) · [supervision](README-supervision.md)
 
 [![crates.io](https://img.shields.io/crates/v/lgwks_bot.svg)](https://crates.io/crates/lgwks_bot)
 [![docs.rs](https://img.shields.io/docsrs/lgwks_bot)](https://docs.rs/lgwks_bot)
 
-Orchestration with the common failure modes removed: bounded fan-out, deadlines, retries under
-a shared budget, tenant-keyed steps and a map of what a run declared.
-
+Install via Cargo:
 ```sh
 cargo add lgwks_bot
 ```
 
-The supported interface is `script!`, the `try_join!` macro and the `script`
-module they expand into. [README-script.md](README-script.md) has a complete
-flow and what every flow gets without asking, and
-[docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) has each primitive with a
-runnable example.
+## Why lgwks_bot?
 
-## What a flow rules out
+Writing resilient async logic in Rust usually forces a bad compromise:
+- **Raw Tokio**: Hand-rolling `select!`, semaphore permits, and custom retry loops prone to leaked futures, zombie tasks, and retry storms.
+- **Distributed Workflow Engines (Temporal)**: Great durability, but requires operating external server clusters, databases, and managing fragile event-history replay compatibility across versions.
 
-| Block | What it rules out |
+`lgwks_bot` embeds enterprise durable workflow orchestration directly inside your Rust process. Zero external servers required.
+
+## The 7 Production Traps Ruled Out by Design
+
+| Block | What it structurally rules out |
 |---|---|
-| `each x in xs:` | unbounded fan-out; lost results; siblings left running after a failure |
-| `within 2s:` | a wait with no deadline; a wait that ignores cancellation |
-| `retry up to 3 times, waiting 100ms:` | retry storms; retrying a permanent failure; a new identity per attempt |
-| `together:` | sequential awaits that should overlap; a failed branch that keeps running |
-| `step name:` | anonymous work with no stable key or error location |
-| `await ready(&db, 30s)` | a readiness guessed by sleeping; a poll loop |
-| `admit the model's plan:` | an untrusted payload becoming an instruction |
+| `each x in xs:` | **Unbounded fan-out & leaks**: Concurrency is bounded; if an item fails, siblings abort cleanly. |
+| `within 2s:` | **Silent hangs & zombie tasks**: Mandatory deadlines; cancellation propagates down the tree. |
+| `retry up to 3 times, waiting 100ms:` | **Retry storms**: Unified attempt budget with jitter; permanent errors are never retried. |
+| `together:` | **Unstructured concurrency**: Replaces `tokio::spawn` with structured branches. |
+| `step name:` | **Anonymous crashes**: Deterministic keys; state checkpoints enable crash resumption without replay drift. |
+| `await ready(&db, 30s)` | **Sleep-based readiness guesses**: Deterministic readiness probes instead of sleep loops. |
+| `admit the model's plan:` | **Untrusted AI execution**: Gated admission ensures untrusted LLM outputs cannot execute without validation. |
+
+For architectural comparisons and benchmarks against Temporal and raw Tokio, see [Durable Execution in Rust](https://github.com/srinji-kaggss/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md).
+
+## Quickstart
+
+Flow in 12 lines:
+```rust
+use lgwks_bot::script::{FlowError, Scope, Tenant};
+
+lgwks_bot::script! {
+    /// Resilient, bounded, tenant-partitioned pipeline in 12 lines
+    flow sync_records(client: &ApiClient, db: &Database, records: Vec<Record>) -> SyncReport:
+        step validate:
+            admit records.iter().all(|r| r.is_valid())?
+        step upload:
+            let receipts = each record in records:
+                retry up to 3 times, waiting 50ms:
+                    within 5s:
+                        client.upload(&record).await?
+        step commit:
+            db.record_sync(&receipts).await?
+        give back SyncReport::success(receipts.len())
+}
+```
+
+The supported interface is `script!`, `try_join!` and the `script` module. [README-script.md](README-script.md) has a complete flow; [docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) has runnable examples.
 
 ## Features
 

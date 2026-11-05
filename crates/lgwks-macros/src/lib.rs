@@ -54,9 +54,6 @@
 //! | `serve on port from env PORT, at most (limit) runs in flight:` | the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency |
 //! | `serve on port (port), at most (limit) runs in flight:` | the same on a literal port expression |
 //! | `route POST /drafts (body: DraftRequest) -> Draft:` | one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output |
-//! | `serve on port from env PORT, at most (limit) runs in flight:` | the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency |
-//! | `serve on port (port), at most (limit) runs in flight:` | the same on a literal port expression |
-//! | `route POST /drafts (body: DraftRequest) -> Draft:` | one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output |
 //!
 //! Every step keys by tenant, run and path (`Scope::key`): one run's attempts
 //! and restarts share a key, two runs of one flow never do, and work that is

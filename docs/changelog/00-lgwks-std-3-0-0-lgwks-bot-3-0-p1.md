@@ -2,7 +2,7 @@
 
 Release: lgwks_std 3.0.0 / lgwks_bot 3.0.0 / lgwks_ast 2.0.0 / lgwks_deps 4.0.0 / lgwks_macros 1.1.2 - 2026-10-18. Page 1 of 2. [Changelog index](../../CHANGELOG.md)
 
-### Upgrading
+## Upgrading
 
 Four crates take a major bump and `lgwks_macros` a patch. No item is removed:
 every path a 2.x caller wrote still resolves, so a build that compiled before

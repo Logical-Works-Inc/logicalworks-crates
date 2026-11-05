@@ -2,19 +2,19 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 5 of 13. [Changelog index](../../CHANGELOG.md)
 
-### Fixed (continued)
+## Fixed (continued)
 
 - The group-commit failure test is no longer a test that does not test. The
   seeded `tests/sim_group_commit.rs` family named for a failed batch never failed
-  one — the flush-failure switch is a `#[cfg(test)]` seam no simulation can reach —
-  so it is renamed to what it actually proves,
-  `every_flushed_batch_acknowledges_every_member`, and the all-or-nothing answer of
-  a *failed* batch is now injected and observed on the shipped store by
-  `journal::owner::tests::a_failed_batch_flush_acknowledges_nobody_and_folds_nothing`:
-  a three-member batch whose covering `sync_all` is refused answers every member
-  with the failure, folds none of them into the handle's index, latches one poison
-  against which every later submit is refused, and is read back from a reopen of
-  the file rather than from the handle (INV-BOT-130/131).
+  one, because the flush-failure switch is a `#[cfg(test)]` seam no simulation
+  can reach. So it is renamed to what it proves,
+  `every_flushed_batch_acknowledges_every_member`. The all-or-nothing answer of a
+  *failed* batch is now injected and observed on the shipped store by
+  `journal::owner::tests::a_failed_batch_flush_acknowledges_nobody_and_folds_nothing`.
+  A three-member batch whose covering `sync_all` is refused answers every member
+  with the failure and folds none of them into the handle's index. It latches one
+  poison against which every later submit is refused, and it is read back from a
+  reopen of the file rather than from the handle (INV-BOT-130/131).
 - `journal::owner`'s ordered step grew the third answer shape `Stage::Committed`,
   for a step that flushes its own bytes inside the step, so the run ledger's charge
   shares the one storage owner — thread, bounded rings and poison latch — with the
@@ -73,7 +73,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   15-minute timeout, and the poll now registers its waker before it reads the
   slot so whichever side moves second observes the other (INV-BOT-140).
 
-### lgwks_std Added
+## lgwks_std Added
 
 - Seven new deterministic simulation families, 116 source-visible `#[test]`
   functions, over the `lgwks_std` modules that had none: `tests/sim_hex.rs`,

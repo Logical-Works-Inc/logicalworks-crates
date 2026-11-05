@@ -51,9 +51,7 @@ fn shown_value(value: Option<&Value>) -> String {
                 None => NONE.to_owned(),
             },
         },
-        Value::Null | Value::Bool(_) | Value::String(_) | Value::Array(_) | Value::Object(_) => {
-            NONE.to_owned()
-        }
+        _ => NONE.to_owned(),
     }
 }
 

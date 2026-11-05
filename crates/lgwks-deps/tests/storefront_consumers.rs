@@ -205,6 +205,9 @@ storefront_families! {
     storefront_ml_candle_compiles_alone => ("ml-candle", "ml_candle"),
     storefront_ml_tokenizers_compiles_alone => ("ml-tokenizers", "ml_tokenizers"),
     storefront_sqlite_compiles_alone => ("sqlite", "sqlite"),
+    // ADR 0003: gpui builds on Apple targets only (its Linux graph reaches
+    // xattr 0.2.3, which names `libc::ENOATTR`, absent on Linux in libc 0.2.191).
+    #[cfg(target_os = "macos")]
     storefront_gpui_compiles_alone => ("gpui", "gpui"),
     #[cfg(target_os = "macos")]
     storefront_ml_candle_metal_compiles_alone => ("ml-candle-metal", "ml_candle_metal"),

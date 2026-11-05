@@ -13,14 +13,12 @@ sandbox.
 ```sh
 cargo add lgwks_bot
 ```
-
 ```rust
 lgwks_bot::script! {
     flow count(items: Vec<u8>) -> usize:
         give back items.len()
 }
 ```
-
 The package is `lgwks_bot` (underscore) in the directory `crates/lgwks-bot`
 (hyphen), written as `lgwks_bot::script!`. There is no `lgwks-bot` package to
 add. [Getting started](getting-started.md) runs a whole program.
@@ -42,7 +40,6 @@ pub use crate::ecs::{
     EffectEvidence, PendingWork, RetryPolicy, TransitionHold, WorkId,
 };
 ```
-
 There is one execution path. `crates/lgwks-bot/Cargo.toml` states that
 `bevy_ecs` is not optional and not behind a feature, because a default-off flag
 "would mean nothing exercises it, the workspace gate never compiles it, and it
@@ -59,11 +56,12 @@ a future. See [failures](failures.md) for why the refusal is not a failed tick.
 
 ## Supported versions
 
-`crates/lgwks-bot/Cargo.toml` declares version `4.0.0` and `rust-version =
+`crates/lgwks-bot/Cargo.toml` declares version `7.0.0` and `rust-version =
 "1.98"`, edition 2024. Which release first carries a symbol, and what each
 major removed, is in [`CHANGELOG.md`](../../../CHANGELOG.md) and
 [`docs/changelog/`](../../changelog); 4.0.0 removed `EcsBot::world` and
-`Clock::sleep` under ADR 0006.
+`Clock::sleep` under ADR 0006, and 7.0.0 takes `lgwks_std` 4's own
+`json::Value` through `lgwks_bot::json`.
 
 ## Install and import
 
@@ -72,7 +70,6 @@ Add the crate and the default features come with it:
 ```sh
 cargo add lgwks_bot
 ```
-
 That is `script`, which brings `rt`, `time`, `sync`, and `macros`
 (`crates/lgwks-bot/Cargo.toml`). The default build pulls tokio through the
 `lgwks_deps` storefront's `tokio` feature.

@@ -2,7 +2,7 @@
 
 Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Page 5 of 5. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Fixed (continued)
+## lgwks_bot Fixed (continued)
 
 - Durable outcome settlement binds a receipt to the exact `OutcomeObserved`
   position before releasing work. An unrelated or forged receipt holds
@@ -18,7 +18,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   only run and flow. A key cloned from the pending key with a foreign
   environment used to settle the live entry and journal the foreign key.
 
-### lgwks_bot Documentation
+## lgwks_bot Documentation
 
 - Five citations in `docs/guides/lgwks-bot/` were re-anchored to the lines this
   change moved in `ecs.rs`. `getting-started.md` also credited the
@@ -35,14 +35,14 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   numbers the offset would predict; the five whose text is not unique in the
   file were confirmed by reading them.
 
-### lgwks_deps Added
+## lgwks_deps Added
 
 - `lgwks-deps debug [PATH] [--json]`, a cargo-doctor-style command for the
   `lgwks_std::trace` lifecycle. It installs the default debugger in its own
   process, emits lifecycle events, inspects `crates/lgwks-std/Cargo.toml`, and
   refuses if the SDK debugger no longer rides the default `trace` feature.
 
-### Repository Added
+## Repository Added
 
 - `scripts/check-std-first.py`, and a CI step that runs it. `lgwks-deps check`
   enforces the manifest half of the `std`-first rule and cannot see the other
@@ -59,8 +59,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   whatever later occupied that line. A moved exemption is a `STALE EXEMPTION`
   finding, not a silent yes.
 
-
-### Repository Changed
+## Repository Changed
 
 - **CI runs the matrix once per change instead of twice.** `on.push` is scoped
   to `main` now, because a pull request already runs all eleven jobs for its head
@@ -75,7 +74,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   broken intra-doc link is a warning rather than an error, so the crate built
   green and the break surfaced only after the push.
 
-### Repository Changed
+## Repository Changed
 
 - **A citation that moves is now a failure rather than a silent pass.**
   `scripts/check-doc-citations.py` pins the text of every cited line in
@@ -89,7 +88,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   `--update` rewrites the lock and prints every line whose text changed under a
   citation and which page cites it, so the review is the diff.
 
-### Repository Fixed
+## Repository Fixed
 
 - `crates/lgwks-bot/src/domain/mod.rs` is deleted. It declared the nine domain
   modules, but `lib.rs` declares `domain` as an inline module, so that file was
