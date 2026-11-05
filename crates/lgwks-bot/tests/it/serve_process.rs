@@ -15,7 +15,7 @@ use lgwks_bot::rt::serve::{RouteMethod, ServeOptions, TypedRoute};
 
 use crate::scratch::Scratch;
 use crate::serve_edge::{
-    Counter, free_port, post, post_draft, ready_deadline, spawn_estate_serve, wait_ready,
+    Counter, free_port, get, post, post_draft, ready_deadline, spawn_estate_serve, wait_ready,
 };
 
 /// Requirement: durable resume; a restart answers a reused key from records.
@@ -170,6 +170,50 @@ fn estate_serve_binary_survives_kill_9() -> Result<(), String> {
         ));
     }
     second.stop()?;
+    Ok(())
+}
+
+/// Requirement: the shipped contract; the binary serves its own OpenAPI document.
+///
+/// Proves INV-BOT-190: `estate serve` pre-renders the described registry at
+/// startup, refuses an undescribed registry before binding, and answers
+/// `GET /t/{tenant}/openapi.json` with the 3.1 document naming the draft
+/// operation.
+#[test]
+fn estate_serve_serves_its_openapi_contract() -> Result<(), String> {
+    let store = Scratch::new("serve-contract").map_err(|error| error.to_string())?;
+    let port = free_port()?;
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let mut server = spawn_estate_serve(store.path(), port, &[], std::process::Stdio::null())?;
+    let body = b"{\"title\": \"T\", \"body\": \"B\"}";
+    let (ready_status, _, _) = wait_ready(
+        addr,
+        "acme",
+        "/drafts",
+        body,
+        Some("order-contract"),
+        ready_deadline()?,
+    )?;
+    if ready_status != 200 {
+        return Err(format!("the server answered {ready_status}, not 200"));
+    }
+    let (status, _, document) = get(addr, "acme", "/openapi.json")?;
+    if status != 200 {
+        return Err(format!("the contract answered {status}, not 200"));
+    }
+    for wanted in [
+        "\"openapi\":\"3.1.0\"",
+        "/drafts",
+        "estate::serve::drafts",
+        "/openapi.json",
+        "estate::serve::openapi",
+    ] {
+        assert!(
+            document.contains(wanted),
+            "the served contract names {wanted}: {document:?}"
+        );
+    }
+    server.stop()?;
     Ok(())
 }
 

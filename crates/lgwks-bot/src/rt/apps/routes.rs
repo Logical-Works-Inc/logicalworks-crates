@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use lgwks_std::json::{Deserialize, Serialize, from_slice, to_vec};
 
+use crate::rt::serve::openapi::{AuthPosture, DocStatus, OpenApiError, RouteDescriptor};
 use crate::rt::serve::{RouteMethod, TypedRoute};
 use crate::script::{Scope, Tenant};
 
@@ -114,6 +115,21 @@ fn is_json(content_type: Option<&str>) -> bool {
 /// Who holds what: the capabilities each tenant already holds.
 pub type HeldGrants = Arc<dyn Fn(&str) -> Vec<crate::cap::Cap> + Send + Sync>;
 
+/// Attach `descriptor` to `route`, logging the refusal instead of panicking.
+///
+/// The descriptor literals below are valid by construction; a refusal here
+/// means the literals drifted, and the OpenAPI parity suite fails the build
+/// on the undescribed route rather than this path panicking the edge.
+fn described(route: TypedRoute, descriptor: Result<RouteDescriptor, OpenApiError>) -> TypedRoute {
+    match descriptor {
+        Ok(descriptor) => route.describe(descriptor),
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "apps: the route descriptor is refused");
+            route
+        }
+    }
+}
+
 /// The `POST /apps` and `POST /apps/run` routes for the tenant HTTP edge.
 ///
 /// `registry` holds the operations every tenant admits and runs;
@@ -130,85 +146,111 @@ pub fn apps_routes(
     let admitting = Arc::clone(&store);
     let providing = Arc::clone(&registry);
     let holding = Arc::clone(&held);
-    let admit = TypedRoute::new_with_content_type(
-        RouteMethod::Post,
-        "/apps",
-        move |tenant: String, content: Option<String>, body: Vec<u8>| {
-            let admitting = Arc::clone(&admitting);
-            let providing = Arc::clone(&providing);
-            let holding = Arc::clone(&holding);
-            async move {
-                let granted = holding(tenant.as_str());
-                let surface = match providing.surface(tenant.as_str(), granted.as_slice()) {
-                    Ok(surface) => surface,
-                    Err(error) => {
-                        lgwks_std::trace::debug!(error = ?error, "apps: the tenant surface is refused");
-                        return Err((500u16, format!("the tenant surface is refused: {error}")));
+    let admit = described(
+        TypedRoute::new_with_content_type(
+            RouteMethod::Post,
+            "/apps",
+            move |tenant: String, content: Option<String>, body: Vec<u8>| {
+                let admitting = Arc::clone(&admitting);
+                let providing = Arc::clone(&providing);
+                let holding = Arc::clone(&holding);
+                async move {
+                    let granted = holding(tenant.as_str());
+                    let surface = match providing.surface(tenant.as_str(), granted.as_slice()) {
+                        Ok(surface) => surface,
+                        Err(error) => {
+                            lgwks_std::trace::debug!(error = ?error, "apps: the tenant surface is refused");
+                            return Err((
+                                500u16,
+                                format!("the tenant surface is refused: {error}"),
+                            ));
+                        }
+                    };
+                    let outcome = if is_json(content.as_deref()) {
+                        admitting.admit_json(&surface, &providing, body.as_slice())
+                    } else {
+                        admitting.admit_text(&surface, &providing, body.as_slice())
+                    };
+                    if outcome.http_status() == 200 {
+                        Ok(outcome.verdict_json())
+                    } else {
+                        let verdict =
+                            String::from_utf8_lossy(outcome.verdict_json().as_slice()).into_owned();
+                        lgwks_std::trace::debug!(
+                            status = outcome.http_status(),
+                            "apps: the plan is refused"
+                        );
+                        Err((outcome.http_status(), verdict))
                     }
-                };
-                let outcome = if is_json(content.as_deref()) {
-                    admitting.admit_json(&surface, &providing, body.as_slice())
-                } else {
-                    admitting.admit_text(&surface, &providing, body.as_slice())
-                };
-                if outcome.http_status() == 200 {
-                    Ok(outcome.verdict_json())
-                } else {
-                    let verdict =
-                        String::from_utf8_lossy(outcome.verdict_json().as_slice()).into_owned();
-                    lgwks_std::trace::debug!(
-                        status = outcome.http_status(),
-                        "apps: the plan is refused"
-                    );
-                    Err((outcome.http_status(), verdict))
                 }
-            }
-        },
+            },
+        ),
+        RouteDescriptor::new(
+            RouteMethod::Post,
+            "/apps",
+            "apps::admit",
+            "Admit a model-written plan against the tenant operation surface.",
+            AuthPosture::TenantEdge,
+            DocStatus::Stub,
+        ),
     );
     let running = Arc::clone(&store);
-    let run = TypedRoute::new(
-        RouteMethod::Post,
-        "/apps/run",
-        move |tenant: String, body: Vec<u8>| {
-            let running = Arc::clone(&running);
-            async move {
-                let asked: RunAsk = match from_slice(body.as_slice()) {
-                    Ok(asked) => asked,
-                    Err(error) => {
-                        lgwks_std::trace::debug!(error = ?error, "apps: the run request does not decode");
-                        return Err((400u16, format!("the run request does not decode: {error}")));
-                    }
-                };
-                let scope = match Tenant::new(tenant.as_str()) {
-                    Ok(tenant) => Scope::root(tenant),
-                    Err(error) => {
-                        lgwks_std::trace::debug!(error = ?error, "apps: the tenant is refused");
-                        return Err((500u16, format!("the tenant is refused: {error}")));
-                    }
-                };
-                match run_app(&scope, &running, asked.app.as_str()).await {
-                    Ok(lines) => {
-                        let printed = lines
-                            .iter()
-                            .map(|line| String::from_utf8_lossy(line.as_slice()).into_owned())
-                            .collect();
-                        Ok(encode(&LinesOut { lines: printed }))
-                    }
-                    Err(error) => {
-                        let status = match error.kind() {
-                            super::run::RunKind::UnknownApp => 404,
-                            _ => 500,
-                        };
-                        let body = encode(&RunFailed {
-                            error: error.detail(),
-                        });
-                        let message = String::from_utf8_lossy(body.as_slice()).into_owned();
-                        lgwks_std::trace::debug!(error = ?error, "apps: the run is refused");
-                        Err((status, message))
+    let run = described(
+        TypedRoute::new(
+            RouteMethod::Post,
+            "/apps/run",
+            move |tenant: String, body: Vec<u8>| {
+                let running = Arc::clone(&running);
+                async move {
+                    let asked: RunAsk = match from_slice(body.as_slice()) {
+                        Ok(asked) => asked,
+                        Err(error) => {
+                            lgwks_std::trace::debug!(error = ?error, "apps: the run request does not decode");
+                            return Err((
+                                400u16,
+                                format!("the run request does not decode: {error}"),
+                            ));
+                        }
+                    };
+                    let scope = match Tenant::new(tenant.as_str()) {
+                        Ok(tenant) => Scope::root(tenant),
+                        Err(error) => {
+                            lgwks_std::trace::debug!(error = ?error, "apps: the tenant is refused");
+                            return Err((500u16, format!("the tenant is refused: {error}")));
+                        }
+                    };
+                    match run_app(&scope, &running, asked.app.as_str()).await {
+                        Ok(lines) => {
+                            let printed = lines
+                                .iter()
+                                .map(|line| String::from_utf8_lossy(line.as_slice()).into_owned())
+                                .collect();
+                            Ok(encode(&LinesOut { lines: printed }))
+                        }
+                        Err(error) => {
+                            let status = match error.kind() {
+                                super::run::RunKind::UnknownApp => 404,
+                                _ => 500,
+                            };
+                            let body = encode(&RunFailed {
+                                error: error.detail(),
+                            });
+                            let message = String::from_utf8_lossy(body.as_slice()).into_owned();
+                            lgwks_std::trace::debug!(error = ?error, "apps: the run is refused");
+                            Err((status, message))
+                        }
                     }
                 }
-            }
-        },
+            },
+        ),
+        RouteDescriptor::new(
+            RouteMethod::Post,
+            "/apps/run",
+            "apps::run",
+            "Run an admitted plan through the tenant graph scheduler.",
+            AuthPosture::TenantEdge,
+            DocStatus::Stub,
+        ),
     );
     vec![admit, run]
 }

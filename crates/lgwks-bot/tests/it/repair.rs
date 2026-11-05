@@ -412,11 +412,12 @@ fn a_denied_repair_leaves_the_run_blocked_with_its_authority_unchanged() -> Test
         !case.host.grants().grants(&Cap::new(Cap::NET)),
         "a denied repair leaves the host's authority exactly as it was"
     );
+    let epoch = match shared::ledger_of(&case.host)?.control(case.run) {
+        Some(control) => control.epoch(),
+        None => 0,
+    };
     assert_eq!(
-        shared::ledger_of(&case.host)?
-            .control(case.run)
-            .map_or(0, |control| control.epoch()),
-        0,
+        epoch, 0,
         "a denied repair mints no epoch, so the run is still where it was"
     );
     Ok(())
@@ -448,13 +449,11 @@ fn an_over_wide_grant_is_refused_rather_than_narrowed() -> TestResult {
         other => return Err(format!("a wider grant must be refused: got {other:?}").into()),
     }
     assert_eq!(case.polls.publish(), 0, "a refused repair runs no step");
-    assert_eq!(
-        shared::ledger_of(&case.host)?
-            .control(case.run)
-            .map_or(0, |control| control.epoch()),
-        0,
-        "a refused repair mints no epoch"
-    );
+    let epoch = match shared::ledger_of(&case.host)?.control(case.run) {
+        Some(control) => control.epoch(),
+        None => 0,
+    };
+    assert_eq!(epoch, 0, "a refused repair mints no epoch");
     Ok(())
 }
 
@@ -497,13 +496,11 @@ fn a_custom_capability_outside_the_ticket_is_refused() -> TestResult {
         }
     }
     assert_eq!(case.polls.publish(), 0, "a refused repair runs no step");
-    assert_eq!(
-        shared::ledger_of(&case.host)?
-            .control(case.run)
-            .map_or(0, |control| control.epoch()),
-        0,
-        "a refused repair mints no epoch"
-    );
+    let epoch = match shared::ledger_of(&case.host)?.control(case.run) {
+        Some(control) => control.epoch(),
+        None => 0,
+    };
+    assert_eq!(epoch, 0, "a refused repair mints no epoch");
     Ok(())
 }
 
@@ -592,7 +589,7 @@ fn the_root_budget_stays_charged_across_repair_and_resume_t13() -> TestResult {
     // after it is refused — a finite refusal, not an unbounded retry loop.
     let again = lgwks_bot::block_on(host.resume(run, &declared, input(polls, 7)));
     assert!(
-        again.disposition().was_admitted(),
+        again.disposition() != lgwks_bot::task::Disposition::Refused,
         "a resume within the budget still runs: {:?}",
         again.error()
     );

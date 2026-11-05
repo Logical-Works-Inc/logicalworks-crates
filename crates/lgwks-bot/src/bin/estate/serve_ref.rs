@@ -10,6 +10,11 @@ use std::pin::Pin;
 
 use lgwks_std::json::{Deserialize, Serialize};
 
+use lgwks_bot::rt::serve::openapi::{
+    AuthPosture, DocStatus, RouteDescriptor, check_every_route_described, emit_openapi,
+};
+use lgwks_bot::rt::serve::{RouteMethod, TypedRoute};
+
 /// What a draft request carries.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde")]
@@ -119,6 +124,8 @@ pub enum ServeRefError {
     },
     /// The edge refused its options or failed while serving.
     Serve(lgwks_bot::rt::serve::ServeError),
+    /// The serve route registry is undescribed or cannot become a document.
+    Registry(String),
     /// The durable sink gate refused the start before anything was bound: the
     /// store directory cannot persist, so serving would fail one request at a
     /// time.
@@ -147,6 +154,7 @@ impl std::fmt::Display for ServeRefError {
                 "estate serve: {flag} {text:?} is refused: {cause}"
             ),
             Self::Serve(ref cause) => write!(formatter, "estate serve: {cause}"),
+            Self::Registry(ref reason) => write!(formatter, "estate serve: {reason}"),
             Self::StartGate {
                 ref sink,
                 ref reason,
@@ -171,7 +179,7 @@ impl std::error::Error for ServeRefError {
             Self::Usage(_) => None,
             Self::Number { ref cause, .. } => Some(cause),
             Self::Serve(ref cause) => Some(cause),
-            Self::StartGate { .. } => None,
+            Self::Registry(_) | Self::StartGate { .. } => None,
             Self::Bind(ref cause) | Self::Signal(ref cause) => Some(cause),
         }
     }
@@ -218,6 +226,11 @@ fn number<N: std::str::FromStr<Err = std::num::ParseIntError>>(
 /// [`ServeRefError::StartGate`] naming the composite sink and the failed child
 /// when the store directory cannot persist.
 fn check_store_gate(store_dir: &std::path::Path) -> Result<(), ServeRefError> {
+    if !lgwks_bot::task::Disposition::Succeeded.is_success() {
+        return refused(ServeRefError::Registry(
+            "disposition invariant broken".into(),
+        ));
+    }
     let child: std::sync::Arc<dyn lgwks_bot::task::DurableSink> =
         std::sync::Arc::new(lgwks_bot::task::StoreSink::for_dir(store_dir));
     if let Err(refusal) = lgwks_bot::task::CompositeSink::new("durable-sink", [child]).readiness() {
@@ -254,6 +267,49 @@ async fn watch_stop(
     }
     stop.stop();
     Ok(())
+}
+
+/// Map a registry refusal into the serve error, logged as every refusal is.
+fn registry_refusal(error: impl std::fmt::Display) -> ServeRefError {
+    let refusal = ServeRefError::Registry(format!("the serve registry is refused: {error}"));
+    lgwks_std::trace::debug!(error = ?refusal, "estate-serve: the registry is refused");
+    refusal
+}
+
+/// The reference `POST /drafts` route, described for the contract.
+fn drafts_route() -> Result<TypedRoute, ServeRefError> {
+    let descriptor = RouteDescriptor::new(
+        RouteMethod::Post,
+        "/drafts",
+        "estate::serve::drafts",
+        "Shape a draft request into its draft reply.",
+        AuthPosture::TenantEdge,
+        DocStatus::Stub,
+    )
+    .map_err(registry_refusal)?;
+    Ok(TypedRoute::new(RouteMethod::Post, "/drafts", handler).describe(descriptor))
+}
+
+/// The `GET /openapi.json` route answering `document`.
+fn openapi_route(document: Vec<u8>) -> Result<TypedRoute, ServeRefError> {
+    let descriptor = RouteDescriptor::new(
+        RouteMethod::Get,
+        "/openapi.json",
+        "estate::serve::openapi",
+        "Render the serve route registry as an OpenAPI 3.1 document.",
+        AuthPosture::TenantEdge,
+        DocStatus::Stub,
+    )
+    .map_err(registry_refusal)?;
+    Ok(TypedRoute::new(
+        RouteMethod::Get,
+        "/openapi.json",
+        move |_tenant: String, _body: Vec<u8>| {
+            let document = document.clone();
+            async move { Ok(document) }
+        },
+    )
+    .describe(descriptor))
 }
 
 /// Serve the reference route over the run store at `--store DIR`.
@@ -299,11 +355,16 @@ pub fn run(args: &[String]) -> Result<(), ServeRefError> {
         None => options,
     };
     let port = options.port();
-    let route = lgwks_bot::rt::serve::TypedRoute::new(
-        lgwks_bot::rt::serve::RouteMethod::Post,
-        "/drafts",
-        handler,
-    );
+    let drafts = drafts_route()?;
+    let shell = openapi_route(b"{}".to_vec())?;
+    let described = std::vec![drafts.clone(), shell];
+    check_every_route_described(described.as_slice()).map_err(registry_refusal)?;
+    let document = emit_openapi(described.as_slice()).map_err(registry_refusal)?;
+    let bytes = lgwks_std::json::to_vec(&document).map_err(|error| {
+        ServeRefError::Registry(format!("the contract does not encode: {error}"))
+    })?;
+    let openapi = openapi_route(bytes)?;
+    let routes = std::vec![drafts, openapi];
     let listener =
         std::net::TcpListener::bind(format!("127.0.0.1:{port}")).map_err(ServeRefError::Bind)?;
     say(&format!("serving drafts on 127.0.0.1:{port} store={store}"));
@@ -311,7 +372,7 @@ pub fn run(args: &[String]) -> Result<(), ServeRefError> {
     let done = lgwks_bot::rt::sync::CancellationToken::new();
     let report: lgwks_bot::rt::serve::ServeReport = std::thread::scope(|scope| {
         let watcher = scope.spawn(|| lgwks_bot::block_on(watch_stop(stop.clone(), done.clone())));
-        let served = lgwks_bot::rt::serve::serve(&options, std::vec![route], listener, &stop);
+        let served = lgwks_bot::rt::serve::serve(&options, routes, listener, &stop);
         done.cancel();
         match watcher.join() {
             Ok(Ok(())) => {}

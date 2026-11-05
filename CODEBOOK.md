@@ -96,3 +96,11 @@ of the tuple layer and the ECS identity surface.
 | `script::tree::shape` | `FlowShape`, `StepShape` and `Passthrough`, the map's entries | SL-2 |
 | `script::emit::admit` | the domain and outside admissions a flow runs first, and the map entries it emits | SL-2 |
 | `diagnostic::tests`, `diagnostic::line_index_tests` | the located-diagnostic and line-index tests | INV-AST-2 |
+
+### `lgwks_bot::rt::serve` and `lgwks_bot::task`
+
+| Module | Owns | Invariant |
+|---|---|---|
+| `rt::serve::ingress` | request ingress, live guard, submission, and retry answering | INV-BOT-50 |
+| `task::disposition` | task disposition, effect knowledge, fault attribution, and terminal mapping | INV-BOT-14 |
+| `task::store::append` | ordered append commit and index folding on the storage owner thread | INV-BOT-50 |
