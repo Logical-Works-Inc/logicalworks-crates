@@ -53,28 +53,39 @@ use std::time::Duration;
 
 use super::clock::Clock;
 
+mod policy;
+#[doc(hidden)]
+pub use policy::{Decision, Policy, TraceStep};
+
 /// The policy version every decision trace carries.
+#[doc(hidden)]
 pub const POLICY_VERSION: u32 = 1;
 
 /// The most caveats one token holds: mint starts with one and each attenuation
 /// appends, so an unbounded list would be an unbounded delegation chain.
+#[doc(hidden)]
 pub const MAX_CAVEATS: usize = 16;
 
 /// The most bytes of any audience, action or resource text.
+#[doc(hidden)]
 pub const MAX_TEXT_LEN: usize = 128;
 
 /// The most bytes a token serializes to: sixteen caveats at their ceiling plus
 /// the fixed envelope stay far under this, and anything past it is hostile.
+#[doc(hidden)]
 pub const MAX_TOKEN_BYTES: usize = 4_096;
 
 /// The most revoked ids one list holds before it must compact by expiry.
+#[doc(hidden)]
 pub const MAX_REVOKED: usize = 1_024;
 
 /// The most steps one decision trace holds: the rule walk is fixed, so a
 /// longer trace would mean the walk grew past its own design.
+#[doc(hidden)]
 pub const MAX_TRACE: usize = 8;
 
 /// The action a short-lived workload identity carries.
+#[doc(hidden)]
 pub const WORKLOAD_ACTION: &str = "workload.invoke";
 
 /// Why a token operation was refused.
@@ -85,6 +96,7 @@ pub const WORKLOAD_ACTION: &str = "workload.invoke";
 /// rendered string, so no caller matches on prose.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
+#[doc(hidden)]
 pub enum TokenError {
     /// Attenuation appended no caveat and the token holds none: an empty token
     /// names no authority.
@@ -184,7 +196,7 @@ impl Error for TokenError {
 }
 
 /// Whether `text` is admitted for `field`: 1..=MAX bytes of visible ASCII.
-fn valid_text(text: &str, field: &'static str) -> Result<(), TokenError> {
+pub(super) fn valid_text(text: &str, field: &'static str) -> Result<(), TokenError> {
     let len = text.len();
     if len == 0 || len > MAX_TEXT_LEN {
         let refusal = Err(TokenError::TextTooLong {
@@ -206,7 +218,7 @@ fn valid_text(text: &str, field: &'static str) -> Result<(), TokenError> {
 
 /// Whether `resource` names a node of the one hierarchy: rooted, no empty
 /// segment, no trailing slash past the root.
-fn valid_resource(resource: &str) -> Result<(), TokenError> {
+pub(super) fn valid_resource(resource: &str) -> Result<(), TokenError> {
     valid_text(resource, "resource")?;
     let bytes = resource.as_bytes();
     let rooted = bytes.first().is_some_and(|first| *first == b'/');
@@ -223,7 +235,7 @@ fn valid_resource(resource: &str) -> Result<(), TokenError> {
 
 /// Whether `candidate` sits under `scope`: equal, a `/`-bounded descendant,
 /// or anything rooted when the scope is the root itself.
-fn under_scope(candidate: &str, scope: &str) -> bool {
+pub(super) fn under_scope(candidate: &str, scope: &str) -> bool {
     if candidate == scope {
         return true;
     }
@@ -246,6 +258,7 @@ fn under_scope(candidate: &str, scope: &str) -> bool {
 /// read the same validated shape instead of a second copy of it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde")]
+#[doc(hidden)]
 pub struct Caveat {
     /// The validated audience, action and resource triple.
     #[serde(flatten)]
@@ -262,6 +275,7 @@ impl Caveat {
     /// [`TokenError::TextTooLong`] when a text passes its bound, and
     /// [`TokenError::BadText`] when a text leaves the admitted alphabet or the
     /// resource leaves the rooted hierarchy.
+    #[doc(hidden)]
     pub fn new(
         audience: &str,
         action: &str,
@@ -276,24 +290,28 @@ impl Caveat {
 
     /// Who the token is for.
     #[must_use]
+    #[doc(hidden)]
     pub fn audience(&self) -> &str {
         self.request.audience()
     }
 
     /// What the token permits.
     #[must_use]
+    #[doc(hidden)]
     pub fn action(&self) -> &str {
         self.request.action()
     }
 
     /// The hierarchy root the token covers.
     #[must_use]
+    #[doc(hidden)]
     pub fn resource(&self) -> &str {
         self.request.resource()
     }
 
     /// The issuing-clock reading at which this caveat lapses.
     #[must_use]
+    #[doc(hidden)]
     pub fn expires_at(&self) -> Duration {
         self.expires_at
     }
@@ -328,7 +346,11 @@ fn fold_step(key: &[u8; 32], caveat: &Caveat) -> Result<[u8; 32], TokenError> {
 }
 
 /// The chain over `id` and every caveat in order under `root`.
-fn chain_over(root: &[u8; 32], id: &[u8; 32], caveats: &[Caveat]) -> Result<[u8; 32], TokenError> {
+pub(super) fn chain_over(
+    root: &[u8; 32],
+    id: &[u8; 32],
+    caveats: &[Caveat],
+) -> Result<[u8; 32], TokenError> {
     let mut tag = *lgwks_std::hash::keyed(root, id.as_slice()).as_bytes();
     for caveat in caveats {
         tag = fold_step(&tag, caveat)?;
@@ -340,13 +362,14 @@ fn chain_over(root: &[u8; 32], id: &[u8; 32], caveats: &[Caveat]) -> Result<[u8;
 /// chain tag that binds them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde")]
+#[doc(hidden)]
 pub struct BearerToken {
     /// The token identity revocation names.
-    id: [u8; 32],
+    pub(super) id: [u8; 32],
     /// The caveats, in the order they were appended.
-    caveats: Vec<Caveat>,
+    pub(super) caveats: Vec<Caveat>,
     /// The chain tag binding the id and every caveat.
-    tag: [u8; 32],
+    pub(super) tag: [u8; 32],
 }
 
 impl BearerToken {
@@ -379,18 +402,21 @@ impl BearerToken {
 
     /// The token identity revocation names.
     #[must_use]
+    #[doc(hidden)]
     pub fn id(&self) -> &[u8; 32] {
         &self.id
     }
 
     /// The caveats in the order they were appended.
     #[must_use]
+    #[doc(hidden)]
     pub fn caveats(&self) -> &[Caveat] {
         self.caveats.as_slice()
     }
 
     /// The chain tag binding the id and every caveat.
     #[must_use]
+    #[doc(hidden)]
     pub fn tag(&self) -> &[u8; 32] {
         &self.tag
     }
@@ -409,6 +435,7 @@ impl BearerToken {
     /// [`TokenError::EmptyCaveats`] when `extra` is empty,
     /// [`TokenError::WidensAuthority`] when a new caveat leaves the opening
     /// authority.
+    #[doc(hidden)]
     pub fn attenuate(&self, extra: &[Caveat]) -> Result<Self, TokenError> {
         if extra.is_empty() {
             let refusal = Err(TokenError::EmptyCaveats);
@@ -465,6 +492,7 @@ impl BearerToken {
     ///
     /// [`TokenError::Malformed`] when the JSON encoding refuses, which a
     /// valid in-memory token never reaches.
+    #[doc(hidden)]
     pub fn to_bytes(&self) -> Result<Vec<u8>, TokenError> {
         match lgwks_std::json::to_vec(self) {
             Ok(bytes) => Ok(bytes),
@@ -484,6 +512,7 @@ impl BearerToken {
     /// [`TokenError::Malformed`] when the bytes are too long, are not JSON, or
     /// fail validation; [`TokenError::TooManyCaveats`] and
     /// [`TokenError::EmptyCaveats`] name the shape precisely.
+    #[doc(hidden)]
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, TokenError> {
         if bytes.len() > MAX_TOKEN_BYTES {
             let refusal = Err(TokenError::Malformed);
@@ -507,10 +536,11 @@ impl BearerToken {
 /// [`Authority::generate`] from the estate's one entropy source. No public
 /// function takes a key, so there is no static secret to pass, store or leak.
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct Authority {
     /// The root key. Private with no accessor: it enters the chain and never
     /// leaves the type, and the redacted `Debug` keeps it out of logs.
-    root: [u8; 32],
+    pub(super) root: [u8; 32],
 }
 
 impl Authority {
@@ -521,6 +551,7 @@ impl Authority {
     /// [`TokenError::Entropy`] when the OS refuses randomness: there is no
     /// fallback source, so the caller fails rather than minting under a weak
     /// key.
+    #[doc(hidden)]
     pub fn generate() -> Result<Self, TokenError> {
         match lgwks_std::random::bytes::<32>() {
             Ok(root) => Ok(Self { root }),
@@ -538,6 +569,7 @@ impl Authority {
     ///
     /// [`TokenError::TextTooLong`], [`TokenError::BadText`] and
     /// [`TokenError::Entropy`] (the token id draw).
+    #[doc(hidden)]
     pub fn mint(
         &self,
         audience: &str,
@@ -572,6 +604,7 @@ impl Authority {
     /// # Errors
     ///
     /// As [`Authority::mint`].
+    #[doc(hidden)]
     pub fn issue_workload(
         &self,
         audience: &str,
@@ -590,6 +623,7 @@ impl Authority {
     /// [`TokenError::Tampered`] when the chain does not recompute,
     /// [`TokenError::Expired`] past the narrowest caveat,
     /// [`TokenError::Revoked`] when the id is listed.
+    #[doc(hidden)]
     pub fn verify(
         &self,
         token: &BearerToken,
@@ -627,6 +661,7 @@ impl Authority {
 
 /// The bounded revocation list: token ids that verify must refuse.
 #[derive(Debug, Clone, Default)]
+#[doc(hidden)]
 pub struct RevocationList {
     /// Revoked ids. Private: membership is answered by [`RevocationList::contains`].
     ids: Vec<[u8; 32]>,
@@ -635,6 +670,7 @@ pub struct RevocationList {
 impl RevocationList {
     /// An empty list.
     #[must_use]
+    #[doc(hidden)]
     pub fn new() -> Self {
         Self { ids: Vec::new() }
     }
@@ -644,6 +680,7 @@ impl RevocationList {
     /// # Errors
     ///
     /// [`TokenError::RevocationFull`] past the bound.
+    #[doc(hidden)]
     pub fn revoke(&mut self, id: &[u8; 32]) -> Result<(), TokenError> {
         if self.ids.iter().any(|held| held == id) {
             return Ok(());
@@ -659,291 +696,24 @@ impl RevocationList {
 
     /// Whether `id` is revoked.
     #[must_use]
+    #[doc(hidden)]
     pub fn contains(&self, id: &[u8; 32]) -> bool {
         self.ids.iter().any(|held| held == id)
     }
 
     /// How many ids are listed.
     #[must_use]
+    #[doc(hidden)]
     pub fn len(&self) -> usize {
         self.ids.len()
     }
 
     /// Whether the list is empty.
     #[must_use]
+    #[doc(hidden)]
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 }
 
-/// One access request: who presents, what they want to do, and where.
-///
-/// The one home of the validated triple: [`Caveat`] wraps this with an expiry
-/// rather than re-validating its own copy.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(crate = "lgwks_std::json::serde")]
-pub struct Request {
-    /// Who presents the token.
-    audience: String,
-    /// What they want to do.
-    action: String,
-    /// Where they want to do it.
-    resource: String,
-}
-
-impl Request {
-    /// Build a request from validated parts.
-    ///
-    /// # Errors
-    ///
-    /// [`TokenError::TextTooLong`] and [`TokenError::BadText`], as
-    /// [`Caveat::new`].
-    pub fn new(audience: &str, action: &str, resource: &str) -> Result<Self, TokenError> {
-        valid_text(audience, "audience")?;
-        valid_text(action, "action")?;
-        valid_resource(resource)?;
-        Ok(Self {
-            audience: String::from(audience),
-            action: String::from(action),
-            resource: String::from(resource),
-        })
-    }
-
-    /// Who presents the token.
-    #[must_use]
-    pub fn audience(&self) -> &str {
-        self.audience.as_str()
-    }
-
-    /// What they want to do.
-    #[must_use]
-    pub fn action(&self) -> &str {
-        self.action.as_str()
-    }
-
-    /// Where they want to do it.
-    #[must_use]
-    pub fn resource(&self) -> &str {
-        self.resource.as_str()
-    }
-}
-
-/// One evaluated rule in a decision trace.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(crate = "lgwks_std::json::serde")]
-pub struct TraceStep {
-    /// The rule that ran: `signature`, `expiry`, `revocation`, `audience`,
-    /// `action` or `resource`.
-    rule: String,
-    /// The policy version that ran it.
-    version: u32,
-    /// What it read, in under 128 bytes: the token id prefix, the request
-    /// fields and the judging reading.
-    inputs: String,
-}
-
-impl TraceStep {
-    /// Which walk step decided: signature, expiry, revocation, audience,
-    /// action or resource, in evaluation order.
-    #[must_use]
-    pub fn rule(&self) -> &str {
-        self.rule.as_str()
-    }
-
-    /// The policy version that ran it.
-    #[must_use]
-    pub fn version(&self) -> u32 {
-        self.version
-    }
-
-    /// What it read.
-    #[must_use]
-    pub fn inputs(&self) -> &str {
-        self.inputs.as_str()
-    }
-}
-
-/// The policy verdict: allowed or denied, with the trace that proves it and
-/// the hash that replays it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Decision {
-    /// Whether the request is permitted.
-    allowed: bool,
-    /// The rule walk, in evaluation order: non-empty on every allow and every
-    /// deny, so a denial names the rule and the missing grant.
-    trace: Vec<TraceStep>,
-    /// BLAKE3 over the token id, the request, the judging reading and the
-    /// verdict: the same inputs on the same clock give the same hash.
-    inputs_hash: [u8; 32],
-}
-
-impl Decision {
-    /// Whether the request is permitted.
-    #[must_use]
-    pub fn allowed(&self) -> bool {
-        self.allowed
-    }
-
-    /// The rule walk, in evaluation order.
-    #[must_use]
-    pub fn trace(&self) -> &[TraceStep] {
-        self.trace.as_slice()
-    }
-
-    /// BLAKE3 over the token id, the request, the judging reading and the
-    /// verdict: the replay key that distinguishes two runs sharing every
-    /// percentile but differing in the tail.
-    #[must_use]
-    pub fn inputs_hash(&self) -> &[u8; 32] {
-        &self.inputs_hash
-    }
-
-    /// The deterministic hash of the trace: same inputs and same clock give
-    /// the same decision and the same trace hash.
-    #[must_use]
-    pub fn trace_hash(&self) -> [u8; 32] {
-        let mut hasher = lgwks_std::hash::Hasher::new();
-        hasher.write_framed(&[u8::from(self.allowed)]);
-        for step in self.trace.iter() {
-            hasher.write_framed(step.rule.as_bytes());
-            hasher.write_framed(step.version.to_le_bytes().as_slice());
-            hasher.write_framed(step.inputs.as_bytes());
-        }
-        *hasher.finalize().as_bytes()
-    }
-}
-
-/// The deterministic evaluator over the one resource hierarchy.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Policy {
-    /// No state: the rules are fixed and versioned, so two evaluators can
-    /// never disagree about the same inputs.
-    _private: (),
-}
-
-impl Policy {
-    /// The evaluator.
-    #[must_use]
-    pub fn new() -> Self {
-        Self { _private: () }
-    }
-
-    /// Decide `request` under `token`: verify, then walk audience, action and
-    /// resource, recording every step on the injected `clock`.
-    ///
-    /// # Errors
-    ///
-    /// [`TokenError::Malformed`] when the token shape is refused before any
-    /// rule runs. Denials arrive as an `Ok` decision with `allowed` false and
-    /// the denying rule on the trace, never as an error.
-    pub fn decide(
-        &self,
-        authority: &Authority,
-        token: &BearerToken,
-        request: &Request,
-        revocations: &RevocationList,
-        clock: &Clock,
-    ) -> Result<Decision, TokenError> {
-        BearerToken::check(token.caveats.as_slice())?;
-        let now = clock.now();
-        let mut trace: Vec<TraceStep> = Vec::new();
-        let push = |rule: &str, inputs: String, trace: &mut Vec<TraceStep>| {
-            if trace.len() < MAX_TRACE {
-                trace.push(TraceStep {
-                    rule: String::from(rule),
-                    version: POLICY_VERSION,
-                    inputs,
-                });
-            }
-        };
-
-        let id_prefix = lgwks_std::hex::encode(&token.id[0..8]);
-        let stamp = |request: &Request, now: Duration| {
-            let mut detail = String::new();
-            detail.push_str("aud=");
-            detail.push_str(request.audience.as_str());
-            detail.push_str(" act=");
-            detail.push_str(request.action.as_str());
-            detail.push_str(" res=");
-            detail.push_str(request.resource.as_str());
-            detail.push_str(" now=");
-            detail.push_str(now.as_nanos().to_string().as_str());
-            detail.push_str(" id=");
-            detail.push_str(id_prefix.as_str());
-            if detail.len() > MAX_TEXT_LEN {
-                detail.truncate(MAX_TEXT_LEN);
-            }
-            detail
-        };
-
-        let recomputed = chain_over(&authority.root, &token.id, token.caveats.as_slice())?;
-        let authentic = lgwks_std::hash::Digest::from_bytes(recomputed)
-            .ct_eq(&lgwks_std::hash::Digest::from_bytes(token.tag));
-        push("signature", stamp(request, now), &mut trace);
-        let mut allowed = authentic;
-        if !authentic {
-            return Ok(finish(false, trace, token, request, now));
-        }
-
-        let mut live = true;
-        for caveat in token.caveats.iter() {
-            if now >= caveat.expires_at {
-                live = false;
-                break;
-            }
-        }
-        push("expiry", stamp(request, now), &mut trace);
-        allowed = allowed && live;
-        if !live {
-            return Ok(finish(false, trace, token, request, now));
-        }
-
-        let listed = revocations.contains(&token.id);
-        push("revocation", stamp(request, now), &mut trace);
-        if listed {
-            return Ok(finish(false, trace, token, request, now));
-        }
-
-        // Conjunction over every caveat: the narrowed token covers a request
-        // only when each caveat it carries does, so appending a caveat can
-        // only restrict. An existential read would let the opening broad
-        // caveat cover everything the narrowing was meant to stop.
-        let mut covered = true;
-        for caveat in token.caveats.iter() {
-            let pair =
-                caveat.audience() == request.audience() && caveat.action() == request.action();
-            let place = under_scope(request.resource(), caveat.resource());
-            if !(pair && place) {
-                covered = false;
-                break;
-            }
-        }
-        push("audience", stamp(request, now), &mut trace);
-        push("action", stamp(request, now), &mut trace);
-        push("resource", stamp(request, now), &mut trace);
-        allowed = allowed && covered;
-        Ok(finish(allowed, trace, token, request, now))
-    }
-}
-
-/// Seal a verdict with its deterministic inputs hash.
-fn finish(
-    allowed: bool,
-    trace: Vec<TraceStep>,
-    token: &BearerToken,
-    request: &Request,
-    now: Duration,
-) -> Decision {
-    let mut hasher = lgwks_std::hash::Hasher::new();
-    hasher.write_framed(token.id.as_slice());
-    hasher.write_framed(request.audience.as_bytes());
-    hasher.write_framed(request.action.as_bytes());
-    hasher.write_framed(request.resource.as_bytes());
-    hasher.write_framed(now.as_nanos().to_le_bytes().as_slice());
-    hasher.write_framed(&[u8::from(allowed)]);
-    Decision {
-        allowed,
-        trace,
-        inputs_hash: *hasher.finalize().as_bytes(),
-    }
-}
+pub use policy::Request;

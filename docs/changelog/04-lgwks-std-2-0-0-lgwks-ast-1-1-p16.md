@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 16 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std — the blocking pool's ceiling and its shutdown (#264) (continued)
+## lgwks_std — the blocking pool's ceiling and its shutdown (#264) (continued)
 
 - `task::configure_blocking_pool(threads)` fixes the pool's thread ceiling
   once, before the pool first runs a job. The pool's own creation is the
@@ -47,7 +47,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   binary exercises the two public functions against the real process-wide
   pool, because a shutdown closes admission for the life of its process.
 
-### lgwks_std — `random` reaches every target its backend does, and says why it failed (#276)
+## lgwks_std — `random` reaches every target its backend does, and says why it failed (#276)
 
 - `random` no longer refuses to compile on every target but Linux, macOS and
   Windows. The three-target `compile_error!` was a narrower claim than the
@@ -72,7 +72,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   version and variant masks, and a seeded generator that must not be able to
   predict a draw.
 
-### The gate: every `lgwks_std` feature alone, and the declared target matrix (#276)
+## The gate: every `lgwks_std` feature alone, and the declared target matrix (#276)
 
 - The `feat-std` lane now builds all twelve non-`full` features, each alone.
   `core`, `trace`, `random`, `ron` and `process` were built by nothing except
@@ -94,4 +94,4 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   directory. `lgwks_std --features random` builds on all seven cross targets;
   nine `full`/`lgwks_ast` checks are exempt for a missing C cross-compiler.
 
-### The gate: the saturation tiers spawn the fake the way a default binding does (#272)
+## The gate: the saturation tiers spawn the fake the way a default binding does (#272)

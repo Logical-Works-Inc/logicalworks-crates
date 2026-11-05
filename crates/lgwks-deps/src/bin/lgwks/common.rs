@@ -104,8 +104,8 @@ impl Refusal {
 
     /// This refusal as a JSON value, with the stable `check --json` keys.
     pub(crate) fn to_json(&self) -> lgwks_std::json::Value {
-        let suggestion = match self.suggestion.clone() {
-            Some(word) => lgwks_std::json::Value::String(word),
+        let suggestion = match self.suggestion.as_deref() {
+            Some(word) => lgwks_std::json::Value::from(word),
             None => lgwks_std::json::Value::Null,
         };
         lgwks_std::json::json!({
@@ -299,6 +299,7 @@ USAGE
   lgwks run [file] [--json]     build and serve the file, printing build times
   lgwks legacy <codec> ...      read and write EBCDIC, COMP-3, copybooks, OLE
                                 compound files, VBA, Access and fax TIFF
+  lgwks id <action> ...         version 7 ids and their FoundationDB key bytes
 
 Every command takes --json: the same facts as JSON for agents.
 Exit 0 on success, 2 on a refusal or a refused invocation.

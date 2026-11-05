@@ -6,9 +6,8 @@ There are two ways to use this crate, and they have different dependency costs.
 cargo install lgwks_deps    # the `lgwks-deps` binary: the gate
 cargo add lgwks_deps        # the storefront library
 ```
-
 The binary is the gate. The library is the storefront. Current version:
-`3.0.1`, MSRV Rust 1.98.0, edition 2024.
+`6.0.0`, MSRV Rust 1.98.0, edition 2024.
 
 No feature is on by default, so `cargo add lgwks_deps` pulls no third-party
 crate: every storefront capability is selected by name, and the lists live in
@@ -32,7 +31,6 @@ lgwks-deps freshness [PATH]     # resolved versus latest on crates.io
 lgwks-deps vendor check [PATH]  # prove the lockfile is covered by the shared vendor tree
 lgwks-deps debug [PATH]         # doctor the default lgwks_std debugger surface
 ```
-
 `check` reads `cargo metadata --no-deps` rather than the transitive lockfile
 closure, because only metadata preserves which package authored an edge
 (`crates/lgwks-deps/src/lib.rs:23`). It refuses in both directions: an approval

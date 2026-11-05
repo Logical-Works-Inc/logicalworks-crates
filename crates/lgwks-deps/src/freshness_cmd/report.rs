@@ -213,11 +213,8 @@ pub(super) fn print_json(results: &[FreshnessResult], out: &mut impl io::Write) 
     let mut rows = Vec::with_capacity(results.len());
     for result in results {
         let mut row = Map::new();
-        row.insert("name".to_owned(), Value::String(result.name.clone()));
-        row.insert(
-            "resolved".to_owned(),
-            Value::String(result.resolved.clone()),
-        );
+        row.insert("name", Value::from(&result.name));
+        row.insert("resolved", Value::from(&result.resolved));
         row.insert("latest".to_owned(), nullable(result.latest.as_ref()));
         row.insert("stale".to_owned(), Value::Bool(result.stale));
         row.insert(
@@ -226,7 +223,7 @@ pub(super) fn print_json(results: &[FreshnessResult], out: &mut impl io::Write) 
         );
         row.insert(
             "via".to_owned(),
-            Value::Array(result.via.iter().cloned().map(Value::String).collect()),
+            Value::Array(result.via.iter().map(Value::from).collect()),
         );
         row.insert("error".to_owned(), nullable(result.error.as_ref()));
         rows.push(Value::Object(row));
@@ -239,7 +236,7 @@ pub(super) fn print_json(results: &[FreshnessResult], out: &mut impl io::Write) 
 /// A string, or `null` when there is none.
 fn nullable(value: Option<&String>) -> Value {
     match value {
-        Some(text) => Value::String(text.clone()),
+        Some(text) => Value::from(text),
         None => Value::Null,
     }
 }

@@ -2,7 +2,7 @@
 
 Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 2 of 13. [Changelog index](../../CHANGELOG.md)
 
-### Decision (continued)
+## Decision (continued)
 
 - **`lgwks_bot` is relicensed to MPL-2.0**, from Apache-2.0. The bot is the
   artefact the rest of the estate embeds, and a permissive licence on it lets
@@ -100,7 +100,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     are on `main` and unpublished. They ship in one release once the registry and
     the scheduler have landed.
 
-### lgwks_std Added
+## lgwks_std Added
 
 - **`wire` re-exports the `rkyv` crate, so a consumer crate can derive against
   it.** The module re-exported the three derive macros but not the crate those

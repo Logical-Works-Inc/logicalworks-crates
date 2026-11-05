@@ -89,22 +89,22 @@
 //! [sync_entry]: crate::task::Host::block_on
 
 use std::fmt;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::cap::{Cap, Deficit};
 use crate::effect::RunId;
 use crate::rt::task_local;
 use crate::script::run_store::{Records, StoredValue};
-use crate::script::{Durable, FlowError, MAX_IN_FLIGHT, ScriptTrail, Tenant, TrailEntry};
+use crate::script::{FlowError, MAX_IN_FLIGHT, ScriptTrail, Tenant, TrailEntry};
 
 use self::name::TaskName;
-use self::request::TerminalRecord;
 
 mod admit;
 mod builder;
 mod definition;
+mod disposition;
 mod execute;
 mod host;
 mod ledger;
@@ -118,6 +118,8 @@ pub use builder::{Admission, HostBuilder, HostError, HostLimits};
 pub use host::Host;
 
 pub use definition::{DefinitionIdentity, Drift, UNVERSIONED_CODEC};
+pub use disposition::{Disposition, EffectKnowledge};
+pub(crate) use disposition::{own_fault, terminal_for};
 pub use ledger::{Control, LeaseRefusal, RunLedger};
 pub use repair::{MAX_TICKET_NEEDS, RepairError, RepairTicket};
 pub use request::{
@@ -127,7 +129,8 @@ pub use request::{
 #[cfg(feature = "sealed")]
 pub use store::SealedAppend;
 pub use store::{
-    MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunStore, StoreError, StoreLimitKind,
+    CompositeSink, DurableSink, MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunStore,
+    START_PROBE_FILE, SinkRefusal, StoreError, StoreLimitKind, StoreSink,
 };
 
 /// The most top-level runs one host admits at once.
@@ -174,201 +177,6 @@ task_local! {
 
 /// The identity one host's admission budget is charged under.
 type HostIdentity = u64;
-
-/// The failure a report names if it carries neither an output nor an error.
-///
-/// Built once, because [`FlowError`] has no `const` constructor. Reached only
-/// by a report built outside this module, which no path does: it names the
-/// defect in the value rather than panicking, and a panic here would turn a
-/// broken invariant into an abort with no account of which run was affected.
-fn own_fault() -> &'static FlowError {
-    OWN_FAULT
-        .get_or_init(|| FlowError::failed("a report with neither an output nor a located failure"))
-}
-
-/// The storage behind [`own_fault`].
-static OWN_FAULT: OnceLock<FlowError> = OnceLock::new();
-
-// ── Disposition ─────────────────────────────────────────────────────────────
-
-/// How a run ended.
-///
-/// The disposition is the run's own terminal state; it is never inferred from
-/// the output's shape, and it survives a step trail that overflowed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum Disposition {
-    /// The body returned its value. It performs no journaled effect, so this
-    /// says nothing about the state of anything outside the process.
-    Succeeded,
-    /// The body returned an error that was neither a stop nor a timeout.
-    Failed,
-    /// The run was admitted and then stopped: the host was cancelled, or the
-    /// body cancelled its own scope.
-    Cancelled,
-    /// The run's deadline expired, either while it waited for a permit or
-    /// while its body was running.
-    DeadlineExceeded,
-    /// The run was never admitted. The host was already cancelled, or was
-    /// cancelled while the run waited for a permit, so no body ever ran.
-    Refused,
-    /// The run was admitted against the host's budget but refused before its body
-    /// started: this host's grants do not cover what the task declared it needs.
-    ///
-    /// Distinct from [`Refused`](Self::Refused) because it says something
-    /// different. A `Refused` run was refused by the *host* — cancelled, or never
-    /// admitted — and no amount of authority would change it. A `Blocked` run is
-    /// the host willing and the authority missing, which is why it is the only
-    /// disposition a repair can move and the only one whose
-    /// [`Report::repair`] is `Some`. Its body never ran, so nothing was polled and
-    /// nothing was executed.
-    Blocked,
-    /// The run parked awaiting a human decision and holds no task.
-    ///
-    /// The terminal state of a run whose `await approval` step committed its
-    /// pending record: the body ran up to the park, the decision is owed, and a
-    /// later [`Host::resume`] under the same run either returns the payload,
-    /// fails it as denied or lapsed, or parks again under the same id. A
-    /// parked run is resumable, not failed, and the request-key doors treat it
-    /// as an incomplete run rather than a verdict.
-    Parked,
-}
-
-impl Disposition {
-    /// The name of this disposition, for logs and reports.
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Succeeded => "Succeeded",
-            Self::Failed => "Failed",
-            Self::Cancelled => "Cancelled",
-            Self::DeadlineExceeded => "DeadlineExceeded",
-            Self::Refused => "Refused",
-            Self::Blocked => "Blocked",
-            Self::Parked => "Parked",
-        }
-    }
-
-    /// Whether the run's body ran to a value.
-    #[must_use]
-    pub const fn is_success(self) -> bool {
-        matches!(self, Self::Succeeded)
-    }
-
-    /// Whether the run was admitted and its body started.
-    #[must_use]
-    pub const fn was_admitted(self) -> bool {
-        !matches!(self, Self::Refused)
-    }
-}
-
-/// The terminal record a submission of a request running under `report` writes,
-/// or `None` when the run's disposition is the host declining to finish it.
-///
-/// Three of the five dispositions are **the request's own verdict**, and they
-/// are the three the *declared task* produces: `Succeeded` because the body
-/// returned, `Failed` because the body refused, and `DeadlineExceeded` because
-/// the run's deadline is part of the task the client declared — the same
-/// declaration that fixed the key also fixed the budget, so the budget running
-/// out answers the request rather than interrupting it.
-///
-/// The other two are the **host declining to finish it**: `Cancelled` is a stop
-/// that arrived after admission (the host's own token, or a scope the body
-/// cancelled) and `Refused` is a refusal before admission (the host was already
-/// stopping, or could not admit). Neither is evidence about the request, so
-/// neither is recorded as its outcome. A key whose terminal record says
-/// `Cancelled` is a key no later submission can ever complete: the key *is* the
-/// request's identity and the body runs at most once under it, so recording the
-/// host's stop there turns one restart into a permanently poisoned request. What
-/// survives instead is the receipt and the durable step records, which is
-/// exactly what a resume needs (INV-BOT-100, INV-BOT-101).
-///
-/// The match is exhaustive, so a `Disposition` added later breaks this build
-/// until its relationship to a request key is decided by hand.
-///
-/// Enforced by `tests/request_key.rs`
-/// (`a_host_stop_mid_run_leaves_the_request_resumable`,
-/// `a_refusal_before_admission_is_not_recorded_as_the_outcome`,
-/// `a_failed_run_is_the_requests_recorded_outcome`) and
-/// `tests/sim_request_key.rs` (`host_stops_never_poison_a_key_band_00..03`).
-///
-/// # Errors
-///
-/// [`RequestError`] when a success's output cannot be archived or a record
-/// cannot be encoded.
-fn terminal_for<O: Durable>(report: &Report<O>) -> Result<Option<TerminalRecord>, RequestError> {
-    Ok(match report.disposition() {
-        Disposition::Succeeded => {
-            let output = report
-                .output()
-                .ok_or(RequestError::Record(FlowError::failed(
-                    "a successful run reported no output to record",
-                )))?;
-            Some(TerminalRecord::succeeded(output)?)
-        }
-        Disposition::Failed | Disposition::DeadlineExceeded => {
-            // A report carries an error exactly when it did not succeed
-            // (`Terminal`), so a stopped run with none is a report that
-            // disagrees with itself: refuse to record it rather than record an
-            // empty location as though it were one.
-            let error = report
-                .error()
-                .ok_or(RequestError::Record(FlowError::failed(
-                    "a stopped run reported no error to record",
-                )))?;
-            Some(TerminalRecord::stopped(
-                report.disposition(),
-                error.at(),
-                error.to_string(),
-            ))
-        }
-        // A parked run is incomplete, and its pending record is the receipt a
-        // later submission resumes from: recording a verdict now would close a
-        // request that is still waiting on its decision.
-        Disposition::Parked => None,
-        Disposition::Cancelled | Disposition::Refused | Disposition::Blocked => None,
-    })
-}
-
-impl fmt::Display for Disposition {
-    /// The [`Disposition::label`].
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.label())
-    }
-}
-
-// ── EffectKnowledge ─────────────────────────────────────────────────────────
-
-/// What a report knows about effects outside this process.
-///
-/// A local task journals nothing and performs no remote call, so it reports
-/// [`None`] and there is no variant that could be read as proof a remote state
-/// changed. Durable work adds its own variants; a caller written against this
-/// one keeps compiling, because the enum is `#[non_exhaustive]`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
-pub enum EffectKnowledge {
-    /// No external effect is claimed. The run performed no journaled effect, so
-    /// a successful return says what the body returned and nothing more.
-    None,
-    /// The run's steps that called [`remember`](crate::script::remember) are
-    /// recorded durably under the run's [`RunId`], so a resume replays them
-    /// without re-running them.
-    ///
-    /// This is a statement about **this run's own step records**, not about any
-    /// remote state. A step that performs an external effect still needs the
-    /// effect journal, and a step whose record failed to land still re-runs — see
-    /// [`Report::ticket`] for the step a run stopped at.
-    StepRecords {
-        /// How many records this run committed over its whole life, including
-        /// the ones a previous attempt committed and this one replayed.
-        records: usize,
-    },
-    /// As [`EffectKnowledge::StepRecords`], under a store that could not count
-    /// the run's records when asked: the steps are durable, and the count is not
-    /// claimed rather than reported as zero (INV-BOT-7).
-    StepRecordsUncounted,
-}
 
 // ── Task ─────────────────────────────────────────────────────────────────────
 

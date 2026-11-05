@@ -12,6 +12,10 @@ mod check;
 mod children;
 mod common;
 mod expand;
+// `lgwks_std::id` needs `lgwks_std`'s `random` feature, and this crate's
+// manifest turns that feature on only off WebAssembly.
+#[cfg(not(target_family = "wasm"))]
+mod id;
 mod legacy;
 mod new;
 mod run;
@@ -20,7 +24,7 @@ use common::settle;
 
 /// What `lgwks` was asked to do, with `--json` taken out.
 struct Request {
-    /// The subcommand: `new`, `check`, `expand`, `run` or `legacy`.
+    /// The subcommand: `new`, `check`, `expand`, `run`, `legacy` or `id`.
     command: Option<String>,
     /// The subcommand's own arguments.
     args: Vec<String>,
@@ -61,6 +65,16 @@ fn dispatch(
         Some("expand") => expand::run(request.args.as_slice(), request.json, out, err),
         Some("run") => run::run(request.args.as_slice(), request.json, out, err),
         Some("legacy") => legacy::run(request.args.as_slice(), request.json, out, err),
+        #[cfg(not(target_family = "wasm"))]
+        Some("id") => id::run(request.args.as_slice(), request.json, out, err),
+        #[cfg(target_family = "wasm")]
+        Some("id") => {
+            writeln!(
+                err,
+                "lgwks id: this WebAssembly build carries no lgwks_std random feature to issue ids from"
+            )?;
+            Ok(ExitCode::from(2))
+        }
         Some("-h" | "--help" | "help") => {
             write!(out, "{}", common::USAGE).map(|()| ExitCode::SUCCESS)
         }

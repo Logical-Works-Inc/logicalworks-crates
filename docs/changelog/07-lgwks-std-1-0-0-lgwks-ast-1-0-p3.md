@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 3 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Added (continued)
+## lgwks_bot Added (continued)
 
 - `domain::sys::Process::frame_stdout(ceiling)` and
   `ProcessState::stdout_frames()`, which wire the frame reader above into the
@@ -13,7 +13,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   `CapturedStream::frames`/`read_frames` (INV-BOT-110/114) previously had no
   production caller; the domain's verbs are now that caller (INV-BOT-115).
 
-### lgwks_bot Tests
+## lgwks_bot Tests
 
 - `tests/sim_store_faults.rs` and `tests/sim_epoch_identity.rs`: seeded
   deterministic families for this branch's T15/T16/T12 claims, each a
@@ -30,7 +30,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   family; the concurrency rows stay with the pre-existing families
   (`sim_store_scale.rs`, `sim_task_resume.rs`).
 
-### lgwks_bot Fixed
+## lgwks_bot Fixed
 
 - The per-poll deadline no longer spawns and joins one OS thread per source
   poll, per tick (INV-BOT-124). The watchdog is now one per observation wave

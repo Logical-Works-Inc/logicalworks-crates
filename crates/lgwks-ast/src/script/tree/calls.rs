@@ -14,6 +14,21 @@ use super::{Code, Site};
 /// resolved here. Resolution is the runtime's, at the flow's entry, against
 /// the registry the run was given, so a flow refers to a domain by the same
 /// string a `BotSpec` does and the two cannot drift.
+///
+/// # Examples
+/// ```
+/// use lgwks_ast::script::{Fragment, Statement, parse, Kind};
+///
+/// let script = parse("flow open(repo: &str) -> u16:\n    let open: u16 = observe github::pr_status of repo\n    give back open\n".parse()?)?;
+/// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+///     return Err("the first line is Rust".into());
+/// };
+/// let Some(Fragment::Domain(domain)) = line.fragments().iter().find(|f| matches!(f, Fragment::Domain(_))) else {
+///     return Err("the line calls out".into());
+/// };
+/// assert_eq!((domain.kind(), domain.id()), (Kind::Observe, "github::pr_status"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Domain {
     /// Where it stands in the script; read through `site()`.
@@ -34,12 +49,42 @@ pub struct Domain {
 
 impl Domain {
     /// Whether it observes ([`Kind::Observe`]) or acts ([`Kind::Act`]).
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse, Kind};
+    ///
+    /// let script = parse("flow page(count: u16):\n    act notify::page on \"oncall\" with count\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Domain(domain)) = line.fragments().iter().find(|f| matches!(f, Fragment::Domain(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert_eq!(domain.kind(), Kind::Act);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn kind(&self) -> Kind {
         self.kind
     }
 
     /// The registry identifier, as written without spaces.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow open(repo: &str) -> u16:\n    let open: u16 = observe github::pr_status of repo\n    give back open\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Domain(domain)) = line.fragments().iter().find(|f| matches!(f, Fragment::Domain(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert_eq!(domain.id(), "github::pr_status");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn id(&self) -> &str {
         self.id.as_str()
@@ -47,18 +92,63 @@ impl Domain {
 
     /// The structural label: the identifier's last segment, numbered among
     /// same-named steps in one scope.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow open(repo: &str) -> u16:\n    let open: u16 = observe github::pr_status of repo\n    give back open\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Domain(domain)) = line.fragments().iter().find(|f| matches!(f, Fragment::Domain(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert_eq!(domain.label(), "pr_status");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn label(&self) -> &str {
         self.label.as_str()
     }
 
     /// What the domain is built from.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow page(count: u16):\n    act notify::page on \"oncall\" with count\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Domain(domain)) = line.fragments().iter().find(|f| matches!(f, Fragment::Domain(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert!(!domain.target().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn target(&self) -> &Code {
         &self.target
     }
 
     /// What an action is handed; `None` for an observation.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow page(count: u16):\n    act notify::page on \"oncall\" with count\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Domain(domain)) = line.fragments().iter().find(|f| matches!(f, Fragment::Domain(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert!(domain.value().is_some());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn value(&self) -> Option<&Code> {
         self.value.as_ref()
@@ -75,6 +165,21 @@ impl Domain {
 /// budget — is the runtime's, which reads the same values through the
 /// capability the word declares, so a flow refers to an outside call by the
 /// same strings its admission checked.
+///
+/// # Examples
+/// ```
+/// use lgwks_ast::script::{Fragment, Statement, parse, Kind};
+///
+/// let script = parse("flow call(url: &str, options: Options) -> u16:\n    let answered = fetch url with (options)\n    give back answered.status()\n".parse()?)?;
+/// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+///     return Err("the first line is Rust".into());
+/// };
+/// let Some(Fragment::Outside(call)) = line.fragments().iter().find(|f| matches!(f, Fragment::Outside(_))) else {
+///     return Err("the line calls out".into());
+/// };
+/// assert_eq!(call.kind(), Kind::Fetch);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 #[derive(Debug, Clone)]
 pub struct Outside {
     /// Where it stands in the script; read through `site()`.
@@ -93,6 +198,21 @@ pub struct Outside {
 
 impl Outside {
     /// Whether it fetches, asks or sends.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse, Kind};
+    ///
+    /// let script = parse("flow call(url: &str, options: Options) -> u16:\n    let answered = fetch url with (options)\n    give back answered.status()\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Outside(call)) = line.fragments().iter().find(|f| matches!(f, Fragment::Outside(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert_eq!(call.kind(), Kind::Fetch);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn kind(&self) -> Kind {
         self.kind
@@ -100,18 +220,63 @@ impl Outside {
 
     /// The structural label: the word, numbered among same-named steps in one
     /// scope.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow call(url: &str, options: Options) -> u16:\n    let answered = fetch url with (options)\n    give back answered.status()\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Outside(call)) = line.fragments().iter().find(|f| matches!(f, Fragment::Outside(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert_eq!(call.label(), "fetch");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn label(&self) -> &str {
         self.label.as_str()
     }
 
     /// What the call reaches: the URL, the model or the receiver.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow call(url: &str, options: Options) -> u16:\n    let answered = fetch url with (options)\n    give back answered.status()\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Outside(call)) = line.fragments().iter().find(|f| matches!(f, Fragment::Outside(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert!(!call.target().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn target(&self) -> &Code {
         &self.target
     }
 
     /// The word's declared bounds, or `None` for a `fetch` that inherits them.
+    ///
+    /// # Examples
+    /// ```
+    /// use lgwks_ast::script::{Fragment, Statement, parse};
+    ///
+    /// let script = parse("flow call(url: &str, options: Options) -> u16:\n    let answered = fetch url with (options)\n    give back answered.status()\n".parse()?)?;
+    /// let (Some(Statement::Let(line)) | Some(Statement::Rust(line))) = script.flows()[0].body().statements().first() else {
+    ///     return Err("the first line is Rust".into());
+    /// };
+    /// let Some(Fragment::Outside(call)) = line.fragments().iter().find(|f| matches!(f, Fragment::Outside(_))) else {
+    ///     return Err("the line calls out".into());
+    /// };
+    /// assert!(call.options().is_some());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[must_use]
     pub const fn options(&self) -> Option<&Code> {
         self.options.as_ref()

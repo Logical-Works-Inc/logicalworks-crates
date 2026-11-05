@@ -1,8 +1,8 @@
 # 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above (1/13)
 
-Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 1 of 13. [Changelog index](../../CHANGELOG.md)
+Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 above. Page 1 of 13, then [2](12-2026-09-21-cut-never-published-p2.md) · [3](12-2026-09-21-cut-never-published-p3.md) · [4](12-2026-09-21-cut-never-published-p4.md) · [5](12-2026-09-21-cut-never-published-p5.md) · [6](12-2026-09-21-cut-never-published-p6.md) · [7](12-2026-09-21-cut-never-published-p7.md) · [8](12-2026-09-21-cut-never-published-p8.md) · [9](12-2026-09-21-cut-never-published-p9.md) · [10](12-2026-09-21-cut-never-published-p10.md) · [11](12-2026-09-21-cut-never-published-p11.md) · [12](12-2026-09-21-cut-never-published-p12.md) · [13](12-2026-09-21-cut-never-published-p13.md). [Changelog index](../../CHANGELOG.md)
 
-### Proofs
+## Proofs
 
 - **`proofs/bot-spec.sml` states and proves seven theorems about the
   spec/condition layer**, machine-checked by the HOL4 kernel: totality of the
@@ -25,7 +25,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   and the runtime is absent entirely. A bug in the model is a bug in what is
   proved.
 
-### Benchmarks
+## Benchmarks
 
 - **`bench/` measures `lgwks_bot` against a hand-rolled baseline doing identical
   work**, gated on the bot and the baseline agreeing on both effect counts and
@@ -52,4 +52,4 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   attribution between the two changes; `bench/results.json` is the committed run
   they come from.
 
-### Decision
+## Decision

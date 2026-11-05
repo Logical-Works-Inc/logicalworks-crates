@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 4 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Fixed (continued)
+## lgwks_bot Fixed (continued)
 
 - A host-side stop is no longer recorded as a request's outcome. `Host::submit`
   wrote a `@terminal` record for every disposition that was not a success, so
@@ -46,7 +46,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
 - **Breaking:** `Host::repair` now requires `O: lgwks_bot::script::Durable`, for
   the reason `Host::resume` does. **Migration:** as for `Host::resume`.
 
-### lgwks_bot Changed
+## lgwks_bot Changed
 
 - `rt::supervise::CleanupReceipt`'s documentation now states what
   `CleanupConfirmed` does and does not claim. It claims that every process still
@@ -58,7 +58,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   guarantee needs a kernel job object or a cgroup, which this crate does not
   have. Accepting row T21.
 
-### lgwks_std Breaking
+## lgwks_std Breaking
 
 - `similarity`: the `Similarity` implementation for `Cosine` now returns the
   normalized `(raw + 1) / 2` score instead of raw cosine, so the trait's
@@ -74,4 +74,4 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   outcome is a report about a measurement; a caller that could set a refused
   component's score would defeat the contract.
 
-### Fixed
+## Fixed

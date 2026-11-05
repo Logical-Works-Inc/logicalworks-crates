@@ -36,7 +36,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -49,7 +49,7 @@ use crate::journal::frame::SaturatingFrom;
 use crate::sealed::keys::KeyProvider;
 
 use crate::effect::RunId;
-use crate::journal::owner::{self, Stage, StorageGate, StorageOwner};
+use crate::journal::owner::{self, StorageGate, StorageOwner};
 use crate::script::run_store::{Appended, RunRecords, StagedRecord};
 use crate::script::{FlowError, StepKey};
 
@@ -146,6 +146,7 @@ fn genesis_head() -> Digest {
     hasher.finalize()
 }
 
+mod append;
 mod error;
 mod record;
 mod records;
@@ -153,12 +154,13 @@ mod records;
 mod sealed_impl;
 #[cfg(feature = "sealed")]
 mod sealed_shred;
+mod sink;
 #[cfg(test)]
 mod tests;
+use append::{Staged, append_on_owner};
 pub use error::{StoreError, StoreLimitKind};
-use record::{
-    Stored, StoredDefinition, count_approval, hex_of, refusal, replay, store_full, tail_head,
-};
+use record::{Stored, StoredDefinition, replay};
+pub use sink::{CompositeSink, DurableSink, START_PROBE_FILE, SinkRefusal, StoreSink};
 
 // ── The store ───────────────────────────────────────────────────────────────
 use records::SealedStoreOpen;
@@ -212,89 +214,53 @@ struct StoreInner {
 
 /// The index, and the committed length it accounts for.
 #[derive(Debug)]
-struct Index {
+pub(crate) struct Index {
     /// Per run: the owning tenant and its steps.
-    runs: HashMap<RunId, RunIndex>,
+    pub(crate) runs: HashMap<RunId, RunIndex>,
     /// The file length every indexed record accounts for.
-    ///
-    /// Held beside the index rather than recomputed from it, because the append
-    /// fence compares *bytes* against the device and a sum over the index would
-    /// have to reproduce the frame overhead exactly — a second definition of the
-    /// file's length that could drift from the first.
-    committed: u64,
+    pub(crate) committed: u64,
     /// The chain head the next frame follows.
-    ///
-    /// Carried beside the index because it cannot be recovered from it: a head is
-    /// over the *archived* record, so recomputing one would re-archive a value
-    /// and risk hashing something other than the bytes on the disk.
-    tail: Digest,
+    pub(crate) tail: Digest,
     /// Per tenant, how many parked approvals are undecided.
-    ///
-    /// Maintained at fold time — replay and every committed append — so the
-    /// park ceiling is one probe rather than a scan: a park that scanned the
-    /// whole store would cost the store's size on every park. A decision
-    /// decrements, and a lapse records a decision, so only live approvals are
-    /// counted.
-    pending: HashMap<String, u64>,
+    pub(crate) pending: HashMap<String, u64>,
     /// Per run and step key hex: the bytes of a record written in the batch
     /// now flushing, not yet folded into `runs`.
-    ///
-    /// The duplicate check reads it beside `runs`: without it, two appends to
-    /// one key in one batch both found the key absent, both wrote, and both
-    /// answered `Recorded`, so two racing decisions each saw their own bytes
-    /// and both won. The first staged write wins; the settle moves it into
-    /// `runs`. A failed flush leaves its entries here harmlessly, because
-    /// `committed` already moved and the length fence refuses every later
-    /// append.
-    staged: HashMap<(RunId, String), Vec<u8>>,
+    pub(crate) staged: HashMap<(RunId, String), Vec<u8>>,
     /// Frames committed through this file, which is the next sealed record's
     /// ordinal: advanced by every sealed frame and every tombstone, so a
     /// tombstone's back-reference matches the replay's file order on every
     /// reopen.
     #[cfg(feature = "sealed")]
-    frames: u64,
-    /// Shredded steps by run and step key hex: the burn set. A re-append
-    /// under a burned slot is refused, and a read folds to erased, so a
-    /// restart past a shred cannot duplicate the step the index forgot. The
-    /// index keeps the key identity and the expiry, never the value.
+    pub(crate) frames: u64,
+    /// Shredded steps by run and step key hex: the burn set.
     #[cfg(feature = "sealed")]
-    erased: HashMap<(RunId, String), ErasedSlot>,
-    /// Per-run shredded counts and owning tenants, so the counts and the
-    /// ownership answer read one probe rather than scanning the burn set.
+    pub(crate) erased: HashMap<(RunId, String), ErasedSlot>,
+    /// Per-run shredded counts and owning tenants.
     #[cfg(feature = "sealed")]
-    erased_runs: HashMap<RunId, (u64, String)>,
+    pub(crate) erased_runs: HashMap<RunId, (u64, String)>,
 }
 
 /// One run's records.
 #[derive(Debug)]
-struct RunIndex {
+pub(crate) struct RunIndex {
     /// The tenant that minted the run, and the only one allowed to read it.
-    tenant: String,
+    pub(crate) tenant: String,
     /// The definition every record under this run was written under.
-    ///
-    /// One per run rather than one per record because a run is one attempt to
-    /// execute one definition: a record written under a different definition
-    /// than the run's first is not a step that changed, it is a different run
-    /// that arrived under the same id, and the first record is what the rest are
-    /// compared against.
-    definition: DefinitionIdentity,
+    pub(crate) definition: DefinitionIdentity,
     /// Per step key hex: the step's path and its archived value.
-    steps: HashMap<String, Held>,
+    pub(crate) steps: HashMap<String, Held>,
 }
 
 /// One step's record as the index holds it.
 #[derive(Debug)]
-struct Held {
+pub(crate) struct Held {
     /// The step path, kept so a decode failure is attributable.
-    path: String,
+    pub(crate) path: String,
     /// The archived value, kept so a resume does not re-read the file per step.
-    /// Empty for sealed steps: the value lives only in the sealed frame, and
-    /// the index keeps the envelope material instead.
-    bytes: Vec<u8>,
-    /// What seals this step, when the store was opened sealed. `None` for
-    /// every plain record.
+    pub(crate) bytes: Vec<u8>,
+    /// What seals this step, when the store was opened sealed.
     #[cfg(feature = "sealed")]
-    sealed: Option<SealedStep>,
+    pub(crate) sealed: Option<SealedStep>,
 }
 
 /// Sealed types live in `sealed_impl`: the envelope material,
@@ -718,21 +684,6 @@ impl RunStore {
         Ok(())
     }
 }
-// The burn-set slot lives in `sealed_impl` beside the shred path that folds it.
-/// One staged append: the record to write and the step key it is for.
-///
-/// Its own type so the two append doors build the record once between them, and
-/// the key travels with it rather than being threaded beside it at each call site.
-struct Staged {
-    /// The record as it will be archived.
-    record: Stored,
-    /// The step key the already-recorded and conflict checks are on.
-    key: StepKey,
-    /// Who wraps this record's data key and when it expires, when the store
-    /// was opened sealed. `None` for every plain append.
-    #[cfg(feature = "sealed")]
-    sealed: Option<SealedWrite>,
-}
 
 /// The in-file chain head of one run, held with the index.
 impl RunStore {
@@ -776,222 +727,4 @@ impl RunStore {
 
     // Sealed appends live in `sealed_impl`: `append_with_expiry` seals
     // through the same commit path here.
-}
-
-/// The ordered append, over the file and the index it folds into.
-///
-/// A free function taking the shared state rather than a method on `&self`, because
-/// it runs on the storage owner's thread with a closure that must own everything it
-/// touches: the `Arc` the store's state lives in and the record itself.
-///
-/// The lock is taken for the stage half only. The settle half is a fold into the
-/// same index, and it runs on this same thread under the owner's ordering — after
-/// the batch's one `sync_all`, never before it — so no append can observe a
-/// half-committed index and no `.await` is ever reached holding it.
-///
-/// # Errors
-///
-/// Every [`StoreError`] an append can produce, carried as the device's own error so
-/// the owner's one reply channel serves both stores.
-fn append_on_owner(
-    file: &mut File,
-    shared: &Arc<Mutex<Index>>,
-    staged: &Staged,
-) -> std::io::Result<Stage<Appended, Arc<Mutex<Index>>>> {
-    let mut index = owner::lock(shared);
-    decide_and_write(file, &mut index, staged)
-}
-
-/// The decision, the write, and the fold this record owes its batch's flush.
-///
-/// Every check that can refuse in memory runs before a byte moves, and the length
-/// fence runs inside the owner's ordered step where no other append can overtake it
-/// — which is why the file's `metadata` is read here rather than through the
-/// read-only view: the authoritative answer is the one taken at the moment of the
-/// write.
-///
-/// The three ceilings and the tenant and duplicate checks are decided *here*, at
-/// stage time, exactly as they were before group commit: a refusal is the same
-/// refusal and refuses the same single record. The fold into the index is what the
-/// settle half does, after the batch's one `sync_all` returns, so an index never
-/// names a record the device did not take.
-///
-/// Under a sealed write the duplicate check compares the value's digest rather
-/// than the value, and the frame seals under a fresh data key: the archived
-/// bytes go through the envelope with that key, and the chain closure hashes
-/// the ciphertext together with the key identity.
-///
-/// # Errors
-///
-/// Every [`StoreError`] an append can produce. Nothing is written by any of them,
-/// and a refusal leaves the index and the file byte-identical.
-fn decide_and_write(
-    file: &mut File,
-    index: &mut Index,
-    staged: &Staged,
-) -> std::io::Result<Stage<Appended, Arc<Mutex<Index>>>> {
-    let stored = &staged.record;
-    let key = staged.key;
-    #[cfg(feature = "sealed")]
-    let sealed = staged.sealed.as_ref();
-    let owned = index.runs.get(&stored.run);
-    if let Some(owned) = owned {
-        if owned.tenant != stored.tenant {
-            let refusal = Err(refusal(StoreError::ForeignTenant {
-                owner: owned.tenant.clone(),
-                asked: stored.tenant.clone(),
-            }));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
-            return refusal;
-        }
-        if let Some(step) = owned.steps.get(&key.to_hex()) {
-            // Already recorded. An identical record is the same fact seen
-            // twice — a step whose value was returned and whose caller
-            // recorded it again — and a different one is a conflict. Neither
-            // writes a byte. The digest stands in for the value, so the
-            // comparison never retains a secret.
-            #[cfg(feature = "sealed")]
-            if let Some(sealed) = step.sealed.as_ref() {
-                let answer = sealed_impl::sealed_duplicate(sealed, &stored.value);
-                return Ok(Stage::Settled(Ok(answer)));
-            }
-            return Ok(Stage::Settled(Ok(if step.bytes == stored.value {
-                Appended::AlreadyRecorded
-            } else {
-                Appended::Conflicting
-            })));
-        }
-        #[cfg(feature = "sealed")]
-        if let Some(burned) = sealed_impl::refuse_if_burned(index, stored.run, &key.to_hex()) {
-            let refusal = Err(refusal(burned));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: the step's slot is burned");
-            return refusal;
-        }
-        if u64::saturating_from(owned.steps.len()) >= MAX_RECORDS_PER_RUN {
-            let refusal = Err(refusal(StoreError::Limit {
-                kind: StoreLimitKind::Records,
-                requested: u64::saturating_from(owned.steps.len()).saturating_add(1),
-                limit: MAX_RECORDS_PER_RUN,
-            }));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
-            return refusal;
-        }
-    }
-
-    // A record for this key staged earlier in the same batch is already the
-    // answer: the same bytes are the same fact, other bytes a conflict. The
-    // staged map holds the plaintext only until the batch's flush folds it —
-    // the durable index never does for a sealed step.
-    let staged_key = (stored.run, key.to_hex());
-    if let Some(bytes) = index.staged.get(&staged_key) {
-        return Ok(Stage::Settled(Ok(if *bytes == stored.value {
-            Appended::AlreadyRecorded
-        } else {
-            Appended::Conflicting
-        })));
-    }
-
-    let previous = tail_head(index);
-    #[cfg(feature = "sealed")]
-    let (framed, head, sealed_slot) =
-        sealed_impl::frame_stored(stored, &previous, sealed).map_err(refusal)?;
-    #[cfg(not(feature = "sealed"))]
-    let (framed, head) = record::frame(stored, &previous).map_err(refusal)?;
-    #[cfg(not(feature = "sealed"))]
-    let _sealed_slot: Option<()> = None;
-
-    let staged = u64::saturating_from(framed.len());
-    let next = index
-        .committed
-        .checked_add(staged)
-        .ok_or_else(|| refusal(store_full(u64::MAX)))?;
-    if next > MAX_STORE_BYTES {
-        let refusal = Err(refusal(store_full(next)));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
-        return refusal;
-    }
-
-    // The fence, checked before a byte is written: the length this handle
-    // indexed must be the length on the disk, so a file another writer moved
-    // under it is refused here rather than forked. It runs on the owner thread,
-    // so the check and the write it guards cannot be split by another append.
-    let on_disk = file
-        .metadata()
-        .map_err(StoreError::storage)
-        .map_err(refusal)?
-        .len();
-    if on_disk != index.committed {
-        let held = match index.runs.get(&stored.run) {
-            Some(run) => run.steps.len(),
-            None => 0,
-        };
-        let refusal = Err(refusal(StoreError::Corrupt {
-            at: u64::saturating_from(held),
-        }));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
-        return refusal;
-    }
-
-    // The chain head and the committed length move *before* the write, and are the
-    // batch's own bookkeeping rather than a claim the device took anything: the next
-    // member of this batch must chain over this record, and the next batch's length
-    // fence must expect these bytes. A head that lagged a write would fork the chain.
-    index.committed = next;
-    index.tail = head;
-    index.staged.insert(staged_key, stored.value.clone());
-
-    file.write_all(&framed)
-        .map_err(StoreError::storage)
-        .map_err(refusal)?;
-
-    // The readable half of the fold waits for the flush: a record a lookup can find
-    // is a record whose bytes the device has acknowledged, so publishing it earlier
-    // would let a concurrent reader see a value a crash could take back.
-    // A sealed step folds its envelope material instead of its value: the
-    // index keeps the routing and the ciphertext, never the plaintext, and
-    // the approval count folds from the staged plaintext the settle still
-    // holds for this one flush.
-    #[cfg(feature = "sealed")]
-    let held = sealed_impl::held_for_settle(stored, sealed_slot);
-    #[cfg(not(feature = "sealed"))]
-    let held = Held {
-        path: stored.path.clone(),
-        bytes: stored.value.clone(),
-    };
-    let key = hex_of(&stored.key);
-    let run = stored.run;
-    let tenant = stored.tenant.clone();
-    let definition = stored.definition.to_identity();
-    #[cfg(feature = "sealed")]
-    let count_bytes = stored.value.clone();
-    Ok(Stage::Unsynced {
-        answer: Appended::Recorded,
-        bytes: framed.len(),
-        settle: Box::new(move |index: &mut Arc<Mutex<Index>>| {
-            #[cfg(feature = "sealed")]
-            let mut held = held;
-            let mut index = owner::lock(index);
-            index.staged.remove(&(run, key.clone()));
-            #[cfg(feature = "sealed")]
-            count_approval(&mut index, &tenant, &count_bytes);
-            #[cfg(not(feature = "sealed"))]
-            count_approval(&mut index, &tenant, &held.bytes);
-            #[cfg(feature = "sealed")]
-            let ordinal = {
-                let ordinal = index.frames;
-                index.frames = index.frames.saturating_add(1);
-                ordinal
-            };
-            let entry = index.runs.entry(run).or_insert_with(|| RunIndex {
-                tenant: tenant.clone(),
-                definition: definition.clone(),
-                steps: HashMap::new(),
-            });
-            #[cfg(feature = "sealed")]
-            if let Some(sealed) = held.sealed.as_mut() {
-                sealed.ordinal = ordinal;
-            }
-            entry.steps.insert(key, held);
-        }),
-    })
 }

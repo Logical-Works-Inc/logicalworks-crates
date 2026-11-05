@@ -46,9 +46,7 @@ fn real_of(value: &Value) -> Option<f64> {
             Some(whole) => u32::try_from(whole).ok().map(f64::from),
             None => number.as_f64(),
         },
-        Value::Null | Value::Bool(_) | Value::String(_) | Value::Array(_) | Value::Object(_) => {
-            None
-        }
+        _ => None,
     }
 }
 

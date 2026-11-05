@@ -31,9 +31,7 @@
 /// What a simulation reports when a precondition did not hold.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-use lgwks_bot::domain::gh::{
-    CommitId, Gh, GhError, Repository, ReviewComment, ReviewPayload, ReviewRecord,
-};
+use lgwks_bot::domain::gh::{CommitId, Gh, GhError, Repository, ReviewPayload, ReviewRecord};
 use lgwks_bot::review::ReviewOutcome;
 
 /// One simulated fault, chosen by the seed.
@@ -679,207 +677,6 @@ fn certainty_classification_r64() -> TestResult {
     Ok(())
 }
 
-/// One seeded lowercase hex commit id.
-fn seeded_sha(index: u64, salt: u64) -> String {
-    use std::fmt::Write as _;
-
-    let mut text = String::with_capacity(40);
-    let mut state = index.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt;
-    while text.len() < 40 {
-        state ^= state << 13;
-        state ^= state >> 7;
-        state ^= state << 17;
-        // `write!` into a `String` cannot fail; the result is bound so nothing
-        // here discards an error by accident.
-        let _written = write!(text, "{state:016x}");
-    }
-    text.truncate(40);
-    text
-}
-
-/// GitHub's pull-request object, decoded as the adapter decodes it.
-///
-/// The real API nests the pinned commits as `head.sha` and `base.sha` among
-/// many other fields; a decoder that read flat `head_sha` fields pins nothing
-/// on every real pull request. Each seed draws its own commits, number and
-/// field order, and a flat-shaped answer must pin nothing.
-#[test]
-fn pull_object_contract_r64() -> TestResult {
-    for index in 0..64u64 {
-        let head = seeded_sha(index, 1);
-        let base = seeded_sha(index, 2);
-        let number = index.saturating_add(1);
-        let head_object = format!("\"head\":{{\"ref\":\"topic-{index}\",\"sha\":\"{head}\"}}");
-        let base_object = format!("\"base\":{{\"ref\":\"main\",\"sha\":\"{base}\"}}");
-        let fields = [
-            format!("\"number\":{number}"),
-            String::from("\"state\":\"open\""),
-            head_object,
-            base_object,
-            format!("\"title\":\"change {index}\""),
-        ];
-        let rotate = pick(index, fields.len())?;
-        let ordered: Vec<&str> = fields[rotate..]
-            .iter()
-            .chain(fields[..rotate].iter())
-            .map(String::as_str)
-            .collect();
-        let answer = format!("{{{}}}", ordered.join(","));
-        let snapshot = lgwks_std::json::from_str::<lgwks_bot::domain::gh::PrSnapshot>(&answer)?;
-        assert_eq!(snapshot.number(), number, "seed {index}: {answer}");
-        assert_eq!(
-            snapshot.head_sha(),
-            head,
-            "seed {index}: the head is `head.sha`"
-        );
-        assert_eq!(
-            snapshot.base_sha(),
-            base,
-            "seed {index}: the base is `base.sha`"
-        );
-
-        let flat =
-            format!("{{\"number\":{number},\"head_sha\":\"{head}\",\"base_sha\":\"{base}\"}}");
-        let not_github = lgwks_std::json::from_str::<lgwks_bot::domain::gh::PrSnapshot>(&flat)?;
-        assert!(
-            not_github.head_sha().is_empty() && not_github.base_sha().is_empty(),
-            "seed {index}: a flat answer is not GitHub's shape and pins nothing"
-        );
-    }
-    Ok(())
-}
-
-/// Inline comments are carried in the payload and read back by field.
-///
-/// A non-empty comment list travels on the wire (where a verifier compares it),
-/// and an empty one is omitted, so a payload that declares no comments is
-/// byte-for-byte what it always was.
-#[test]
-fn review_comments_are_carried_and_omitted_r16() -> TestResult {
-    for index in 0..16u64 {
-        let subject = CommitId::new(seeded_sha(index, 5))?;
-        let comments = vec![
-            ReviewComment::new(format!("src/a{index}.rs"), index.saturating_add(1), "first"),
-            ReviewComment::new(
-                format!("src/b{index}.rs"),
-                index.saturating_add(2),
-                "second",
-            ),
-        ];
-        let payload =
-            ReviewPayload::new(&subject, "COMMENT", "body", "marker")?.with_comments(comments);
-        assert_eq!(
-            payload.comments().len(),
-            2,
-            "seed {index}: both comments are carried"
-        );
-        let first = payload.comments().first().ok_or("the first comment")?;
-        assert!(
-            first.path().starts_with("src/a"),
-            "seed {index}: a comment names its path"
-        );
-        assert_eq!(first.line(), index.saturating_add(1));
-        assert_eq!(first.body(), "first");
-        let wire = lgwks_std::json::to_string(&payload)?;
-        assert!(wire.contains("\"comments\":["), "seed {index}: {wire}");
-        assert!(
-            !wire.contains("\"comments\":[]"),
-            "seed {index}: a non-empty list is sent, never an empty one"
-        );
-
-        let bare = ReviewPayload::new(&subject, "COMMENT", "body", "marker")?;
-        assert!(
-            !lgwks_std::json::to_string(&bare)?.contains("comments"),
-            "seed {index}: an empty comment list is omitted from the wire"
-        );
-    }
-    Ok(())
-}
-
-/// A review verifies in the state GitHub reports, with its marker inside the
-/// body, and never under the request's spelling or another marker.
-#[test]
-fn review_state_and_marker_r64() -> TestResult {
-    let reported = [
-        ("COMMENT", "COMMENTED"),
-        ("APPROVE", "APPROVED"),
-        ("REQUEST_CHANGES", "CHANGES_REQUESTED"),
-    ];
-    for index in 0..64u64 {
-        let subject = CommitId::new(seeded_sha(index, 3))?;
-        let (event, state) = reported[pick(index, reported.len())?];
-        let body = format!("finding {index}: {}", text_hash(&index.to_string()));
-        let marker = if index % 4 == 0 {
-            String::new()
-        } else {
-            format!("tenant-{}/run-{index}", index % 5)
-        };
-        let payload = ReviewPayload::new(&subject, event, body.as_str(), marker.as_str())?;
-        assert_eq!(payload.state(), state, "seed {index}: {event}");
-        if marker.is_empty() {
-            assert_eq!(payload.body(), body, "seed {index}: no marker, no trailer");
-        } else {
-            assert_eq!(
-                payload.body(),
-                format!("{body}\n\n<!-- lgwks-review:{marker} -->"),
-                "seed {index}: the marker travels at the end of the body"
-            );
-        }
-        let wire = lgwks_std::json::to_string(&payload)?;
-        assert!(
-            !wire.contains("\"marker\""),
-            "seed {index}: GitHub's create request has no `marker` field: {wire}"
-        );
-
-        let read_back = ReviewRecord::new(9, subject.as_str(), state, payload.body());
-        assert!(
-            read_back.matches(&payload),
-            "seed {index}: {event} reads back as {state}"
-        );
-        let echoed = ReviewRecord::new(9, subject.as_str(), event, payload.body());
-        assert!(
-            !echoed.matches(&payload),
-            "seed {index}: `{event}` is the request's spelling, not a state GitHub reports"
-        );
-        let other = ReviewPayload::new(&subject, event, body.as_str(), format!("other-{index}"))?;
-        assert!(
-            !read_back.matches(&other),
-            "seed {index}: identical text under another marker is another publication"
-        );
-    }
-    Ok(())
-}
-
-/// A marker that could close or break out of the comment that carries it is
-/// refused, wherever in the marker the hostile token is placed.
-#[test]
-fn marker_escape_r64() -> TestResult {
-    let subject = CommitId::new(seeded_sha(7, 4))?;
-    let hostile = ["--", "-->", "<", ">", "\n", "\r", "\u{0}", "\t"];
-    for index in 0..64u64 {
-        let token = hostile[pick(index, hostile.len())?];
-        let prefix = "p".repeat(pick(index, 9)?);
-        let suffix = "s".repeat(pick(index.wrapping_mul(3), 7)?);
-        let marker = format!("{prefix}{token}{suffix}");
-        assert!(
-            matches!(
-                ReviewPayload::new(&subject, "COMMENT", "body", marker.as_str()),
-                Err(GhError::Marker { .. })
-            ),
-            "seed {index}: {marker:?} could break out of the comment"
-        );
-        let length = 250_usize.saturating_add(pick(index, 13)?);
-        let long = "m".repeat(length);
-        let accepted = ReviewPayload::new(&subject, "COMMENT", "body", long.as_str()).is_ok();
-        assert_eq!(
-            accepted,
-            length <= ReviewPayload::MAX_MARKER_BYTES,
-            "seed {index}: a {length}-byte marker against the declared ceiling"
-        );
-    }
-    Ok(())
-}
-
 /// `.` and `..` are path segments, not repository names: `../..` would turn
 /// `repos/{owner}/{repo}/pulls` into a request for another endpoint.
 #[test]
@@ -916,7 +713,7 @@ fn repository_segments_r64() -> TestResult {
 /// chances for one of them to use a different modulus.
 ///
 /// An empty table has no position, and is refused rather than read as the first.
-fn pick(index: u64, width: usize) -> Result<usize, Box<dyn std::error::Error>> {
+pub(super) fn pick(index: u64, width: usize) -> Result<usize, Box<dyn std::error::Error>> {
     let position = index
         .checked_rem(u64::try_from(width)?)
         .ok_or("an empty table has no position to pick")?;
@@ -928,7 +725,7 @@ fn pick(index: u64, width: usize) -> Result<usize, Box<dyn std::error::Error>> {
 /// Through the substrate's FNV-1a receipt rather than `DefaultHasher`, whose
 /// algorithm std leaves free to change between releases: a hash recorded before
 /// a toolchain bump must still compare equal after it.
-fn text_hash(text: &str) -> u64 {
+pub(super) fn text_hash(text: &str) -> u64 {
     let mut receipt = crate::sim::Trace::new();
     receipt.record(text);
     receipt.hash()

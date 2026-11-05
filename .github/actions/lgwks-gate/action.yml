@@ -37,22 +37,35 @@ runs:
       with:
         toolchain: ${{ inputs.toolchain }}
         components: clippy
+    # The two tools are built from crates.io source (they publish no prebuilt
+    # binary), so each pinned version is compiled once and its binaries cached
+    # under a key naming both versions, the toolchain and the runner; an empty
+    # input resolves to the newest stable release first, so the key is exact.
+    - name: Resolve the tool versions
+      id: tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        newest() { curl -fsS -A 'lgwks-gate (github.com/Logical-Works-Inc/logicalworks-crates)' "https://crates.io/api/v1/crates/$1" | jq -er .crate.max_stable_version; }
+        deps="${{ inputs.lgwks-deps-version }}"; ast="${{ inputs.lgwks-ast-version }}"
+        echo "deps=${deps:-$(newest lgwks_deps)}" >> "${GITHUB_OUTPUT}"
+        echo "ast=${ast:-$(newest lgwks_ast)}" >> "${GITHUB_OUTPUT}"
+    - name: Cache the installed tools
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: |
+          ~/.cargo/bin/lgwks-deps
+          ~/.cargo/bin/lgwks-ast
+        key: lgwks-gate-${{ runner.os }}-${{ runner.arch }}-${{ inputs.toolchain }}-deps-${{ steps.tools.outputs.deps }}-ast-${{ steps.tools.outputs.ast }}
     - name: Install lgwks-deps
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
-      run: |
-        if [ -z "${{ inputs.lgwks-deps-version }}" ]; then
-          cargo install lgwks_deps --locked
-        else
-          cargo install lgwks_deps --version "${{ inputs.lgwks-deps-version }}" --locked
-        fi
+      run: cargo install lgwks_deps --version "${{ steps.tools.outputs.deps }}" --locked
     - name: Install lgwks-ast
+      if: steps.cache.outputs.cache-hit != 'true'
       shell: bash
-      run: |
-        if [ -z "${{ inputs.lgwks-ast-version }}" ]; then
-          cargo install lgwks_ast --features tool --locked
-        else
-          cargo install lgwks_ast --version "${{ inputs.lgwks-ast-version }}" --features tool --locked
-        fi
+      run: cargo install lgwks_ast --version "${{ steps.tools.outputs.ast }}" --features tool --locked
     - name: Run the consumer gate
       shell: bash
       run: lgwks-deps gate "${{ inputs.path }}" --base "${{ inputs.base }}"

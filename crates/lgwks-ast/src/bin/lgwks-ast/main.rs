@@ -34,8 +34,11 @@
 
 mod census;
 mod diff;
+mod json_write;
 #[cfg(feature = "scan")]
 mod scan;
+
+use json_write::{object, write_json};
 
 use std::fmt;
 use std::io::{self, Write};
@@ -49,12 +52,11 @@ use lgwks_std::fs::{
     FileKind, OmissionAction, OmissionPolicy, OmissionStage, WalkFailure, WalkIter, WalkOptions,
     WalkStreamEntry, walk_dir_iter,
 };
-use lgwks_std::json::{Map, Value};
 
 /// The command line, shown on a usage error.
 const USAGE: &str = "usage: lgwks-ast script map|check|census|diff [--json] [--top N] [PATH...]\n\
        lgwks-ast script diff <base> <head> [--json]\n\
-       lgwks-ast scan [--json] [--rule NAME...] [PATH...]\n\
+       lgwks-ast scan [--json] [--rule NAME...] [--base REV] [PATH...]\n\
 \n\
   map     print every script!'s architecture map, as its ARCHITECTURE renders\n\
   check   print only what the script! language refuses; exit 2 if anything is\n\
@@ -69,7 +71,9 @@ const USAGE: &str = "usage: lgwks-ast script map|check|census|diff [--json] [--t
   --json  one JSON document on stdout instead of text (map, check, diff and scan)\n\
   --top   how many shapes a census prints\n\
   --rule  run only the named scan detector, repeatable: ERROR-SWALLOW,\n\
-          unlogged-err-return, ALLOW-SILENCE, long-try-chain, tautological-doc\n\
+          unlogged-err-return, ALLOW-SILENCE, long-try-chain, tautological-doc,\n\
+          and the opt-in missing-example\n\
+  --base  keep only the findings on lines added since the git revision REV\n\
   PATH    a directory to walk for .rs files (and, for scan, Cargo.toml), or one\n\
           file; default `.`\n";
 
@@ -153,6 +157,9 @@ struct Options {
     /// `--rule`: the scan detectors to run, as they were typed; empty means
     /// every one of them.
     rules: Vec<String>,
+    /// `--base`: the git revision whose added lines alone are judged; `None`
+    /// judges every line.
+    base: Option<String>,
     /// The paths to read; `.` when none was named.
     roots: Vec<PathBuf>,
 }
@@ -168,6 +175,7 @@ fn options(verb: Verb, rest: &[String]) -> Result<Options, String> {
         json: false,
         top: census::DEFAULT_TOP,
         rules: Vec::new(),
+        base: None,
         roots: Vec::new(),
     };
     let mut arguments = rest.iter();
@@ -208,6 +216,13 @@ fn take(
                 .next()
                 .ok_or_else(|| "--rule needs a detector name".to_owned())?;
             parsed.rules.push(value.clone());
+            Ok(())
+        }
+        "--base" if verb == Verb::Scan => {
+            let value = rest
+                .next()
+                .ok_or_else(|| "--base needs a git revision".to_owned())?;
+            parsed.base = Some(value.clone());
             Ok(())
         }
         unknown if unknown.starts_with("--") => Err(format!("unknown option `{unknown}`")),
@@ -280,7 +295,7 @@ fn run(args: &[String], out: &mut impl Write, err: &mut impl Write) -> io::Resul
         }
     };
     if verb == Verb::Scan {
-        return run_scan(&parsed.roots, parsed.json, &parsed.rules, out, err);
+        return run_scan(&parsed, out, err);
     }
     if verb == Verb::Diff {
         return run_diff(&parsed, out, err);
@@ -325,25 +340,29 @@ fn run_diff(parsed: &Options, out: &mut impl Write, err: &mut impl Write) -> io:
     diff::run(base, head, parsed.json, out, err)
 }
 
-/// `lgwks-ast scan` over `roots`, with every detector unless `names` selects
-/// some.
+/// `lgwks-ast scan` over the parsed roots, with every detector of `Rule::ALL`
+/// unless `--rule` selects some, judging only the lines added since `--base`
+/// when one is named.
 #[cfg(feature = "scan")]
-fn run_scan(
-    roots: &[PathBuf],
-    json: bool,
-    names: &[String],
-    out: &mut impl Write,
-    err: &mut impl Write,
-) -> io::Result<ExitCode> {
-    let rules = if names.is_empty() {
+fn run_scan(parsed: &Options, out: &mut impl Write, err: &mut impl Write) -> io::Result<ExitCode> {
+    let rules = if parsed.rules.is_empty() {
         Rule::ALL.to_vec()
     } else {
-        let mut selected = Vec::with_capacity(names.len());
-        for name in names {
+        let mut selected = Vec::with_capacity(parsed.rules.len());
+        for name in &parsed.rules {
             match Rule::from_name(name) {
                 Some(rule) => selected.push(rule),
                 None => {
-                    writeln!(err, "lgwks-ast: `{name}` names no scan detector\n")?;
+                    let known: Vec<&str> = Rule::ALL
+                        .iter()
+                        .chain(Rule::OPT_IN.iter())
+                        .map(|rule| rule.name())
+                        .collect();
+                    writeln!(
+                        err,
+                        "lgwks-ast: `{name}` names no scan detector; the detectors are {}\n",
+                        known.join(", ")
+                    )?;
                     write!(err, "{USAGE}")?;
                     return Ok(ExitCode::from(EXIT_USAGE));
                 }
@@ -351,7 +370,11 @@ fn run_scan(
         }
         selected
     };
-    scan::run(roots, json, &rules, out, err)
+    let selection = scan::Selection {
+        rules: &rules,
+        base: parsed.base.as_deref(),
+    };
+    scan::run(&parsed.roots, parsed.json, &selection, out, err)
 }
 
 /// Without the `scan` feature the verb exists and says what it needs: asking a
@@ -359,9 +382,7 @@ fn run_scan(
 /// status is the usage one rather than a verdict on any tree.
 #[cfg(not(feature = "scan"))]
 fn run_scan(
-    _roots: &[PathBuf],
-    _json: bool,
-    _names: &[String],
+    _parsed: &Options,
     _out: &mut impl Write,
     err: &mut impl Write,
 ) -> io::Result<ExitCode> {
@@ -702,65 +723,4 @@ fn write_text(
         )?;
         Ok(ExitCode::from(2))
     }
-}
-
-/// The agent form: one JSON document on stdout, the same exit status.
-fn write_json(verb: Verb, readings: &[FileReading], out: &mut impl Write) -> io::Result<ExitCode> {
-    let mut found = Vec::new();
-    let mut unreadable = Vec::new();
-    for reading in readings {
-        let path = reading.path.display().to_string();
-        match reading.outcome {
-            Ok(ref invocations) => {
-                for invocation in invocations {
-                    let mut fields = vec![
-                        ("path", Value::from(path.as_str())),
-                        ("line", Value::from(invocation.line())),
-                        ("column", Value::from(invocation.column().saturating_add(1))),
-                    ];
-                    match invocation.read() {
-                        Ok(script) if verb == Verb::Map => fields.push(("map", script.to_json())),
-                        Ok(_) => {}
-                        Err(refusal) => fields.push((
-                            "refusal",
-                            object(vec![
-                                ("line", Value::from(refusal.line())),
-                                ("column", Value::from(refusal.column().saturating_add(1))),
-                                ("message", Value::from(refusal.message())),
-                            ]),
-                        )),
-                    }
-                    found.push(object(fields));
-                }
-            }
-            Err(ref failure) => unreadable.push(object(vec![
-                ("path", Value::from(path.as_str())),
-                ("message", Value::from(failure.as_str())),
-            ])),
-        }
-    }
-    let totals = Totals::of(readings);
-    let document = object(vec![
-        ("verb", Value::from(verb.word())),
-        ("files", Value::from(totals.files)),
-        ("refused", Value::from(totals.refused)),
-        ("invocations", Value::Array(found)),
-        ("unreadable", Value::Array(unreadable)),
-    ]);
-    writeln!(out, "{document}")?;
-    Ok(if totals.refused == 0 {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::from(2)
-    })
-}
-
-/// A JSON object from its fields.
-fn object(fields: Vec<(&str, Value)>) -> Value {
-    Value::Object(
-        fields
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value))
-            .collect::<Map<String, Value>>(),
-    )
 }

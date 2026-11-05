@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_ast"
 description = "One multi-language AST parser: language identification from path or shebang, opt-in content parsing, tree-sitter grammar selection by cargo feature, bounded traversal, and span-carrying typed diagnostics. Includes a typed-diagnostic derive."
-version = "4.1.0"
+version = "5.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -106,7 +106,12 @@ emit = ["script", "dep:quote"]
 # in `lgwks-deps` because the `lgwks` binary there depends on this crate for
 # parse and emit (#787), and a tool beside its reader keeps the one-parser rule
 # obvious.
-tool = ["script", "dep:lgwks_std", "lgwks_std/standard"]
+tool = ["script", "hunks", "dep:lgwks_std", "lgwks_std/standard"]
+# The lines a change adds (`lgwks_ast::hunks`): the one reader of `git diff
+# --unified=0` that `lgwks-ast scan --base` and `lgwks_deps`' `check-docs
+# --base` share, so the two gates agree on which lines a change wrote. Std and
+# `tracing` only.
+hunks = ["dep:tracing"]
 # The zero-gate source detectors (INV-SCAN-ZERO, #408): `lgwks_ast::scan` and
 # the `lgwks-ast scan` subcommand, which read Rust through the one parser and
 # need nothing it does not already hold: the Rust grammar and the checked parse.

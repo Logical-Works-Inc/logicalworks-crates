@@ -8,7 +8,7 @@ other change below is additive, and every enum that gained a variant is
 a refusal now added (#265) no longer compiles. That is a correction to the
 guard, recorded here as a minor bump rather than hidden in a patch.
 
-### lgwks_std — Digest equality measured constant-time (#275)
+## lgwks_std — Digest equality measured constant-time (#275)
 
 - `Digest`'s `==` now delegates to `blake3::Hash`'s equality, the
   `constant_time_eq` routine behind an optimisation barrier, instead of a
@@ -25,7 +25,7 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   must detect. The `digest-timing` gate lane runs it on the release build,
   locally (aarch64-apple-darwin) and in CI (x86_64-unknown-linux-gnu).
 
-### One process-group backend (#263)
+## One process-group backend (#263)
 
 - `lgwks_std::process::process_group_exists` (feature `process`) is the
   signal-zero group probe, on rustix beside `kill_process_group`, so the
@@ -39,7 +39,7 @@ guard, recorded here as a minor bump rather than hidden in a patch.
 - `lgwks_bot`'s `process` feature no longer enables
   `lgwks_deps/process-group-probe`.
 
-### lgwks_bot — fan-out, journal status, process stdio (#257, #259, #260)
+## lgwks_bot — fan-out, journal status, process stdio (#257, #259, #260)
 
 - `script::FanOut` and `script::FanOutError`: a one-call fan-out over `script::each`, bounded
   by `at_most(limit)` and `within(deadline)`, whose error names the failing
@@ -53,14 +53,14 @@ guard, recorded here as a minor bump rather than hidden in a patch.
 - `rt::runtime::Builder::thread_stack_size`, bounded by
   `MAX_THREAD_STACK_SIZE` (256 MiB).
 
-### lgwks_deps — attestation bound to the tree under review (#258)
+## lgwks_deps — attestation bound to the tree under review (#258)
 
 - `invariants::Status::Attested` is refused unless the recorded revision is
   in the history of `HEAD` and the enforcer is unchanged since then. The
   refusal is `InvariantError::EvidenceNotBound`, carrying an `EvidenceGap`.
   Before this, any well-formed hex revision certified any commit.
 
-### Property tests with shrinking (#273)
+## Property tests with shrinking (#273)
 
 - `proptest` 1.11 is admitted as a dev-only edge (`contract/APPROVED.toml`,
   default features off). No shipped artifact links it.
@@ -77,7 +77,7 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   assignment won. It now refuses with the new `LockError::DuplicateKey`, at
   the line of the second assignment.
 
-### lgwks_std — bounded blocking pool (#264)
+## lgwks_std — bounded blocking pool (#264)
 
 - `task::spawn_blocking` runs on one process-wide pool of at most 512 threads
   instead of one new OS thread per call. A job submitted while every thread is
@@ -102,7 +102,7 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   keep-alive expiry: every admitted job runs exactly once, a refused one
   never, and the pool drains to nothing.
 
-### lgwks_bot
+## lgwks_bot
 
 - `domain::net::Endpoint`'s poll uses `try_spawn_blocking`, so a burst of
   concurrent polls cannot start a thread per poll; a refusal is a
@@ -110,4 +110,4 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   polls against a full pool are all refused this way and send nothing; once
   the pool frees, the same ten thousand all run.
 
-### lgwks_macros — refusals by path, and lints the consumer enforces (#265)
+## lgwks_macros — refusals by path, and lints the consumer enforces (#265)
