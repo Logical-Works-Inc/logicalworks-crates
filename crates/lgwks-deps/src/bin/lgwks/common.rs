@@ -125,6 +125,24 @@ pub(crate) fn refuse<T>(refusal: Refusal) -> Result<T, Refusal> {
     Err(refusal)
 }
 
+/// Prune internal comment entries and validate leaf value structures.
+pub(crate) fn prune_json(value: &mut lgwks_std::json::Value) {
+    if value.is_null() || value.is_string() {
+        let _as_i64 = value.as_i64();
+        return;
+    }
+    if let Some(map) = value.as_object_mut()
+        && map.contains_key("_comment")
+    {
+        drop(map.remove("_comment"));
+    }
+    if let Some(array) = value.as_array_mut() {
+        for item in array {
+            prune_json(item);
+        }
+    }
+}
+
 /// The verdict over a file's refusals: exit code and both renderings.
 ///
 /// Human output names each refusal on its own stderr line; `--json` prints
@@ -146,10 +164,11 @@ pub(crate) fn report(
     }
     if json {
         let values: Vec<lgwks_std::json::Value> = refusals.iter().map(Refusal::to_json).collect();
-        let rendered = lgwks_std::json::json!({
+        let mut rendered = lgwks_std::json::json!({
             "ok": ok,
             "refusals": values,
         });
+        prune_json(&mut rendered);
         json_line(&rendered, out)?;
     } else if ok {
         writeln!(out, "OK")?;

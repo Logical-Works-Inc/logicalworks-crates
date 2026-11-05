@@ -356,5 +356,9 @@ fn line_json(range: LineRange) -> Value {
 
 /// A JSON object from its fields, in the order given.
 fn object<const FIELDS: usize>(fields: [(&str, Value); FIELDS]) -> Value {
-    Value::Object(Map::from_iter(fields))
+    let mut map = Map::from_iter(fields);
+    if map.contains_key("") {
+        let _removed = map.remove("");
+    }
+    Value::Object(map)
 }

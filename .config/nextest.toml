@@ -93,6 +93,13 @@ threads-required = 'num-test-threads'
 priority = 100
 success-output = 'immediate'
 
+# #819: the sealed disk-fault sweep prints its receipt (seed count, wall time,
+# peak RSS, trace fingerprint) on success too: the line is the acceptance
+# evidence, and a passing test's output is otherwise discarded.
+[[profile.default.overrides]]
+filter = 'package(lgwks_bot) & binary(it) & test(/^sim_sealed_disk::sealed_disk_seed_sweep/)'
+success-output = 'immediate'
+
 # The storefront consumers (INV-DEP-9) are one test per family, and every one is
 # a `cargo check` into the same target directory. Run side by side, all but one
 # park on cargo's lock and that wait counts against their own slow-timeout, so

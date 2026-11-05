@@ -380,6 +380,9 @@ mod script_trail;
 #[cfg(feature = "sealed")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sealed;
+#[cfg(feature = "sealed")]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+mod sealed_disk_torn;
 #[cfg(feature = "edge")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod serve;
@@ -565,6 +568,12 @@ mod sim_script_words;
 #[cfg(feature = "sealed")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_sealed;
+#[cfg(feature = "sealed")]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+mod sim_sealed_adversary;
+#[cfg(feature = "sealed")]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
+mod sim_sealed_disk;
 #[cfg(feature = "sealed")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_sealed_shred;
