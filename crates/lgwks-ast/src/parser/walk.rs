@@ -26,12 +26,31 @@ impl AstMetrics {
 
 /// Whether the tree holds an `ERROR` or `MISSING` node. Ask before reporting:
 /// on unreadable source, no finding means nothing parsed, not nothing wrong.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, has_syntax_issues, parse};
+///
+/// assert!(!has_syntax_issues(&parse("fn ok() {}", Language::Rust).root()));
+/// assert!(has_syntax_issues(&parse("fn broken( {}", Language::Rust).root()));
+/// ```
 #[must_use]
 pub fn has_syntax_issues<L: LanguageExt>(root: &AstNode<'_, L>) -> bool {
     inspect_ast(root, None).has_syntax_issues
 }
 
 /// Deepest branch depth, root counting as 1.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, max_depth, parse};
+///
+/// let shallow = max_depth(&parse("fn f() {}", Language::Rust).root());
+/// let deeper = max_depth(&parse("fn f() { if a { if b { c(); } } }", Language::Rust).root());
+/// assert!(shallow > 1 && deeper > shallow);
+/// ```
 #[must_use]
 pub fn max_depth<L: LanguageExt>(root: &AstNode<'_, L>) -> usize {
     inspect_ast(root, None).max_depth
@@ -50,6 +69,18 @@ pub fn max_depth<L: LanguageExt>(root: &AstNode<'_, L>) -> usize {
 /// is the checked parse's ceiling and has no parameter here on purpose: a
 /// caller inspecting a tree on purpose is not the hostile-input case, and
 /// refusing it would make the reported depth a constant.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, inspect_ast, parse};
+///
+/// let tree = parse("fn f() { let x = 1; }", Language::Rust);
+/// let whole = inspect_ast(&tree.root(), None);
+/// let capped = inspect_ast(&tree.root(), Some(2));
+/// assert!(whole.complete && !capped.complete);
+/// assert!(capped.nodes < whole.nodes);
+/// ```
 #[must_use]
 pub fn inspect_ast<'t, L: LanguageExt>(
     root: &AstNode<'t, L>,
@@ -261,6 +292,17 @@ pub(super) fn push_syntax_diagnostic(
 /// or `None` when no direct child matches. Descendants are not searched, so a
 /// caller hunting a nested identifier must walk to that level first. The text
 /// is owned because the node's source borrow is tied to the parsed tree.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, child_text_with_kind, parse};
+///
+/// let tree = parse("fn greet() {}", Language::Rust);
+/// let function = tree.root().children().next().ok_or("no item")?;
+/// assert_eq!(child_text_with_kind(&function, &["identifier"]).as_deref(), Some("greet"));
+/// # Ok::<(), &str>(())
+/// ```
 #[must_use]
 pub fn child_text_with_kind<L: LanguageExt>(
     node: &AstNode<'_, L>,
@@ -280,6 +322,17 @@ pub fn child_text_with_kind<L: LanguageExt>(
 /// is a judgement about this crate's own API, not a claim about callers: no
 /// crate in this workspace depends on `lgwks_ast` today, and these three carry
 /// no callers outside this crate's tests.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, definition_name, parse};
+///
+/// let tree = parse("struct Point { x: u8 }", Language::Rust);
+/// let item = tree.root().children().next().ok_or("no item")?;
+/// assert_eq!(definition_name(&item, &["type_identifier"]).as_deref(), Some("Point"));
+/// # Ok::<(), &str>(())
+/// ```
 #[must_use]
 pub fn definition_name<L: LanguageExt>(
     node: &AstNode<'_, L>,
@@ -291,6 +344,23 @@ pub fn definition_name<L: LanguageExt>(
 /// The callee a call node names, or `None` when `node` is not a call kind or
 /// names none of `name_kinds`. See [`definition_name`] for why this trio is
 /// retained.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, callee_name, parse};
+///
+/// let tree = parse("fn f() { run(); }", Language::Rust);
+/// let mut names = Vec::new();
+/// let mut pending = vec![tree.root()];
+/// while let Some(node) = pending.pop() {
+///     if let Some(name) = callee_name(&node, &["call_expression"], &["identifier"]) {
+///         names.push(name);
+///     }
+///     pending.extend(node.children());
+/// }
+/// assert_eq!(names, ["run"]);
+/// ```
 #[must_use]
 pub fn callee_name<L: LanguageExt>(
     node: &AstNode<'_, L>,

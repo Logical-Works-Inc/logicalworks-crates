@@ -36,7 +36,7 @@ below, and fails when either holds a name the other lacks.
 | 23 | `build` | `build` (implies `hash`, `trace`) | exercised | seeded family `tests/it/sim_build.rs` incl. `sim_one_tree_at_two_roots_digests_equal`, `sim_a_closed_pipe_is_a_directive_error` | A build script's input digest (framed BLAKE3 over root-relative names, bytes, variables, features) and checked `cargo:` directives, Director 2026-10-22 ("should be in lgwks"). **A digest names the inputs a script declared, not every file the compiler read.** |
 | 24 | `legacy` | `legacy` | exercised | `every_page_is_a_bijection_onto_latin_1`, `every_sibling_count_is_a_valid_red_black_tree_in_name_order` (unit); seeded families `tests/it/sim_legacy_{ebcdic,decimal,copybook,cfb,access,fax,edges}.rs`; `lgwks_deps` `tests/it/sim_lgwks_legacy.rs` drives `lgwks legacy` | EBCDIC 037/500/1047/273, packed and zoned decimal, copybook records, MS-CFB with VBA, Jet/ACE tables and bilevel TIFF fax, each round-tripping byte for byte under `Limits` → [#792](https://github.com/srinji-kaggss/logicalworks-crates/issues/792). **Access decodes five column kinds and copybooks refuse `RENAMES` and `SYNC`, each as a typed, located error, never a guess.** |
 
-### Two facts about this table that are easy to misread
+## Two facts about this table that are easy to misread
 
 - **`core` is not `#![no_std]`.** `core` is a cargo feature, and selecting it
   withdraws the default set — including `trace`. It is not a promise about the

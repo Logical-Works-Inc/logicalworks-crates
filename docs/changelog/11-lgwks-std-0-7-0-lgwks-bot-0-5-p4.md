@@ -2,7 +2,7 @@
 
 Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Page 4 of 5. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot Fixed (continued)
+## lgwks_bot Fixed (continued)
 
 - An ephemeral scope enforces its advertised external-effect refusal.
   `Effects::prepare` used to discard the `DispatchPrepared` acknowledgment as

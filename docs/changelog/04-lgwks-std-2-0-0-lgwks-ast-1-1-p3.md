@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 3 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_bot — a tick is measured stage by stage, and the rig that measures it runs again (#279) (continued)
+## lgwks_bot — a tick is measured stage by stage, and the rig that measures it runs again (#279) (continued)
 
 `bench/` publishes a ratio between this crate's tick and a hand-rolled loop
 doing provably identical work, and the ratio used to be read as "the schedule is
@@ -49,8 +49,7 @@ the answer is not what the ratio used to imply.
   the mean is divided over the whole `u64` count rather than a count saturated
   at `u32::MAX`.
 
-
-### lgwks_bot — row 3 of #278: a credential that expires mid-run
+## lgwks_bot — row 3 of #278: a credential that expires mid-run
 
 The credential-expiry row of `docs/production-readiness.md` §4.4. A grant that
 named no lifetime behaves exactly as before. **Breaking:** `Need::chain()`
@@ -105,7 +104,7 @@ the same refused token.
   runs the whole review over 16 seeds drawing 401/403/404; both fail with the
   wiring removed (the old `DomainError` came back) and publish nothing.
 
-### lgwks_bot — row 1 of #278: a torn read is pending, never a change
+## lgwks_bot — row 1 of #278: a torn read is pending, never a change
 
 The first of the seven runtime-level mess rows in `docs/production-readiness.md`
 §4.4. Additive: no signature changed and no existing behaviour did.

@@ -75,7 +75,7 @@ fn check(source: &str, function: Node<'_>, hits: &mut Vec<Hit>) {
 /// True only for `pub` items. `pub(crate)` and `pub(super)` are not this
 /// detector's concern: a docstring paraphrase costs a crate-internal reader
 /// nothing like what it costs a published API's reader.
-fn is_public(source: &str, item: Node<'_>) -> bool {
+pub(super) fn is_public(source: &str, item: Node<'_>) -> bool {
     syntax::kids(item)
         .into_iter()
         .find(|child| child.kind() == "visibility_modifier")
@@ -86,7 +86,7 @@ fn is_public(source: &str, item: Node<'_>) -> bool {
 /// `///` and `/** */` comments and the `#[doc = ".."]` attributes written above
 /// it. An item with none yields an empty string, which [`check`] rejects by
 /// length before any tokenizing happens.
-fn doc_text(source: &str, item: Node<'_>) -> String {
+pub(super) fn doc_text(source: &str, item: Node<'_>) -> String {
     let mut pieces = Vec::new();
     let mut cursor = item.prev_sibling();
     while let Some(sibling) = cursor {

@@ -312,9 +312,9 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cc"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877bf67ac8e52449eb2f9e98a344ea163beb70dd1f9eebe3cc5357dcfeaee4df"
+checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
 dependencies = [
  "find-msvc-tools",
  "shlex",
@@ -527,7 +527,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_bot"
-version = "6.1.0"
+version = "7.0.0"
 dependencies = [
  "lgwks_deps",
  "lgwks_std",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "5.1.2"
+version = "6.0.0"
 dependencies = [
  "bevy_ecs",
  "lgwks_std",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_std"
-version = "3.2.2"
+version = "4.0.0"
 dependencies = [
  "blake3",
  "ed25519-dalek",
@@ -1094,7 +1094,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1638,9 +1638,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
+checksum = "f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171"
 dependencies = [
  "rustls-pki-types",
 ]

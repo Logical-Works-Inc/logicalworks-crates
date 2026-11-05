@@ -11,7 +11,7 @@ and take patches.
 and that substrate is the only path. There is no feature flag that selects it,
 because a default-off implementation is a candidate rather than an architecture.
 
-### lgwks_bot Changed
+## lgwks_bot Changed
 
 - `Bot::tick` is **synchronous**. The exclusive systems drive the non-`Send`
   verb futures themselves, so there is nothing for a caller to await.
@@ -25,17 +25,17 @@ because a default-off implementation is a candidate rather than an architecture.
 - A schedule that cannot be ordered deterministically is refused at `build()`
   (`ambiguity_detection: LogLevel::Error`), not misordered at tick.
 
-### lgwks_bot Removed
+## lgwks_bot Removed
 
 - `Bot::block_on_tick` — a pure alias for `tick` once `tick` became
   synchronous. Two equivalent entry points for one job is one too many.
 - `Bot::chains()` — replaced by `Bot::source_domains()`, which answers what a
-  caller actually wanted ("what is this bot watching") without exposing erased
+  caller wanted ("what is this bot watching") without exposing erased
   observer objects.
 - The `Chain`, `ChainEntry`, and `ObserveBuilder::entries` types. `ChainEntry`
   was public only because `chains()` returned it.
 
-### lgwks_bot Added
+## lgwks_bot Added
 
 - `Bot::fired`, `Bot::world`, `Bot::revisions`, `Bot::source_domains`: the
   change-detection state a caller needs to reason about a tick.
@@ -64,7 +64,7 @@ because a default-off implementation is a candidate rather than an architecture.
   `tokio-io` for it, because `io-util` was previously reachable only through the
   whole networking stack. `net`, `process`, and `fs` now imply `io`.
 
-### lgwks_std 0.6.4 Added
+## lgwks_std 0.6.4 Added
 
 - `trace` (default-on): structured, levelled logging via `tracing`, with
   `tracing` registered in `contract/APPROVED.toml` under `owner = "lgwks_std"`.
@@ -75,7 +75,7 @@ because a default-off implementation is a candidate rather than an architecture.
   `syn` proc-macro stack enters the foundation; no subscriber is bundled.
   `--no-default-features --features core` is still genuinely zero-dependency.
 
-### lgwks_deps 0.1.9 Added
+## lgwks_deps 0.1.9 Added
 
 - `check --json`: one JSON object on stdout, nothing on stderr, exit code
   unchanged. Keys are always `root`, `enforce`, `admitted`, `approvals`,
@@ -85,7 +85,7 @@ because a default-off implementation is a candidate rather than an architecture.
   been escaping only the double quote, so any string containing a backslash
   produced invalid JSON.
 
-### lgwks_deps 0.1.9 Fixed
+## lgwks_deps 0.1.9 Fixed
 
 - `check --json` exited **0** for a repository with no register. The gate
   passing without reading its own contract, which the fail-closed rule exists to
@@ -93,7 +93,7 @@ because a default-off implementation is a candidate rather than an architecture.
   arm first, and `admitted` is `error.is_none() && refusals.is_empty()` so a
   payload cannot report admission beside a failed read.
 
-### lgwks_ast 0.2.0 Breaking
+## lgwks_ast 0.2.0 Breaking
 
 - `Language::C` is renamed **`Language::CLang`**. The workspace forbids
   `clippy::min_ident_chars`, and `forbid` cannot be lowered from source, so the
@@ -103,7 +103,7 @@ because a default-off implementation is a candidate rather than an architecture.
   stable identity findings and callers match on, so only Rust code naming the
   variant is affected. Nothing in the workspace referenced it.
 
-### lgwks_ast Changed
+## lgwks_ast Changed
 
 - `Language` and its four lookup tables are now generated from a single row per
   grammar, so a language cannot be added by halves: the variant, its slot in
@@ -115,4 +115,4 @@ because a default-off implementation is a candidate rather than an architecture.
   monotone, and `has_syntax_issues` sticky.
 - `examples/parse.rs` extended.
 
-### Shared Changed
+## Shared Changed

@@ -1,9 +1,9 @@
 # lgwks_std 3.0.2 / lgwks_bot 3.1.1 / lgwks_ast 2.2.0 / lgwks_deps 4.2.0 / lgwks_macros 1.1.4 - 2026-10-21
 
-Release: lgwks_std 3.0.2 / lgwks_bot 3.1.1 / lgwks_ast 2.2.0 / lgwks_deps 4.2.0 / lgwks_macros 1.1.4 - 2026-10-21.
+The release notes for the versions above.
 [Changelog index](../../CHANGELOG.md)
 
-### Upgrading
+## Upgrading
 
 No item is removed or renamed, and no signature changes. `lgwks_ast` takes a
 minor bump and `lgwks_deps` takes a minor bump because both gain names on their
@@ -17,7 +17,7 @@ returns: `check_verdict` hands back `metadata::Collected<Verdict>`, and
 `into_parts` separates the verdict from the cleanup obligation that a refused
 or interrupted metadata read could not confirm.
 
-### lgwks_deps — the supported metadata surface (#526)
+## lgwks_deps — the supported metadata surface (#526)
 
 - **Added** `lgwks_deps::metadata::Collected` to the supported surface. It is
   the type `check_verdict` returns: the gate's verdict plus the cleanup failure
@@ -27,7 +27,7 @@ or interrupted metadata read could not confirm.
 - **Added** `lgwks_deps::metadata::MetadataError` to the supported surface. It
   is the typed reason a metadata read refused — the cargo command failed, the
   document would not decode, the byte budget was spent, the deadline passed —
-  and it is what a consumer needs in order to `match` on a refusal instead of
+  and it is what a consumer needs to `match` on a refusal instead of
   printing it.
 - **Changed** the accepted public surface, exactly: `contract/PUBLIC_SURFACE.toml`
   now carries `"crates/lgwks-deps/src/metadata.rs" = 2`. The ceiling is exact
@@ -41,7 +41,7 @@ or interrupted metadata read could not confirm.
   in this repository instead of in a user's build. It also asserts that a
   complete metadata read leaves no cleanup obligation behind.
 
-### lgwks_ast — 2.2.0
+## lgwks_ast — 2.2.0
 
 - The 2.1.0 surface is unchanged and stays documented: `Language`, `try_parse`,
   `inspect_ast`, `ParseError` and `Diagnostic` for the parser, `lgwks_ast::scan`
@@ -49,7 +49,7 @@ or interrupted metadata read could not confirm.
   minor version is cut with the release that documents the admission surface it
   is used through; no parser behaviour changed.
 
-### lgwks_std 3.0.2, lgwks_bot 3.1.1 and lgwks_macros 1.1.4
+## lgwks_std 3.0.2, lgwks_bot 3.1.1 and lgwks_macros 1.1.4
 
 - Documentation and version only. No code, no public item, no expansion
   changed; the three patch bumps keep the five crates on one release line so

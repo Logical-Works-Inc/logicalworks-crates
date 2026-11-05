@@ -465,6 +465,8 @@ default = "off"
 reason = "The engine the durable store opens: reached only through the storefront, never declared directly. Same flag as the defaults above: --features sqlite (ADR 0003)."
 words = ["rusqlite", "sqlite engine", "storefront rusqlite"]
 replaces = ["rusqlite as a direct edge"]
+
+[[capability]]
 name = "http server"
 file = "crates/lgwks-deps/src/lib.rs"
 crate = "lgwks_deps"

@@ -379,34 +379,74 @@ fn listed_counts(payload: &Value) -> (usize, usize) {
     (total, simulated)
 }
 
+/// Test archives the simulation listing reads in place of a build: CI names
+/// the ones its archive jobs already compiled, space-separated (province#9),
+/// so the lane lists them in seconds rather than compiling the workspace again.
+const SIMULATION_ARCHIVES_ENV: &str = "SIMULATION_ARCHIVES";
+
+/// The nextest listings the simulation lane reads: one per named archive, or
+/// the workspace built from source when none is named.
+fn simulation_listings(context: &Context<'_>) -> Vec<Vec<String>> {
+    let archives: Vec<&str> = match context.env.get(SIMULATION_ARCHIVES_ENV) {
+        Some(named) => named.split_whitespace().collect(),
+        None => Vec::new(),
+    };
+    if archives.is_empty() {
+        return vec![argv(&[
+            "cargo",
+            "nextest",
+            "list",
+            "--workspace",
+            "--locked",
+            "--message-format",
+            "json",
+            "--cargo-quiet",
+        ])];
+    }
+    archives
+        .into_iter()
+        .map(|archive| {
+            argv(&[
+                "cargo",
+                "nextest",
+                "list",
+                "--archive-file",
+                archive,
+                "--workspace-remap",
+                ".",
+                "--extract-to",
+                ".",
+                "--extract-overwrite",
+                "--message-format",
+                "json",
+            ])
+        })
+        .collect()
+}
+
 /// Prove deterministic simulation coverage by executable and source views.
 pub(super) fn simulation_evidence(context: &Context<'_>) -> Result<Verdict, GateError> {
-    let command = argv(&[
-        "cargo",
-        "nextest",
-        "list",
-        "--workspace",
-        "--locked",
-        "--message-format",
-        "json",
-        "--cargo-quiet",
-    ]);
-    let listed = context
-        .children
-        .capture(&launch(&command, context.root, context.env));
-    if listed.code != 0 {
-        return Ok(refuse(format!(
-            "nextest listing failed: exit={} stdout={:?} stderr={:?}",
-            listed.code,
-            clip(&listed.stdout, 400),
-            clip(&listed.stderr, 400)
-        )));
+    let (mut total, mut simulated) = (0_usize, 0_usize);
+    for command in simulation_listings(context) {
+        let listed = context
+            .children
+            .capture(&launch(&command, context.root, context.env));
+        if listed.code != 0 {
+            return Ok(refuse(format!(
+                "nextest listing failed: exit={} stdout={:?} stderr={:?}",
+                listed.code,
+                clip(&listed.stdout, 400),
+                clip(&listed.stderr, 400)
+            )));
+        }
+        let payload: Value = match json::from_str(&listed.stdout) {
+            Ok(payload) => payload,
+            Err(error) => return Ok(refuse(format!("nextest listing was not JSON: {error}"))),
+        };
+        let (listed_total, listed_simulated) = listed_counts(&payload);
+        total = total.saturating_add(listed_total);
+        simulated = simulated.saturating_add(listed_simulated);
     }
-    let payload: Value = match json::from_str(&listed.stdout) {
-        Ok(payload) => payload,
-        Err(error) => return Ok(refuse(format!("nextest listing was not JSON: {error}"))),
-    };
-    let (total, simulated) = listed_counts(&payload);
     if total == 0 {
         return Ok(refuse("nextest listing reported no tests".to_owned()));
     }

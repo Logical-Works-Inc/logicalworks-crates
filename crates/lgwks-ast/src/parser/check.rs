@@ -38,6 +38,15 @@ thread_local! {
 /// parse per distinct grammar. A caller that needs it opts in with
 /// [`try_detect_content`] and names the few grammars it expects, rather than
 /// trial-parsing every language this build carries.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, detect};
+///
+/// assert_eq!(detect("src/main.rs"), Some(Language::Rust));
+/// assert_eq!(detect("notes.unknown"), None);
+/// ```
 #[must_use]
 pub fn detect(path: &str) -> Option<Language> {
     Language::of_path(path)
@@ -51,6 +60,16 @@ pub fn detect(path: &str) -> Option<Language> {
 /// no match, one clean candidate, and multiple clean candidates. A
 /// parser-unavailable or node-budget refusal returns `Err`: an uninspected
 /// required candidate cannot be treated as evidence against it.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{ContentDetection, Language, try_detect_content};
+///
+/// let found = try_detect_content("fn main() { let x: u8 = 1; }", &[Language::Rust, Language::Go])?;
+/// assert_eq!(found, ContentDetection::Unique(Language::Rust));
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub fn try_detect_content(
     source: &str,
     candidates: &[Language],
@@ -147,6 +166,20 @@ fn keep_first_incomplete(
 /// Production boundary: refuse oversized bytes, stop a parse past
 /// [`DEFAULT_PARSE_DEADLINE`], then reject recovery nodes and over-budget trees
 /// in one traversal.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, ParseError, try_parse};
+///
+/// let tree = try_parse("fn main() {}", Language::Rust)?;
+/// assert_eq!(tree.root().kind(), "source_file");
+/// assert!(matches!(
+///     try_parse("fn broken( {}", Language::Rust),
+///     Err(ParseError::InvalidSyntax { .. })
+/// ));
+/// # Ok::<(), ParseError>(())
+/// ```
 pub fn try_parse(code: &str, language: Language) -> Result<Parsed, ParseError> {
     try_parse_within(code, language, DEFAULT_PARSE_DEADLINE)
 }
@@ -166,6 +199,18 @@ pub fn try_parse(code: &str, language: Language) -> Result<Parsed, ParseError> {
 /// A deeply nested source under `Duration::ZERO` answers [`ParseError::TimedOut`], and the
 /// thread is free again: its parser starts the next parse clean. The unit test
 /// `a_zero_deadline_stops_a_nested_parse_and_frees_the_thread` runs that.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::Duration;
+///
+/// use lgwks_ast::{Language, try_parse_within};
+///
+/// let tree = try_parse_within("fn main() {}", Language::Rust, Duration::from_millis(500))?;
+/// assert_eq!(tree.root().kind(), "source_file");
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub fn try_parse_within(
     code: &str,
     language: Language,
@@ -186,6 +231,21 @@ pub fn try_parse_within(
 
 /// Checked parse of a caller-registered grammar, held to the same byte bound,
 /// deadline, node bound, depth bound, and recovery refusal as [`try_parse`].
+///
+/// # Examples
+///
+/// ```
+/// use ast_grep_core::tree_sitter::LanguageExt;
+/// use ast_grep_language::SupportLang;
+/// use lgwks_ast::{CustomLang, try_parse_with};
+///
+/// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+/// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+/// let tree = try_parse_with("fn main() {}", &mine, mine.name())?;
+/// assert_eq!(tree.root().kind(), "source_file");
+/// assert!(try_parse_with("fn broken( {}", &mine, mine.name()).is_err());
+/// # Ok::<(), lgwks_ast::ParseError>(())
+/// ```
 pub fn try_parse_with<L: LanguageExt>(
     code: &str,
     language: &L,
@@ -430,6 +490,15 @@ pub(super) fn run_parser(
 /// external scanner rather than return anything. It also runs neither
 /// [`MAX_AST_NODES`] nor [`MAX_AST_DEPTH`]. A caller accepting untrusted input
 /// uses [`try_parse`], which is the path every bound lives on.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::{Language, has_syntax_issues, parse};
+///
+/// let tree = parse("fn broken( {}", Language::Rust);
+/// assert!(has_syntax_issues(&tree.root()));
+/// ```
 #[must_use]
 pub fn parse(code: &str, language: Language) -> Parsed {
     parse_with(code, &language.support_lang())
@@ -437,6 +506,19 @@ pub fn parse(code: &str, language: Language) -> Parsed {
 
 /// Unchecked parse of a caller-registered grammar. Production call sites use
 /// [`try_parse_with`].
+///
+/// # Examples
+///
+/// ```
+/// use ast_grep_core::tree_sitter::LanguageExt;
+/// use ast_grep_language::SupportLang;
+/// use lgwks_ast::{CustomLang, has_syntax_issues, parse_with};
+///
+/// // Any tree-sitter grammar registers; the Rust grammar stands in for yours here.
+/// let mine = CustomLang::new("mine", SupportLang::Rust.get_ts_language()).with_extensions(&["mine"]);
+/// let tree = parse_with("fn broken( {}", &mine);
+/// assert!(has_syntax_issues(&tree.root()), "unchecked: the recovery is kept for inspection");
+/// ```
 pub fn parse_with<L: LanguageExt>(code: &str, language: &L) -> AstGrep<StrDoc<L>> {
     language.ast_grep(code)
 }

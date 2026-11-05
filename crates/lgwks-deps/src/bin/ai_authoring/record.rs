@@ -90,47 +90,47 @@ fn number<T: TryInto<u64>>(value: T) -> Value {
 }
 
 /// The string under `key`.
-fn text_of(object: &Map<String, Value>, key: &str) -> Option<String> {
+fn text_of(object: &Map, key: &str) -> Option<String> {
     object.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
 /// The whole number under `key`.
-fn whole_of(object: &Map<String, Value>, key: &str) -> Option<u64> {
+fn whole_of(object: &Map, key: &str) -> Option<u64> {
     object.get(key).and_then(Value::as_u64)
 }
 
 /// The whole number under `key`, when it fits 32 bits.
-fn small_of(object: &Map<String, Value>, key: &str) -> Option<u32> {
+fn small_of(object: &Map, key: &str) -> Option<u32> {
     whole_of(object, key).and_then(|found| u32::try_from(found).ok())
 }
 
 /// The whole number under `key`, as a size.
-fn size_of(object: &Map<String, Value>, key: &str) -> Option<usize> {
+fn size_of(object: &Map, key: &str) -> Option<usize> {
     whole_of(object, key).and_then(|found| usize::try_from(found).ok())
 }
 
 /// The oracle's clause verdicts, when every one names a known verdict.
-fn verdicts_of(object: &Map<String, Value>) -> Option<BTreeMap<String, Verdict>> {
+fn verdicts_of(object: &Map) -> Option<BTreeMap<String, Verdict>> {
     let clauses = object.get("oracle")?.as_object()?;
     let mut found = BTreeMap::new();
     for (name, label) in clauses {
-        found.insert(name.clone(), Verdict::from_label(label.as_str()?)?);
+        found.insert(name.to_owned(), Verdict::from_label(label.as_str()?)?);
     }
     Some(found)
 }
 
 /// How often each author-burden token occurs.
-fn sites_of(object: &Map<String, Value>) -> Option<BTreeMap<String, usize>> {
+fn sites_of(object: &Map) -> Option<BTreeMap<String, usize>> {
     let counted = object.get("orchestration_site_tokens")?.as_object()?;
     let mut found = BTreeMap::new();
     for (token, seen) in counted {
-        found.insert(token.clone(), usize::try_from(seen.as_u64()?).ok()?);
+        found.insert(token.to_owned(), usize::try_from(seen.as_u64()?).ok()?);
     }
     Some(found)
 }
 
 /// The strings of the array under `key`.
-fn words_of(object: &Map<String, Value>, key: &str) -> Option<Vec<String>> {
+fn words_of(object: &Map, key: &str) -> Option<Vec<String>> {
     object
         .get(key)?
         .as_array()?
@@ -302,17 +302,13 @@ impl Record {
 pub(super) fn canonical(value: &Value) -> String {
     match *value {
         Value::Object(ref map) => {
-            let mut keys: Vec<&String> = map.keys().collect();
-            keys.sort();
+            let mut keys: Vec<&str> = map.keys().collect();
+            keys.sort_unstable();
             let entries: Vec<String> = keys
                 .into_iter()
                 .filter_map(|key| {
-                    map.get(key.as_str()).map(|inner| {
-                        format!(
-                            "{}: {}",
-                            canonical(&Value::from(key.clone())),
-                            canonical(inner)
-                        )
+                    map.get(key).map(|inner| {
+                        format!("{}: {}", canonical(&Value::from(key)), canonical(inner))
                     })
                 })
                 .collect();
@@ -322,15 +318,13 @@ pub(super) fn canonical(value: &Value) -> String {
             let rendered: Vec<String> = items.iter().map(canonical).collect();
             format!("[{}]", rendered.join(", "))
         }
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {
-            match json::to_string(value) {
-                Ok(scalar) => scalar,
-                Err(error) => {
-                    lgwks_std::trace::debug!(%error, "a scalar could not be written as JSON");
-                    "null".to_owned()
-                }
+        _ => match json::to_string(value) {
+            Ok(scalar) => scalar,
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, "a scalar could not be written as JSON");
+                "null".to_owned()
             }
-        }
+        },
     }
 }
 

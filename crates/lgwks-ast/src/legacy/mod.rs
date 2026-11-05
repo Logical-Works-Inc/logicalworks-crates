@@ -57,6 +57,17 @@ pub(crate) mod summary;
 /// All fields are private; construction is through [`LegacyLimits::new`] and
 /// every use is through a named check at the call site, so a refusal always
 /// names the bound that earned it.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::legacy::{LegacyError, LegacyLimits, jcl::parse_job};
+///
+/// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+/// assert!(parse_job("//PAYJOB   JOB (ACCT),'PAY'\n", &limits).is_ok());
+/// let tight = LegacyLimits::new(8, 10_000, 10_000, 10_000, 64, 8, 256);
+/// assert!(matches!(parse_job("//PAYJOB   JOB (ACCT),'PAY'\n", &tight), Err(LegacyError::SourceTooLarge { .. })));
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LegacyLimits {
@@ -79,6 +90,16 @@ pub struct LegacyLimits {
 impl LegacyLimits {
     /// The bounds in one place: bytes, lines, nodes, edges, copies, copy
     /// depth and datasets.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_ast::legacy::LegacyLimits;
+    ///
+    /// // bytes, lines, nodes, edges, copybooks, copy depth, datasets
+    /// let limits = LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256);
+    /// assert_eq!(limits, LegacyLimits::new(1 << 20, 10_000, 10_000, 10_000, 64, 8, 256));
+    /// ```
     #[must_use]
     pub const fn new(
         source_bytes: usize,

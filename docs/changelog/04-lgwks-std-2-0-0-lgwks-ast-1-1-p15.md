@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 15 of 20. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_ast — the parse had no time bound, and the walk was quadratic (#277) (continued)
+## lgwks_ast — the parse had no time bound, and the walk was quadratic (#277) (continued)
 
 - **The validation walk is linear now, and was not.** `inspect_ast` and
   `diagnostic::diagnostics` reached each child through
@@ -89,7 +89,7 @@ the earliest under `MAX_SYNTAX_DIAGNOSTICS` and are sorted before being
 returned — and `diagnostics` sorts its own output. `try_parse` keeps its
 signature.
 
-### Tests: the entropy replay simulation no longer folds drawn bytes (#276)
+## Tests: the entropy replay simulation no longer folds drawn bytes (#276)
 
 - `sim_random_error`'s replay trace folded whether each draw came back
   entirely equal to the sentinel byte. A one-byte draw from a working source
@@ -100,7 +100,7 @@ signature.
   `the_trace_folds_no_drawn_byte` pins both without entropy. 300 runs of the
   two tests: 0 failures.
 
-### lgwks_std — the blocking pool's ceiling and its shutdown (#264)
+## lgwks_std — the blocking pool's ceiling and its shutdown (#264)
 
 The two items #286 and #289 left open on the bounded blocking pool. Both are
 additive: no signature changed and no existing behaviour did.

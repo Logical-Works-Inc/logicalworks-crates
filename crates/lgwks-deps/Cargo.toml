@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_deps"
 description = "Dependency admission, supply-chain policy, and debugger-doctor CLI for a Rust workspace: every external edge and default trace install is verified."
-version = "5.1.2"
+version = "6.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -224,11 +224,12 @@ chacha20poly1305 = { version = "=0.10.1", default-features = false, features = [
 # no-flag build stays portable: the engines are selected, never the crates.
 prettyplease = { version = "=0.2.37", default-features = false, optional = true }
 syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing"], optional = true }
-# The one script reader and emitter (#787): `lgwks_ast` with the `emit` and
-# `legacy` features. A workspace member, so it needs no register entry;
-# default features off so no tree-sitter grammar rides along, only the token
-# reader, the one emitter, and the COBOL and JCL reader.
-lgwks_ast = { workspace = true, default-features = false, features = ["emit", "legacy"], optional = true }
+# The one script reader and emitter (#787): `lgwks_ast` with the `emit`,
+# `legacy` and `hunks` features. A workspace member, so it needs no register
+# entry; default features off so no tree-sitter grammar rides along, only the
+# token reader, the one emitter, the COBOL and JCL reader, and the diff reader
+# `check-docs --base` judges a change's added lines with.
+lgwks_ast = { workspace = true, default-features = false, features = ["emit", "legacy", "hunks"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"], optional = true }
@@ -284,10 +285,13 @@ name = "ledger"
 path = "src/bin/ledger.rs"
 
 # The documentation-governance reader: every ADR against ISO/IEC/IEEE 42010 and
-# every PRD requirement against ISO/IEC/IEEE 29148.
+# every PRD requirement against ISO/IEC/IEEE 29148. `--base` reads the lines a
+# change added through `lgwks_ast::hunks`, the one diff reader, which the
+# default `lgwks` feature carries.
 [[bin]]
 name = "check-docs"
 path = "src/bin/check_docs/main.rs"
+required-features = ["lgwks"]
 
 # The declared target matrix, executed: the required Rust-only surface on every
 # target, and each crate's default set recorded with its declared C-toolchain

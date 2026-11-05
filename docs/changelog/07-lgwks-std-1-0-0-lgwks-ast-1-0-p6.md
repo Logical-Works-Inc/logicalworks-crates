@@ -2,7 +2,7 @@
 
 Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 / lgwks_macros 1.0.0 - 2026-10-04. Page 6 of 13. [Changelog index](../../CHANGELOG.md)
 
-### lgwks_std Added (continued)
+## lgwks_std Added (continued)
 
 - `similarity::CheckedSimilarity`, the checked scoring seam, and
   `similarity::CheckedEvidence`, the authority-facing composition that carries
@@ -21,7 +21,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
 - `similarity::is_exact_path_match`, the exact path comparison that the lossy
   `PathSimilarity` heuristic is not (#160 S4).
 - `similarity::EditDistance::normalized_length`, the unit the scorer's budget
-  actually charges: the lower-case-expanded scalar count, which differs from the
+  charges: the lower-case-expanded scalar count, which differs from the
   raw count because `İ` expands to two (#160 S4).
 - `glob::GlobPattern::token_count` and
   `glob::GlobScratch::{scalar_capacity, row_capacity, row_count,
@@ -58,7 +58,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   outside the injected dial, that one probe's resolved candidates share a single
   wall-clock budget rather than restarting per address. (#163)
 
-### lgwks_std Fixed
+## lgwks_std Fixed
 
 - `similarity`: a refused component can no longer become an acceptance. The
   infallible `Weighted::is_accepted` still maps a refusal to `0.0` for source
@@ -68,7 +68,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   reports two identical over-limit inputs as `0.0` through the trait's identity
   contract when the checked form refuses them (#160 S1).
 
-### Documentation
+## Documentation
 
 - **#155/#170 — documentation claims reconciled to the code at this revision.**
   No public API changed; this entry records sentences that described code the
@@ -107,4 +107,4 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
     fallible thread admission, entropy failure meaning, feature-isolated
     ergonomics) — unproven, not disproven, and deliberately not green.
 
-### lgwks_bot Added
+## lgwks_bot Added

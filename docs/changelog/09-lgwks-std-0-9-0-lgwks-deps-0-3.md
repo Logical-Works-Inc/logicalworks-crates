@@ -1,6 +1,6 @@
 # lgwks_std 0.9.0 / lgwks_deps 0.3.0 / lgwks_bot 0.7.0 / lgwks_macros 0.1.1 - 2026-09-30
 
-Release: lgwks_std 0.9.0 / lgwks_deps 0.3.0 / lgwks_bot 0.7.0 / lgwks_macros 0.1.1 - 2026-09-30. Page 1 of 1. [Changelog index](../../CHANGELOG.md)
+The release notes, page 1 of 1. [Changelog index](../../CHANGELOG.md)
 
 The second cut of the day, for the #157, #158, #159, #161, #162, #167 and #168
 work that landed in #197. `lgwks_std` and `lgwks_deps` each carry a break, so
@@ -8,7 +8,7 @@ they take the minor position. `lgwks_bot` re-exports `lgwks_std::json` and
 depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
 `lgwks_deps` requirement and takes a patch. `lgwks_ast` does not move.
 
-### lgwks_std Breaking
+## lgwks_std Breaking
 
 - `pattern::PatternError` fields `pattern` and `message` are private; read them
   with `pattern()`, `message()` and the new `kind()` (`PatternErrorKind`:
@@ -19,7 +19,7 @@ depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
   was written) from `Write` (the writer may hold a prefix), instead of folding
   an I/O failure into `ron::Error`. (#162)
 
-### lgwks_std Added
+## lgwks_std Added
 
 - `pattern::Regex::with_config(pattern, PatternConfig)` returns a
   `BoundedRegex` that enforces source-pattern bytes, compiled size, nesting,
@@ -37,7 +37,7 @@ depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
   `from_str`/`from_slice` take `Deserialize<'de>`, so borrowed fields such as
   `&str` deserialize without copying. `ron` re-exports `serde`. (#162)
 
-### lgwks_deps Breaking
+## lgwks_deps Breaking
 
 - `contract::Contract::entries`, every `contract::Entry` field,
   `invariants::Register::entries`, every `invariants::Entry` field and
@@ -50,7 +50,7 @@ depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
   field's `line`. `ContractError` gains `InvalidString`, `DuplicateEntryKey`
   and `InvalidField`. (#157)
 
-### lgwks_deps Fixed
+## lgwks_deps Fixed
 
 - Both registers read one strict TOML subset. A repeated key in an entry is
   refused and names both lines instead of letting the last write win. Values
@@ -67,12 +67,12 @@ depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
   removes its capture files or leaves them in a retryable `CleanupObligation`.
   (#159)
 
-### lgwks_bot Changed
+## lgwks_bot Changed
 
 - Depends on `lgwks_std 0.9` and `lgwks_deps 0.3`. `lgwks_bot::json` is
   `lgwks_std::json`, so its serializers now accept unsized values and its
-  decoders borrow from their input, as described above.
+  decoders borrow from their input.
 
-### lgwks_macros Changed
+## lgwks_macros Changed
 
 - Depends on `lgwks_deps 0.3`. The `script!` syntax is unchanged.

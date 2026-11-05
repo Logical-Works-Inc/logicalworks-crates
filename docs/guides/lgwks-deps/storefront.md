@@ -1,5 +1,8 @@
 # lgwks_deps: storefront features
 
+This page lists the features that bring an upstream crate in through
+`lgwks_deps`, and what each one gives you.
+
 ## Storefront features
 
 Each feature exposes its reviewed upstream capability through the storefront, so
@@ -40,7 +43,6 @@ It does not treat those platform-bound combinations as all-target features.
 [dependencies]
 lgwks_deps = { version = "3", default-features = false, features = ["tokio"] }
 ```
-
 The ML features are off by default, so the default build compiles none of
 Candle's closure. Selecting `ml-candle` pulls `hf-hub` transitively through
 `candle-transformers`, which makes the compiled tree network-capable even though

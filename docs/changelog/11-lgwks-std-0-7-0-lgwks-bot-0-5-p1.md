@@ -10,7 +10,7 @@ rename and remove public items, and Cargo treats 0.6.6 → 0.6.7 as compatible.
 `lgwks_std::json`, so it moves with std. `lgwks_deps` 0.1.13 only adds a command
 and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
 
-### lgwks_std Breaking
+## lgwks_std Breaking
 
 - `time` no longer re-exports the items of its `calendar` and `format`
   submodules, so `time::to_rfc3339` is now `time::format::to_rfc3339` and
@@ -35,8 +35,7 @@ and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
 - `Weighted::try_new` is removed. It was an alias for `Weighted::new` with no
   callers anywhere in the workspace.
 
-
-### lgwks_std Added
+## lgwks_std Added
 
 - `trace` now includes a default debugger bootstrap: `DebugConfig`,
   `DebugFormat`, `install_default`, `LGWKS_LOG`/`RUST_LOG` filtering, compact
@@ -50,8 +49,7 @@ and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
   that wanted to log one wrote a wrapper that then had to change whenever the
   type did.
 
-
-### lgwks_bot Breaking
+## lgwks_bot Breaking
 
 - **The crate root stopped carrying three sets of aliases.** `lgwks_bot::gh`,
   `lgwks_bot::net`, `lgwks_bot::fs` and six others named `domain`'s modules a
@@ -84,8 +82,7 @@ and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
   name that read like a choice, and the parameter made every call site decode
   which way round the boolean went. Removing it removes the question.
 
-
-### lgwks_bot Added
+## lgwks_bot Added
 
 - **`EffectJournal::compare_and_append_async`, `FileJournal::open_with_stalled_storage`,
   `FileJournal::release_storage`, and `FileJournal::storage_gate` visibility.**

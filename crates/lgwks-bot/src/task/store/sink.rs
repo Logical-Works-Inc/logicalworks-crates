@@ -34,6 +34,13 @@ use std::sync::Arc;
 /// Public because a test that simulates "dead after mount" must squat exactly
 /// this path: guessing the literal would couple the test to a string rather
 /// than to the gate it proves.
+///
+/// # Examples
+///
+/// ```text
+/// use lgwks_bot::task::START_PROBE_FILE;
+/// assert_eq!(START_PROBE_FILE, ".lgwks-start-probe");
+/// ```
 pub const START_PROBE_FILE: &str = ".lgwks-start-probe";
 
 /// The bytes one probe persists: constant, so two concurrent gates stage the
@@ -47,6 +54,14 @@ const PROBE_BYTES: &[u8; 64] = b"lgwks-bot start-gate barrier probe v1..........
 /// the gate runs on unauthenticated operator surface, like the kernel's
 /// degraded `/readyz`, so a connection string reaching it would leak host,
 /// port, and secrets to anyone who can reach the log.
+///
+/// # Examples
+///
+/// ```text
+/// use lgwks_bot::task::SinkRefusal;
+/// let refusal = SinkRefusal::new("runstore", "unready");
+/// assert_eq!(refusal.sink(), "runstore");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SinkRefusal {
@@ -61,6 +76,14 @@ pub struct SinkRefusal {
 impl SinkRefusal {
     /// Record that `sink` refused for `reason`: both are operator-facing, and
     /// neither may carry a path or a credential.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use lgwks_bot::task::SinkRefusal;
+    /// let refusal = SinkRefusal::new("runstore", "disk barrier failed");
+    /// assert_eq!(refusal.sink(), "runstore");
+    /// ```
     #[must_use]
     pub fn new(sink: impl Into<String>, reason: impl Into<String>) -> Self {
         Self {
@@ -71,6 +94,14 @@ impl SinkRefusal {
 
     /// The name the refusal is filed under: the composite's name when the
     /// composite found the failure, else the child's own constant name.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use lgwks_bot::task::SinkRefusal;
+    /// let refusal = SinkRefusal::new("runstore", "read-only");
+    /// assert_eq!(refusal.sink(), "runstore");
+    /// ```
     #[must_use]
     pub fn sink(&self) -> &str {
         self.sink.as_str()
@@ -78,6 +109,14 @@ impl SinkRefusal {
 
     /// What failed, as a failure kind rather than a path or an OS sentence:
     /// safe for the unauthenticated operator log.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use lgwks_bot::task::SinkRefusal;
+    /// let refusal = SinkRefusal::new("runstore", "read-only");
+    /// assert_eq!(refusal.reason(), "read-only");
+    /// ```
     #[must_use]
     pub fn reason(&self) -> &str {
         self.reason.as_str()
@@ -104,6 +143,17 @@ impl std::error::Error for SinkRefusal {}
 /// that silently drops every record. Requiring the probe makes every
 /// implementation state what it does with a record — including a stub, which
 /// says so in as many words and is refused for it.
+///
+/// # Examples
+///
+/// ```text
+/// use lgwks_bot::task::{DurableSink, SinkRefusal};
+/// struct MySink;
+/// impl DurableSink for MySink {
+///     fn sink_name(&self) -> &str { "mock" }
+///     fn probe_barrier(&self) -> Result<(), SinkRefusal> { Ok(()) }
+/// }
+/// ```
 pub trait DurableSink: Send + Sync {
     /// The constant name this sink reports under: `runstore` for the file
     /// sink, the composite's own name for a composite.
@@ -123,6 +173,14 @@ pub trait DurableSink: Send + Sync {
 /// removes it: on a directory that cannot persist — read-only remount,
 /// replaced data directory, a squatter on the probe path — the create, the
 /// write, or the sync refuses, and readiness is false.
+///
+/// # Examples
+///
+/// ```text
+/// use std::path::Path;
+/// use lgwks_bot::task::StoreSink;
+/// let sink = StoreSink::for_dir(Path::new("/tmp"));
+/// ```
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct StoreSink {
@@ -136,6 +194,14 @@ impl StoreSink {
     /// Build the file-backed sink over `dir`: readiness stages, syncs and
     /// removes the probe file there, so a directory that cannot persist reads
     /// unready.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use std::path::Path;
+    /// use lgwks_bot::task::StoreSink;
+    /// let sink = StoreSink::for_dir(Path::new("/tmp/test"));
+    /// ```
     #[must_use]
     pub fn for_dir(dir: &Path) -> Self {
         Self {
@@ -162,6 +228,13 @@ impl DurableSink for StoreSink {
 /// An empty fan-out holds no durable sink at all, so it is unready too: every
 /// child must also answer ready, or one dead child would leave the composite
 /// reporting a false green.
+///
+/// # Examples
+///
+/// ```text
+/// use lgwks_bot::task::CompositeSink;
+/// let composite = CompositeSink::new("composite", Vec::new());
+/// ```
 #[derive(Clone)]
 pub struct CompositeSink {
     /// The composite's own name, carried on every refusal it reports.
@@ -172,6 +245,13 @@ pub struct CompositeSink {
 
 impl CompositeSink {
     /// Combine `sinks` under `name`.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use lgwks_bot::task::CompositeSink;
+    /// let composite = CompositeSink::new("production", Vec::new());
+    /// ```
     #[must_use]
     pub fn new(name: &str, sinks: impl IntoIterator<Item = Arc<dyn DurableSink>>) -> Self {
         Self {
@@ -181,6 +261,14 @@ impl CompositeSink {
     }
 
     /// Probe every child, failing closed on the first refusal.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// use lgwks_bot::task::CompositeSink;
+    /// let composite = CompositeSink::new("production", Vec::new());
+    /// assert!(composite.readiness().is_err());
+    /// ```
     ///
     /// # Errors
     ///

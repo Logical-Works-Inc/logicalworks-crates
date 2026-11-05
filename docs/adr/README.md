@@ -45,5 +45,8 @@ Prose review does not catch a missing field; a refusal does.
 | [0007](0007-process-only-defaults.md) | Process-only defaults hold without the substrate |
 | [0008](0008-script-is-the-entrypoint.md) | Every capability is an SDK, an entrypoint and a `script!` word, or named here with why not |
 | [0009](0009-human-approval-parks-the-run.md) | A human decision parks the run; `act` is gated by policy |
+| [0010](0010-estate-uuid-replaces-the-uuid-crate.md) | The estate UUID issues v7 infallibly and packs as an FDB tuple element; serde is declined |
+| [0011](0011-docs-only-changes-run-the-docs-gate.md) | A docs-only change runs the docs gate, not the suites; `check-docs` reads every page as its reader does |
+| [0012](0012-every-new-public-item-shows-an-example.md) | Every public item a change adds shows an example; the rule judges added lines |
 
 New records go at the bottom of that table.

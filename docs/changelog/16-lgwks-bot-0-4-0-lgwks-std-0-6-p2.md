@@ -2,7 +2,7 @@
 
 Release: lgwks_bot 0.4.0 / lgwks_std 0.6.4 / lgwks_deps 0.1.9 / lgwks_ast 0.2.0 - 2026-09-20. Page 2 of 2. [Changelog index](../../CHANGELOG.md)
 
-### Shared Changed (continued)
+## Shared Changed (continued)
 
 - The bot README is compiled: `#[cfg(doctest)] #[doc =
   include_str!("../README.md")]` runs every Rust block in it. Two defects fell
