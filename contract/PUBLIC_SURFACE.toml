@@ -45,6 +45,7 @@
 "crates/lgwks-bot/src/app/error.rs" = 1
 "crates/lgwks-bot/src/broker.rs" = 15
 "crates/lgwks-bot/src/cap.rs" = 35
+"crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/cas.rs" = 31
 "crates/lgwks-bot/src/cell.rs" = 7
 "crates/lgwks-bot/src/clock.rs" = 19
@@ -338,6 +339,7 @@
 "crates/lgwks-ast/src/script/tree/serve.rs" = 15
 "crates/lgwks-ast/src/script/tree/shape.rs" = 15
 "crates/lgwks-ast/src/script/tree/vocab.rs" = 28
+"crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/script/scope.rs" = 1
 "crates/lgwks-std/src/http/pool.rs" = 1
 "crates/lgwks-std/src/http/stream.rs" = 1

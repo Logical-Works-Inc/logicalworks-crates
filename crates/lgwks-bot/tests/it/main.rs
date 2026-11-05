@@ -209,6 +209,8 @@ mod authority;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod bot_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+mod cap_tokens;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod cas;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
@@ -405,6 +407,8 @@ mod sim_approval_scale;
 mod sim_apps;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_cancel_under_load;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+mod sim_cap_tokens;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_cas;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]

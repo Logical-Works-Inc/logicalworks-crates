@@ -567,7 +567,13 @@ const OTHER_SUBJECTS: [&str; 5] = [
 /// The five `crates/drishti` entries are another crate's design record (ADR 0006
 /// R6): each mention is a requirement Drishti's blocked proof gates G01–G15 must
 /// meet, about Drishti's own sessions, so none states what `lgwks_bot` ships.
-const NOT_AUTHORITY_CLAIMS: [(&str, &str); 10] = [
+///
+/// The three `cap_token` entries are the same bargain for bearer tokens (#779):
+/// an offline token-id ledger with an explicit tested verify, attenuate and
+/// decide surface is a different subject from `GrantSet` capability lifetime,
+/// which has no `revoke` and is what this scan protects. A mention there claims
+/// denial of a bearer token by id, not revocation of a capability.
+const NOT_AUTHORITY_CLAIMS: [(&str, &str); 13] = [
     (
         "docs/frontier.md",
         "the state-of-the-art survey: its mentions are published research and design \
@@ -615,6 +621,19 @@ const NOT_AUTHORITY_CLAIMS: [(&str, &str); 10] = [
         "crates/drishti/docs/decisions.md",
         "Drishti's decisions: gate G06, blocked, names authority revocation as work its \
          lifecycle must model",
+    ),
+    (
+        "crates/lgwks-bot/src/cap_token.rs",
+        "the offline bearer-token id ledger with its explicit tested verify, attenuate \
+         and decide surface, not GrantSet capability revocation",
+    ),
+    (
+        "crates/lgwks-bot/tests/it/cap_tokens.rs",
+        "the behavioral proof of the bearer-token ledger above, not a capability claim",
+    ),
+    (
+        "crates/lgwks-bot/src/bin/cap_token_cost.rs",
+        "the measurement harness driving the bearer-token ledger above, not a capability claim",
     ),
 ];
 
