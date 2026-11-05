@@ -41,6 +41,12 @@ fn refused<T>(error: OpenApiError) -> Result<T, OpenApiError> {
 }
 
 /// Where a route sits behind the tenant edge, rendered as `x-auth-posture`.
+///
+/// # Examples
+///
+/// ```text
+/// x-auth-posture: "tenant"
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AuthPosture {
@@ -61,6 +67,12 @@ impl AuthPosture {
 }
 
 /// Whether a route's documentation is pinned yet.
+///
+/// # Examples
+///
+/// ```text
+/// x-doc-status: "stub"
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DocStatus {
@@ -81,6 +93,12 @@ impl DocStatus {
 }
 
 /// Why a route set cannot become an OpenAPI document.
+///
+/// # Examples
+///
+/// ```text
+/// undescribed route GET /health: every route must carry a descriptor
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum OpenApiError {
@@ -201,6 +219,12 @@ impl std::error::Error for OpenApiError {}
 
 /// One route's contract: the verb, path, handler, summary and posture the
 /// emitted document renders for it.
+///
+/// # Examples
+///
+/// ```text
+/// GET /health -> handler: "health", posture: "discovery"
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct RouteDescriptor {
@@ -221,6 +245,12 @@ pub struct RouteDescriptor {
 impl RouteDescriptor {
     /// Describe `method` `path`, answered by `handler` and summarized by
     /// `summary` under `auth` at maturity `status`.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// RouteDescriptor::new(Get, "/status", "status", "Status.", Discovery, Stub)
+    /// ```
     ///
     /// # Errors
     ///
@@ -275,12 +305,24 @@ impl RouteDescriptor {
     }
 
     /// The verb the descriptor names.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// descriptor.method() == RouteMethod::Get
+    /// ```
     #[must_use]
     pub const fn method(&self) -> RouteMethod {
         self.method
     }
 
     /// The path the descriptor names.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// descriptor.path() == "/health"
+    /// ```
     #[must_use]
     pub fn path(&self) -> &str {
         self.path.as_str()
@@ -318,6 +360,12 @@ fn described(route: &TypedRoute) -> Result<&RouteDescriptor, OpenApiError> {
 /// Refuse the first route that carries no descriptor, or whose descriptor
 /// names another verb or path.
 ///
+/// # Examples
+///
+/// ```text
+/// check_every_route_described(&routes)?;
+/// ```
+///
 /// # Errors
 ///
 /// [`OpenApiError::UndescribedRoute`] for a route with no descriptor;
@@ -339,6 +387,12 @@ pub fn check_every_route_described(routes: &[TypedRoute]) -> Result<(), OpenApiE
 }
 
 /// Render `routes` as an OpenAPI 3.1 document.
+///
+/// # Examples
+///
+/// ```json
+/// { "openapi": "3.1.0", "info": { "title": "API" }, "paths": {} }
+/// ```
 ///
 /// # Errors
 ///
@@ -362,15 +416,14 @@ pub fn emit_openapi(routes: &[TypedRoute]) -> Result<Value, OpenApiError> {
         }
         seen.push(key);
     }
-    let mut path_items: std::collections::BTreeMap<String, Map<String, Value>> =
-        std::collections::BTreeMap::new();
+    let mut path_items: std::collections::BTreeMap<String, Map> = std::collections::BTreeMap::new();
     let mut documented = 0usize;
     for route in routes.iter() {
         let descriptor = described(route)?;
         if descriptor.status == DocStatus::Documented {
             documented = documented.saturating_add(1);
         }
-        let mut responses: Map<String, Value> = Map::new();
+        let mut responses: Map = Map::new();
         match descriptor.status {
             DocStatus::Stub => {
                 responses.insert(
@@ -382,7 +435,7 @@ pub fn emit_openapi(routes: &[TypedRoute]) -> Result<Value, OpenApiError> {
                 responses.insert("200".to_owned(), json!({"description": "Documented."}));
             }
         }
-        let mut operation: Map<String, Value> = Map::new();
+        let mut operation: Map = Map::new();
         operation.insert(
             "summary".to_owned(),
             Value::from(descriptor.summary.as_str()),
@@ -408,7 +461,7 @@ pub fn emit_openapi(routes: &[TypedRoute]) -> Result<Value, OpenApiError> {
                 Value::Object(operation),
             );
     }
-    let mut paths: Map<String, Value> = Map::new();
+    let mut paths: Map = Map::new();
     for (path, item) in path_items {
         paths.insert(path, Value::Object(item));
     }

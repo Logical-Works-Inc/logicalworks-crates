@@ -79,6 +79,12 @@ impl TypedRoute {
     /// The parity check refuses a route with no descriptor and one whose
     /// descriptor names another verb or path, so attaching is how a route
     /// joins the emitted document.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// route.describe(descriptor)
+    /// ```
     #[must_use]
     pub fn describe(mut self, descriptor: RouteDescriptor) -> Self {
         self.descriptor = Some(descriptor);
@@ -86,6 +92,12 @@ impl TypedRoute {
     }
 
     /// The descriptor this route carries, when one was attached.
+    ///
+    /// # Examples
+    ///
+    /// ```text
+    /// route.descriptor().map(|d| d.path())
+    /// ```
     #[must_use]
     pub fn descriptor(&self) -> Option<&RouteDescriptor> {
         self.descriptor.as_ref()
