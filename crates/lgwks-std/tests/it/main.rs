@@ -55,6 +55,7 @@ mod sim_adversary_base64;
 mod sim_adversary_calendar;
 mod sim_adversary_digest;
 mod sim_adversary_fixture;
+mod sim_adversary_fools;
 mod sim_adversary_hex;
 mod sim_adversary_json_lexical;
 mod sim_adversary_json_structure;
