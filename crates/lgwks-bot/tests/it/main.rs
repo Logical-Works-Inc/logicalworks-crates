@@ -215,6 +215,8 @@ mod cas;
 #[cfg(all(feature = "edge", feature = "ephemeral"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod cell_edge;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+mod ceremony_reference;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod clock_restart;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]

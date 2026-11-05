@@ -357,6 +357,11 @@ name = "sealed_overhead"
 path = "examples/sealed_overhead.rs"
 required-features = ["sealed"]
 
+[[example]]
+name = "ceremony_reference"
+path = "examples/ceremony_reference.rs"
+required-features = ["edge", "ephemeral", "script", "time"]
+
 [[bin]]
 name = "edge-load"
 path = "src/bin/edge_load.rs"
