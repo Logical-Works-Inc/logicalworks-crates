@@ -26,7 +26,7 @@ static OWN_FAULT: OnceLock<FlowError> = OnceLock::new();
 ///
 /// ```
 /// lgwks_bot::script! {
-///     flow check_disp():
+///     flow check_disp() -> &'static str:
 ///         give back lgwks_bot::task::Disposition::Succeeded.label()
 /// }
 /// ```
@@ -61,7 +61,7 @@ impl Disposition {
     ///
     /// ```
     /// lgwks_bot::script! {
-    ///     flow check_label():
+    ///     flow check_label() -> &'static str:
     ///         give back lgwks_bot::task::Disposition::Cancelled.label()
     /// }
     /// ```
@@ -84,7 +84,7 @@ impl Disposition {
     ///
     /// ```
     /// lgwks_bot::script! {
-    ///     flow check_success():
+    ///     flow check_success() -> bool:
     ///         give back lgwks_bot::task::Disposition::Succeeded.is_success()
     /// }
     /// ```
@@ -107,7 +107,7 @@ impl fmt::Display for Disposition {
 ///
 /// ```
 /// lgwks_bot::script! {
-///     flow check_effects():
+///     flow check_effects() -> lgwks_bot::task::EffectKnowledge:
 ///         give back lgwks_bot::task::EffectKnowledge::None
 /// }
 /// ```
