@@ -79,8 +79,17 @@ impl Disposition {
     }
 
     /// Whether the run's body ran to a value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// lgwks_bot::script! {
+    ///     flow check_success():
+    ///         give back lgwks_bot::task::Disposition::Succeeded.is_success()
+    /// }
+    /// ```
     #[must_use]
-    pub(crate) const fn is_success(self) -> bool {
+    pub const fn is_success(self) -> bool {
         matches!(self, Self::Succeeded)
     }
 }

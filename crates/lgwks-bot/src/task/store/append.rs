@@ -13,9 +13,9 @@ use crate::script::run_store::Appended;
 use super::record::{Stored, count_approval, hex_of, refusal, store_full, tail_head};
 #[cfg(feature = "sealed")]
 use super::sealed_impl::{self, SealedWrite};
-use super::{
-    Held, Index, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunIndex, StoreError, StoreLimitKind, record,
-};
+#[cfg(not(feature = "sealed"))]
+use super::{Held, record};
+use super::{Index, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunIndex, StoreError, StoreLimitKind};
 
 /// One staged append: the record to write and the step key it is for.
 pub(super) struct Staged {

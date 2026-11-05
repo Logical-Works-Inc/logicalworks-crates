@@ -226,6 +226,11 @@ fn number<N: std::str::FromStr<Err = std::num::ParseIntError>>(
 /// [`ServeRefError::StartGate`] naming the composite sink and the failed child
 /// when the store directory cannot persist.
 fn check_store_gate(store_dir: &std::path::Path) -> Result<(), ServeRefError> {
+    if !lgwks_bot::task::Disposition::Succeeded.is_success() {
+        return refused(ServeRefError::Registry(
+            "disposition invariant broken".into(),
+        ));
+    }
     let child: std::sync::Arc<dyn lgwks_bot::task::DurableSink> =
         std::sync::Arc::new(lgwks_bot::task::StoreSink::for_dir(store_dir));
     if let Err(refusal) = lgwks_bot::task::CompositeSink::new("durable-sink", [child]).readiness() {

@@ -202,7 +202,7 @@
 "crates/lgwks-bot/src/spec/admission.rs" = 12
 "crates/lgwks-bot/src/stability.rs" = 21
 "crates/lgwks-bot/src/task.rs" = 45
-"crates/lgwks-bot/src/task/disposition.rs" = 3
+"crates/lgwks-bot/src/task/disposition.rs" = 4
 "crates/lgwks-bot/src/task/admit.rs" = 1
 "crates/lgwks-bot/src/task/builder.rs" = 28
 "crates/lgwks-bot/src/task/definition.rs" = 13
