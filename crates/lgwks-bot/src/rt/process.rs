@@ -327,7 +327,7 @@ impl ProcessSpec {
     /// spawn, and restored in the supervisor parent process immediately after.
     #[doc(hidden)]
     #[cfg(unix)]
-    pub(crate) fn inherit_fd(&mut self, file_des: std::os::fd::OwnedFd) -> &mut Self {
+    pub fn inherit_fd(&mut self, file_des: std::os::fd::OwnedFd) -> &mut Self {
         self.inherited_fds
             .push(InheritedFd(std::sync::Arc::new(file_des)));
         self
@@ -337,7 +337,7 @@ impl ProcessSpec {
     #[doc(hidden)]
     #[cfg(unix)]
     #[must_use]
-    pub(crate) fn inherited_fd_count(&self) -> usize {
+    pub fn inherited_fd_count(&self) -> usize {
         self.inherited_fds.len()
     }
 
@@ -345,7 +345,7 @@ impl ProcessSpec {
     #[doc(hidden)]
     #[cfg(unix)]
     #[must_use]
-    pub(crate) fn inherited_raw_fds(&self) -> Vec<std::os::fd::RawFd> {
+    pub fn inherited_raw_fds(&self) -> Vec<std::os::fd::RawFd> {
         self.inherited_fds
             .iter()
             .map(|item| std::os::fd::AsRawFd::as_raw_fd(&*item.0))
@@ -354,8 +354,8 @@ impl ProcessSpec {
 
     /// Duplicate the first inherited file descriptor entry for testing.
     #[doc(hidden)]
-    #[cfg(all(unix, test))]
-    pub(crate) fn duplicate_first_inherited_fd_for_test(&mut self) {
+    #[cfg(unix)]
+    pub fn duplicate_first_inherited_fd_for_test(&mut self) {
         if let Some(first) = self.inherited_fds.first().cloned() {
             self.inherited_fds.push(first);
         }
@@ -368,35 +368,6 @@ impl ProcessSpec {
         for item in &self.inherited_fds {
             let _result = lgwks_std::process::set_cloexec(std::os::fd::AsFd::as_fd(&*item.0));
         }
-    }
-
-    /// Clone this spec with its program held behind a start gate.
-    ///
-    /// The gated child runs `/bin/sh`, which stops itself before it execs
-    /// this spec's program afterwards, keeping the same pid: an identity read
-    /// while the shell is stopped names the process the payload runs as, and
-    /// the stop is synchronous — the payload cannot run before the release no
-    /// matter when the child is scheduled. Crate-internal: the only producer
-    /// is the gated identified spawn, which releases the child once the
-    /// identity is recorded.
-    ///
-    /// The gate shell itself is confined exactly as this spec asks, because
-    /// the confinement wraps the shell and inherits across its exec. If the
-    /// stop itself failed the shell would exit before the exec, so a broken
-    /// gate never runs the payload unrecorded.
-    #[cfg(all(unix, feature = "process"))]
-    pub(crate) fn gated(&self) -> Self {
-        const SCRIPT: &str = "kill -STOP $$ || exit 99; exec \"$@\"";
-        let mut gated = self.clone();
-        let mut args = Vec::with_capacity(self.args.len().saturating_add(4));
-        args.push("-c".into());
-        args.push(SCRIPT.into());
-        args.push("lgwks-gate".into());
-        args.push(self.program.clone());
-        args.extend(self.args.iter().cloned());
-        gated.program = "/bin/sh".into();
-        gated.args = args;
-        gated
     }
 
     /// Clone this spec with its program held behind an anonymous-pipe start gate on `gate_fd`.
@@ -643,9 +614,9 @@ impl ProcessSpec {
         }
         #[cfg(unix)]
         {
-            if self.inherited_fds.len() > MAX_INHERITED_FDS {
+            if self.inherited_fd_count() > MAX_INHERITED_FDS {
                 lgwks_std::trace::warn!(
-                    count = self.inherited_fds.len(),
+                    count = self.inherited_fd_count(),
                     limit = MAX_INHERITED_FDS,
                     "lgwks_bot: inherited_fds exceeds MAX_INHERITED_FDS (16)"
                 );
@@ -659,8 +630,7 @@ impl ProcessSpec {
             }
 
             let mut seen_fds = std::collections::BTreeSet::new();
-            for item in &self.inherited_fds {
-                let raw_fd = std::os::fd::AsRawFd::as_raw_fd(&*item.0);
+            for raw_fd in self.inherited_raw_fds() {
                 if raw_fd < 3 || !seen_fds.insert(raw_fd) {
                     lgwks_std::trace::warn!(
                         raw_fd,

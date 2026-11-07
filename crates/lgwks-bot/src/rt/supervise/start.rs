@@ -43,12 +43,13 @@ pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
     {
         use std::os::fd::AsFd as _;
         if let Ok(devnull) = std::fs::File::open("/dev/null") {
-            if let Ok(false) = lgwks_std::process::is_cloexec(devnull.as_fd()) {
-                let _ = lgwks_std::process::dup_fd_inheritable(devnull.as_fd());
+            let is_clo = lgwks_std::process::is_cloexec(devnull.as_fd());
+            if matches!(is_clo, Ok(false)) {
+                drop(lgwks_std::process::dup_fd_inheritable(devnull.as_fd()));
             }
         }
         let _ = lgwks_std::process::MAX_CAPTURE_ROOTS;
-        let _ = lgwks_std::process::capture_descendants_many(&[]);
+        drop(lgwks_std::process::capture_descendants_many(&[]));
     }
     let child = OwnedChild::own(spawned?)?;
     // Read before the child is awaited: an unreaped child still has its id,

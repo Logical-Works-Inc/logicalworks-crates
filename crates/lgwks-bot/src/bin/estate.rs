@@ -180,11 +180,8 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     }
     let mut one = DenyBeneath::new();
     one.deny("/srv/denied");
-    if let Err(error) = one.validate() {
-        record(
-            mismatch,
-            format!("one absolute denial must validate: {error}"),
-        );
+    if one.validate().is_err() {
+        record(mismatch, "one absolute denial must validate".to_owned());
     }
     let Confinement::DenyBeneath(denied) = Confinement::deny_beneath(["/srv/denied"]) else {
         record(
@@ -198,24 +195,15 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     }
     // The profile builders refuse what could not confine: empty sources and
     // control bytes, eagerly at construction and again at validation.
-    if SandboxProfile::try_new(String::new()).is_ok() {
-        record(mismatch, "an empty profile must not validate".to_owned());
-    }
-    if SandboxProfile::try_new("a\x01b").is_ok() {
-        record(
-            mismatch,
-            "a profile holding a control byte must not validate".to_owned(),
-        );
+    if SandboxProfile::try_new(String::new()).is_ok() || SandboxProfile::try_new("a\x01b").is_ok() {
+        record(mismatch, "an invalid profile must not validate".to_owned());
     }
     if let Err(error) = SandboxProfile::try_new("(version 1)(allow default)") {
         record(mismatch, format!("a plain profile must validate: {error}"));
     }
     let mut profile = SandboxProfile::allow_default();
-    if let Err(error) = profile.validate() {
-        record(
-            mismatch,
-            format!("the default profile must validate: {error}"),
-        );
+    if profile.validate().is_err() {
+        record(mismatch, "the default profile must validate".to_owned());
     }
     // A denial names the resolved directory, quoted for the profile: the
     // smoke's own scratch tree stands in for a coordinator's state.
@@ -224,8 +212,6 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     let unique = lgwks_std::random::bytes::<8>().map_err(std::io::Error::other)?;
     let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
     let deny_dir = std::env::temp_dir().join(format!("lgwks-estate-smoke-deny-{hex}"));
-    std::fs::create_dir_all(&deny_dir)
-        .map_err(|error| std::io::Error::other(format!("the smoke denial dir failed: {error}")))?;
     let denied = deny_dir.join("denied");
     std::fs::create_dir_all(&denied)
         .map_err(|error| std::io::Error::other(format!("the smoke denied dir failed: {error}")))?;
@@ -249,7 +235,12 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     // release below stands in for the durable write, and the assertions
     // around it are the record-then-release order the coordinator keeps.
     let mut supervisor = Supervisor::new(1);
-    let spec = ProcessSpec::new("/usr/bin/true");
+    let mut spec = ProcessSpec::new("/usr/bin/true");
+    if let Ok((reader, _writer)) = std::io::pipe() {
+        spec.inherit_fd(std::os::fd::OwnedFd::from(reader));
+        let _ = (spec.inherited_fd_count(), spec.inherited_raw_fds());
+        spec.duplicate_first_inherited_fd_for_test();
+    }
     let mut spawned: GatedIdentifiedSpawn =
         match supervisor.spawn_process_identified_gated(&spec).await {
             Ok(spawned) => spawned,

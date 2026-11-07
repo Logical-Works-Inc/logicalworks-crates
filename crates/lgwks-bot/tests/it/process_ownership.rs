@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
-use lgwks_bot::rt::supervise::{Supervisor, SupervisorCancelled, TaskOutcome};
+use lgwks_bot::rt::supervise::{
+    GatedIdentifiedSpawn, Supervisor, SupervisorCancelled, TaskOutcome,
+};
 use lgwks_bot::rt::time::{Instant, sleep};
 
 const BUDGET: Duration = Duration::from_secs(10);
@@ -230,10 +232,10 @@ fn inherited_fd_passes_pipe_and_isolates_sibling() -> Result<(), Box<dyn std::er
         // Drop child_spec in parent so child holds the only remaining write end of the pipe.
         drop(child_spec);
 
-        let mut read_file = std::fs::File::from(pipe_reader);
+        let mut pipe_reader = pipe_reader;
         use std::io::Read as _;
         let mut text_buffer = String::new();
-        read_file.read_to_string(&mut text_buffer)?;
+        pipe_reader.read_to_string(&mut text_buffer)?;
 
         if text_buffer.trim() != "inherited-passed" {
             return Err(
@@ -354,7 +356,8 @@ fn gated_identified_spawn_drop_closes_gate_with_exit_99() -> Result<(), Box<dyn 
         }
 
         if let Some(status) = task_outcome.exit_status() {
-            if status.code() != Some(99) {
+            let code = status.code();
+            if code != Some(99) {
                 return Err(std::io::Error::other(format!(
                     "expected exit code 99, got {status:?}"
                 ))
