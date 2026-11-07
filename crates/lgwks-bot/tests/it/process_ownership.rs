@@ -21,11 +21,15 @@ use lgwks_bot::rt::time::{Instant, sleep};
 const BUDGET: Duration = Duration::from_secs(10);
 
 fn is_alive(pid: &str) -> bool {
-    std::process::Command::new("kill")
+    let mut alive = false;
+    if let Ok(status) = std::process::Command::new("kill")
         .arg("-0")
         .arg(pid)
         .status()
-        .is_ok_and(|status| status.success())
+    {
+        alive = status.success();
+    }
+    alive
 }
 
 async fn pid(path: &Path) -> Option<String> {
@@ -203,4 +207,194 @@ fn cancellation_before_manager_task_poll_keeps_descendant_owned_t20()
     })?;
     assert!(runtime.block_on(gone(&child)));
     Ok(())
+}
+
+/// Test that inherit_fd passes a pipe end into a child and sibling cannot access that fd.
+#[test]
+fn inherited_fd_passes_pipe_and_isolates_sibling() -> Result<(), Box<dyn std::error::Error>> {
+    let (pipe_reader, pipe_writer) = std::io::pipe()?;
+    let writer_fd = std::os::fd::OwnedFd::from(pipe_writer);
+    let writer_raw = std::os::fd::AsRawFd::as_raw_fd(&writer_fd);
+
+    let runtime = Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::default();
+
+        // Child writes "inherited-passed\n" directly to inherited fd.
+        let child_script = format!("echo inherited-passed >&{writer_raw}");
+        let mut child_spec = ProcessSpec::new("sh");
+        child_spec.arg("-c").arg(&child_script);
+        child_spec.inherit_fd(writer_fd);
+
+        let _task_id = supervisor.spawn_process(&child_spec).await?;
+        // Drop child_spec in parent so child holds the only remaining write end of the pipe.
+        drop(child_spec);
+
+        let mut read_file = std::fs::File::from(pipe_reader);
+        use std::io::Read as _;
+        let mut text_buffer = String::new();
+        read_file.read_to_string(&mut text_buffer)?;
+
+        if text_buffer.trim() != "inherited-passed" {
+            return Err(
+                std::io::Error::other("unexpected buffer content from inherited fd").into(),
+            );
+        }
+
+        // Sibling spawned without inherit_fd must not be able to write to that fd number (EBADF).
+        let sibling_script = format!("echo sibling-bad >&{writer_raw} || exit 42");
+        let mut sibling_spec = ProcessSpec::new("sh");
+        sibling_spec.arg("-c").arg(&sibling_script);
+
+        let _sibling_task = supervisor.spawn_process(&sibling_spec).await?;
+        let sibling_outcome = outcome(&mut supervisor).await?;
+        if !sibling_outcome.is_process_failure() {
+            return Err(std::io::Error::other("sibling without inherited_fd should fail").into());
+        }
+
+        Ok(())
+    })
+}
+
+/// Test that ProcessSpec::configure validates MAX_INHERITED_FDS and duplicate fds.
+#[test]
+fn inherited_fd_validation_refuses_invalid_inputs() -> Result<(), Box<dyn std::error::Error>> {
+    let runtime = Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::default();
+
+        // 1. Test exceeding MAX_INHERITED_FDS (17 fds).
+        let mut excess_spec = ProcessSpec::new("sh");
+        excess_spec.arg("-c").arg("exit 0");
+        for _round in 0..17 {
+            let (_reader, writer) = std::io::pipe()?;
+            excess_spec.inherit_fd(std::os::fd::OwnedFd::from(writer));
+        }
+
+        match supervisor.spawn_process(&excess_spec).await {
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {}
+            Ok(_) => {
+                return Err(std::io::Error::other(
+                    "expected error for exceeding MAX_INHERITED_FDS",
+                )
+                .into());
+            }
+            Err(error) => {
+                return Err(
+                    std::io::Error::other(format!("unexpected error kind: {error}")).into(),
+                );
+            }
+        }
+
+        // 2. Test duplicate file descriptor.
+        let (_dup_reader, dup_writer) = std::io::pipe()?;
+        let mut dup_spec = ProcessSpec::new("sh");
+        dup_spec.arg("-c").arg("exit 0");
+        dup_spec.inherit_fd(std::os::fd::OwnedFd::from(dup_writer));
+        dup_spec.duplicate_first_inherited_fd_for_test();
+
+        match supervisor.spawn_process(&dup_spec).await {
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {}
+            Ok(_) => {
+                return Err(
+                    std::io::Error::other("expected error for duplicate inherited fd").into(),
+                );
+            }
+            Err(error) => {
+                return Err(
+                    std::io::Error::other(format!("unexpected error kind: {error}")).into(),
+                );
+            }
+        }
+
+        Ok(())
+    })
+}
+
+fn gate_test_fixture(
+    label: &str,
+) -> Result<(Scratch, std::path::PathBuf, String), Box<dyn std::error::Error>> {
+    let scratch = Scratch::new(label)?;
+    let marker = scratch.path().join("payload-ran.marker");
+    let script = format!("echo executed > {}; exit 0", marker.display());
+    Ok((scratch, marker, script))
+}
+
+async fn spawn_gated_sh(
+    supervisor: &mut Supervisor,
+    script: &str,
+) -> Result<GatedIdentifiedSpawn, Box<dyn std::error::Error>> {
+    let mut spec = ProcessSpec::new("sh");
+    spec.arg("-c").arg(script);
+    let gated = supervisor.spawn_process_identified_gated(&spec).await?;
+    Ok(gated)
+}
+
+/// Test that dropping GatedIdentifiedSpawn without release closes gate pipe and child exits 99.
+#[test]
+fn gated_identified_spawn_drop_closes_gate_with_exit_99() -> Result<(), Box<dyn std::error::Error>>
+{
+    let (_scratch_dir, marker_path, script) = gate_test_fixture("gate-drop-test")?;
+
+    let runtime = Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::default();
+        let gated_spawn = spawn_gated_sh(&mut supervisor, &script).await?;
+        let _leader_identity = gated_spawn.leader().clone();
+
+        // Drop the gated spawn without releasing it!
+        drop(gated_spawn);
+
+        // Wait for the child task outcome.
+        let task_outcome = outcome(&mut supervisor).await?;
+        if !task_outcome.is_process_failure() {
+            return Err(
+                std::io::Error::other("expected process failure on unreleased gate drop").into(),
+            );
+        }
+
+        if let Some(status) = task_outcome.exit_status() {
+            if status.code() != Some(99) {
+                return Err(std::io::Error::other(format!(
+                    "expected exit code 99, got {status:?}"
+                ))
+                .into());
+            }
+        }
+
+        // Payload marker file must NOT exist.
+        if marker_path.exists() {
+            return Err(
+                std::io::Error::other("payload must not have executed when gate dropped").into(),
+            );
+        }
+
+        Ok(())
+    })
+}
+
+/// Test that calling release() on GatedIdentifiedSpawn successfully executes the payload.
+#[test]
+fn gated_identified_spawn_release_executes_payload() -> Result<(), Box<dyn std::error::Error>> {
+    let (_scratch_dir, marker_path, script) = gate_test_fixture("gate-release-test")?;
+
+    let runtime = Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::default();
+        let mut gated_spawn = spawn_gated_sh(&mut supervisor, &script).await?;
+        gated_spawn.release().await?;
+
+        let task_outcome = outcome(&mut supervisor).await?;
+        if task_outcome.is_process_failure() {
+            return Err(std::io::Error::other("expected process success on released gate").into());
+        }
+
+        if !marker_path.exists() {
+            return Err(
+                std::io::Error::other("payload marker file should exist after release").into(),
+            );
+        }
+
+        Ok(())
+    })
 }

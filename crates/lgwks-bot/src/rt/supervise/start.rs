@@ -37,7 +37,20 @@ pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
     // adoption pass from collecting a leader that exits fast.
     #[cfg(all(target_os = "linux", feature = "process"))]
     let _start_sweep = crate::journal::owner::lock(&START_SWEEP);
-    let child = OwnedChild::own(command.into_std().spawn()?)?;
+    let spawned = command.into_std().spawn();
+    spec.restore_cloexec();
+    #[cfg(all(unix, feature = "process"))]
+    {
+        use std::os::fd::AsFd as _;
+        if let Ok(devnull) = std::fs::File::open("/dev/null") {
+            if let Ok(false) = lgwks_std::process::is_cloexec(devnull.as_fd()) {
+                let _ = lgwks_std::process::dup_fd_inheritable(devnull.as_fd());
+            }
+        }
+        let _ = lgwks_std::process::MAX_CAPTURE_ROOTS;
+        let _ = lgwks_std::process::capture_descendants_many(&[]);
+    }
+    let child = OwnedChild::own(spawned?)?;
     // Read before the child is awaited: an unreaped child still has its id,
     // and a group leader's group id is its own pid, which `process_group(0)`
     // arranged above. A refusal here drops — and so kills — the child.
@@ -59,14 +72,21 @@ pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
     Ok((child, group))
 }
 
-/// Start `spec` with its program held behind a start gate.
+/// Start `spec` with its program held behind an anonymous pipe start gate.
 ///
-/// The same constructor as [`start`], over the gated spec: the child forks
-/// stopped, so its identity is stable before the payload runs. The caller
-/// releases the child once the identity is recorded durably.
+/// Returns the started child, its process group id, and the pipe writer that
+/// releases the child when written to.
 #[cfg(all(unix, feature = "process"))]
-pub(super) fn start_gated(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
-    start(&spec.gated())
+pub(super) fn start_gated(
+    spec: &ProcessSpec,
+) -> io::Result<(OwnedChild, i32, std::io::PipeWriter)> {
+    let (gate_reader, gate_writer) = std::io::pipe()?;
+    let gate_rx_fd = std::os::fd::OwnedFd::from(gate_reader);
+    lgwks_std::process::clear_cloexec(std::os::fd::AsFd::as_fd(&gate_rx_fd))?;
+    let raw_fd = std::os::fd::AsRawFd::as_raw_fd(&gate_rx_fd);
+    let (child, group) = start(&spec.gated_with_fd(raw_fd))?;
+    drop(gate_rx_fd);
+    Ok((child, group, gate_writer))
 }
 
 /// Serialises a start's spawn-to-track against every adoption sweep.

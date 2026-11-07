@@ -145,6 +145,9 @@ pub struct GatedIdentifiedSpawn {
     /// reads it, and the spawn that sets it, exist only there.
     #[cfg(unix)]
     pid: i32,
+    /// The write end of the anonymous pipe start gate.
+    #[cfg(unix)]
+    gate_tx: Option<std::io::PipeWriter>,
     /// Whether the payload was released to run.
     released: bool,
 }
@@ -174,21 +177,17 @@ impl GatedIdentifiedSpawn {
 
     /// Release the payload to exec now, after the identity is recorded.
     ///
-    /// The release waits until the child is observed stopped — a SIGCONT sent
-    /// before the child stops itself would be lost, while one sent after the
-    /// stop is observed resumes exactly the payload that waited. A leader
-    /// that already exited, or whose pid the OS reissued to a stranger (told
-    /// apart by the recorded start instant), needs no release: nothing of
-    /// this spawn will run, so the release is already moot.
+    /// The release sends `"go\n"` across the anonymous pipe start gate,
+    /// signalling the gate shell to exec the payload. A leader that already
+    /// exited, or whose pid the OS reissued to a stranger (told apart by
+    /// the recorded start instant), needs no release: nothing of this spawn
+    /// will run, so the release is already moot.
     ///
     /// Idempotent: releasing a released spawn is a no-op.
     ///
     /// # Errors
     ///
-    /// The signal's own refusal when the child cannot be continued, or a
-    /// timeout when the child never stops within its bound. Either leaves the
-    /// spawn unreleased for a retry, and the supervisor's group guard still
-    /// owns the child — a refused release never runs the payload unrecorded.
+    /// An [`io::Error`] if writing to the gate pipe fails unexpectedly.
     #[cfg(all(unix, feature = "process"))]
     pub async fn release(&mut self) -> io::Result<()> {
         if self.released {
@@ -198,62 +197,37 @@ impl GatedIdentifiedSpawn {
         // release must not touch, and an exited leader needs no release.
         match lgwks_std::process::identify_process(self.pid)? {
             None => {
+                let _writer = self.gate_tx.take();
                 self.released = true;
                 return Ok(());
             }
             Some(current) if current.started() != self.leader.started() => {
+                let _writer = self.gate_tx.take();
                 self.released = true;
                 return Ok(());
             }
             Some(_) => {}
         }
-        let Some(deadline) = std::time::Instant::now().checked_add(RELEASE_BUDGET) else {
-            lgwks_std::trace::warn!(
-                pid = self.pid,
-                "GatedIdentifiedSpawn::release: the deadline overflowed the clock before the child stopped"
-            );
-            return Err(io::Error::other(
-                "the release deadline overflowed the clock",
-            ));
-        };
-        loop {
-            if lgwks_std::process::child_has_exited_without_reaping(self.pid)? {
-                self.released = true;
-                return Ok(());
-            }
-            if lgwks_std::process::child_stopped_without_reaping(self.pid)? {
-                match lgwks_std::process::continue_process(self.pid) {
-                    Ok(()) => {
-                        self.released = true;
-                        return Ok(());
-                    }
-                    Err(error) if is_absence(&error) => {
-                        self.released = true;
-                        return Ok(());
-                    }
-                    Err(error) => {
-                        lgwks_std::trace::warn!(
-                            %error,
-                            "GatedIdentifiedSpawn::release: the continue signal was refused"
-                        );
-                        return Err(error);
-                    }
+        if let Some(mut writer) = self.gate_tx.take() {
+            use std::io::Write as _;
+            match writer.write_all(b"go\n") {
+                Ok(()) => {}
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+                Err(error) => {
+                    lgwks_std::trace::warn!(
+                        %error,
+                        "GatedIdentifiedSpawn::release: failed to write to gate pipe"
+                    );
+                    let refusal = Err(error);
+                    #[cfg(feature = "trace")]
+                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "release: returning an error to the caller");
+                    return refusal;
                 }
             }
-            if std::time::Instant::now() >= deadline {
-                lgwks_std::trace::warn!(
-                    pid = self.pid,
-                    "GatedIdentifiedSpawn::release: a gated child never stopped behind its gate"
-                );
-                return Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    format!(
-                        "a gated child that never stopped within {RELEASE_BUDGET:?} is not released"
-                    ),
-                ));
-            }
-            sleep(RELEASE_POLL).await;
+            drop(writer);
         }
+        self.released = true;
+        Ok(())
     }
 }
 
@@ -274,8 +248,6 @@ fn identify_leader(pid: i32) -> io::Result<lgwks_std::process::ProcessIdentity> 
 
 #[cfg(all(feature = "process", feature = "script"))]
 use super::process::ProcessRunError;
-#[cfg(all(unix, feature = "process"))]
-use crate::rt::time::sleep;
 // Per-tenant admission needs `script::Tenant` — the estate's one tenant
 // identity, shared with step keys, `Host` and every run store — and
 // `crate::task`, which needs it too, is gated the same way. The policy and the
@@ -624,26 +596,6 @@ const DEATH_CONFIRM_PASSES: usize = 40;
 /// sleep, so it costs nothing on the paths that stop early.
 #[cfg(all(unix, feature = "process"))]
 const GROUP_SIGNAL_ATTEMPTS: usize = 4;
-
-/// How long [`GatedIdentifiedSpawn::release`] waits for the child to stop
-/// itself before it refuses.
-///
-/// The stop lands on the child's first scheduling after the fork, so the wait
-/// is milliseconds on any unloaded host; the bound is for the loaded one,
-/// where the release still ends rather than parking the caller. Past the
-/// bound the payload stays stopped under the supervisor's group guard, which
-/// still owns it.
-#[cfg(all(unix, feature = "process"))]
-const RELEASE_BUDGET: Duration = Duration::from_secs(10);
-
-/// How often a waiting [`GatedIdentifiedSpawn::release`] re-reads the child
-/// while it starts.
-///
-/// A millisecond, like every other poll in this module: fine enough that the
-/// release follows the stop with no added latency a caller could observe, and
-/// coarse enough that the wait parks on the runtime clock instead of spinning.
-#[cfg(all(unix, feature = "process"))]
-const RELEASE_POLL: Duration = Duration::from_millis(1);
 
 /// What one group signal delivered and what the OS then said.
 #[cfg(all(unix, feature = "process"))]

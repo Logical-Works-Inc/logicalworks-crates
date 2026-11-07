@@ -97,6 +97,7 @@
 mod error;
 
 use error::Error;
+use lgwks_ast::error_derive::ErrorDeriveError;
 use lgwks_deps::proc_macro2::TokenStream;
 
 /// Expand an indented orchestration script into `async fn`s over
@@ -135,6 +136,18 @@ pub fn script(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match expanded {
         Ok(tokens) => tokens.into(),
         Err(error) => error.to_compile_error().into(),
+    }
+}
+
+/// Derive `Display`, `Error` (with `source`), and `From` for an enum or struct.
+///
+/// Supports `#[error("...")]`, `#[error(transparent)]`, `#[from]`, and `#[source]`.
+#[doc(hidden)]
+#[proc_macro_derive(Error, attributes(error, from, source))]
+pub fn derive_error(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    match lgwks_ast::error_derive::expand(TokenStream::from(input)) {
+        Ok(tokens) => tokens.into(),
+        Err(error) => ErrorDeriveError::to_compile_error(&error).into(),
     }
 }
 

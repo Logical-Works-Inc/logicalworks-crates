@@ -131,26 +131,6 @@ cost = { cold_build_s = 1.45, crates = 5, binary_bytes = 10094112, measured = "2
 review = "2027-02-01"
 
 [[approved]]
-crate = "thiserror"
-tier = "boundary"
-version = "^2"
-license = "MIT OR Apache-2.0"
-owner = "lgwks_ast"
-capability = "observability.error_derive"
-source = "registry"
-allowed_consumers = "lgwks_ast"
-allowed_kinds = "normal"
-reason = "Typed diagnostics and ParseError surfaces need Display and source derives the standard library does not generate."
-approved_by = "maintainer"
-approved_on = "2026-09-13"
-review = "https://github.com/Logical-Works-Inc/logicalworks-crates/pull/4"
-[approved.retire]
-replacement = "lgwks_ast::error"
-blocker = "Typed diagnostic and ParseError derives need an lgwks_ast error-derive helper the parser does not own yet."
-cost = { cold_build_s = 3.70, crates = 6, binary_bytes = 5843216, measured = "2026-11-02", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-thiserror/Cargo.toml (offline); cargo tree --locked --manifest-path /private/tmp/probe-thiserror/Cargo.toml -e normal --prefix none (7 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-thiserror/Cargo.toml (3.70s); rlib bytes summed under /private/tmp/probe-thiserror/target/debug/deps (5843216 bytes)" }
-review = "2027-02-01"
-
-[[approved]]
 crate = "blake3"
 tier = "boundary"
 version = "^1.8"
