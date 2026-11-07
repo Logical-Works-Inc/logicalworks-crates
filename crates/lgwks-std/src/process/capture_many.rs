@@ -67,10 +67,10 @@ fn read_table_pairs() -> io::Result<Vec<(i32, i32)>> {
             continue;
         }
         let stat_path = entry.path().join("stat");
-        if let Ok(stat) = std::fs::read_to_string(stat_path) {
-            if let Some(ppid) = parse_stat_ppid(&stat) {
-                pairs.push((pid, ppid));
-            }
+        if let Ok(stat) = std::fs::read_to_string(stat_path)
+            && let Some(ppid) = parse_stat_ppid(&stat)
+        {
+            pairs.push((pid, ppid));
         }
     }
     Ok(pairs)
