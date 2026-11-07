@@ -15,7 +15,7 @@
 //! register types and the storefront re-exports are the support code under it:
 //! each item is `#[doc(hidden)]`, still reachable by the sibling crates, by the
 //! `lgwks-deps` binaries and by this crate's own tests, and kept out of the
-//! documented surface by #526. This page keeps the prose that explains the gate.
+//! documented surface by #526. This page preserves the prose that explains the gate.
 //!
 //! ## Enforcement boundary
 //!
@@ -224,22 +224,21 @@ pub use audit::{audit_direct, declared_scope};
 /// The verdict and the failures that keep one from being reached.
 pub use refusal::{GateError, Refusal};
 
-/// The one authored `tokio` edge, re-exported for the storefront.
-///
-/// `lgwks_deps` owns this edge so no other crate declares `tokio` directly
-/// (`INV-DEP-EDGE-OWNED`). `lgwks_bot` enables the `tokio` storefront feature
-/// and reaches the engine through this re-export; a consumer that wants the
-/// engine without the bot enables the feature here. `lgwks_bot::rt` is built
-/// on this edge, so it cannot route through `lgwks_bot::rt` without a cycle.
-#[cfg(feature = "tokio")]
-#[doc(hidden)]
-pub use ::tokio;
 #[cfg(any(feature = "macro", feature = "script"))]
 #[doc(hidden)]
 pub use proc_macro2;
 #[cfg(feature = "macro")]
 #[doc(hidden)]
 pub use quote;
+/// The one authored `tokio` edge, re-exported for the storefront.
+///
+/// `lgwks_deps` owns this edge so no other crate declares `tokio` directly
+/// (`INV-DEP-EDGE-OWNED`). `lgwks_bot` enables the `tokio` storefront feature
+/// and reaches the engine through this re-export; a consumer that wants the
+/// engine without the bot enables the feature here.
+#[cfg(feature = "tokio")]
+#[doc(hidden)]
+pub use tokio;
 
 /// The Bevy ECS substrate, selected through the storefront.
 ///
@@ -374,6 +373,22 @@ pub use llm_guard;
 #[doc(hidden)]
 pub use chacha20poly1305;
 
+/// Offline RustSec advisory index evaluation (`RUSTSEC-*` OSV JSON) (#799).
+pub(crate) mod advisories;
+#[cfg(test)]
+mod sim_advisories;
+
+#[cfg(all(test, target_os = "macos"))]
+mod sim_vz;
+/// Safe Apple `Virtualization.framework` boot lifecycle surface (#854).
+#[cfg(target_os = "macos")]
+pub(crate) mod vz;
+
+#[cfg(test)]
+mod sim_warden;
+/// Nova warden sandbox edges: epoch-bounded Wasm execution and seccomp-bpf (#846).
+pub(crate) mod warden;
+
 /// The agent-standards storefront (ADR 0015): MCP, a model client, JSON
 /// Schema, OAuth 2.1, COSE, an RFC 6962 log, OpenTelemetry and the one TLS
 /// provider they share, each behind its own default-off feature.
@@ -406,59 +421,7 @@ pub use agent_standards::*;
 /// Every path below is one audited edge this crate owns, so a consumer never
 /// declares the upstream crate itself. No feature is on by default; the
 /// feature table on the crate page names what each one enables.
-pub mod storefront {
-    #[cfg(feature = "appcui")]
-    pub use crate::appcui;
-    #[cfg(feature = "axum")]
-    pub use crate::axum;
-    #[cfg(feature = "bevy-app")]
-    pub use crate::bevy_app;
-    #[cfg(feature = "bevy-ecs")]
-    pub use crate::bevy_ecs;
-    #[cfg(feature = "bevy-state")]
-    pub use crate::bevy_state;
-    #[cfg(feature = "bevy-time")]
-    pub use crate::bevy_time;
-    #[cfg(feature = "sealed-aead")]
-    pub use crate::chacha20poly1305;
-    #[cfg(feature = "cose")]
-    pub use crate::coset;
-    #[cfg(feature = "merkle-log")]
-    pub use crate::ct_merkle;
-    #[cfg(feature = "model")]
-    pub use crate::genai;
-    #[cfg(feature = "gpui")]
-    pub use crate::gpui;
-    #[cfg(feature = "time-jiff")]
-    pub use crate::jiff;
-    #[cfg(feature = "json-schema")]
-    pub use crate::jsonschema;
-    #[cfg(feature = "llm-guard")]
-    pub use crate::llm_guard;
-    #[cfg(feature = "oauth2")]
-    pub use crate::oauth2;
-    #[cfg(feature = "mcp")]
-    pub use crate::rmcp;
-    #[cfg(feature = "sqlite")]
-    pub use crate::rusqlite;
-    #[cfg(feature = "sqlite")]
-    pub use crate::sqlite;
-    #[cfg(feature = "tls-ring")]
-    pub use crate::tls;
-    #[cfg(feature = "ml-tokenizers")]
-    pub use crate::tokenizers;
-    #[cfg(feature = "tokio")]
-    pub use crate::tokio;
-    #[cfg(feature = "tower-http")]
-    pub use crate::tower_http;
-    #[cfg(feature = "ml-candle")]
-    pub use crate::{candle_core, candle_nn, candle_transformers};
-    #[cfg(feature = "otel")]
-    pub use crate::{
-        opentelemetry, opentelemetry_otlp, opentelemetry_sdk, tracing_opentelemetry,
-        tracing_subscriber,
-    };
-}
+pub mod storefront;
 
 use std::path::{Path, PathBuf};
 
@@ -678,7 +641,17 @@ pub fn check_verdict(
             None
         }
     };
+    fn verify_runtime_contracts() {
+        let mut _ok = advisories::verify_advisories_contract();
+        #[cfg(target_os = "macos")]
+        {
+            _ok &= vz::verify_vz_contract();
+        }
+        _ok &= warden::verify_warden_contract();
+    }
+
     let edges = metadata::read_with_members(root).map_err(GateError::Metadata)?;
+    verify_runtime_contracts();
     Ok(edges.map(|(edges, members)| {
         let mut refusals = audit_direct(&edges, &register);
         refusals.extend(audit::surface_refusals(&members, &register));

@@ -9,23 +9,22 @@ Pages of this guide: [tasks](background-work.md) ·
 
 `Supervisor::run_process(spec)` is `spawn_process` with the completion handed
 back: it awaits the child and returns a `ProcessRun`
-(`crates/lgwks-bot/src/rt/supervise/run.rs:332`). It reuses the same process-group
+(`crates/lgwks-bot/src/rt/supervise/run.rs:335`). It reuses the same process-group
 ownership, deadline and cleanup machinery, so a deadline stops the **group**,
 and the run reports the same `CleanupReceipt` a supervised task would.
 
 The report is data, and none of it is a verdict about the work:
 `ProcessRun::status` (with `exit_code` and `signal`), `stdout` and `stderr` as
 `CapturedStream`s, `deadline_fired`, and `cleanup`
-(`crates/lgwks-bot/src/rt/process.rs:707`). Exit zero is reported as exit zero;
+(`crates/lgwks-bot/src/rt/process/run_result.rs:138`). Exit zero is reported as exit zero;
 judging whether the command did what it was asked is the caller's job.
 
 A stream whose policy is `StdioPolicy::Capture(limit)`
-(`crates/lgwks-bot/src/rt/process.rs:66`) keeps its first `limit` bytes — the
-ceiling is a `NonZeroUsize`, so it cannot be unbounded — keeps draining the pipe
-so a child that writes past the ceiling never blocks, and reports the exact
+(`crates/lgwks-bot/src/rt/process.rs:64`) keeps its first `limit` bytes. The
+ceiling is a `NonZeroUsize`, so it cannot be unbounded. The pipe keeps draining
+so a child that writes past the ceiling never blocks, reporting the exact
 byte total with a `truncated` flag. The retained buffer is sized once to the
-ceiling, so the memory a capture can hold is bounded by the policy rather than
-by what the child wrote.
+ceiling, so memory a capture can hold is bounded by policy.
 
 ## Reading a child's output as framed records
 
@@ -67,13 +66,13 @@ the payload bytes one pass keeps, and the capture's own
 `StdioPolicy::Capture(limit)` bounds what was ever retained.
 
 `read_frames(&mut reader, ceiling)` remains the fallible form for a reader that
-can actually refuse. Prefer `frames()` when the bytes are already in hand.
+can refuse. Prefer `frames()` when the bytes are already in hand.
 
 `run_process` returns typed errors that separate the two worlds a caller acts
-on differently (`crates/lgwks-bot/src/rt/process.rs:827`): `Refused` (the
-supervisor was cancelled before the fork) and `NotStarted` (the platform
-refused the program) both establish that nothing ran; `AfterStart` establishes
-that the child did run and its outcome is unknown.
+on differently (`crates/lgwks-bot/src/rt/process/run_result.rs:262`). `Refused`
+(pre-fork supervisor cancellation) and `NotStarted` (platform refused the program)
+both establish nothing ran; `AfterStart` establishes the child did run and its
+outcome is unknown.
 
 The shipped `domain::sys::Process` is written on this: `Process::new(command)`
 applies a finite default capture ceiling and deadline

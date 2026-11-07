@@ -81,14 +81,21 @@ pub use tree::{
 /// assert_eq!(refusal.line(), 2);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Debug, Clone, thiserror::Error)]
-#[error("{message}")]
+#[derive(Debug, Clone)]
 pub struct Refusal {
     /// The token the refusal is about.
     span: Span,
     /// What is refused and what to write instead.
     message: String,
 }
+
+impl std::fmt::Display for Refusal {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}", self.message)
+    }
+}
+
+impl std::error::Error for Refusal {}
 
 impl Refusal {
     /// A refusal at `span`.

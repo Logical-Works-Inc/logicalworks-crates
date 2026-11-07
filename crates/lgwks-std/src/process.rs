@@ -24,6 +24,8 @@ use std::io;
 
 /// Descendant capture, the running check, and the process-table readings.
 mod capture;
+/// Batch descendant capture across multiple roots (#798).
+mod capture_many;
 /// cgroup v2 scopes and the child subreaper (Linux).
 #[cfg(target_os = "linux")]
 mod cgroup;
@@ -40,6 +42,23 @@ pub use capture::{
     ContainmentMechanism, DescendantSet, MAX_CAPTURED_DESCENDANTS, capture_descendants,
     continue_process, kill_process, process_exists, running_processes,
 };
+
+#[doc(hidden)]
+impl DescendantSet {
+    pub(crate) fn from_raw_parts(
+        mechanism: ContainmentMechanism,
+        pids: Vec<i32>,
+        truncated: bool,
+    ) -> Self {
+        Self {
+            mechanism,
+            pids,
+            truncated,
+        }
+    }
+}
+#[doc(hidden)]
+pub use capture_many::{MAX_CAPTURE_ROOTS, capture_descendants_many};
 #[cfg(target_os = "linux")]
 pub use cgroup::{
     CgroupScope, adopted_descendants, enable_child_subreaper, own_children, reap_descendants,
@@ -249,6 +268,84 @@ pub fn child_stopped_without_reaping(pid: i32) -> io::Result<bool> {
     ))
 }
 
+/// Clear `FD_CLOEXEC` on `file_des`, allowing it to be inherited across `exec`.
+///
+/// # Errors
+///
+/// An [`io::Error`] if the `fcntl` syscall fails.
+#[doc(hidden)]
+#[cfg(all(unix, feature = "process"))]
+pub fn clear_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<()> {
+    match rustix::io::fcntl_setfd(file_des, rustix::io::FdFlags::empty()) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let io_err = io::Error::from(error);
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?io_err, "clear_cloexec: fcntl_setfd failed");
+            Err(io_err)
+        }
+    }
+}
+
+/// Set `FD_CLOEXEC` on `file_des`, preventing inheritance across `exec`.
+///
+/// # Errors
+///
+/// An [`io::Error`] if the `fcntl` syscall fails.
+#[doc(hidden)]
+#[cfg(all(unix, feature = "process"))]
+pub fn set_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<()> {
+    match rustix::io::fcntl_setfd(file_des, rustix::io::FdFlags::CLOEXEC) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let io_err = io::Error::from(error);
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?io_err, "set_cloexec: fcntl_setfd failed");
+            Err(io_err)
+        }
+    }
+}
+
+/// Query whether `FD_CLOEXEC` is currently set on `file_des`.
+///
+/// # Errors
+///
+/// An [`io::Error`] if the `fcntl` syscall fails.
+#[doc(hidden)]
+#[cfg(all(unix, feature = "process"))]
+pub fn is_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<bool> {
+    match rustix::io::fcntl_getfd(file_des) {
+        Ok(flags) => Ok(flags.contains(rustix::io::FdFlags::CLOEXEC)),
+        Err(error) => {
+            let io_err = io::Error::from(error);
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?io_err, "is_cloexec: fcntl_getfd failed");
+            Err(io_err)
+        }
+    }
+}
+
+/// Duplicate `source` and clear `FD_CLOEXEC` on the returned duplicate.
+///
+/// # Errors
+///
+/// An [`io::Error`] if duplicating or clearing `FD_CLOEXEC` fails.
+#[doc(hidden)]
+#[cfg(all(unix, feature = "process"))]
+pub fn dup_fd_inheritable(source: std::os::fd::BorrowedFd<'_>) -> io::Result<std::os::fd::OwnedFd> {
+    let duplicated = match rustix::io::dup(source) {
+        Ok(owned) => owned,
+        Err(error) => {
+            let io_err = io::Error::from(error);
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?io_err, "dup_fd_inheritable: dup failed");
+            return Err(io_err);
+        }
+    };
+    clear_cloexec(std::os::fd::AsFd::as_fd(&duplicated))?;
+    Ok(duplicated)
+}
+
 #[cfg(all(unix, feature = "process"))]
 /// Convert a rustix errno into the std error surface.
 fn errno_to_io(errno: rustix::io::Errno) -> io::Error {
@@ -288,6 +385,9 @@ fn unsupported(message: &'static str) -> io::Error {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
+/// Seeded simulation tests for batch descendant capture (`capture_descendants_many`).
+#[cfg(test)]
+mod sim_capture_many;
 /// The module's unit tests, kept at `lgwks_std::process::tests`.
 #[cfg(test)]
 mod tests;

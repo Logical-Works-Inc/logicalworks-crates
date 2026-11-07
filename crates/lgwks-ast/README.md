@@ -37,30 +37,26 @@ Consumers do not depend on `ast-grep` directly; the grammar types
 
 ## Typed diagnostics
 
-`ParseError` is built with this crate's diagnostic derive, and an analyser
-derives its own diagnostics from the same stack:
+`ParseError` is built with this crate's diagnostic types, and an analyser
+defines its own diagnostics from the same stack:
 
 ```rust
-extern crate lgwks_ast as thiserror;
+use lgwks_ast::define_error;
 
-#[derive(thiserror::Error, Debug)]
-enum Diagnostic {
-    #[error("parse refused: {0}")]
-    Refused(String),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
+define_error! {
+    /// Diagnostic refusal.
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum Diagnostic {
+        /// Refused with reason.
+        Refused(String) => "parse refused: {}",
+    }
 }
 ```
-`#[derive(Error)]` expands to absolute `::thiserror::__private<N>::…` paths
-resolved in the consuming crate, so the `extern crate … as thiserror;` line is
-what makes the expansion resolve; the crate root re-exports the module it
-needs.
-
-A crate that wants only the derive turns the parser off, and compiles no
+A crate that wants only the diagnostic types turns the parser off, and compiles no
 grammar and no tree-sitter at all:
 
 ```toml
-lgwks_ast = { version = "3", default-features = false }
+lgwks_ast = { version = "5", default-features = false }
 ```
 Without default features the crate is the derive and the `diagnostic` types
 (`Diagnostic`, `Span`, `Pos`, `Severity`). The parser is the `parser` feature,

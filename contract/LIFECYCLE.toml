@@ -42,13 +42,6 @@ last_reviewed = "2026-10-26"
 review = "https://github.com/Logical-Works-Inc/Braid/issues/91"
 
 [[lifecycle]]
-crate = "thiserror"
-replacement = "Hand-written Display and source chains in the lgwks_ast diagnostics."
-removal_trigger = "Diagnostics keep typed errors with no derive and the edge has no consumer."
-last_reviewed = "2026-10-26"
-review = "https://github.com/Logical-Works-Inc/logicalworks-crates/pull/4"
-
-[[lifecycle]]
 crate = "blake3"
 replacement = "An lgwks_std::hash module with no third-party edge once the digest is eliminated."
 removal_trigger = "Digests match the BLAKE3 vectors without the edge and no consumer remains."

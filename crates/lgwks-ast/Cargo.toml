@@ -16,13 +16,13 @@ keywords = ["parser", "ast", "tree-sitter", "static-analysis", "code-analysis"]
 # parser. Code tools identify a language, select a grammar, and parse through
 # it; they do not each depend on ast-grep and rebuild the language/extension
 # tables. External edges: ast-grep-core and ast-grep-language for the
-# grammars, `thiserror` for the shared diagnostic derive this crate re-exports
-# so a downstream crate can derive without its own edge, `tracing` for the
+# grammars, `proc-macro2` and `quote` for the script and `#[derive(Error)]`
+# expansion engines (#842), `tracing` for the
 # refusal signal, and `tree-sitter` for the parse deadline (#277).
 #
 # The crate also owns the shared typed-diagnostic
-# derive (`thiserror`), used by `ParseError` and re-exported so downstream
-# analysers derive `Display`/`source` here instead of each declaring the crate.
+# derive (`lgwks_ast::error_derive` and `define_error!`), re-exported so downstream
+# analysers derive `Display`/`source` here instead of declaring external crates.
 # It lives here rather than in `lgwks_std` to keep the core stack minimal.
 #
 # Grammar selection is per-language and opt-in. The default enables the seven
@@ -162,7 +162,6 @@ full = [
 [dependencies]
 ast-grep-core = { version = "0.51", optional = true }
 ast-grep-language = { version = "0.51", default-features = false, optional = true }
-thiserror = { version = "2", default-features = false }
 # The `unlogged-err-return` rule requires a recorded signal on every refusal,
 # and `print_stderr` is `forbid` in library code. `lgwks_ast` stands outside the
 # `lgwks_std` facade (INV-DEP-1), so it reaches `tracing` directly. Registered in

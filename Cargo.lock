@@ -4763,7 +4763,6 @@ dependencies = [
  "proc-macro2",
  "proptest",
  "quote",
- "thiserror 2.0.21",
  "tracing",
  "tree-sitter",
 ]

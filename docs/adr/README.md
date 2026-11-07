@@ -49,6 +49,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0011](0011-docs-only-changes-run-the-docs-gate.md) | A docs-only change runs the docs gate, not the suites; `check-docs` reads every page as its reader does |
 | [0012](0012-every-new-public-item-shows-an-example.md) | Every public item a change adds shows an example; the rule judges added lines |
 | [0013](0013-serve-emits-openapi-from-route-registry.md) | Serve emits OpenAPI 3.1 schema from route registry |
+| [0014](0014-std-and-deps-capability-gaps.md) | Capability gaps split between first-party elimination and storefront boundaries |
 | [0015](0015-agent-standards-storefront.md) | The storefront sells the agent standards on one ring TLS provider |
 
 New records go at the bottom of that table.

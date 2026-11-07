@@ -282,11 +282,10 @@ pub const MAX_SYNTAX_DIAGNOSTICS: usize = 32;
 ///     Ok(_) => println!("clean"),
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ParseError {
     /// The source exceeds the byte bound.
-    #[error("source is {actual} bytes; parser limit is {limit} bytes")]
     SourceTooLarge {
         /// Observed length in bytes.
         actual: usize,
@@ -294,7 +293,6 @@ pub enum ParseError {
         limit: usize,
     },
     /// The selected grammar could not produce a syntax tree.
-    #[error("{language} parser could not produce a syntax tree: {detail}")]
     ParserUnavailable {
         /// The language name.
         language: &'static str,
@@ -302,7 +300,6 @@ pub enum ParseError {
         detail: String,
     },
     /// The tree carries an `ERROR` or `MISSING` recovery node.
-    #[error("{language} parser produced an ERROR or MISSING node")]
     InvalidSyntax {
         /// The language name.
         language: &'static str,
@@ -312,7 +309,6 @@ pub enum ParseError {
         diagnostics_truncated: bool,
     },
     /// The tree exceeds the node bound.
-    #[error("{language} AST exceeds {limit} nodes (observed at least {observed})")]
     AstTooLarge {
         /// The language name.
         language: &'static str,
@@ -328,7 +324,6 @@ pub enum ParseError {
     /// refusal says *this source is shaped like the deeply-nested input a hostile
     /// parser input is made of*. Both name the bound and the observed value, and
     /// both are refusals of the whole file rather than located diagnostics.
-    #[error("{language} AST nests deeper than {limit} levels (observed at least {observed})")]
     AstTooDeep {
         /// The language name.
         language: &'static str,
@@ -349,10 +344,6 @@ pub enum ParseError {
     ///
     /// Reported before the parse rather than after it, so a caller sees a
     /// refusal it can act on instead of a process that is no longer there.
-    #[error(
-        "{language} declares at least {observed} block containers on one line; \
-         the limit is {limit}"
-    )]
     ContainerNestingTooDeep {
         /// The language name.
         language: &'static str,
@@ -368,7 +359,6 @@ pub enum ParseError {
     /// expensive for this grammar. The thread that ran the parse is free again
     /// when this is returned, and its parser is reset, so the next parse on the
     /// same thread starts clean rather than resuming this one.
-    #[error("{language} parse stopped at its deadline of {after:?}")]
     TimedOut {
         /// The language name.
         language: &'static str,
@@ -376,6 +366,72 @@ pub enum ParseError {
         after: Duration,
     },
 }
+
+impl std::fmt::Display for ParseError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::SourceTooLarge { actual, limit } => {
+                write!(
+                    formatter,
+                    "source is {actual} bytes; parser limit is {limit} bytes"
+                )
+            }
+            Self::ParserUnavailable {
+                language,
+                ref detail,
+            } => {
+                write!(
+                    formatter,
+                    "{language} parser could not produce a syntax tree: {detail}"
+                )
+            }
+            Self::InvalidSyntax { language, .. } => {
+                write!(
+                    formatter,
+                    "{language} parser produced an ERROR or MISSING node"
+                )
+            }
+            Self::AstTooLarge {
+                language,
+                observed,
+                limit,
+            } => {
+                write!(
+                    formatter,
+                    "{language} AST exceeds {limit} nodes (observed at least {observed})"
+                )
+            }
+            Self::AstTooDeep {
+                language,
+                observed,
+                limit,
+            } => {
+                write!(
+                    formatter,
+                    "{language} AST nests deeper than {limit} levels (observed at least {observed})"
+                )
+            }
+            Self::ContainerNestingTooDeep {
+                language,
+                observed,
+                limit,
+            } => {
+                write!(
+                    formatter,
+                    "{language} declares at least {observed} block containers on one line; the limit is {limit}"
+                )
+            }
+            Self::TimedOut { language, after } => {
+                write!(
+                    formatter,
+                    "{language} parse stopped at its deadline of {after:?}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 /// Every recovery node in `tree`, as a located diagnostic.
 ///
