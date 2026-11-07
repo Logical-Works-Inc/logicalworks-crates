@@ -51,23 +51,23 @@ crates/lgwks-bot/src/language.rs:649	pub fn aliases(&self) -> Vec<Alias> {
 crates/lgwks-bot/src/rt/mod.rs:85	//! This is not a scheduler with realtime guarantees. Future completion order
 crates/lgwks-bot/src/rt/mod.rs:115	#[cfg(feature = "sync")]
 crates/lgwks-bot/src/rt/mod.rs:131	#[cfg(all(feature = "signal", any(unix, windows)))]
-crates/lgwks-bot/src/rt/process.rs:66	Capture(NonZeroUsize),
-crates/lgwks-bot/src/rt/process.rs:707	pub struct ProcessRun {
-crates/lgwks-bot/src/rt/process.rs:827	pub enum ProcessRunError {
+crates/lgwks-bot/src/rt/process.rs:64	Capture(NonZeroUsize),
 crates/lgwks-bot/src/rt/process/confine.rs:79	pub struct SandboxProfile {
 crates/lgwks-bot/src/rt/process/confine.rs:291	pub struct LandlockRules {
+crates/lgwks-bot/src/rt/process/run_result.rs:134	pub struct ProcessRun {
+crates/lgwks-bot/src/rt/process/run_result.rs:255	pub enum ProcessRunError {
 crates/lgwks-bot/src/rt/runtime.rs:213	let mut builder = lgwks_deps::tokio::runtime::Builder::new_current_thread();
 crates/lgwks-bot/src/rt/runtime.rs:216	if self.worker_threads.is_some() && workers.get() > MAX_WORKER_THREADS {
 crates/lgwks-bot/src/rt/supervise.rs:9	//! # Why a task cannot leak
 crates/lgwks-bot/src/rt/supervise.rs:58	//! cannot be written without a [`Budget`]. Every iteration races the
 crates/lgwks-bot/src/rt/supervise.rs:80	//! permits inside a task this supervisor owns can deadlock with itself. The
-crates/lgwks-bot/src/rt/supervise.rs:306	/// otherwise never make, which is why it is not larger.
-crates/lgwks-bot/src/rt/supervise.rs:322	/// longer than the budget overruns it by one iteration. Cancellation is not
-crates/lgwks-bot/src/rt/supervise.rs:525	/// long enough on one worker and far too short on several, and the failure is
+crates/lgwks-bot/src/rt/supervise.rs:278	/// otherwise never make, which is why it is not larger.
+crates/lgwks-bot/src/rt/supervise.rs:294	/// longer than the budget overruns it by one iteration. Cancellation is not
+crates/lgwks-bot/src/rt/supervise.rs:497	/// long enough on one worker and far too short on several, and the failure is
 crates/lgwks-bot/src/rt/supervise/repeat.rs:168	token.run_until_cancelled(body(iterations)),
 crates/lgwks-bot/src/rt/supervise/run.rs:95	pub async fn spawn_process(&mut self, spec: &ProcessSpec) -> io::Result<TaskId> {
 crates/lgwks-bot/src/rt/supervise/run.rs:134	pub async fn spawn_process_identified(
-crates/lgwks-bot/src/rt/supervise/run.rs:332	pub async fn run_process(&mut self, spec: &ProcessSpec) -> Result<ProcessRun, ProcessRunError> {
+crates/lgwks-bot/src/rt/supervise/run.rs:335	pub async fn run_process(&mut self, spec: &ProcessSpec) -> Result<ProcessRun, ProcessRunError> {
 crates/lgwks-bot/src/rt/supervise/supervisor.rs:250	pub fn new(max_in_flight: usize) -> Self {
 crates/lgwks-bot/src/rt/supervise/tests.rs:1	//! The supervisor's unit tests: the shared seams and helpers, and one module per concern.
 crates/lgwks-bot/src/rt/task.rs:170	pub async fn join_all_bounded<F, T>(limit: usize, futures: impl IntoIterator<Item = F>) -> Vec<T>

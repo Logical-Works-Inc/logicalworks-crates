@@ -17,7 +17,7 @@ use crate::rt::supervise::{CleanupReceipt, Containment};
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
 #[doc(hidden)]
-pub(crate) struct CapturedStream {
+pub struct CapturedStream {
     /// The retained head of the stream, at most the capture ceiling.
     bytes: Vec<u8>,
     /// Every byte the child wrote to this stream.

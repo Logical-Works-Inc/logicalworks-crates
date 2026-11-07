@@ -108,6 +108,7 @@ pub mod leb128;
 #[doc(hidden)]
 pub mod legacy;
 /// Deterministic IEEE 754 pure-Rust elementary math (`f64` and `f32`).
+#[cfg(feature = "math")]
 pub(crate) mod math;
 /// TCP reachability probing, zero-dep (feature `online`).
 #[cfg(feature = "online")]
@@ -146,7 +147,7 @@ mod serde_facade;
 pub mod sign;
 #[cfg(all(test, feature = "sign"))]
 mod sim_ec;
-#[cfg(test)]
+#[cfg(all(test, feature = "math"))]
 mod sim_math;
 /// Pure, replaceable similarity metrics and weighted composition.
 #[doc(hidden)]
@@ -167,9 +168,12 @@ pub mod trace;
 #[doc(hidden)]
 pub mod wire;
 
+#[cfg(feature = "random")]
 #[doc(hidden)]
 pub(crate) fn audit_std_contracts() -> bool {
-    let ok = math::verify_math_contract();
+    let ok = true;
+    #[cfg(feature = "math")]
+    let ok = ok && math::verify_math_contract();
     #[cfg(feature = "sign")]
     let ok = ok && ec::verify_ec_contract();
     ok

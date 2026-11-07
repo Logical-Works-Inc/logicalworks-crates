@@ -451,9 +451,8 @@ pub(crate) fn pow(base: f64, exp: f64) -> f64 {
 }
 
 /// Computes `base^exp` for `f32` values.
-#[doc(hidden)]
 #[must_use]
-pub fn powf(base: f32, exp: f32) -> f32 {
+pub(crate) fn powf(base: f32, exp: f32) -> f32 {
     f64_to_f32(pow(f64::from(base), f64::from(exp)))
 }
 
@@ -593,6 +592,7 @@ pub(crate) fn atan2f(yy: f32, xx: f32) -> f32 {
 
 /// Internal verification function exercising all math functions so they are live and tested.
 #[must_use]
+#[doc(hidden)]
 pub(crate) fn verify_math_contract() -> bool {
     let sqrt_val = sqrt(1.0);
     let cbrt_val = cbrt(1.0);

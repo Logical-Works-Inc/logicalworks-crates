@@ -4,7 +4,7 @@
 //! as a typed diagnostic; code-observability consumers define or derive their
 //! diagnostics from this stack.
 //!
-//! [`define_error!`] allows defining typed error enums with `Display` and `Error`:
+//! [`crate::define_error!`] allows defining typed error enums with `Display` and `Error`:
 //!
 //! ```
 //! use lgwks_ast::define_error;
