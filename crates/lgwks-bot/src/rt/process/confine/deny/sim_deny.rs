@@ -12,7 +12,6 @@ use super::{UNSHARE, unshare_deny};
 const SECRET: &str = "the-hidden-bytes";
 
 /// How the denial failed, or how the attempt to judge it did.
-#[derive(Debug)]
 enum DenyFault {
     /// The scratch directory or the wrapper would not run.
     Setup(io::Error),
@@ -22,6 +21,20 @@ enum DenyFault {
     Lifted,
     /// The payload still held capabilities after the wrapper's exec.
     KeptCapabilities,
+}
+
+/// Written by hand because a test's returned error is printed through `Debug`,
+/// and a derived `Debug` does not count as reading a cause, which `dead_code`
+/// then refuses on the Linux lanes.
+impl core::fmt::Debug for DenyFault {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::Setup(ref cause) => write!(f, "setup failed: {cause}"),
+            Self::Entropy(ref cause) => write!(f, "no entropy: {cause}"),
+            Self::Lifted => f.write_str("the payload read the secret through the overmount"),
+            Self::KeptCapabilities => f.write_str("the payload kept capabilities after exec"),
+        }
+    }
 }
 
 impl From<io::Error> for DenyFault {
