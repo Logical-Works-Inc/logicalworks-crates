@@ -6,7 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use super::transition::RouteEntry;
 use super::{
     App, AppError, MAX_EFFECTS_PER_APPLY, MAX_NAME_BYTES, MAX_PATH_BYTES, MAX_PLAN_BYTES,
-    MAX_ROUTES, Method, NoProvider, normalise_path, refused,
+    MAX_ROUTES, Method, NoProvider, Principal, normalise_path, refused,
 };
 use crate::cap::Cap;
 use crate::cell::{Effect, EffectResult, OnInput};
@@ -87,7 +87,8 @@ where
     /// # Errors
     ///
     /// [`AppError::BadName`], [`AppError::TooMany`],
-    /// [`AppError::DuplicateRoute`] or [`AppError::MissingCaps`].
+    /// [`AppError::DuplicateRoute`], [`AppError::NoAuthenticator`] or
+    /// [`AppError::MissingCaps`].
     pub fn check(&self) -> Result<(), AppError> {
         if self.name.is_empty() || self.name.len() > MAX_NAME_BYTES {
             return refused(AppError::BadName {
@@ -109,10 +110,16 @@ where
                 return refused(AppError::DuplicateRoute { first, second });
             }
         }
+        if self.authenticator.is_none()
+            && let Some(route) = self.routes.iter().position(|route| route.needs_principal)
+        {
+            return refused(AppError::NoAuthenticator { route });
+        }
+        let who = Principal::probe();
         let mut missing = Missing::default();
         for (index, route) in self.routes.iter().enumerate() {
             for body in ROUTE_PROBES {
-                let effects = probe(|state: &mut S| (route.handler)(state, body));
+                let effects = probe(|state: &mut S| (route.handler)(state, Some(&who), body));
                 missing.note(ungranted(&self.grants, &effects), index, true);
             }
         }
@@ -188,6 +195,7 @@ where
             grants: GrantSet::empty(),
             provider: std::sync::Arc::new(NoProvider),
             approvals: None,
+            authenticator: None,
             routes,
             ons: Vec::new(),
         };

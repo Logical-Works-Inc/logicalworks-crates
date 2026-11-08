@@ -643,3 +643,13 @@ feature = "script"
 default = "on"
 words = ["durable cancellation", "cancel survives restart", "journaled cancel", "resume cancellation", "stop a run across a crash"]
 replaces = ["a cancel flag in a database row", "a token plus a journal entry kept in step by hand"]
+
+[[capability]]
+name = "app authentication"
+path = "lgwks_bot::app::Principal"
+file = "crates/lgwks-bot/src/app/auth.rs"
+crate = "lgwks_bot"
+feature = "edge"
+default = "on"
+words = ["bearer key", "authenticate request", "api key", "401 at the edge", "authorization header"]
+replaces = ["a key in a JSON body", "an auth middleware beside the app"]

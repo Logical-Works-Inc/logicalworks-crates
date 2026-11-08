@@ -22,6 +22,7 @@
 use core::fmt;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[cfg(test)]
 use super::super::cell::CellError;
@@ -191,6 +192,8 @@ pub struct RequestCounts {
     pub tenants: usize,
     /// Handler panics the host contained and rebuilt the tenant from its log.
     pub panicked: u64,
+    /// Liveness probes the edge answered itself, reaching no tenant.
+    pub probes: u64,
 }
 
 /// One logged request: what the tenant's tail keeps and the cell applies.
@@ -278,6 +281,8 @@ where
 pub struct RequestFeed {
     /// The erased cell host: every tenant's log, state and worker.
     host: Arc<dyn DynHost<Arc<OwnedRequest>>>,
+    /// Liveness probes the edge answered itself.
+    probes: Arc<AtomicU64>,
 }
 
 /// Worker threads for this host: the machine's parallelism, which the host
@@ -321,6 +326,7 @@ impl RequestFeed {
         match CellHost::start(cell, Arc::new(ReplyRunner), auto_workers(), mailbox_bound) {
             Ok(host) => Self {
                 host: Arc::new(host),
+                probes: Arc::default(),
             },
             Err(error) => {
                 lgwks_std::trace::warn!(%error, "request: no worker could start; the feed refuses everything");
@@ -330,6 +336,7 @@ impl RequestFeed {
                 };
                 Self {
                     host: Arc::new(CellHost::closed(cell, Arc::new(ReplyRunner))),
+                    probes: Arc::default(),
                 }
             }
         }
@@ -394,6 +401,11 @@ impl RequestFeed {
         Ok(PendingReply::new(reply))
     }
 
+    /// Count one liveness probe the edge answered itself.
+    pub(crate) fn count_probe(&self) {
+        self.probes.fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Refuse every later request. A request already queued finishes with its
     /// answer.
     pub(crate) fn close(&self) {
@@ -414,6 +426,7 @@ impl RequestFeed {
             refused,
             tenants,
             panicked,
+            probes: self.probes.load(Ordering::Relaxed),
         }
     }
 }

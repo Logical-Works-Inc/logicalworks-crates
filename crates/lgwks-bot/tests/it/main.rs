@@ -726,3 +726,9 @@ mod sim_journaled_cancel;
 
 #[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g3")))]
 mod sim_tenant_cursor;
+
+#[cfg(all(feature = "edge", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod edge_load_keyed;
+
+#[cfg(all(feature = "edge", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod sim_app_edge;

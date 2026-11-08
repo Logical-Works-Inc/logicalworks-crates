@@ -224,6 +224,7 @@ fn call(
         method,
         path: path.into(),
         body: body.into(),
+        principal: None,
     };
     let reply = Arc::new(ReplySlot::new());
     let sent = host

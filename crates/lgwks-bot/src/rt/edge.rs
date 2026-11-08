@@ -12,9 +12,10 @@
 //!
 //! | Status | When |
 //! |---|---|
+//! | `200` | `GET` or `HEAD` `/healthz` while the edge accepts; no tenant is created |
 //! | `400` | the path names no tenant, or a tenant that is not a valid name |
 //! | `413` | the body is over [`MAX_BODY_BYTES`] |
-//! | `503` | the feed is closed, the feed holds 65,536 tenants and this is a new one, or the tenant's worker mailbox is full (with a `Retry-After` delay) |
+//! | `503` | `/healthz` once the [`EdgeStop`] has fired, the feed is closed, the feed holds 65,536 tenants and this is a new one, or the tenant's worker mailbox is full (with a `Retry-After` delay) |
 //!
 //! A full mailbox is backpressure, not loss: the edge submits without waiting
 //! and answers `503` with a `Retry-After` delay when the tenant's worker is
@@ -51,6 +52,9 @@ use crate::rt::sync::CancellationToken;
 
 /// The largest request body the edge reads, in bytes.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
+
+/// The one path the edge answers without a tenant (#879).
+const LIVENESS_PATH: &str = "/healthz";
 
 /// Why [`serve`] ended other than by its stop.
 #[derive(Debug)]
@@ -135,7 +139,9 @@ fn serve_http(
 ) -> Result<(), EdgeError> {
     listener.set_nonblocking(true).map_err(EdgeError::Io)?;
     let handle = driver().map_err(EdgeError::Io)?;
-    let router = Router::new().fallback(ingress).with_state(feed.clone());
+    let router = Router::new()
+        .fallback(ingress)
+        .with_state((feed.clone(), stop.token.clone()));
     let token = &stop.token;
     handle
         .block_on(async move {
@@ -183,8 +189,15 @@ async fn drive(world: &mut EcsBot, stop: &CancellationToken) {
 
 /// The one handler: every request is queued on its tenant's cell and the edge
 /// awaits the reply. The await lives in the edge, never inside a transition.
-async fn ingress(State(feed): State<RequestFeed>, request: HttpRequest) -> HttpResponse {
+async fn ingress(
+    State((feed, stop)): State<(RequestFeed, CancellationToken)>,
+    request: HttpRequest,
+) -> HttpResponse {
     let (parts, body) = request.into_parts();
+    if let Some(probe) = liveness(parts.method.as_str(), parts.uri.path(), &stop) {
+        feed.count_probe();
+        return probe;
+    }
     let Some((tenant, rest)) = tenant_of(parts.uri.path()) else {
         return answer(400, b"name a tenant: /t/{tenant}/...".to_vec());
     };
@@ -196,6 +209,19 @@ async fn ingress(State(feed): State<RequestFeed>, request: HttpRequest) -> HttpR
         Ok(pending) => answer_pending(pending).await,
         Err(refusal) => refused_answer(refusal),
     }
+}
+
+/// The edge's own answer to a liveness probe, or `None` for any other request: `200`
+/// while it accepts and `503` once `stop` has fired. A probe reaches no tenant.
+pub(crate) fn liveness(method: &str, path: &str, stop: &CancellationToken) -> Option<HttpResponse> {
+    if path != LIVENESS_PATH || !matches!(method, "GET" | "HEAD") {
+        return None;
+    }
+    Some(if stop.is_cancelled() {
+        answer(503, b"stopping".to_vec())
+    } else {
+        answer(200, b"ok".to_vec())
+    })
 }
 
 /// The body, read whole under [`MAX_BODY_BYTES`], or the `413` that refuses
@@ -282,7 +308,24 @@ pub(crate) fn answer(status: u16, body: Vec<u8>) -> HttpResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::tenant_of;
+    use super::{liveness, tenant_of};
+    use crate::rt::sync::CancellationToken;
+
+    /// Catches a probe that keeps answering `200` while the edge drains (#879).
+    #[test]
+    fn a_probe_answers_ok_until_the_stop_fires_and_only_on_its_own_path() {
+        let stop = CancellationToken::new();
+        let status = |method: &str, path: &str| {
+            liveness(method, path, &stop).map(|answer| answer.status().as_u16())
+        };
+        assert_eq!(status("GET", "/healthz"), Some(200));
+        assert_eq!(status("HEAD", "/healthz"), Some(200));
+        assert_eq!(status("POST", "/healthz"), None);
+        assert_eq!(status("GET", "/healthz/"), None);
+        assert_eq!(status("GET", "/t/healthz"), None);
+        stop.cancel();
+        assert_eq!(status("GET", "/healthz"), Some(503));
+    }
 
     #[test]
     fn a_tenant_path_splits_into_the_tenant_and_the_rest() {
