@@ -679,3 +679,6 @@ mod tenant_store;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod wrong_identity_evidence;
+
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g1")))]
+mod record_journal_cli;

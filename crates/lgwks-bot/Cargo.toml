@@ -376,3 +376,8 @@ required-features = ["script", "ephemeral", "net", "edge", "signal"]
 name = "store-conformance"
 path = "src/bin/store_conformance.rs"
 required-features = ["testing"]
+
+[[bin]]
+name = "record-journal"
+path = "src/bin/record_journal.rs"
+required-features = ["wire"]
