@@ -10,6 +10,20 @@ use std::process::{Child, ChildStdout, Command, Stdio};
 
 use crate::sim::piped::{Outcome, located};
 
+/// A consumer's build of `edge` alone failed on 7.1.1 and 8.0.0 with E0432, because `app`
+/// imports `task` and `script` and only the `script` feature compiles them. No CI row builds
+/// this feature alone, so the manifest's own line is what holds it.
+#[test]
+fn the_edge_feature_carries_the_modules_it_imports() {
+    let edge = include_str!("../../Cargo.toml")
+        .lines()
+        .find(|line| line.starts_with("edge = ["));
+    assert!(
+        edge.is_some_and(|line| line.contains("\"script\"")),
+        "`edge` must carry `script`: {edge:?}"
+    );
+}
+
 /// The binary under test.
 fn binary() -> PathBuf {
     located(
