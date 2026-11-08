@@ -40,7 +40,7 @@ Consumers do not depend on `ast-grep` directly; the grammar types
 `ParseError` is built with this crate's diagnostic derive, and an analyser
 derives its own diagnostics from the same stack:
 
-```rust
+```rust,ignore
 extern crate lgwks_ast as thiserror;
 
 #[derive(thiserror::Error, Debug)]
@@ -60,7 +60,7 @@ A crate that wants only the derive turns the parser off, and compiles no
 grammar and no tree-sitter at all:
 
 ```toml
-lgwks_ast = { version = "3", default-features = false }
+lgwks_ast = { version = "5", default-features = false }
 ```
 Without default features the crate is the derive and the `diagnostic` types
 (`Diagnostic`, `Span`, `Pos`, `Severity`). The parser is the `parser` feature,

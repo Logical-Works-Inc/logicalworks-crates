@@ -232,7 +232,7 @@ jobs:
           retention-days: 7
       - name: Cache hit rate
         if: ${{ always() }}
-        run: sccache --show-stats
+        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
   # The Linux shards. They build and run in the `rust:<pin>-trixie` container
   # the Mac's Linux leg used: its util-linux 2.41 `setpriv` applies the
@@ -366,7 +366,7 @@ jobs:
           retention-days: 7
       - name: Cache hit rate
         if: ${{ always() }}
-        run: sccache --show-stats
+        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
   # The macOS shards hold the Darwin seams (province#9: macos-15 for the darwin
   # syscall seams, Miri darwin and the timing gates; Miri and the timing gates
@@ -465,7 +465,7 @@ jobs:
           cache-key: ${{ matrix.archive }}
           nextest: "true"
           # The group rows restore their whole dependency build from rust-cache.
-          sccache: ${{ matrix.suite == 'bot-it' && 'false' || 'true' }}
+          sccache: "false"
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
@@ -506,7 +506,7 @@ jobs:
       # The group rows start no sccache; their dependency build is rust-cache's.
       - name: Cache hit rate
         if: ${{ always() && matrix.suite != 'bot-it' }}
-        run: sccache --show-stats
+        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
   # The workspace's evidence lanes, doc tests and package smoke, and the
   # receipts tool the required row runs: each reads a build rather than a test
@@ -687,6 +687,7 @@ jobs:
       - name: Check successful simulation result
         run: |
           cat gate-evidence/simulation-evidence.txt && grep -q '^<== simulation-evidence: pass' gate-evidence/simulation-evidence.txt
+          sleep 12
 
   debug_e2e:
     name: successful end-to-end journey result
@@ -702,6 +703,7 @@ jobs:
       - name: Check successful end-to-end journey result
         run: |
           cat gate-evidence/debug-e2e.txt && grep -q '^<== debug-e2e: pass' gate-evidence/debug-e2e.txt
+          sleep 12
 
   # The lgwks-std full-feature suite. Its compile and its tests are bounded
   # apart: as one three-minute step a cold compile (2 m 12 s on run
@@ -924,7 +926,7 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.cache }}
           sccache: "false"
-          nextest: "true"
+          nextest: ${{ startsWith(matrix.part, 'consumers') && 'true' || 'false' }}
       - name: Check lgwks-deps
         if: matrix.part == 'deps'
         run: cargo check --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets

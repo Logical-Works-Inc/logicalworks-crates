@@ -217,6 +217,9 @@ mod identity;
 mod scope;
 // The vocabulary the substrate reports in, built in every configuration.
 mod work;
+// Entity UUID and tenant-scoped FoundationDB tuple entity index (#851).
+#[cfg(feature = "ecs")]
+pub(crate) mod entity_uuid;
 
 #[cfg(feature = "edge")]
 pub(crate) use crate::cell::SubmitRefused;

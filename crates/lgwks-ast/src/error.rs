@@ -1,27 +1,126 @@
-//! `error` owns this crate's typed-diagnostic derive.
+//! `error` owns this crate's typed-diagnostic definition macro.
 //!
-//! `std::error::Error` is a trait, and stable `std` has no derive that
-//! generates `Display` or `source`. `ParseError` is built
-//! with this derive, and code-observability consumers derive their diagnostics
-//! from the same stack instead of each declaring `thiserror`.
+//! `std::error::Error` is a trait, and `ParseError` is built
+//! as a typed diagnostic; code-observability consumers define or derive their
+//! diagnostics from this stack.
 //!
-//! `#[derive(Error)]` expands to absolute `::thiserror::__private<N>::…` paths
-//! that the *consuming* crate resolves, so a consumer names this crate
-//! `thiserror` at its root:
+//! [`crate::define_error!`] allows defining typed error enums with `Display` and `Error`:
 //!
 //! ```
-//! extern crate lgwks_ast as thiserror;
+//! use lgwks_ast::define_error;
 //!
-//! #[derive(thiserror::Error, Debug)]
-//! enum Diagnostic {
-//!     #[error("parse refused: {0}")]
-//!     Refused(String),
-//!     #[error(transparent)]
-//!     Io(#[from] std::io::Error),
+//! define_error! {
+//!     /// Diagnostic refusal.
+//!     #[derive(Debug, PartialEq, Eq)]
+//!     pub enum Diagnostic {
+//!         /// Refused with reason.
+//!         Refused(String) => "parse refused: {}",
+//!     }
 //! }
 //! ```
-//!
-//! The crate root carries `pub use thiserror::*;`, which is what re-exports the
-//! version-suffixed `__private<N>` module the expansion needs.
 
-pub use thiserror::Error;
+/// Define a typed error enum implementing [`core::fmt::Display`] and [`std::error::Error`].
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_ast::define_error;
+///
+/// define_error! {
+///     /// A diagnostic reported by analysis.
+///     #[derive(Debug, PartialEq, Eq)]
+///     pub enum Diagnostic {
+///         /// A parse refusal.
+///         Refused(String) => "parse refused: {}",
+///     }
+/// }
+///
+/// let diag = Diagnostic::Refused("bad syntax".to_string());
+/// assert_eq!(diag.to_string(), "parse refused: bad syntax");
+/// ```
+#[doc(hidden)]
+#[macro_export]
+macro_rules! define_error {
+    (
+        $(#[$meta:meta])*
+        $vis:vis enum $name:ident {
+            $(
+                $(#[$v_meta:meta])*
+                $variant:ident $( ( $($field_ty:ty),* $(,)? ) )? => $fmt:literal $( , )?
+            )*
+        }
+    ) => {
+        $(#[$meta])*
+        $vis enum $name {
+            $(
+                $(#[$v_meta])*
+                $variant $( ( $($field_ty),* ) )?,
+            )*
+        }
+
+        impl ::core::fmt::Display for $name {
+            fn fmt(&self, __formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                $crate::define_error! {
+                    @expand_match
+                    $name, __formatter, self,
+                    [];
+                    $( [ $variant, $fmt, $( ( $($field_ty),* ) )? ] )*
+                }
+            }
+        }
+
+        impl ::std::error::Error for $name {}
+    };
+
+    (
+        @expand_match
+        $name:ident, $formatter:ident, $self:ident,
+        [ $( $arms:tt )* ];
+        [ $variant:ident, $fmt:literal, ] $( $rest:tt )*
+    ) => {
+        $crate::define_error! {
+            @expand_match
+            $name, $formatter, $self,
+            [ $( $arms )* $name::$variant => ::core::write!($formatter, $fmt), ];
+            $( $rest )*
+        }
+    };
+
+    (
+        @expand_match
+        $name:ident, $formatter:ident, $self:ident,
+        [ $( $arms:tt )* ];
+        [ $variant:ident, $fmt:literal, ( $f0:ty ) ] $( $rest:tt )*
+    ) => {
+        $crate::define_error! {
+            @expand_match
+            $name, $formatter, $self,
+            [ $( $arms )* $name::$variant(f0) => ::core::write!($formatter, $fmt, f0), ];
+            $( $rest )*
+        }
+    };
+
+    (
+        @expand_match
+        $name:ident, $formatter:ident, $self:ident,
+        [ $( $arms:tt )* ];
+        [ $variant:ident, $fmt:literal, ( $f0:ty, $f1:ty ) ] $( $rest:tt )*
+    ) => {
+        $crate::define_error! {
+            @expand_match
+            $name, $formatter, $self,
+            [ $( $arms )* $name::$variant(f0, f1) => ::core::write!($formatter, $fmt, f0, f1), ];
+            $( $rest )*
+        }
+    };
+
+    (
+        @expand_match
+        $name:ident, $formatter:ident, $self:ident,
+        [ $( $arms:tt )* ];
+    ) => {
+        match $self {
+            $( $arms )*
+        }
+    };
+}

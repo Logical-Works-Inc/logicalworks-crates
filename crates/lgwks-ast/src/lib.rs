@@ -2,11 +2,10 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![cfg_attr(
     not(feature = "parser"),
-    doc = "Built without the `parser` feature, `lgwks_ast` is the typed-error derive \
-           (`error`, re-exported at the root so `extern crate lgwks_ast as thiserror;` \
-           derives `Error`) and the `diagnostic` types a tool reports with. The \
-           multi-language AST parser is the `parser` feature, which every `lang-*` \
-           feature and the default set enable."
+    doc = "Built without the `parser` feature, `lgwks_ast` provides typed-error \
+           infrastructure (`error`, re-exporting `define_error!`) and the `diagnostic` \
+           types a tool reports with. The multi-language AST parser is the `parser` \
+           feature, which every `lang-*` feature and the default set enable."
 )]
 //!
 //! ## Features
@@ -44,15 +43,6 @@ pub mod error;
 /// opposed to what a parse refuses.
 #[doc(hidden)]
 pub mod diagnostic;
-
-/// Root re-export required by the `thiserror` derive's absolute expansion path.
-///
-/// `#[derive(Error)]` expands to `::thiserror::__private<N>::…`, resolved in
-/// the *consuming* crate. A consumer with no `thiserror` Cargo edge makes that
-/// path resolve here by naming this crate `thiserror`; the glob is what carries
-/// the version-suffixed private module.
-#[doc(hidden)]
-pub use thiserror::*;
 
 /// The diagnostic types a tool reports with, re-exported at the crate root.
 ///
@@ -101,3 +91,11 @@ pub mod legacy;
 /// tree `lgwks_macros::script!` compiles and any tool reads.
 #[cfg(feature = "script")]
 pub mod script;
+
+/// Procedural macro expansion engine for `#[derive(Error)]` (feature `emit`).
+#[cfg(feature = "emit")]
+#[doc(hidden)]
+pub mod error_derive;
+
+#[cfg(all(test, feature = "emit"))]
+mod sim_error_derive;

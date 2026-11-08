@@ -93,7 +93,7 @@ impl Supervisor {
     /// permit is released when this function returns.
     #[cfg(all(unix, feature = "process"))]
     pub async fn spawn_process(&mut self, spec: &ProcessSpec) -> io::Result<TaskId> {
-        let (task, ()) = self.spawn_process_reading(spec, false, |_| Ok(())).await?;
+        let (task, (), _gate_writer) = self.spawn_process_reading(spec, false, |_| Ok(())).await?;
         Ok(task)
     }
 
@@ -135,7 +135,7 @@ impl Supervisor {
         &mut self,
         spec: &ProcessSpec,
     ) -> io::Result<IdentifiedSpawn> {
-        let (task, leader) = self
+        let (task, leader, _gate_writer) = self
             .spawn_process_reading(spec, false, identify_leader)
             .await?;
         Ok(IdentifiedSpawn { task, leader })
@@ -164,7 +164,7 @@ impl Supervisor {
         &mut self,
         spec: &ProcessSpec,
     ) -> io::Result<GatedIdentifiedSpawn> {
-        let (task, leader) = self
+        let (task, leader, gate_writer) = self
             .spawn_process_reading(spec, true, identify_leader)
             .await?;
         let pid = leader.pid();
@@ -172,6 +172,7 @@ impl Supervisor {
             task,
             leader,
             pid,
+            gate_tx: gate_writer,
             released: false,
         })
     }
@@ -192,7 +193,7 @@ impl Supervisor {
         spec: &ProcessSpec,
         gated: bool,
         read: impl FnOnce(i32) -> io::Result<T> + Send + 'static,
-    ) -> io::Result<(TaskId, T)>
+    ) -> io::Result<(TaskId, T, Option<std::io::PipeWriter>)>
     where
         T: Send + 'static,
     {
@@ -200,10 +201,12 @@ impl Supervisor {
         let (token, bounds) = self.prepare_process(spec);
         let clock = self.clock.clone();
         let stdin = spec.stdin_feed();
-        let (child, group_id) = if gated {
-            start_gated(spec)?
+        let (child, group_id, gate_writer) = if gated {
+            let (child, group_id, writer) = start_gated(spec)?;
+            (child, group_id, Some(writer))
         } else {
-            start(spec)?
+            let (child, group_id) = start(spec)?;
+            (child, group_id, None)
         };
         // Construct the guard before the child is placed in the async task. If
         // the task is aborted before its first poll, this guard still owns the
@@ -243,7 +246,7 @@ impl Supervisor {
             drop(live);
             task_end(end)
         });
-        Ok((placed, read))
+        Ok((placed, read, gate_writer))
     }
 
     /// The admission both process spawns share, on every target that has a

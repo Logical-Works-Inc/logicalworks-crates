@@ -33,17 +33,16 @@ If you need to keep producing past the ceiling, use `try_spawn` and decide what
 the refusal means.
 
 **`Drop` aborts rather than joins.** A supervisor that goes out of scope cancels
-and aborts, and does not wait. Use `shutdown().await` when you need to know the
-tasks have finished before continuing — it gives a cooperative body a bounded
-wall-clock grace to return on its own before the abort lands, so a task that
-observed its token is reported `Cancelled` and one that ignored it as `Aborted`.
-The grace is time and not a count of yields, which matters on a multi-threaded
-runtime: `yield_now` only reschedules the yielding task, so it cannot give a body
-parked on another worker the thread wakeup its return actually needs, and a
-counted grace reported cancelled work as aborted
-(`crates/lgwks-bot/src/rt/supervise.rs:525`). A body that returns is settled the
-moment it does, so the grace is a ceiling on the wait and not a cost charged to
-every shutdown.
+and aborts, and does not wait. Use `shutdown().await` when you need tasks
+finished before continuing. It gives a cooperative body a bounded wall-clock
+grace to return before the abort lands, so a task that observed its token is
+reported `Cancelled` and one that ignored it as `Aborted`. The grace is time and
+not a count of yields, which matters on a multi-threaded runtime. `yield_now`
+only reschedules the yielding task, so it cannot give a body parked on another
+worker the thread wakeup its return needs. A counted grace reported cancelled
+work as aborted (`crates/lgwks-bot/src/rt/supervise.rs:497`). A body that
+returns is settled the moment it does, so the grace is a ceiling on the wait and
+not a cost charged to every shutdown.
 
 **`lgwks_std::task` has no cancellation primitive.** Its `block_on`, `join_all`,
 and `spawn_blocking` are for a build with no async runtime. There is a

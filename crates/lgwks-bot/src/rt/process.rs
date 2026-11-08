@@ -11,24 +11,22 @@
 //! from a `ProcessSpec`.
 
 use std::ffi::{OsStr, OsString};
-use std::fmt;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
 use std::time::Duration;
 
 use lgwks_deps::tokio::process::Command;
-
-use super::supervise::{CleanupReceipt, Containment};
 
 mod confine;
 mod frames;
 #[cfg(unix)]
 mod resolve;
+mod run_result;
 
 pub use confine::{Confinement, DenyBeneath, LandlockRules, PathAccess, SandboxProfile};
 pub use frames::{DEFAULT_FRAME_CEILING, FrameRead, FrameReadError, Frames, read_frames};
+pub use run_result::{CapturedStream, ProcessRun, ProcessRunError};
 
 /// The successor's half of
 /// [`Supervisor::spawn_process_identified`](crate::rt::supervise::Supervisor::spawn_process_identified).
@@ -89,6 +87,26 @@ pub enum StdioPolicy {
 /// bounded.
 const MAX_STDIN_BYTES: usize = 1024 * 1024;
 
+/// The most file descriptors one supervised child may inherit.
+#[cfg(unix)]
+#[doc(hidden)]
+pub(crate) const MAX_INHERITED_FDS: usize = 16;
+
+/// A file descriptor designated for inheritance into supervised child processes.
+#[cfg(unix)]
+#[derive(Clone, Debug)]
+struct InheritedFd(std::sync::Arc<std::os::fd::OwnedFd>);
+
+#[cfg(unix)]
+impl PartialEq for InheritedFd {
+    fn eq(&self, other: &Self) -> bool {
+        std::os::fd::AsRawFd::as_raw_fd(&*self.0) == std::os::fd::AsRawFd::as_raw_fd(&*other.0)
+    }
+}
+
+#[cfg(unix)]
+impl Eq for InheritedFd {}
+
 /// An environment delta applied to a process at start.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -147,11 +165,16 @@ pub struct ProcessSpec {
     deadline: Option<Duration>,
     /// How the child is confined past its process group.
     confinement: Confinement,
+    /// File descriptors to be inherited across exec into the child.
+    #[cfg(unix)]
+    inherited_fds: Vec<InheritedFd>,
 }
 
 impl ProcessSpec {
     /// Describe a program without starting it.
     pub fn new(program: impl AsRef<OsStr>) -> Self {
+        #[cfg(feature = "ecs")]
+        let _ = crate::ecs::entity_uuid::verify_entity_uuid_contract();
         Self {
             program: program.as_ref().to_os_string(),
             args: Vec::new(),
@@ -164,6 +187,8 @@ impl ProcessSpec {
             stderr_file: None,
             deadline: None,
             confinement: Confinement::None,
+            #[cfg(unix)]
+            inherited_fds: Vec::new(),
         }
     }
 
@@ -297,28 +322,66 @@ impl ProcessSpec {
         self
     }
 
-    /// Clone this spec with its program held behind a start gate.
+    /// Register an open file descriptor to be inherited by the supervised child.
     ///
-    /// The gated child runs `/bin/sh`, which stops itself before it execs
-    /// this spec's program afterwards, keeping the same pid: an identity read
-    /// while the shell is stopped names the process the payload runs as, and
-    /// the stop is synchronous — the payload cannot run before the release no
-    /// matter when the child is scheduled. Crate-internal: the only producer
-    /// is the gated identified spawn, which releases the child once the
-    /// identity is recorded.
-    ///
-    /// The gate shell itself is confined exactly as this spec asks, because
-    /// the confinement wraps the shell and inherits across its exec. If the
-    /// stop itself failed the shell would exit before the exec, so a broken
-    /// gate never runs the payload unrecorded.
+    /// The file descriptor will have `FD_CLOEXEC` cleared immediately prior to
+    /// spawn, and restored in the supervisor parent process immediately after.
+    #[doc(hidden)]
+    #[cfg(unix)]
+    pub fn inherit_fd(&mut self, file_des: std::os::fd::OwnedFd) -> &mut Self {
+        self.inherited_fds
+            .push(InheritedFd(std::sync::Arc::new(file_des)));
+        self
+    }
+
+    /// How many file descriptors are configured for inheritance.
+    #[doc(hidden)]
+    #[cfg(unix)]
+    #[must_use]
+    pub fn inherited_fd_count(&self) -> usize {
+        self.inherited_fds.len()
+    }
+
+    /// The raw file descriptor numbers configured for inheritance.
+    #[doc(hidden)]
+    #[cfg(unix)]
+    #[must_use]
+    pub fn inherited_raw_fds(&self) -> Vec<std::os::fd::RawFd> {
+        self.inherited_fds
+            .iter()
+            .map(|item| std::os::fd::AsRawFd::as_raw_fd(&*item.0))
+            .collect()
+    }
+
+    /// Duplicate the first inherited file descriptor entry for testing.
+    #[doc(hidden)]
+    #[cfg(unix)]
+    pub fn duplicate_first_inherited_fd_for_test(&mut self) {
+        if let Some(first) = self.inherited_fds.first().cloned() {
+            self.inherited_fds.push(first);
+        }
+    }
+
+    /// Restore `FD_CLOEXEC` on all inherited file descriptors in the supervisor process.
+    #[doc(hidden)]
     #[cfg(all(unix, feature = "process"))]
-    pub(crate) fn gated(&self) -> Self {
-        const SCRIPT: &str = "kill -STOP $$ || exit 99; exec \"$@\"";
+    pub(crate) fn restore_cloexec(&self) {
+        for item in &self.inherited_fds {
+            let _result = lgwks_std::process::set_cloexec(std::os::fd::AsFd::as_fd(&*item.0));
+        }
+    }
+
+    /// Clone this spec with its program held behind an anonymous-pipe start gate on `gate_fd`.
+    #[doc(hidden)]
+    #[cfg(all(unix, feature = "process"))]
+    pub(crate) fn gated_with_fd(&self, gate_fd: i32) -> Self {
+        const SCRIPT: &str = "p=\"/dev/fd/$1\"; [ -d /proc/self/fd ] && p=\"/proc/self/fd/$1\"; IFS= read -r gate < \"$p\" && [ \"$gate\" = go ] || exit 99; [ \"$1\" -lt 10 ] && eval \"exec $1<&-\" 2>/dev/null || true; shift; exec \"$@\"";
         let mut gated = self.clone();
-        let mut args = Vec::with_capacity(self.args.len().saturating_add(4));
+        let mut args = Vec::with_capacity(self.args.len().saturating_add(5));
         args.push("-c".into());
         args.push(SCRIPT.into());
         args.push("lgwks-gate".into());
+        args.push(format!("{gate_fd}").into());
         args.push(self.program.clone());
         args.extend(self.args.iter().cloned());
         gated.program = "/bin/sh".into();
@@ -550,6 +613,44 @@ impl ProcessSpec {
                 "lgwks_bot: piped input past the ceiling is refused: hand the program a file instead",
             ));
         }
+        #[cfg(unix)]
+        {
+            if self.inherited_fd_count() > MAX_INHERITED_FDS {
+                lgwks_std::trace::warn!(
+                    count = self.inherited_fd_count(),
+                    limit = MAX_INHERITED_FDS,
+                    "lgwks_bot: inherited_fds exceeds MAX_INHERITED_FDS (16)"
+                );
+                let refusal = Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "lgwks_bot: inherited_fds exceeds MAX_INHERITED_FDS (16)",
+                ));
+                #[cfg(feature = "trace")]
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "configure: returning an error to the caller");
+                return refusal;
+            }
+
+            let mut seen_fds = std::collections::BTreeSet::new();
+            for raw_fd in self.inherited_raw_fds() {
+                if raw_fd < 3 || !seen_fds.insert(raw_fd) {
+                    lgwks_std::trace::warn!(
+                        raw_fd,
+                        "lgwks_bot: invalid or duplicate inherited file descriptor"
+                    );
+                    let refusal = Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "lgwks_bot: invalid or duplicate inherited file descriptor",
+                    ));
+                    #[cfg(feature = "trace")]
+                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "configure: returning an error to the caller");
+                    return refusal;
+                }
+            }
+
+            for item in &self.inherited_fds {
+                lgwks_std::process::clear_cloexec(std::os::fd::AsFd::as_fd(&*item.0))?;
+            }
+        }
         command.stdin(self.stdin.to_stdio());
         command.stdout(match self.stdout_file.as_deref() {
             Some(path) => file_stdio(path)?,
@@ -586,285 +687,6 @@ impl StdioPolicy {
             // then closes the pipe, so a child reading its input never waits
             // on a writer that never comes.
             Self::Piped(_) => std::process::Stdio::piped(),
-        }
-    }
-}
-
-/// The bytes retained from one captured standard stream, with its ceiling
-/// accounting.
-///
-/// The head of the stream is what survives truncation: the first
-/// [`StdioPolicy::Capture`] bytes, and no more. `total_bytes` is every byte the
-/// child wrote, so `truncated` is decidable without retaining the tail, and a
-/// reader that needs the exact size of a large output still has it.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-#[non_exhaustive]
-pub struct CapturedStream {
-    /// The retained head of the stream, at most the capture ceiling.
-    bytes: Vec<u8>,
-    /// Every byte the child wrote to this stream.
-    total_bytes: u64,
-    /// Whether the child wrote more than the retained ceiling.
-    truncated: bool,
-}
-
-impl CapturedStream {
-    /// The retained bytes, at most the capture ceiling.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    /// Every byte the child wrote, retained or not.
-    #[must_use]
-    pub const fn total_bytes(&self) -> u64 {
-        self.total_bytes
-    }
-
-    /// Whether the child wrote more than the retained ceiling.
-    #[must_use]
-    pub const fn truncated(&self) -> bool {
-        self.truncated
-    }
-
-    /// The capacity of the retained buffer, which bounds what a capture can
-    /// allocate.
-    ///
-    /// The buffer is sized once to the capture ceiling, so this never exceeds
-    /// that ceiling however much the child wrote; it is the allocation bound a
-    /// peak-memory check asserts against.
-    #[must_use]
-    pub fn retained_capacity(&self) -> usize {
-        self.bytes.capacity()
-    }
-
-    /// Read the retained bytes as length-framed records, under `ceiling`.
-    ///
-    /// The door a caller reads its own child's output through, so the frame
-    /// grammar is reached from a [`ProcessRun`] without the caller re-plumbing
-    /// the captured bytes into a reader. Infallible by construction: a byte
-    /// slice never refuses a read, so there is no [`FrameReadError`] to report
-    /// and the one slice path below owns the whole reading.
-    ///
-    /// # What a truncated capture means for the ending
-    ///
-    /// A [`CapturedStream`] that reports [`CapturedStream::truncated`] holds a
-    /// **prefix the capture cut**, so the pass cannot end in
-    /// [`FrameRead::EndOfStream`] and cannot report a child truncation as though
-    /// it were one. It overrides exactly the three endings that are *about where
-    /// the bytes stop* — [`FrameRead::EndOfStream`],
-    /// [`FrameRead::TruncatedPrefix`] and [`FrameRead::TruncatedPayload`] — with
-    /// [`FrameRead::CeilingReached`] carrying the capture's own retained
-    /// capacity, and [`Frames::is_complete`] is `false` for each of them.
-    ///
-    /// The two it does **not** override are the two the cut could not have
-    /// decided. A [`FrameRead::MalformedPrefix`] was reached from a whole prefix
-    /// the capture did retain — a declared `0`, or a length past the reader's
-    /// ceiling — so it is rot in the child's output and stands. A
-    /// [`FrameRead::CeilingReached`] the *reader* reached stopped the pass before
-    /// the cut mattered, so it names the reader's ceiling and stands too. A
-    /// capture's cut is a fact about this pass's bounds; it is not a reason to
-    /// discard what those bounds already decided.
-    ///
-    /// Otherwise the endings are the reader's own — the clean end, or the
-    /// truncation a child actually performed on its own last record.
-    ///
-    /// [`FrameReadError`]: crate::rt::process::FrameReadError
-    #[must_use]
-    pub fn frames(&self, ceiling: usize) -> Frames {
-        Frames::of_capture(
-            self.bytes.as_slice(),
-            ceiling,
-            self.truncated,
-            self.retained_capacity(),
-        )
-    }
-
-    /// Build one capture result. Crate-internal: the only producer is the
-    /// supervisor's pipe drain.
-    #[cfg(unix)]
-    pub(crate) fn from_parts(bytes: Vec<u8>, total_bytes: u64, truncated: bool) -> Self {
-        Self {
-            bytes,
-            total_bytes,
-            truncated,
-        }
-    }
-}
-
-/// What a process run by
-/// [`Supervisor::run_process`](crate::rt::supervise::Supervisor::run_process)
-/// reported: how it ended, what it wrote, and how its process group was cleaned
-/// up.
-///
-/// A successful function return is not a claim the command succeeded: the exit
-/// status is data here and judging it is the caller's job. A deadline kill is
-/// reported through [`ProcessRun::deadline_fired`] rather than as a normal
-/// exit, so "the command finished" and "the supervisor stopped it" are never
-/// the same report.
-#[derive(Debug)]
-#[non_exhaustive]
-pub struct ProcessRun {
-    /// The status the engine reported, or `None` when the supervisor stopped
-    /// the child (deadline) or could not read a status.
-    pub(crate) status: Option<ExitStatus>,
-    /// Whether this supervisor stopped the child because its deadline elapsed.
-    pub(crate) deadline_fired: bool,
-    /// Captured stdout, empty when the policy was not `Capture`.
-    pub(crate) stdout: CapturedStream,
-    /// Captured stderr, empty when the policy was not `Capture`.
-    pub(crate) stderr: CapturedStream,
-    /// Process-group cleanup evidence.
-    pub(crate) cleanup: CleanupReceipt,
-    /// What the cleanup read, signalled and could not account for.
-    pub(crate) containment: Containment,
-}
-
-impl ProcessRun {
-    /// The exit status the engine reported, when there is one.
-    ///
-    /// `None` means the child was stopped by the deadline or its status could
-    /// not be read; it is not a success. On Unix a signal death reports
-    /// [`ExitStatus::code`]`() == None` too, so use
-    /// [`ProcessRun::signal`] to tell the two apart.
-    #[must_use]
-    pub const fn status(&self) -> Option<ExitStatus> {
-        self.status
-    }
-
-    /// The code the child passed to `exit`, or `None` if it did not exit.
-    ///
-    /// `None` covers both a child still running and one killed by a signal, and
-    /// the two are told apart by [`Self::signal`] on Unix or by
-    /// [`Self::deadline_fired`]. A code of `0` is a normal successful exit and
-    /// is not the same answer as `None`.
-    #[must_use]
-    pub fn exit_code(&self) -> Option<i32> {
-        self.status.and_then(|status| status.code())
-    }
-
-    /// The terminating signal, when the child was killed by one (Unix).
-    ///
-    /// Distinct from an exit code: `kill -TERM $$` reports a signal and no
-    /// code, while `exit 0` reports code 0 and no signal. Neither is a claim
-    /// about the work the command was asked to do.
-    #[cfg(unix)]
-    #[must_use]
-    pub fn signal(&self) -> Option<i32> {
-        use std::os::unix::process::ExitStatusExt;
-        self.status.and_then(|status| status.signal())
-    }
-
-    /// Whether the supervisor stopped the child because its deadline elapsed.
-    ///
-    /// A deadline kill reaps the whole process group (INV-BOT-9), so this is a
-    /// stop the supervisor ordered, not an exit the command chose.
-    #[must_use]
-    pub const fn deadline_fired(&self) -> bool {
-        self.deadline_fired
-    }
-
-    /// What the child wrote to standard output, up to the capture ceiling.
-    ///
-    /// Empty unless [`ProcessSpec::stdout_policy`] was `Capture`. The retained bytes
-    /// are the *head* of the stream, so [`CapturedStream::truncated`] is how a
-    /// caller knows the tail is missing; [`CapturedStream::total_bytes`] says
-    /// how much there would have been.
-    #[must_use]
-    pub const fn stdout(&self) -> &CapturedStream {
-        &self.stdout
-    }
-
-    /// What the child wrote to standard error, up to the capture ceiling.
-    ///
-    /// The same shape as [`Self::stdout`], and empty unless
-    /// [`ProcessSpec::stderr_policy`] was `Capture`. A child that died before writing
-    /// leaves an empty capture rather than none, so emptiness is never evidence
-    /// that the policy was not `Capture`.
-    #[must_use]
-    pub const fn stderr(&self) -> &CapturedStream {
-        &self.stderr
-    }
-
-    /// Process-group cleanup evidence.
-    ///
-    /// A borrow, where this returned the receipt by value: the receipt carries the
-    /// pids it could not prove gone, so a by-value read would copy that list per
-    /// call.
-    #[must_use]
-    pub const fn cleanup(&self) -> &CleanupReceipt {
-        &self.cleanup
-    }
-
-    /// What the cleanup read, signalled, and could not account for.
-    ///
-    /// The receipt says whether the tree was stopped; this says how much was
-    /// looked at to say it — which mechanism read the process table, how many
-    /// descendants it named, how many a signal reached, which of them were still
-    /// running when the drain ended, and which limit of the mechanism produced
-    /// that. A caller that has to report or re-drive the cleanup reads this.
-    #[must_use]
-    pub const fn containment(&self) -> &Containment {
-        &self.containment
-    }
-
-    // No constructor, deliberately. One over these six values is a second copy of
-    // this struct's own field list, and a second copy of a field list is a place
-    // a field can be forgotten — the supervisor is inside the crate, so it fills
-    // the literal, and a caller outside it cannot construct a `#[non_exhaustive]`
-    // type at all.
-}
-/// Why [`Supervisor::run_process`](crate::rt::supervise::Supervisor::run_process)
-/// could not produce a [`ProcessRun`].
-///
-/// The vocabulary draws the one distinction a caller's next move turns on:
-/// whether the program ever ran. [`ProcessRunError::Refused`] and
-/// [`ProcessRunError::NotStarted`] establish that nothing ran, so a retry is
-/// safe; [`ProcessRunError::AfterStart`] establishes that the child was
-/// started and its outcome is unknown, so a retry is a possible duplicate.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum ProcessRunError {
-    /// The supervisor refused to start anything: it was cancelled before the
-    /// fork, so no instruction of the program ran.
-    Refused,
-    /// The platform refused to start the program at all — it does not exist,
-    /// is not executable, or the fork was refused. Nothing ran.
-    NotStarted {
-        /// The platform's refusal.
-        source: io::Error,
-    },
-    /// The process started and was then stopped by this supervisor before it
-    /// exited on its own, or its terminal status could not be read. It ran, so
-    /// the effect is indeterminate.
-    AfterStart {
-        /// Why the run could not be settled.
-        source: io::Error,
-    },
-}
-
-impl fmt::Display for ProcessRunError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Refused => formatter.write_str("the supervisor refused to start a process"),
-            Self::NotStarted { ref source } => {
-                write!(formatter, "the program did not start: {source}")
-            }
-            Self::AfterStart { ref source } => {
-                write!(
-                    formatter,
-                    "the process started but did not settle: {source}"
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for ProcessRunError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match *self {
-            Self::Refused => None,
-            Self::NotStarted { ref source } | Self::AfterStart { ref source } => Some(source),
         }
     }
 }

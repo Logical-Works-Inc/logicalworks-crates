@@ -22,6 +22,8 @@ mod sim_v7;
 mod sim_v7_clamped;
 
 pub use tuple::TupleError;
+#[doc(hidden)]
+pub use tuple::{Element, TupleElement, pack_elements, unpack_elements};
 pub use v7::V7Error;
 
 /// A 128-bit RFC 4122 identifier, stored as raw bytes in network order.
@@ -31,6 +33,10 @@ pub struct Uuid([u8; 16]);
 impl Uuid {
     /// Generates a version 4 UUID from OS entropy.
     pub fn new_v4() -> Result<Self, EntropyError> {
+        static AUDIT_ONCE: std::sync::Once = std::sync::Once::new();
+        AUDIT_ONCE.call_once(|| {
+            let _ = crate::audit_std_contracts();
+        });
         Self::new_v4_with(random::bytes)
     }
 
