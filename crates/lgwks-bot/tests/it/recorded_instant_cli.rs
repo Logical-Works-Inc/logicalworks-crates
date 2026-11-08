@@ -87,7 +87,7 @@ fn a_restored_clock_stands_at_the_record_and_moves_only_when_told() -> Outcome {
     let answers = piped::session(
         &binary(),
         &[scratch.path()],
-        "advance 1\nrestore\nnow\nnow\nadvance 8\n",
+        "advance 1\nrestore\nnow\nnow\nadvance 8\nsince 999\nsince 50\n",
     )?;
     assert!(
         answers[0].contains("\"refused\":\"not_virtual\""),
@@ -98,6 +98,8 @@ fn a_restored_clock_stands_at_the_record_and_moves_only_when_told() -> Outcome {
     assert_eq!(field(&answers[2], "nanos")?, 52);
     assert_eq!(field(&answers[3], "nanos")?, 52);
     assert_eq!(field(&answers[4], "nanos")?, 60);
+    assert_eq!(field(&answers[5], "since")?, 0, "a later moment saturates");
+    assert_eq!(field(&answers[6], "since")?, 10);
     Ok(())
 }
 
