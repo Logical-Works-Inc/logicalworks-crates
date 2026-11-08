@@ -506,7 +506,7 @@ jobs:
       # The group rows start no sccache; their dependency build is rust-cache's.
       - name: Cache hit rate
         if: ${{ always() && matrix.suite != 'bot-it' }}
-        run: sccache --show-stats
+        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
   # The workspace's evidence lanes, doc tests and package smoke, and the
   # receipts tool the required row runs: each reads a build rather than a test

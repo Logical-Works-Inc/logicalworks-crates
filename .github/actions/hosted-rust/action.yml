@@ -123,6 +123,21 @@ runs:
         } >> "${GITHUB_ENV}"
     - name: Install cargo-nextest
       if: inputs.nextest == 'true'
+      continue-on-error: true
       uses: taiki-e/install-action@v2
       with:
         tool: nextest@0.9.149
+    - name: Ensure cargo-nextest is installed
+      if: inputs.nextest == 'true'
+      shell: bash
+      run: |
+        if ! command -v cargo-nextest >/dev/null 2>&1; then
+          echo "install-action failed or was rate-limited; attempting direct prebuilt fallback"
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            curl -fsSL https://get.nexte.st/latest/linux | tar -xz -C "${CARGO_HOME:-$HOME/.cargo}/bin" 2>/dev/null || true
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            curl -fsSL https://get.nexte.st/latest/mac | tar -xz -C "${CARGO_HOME:-$HOME/.cargo}/bin" 2>/dev/null || true
+          fi
+        fi
+        cargo-nextest --version || cargo nextest --version

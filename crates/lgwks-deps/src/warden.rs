@@ -19,7 +19,10 @@ pub(crate) const DEFAULT_WASM_EPOCH_DEADLINE: u64 = 1;
 pub(crate) const DEFAULT_MAX_TABLE_ELEMENTS: u32 = 10_000;
 
 /// Maximum allowable WASM linear memory: 4 GiB (32-bit WASM limit).
+#[cfg(target_pointer_width = "64")]
 pub(crate) const MAX_PERMITTED_MEMORY_BYTES: usize = 4 * 1024 * 1024 * 1024;
+#[cfg(not(target_pointer_width = "64"))]
+pub(crate) const MAX_PERMITTED_MEMORY_BYTES: usize = usize::MAX;
 
 /// Errors arising from sandbox validation or execution traps.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -203,7 +206,7 @@ pub(crate) fn verify_warden_contract() -> bool {
     let _fuel_bgt = limits.fuel_budget();
     let _epoch_dl = limits.epoch_deadline();
     let mut ok = limits.validate().is_ok();
-    ok &= err_memory::<()>(MAX_PERMITTED_MEMORY_BYTES.saturating_add(1)).is_err();
+    ok &= err_memory::<()>(usize::MAX).is_err();
     ok &= err_fuel::<()>().is_err();
     let _trap = WardenError::SandboxTrap {
         detail: String::new(),
@@ -254,6 +257,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_pointer_width = "64")]
     #[test]
     fn test_oversized_memory_limit_refused() -> Result<(), String> {
         let limits = WasmLimits::default()

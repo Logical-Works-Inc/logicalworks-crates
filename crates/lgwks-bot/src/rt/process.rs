@@ -88,6 +88,7 @@ pub enum StdioPolicy {
 const MAX_STDIN_BYTES: usize = 1024 * 1024;
 
 /// The most file descriptors one supervised child may inherit.
+#[cfg(unix)]
 #[doc(hidden)]
 pub(crate) const MAX_INHERITED_FDS: usize = 16;
 
