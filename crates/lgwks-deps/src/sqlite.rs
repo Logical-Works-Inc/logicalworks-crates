@@ -431,12 +431,14 @@ pub mod cli {
 
 /// Standard SQLite pragmas initializing WAL mode, normal synchrony, foreign keys, and 5000 ms timeout.
 #[doc(hidden)]
+#[cfg(test)]
 pub(crate) const PRAGMA_INIT_SQL: &str = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
 
 /// A typed SQLite value for query parameters and column results.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 #[doc(hidden)]
+#[cfg(test)]
 pub(crate) enum SqliteVal {
     /// SQL NULL value.
     Null,
@@ -454,11 +456,13 @@ pub(crate) enum SqliteVal {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 #[doc(hidden)]
+#[cfg(test)]
 pub(crate) struct SqliteRow {
     /// Columns as `(name, value)` pairs.
     columns: Vec<(String, SqliteVal)>,
 }
 
+#[cfg(test)]
 impl SqliteRow {
     /// Constructs a new SQLite row from column pairs.
     #[must_use]
@@ -487,6 +491,7 @@ impl SqliteRow {
 
 /// An executor capable of executing SQLite statements and queries.
 #[doc(hidden)]
+#[cfg(test)]
 pub(crate) trait SqliteExecutor {
     /// Initializes standard pragmas on the SQLite connection.
     fn init_pragmas(&mut self) -> Result<(), SqliteError>;
@@ -498,6 +503,7 @@ pub(crate) trait SqliteExecutor {
     fn query(&mut self, sql: &str, params: &[SqliteVal]) -> Result<Vec<SqliteRow>, SqliteError>;
 }
 
+#[cfg(test)]
 fn to_rusqlite_params(params: &[SqliteVal]) -> Vec<Box<dyn rusqlite::ToSql>> {
     params
         .iter()
@@ -514,6 +520,7 @@ fn to_rusqlite_params(params: &[SqliteVal]) -> Vec<Box<dyn rusqlite::ToSql>> {
 }
 
 /// Prepares a SQLite statement and boxes query parameters.
+#[cfg(test)]
 #[cfg(feature = "sqlite")]
 fn prep_stmt<'a>(
     conn: &'a mut rusqlite::Connection,
@@ -529,11 +536,13 @@ fn prep_stmt<'a>(
 }
 
 /// Borrows boxed SQLite parameters as a slice of trait objects.
+#[cfg(test)]
 #[cfg(feature = "sqlite")]
 fn to_sql_refs(params: &[Box<dyn rusqlite::ToSql>]) -> Vec<&dyn rusqlite::ToSql> {
     params.iter().map(|item| item.as_ref()).collect()
 }
 
+#[cfg(test)]
 #[cfg(feature = "sqlite")]
 impl SqliteExecutor for rusqlite::Connection {
     fn init_pragmas(&mut self) -> Result<(), SqliteError> {
