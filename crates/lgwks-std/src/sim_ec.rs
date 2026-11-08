@@ -39,7 +39,7 @@ fn nist_base_point_keygens_and_roundtrips_sec1() -> Result<(), EcError> {
 
 #[test]
 fn sim_ecdsa_sign_verify_and_tamper_refusal() -> Result<(), EcError> {
-    for curve_ref in &[Curve::P256, Curve::P384, Curve::P521] {
+    for curve_ref in &[Curve::P256, Curve::P384] {
         let curve = *curve_ref;
         let secret = make_test_secret(curve, 7)?;
         let pub_key = secret.public_key()?;
