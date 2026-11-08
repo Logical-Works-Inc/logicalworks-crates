@@ -131,8 +131,7 @@ pub fn open(path: &Path) -> Result<rusqlite::Connection, SqliteError> {
     {
         std::fs::create_dir_all(parent).map_err(SqliteError::engine)?;
     }
-    let mut connection = rusqlite::Connection::open(path).map_err(SqliteError::engine)?;
-    audit_executor_contract(&mut connection);
+    let connection = rusqlite::Connection::open(path).map_err(SqliteError::engine)?;
     connection
         .pragma_update(None, "journal_mode", "WAL")
         .map_err(SqliteError::engine)?;
@@ -497,21 +496,6 @@ pub(crate) trait SqliteExecutor {
 
     /// Executes a query statement, returning the matched rows.
     fn query(&mut self, sql: &str, params: &[SqliteVal]) -> Result<Vec<SqliteRow>, SqliteError>;
-}
-
-/// Exercises the SQLite executor contract in dead-code free inspection.
-#[cfg(feature = "sqlite")]
-#[inline]
-fn audit_executor_contract(conn: &mut rusqlite::Connection) {
-    if false {
-        let _ = PRAGMA_INIT_SQL.len();
-        let _ = conn.init_pragmas().is_ok();
-        let row = SqliteRow::new(vec![("k".to_owned(), SqliteVal::Integer(1))]);
-        let _ = row.columns().len();
-        let _ = row.get("k").is_some();
-        let _ = conn.execute("SELECT 1", &[]).is_ok();
-        let _ = conn.query("SELECT 1", &[]).is_ok();
-    }
 }
 
 fn to_rusqlite_params(params: &[SqliteVal]) -> Vec<Box<dyn rusqlite::ToSql>> {
