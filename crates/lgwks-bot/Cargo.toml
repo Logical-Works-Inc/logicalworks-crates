@@ -386,3 +386,8 @@ required-features = ["wire"]
 name = "broker-fence"
 path = "src/bin/broker_fence.rs"
 required-features = ["wire"]
+
+[[bin]]
+name = "record-projection"
+path = "src/bin/record_projection.rs"
+required-features = ["ecs", "wire"]

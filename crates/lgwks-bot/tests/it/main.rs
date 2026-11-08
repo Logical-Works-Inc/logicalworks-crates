@@ -695,3 +695,17 @@ mod broker_fence_dispatch;
 
 #[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g2")))]
 mod sim_broker_fence;
+
+#[cfg(all(
+    feature = "ecs",
+    feature = "wire",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod record_projection_cli;
+
+#[cfg(all(
+    feature = "ecs",
+    feature = "wire",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod sim_record_projection;

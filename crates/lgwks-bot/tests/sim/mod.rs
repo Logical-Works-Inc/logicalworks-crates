@@ -39,6 +39,8 @@
 //! from a crate, because a simulation whose entropy source is a dependency is
 //! not reproducible across a lockfile bump.
 
+#[cfg(feature = "wire")]
+pub mod piped;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 pub mod rig;
 #[cfg(feature = "wire")]

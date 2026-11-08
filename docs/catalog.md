@@ -69,6 +69,7 @@ the crate is the decision. An `off` row states why in ADR 0003.
 | opentelemetry | `lgwks_deps::storefront::opentelemetry` | `lgwks_deps` | `otel` | off — OpenTelemetry API and SDK with OTLP/HTTP export and the bridge from lgwks_std::trace spans, on the ring provider. One flag: --features otel (ADR 0015). | opentelemetry, otel, otlp, gen_ai spans, traces, metrics, tracing bridge, observability |
 | record journal | `lgwks_bot::journal::RecordJournal` | `lgwks_bot` | `wire` | on | durable log, journal, write ahead log, wal, append only log, compare and append, hash chain, torn tail, event log, crash recovery |
 | environment fence | `lgwks_bot::broker::Broker` | `lgwks_bot` | `always` | on | fencing token, stale owner, split brain, takeover, generation, epoch, withdraw an operation, kill switch, offline bound, lease |
+| record projection | `lgwks_bot::RecordProjection` | `lgwks_bot` | `ecs` | on | read model, materialized view, event sourcing, fold over a log, rebuild from journal, deterministic replay, catch up |
 
 ## When the gate refuses your code
 

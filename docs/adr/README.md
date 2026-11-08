@@ -53,5 +53,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0015](0015-agent-standards-storefront.md) | The storefront sells the agent standards on one ring TLS provider |
 | [0016](0016-record-journal-for-a-consumers-own-history.md) | A durable journal over a consumer's own record |
 | [0017](0017-a-broker-fence-a-generation-does-not-answer.md) | The broker's fence for what a generation does not answer |
+| [0018](0018-a-consumers-fold-on-the-ecs-world.md) | A consumer's fold on the ECS world |
 
 New records go at the bottom of that table.

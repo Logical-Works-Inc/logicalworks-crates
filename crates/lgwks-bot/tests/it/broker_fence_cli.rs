@@ -4,77 +4,37 @@
 //! journey: a process that wrote its generation and died is fenced by whoever takes
 //! over its journal, and the withdrawals and bound work through the public interface.
 
-use std::io::{BufRead as _, BufReader, Write as _};
-use std::process::{Command, Output, Stdio};
+use std::path::PathBuf;
+use std::process::Command;
 
+use crate::sim::piped::{self, Outcome, Owner, located};
 use crate::sim::scratch_file::ScratchFile;
 
-/// A test's outcome: setup failures propagate instead of panicking.
-type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
-
-/// The binary under test, wherever this run placed it.
-///
-/// Read at run time because an archived test run moves it between shards.
-fn binary() -> std::path::PathBuf {
-    for name in [
-        "NEXTEST_BIN_EXE_broker-fence",
-        "NEXTEST_BIN_EXE_broker_fence",
-    ] {
-        if let Some(found) = std::env::var_os(name) {
-            return found.into();
-        }
-    }
-    env!("CARGO_BIN_EXE_broker-fence").into()
+/// The binary under test.
+fn binary() -> PathBuf {
+    located(
+        [
+            "NEXTEST_BIN_EXE_broker-fence",
+            "NEXTEST_BIN_EXE_broker_fence",
+        ],
+        env!("CARGO_BIN_EXE_broker-fence"),
+    )
 }
 
 /// Feed `script` to one process and read every line it answered.
 fn session(scratch: &ScratchFile, script: &str) -> Outcome<Vec<String>> {
-    let mut child = Command::new(binary())
-        .arg(scratch.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    child
-        .stdin
-        .take()
-        .ok_or("the child has a stdin")?
-        .write_all(script.as_bytes())?;
-    let done = child.wait_with_output()?;
-    assert!(done.status.success(), "{}", stderr(&done));
-    Ok(String::from_utf8(done.stdout)?
-        .lines()
-        .map(str::to_owned)
-        .collect())
-}
-
-/// What a process wrote to standard error.
-fn stderr(done: &Output) -> String {
-    String::from_utf8_lossy(&done.stderr).into_owned()
+    piped::session(&binary(), &[scratch.path()], script)
 }
 
 /// Catches a takeover that loses the dead owner's generation, or restarts at one.
 #[test]
 fn a_takeover_after_kill_nine_moves_past_the_dead_owner() -> Outcome {
     let scratch = ScratchFile::new("broker-cli-kill")?;
-    let mut owner = Command::new(binary())
-        .arg(scratch.path())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()?;
-    let mut input = owner.stdin.take().ok_or("the owner has a stdin")?;
-    input.write_all(b"record 7\nrecord 3\n")?;
-    input.flush()?;
-    let mut reader = BufReader::new(owner.stdout.take().ok_or("the owner has a stdout")?);
-    let mut line = String::new();
-    for _ in 0..2 {
-        line.clear();
-        reader.read_line(&mut line)?;
+    let mut owner = Owner::start(&binary(), &[scratch.path()])?;
+    for line in owner.answers("record 7\nrecord 3\n")? {
         assert!(line.contains("\"recorded\""), "{line}");
     }
     owner.kill()?;
-    owner.wait()?;
 
     let answers = session(&scratch, "adopt\nauthorize 1 7\nauthorize 1 8\nstatus\n")?;
     assert_eq!(answers[0], "{\"ok\":true,\"generation\":8}");
@@ -142,6 +102,6 @@ fn a_mistyped_command_is_answered_and_the_session_goes_on() -> Outcome {
     assert!(answers[4].contains("\"ok\":true"), "{}", answers[4]);
     let bare = Command::new(binary()).output()?;
     assert_eq!(bare.status.code(), Some(64));
-    assert!(stderr(&bare).contains("usage: broker-fence"));
+    assert!(String::from_utf8_lossy(&bare.stderr).contains("usage: broker-fence"));
     Ok(())
 }

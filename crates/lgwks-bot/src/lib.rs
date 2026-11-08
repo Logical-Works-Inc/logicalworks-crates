@@ -516,6 +516,8 @@ pub use ecs::{
     DEFAULT_POLL_DEADLINE, ForcedRefresh, MAX_POLL_DEADLINE, RunCounts, RunFeed, RunOutcome,
     SettledRun, StalledSource, SupersededObservation, TickReport,
 };
+#[cfg(all(feature = "ecs", feature = "wire"))]
+pub use ecs::{ProjectionError, RecordFold, RecordProjection};
 #[doc(hidden)]
 #[cfg(feature = "edge")]
 pub use ecs::{Request, RequestCounts, RequestFeed, Response};

@@ -623,3 +623,13 @@ feature = "always"
 default = "on"
 words = ["fencing token", "stale owner", "split brain", "takeover", "generation", "epoch", "withdraw an operation", "kill switch", "offline bound", "lease"]
 replaces = ["a generation counter and a check by hand", "a lease timer a clock can extend", "a withdrawn-operations set of your own"]
+
+[[capability]]
+name = "record projection"
+path = "lgwks_bot::RecordProjection"
+file = "crates/lgwks-bot/src/ecs/projection.rs"
+crate = "lgwks_bot"
+feature = "ecs"
+default = "on"
+words = ["read model", "materialized view", "event sourcing", "fold over a log", "rebuild from journal", "deterministic replay", "catch up"]
+replaces = ["a read model rebuilt by hand", "a fold over a BTreeMap of your own", "a replay loop that hides a failed record"]
