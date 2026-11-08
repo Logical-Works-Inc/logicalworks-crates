@@ -56,7 +56,7 @@ One manifest key, three alternative lines. Use exactly one of them:
 ```toml
 [dependencies]
 # Zero external deps: defaults off, core selected. The default build is
-# `standard`, so a bare `lgwks_std = "3"` is NOT zero-dependency.
+# `standard`, so a bare `lgwks_std = "4"` is NOT zero-dependency.
 lgwks_std = { version = "3", default-features = false, features = ["core"] }
 
 # Only what you pick, with the defaults off.

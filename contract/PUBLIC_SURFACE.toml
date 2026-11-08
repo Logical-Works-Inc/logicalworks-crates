@@ -257,7 +257,7 @@
 "crates/lgwks-deps/src/sqlite.rs" = 12
 "crates/lgwks-deps/src/storefront.rs" = 24
 "crates/lgwks-deps/src/vendor.rs" = 11
-"crates/lgwks-macros/src/lib.rs" = 1
+"crates/lgwks-macros/src/lib.rs" = 2
 "crates/lgwks-std/src/encoding.rs" = 8
 "crates/lgwks-std/src/fs/capability.rs" = 39
 "crates/lgwks-std/src/fs/mod.rs" = 37
@@ -319,6 +319,7 @@
 # The doc-example ceiling (#526): per documentation file, how many fenced Rust
 # blocks name a workspace crate by path and hold no `script!`. Exact, like the one above.
 [examples]
+"crates/lgwks-ast/README.md" = 1
 "crates/lgwks-ast/src/diagnostic.rs" = 20
 "crates/lgwks-ast/src/error.rs" = 2
 "crates/lgwks-ast/src/hunks.rs" = 1
@@ -370,3 +371,5 @@
 "crates/lgwks-std/src/http/stream.rs" = 1
 "crates/lgwks-std/src/http/tls.rs" = 1
 "crates/lgwks-std/src/id/tuple/mod.rs" = 3
+"docs/guides/lgwks-ast/custom-and-diagnostics.md" = 1
+"docs/guides/lgwks-std/details.md" = 1

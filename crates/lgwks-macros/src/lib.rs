@@ -142,7 +142,18 @@ pub fn script(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// Derive `Display`, `Error` (with `source`), and `From` for an enum or struct.
 ///
 /// Supports `#[error("...")]`, `#[error(transparent)]`, `#[from]`, and `#[source]`.
-#[doc(hidden)]
+///
+/// # Examples
+///
+/// ```text
+/// #[derive(lgwks_macros::Error, Debug)]
+/// enum Diagnostic {
+///     #[error("parse refused: {0}")]
+///     Refused(String),
+///     #[error(transparent)]
+///     Io(#[from] std::io::Error),
+/// }
+/// ```
 #[proc_macro_derive(Error, attributes(error, from, source))]
 pub fn derive_error(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match lgwks_ast::error_derive::expand(TokenStream::from(input)) {

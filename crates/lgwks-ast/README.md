@@ -9,9 +9,9 @@ tree safely. This crate provides those paths under explicit bounds. It does not
 parse full Vue/Svelte containers; those extensions select the JavaScript
 grammar as a filename heuristic.
 
-It also provides the shared typed-diagnostic derive, so a parser and its
-consumers report failures through one `Display`/`source` implementation rather
-than each declaring `thiserror`.
+It also provides `define_error!` and the expansion behind `lgwks_macros`'s
+`#[derive(Error)]`, so a parser and its consumers report failures through one
+stack rather than each declaring `thiserror`.
 
 ## Usage
 
@@ -37,32 +37,34 @@ Consumers do not depend on `ast-grep` directly; the grammar types
 
 ## Typed diagnostics
 
-`ParseError` is built with this crate's diagnostic derive, and an analyser
-derives its own diagnostics from the same stack:
+An analyser defines its diagnostics with `define_error!`, which needs nothing
+but this crate:
 
-```rust,ignore
-extern crate lgwks_ast as thiserror;
-
-#[derive(thiserror::Error, Debug)]
-enum Diagnostic {
-    #[error("parse refused: {0}")]
-    Refused(String),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
+```rust
+lgwks_ast::define_error! {
+    /// What an analysis refuses.
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum Diagnostic {
+        /// The source would not parse.
+        Refused(String) => "parse refused: {}",
+    }
 }
-```
-`#[derive(Error)]` expands to absolute `::thiserror::__private<N>::…` paths
-resolved in the consuming crate, so the `extern crate … as thiserror;` line is
-what makes the expansion resolve; the crate root re-exports the module it
-needs.
 
-A crate that wants only the derive turns the parser off, and compiles no
+let refusal = Diagnostic::Refused("bad syntax".to_owned());
+assert_eq!(refusal.to_string(), "parse refused: bad syntax");
+```
+An error with a `source` or a `From` conversion uses `#[derive(lgwks_macros::Error)]`,
+which reads `#[error("..")]`, `#[error(transparent)]`, `#[from]` and `#[source]`.
+Before 6.0.0 this crate re-exported `thiserror`, and a consumer named it
+`extern crate lgwks_ast as thiserror;`. That line no longer resolves.
+
+A crate that wants only the macro turns the parser off, and compiles no
 grammar and no tree-sitter at all:
 
 ```toml
-lgwks_ast = { version = "5", default-features = false }
+lgwks_ast = { version = "6", default-features = false }
 ```
-Without default features the crate is the derive and the `diagnostic` types
+Without default features the crate is `define_error!` and the `diagnostic` types
 (`Diagnostic`, `Span`, `Pos`, `Severity`). The parser is the `parser` feature,
 which every `lang-*` feature enables; `default-features = false, features =
 ["parser"]` is the parser with no grammar compiled, for a caller that

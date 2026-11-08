@@ -34,8 +34,8 @@ nothing in this workspace. `lgwks_bot` depends on `lgwks_std`, and optionally on
 Three behaviours are worth knowing before you depend on them, and each is
 documented where it applies. `online` is feature-gated and is not part of
 `core`. `tempfile` is a development-only edge, so there is no production
-temporary-directory path. Typed errors derive through `lgwks_ast`
-(`extern crate lgwks_ast as thiserror`) rather than `lgwks_std`. The
+temporary-directory path. Typed errors derive through `lgwks_macros`
+(`#[derive(lgwks_macros::Error)]`) rather than `lgwks_std`. The
 `join!`/`select!`/`try_join!` re-exports in `lgwks_bot` require the `macros`
 feature, and there is deliberately no `#[tokio::main]` equivalent: entry is
 through `Runtime::block_on`.
