@@ -11,14 +11,11 @@ dependency, and it does not come with the default build.
 `[dev-dependencies]` edge (`crates/lgwks-std/Cargo.toml`), so it is not in your
 dependency graph.
 
-**Typed errors derive through `lgwks_ast`, not here.** `lgwks_std` does not own
-`thiserror`. A crate in this workspace that wants `#[derive(Error)]` names
-`lgwks_ast` as `thiserror`:
+**Typed errors derive through `lgwks_macros`, not here.** `lgwks_std` does not own
+`thiserror`. A crate that wants `#[derive(Error)]` depends on `lgwks_macros`:
 
 ```rust
-extern crate lgwks_ast as thiserror;
-
-#[derive(thiserror::Error, Debug)]
+#[derive(lgwks_macros::Error, Debug)]
 enum Diagnostic {
     #[error("parse refused: {0}")]
     Refused(String),
@@ -26,11 +23,6 @@ enum Diagnostic {
     Io(#[from] std::io::Error),
 }
 ```
-
-The derive expands to absolute `::thiserror::__private<N>::...` paths resolved in
-the consuming crate, so that `extern crate` line is what makes the expansion
-resolve.
-
 **`serde` derives need `#[serde(crate = "lgwks_std::json::serde")]`.** The JSON
 facade re-exports serde, and the dependency policy forbids declaring `serde`
 directly. The attribute points the derive expansion at the re-export. If you see

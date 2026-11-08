@@ -80,17 +80,21 @@ fn only_the_first_closed_rust_fence_counts() {
 }
 
 #[test]
-fn the_ast_readme_keeps_its_derive_attribute_above_a_hoisted_extern_crate() -> TestResult {
+fn the_ast_readme_defines_its_error_inside_the_wrapping_main() -> TestResult {
     let program = program_of("crates/lgwks-ast/README.md")?;
     assert!(
-        program.contains("\n#[derive(thiserror::Error, Debug)]\n"),
-        "the derive line lost its `#`: {program}"
+        !program.contains("as thiserror"),
+        "the re-export this line named left in 6.0.0: {program}"
     );
-    let extern_at = program.find("extern crate lgwks_ast as thiserror;");
     let main_at = program.find("fn main()");
+    let macro_at = program.find("lgwks_ast::define_error!");
     assert!(
-        matches!((extern_at, main_at), (Some(first), Some(second)) if first < second),
-        "`extern crate` must sit above the wrapping main: {program}"
+        matches!((main_at, macro_at), (Some(first), Some(second)) if first < second),
+        "the block is the body of a wrapping main: {program}"
+    );
+    assert!(
+        program.contains("    #[derive(Debug, PartialEq, Eq)]\n"),
+        "the derive line lost its `#`: {program}"
     );
     Ok(())
 }

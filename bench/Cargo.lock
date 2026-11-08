@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_bot"
-version = "7.1.1"
+version = "8.0.0"
 dependencies = [
  "lgwks_deps",
  "lgwks_std",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "6.1.0"
+version = "6.2.0"
 dependencies = [
  "bevy_ecs",
  "lgwks_std",
@@ -764,7 +764,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_std"
-version = "4.0.2"
+version = "4.1.0"
 dependencies = [
  "blake3",
  "ed25519-dalek",

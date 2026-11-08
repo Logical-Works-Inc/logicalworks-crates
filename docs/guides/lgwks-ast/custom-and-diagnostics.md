@@ -26,15 +26,12 @@ pass. That requirement is this repo's, not yours.
 
 ## Typed diagnostics
 
-`lgwks_ast` owns the shared diagnostic derive so analysers report failures through
-one `Display`/`source` implementation rather than each declaring `thiserror`. The
-derive expands to absolute `::thiserror::__private<N>::...` paths resolved in the
-consuming crate, so name this crate as `thiserror` to make the expansion resolve:
+`lgwks_ast` owns the expansion behind `lgwks_macros`'s derive, so analysers report
+failures through one `Display`/`source` implementation rather than each declaring
+`thiserror`. Depend on `lgwks_macros` and name the derive by its path:
 
 ```rust
-extern crate lgwks_ast as thiserror;
-
-#[derive(thiserror::Error, Debug)]
+#[derive(lgwks_macros::Error, Debug)]
 enum Diagnostic {
     #[error("parse refused: {0}")]
     Refused(String),

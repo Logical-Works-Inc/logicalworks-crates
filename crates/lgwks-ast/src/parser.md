@@ -21,13 +21,9 @@ was documented as if it were infallible.
 ## Code observability
 
 Code observability here rests on two pieces: structural parsing, and the
-shared typed-diagnostic derive in [`error`]. [`ParseError`] is built with
-it, and downstream analysers derive `Display`/`source`/`#[from]` from the
-same stack instead of each declaring `thiserror`. The crate root re-exports
-the derive because `#[derive(Error)]` expands to absolute
-`::thiserror::__private<N>::…` paths resolved in the *consuming* crate: a
-consumer names this crate `thiserror` (`extern crate lgwks_ast as thiserror;`)
-and derives normally, with no `thiserror` edge of its own.
+shared typed-diagnostic macro [`define_error!`] in [`error`]. Downstream
+analysers define `Display` and `Error` with it instead of each declaring
+`thiserror`, and `#[derive(lgwks_macros::Error)]` adds `source` and `#[from]`.
 
 ## Grammar selection
 

@@ -38,7 +38,6 @@
 /// let diag = Diagnostic::Refused("bad syntax".to_string());
 /// assert_eq!(diag.to_string(), "parse refused: bad syntax");
 /// ```
-#[doc(hidden)]
 #[macro_export]
 macro_rules! define_error {
     (

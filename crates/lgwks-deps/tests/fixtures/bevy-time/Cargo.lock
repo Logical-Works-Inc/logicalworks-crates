@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "6.1.0"
+version = "6.2.0"
 dependencies = [
  "bevy_ecs",
  "bevy_time",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_std"
-version = "4.0.2"
+version = "4.1.0"
 dependencies = [
  "getrandom",
  "serde",
