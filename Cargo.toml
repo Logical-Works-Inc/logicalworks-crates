@@ -22,7 +22,7 @@ resolver = "2"
 [workspace.dependencies]
 lgwks_std = { version = "4.1.0", path = "crates/lgwks-std" }
 # Drishti's command orchestrates through `script!`; members opt into features.
-lgwks_bot = { version = "8.0.0", path = "crates/lgwks-bot", default-features = false }
+lgwks_bot = { version = "8.0.1", path = "crates/lgwks-bot", default-features = false }
 lgwks_ast = { version = "6.0.0", path = "crates/lgwks-ast" }
 lgwks_macros = { version = "2.1.0", path = "crates/lgwks-macros" }
 # The storefront has no default feature; dependents opt into storefront features
