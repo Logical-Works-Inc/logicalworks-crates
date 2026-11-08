@@ -19,7 +19,11 @@
 //!
 //! A request names its tenant in its path, `/t/{tenant}/{rest}`, as on the
 //! world's edge. Each tenant owns its own `S`, so no handler can read another
-//! tenant's state.
+//! tenant's state. `GET /healthz` names no tenant: the edge answers it itself.
+//!
+//! [`App::authenticate`] judges every tenant request at the edge: a refusal is
+//! `401` with nothing read or queued, and [`App::route_as`] hands the handler the
+//! [`Principal`].
 
 use core::fmt;
 use std::net::TcpListener;
@@ -31,6 +35,7 @@ use crate::gate::GrantSet;
 use crate::rt::edge::EdgeStop;
 use crate::task::RunStore;
 
+mod auth;
 mod check;
 mod error;
 mod serve;
@@ -39,8 +44,10 @@ mod sim_app;
 mod transition;
 
 pub use crate::cell::{Effect, EffectResult, OnInput, ReplyTag};
+pub use auth::{Principal, RequestHeaders};
 pub use error::AppError;
 
+use auth::Authenticate;
 use error::refused;
 use transition::{AppCell, AppRunner, OnEntry, RouteEntry};
 
@@ -124,6 +131,8 @@ pub struct App<S = ()> {
     /// was given one: the park is decidable through the same path as a flow's
     /// park, over the same file.
     approvals: Option<RunStore>,
+    /// Who decides who a request is, when the app names one.
+    authenticator: Option<Authenticate>,
     /// Routes in registration order.
     routes: Vec<RouteEntry<S>>,
     /// `on` handlers in registration order.
@@ -139,6 +148,7 @@ impl App<()> {
             grants: GrantSet::empty(),
             provider: Arc::new(NoProvider),
             approvals: None,
+            authenticator: None,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -153,6 +163,7 @@ impl App<()> {
             grants: self.grants,
             provider: self.provider,
             approvals: self.approvals,
+            authenticator: self.authenticator,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -175,6 +186,68 @@ where
     {
         self.routes
             .push(RouteEntry::new(method, normalise_path(path), handler));
+        self
+    }
+
+    /// Answer `method` `path` with `handler`, given who the request is from.
+    ///
+    /// [`App::check`] refuses such a route on an app with no authenticator.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::app::{App, Effect, Method, Principal, RequestHeaders};
+    ///
+    /// let app = App::new("whoami")
+    ///     .state::<u64>()
+    ///     .authenticate(|tenant: &str, headers: &RequestHeaders<'_>| {
+    ///         let key = headers.bearer()?;
+    ///         if key == format!("key-{tenant}") {
+    ///             Principal::new(tenant)
+    ///         } else {
+    ///             None
+    ///         }
+    ///     })
+    ///     .route_as(Method::GET, "/me", |_: &mut u64, who: &Principal, (): ()| {
+    ///         vec![Effect::reply(200, who.as_str().as_bytes().to_vec())]
+    ///     });
+    /// assert!(app.check().is_ok());
+    /// ```
+    #[must_use]
+    pub fn route_as<T, F>(mut self, method: Method, path: &str, handler: F) -> Self
+    where
+        T: lgwks_std::json::serde::de::DeserializeOwned + 'static,
+        F: Fn(&mut S, &Principal, T) -> Vec<Effect> + Send + Sync + 'static,
+    {
+        self.routes
+            .push(RouteEntry::named(method, normalise_path(path), handler));
+        self
+    }
+
+    /// Decide who every tenant request is, at the edge, with `authenticator`.
+    ///
+    /// It runs on the driver after the tenant name is read and before the body is, so
+    /// it is synchronous and does no I/O, like a transition. `None` is answered `401`
+    /// with nothing queued. A head past 64 headers or 16 KiB is answered `431` without
+    /// asking. It compares a secret however its author writes it, so it should compare
+    /// a digest or in constant time.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::app::{App, Principal, RequestHeaders};
+    ///
+    /// let app = App::new("locked").authenticate(|_: &str, _: &RequestHeaders<'_>| {
+    ///     None::<Principal>
+    /// });
+    /// assert!(app.check().is_ok());
+    /// ```
+    #[must_use]
+    pub fn authenticate<F>(mut self, authenticator: F) -> Self
+    where
+        F: Fn(&str, &RequestHeaders<'_>) -> Option<Principal> + Send + Sync + 'static,
+    {
+        self.authenticator = Some(Arc::new(authenticator));
         self
     }
 
@@ -223,8 +296,9 @@ where
     /// Whatever [`App::check`] refuses, [`AppError::Spawn`] when no worker
     /// could start, and [`AppError::ServeIo`] when the listener fails.
     pub fn serve(self, listener: TcpListener, stop: &EdgeStop) -> Result<(), AppError> {
+        let authenticator = self.authenticator.clone();
         let host = self.start(auto_workers(), DEFAULT_MAILBOX_BOUND)?;
-        serve::serve_host(host, listener, stop)
+        serve::serve_host(host, authenticator, listener, stop)
     }
 
     /// Check the app and start its cell host on `workers` threads, the runner

@@ -4,7 +4,7 @@
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use super::{HostSlot, MAX_EFFECTS_PER_APPLY, Method, Provider};
+use super::{HostSlot, MAX_EFFECTS_PER_APPLY, Method, Principal, Provider};
 use crate::cell::{
     Cell, CellHost, CellRefused, DynHost, Effect, EffectResult, EffectRunner, MAX_MESSAGE_BYTES,
     OnInput, ReplySlot, ReplyTag, Steps, first_reply,
@@ -21,7 +21,7 @@ use crate::task::RunStore;
 const APP_APPROVAL_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// A route transition over the raw body: decode, then fold.
-type RouteFn<S> = Arc<dyn Fn(&mut S, &[u8]) -> Vec<Effect> + Send + Sync>;
+type RouteFn<S> = Arc<dyn Fn(&mut S, Option<&Principal>, &[u8]) -> Vec<Effect> + Send + Sync>;
 
 /// An `on` transition: fold a provider's answer.
 type OnFn<S> = Arc<dyn Fn(&mut S, &OnInput) -> Vec<Effect> + Send + Sync>;
@@ -34,6 +34,23 @@ pub(super) struct RouteEntry<S> {
     pub(super) path: Box<str>,
     /// Decode the body, then fold it into the tenant's state.
     pub(super) handler: RouteFn<S>,
+    /// Whether the handler needs to know who asked.
+    pub(super) needs_principal: bool,
+}
+
+/// `body` decoded as JSON `T`, or the `400` that answers it; an empty body is `null`.
+fn decoded<T>(body: &[u8]) -> Result<T, Vec<Effect>>
+where
+    T: lgwks_std::json::serde::de::DeserializeOwned,
+{
+    let text: &[u8] = if body.is_empty() { b"null" } else { body };
+    lgwks_std::json::from_slice::<T>(text).map_err(|error| {
+        lgwks_std::trace::debug!(%error, "app: a body did not decode");
+        vec![Effect::reply(
+            400,
+            b"the body does not decode as this route's input".to_vec(),
+        )]
+    })
 }
 
 impl<S> RouteEntry<S> {
@@ -45,23 +62,42 @@ impl<S> RouteEntry<S> {
         F: Fn(&mut S, T) -> Vec<Effect> + Send + Sync + 'static,
         S: 'static,
     {
-        let decoded = move |state: &mut S, body: &[u8]| -> Vec<Effect> {
-            let text: &[u8] = if body.is_empty() { b"null" } else { body };
-            match lgwks_std::json::from_slice::<T>(text) {
+        let folded = move |state: &mut S, _: Option<&Principal>, body: &[u8]| -> Vec<Effect> {
+            match decoded::<T>(body) {
                 Ok(input) => handler(state, input),
-                Err(error) => {
-                    lgwks_std::trace::debug!(%error, "app: a body did not decode");
-                    vec![Effect::reply(
-                        400,
-                        b"the body does not decode as this route's input".to_vec(),
-                    )]
-                }
+                Err(answer) => answer,
             }
         };
         Self {
             method,
             path,
-            handler: Arc::new(decoded),
+            handler: Arc::new(folded),
+            needs_principal: false,
+        }
+    }
+
+    /// A route whose handler also takes who asked. Decoding comes second, so a body
+    /// never decides whether an unknown caller is told it is malformed.
+    pub(super) fn named<T, F>(method: Method, path: Box<str>, handler: F) -> Self
+    where
+        T: lgwks_std::json::serde::de::DeserializeOwned + 'static,
+        F: Fn(&mut S, &Principal, T) -> Vec<Effect> + Send + Sync + 'static,
+        S: 'static,
+    {
+        let folded = move |state: &mut S, who: Option<&Principal>, body: &[u8]| -> Vec<Effect> {
+            let Some(who) = who else {
+                return vec![Effect::reply(401, b"name yourself".to_vec())];
+            };
+            match decoded::<T>(body) {
+                Ok(input) => handler(state, who, input),
+                Err(answer) => answer,
+            }
+        };
+        Self {
+            method,
+            path,
+            handler: Arc::new(folded),
+            needs_principal: true,
         }
     }
 }
@@ -100,6 +136,8 @@ pub(super) enum AppMessage {
         path: Box<str>,
         /// The body the edge read.
         body: Box<[u8]>,
+        /// Who the authenticator says asked; never the key they showed.
+        principal: Option<Principal>,
     },
     /// The answer to an effect tagged `tag`.
     On {
@@ -156,11 +194,19 @@ where
                 ref tenant,
                 ref path,
                 ref body,
+                ref principal,
                 ..
-            } => tenant
-                .len()
-                .saturating_add(path.len())
-                .saturating_add(body.len()),
+            } => {
+                let who = match *principal {
+                    Some(ref who) => who.weight(),
+                    None => 0,
+                };
+                tenant
+                    .len()
+                    .saturating_add(path.len())
+                    .saturating_add(body.len())
+                    .saturating_add(who)
+            }
             AppMessage::On {
                 ref tenant,
                 ref input,
@@ -183,13 +229,17 @@ where
         budget.spend(1)?;
         match message {
             AppMessage::Route {
-                method, path, body, ..
+                method,
+                path,
+                body,
+                principal,
+                ..
             } => match self
                 .routes
                 .iter()
                 .find(|route| route.method == method && route.path == path)
             {
-                Some(route) => Ok(bounded((route.handler)(state, &body))),
+                Some(route) => Ok(bounded((route.handler)(state, principal.as_ref(), &body))),
                 None => Ok(vec![Effect::reply(404, b"no such route".to_vec())]),
             },
             AppMessage::On { input, .. } => {

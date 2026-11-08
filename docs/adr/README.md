@@ -55,5 +55,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0017](0017-a-broker-fence-a-generation-does-not-answer.md) | The broker's fence for what a generation does not answer |
 | [0018](0018-a-consumers-fold-on-the-ecs-world.md) | A consumer's fold on the ECS world |
 | [0019](0019-a-stop-and-a-place-a-restart-keeps.md) | A stop and a place a restart keeps |
+| [0020](0020-what-the-edge-answers-itself.md) | What the edge answers itself |
 
 New records go at the bottom of that table.

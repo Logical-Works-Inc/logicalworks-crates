@@ -6,8 +6,10 @@
 //! edge-load axum             serve plain axum with a locked map until stdin closes
 //! edge-load app              serve the counter as an app SDK app until stdin closes
 //! edge-load app-ask          the app counter with one provider ask per post
+//! edge-load app-keyed        the app counter behind a key per tenant, `key-{tenant}`
 //! edge-load plan FILE        serve a model-written plan through App::from_plan
 //! edge-load hit ADDR CONNS REQUESTS TENANTS
+//! edge-load hit-keyed ADDR CONNS REQUESTS TENANTS
 //! ```
 //!
 //! Every counter answers `POST /t/{tenant}/count` with the tenant's count after
@@ -33,7 +35,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-use lgwks_bot::app::{App, Effect, EffectResult, Method as AppMethod, OnInput, Provider, ReplyTag};
+use lgwks_bot::app::{
+    App, Effect, EffectResult, Method as AppMethod, OnInput, Principal, Provider, ReplyTag,
+    RequestHeaders,
+};
 use lgwks_bot::rt::edge::{EdgeError, EdgeStop, MAX_BODY_BYTES, serve};
 use lgwks_bot::rt::io::{AsyncReadExt, AsyncWriteExt};
 use lgwks_bot::rt::net::TcpStream;
@@ -75,7 +80,7 @@ impl fmt::Display for LoadError {
         match *self {
             Self::Usage => {
                 f.write_str(
-                    "usage: edge-load world | axum | app | app-ask | plan FILE | hit ADDR CONNS REQUESTS TENANTS",
+                    "usage: edge-load world | axum | app | app-ask | app-keyed | plan FILE | hit ADDR CONNS REQUESTS TENANTS | hit-keyed ADDR CONNS REQUESTS TENANTS",
                 )
             }
             Self::Io(ref cause) => write!(f, "i/o: {cause}"),
@@ -108,8 +113,10 @@ fn main() -> Result<(), LoadError> {
         ["axum"] => plain_axum(),
         ["app"] => app(),
         ["app-ask"] => app_ask(),
+        ["app-keyed"] => app_keyed(),
         ["plan", path] => plan(path),
-        ["hit", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants),
+        ["hit", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants, false),
+        ["hit-keyed", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants, true),
         _ => refused(LoadError::Usage),
     }
 }
@@ -128,6 +135,39 @@ fn app() -> Result<(), LoadError> {
                 counter(count, ())
             })
             .route(AppMethod::GET, "/count", counter),
+    )
+}
+
+/// The counter behind a key per tenant. A tenant's key is `key-{tenant}`, shown as a
+/// bearer token or as `x-api-key`, and each answer names who asked.
+fn app_keyed() -> Result<(), LoadError> {
+    let counter = |count: &mut u64, who: &Principal, (): ()| {
+        let page = format!("{}:{count}", who.as_str());
+        vec![Effect::reply(200, page.into_bytes())]
+    };
+    serve_app(
+        App::new("edge-load-keyed")
+            .state::<u64>()
+            .authenticate(|tenant: &str, headers: &RequestHeaders<'_>| {
+                let key = match headers.bearer() {
+                    Some(key) => Some(key),
+                    None => headers.get("x-api-key"),
+                };
+                if key? == format!("key-{tenant}") {
+                    Principal::new(tenant)
+                } else {
+                    None
+                }
+            })
+            .route_as(
+                AppMethod::POST,
+                "/count",
+                move |count: &mut u64, who: &Principal, (): ()| {
+                    *count = count.saturating_add(1);
+                    counter(count, who, ())
+                },
+            )
+            .route_as(AppMethod::GET, "/count", counter),
     )
 }
 
@@ -353,12 +393,13 @@ fn world() -> Result<(), LoadError> {
     let mut out = std::io::stdout().lock();
     writeln!(
         out,
-        "world settled={} refused={} tenants={} samples={} rejection_reads={}",
+        "world settled={} refused={} tenants={} samples={} rejection_reads={} probes={}",
         counts.settled,
         counts.refused,
         counts.tenants,
         samples.load(Ordering::Acquire),
         reads.load(Ordering::Acquire),
+        counts.probes,
     )?;
     Ok(())
 }
@@ -448,7 +489,13 @@ struct Measured {
 }
 
 /// Drive `addr` and print the line.
-fn hit(addr: &str, conns: &str, requests: &str, tenants: &str) -> Result<(), LoadError> {
+fn hit(
+    addr: &str,
+    conns: &str,
+    requests: &str,
+    tenants: &str,
+    keyed: bool,
+) -> Result<(), LoadError> {
     let Ok(addr) = addr.parse::<SocketAddr>() else {
         return refused(LoadError::Usage);
     };
@@ -457,7 +504,7 @@ fn hit(addr: &str, conns: &str, requests: &str, tenants: &str) -> Result<(), Loa
     let measured = lgwks_bot::block_on(async move {
         let mut set = JoinSet::new();
         for conn in 0..conns {
-            set.spawn(connection(addr, conn, requests, tenants));
+            set.spawn(connection(addr, conn, requests, tenants, keyed));
         }
         let mut all = Measured::default();
         while let Some(joined) = set.join_next().await {
@@ -521,6 +568,7 @@ async fn connection(
     first: usize,
     requests: usize,
     tenants: usize,
+    keyed: bool,
 ) -> Result<Measured, LoadError> {
     let mut stream = TcpStream::connect(addr).await?;
     stream.set_nodelay(true)?;
@@ -531,8 +579,13 @@ async fn connection(
     let mut buffer = Vec::with_capacity(1024);
     for sent in 0..requests {
         let tenant = first.saturating_add(sent).rem_euclid(tenants);
+        let key = if keyed {
+            format!("authorization: Bearer key-tenant-{tenant}\r\n")
+        } else {
+            String::new()
+        };
         let request = format!(
-            "POST /t/tenant-{tenant}/count HTTP/1.1\r\nhost: {addr}\r\ncontent-length: 0\r\n\r\n"
+            "POST /t/tenant-{tenant}/count HTTP/1.1\r\nhost: {addr}\r\n{key}content-length: 0\r\n\r\n"
         );
         let started = Instant::now();
         stream.write_all(request.as_bytes()).await?;

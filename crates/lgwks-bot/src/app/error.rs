@@ -47,6 +47,11 @@ pub enum AppError {
         /// The distinct missing caps.
         caps: Vec<Cap>,
     },
+    /// A route needs a principal and the app names no authenticator.
+    NoAuthenticator {
+        /// The route, by index.
+        route: usize,
+    },
     /// A cell worker could not start.
     Spawn {
         /// The operating system's refusal.
@@ -80,6 +85,12 @@ impl fmt::Display for AppError {
                 f,
                 "not granted {caps:?}, needed by routes {routes:?} and handlers {handlers:?}"
             ),
+            Self::NoAuthenticator { route } => {
+                write!(
+                    f,
+                    "route {route} needs a principal and no authenticator is set"
+                )
+            }
             Self::Spawn { ref cause } => write!(f, "an app cell worker could not start: {cause}"),
             Self::ServeIo { ref cause } => write!(f, "the app listener failed: {cause}"),
             Self::Closed => f.write_str("the app host refused to start"),

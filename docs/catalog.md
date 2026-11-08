@@ -71,6 +71,7 @@ the crate is the decision. An `off` row states why in ADR 0003.
 | environment fence | `lgwks_bot::broker::Broker` | `lgwks_bot` | `always` | on | fencing token, stale owner, split brain, takeover, generation, epoch, withdraw an operation, kill switch, offline bound, lease |
 | record projection | `lgwks_bot::RecordProjection` | `lgwks_bot` | `ecs` | on | read model, materialized view, event sourcing, fold over a log, rebuild from journal, deterministic replay, catch up |
 | durable stop | `lgwks_bot::script::JournaledCancel` | `lgwks_bot` | `script` | on | durable cancellation, cancel survives restart, journaled cancel, resume cancellation, stop a run across a crash |
+| app authentication | `lgwks_bot::app::Principal` | `lgwks_bot` | `edge` | on | bearer key, authenticate request, api key, 401 at the edge, authorization header |
 
 ## When the gate refuses your code
 
