@@ -443,7 +443,7 @@ pub(super) fn scan(
 /// re-derive its own head was not framed by this journal's writer, and the bytes
 /// behind it may have been acknowledged.
 #[cfg(feature = "wire")]
-pub(super) fn verify_frame(
+pub(in crate::journal) fn verify_frame(
     payload: &[u8],
     head: &[u8; HEAD_BYTES],
     position: JournalPosition,

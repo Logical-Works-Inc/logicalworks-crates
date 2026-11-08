@@ -721,6 +721,25 @@ mod tests {
         Ok(())
     }
 
+    /// A record the index omits is a decision nobody arriving at the docs can find.
+    /// Catches a record landing without its row, which only the llms gate saw before.
+    #[test]
+    fn every_decision_record_is_listed_in_the_record_index() -> TestResult {
+        let records = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/adr");
+        let index = std::fs::read_to_string(records.join("README.md"))?;
+        let listed = link_targets(&index);
+        for entry in std::fs::read_dir(&records)? {
+            let name = entry?.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".md") && name != "README.md" {
+                assert!(
+                    listed.iter().any(|target| *target == name),
+                    "docs/adr/README.md omits {name}"
+                );
+            }
+        }
+        Ok(())
+    }
+
     /// The committed `llms.txt` is exactly what this binary renders from the
     /// repository it sits in: the same check CI runs, as a test.
     #[test]

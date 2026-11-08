@@ -188,7 +188,7 @@ pub(super) fn write_successor(successor: &Path, frame: &[u8]) -> std::io::Result
 /// The four pauses sit between the four durable steps, in the order the steps
 /// happen, so a kill at any of them leaves a different file to reopen and a
 /// harness can sweep the whole set from [`SealPause::all`].
-pub(super) fn seal_on_owner(
+pub(in crate::journal) fn seal_on_owner(
     file: &mut File,
     expected_len: u64,
     frame: &[u8],

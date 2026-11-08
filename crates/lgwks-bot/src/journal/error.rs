@@ -139,6 +139,17 @@ pub enum JournalError {
         /// The amount required by the refused operation or existing file.
         requested: u64,
     },
+    /// A cursor names a record older than this generation holds.
+    ///
+    /// Refused rather than answered from the checkpoint, because a consumer folding
+    /// by cursor would otherwise skip the sealed history with nothing to tell it so.
+    /// Its next move is to rebuild from the entry at `first`, which is the checkpoint.
+    CursorBehindGeneration {
+        /// The sequence the caller asked to read after.
+        cursor: u64,
+        /// The sequence of this generation's first entry.
+        first: u64,
+    },
     /// Another writer holds the journal file's exclusive fence.
     ///
     /// The refusal carries the path because the fix is about *when* to open,
@@ -306,6 +317,11 @@ impl fmt::Display for JournalError {
             } => write!(
                 f,
                 "journal {resource:?} limit exceeded: limit {limit}, requested {requested}"
+            ),
+            Self::CursorBehindGeneration { cursor, first } => write!(
+                f,
+                "cursor {cursor} is older than this generation, whose first entry is {first}; \
+                 rebuild from that checkpoint"
             ),
             Self::Locked { ref path } => write!(
                 f,

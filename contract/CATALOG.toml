@@ -603,3 +603,13 @@ default = "off"
 reason = "OpenTelemetry API and SDK with OTLP/HTTP export and the bridge from lgwks_std::trace spans, on the ring provider. One flag: --features otel (ADR 0015)."
 words = ["opentelemetry", "otel", "otlp", "gen_ai spans", "traces", "metrics", "tracing bridge", "observability"]
 replaces = ["opentelemetry as a direct edge", "a bespoke span exporter", "a second tracing facade"]
+
+[[capability]]
+name = "record journal"
+path = "lgwks_bot::journal::RecordJournal"
+file = "crates/lgwks-bot/src/journal/records.rs"
+crate = "lgwks_bot"
+feature = "wire"
+default = "on"
+words = ["durable log", "journal", "write ahead log", "wal", "append only log", "compare and append", "hash chain", "torn tail", "event log", "crash recovery"]
+replaces = ["an append-only file with fsync by hand", "a Vec of events lost on restart", "a torn-tail scan of your own"]
