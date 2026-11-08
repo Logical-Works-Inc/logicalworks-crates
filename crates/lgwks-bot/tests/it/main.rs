@@ -682,3 +682,16 @@ mod wrong_identity_evidence;
 
 #[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g1")))]
 mod record_journal_cli;
+
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g2")))]
+mod broker_fence_cli;
+
+#[cfg(all(
+    feature = "ecs",
+    feature = "wire",
+    any(not(lwc_it_group), lwc_it_group = "g2")
+))]
+mod broker_fence_dispatch;
+
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g2")))]
+mod sim_broker_fence;

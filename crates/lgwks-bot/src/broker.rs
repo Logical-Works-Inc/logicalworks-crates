@@ -25,6 +25,28 @@
 //! handoff, because a replacement landing between the mint and the handoff would
 //! otherwise leave a legitimately minted warrant dispatchable.
 //!
+//! # Freshness: the half a generation does not answer
+//!
+//! A generation says which environment a command was prepared against. It does
+//! not say whether authority still stands now, so three more facts live here:
+//!
+//! 1. [`Broker::authenticate`] raises to whatever an authority source reports, in
+//!    one step, and absorbs an older report instead of obeying it.
+//! 2. [`Broker::revoke_operation`] withdraws one operation by name, one way.
+//! 3. [`Broker::set_offline_bound`] caps the mutating reaches allowed between two
+//!    contacts with the source. [`Broker::spend`] counts them, and only
+//!    authenticating recharges them.
+//!
+//! The refusals run in a fixed order, revoked then stale then spent, so one attempt
+//! always reports one reason. The broker reads no clock: a duration could be
+//! extended by time passing or by a clock set back, and a count cannot. Nothing
+//! here gates observation, because fencing a status query would leave an effect
+//! already sent permanently unlabelled.
+//!
+//! This state is live and is not journaled. A broker built after a restart has
+//! spent nothing, so a host that must not recharge across a restart records its
+//! own count and sets the bound from it.
+//!
 //! # What the broker owns
 //!
 //! The environment identity itself comes from the host, because the host is what
@@ -36,7 +58,11 @@
 //! counter the broker invents.
 //!
 //! [`Broker::authorize`]: crate::broker::Broker::authorize
+//! [`Broker::authenticate`]: crate::broker::Broker::authenticate
 //! [`Broker::revalidate`]: crate::broker::Broker::revalidate
+//! [`Broker::revoke_operation`]: crate::broker::Broker::revoke_operation
+//! [`Broker::set_offline_bound`]: crate::broker::Broker::set_offline_bound
+//! [`Broker::spend`]: crate::broker::Broker::spend
 //! [`BrokerError::NeverIssued`]: crate::broker::BrokerError::NeverIssued
 //! [`BrokerError::Superseded`]: crate::broker::BrokerError::Superseded
 //! [`DurableAck`]: crate::journal::DurableAck
@@ -45,15 +71,15 @@
 
 use core::fmt;
 use core::num::NonZeroU64;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
-use crate::effect::{EffectKey, EnvironmentEpoch, EnvironmentId};
+use crate::effect::{ActionId, EffectKey, EnvironmentEpoch, EnvironmentId};
 use crate::journal::JournalError;
 #[cfg(feature = "ecs")]
 use crate::journal::{DurableAck, EffectEvent, EffectJournal, JournalPosition};
 
 /// What the broker knows about one environment.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Environment {
     /// The generation currently authorized to receive commands.
     epoch: EnvironmentEpoch,
@@ -61,7 +87,38 @@ struct Environment {
     /// mints no further authority, which is the cleanup half of the resource
     /// contract.
     open: bool,
+    /// Operations withdrawn by name, at most [`MAX_REVOKED_OPERATIONS`].
+    revoked: BTreeSet<ActionId>,
+    /// The counted exposure, when the host set one. `None` counts nothing.
+    offline: Option<OfflineExposure>,
 }
+
+impl Environment {
+    /// A live environment at `epoch`, with nothing withdrawn and nothing counted.
+    const fn at(epoch: EnvironmentEpoch) -> Self {
+        Self {
+            epoch,
+            open: true,
+            revoked: BTreeSet::new(),
+            offline: None,
+        }
+    }
+}
+
+/// How many mutating reaches may happen between contacts with the authority source.
+#[derive(Debug, Clone, Copy)]
+struct OfflineExposure {
+    /// The ceiling. Zero refuses every reach, and authenticating does not lift it.
+    bound: u32,
+    /// Reaches since the last contact.
+    spent: u32,
+}
+
+/// How many operations one environment can hold withdrawn by name.
+///
+/// A refusal past it says so, and the host still has the wider withdrawal: moving
+/// the generation fences everything admitted below it.
+const MAX_REVOKED_OPERATIONS: usize = 65_536;
 
 /// What the broker can refuse.
 #[derive(Debug)]
@@ -111,6 +168,33 @@ pub enum BrokerError {
         presented: EnvironmentEpoch,
         /// The generation the broker currently holds.
         current: EnvironmentEpoch,
+    },
+    /// The operation's authority was withdrawn by name.
+    Revoked {
+        /// The environment it was withdrawn on.
+        environment: EnvironmentId,
+        /// The withdrawn operation.
+        action: ActionId,
+    },
+    /// The authority source has not been reached for `bound` mutating reaches.
+    ///
+    /// Offline authority is spent and the fence fails closed until
+    /// [`Broker::authenticate`]. A bound of zero stays shut even then.
+    OfflineExposureExhausted {
+        /// The environment whose allowance is spent.
+        environment: EnvironmentId,
+        /// The configured ceiling.
+        bound: u32,
+    },
+    /// The environment already holds as many withdrawals as it can.
+    ///
+    /// The operation is not withdrawn. Moving the generation with
+    /// [`Broker::replace`] still fences everything admitted below it.
+    RevocationsFull {
+        /// The environment that is full.
+        environment: EnvironmentId,
+        /// How many withdrawals it holds.
+        limit: usize,
     },
     /// The journal names an environment this broker was not asked to adopt.
     ///
@@ -184,6 +268,20 @@ impl fmt::Display for BrokerError {
                 "a command for {environment} names generation {presented}, which \
                  this broker never issued; it holds {current}"
             ),
+            Self::Revoked {
+                environment,
+                action,
+            } => write!(f, "operation {action} on {environment} was revoked by name"),
+            Self::OfflineExposureExhausted { environment, bound } => write!(
+                f,
+                "offline authority on {environment} is spent: {bound} reaches without the \
+                 authority source"
+            ),
+            Self::RevocationsFull { environment, limit } => write!(
+                f,
+                "environment {environment} already holds {limit} withdrawals; move its \
+                 generation to fence the rest"
+            ),
             Self::ForeignEnvironment { asked, named } => write!(
                 f,
                 "the journal describes environment {named}, not the {asked} being adopted"
@@ -221,14 +319,24 @@ pub struct Authority {
     environment: EnvironmentId,
     /// The generation it was authorized against.
     epoch: EnvironmentEpoch,
+    /// The operation it authorizes, which a later withdrawal names.
+    action: ActionId,
 }
 
 impl Authority {
     /// Seal a warrant. Crate-private on purpose: this is the seal.
     /// [`Broker::authorize`] is the only caller, so a warrant can never name a
     /// generation the broker did not check.
-    pub(crate) const fn new(environment: EnvironmentId, epoch: EnvironmentEpoch) -> Self {
-        Self { environment, epoch }
+    pub(crate) const fn new(
+        environment: EnvironmentId,
+        epoch: EnvironmentEpoch,
+        action: ActionId,
+    ) -> Self {
+        Self {
+            environment,
+            epoch,
+            action,
+        }
     }
 
     /// The environment the attempt may be handed to.
@@ -241,6 +349,42 @@ impl Authority {
     #[must_use]
     pub const fn epoch(&self) -> EnvironmentEpoch {
         self.epoch
+    }
+
+    /// The operation it authorizes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use lgwks_bot::broker::Broker;
+    /// use lgwks_bot::effect::{
+    ///     ActionDigest, ActionId, AttemptId, EffectIdentity, EnvironmentId, FlowRevision, RunId,
+    /// };
+    ///
+    /// let id = EnvironmentId::from_hex("2122232425262728292a2b2c2d2e2f30")?;
+    /// let action = ActionId::from_hex("1112131415161718191a1b1c1d1e1f20")?;
+    /// let zeroes = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+    /// let mut broker = Broker::new();
+    /// let generation = broker.register(id)?;
+    /// let key = EffectIdentity::new(
+    ///     RunId::from_hex("0102030405060708090a0b0c0d0e0f10")?,
+    ///     id,
+    ///     FlowRevision::from_tagged("blake3_256", zeroes)?,
+    /// )
+    /// .key(
+    ///     action,
+    ///     AttemptId::from_decimal("1")?,
+    ///     ActionDigest::from_tagged("blake3_256", zeroes)?,
+    ///     generation,
+    /// );
+    /// assert_eq!(broker.authorize(key)?.action(), action);
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub const fn action(&self) -> ActionId {
+        self.action
     }
 }
 
@@ -306,8 +450,7 @@ impl Broker {
         // precisely so that a zeroed or truncated field cannot be read as a
         // generation the broker issued.
         let epoch = EnvironmentEpoch::new(NonZeroU64::MIN);
-        self.environments
-            .insert(id, Environment { epoch, open: true });
+        self.environments.insert(id, Environment::at(epoch));
         Ok(epoch)
     }
 
@@ -323,10 +466,7 @@ impl Broker {
     /// [`BrokerError::UnknownEnvironment`], [`BrokerError::Closed`] or
     /// [`BrokerError::Exhausted`].
     pub fn replace(&mut self, id: EnvironmentId) -> Result<EnvironmentEpoch, BrokerError> {
-        let environment = self
-            .environments
-            .get_mut(&id)
-            .ok_or(BrokerError::UnknownEnvironment { id })?;
+        let environment = self.known_mut(id)?;
         if !environment.open {
             let refusal = Err(BrokerError::Closed { id });
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replace: returning an error to the caller");
@@ -368,44 +508,19 @@ impl Broker {
         id: EnvironmentId,
         journal: &dyn crate::journal::EffectJournal,
     ) -> Result<EnvironmentEpoch, BrokerError> {
-        if self.environments.contains_key(&id) {
-            let refusal = Err(BrokerError::AlreadyRegistered { id });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "adopt: returning an error to the caller");
-            return refusal;
-        }
-        let mut highest = None;
-        for event in journal.committed().map_err(BrokerError::Journal)? {
-            let key = event.key();
-            if key.environment() != id {
-                let refusal = Err(BrokerError::ForeignEnvironment {
-                    asked: id,
-                    named: key.environment(),
-                });
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "adopt: returning an error to the caller");
-                return refusal;
-            }
-            highest = Some(match highest {
-                None => key.epoch(),
-                Some(current) if key.epoch() > current => key.epoch(),
-                Some(current) => current,
-            });
-        }
-        let Some(highest) = highest else {
-            let refusal = Err(BrokerError::NothingToAdopt { id });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "adopt: returning an error to the caller");
-            return refusal;
-        };
-        let next = highest
-            .checked_next()
-            .ok_or(BrokerError::Exhausted { id })?;
-        self.environments.insert(
-            id,
-            Environment {
-                epoch: next,
-                open: true,
-            },
-        );
-        Ok(next)
+        self.adopt_from(id, || {
+            Ok(journal.committed()?.into_iter().map(|event| {
+                let key = event.key();
+                Ok(Some((key.environment(), key.epoch())))
+            }))
+        })
+    }
+
+    /// The environment `id` names, for a call that changes it.
+    fn known_mut(&mut self, id: EnvironmentId) -> Result<&mut Environment, BrokerError> {
+        self.environments
+            .get_mut(&id)
+            .ok_or(BrokerError::UnknownEnvironment { id })
     }
 
     /// Release the environment. Idempotent, because a cleanup path that has to
@@ -415,10 +530,7 @@ impl Broker {
     ///
     /// [`BrokerError::UnknownEnvironment`] when this broker never owned `id`.
     pub fn close(&mut self, id: EnvironmentId) -> Result<(), BrokerError> {
-        let environment = self
-            .environments
-            .get_mut(&id)
-            .ok_or(BrokerError::UnknownEnvironment { id })?;
+        let environment = self.known_mut(id)?;
         environment.open = false;
         Ok(())
     }
@@ -439,49 +551,6 @@ impl Broker {
             .is_some_and(|environment| environment.open)
     }
 
-    /// The generation check, run both when a warrant is minted and when it is
-    /// presented again.
-    ///
-    /// One function because the two callers must agree exactly. A second copy
-    /// of this comparison that drifted would mean a warrant the broker would
-    /// refuse to mint and would accept at the boundary, which is the failure
-    /// fencing exists to prevent.
-    fn check_generation(
-        &self,
-        id: EnvironmentId,
-        presented: EnvironmentEpoch,
-    ) -> Result<EnvironmentEpoch, BrokerError> {
-        let environment = self
-            .environments
-            .get(&id)
-            .ok_or(BrokerError::UnknownEnvironment { id })?;
-        if !environment.open {
-            let refusal = Err(BrokerError::Closed { id });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "check_generation: returning an error to the caller");
-            return refusal;
-        }
-        let current = environment.epoch;
-        if presented.get() > current.get() {
-            let refusal = Err(BrokerError::NeverIssued {
-                environment: id,
-                presented,
-                current,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "check_generation: returning an error to the caller");
-            return refusal;
-        }
-        if presented != current {
-            let refusal = Err(BrokerError::Superseded {
-                environment: id,
-                presented,
-                current,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "check_generation: returning an error to the caller");
-            return refusal;
-        }
-        Ok(current)
-    }
-
     /// Mint authority for `key`, if and only if the generation it names is the
     /// one this broker currently holds.
     ///
@@ -491,11 +560,12 @@ impl Broker {
     /// # Errors
     ///
     /// [`BrokerError::UnknownEnvironment`], [`BrokerError::Closed`],
-    /// [`BrokerError::Superseded`] or [`BrokerError::NeverIssued`].
+    /// [`BrokerError::Revoked`], [`BrokerError::Superseded`],
+    /// [`BrokerError::NeverIssued`] or [`BrokerError::OfflineExposureExhausted`].
     pub fn authorize(&self, key: EffectKey) -> Result<Authority, BrokerError> {
         let id = key.environment();
-        let current = self.check_generation(id, key.epoch())?;
-        Ok(Authority::new(id, current))
+        let current = self.check_warrant(id, key.action(), key.epoch())?;
+        Ok(Authority::new(id, current, key.action()))
     }
 
     /// Re-check a warrant that was minted earlier, immediately before the
@@ -510,10 +580,14 @@ impl Broker {
     ///
     /// # Errors
     ///
-    /// [`BrokerError::UnknownEnvironment`], [`BrokerError::Closed`],
-    /// [`BrokerError::Superseded`] or [`BrokerError::NeverIssued`].
+    /// As [`Self::authorize`], so a withdrawal or a spent allowance that lands after
+    /// the mint refuses here too.
     pub fn revalidate(&self, authority: &Authority) -> Result<(), BrokerError> {
-        self.check_generation(authority.environment(), authority.epoch())?;
+        self.check_warrant(
+            authority.environment(),
+            authority.action(),
+            authority.epoch(),
+        )?;
         Ok(())
     }
 }
@@ -628,6 +702,8 @@ pub(crate) async fn prepare_dispatch(
         .await?;
     Ok(Prepared { authority, ack })
 }
+
+mod fence;
 
 #[cfg(test)]
 #[cfg(feature = "ecs")]

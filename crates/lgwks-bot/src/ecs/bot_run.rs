@@ -270,13 +270,16 @@ impl EcsBot {
             // landing between them leaves a warrant that was minted legitimately
             // and is now stale; a check that only ran at mint time would let it
             // through. Nothing is awaited before this, so the warrant is
-            // presented as close to the handoff as the substrate can put it.
+            // presented as close to the handoff as the substrate can put it. It is
+            // also the count: this attempt is the reach an offline bound limits, so
+            // the check and the spend are one call and a retry spends again.
             if let Err(cause) = self
                 .world
-                .non_send::<Ledger>()
+                .non_send_mut::<Ledger>()
                 .effects
-                .broker()
-                .revalidate(&authority)
+                .scope
+                .broker
+                .spend(&authority)
             {
                 let error = BotError::EffectRefused {
                     cause: DispatchError::Broker(cause),

@@ -267,13 +267,7 @@ fn an_exhausted_generation_space_is_named_rather_than_wrapped() -> TestResult {
     let id = env()?;
     let last = EnvironmentEpoch::new(NonZeroU64::MAX);
     let mut broker = Broker {
-        environments: HashMap::from([(
-            id,
-            Environment {
-                epoch: last,
-                open: true,
-            },
-        )]),
+        environments: HashMap::from([(id, Environment::at(last))]),
     };
     assert!(matches!(
         broker.replace(id),
