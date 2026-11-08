@@ -465,7 +465,7 @@ jobs:
           cache-key: ${{ matrix.archive }}
           nextest: "true"
           # The group rows restore their whole dependency build from rust-cache.
-          sccache: ${{ matrix.suite == 'bot-it' && 'false' || 'true' }}
+          sccache: "false"
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}

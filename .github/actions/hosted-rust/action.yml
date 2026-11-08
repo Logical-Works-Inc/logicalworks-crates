@@ -43,7 +43,7 @@ inputs:
       them, sccache logged 143 write errors on the macOS bot archive and every
       run compiled it cold (run 41633491192).
     required: false
-    default: "true"
+    default: "false"
 runs:
   using: composite
   steps:
@@ -98,6 +98,7 @@ runs:
         cache-on-failure: "true"
     - name: Install sccache
       if: inputs.caches == 'true' && inputs.sccache == 'true'
+      continue-on-error: true
       uses: mozilla-actions/sccache-action@v0.0.11
       with:
         version: v0.18.0
@@ -108,7 +109,7 @@ runs:
       shell: bash
       run: |
         {
-          if [ "${{ inputs.sccache }}" = "true" ]; then
+          if [ "${{ inputs.sccache }}" = "true" ] && command -v sccache >/dev/null 2>&1; then
             echo "SCCACHE_GHA_ENABLED=true"
             echo "RUSTC_WRAPPER=sccache"
             # Writes from main alone, as rust-cache saves: a pull request's
