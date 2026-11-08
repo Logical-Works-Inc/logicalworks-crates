@@ -60,7 +60,7 @@ pub(super) const RESERVED_TENANTS: [&str; 1] = ["fan-out"];
 
 /// The identity a flow runs on behalf of.
 ///
-/// Every [`Scope`] carries one, and every [`StepKey`] hashes it, so data keyed
+/// Every [`Scope`](crate::script::Scope) carries one, and every [`StepKey`] hashes it, so data keyed
 /// by a step is keyed by its tenant whether or not the author remembered to.
 /// The name is 1 to [`MAX_TENANT_BYTES`] bytes of ASCII letters, digits, and
 /// `-`, `_`, `.`, `:`, and never only dots, which keeps it safe to put in a path,

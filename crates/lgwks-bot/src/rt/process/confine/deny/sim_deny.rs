@@ -16,6 +16,8 @@ const SECRET: &str = "the-hidden-bytes";
 enum DenyFault {
     /// The scratch directory or the wrapper would not run.
     Setup(io::Error),
+    /// The host had no entropy to name the scratch directory with.
+    Entropy(lgwks_std::random::EntropyError),
     /// The payload read the secret through the overmount.
     Lifted,
     /// The payload still held capabilities after the wrapper's exec.
@@ -25,6 +27,12 @@ enum DenyFault {
 impl From<io::Error> for DenyFault {
     fn from(error: io::Error) -> Self {
         Self::Setup(error)
+    }
+}
+
+impl From<lgwks_std::random::EntropyError> for DenyFault {
+    fn from(error: lgwks_std::random::EntropyError) -> Self {
+        Self::Entropy(error)
     }
 }
 
@@ -40,7 +48,7 @@ fn sim_deny_saboteur_the_fallback_payload_cannot_lift_the_overmount() -> Result<
         lgwks_std::trace::warn!("cap: this host has no unshare");
         return Ok(());
     }
-    let held = std::env::temp_dir().join(format!("lgwks-deny-{}", lgwks_std::id::Uuid::new_v4()));
+    let held = std::env::temp_dir().join(format!("lgwks-deny-{}", lgwks_std::id::Uuid::new_v4()?));
     std::fs::create_dir_all(&held)?;
     let outcome = attack(&held);
     std::fs::remove_dir_all(&held)?;
