@@ -14,10 +14,10 @@ use super::record::{
 use super::snapshot;
 use super::{
     BUSY_WAIT, HEADER_LEN, Index, KIND_LANE_DISPATCHED, LOCK_FILE, LOCK_SLICE_MS, LaneRow,
-    LockGuard, MAX_LISTED, OpenRun, Policy, RELEASES, RunEntry, RunRow, RunStart,
-    SNAPSHOT_INTERVAL_FRAMES, STORE_FILE, STORE_FORMAT, STORE_MAGIC, StoreInner, TenantStore,
-    TenantStoreError, VERSION_BYTE, close_decision, is_open_lane, is_pending, lane_ready,
-    lock_file, lock_index, tenant_rows, unknown_run,
+    LockGuard, MAX_CURSORS_PER_TENANT, MAX_LISTED, OpenRun, Policy, RELEASES, RunEntry, RunRow,
+    RunStart, SNAPSHOT_INTERVAL_FRAMES, STORE_FILE, STORE_FORMAT, STORE_MAGIC, StoreInner,
+    TenantStore, TenantStoreError, VERSION_BYTE, close_decision, is_open_lane, is_pending,
+    lane_ready, lock_file, lock_index, tenant_rows, unknown_run,
 };
 use crate::journal::frame::SaturatingFrom;
 use crate::journal::owner::{lock, wait_timeout};
@@ -71,6 +71,7 @@ impl TenantStore {
                 dir: dir.to_path_buf(),
                 index: Mutex::new(Index {
                     policies: BTreeMap::new(),
+                    cursors: BTreeMap::new(),
                     runs: BTreeMap::new(),
                     frames: 0,
                     committed: u64::saturating_from(HEADER_LEN),
@@ -87,6 +88,7 @@ impl TenantStore {
             match snapshot::read(&store.inner.dir)? {
                 Some(loaded) if loaded.committed >= u64::saturating_from(HEADER_LEN) => {
                     index.policies = loaded.policies;
+                    index.cursors = loaded.cursors;
                     index.runs = loaded.runs;
                     index.frames = loaded.frames;
                     index.committed = loaded.committed;
@@ -392,6 +394,109 @@ impl TenantStore {
                     held.created_at.clone(),
                 )
             }))
+        })
+    }
+
+    /// Move `consumer`'s cursor over `tenant`'s history forward, and say where it stands.
+    ///
+    /// Moving to where it already stands writes nothing, so a consumer that died
+    /// between reading a page and saving its place can save it again.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), lgwks_bot::tenant_store::TenantStoreError> {
+    /// use lgwks_bot::tenant_store::TenantStore;
+    ///
+    /// let dir = std::env::temp_dir().join(format!("cursor-doc-{}", std::process::id()));
+    /// # drop(std::fs::remove_dir_all(&dir));
+    /// # drop(std::fs::create_dir_all(&dir));
+    /// let store = TenantStore::open(&dir)?;
+    /// assert_eq!(store.cursor("acme", "mailer")?, None);
+    /// assert_eq!(store.advance_cursor("acme", "mailer", 40)?, 40);
+    /// assert!(store.advance_cursor("acme", "mailer", 39).is_err());
+    /// assert_eq!(store.cursor("acme", "mailer")?, Some(40));
+    /// assert_eq!(store.cursor("globex", "mailer")?, None);
+    /// # drop(store);
+    /// # drop(std::fs::remove_dir_all(&dir));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`TenantStoreError::CursorBehind`] for a position behind the one held,
+    /// [`TenantStoreError::Limit`] for a new consumer past
+    /// the limit a tenant holds, and whatever the device or the lock reports.
+    pub fn advance_cursor(
+        &self,
+        tenant: &str,
+        consumer: &str,
+        position: u64,
+    ) -> Result<u64, TenantStoreError> {
+        self.transact(|index| {
+            let held = index.cursors.get(tenant);
+            let current = held.and_then(|cursors| cursors.get(consumer)).copied();
+            if let Some(at) = current {
+                if position < at {
+                    let refusal = Err(TenantStoreError::CursorBehind {
+                        held: at,
+                        asked: position,
+                    });
+                    lgwks_std::trace::warn!(
+                        tenant,
+                        consumer,
+                        at,
+                        position,
+                        "tenant_store: a cursor cannot move back"
+                    );
+                    return refusal;
+                }
+                if position == at {
+                    return Ok((None, at));
+                }
+            } else {
+                let count = match held {
+                    Some(cursors) => u64::saturating_from(cursors.len()),
+                    None => 0,
+                };
+                if count >= MAX_CURSORS_PER_TENANT {
+                    let refusal = Err(TenantStoreError::Limit {
+                        requested: count.saturating_add(1),
+                        limit: MAX_CURSORS_PER_TENANT,
+                    });
+                    lgwks_std::trace::warn!(
+                        tenant,
+                        consumer,
+                        count,
+                        "tenant_store: this tenant holds its limit of cursors"
+                    );
+                    return refusal;
+                }
+            }
+            Ok((Some(Stored::cursor(tenant, consumer, position)), position))
+        })
+    }
+
+    /// How far `consumer` has read `tenant`'s history, if it has saved a place.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::tenant_store::{TenantStore, TenantStoreError};
+    ///
+    /// fn place(store: &TenantStore) -> Result<Option<u64>, TenantStoreError> {
+    ///     store.cursor("acme", "mailer")
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Whatever the device or the lock reports.
+    pub fn cursor(&self, tenant: &str, consumer: &str) -> Result<Option<u64>, TenantStoreError> {
+        self.observe(|index| {
+            let held = index.cursors.get(tenant);
+            Ok(held.and_then(|cursors| cursors.get(consumer)).copied())
         })
     }
 

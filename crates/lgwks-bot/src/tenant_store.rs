@@ -157,7 +157,7 @@ const SNAPSHOT_FILE: &str = "tenant.snapshot";
 const SNAPSHOT_TMP: &str = "tenant.snapshot.tmp";
 
 /// The snapshot format this build writes and reads.
-const SNAPSHOT_FORMAT: u8 = 1;
+const SNAPSHOT_FORMAT: u8 = 2;
 
 /// How many frames past the snapshot a mutation may commit before the next
 /// transact — or an open that finds it stale — rewrites it. An open then
@@ -180,6 +180,14 @@ const KIND_LANE_ENDED: u8 = 4;
 const KIND_FINISH_RUN: u8 = 5;
 /// The transactional close of a run whose coordinator died.
 const KIND_ABANDON_RUN: u8 = 6;
+/// A consumer's cursor moving forward.
+const KIND_CURSOR: u8 = 7;
+
+/// How many named cursors one tenant may hold.
+///
+/// A cursor is written by the tenant's own consumers, so an unbounded count would
+/// let one tenant grow what every open of the store reads.
+const MAX_CURSORS_PER_TENANT: u64 = 64;
 
 /// The verdict an abandoned run carries. Fixed, because a lane that was
 /// dispatched but never recorded an end may or may not have run: its outcome
@@ -245,6 +253,8 @@ struct Index {
     policies: BTreeMap<String, StoredPolicy>,
     /// Per run id, in arrival order: the run and its lanes.
     runs: BTreeMap<String, RunEntry>,
+    /// Per tenant, per consumer: how far that consumer has read.
+    cursors: BTreeMap<String, BTreeMap<String, u64>>,
     /// How many frames the index folds, so a refusal names the frame it met.
     frames: u64,
     /// The file length every folded frame accounts for.

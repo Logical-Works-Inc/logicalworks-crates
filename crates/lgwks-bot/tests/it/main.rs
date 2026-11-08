@@ -709,3 +709,20 @@ mod record_projection_cli;
     any(not(lwc_it_group), lwc_it_group = "g3")
 ))]
 mod sim_record_projection;
+
+#[cfg(all(
+    feature = "script",
+    feature = "wire",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod durable_stop_cli;
+
+#[cfg(all(
+    feature = "script",
+    feature = "wire",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod sim_journaled_cancel;
+
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod sim_tenant_cursor;

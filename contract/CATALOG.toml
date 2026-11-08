@@ -633,3 +633,13 @@ feature = "ecs"
 default = "on"
 words = ["read model", "materialized view", "event sourcing", "fold over a log", "rebuild from journal", "deterministic replay", "catch up"]
 replaces = ["a read model rebuilt by hand", "a fold over a BTreeMap of your own", "a replay loop that hides a failed record"]
+
+[[capability]]
+name = "durable stop"
+path = "lgwks_bot::script::JournaledCancel"
+file = "crates/lgwks-bot/src/script/journaled_cancel.rs"
+crate = "lgwks_bot"
+feature = "script"
+default = "on"
+words = ["durable cancellation", "cancel survives restart", "journaled cancel", "resume cancellation", "stop a run across a crash"]
+replaces = ["a cancel flag in a database row", "a token plus a journal entry kept in step by hand"]

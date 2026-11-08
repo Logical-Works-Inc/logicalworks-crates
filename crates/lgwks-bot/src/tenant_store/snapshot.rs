@@ -28,6 +28,8 @@ pub(super) struct Snapshot {
     pub(super) policies: BTreeMap<String, StoredPolicy>,
     /// Per run id: the run and its lanes.
     pub(super) runs: BTreeMap<String, RunEntry>,
+    /// Per tenant, per consumer: how far that consumer has read.
+    pub(super) cursors: BTreeMap<String, BTreeMap<String, u64>>,
     /// How many frames the maps fold.
     pub(super) frames: u64,
     /// The file length every folded frame accounts for.
@@ -54,6 +56,8 @@ struct SnapshotFile {
     policies: BTreeMap<String, StoredPolicy>,
     /// Per run id: the run and its lanes.
     runs: BTreeMap<String, RunEntry>,
+    /// Per tenant, per consumer: how far that consumer has read.
+    cursors: BTreeMap<String, BTreeMap<String, u64>>,
 }
 
 /// Read the snapshot beside the store in `dir`, or `None` where there is no
@@ -128,6 +132,7 @@ pub(super) fn read(dir: &Path) -> Result<Option<Snapshot>, TenantStoreError> {
     Ok(Some(Snapshot {
         policies: stored.policies,
         runs: stored.runs,
+        cursors: stored.cursors,
         frames: stored.frames,
         committed: stored.committed,
         tail,
@@ -155,6 +160,7 @@ pub(super) fn write(dir: &Path, index: &Index) -> Result<(), TenantStoreError> {
         tail: index.tail.as_bytes().to_vec(),
         policies: index.policies.clone(),
         runs: index.runs.clone(),
+        cursors: index.cursors.clone(),
     };
     let bytes = crate::json::to_vec(&stored).map_err(|cause| {
         lgwks_std::trace::warn!(
