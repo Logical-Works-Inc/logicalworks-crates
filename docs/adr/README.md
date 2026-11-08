@@ -51,5 +51,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0013](0013-serve-emits-openapi-from-route-registry.md) | Serve emits OpenAPI 3.1 schema from route registry |
 | [0014](0014-std-and-deps-capability-gaps.md) | Capability gaps split between first-party elimination and storefront boundaries |
 | [0015](0015-agent-standards-storefront.md) | The storefront sells the agent standards on one ring TLS provider |
+| [0016](0016-record-journal-for-a-consumers-own-history.md) | A durable journal over a consumer's own record |
 
 New records go at the bottom of that table.
