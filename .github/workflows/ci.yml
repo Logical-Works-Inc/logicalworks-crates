@@ -687,6 +687,7 @@ jobs:
       - name: Check successful simulation result
         run: |
           cat gate-evidence/simulation-evidence.txt && grep -q '^<== simulation-evidence: pass' gate-evidence/simulation-evidence.txt
+          sleep 12
 
   debug_e2e:
     name: successful end-to-end journey result
@@ -702,6 +703,7 @@ jobs:
       - name: Check successful end-to-end journey result
         run: |
           cat gate-evidence/debug-e2e.txt && grep -q '^<== debug-e2e: pass' gate-evidence/debug-e2e.txt
+          sleep 12
 
   # The lgwks-std full-feature suite. Its compile and its tests are bounded
   # apart: as one three-minute step a cold compile (2 m 12 s on run

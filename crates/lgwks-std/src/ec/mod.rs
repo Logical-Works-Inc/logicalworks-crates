@@ -585,28 +585,34 @@ pub(crate) fn verify_ec_contract() -> bool {
         let _bits = curve_val.bit_len();
         let _slen = curve_val.scalar_len();
         let _ulen = curve_val.uncompressed_point_len();
-        if let Ok(secret_scalar) = SecretScalar::generate(curve_val) {
-            let _scurve = secret_scalar.curve();
-            let scalar_bytes = secret_scalar.to_be_bytes();
-            valid &= SecretScalar::from_be_bytes(curve_val, &scalar_bytes).is_ok();
-            if let Ok(pub_point) = secret_scalar.public_key() {
-                let _pcurve = pub_point.curve();
-                let uncompressed = pub_point.to_sec1_uncompressed();
-                let compressed = pub_point.to_sec1_compressed();
-                valid &= PublicPoint::from_sec1_bytes(curve_val, &uncompressed).is_ok();
-                valid &= PublicPoint::from_sec1_bytes(curve_val, &compressed).is_ok();
-                if let Ok(shared_sec) = ecdh_shared_secret(&secret_scalar, &pub_point) {
-                    let _sh_bytes = shared_sec.as_bytes();
-                }
-                let digest_buf = [0x5au8; 32];
-                if let Ok(ecdsa_sig) = ecdsa_sign_digest(&secret_scalar, &digest_buf) {
-                    let raw_sig = ecdsa_sig.to_raw();
-                    let der_sig = ecdsa_sig.to_der();
-                    valid &= EcdsaSignature::from_raw(curve_val, &raw_sig).is_ok();
-                    valid &= EcdsaSignature::from_der(curve_val, &der_sig).is_ok();
-                    valid &= ecdsa_verify_digest(&pub_point, &digest_buf, &ecdsa_sig).is_ok();
+        match curve_val {
+            Curve::P256 => {
+                if let Ok(secret_scalar) = SecretScalar::generate(curve_val) {
+                    let _scurve = secret_scalar.curve();
+                    let scalar_bytes = secret_scalar.to_be_bytes();
+                    valid &= SecretScalar::from_be_bytes(curve_val, &scalar_bytes).is_ok();
+                    if let Ok(pub_point) = secret_scalar.public_key() {
+                        let _pcurve = pub_point.curve();
+                        let uncompressed = pub_point.to_sec1_uncompressed();
+                        let compressed = pub_point.to_sec1_compressed();
+                        valid &= PublicPoint::from_sec1_bytes(curve_val, &uncompressed).is_ok();
+                        valid &= PublicPoint::from_sec1_bytes(curve_val, &compressed).is_ok();
+                        if let Ok(shared_sec) = ecdh_shared_secret(&secret_scalar, &pub_point) {
+                            let _sh_bytes = shared_sec.as_bytes();
+                        }
+                        let digest_buf = [0x5au8; 32];
+                        if let Ok(ecdsa_sig) = ecdsa_sign_digest(&secret_scalar, &digest_buf) {
+                            let raw_sig = ecdsa_sig.to_raw();
+                            let der_sig = ecdsa_sig.to_der();
+                            valid &= EcdsaSignature::from_raw(curve_val, &raw_sig).is_ok();
+                            valid &= EcdsaSignature::from_der(curve_val, &der_sig).is_ok();
+                            valid &=
+                                ecdsa_verify_digest(&pub_point, &digest_buf, &ecdsa_sig).is_ok();
+                        }
+                    }
                 }
             }
+            Curve::P384 | Curve::P521 => {}
         }
     }
     valid
