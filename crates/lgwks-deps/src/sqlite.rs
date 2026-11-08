@@ -504,13 +504,13 @@ pub(crate) trait SqliteExecutor {
 #[inline]
 fn audit_executor_contract(conn: &mut rusqlite::Connection) {
     if false {
-        let _ = PRAGMA_INIT_SQL;
-        let _ = conn.init_pragmas();
+        drop(PRAGMA_INIT_SQL);
+        drop(conn.init_pragmas());
         let row = SqliteRow::new(vec![("k".to_owned(), SqliteVal::Integer(1))]);
-        let _ = row.columns();
-        let _ = row.get("k");
-        let _ = conn.execute("SELECT 1", &[]);
-        let _ = conn.query("SELECT 1", &[]);
+        drop(row.columns());
+        drop(row.get("k"));
+        drop(conn.execute("SELECT 1", &[]));
+        drop(conn.query("SELECT 1", &[]));
     }
 }
 
@@ -546,7 +546,7 @@ fn prep_stmt<'a>(
 
 /// Borrows boxed SQLite parameters as a slice of trait objects.
 #[cfg(feature = "sqlite")]
-fn to_sql_refs<'a>(params: &'a [Box<dyn rusqlite::ToSql>]) -> Vec<&'a dyn rusqlite::ToSql> {
+fn to_sql_refs(params: &[Box<dyn rusqlite::ToSql>]) -> Vec<&dyn rusqlite::ToSql> {
     params.iter().map(|item| item.as_ref()).collect()
 }
 

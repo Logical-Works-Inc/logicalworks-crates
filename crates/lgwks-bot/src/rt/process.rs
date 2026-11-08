@@ -375,7 +375,7 @@ impl ProcessSpec {
     #[doc(hidden)]
     #[cfg(all(unix, feature = "process"))]
     pub(crate) fn gated_with_fd(&self, gate_fd: i32) -> Self {
-        const SCRIPT: &str = "eval \"IFS= read -r gate <&$1 && [ \\\"\\$gate\\\" = go ] && exec $1<&-\" || exit 99; shift; exec \"$@\"";
+        const SCRIPT: &str = "p=\"/dev/fd/$1\"; [ -d /proc/self/fd ] && p=\"/proc/self/fd/$1\"; IFS= read -r gate < \"$p\" && [ \"$gate\" = go ] || exit 99; [ \"$1\" -lt 10 ] && eval \"exec $1<&-\" 2>/dev/null || true; shift; exec \"$@\"";
         let mut gated = self.clone();
         let mut args = Vec::with_capacity(self.args.len().saturating_add(5));
         args.push("-c".into());
