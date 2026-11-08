@@ -653,3 +653,23 @@ feature = "edge"
 default = "on"
 words = ["bearer key", "authenticate request", "api key", "401 at the edge", "authorization header"]
 replaces = ["a key in a JSON body", "an auth middleware beside the app"]
+
+[[capability]]
+name = "recorded instant"
+path = "lgwks_bot::kernel::clock::RecordedInstant"
+file = "crates/lgwks-bot/src/clock/epoch.rs"
+crate = "lgwks_bot"
+feature = "wire"
+default = "on"
+words = ["epoch timestamp", "record a time", "seeded clock", "replay a timestamp", "unix nanos"]
+replaces = ["SystemTime in a record", "a timestamp a simulation cannot replay"]
+
+[[capability]]
+name = "kernel surface"
+path = "lgwks_bot::kernel"
+file = "crates/lgwks-bot/src/kernel.rs"
+crate = "lgwks_bot"
+feature = "wire"
+default = "on"
+words = ["supported runtime parts", "host flows", "journal broker lease", "compatibility promise", "build a runtime"]
+replaces = ["a doc-hidden path with no promise", "a private copy of the journal or broker"]

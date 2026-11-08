@@ -8,6 +8,8 @@
 //! else. They are plain code, not links, because each exists only under its
 //! feature (see the table below) and a link to an absent item breaks the
 //! no-default-features documentation build.
+//! A consumer hosting flows has one more supported path, [`kernel`], for the clock,
+//! journal, broker, lease, gate, effect and retry parts underneath them (#845).
 //! Every other module and root re-export is `#[doc(hidden)]` support, still
 //! reachable by this crate's own tests and by the expansion, and kept out of the
 //! documented surface by #526.
@@ -73,9 +75,9 @@
 //! This page describes the tree the crate was published from. Which release
 //! carries a given symbol is in the changelog (`CHANGELOG.md` in the repository,
 //! with the 3.0.0 migration notes under `docs/changelog/`); check it before
-//! relying on a symbol. Everything outside `script!`, `try_join!` and the
-//! `script` module is `#[doc(hidden)]` support code with no compatibility
-//! promise (#526).
+//! relying on a symbol. Everything outside `script!`, `try_join!`, the
+//! `script` module and [`kernel`] is `#[doc(hidden)]` support code with no
+//! compatibility promise (#526).
 //!
 //! # Quick start
 //!
@@ -303,6 +305,8 @@ pub mod journal;
 /// JSON through the shared facade (`lgwks_std::json`).
 #[doc(hidden)]
 pub mod json;
+/// The supported surface for a consumer building its own durable runtime (#845).
+pub mod kernel;
 #[doc(hidden)]
 #[cfg(feature = "time")]
 pub mod keyed;

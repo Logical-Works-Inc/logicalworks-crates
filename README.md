@@ -16,7 +16,7 @@
 | Crate | Version | Docs | What it gives you |
 |---|---|---|---|
 | `lgwks_std` | 4.1.0 | [docs.rs](https://docs.rs/lgwks_std) | Everyday primitives with no async runtime required: JSON/RON/wire codecs, a blocking HTTP client, retry policies, structured logging with default debugger install, time and calendars, hashing, ids, globs, process control |
-| `lgwks_bot` | 8.0.1 | [docs.rs](https://docs.rs/lgwks_bot) | Orchestration you cannot write wrongly: `script!` flows with bounded fan-out, deadlines, retries under a shared budget, dependency graphs, sagas, bounded live feeds, justification rules, durable steps, admission of untrusted plans, readiness waits, tenant-keyed steps and a map of what a run declared |
+| `lgwks_bot` | 8.1.0 | [docs.rs](https://docs.rs/lgwks_bot) | Orchestration you cannot write wrongly: `script!` flows with bounded fan-out, deadlines, retries under a shared budget, dependency graphs, sagas, bounded live feeds, justification rules, durable steps, admission of untrusted plans, readiness waits, tenant-keyed steps and a map of what a run declared |
 | `lgwks_ast` | 6.0.0 | [docs.rs](https://docs.rs/lgwks_ast) | Parse many languages into one AST type. tree-sitter grammars behind cargo features, bounded traversal, and typed diagnostics for tools that report on code |
 | `lgwks_macros` | 2.1.0 | [docs.rs](https://docs.rs/lgwks_macros) | The syntax of `lgwks_bot::script!`, orchestration written as indented flows. Not a surface of its own: Rust requires a proc macro to live in its own crate, so use it through `lgwks_bot` |
 | `lgwks_deps` | 6.2.0 | [docs.rs](https://docs.rs/lgwks_deps) | One audited place to opt into third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |

@@ -48,7 +48,8 @@
 "crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/cas.rs" = 31
 "crates/lgwks-bot/src/cell.rs" = 7
-"crates/lgwks-bot/src/clock.rs" = 19
+"crates/lgwks-bot/src/clock.rs" = 20
+"crates/lgwks-bot/src/clock/epoch.rs" = 12
 "crates/lgwks-bot/src/dist_lease.rs" = 35
 "crates/lgwks-bot/src/dist_lease/coordinator.rs" = 14
 "crates/lgwks-bot/src/dist_lease/tcp.rs" = 11
@@ -113,7 +114,8 @@
 "crates/lgwks-bot/src/json.rs" = 1
 "crates/lgwks-bot/src/keyed.rs" = 7
 "crates/lgwks-bot/src/language.rs" = 19
-"crates/lgwks-bot/src/lib.rs" = 6
+"crates/lgwks-bot/src/kernel.rs" = 16
+"crates/lgwks-bot/src/lib.rs" = 7
 "crates/lgwks-bot/src/proposal/artifact.rs" = 18
 "crates/lgwks-bot/src/proposal/checkpoint.rs" = 32
 "crates/lgwks-bot/src/proposal/codec.rs" = 26
@@ -354,6 +356,7 @@
 "crates/lgwks-bot/src/broker.rs" = 1
 "crates/lgwks-bot/src/broker/fence.rs" = 8
 "crates/lgwks-bot/src/cap_token.rs" = 1
+"crates/lgwks-bot/src/clock/epoch.rs" = 12
 "crates/lgwks-bot/src/ecs/projection.rs" = 9
 "crates/lgwks-bot/src/journal/file/corruption.rs" = 6
 "crates/lgwks-bot/src/journal/records.rs" = 5
