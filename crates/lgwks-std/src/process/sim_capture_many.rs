@@ -14,6 +14,7 @@ fn err_other(msg: &'static str) -> io::Error {
 /// Ensure a boolean condition is true or return a descriptive static error.
 fn ensure(condition: bool, message: &'static str) -> Result<(), io::Error> {
     if !condition {
+        #[cfg(feature = "trace")]
         crate::trace::debug!(message, "assertion failed");
         return Err(err_other(message));
     }
@@ -23,6 +24,7 @@ fn ensure(condition: bool, message: &'static str) -> Result<(), io::Error> {
 /// Ensure a boolean condition is true or return a descriptive dynamic error.
 fn ensure_msg(condition: bool, message: String) -> Result<(), io::Error> {
     if !condition {
+        #[cfg(feature = "trace")]
         crate::trace::debug!(%message, "assertion failed");
         return Err(io::Error::other(message));
     }
@@ -79,6 +81,7 @@ fn test_invalid_inputs() -> Result<(), io::Error> {
             )?;
         }
         Ok(_) => {
+            #[cfg(feature = "trace")]
             crate::trace::debug!(
                 "expected error for roots exceeding MAX_CAPTURE_ROOTS in capture_many_from_pairs"
             );
@@ -96,6 +99,7 @@ fn test_invalid_inputs() -> Result<(), io::Error> {
             )?;
         }
         Ok(_) => {
+            #[cfg(feature = "trace")]
             crate::trace::debug!(
                 "expected error for roots exceeding MAX_CAPTURE_ROOTS in capture_descendants_many"
             );
@@ -115,6 +119,7 @@ fn test_invalid_inputs() -> Result<(), io::Error> {
                 )?;
             }
             Ok(_) => {
+                #[cfg(feature = "trace")]
                 crate::trace::debug!(
                     "expected error for non-positive root in capture_many_from_pairs"
                 );
@@ -132,6 +137,7 @@ fn test_invalid_inputs() -> Result<(), io::Error> {
                 )?;
             }
             Ok(_) => {
+                #[cfg(feature = "trace")]
                 crate::trace::debug!(
                     "expected error for non-positive root in capture_descendants_many"
                 );

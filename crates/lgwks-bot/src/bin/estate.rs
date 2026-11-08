@@ -386,7 +386,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .map_err(|error| format!("the probe task is refused: {error}"))?;
     let (first, second, report): (RunCheck, RunCheck, EstateReport) = driver.block_on(async {
-        let to_check = |run: &lgwks_bot::rt::estate::RunReport<u64>| RunCheck {
+        let to_check = |run: &lgwks_bot::task::Report<u64>| RunCheck {
             succeeded: matches!(run.disposition(), Disposition::Succeeded),
             output: run.output().copied(),
             error: run.error().map(|error| error.to_string()),

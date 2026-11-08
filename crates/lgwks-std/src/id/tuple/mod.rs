@@ -117,7 +117,7 @@ impl Uuid {
     /// ```
     /// use lgwks_std::id::Uuid;
     ///
-    /// let id = Uuid::nil();
+    /// let id = Uuid::from([0u8; 16]);
     /// let mut key = Vec::new();
     /// id.pack_tuple(&mut key);
     /// assert_eq!(key.len(), 17);
@@ -141,7 +141,7 @@ impl Uuid {
     /// ```
     /// use lgwks_std::id::Uuid;
     ///
-    /// let id = Uuid::nil();
+    /// let id = Uuid::from([0u8; 16]);
     /// let mut key = Vec::new();
     /// id.pack_tuple(&mut key);
     /// if let Ok((unpacked, tail)) = Uuid::unpack_tuple(&key) {

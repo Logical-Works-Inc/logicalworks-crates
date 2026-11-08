@@ -924,7 +924,7 @@ jobs:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.cache }}
           sccache: "false"
-          nextest: "true"
+          nextest: ${{ startsWith(matrix.part, 'consumers') && 'true' || 'false' }}
       - name: Check lgwks-deps
         if: matrix.part == 'deps'
         run: cargo check --locked --manifest-path crates/lgwks-deps/Cargo.toml --all-targets
