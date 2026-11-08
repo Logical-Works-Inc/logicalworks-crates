@@ -504,13 +504,13 @@ pub(crate) trait SqliteExecutor {
 #[inline]
 fn audit_executor_contract(conn: &mut rusqlite::Connection) {
     if false {
-        drop(PRAGMA_INIT_SQL);
-        drop(conn.init_pragmas());
+        let _ = PRAGMA_INIT_SQL.len();
+        let _ = conn.init_pragmas().is_ok();
         let row = SqliteRow::new(vec![("k".to_owned(), SqliteVal::Integer(1))]);
-        drop(row.columns());
-        drop(row.get("k"));
-        drop(conn.execute("SELECT 1", &[]));
-        drop(conn.query("SELECT 1", &[]));
+        let _ = row.columns().len();
+        let _ = row.get("k").is_some();
+        let _ = conn.execute("SELECT 1", &[]).is_ok();
+        let _ = conn.query("SELECT 1", &[]).is_ok();
     }
 }
 
