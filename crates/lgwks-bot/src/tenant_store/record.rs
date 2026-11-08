@@ -15,9 +15,10 @@ use lgwks_std::wire::{
 use super::MAX_FRAME_BYTES;
 use super::{
     DETAIL_NEVER_STARTED, DETAIL_UNKNOWN, HEADER_LEN, Index, KIND_ABANDON_RUN, KIND_BEGIN_RUN,
-    KIND_FINISH_RUN, KIND_INIT_POLICY, KIND_LANE_DISPATCHED, KIND_LANE_ENDED, LANE_DISPATCHED,
-    LANE_ENDED, LANE_PENDING, LaneEntry, OUTCOME_UNKNOWN, OUTCOME_UNMEASURED, RunEntry, RunStart,
-    STORE_FORMAT, STORE_MAGIC, StoredClose, StoredPolicy, TenantStoreError, VERSION_BYTE,
+    KIND_CURSOR, KIND_FINISH_RUN, KIND_INIT_POLICY, KIND_LANE_DISPATCHED, KIND_LANE_ENDED,
+    LANE_DISPATCHED, LANE_ENDED, LANE_PENDING, LaneEntry, OUTCOME_UNKNOWN, OUTCOME_UNMEASURED,
+    RunEntry, RunStart, STORE_FORMAT, STORE_MAGIC, StoredClose, StoredPolicy, TenantStoreError,
+    VERSION_BYTE,
 };
 use crate::journal::frame::SaturatingFrom;
 #[cfg(feature = "wire")]
@@ -37,11 +38,11 @@ pub(super) fn genesis_head() -> Digest {
 #[cfg_attr(feature = "wire", derive(Archive, Serialize, Deserialize))]
 #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug)))]
 pub(super) struct Stored {
-    /// Which of the six record kinds this is.
+    /// Which of the seven record kinds this is.
     kind: u8,
     /// The tenant the record belongs to.
     tenant: String,
-    /// The run the record belongs to.
+    /// The run the record belongs to, or the consumer a cursor belongs to.
     run_id: String,
     /// The repository under test (begin only).
     repo: String,
@@ -55,7 +56,7 @@ pub(super) struct Stored {
     moment: String,
     /// The lane ids in plan order (begin only).
     lanes: Vec<String>,
-    /// The lane position the record names (lane ops only).
+    /// The lane position the record names, or a cursor's position.
     lane_idx: u64,
     /// The verdict (finish only).
     verdict: String,
@@ -110,6 +111,14 @@ impl Stored {
             gates_json: gates_json.to_owned(),
             hardness,
         }
+    }
+
+    /// A consumer's cursor moving to `position`.
+    pub(super) fn cursor(tenant: &str, consumer: &str, position: u64) -> Self {
+        let mut stored = Self::empty(KIND_CURSOR, tenant, "", "", 0);
+        consumer.clone_into(&mut stored.run_id);
+        stored.lane_idx = position;
+        stored
     }
 
     /// A run-begin record: the run row and every pending lane row in one frame.
@@ -282,6 +291,14 @@ pub(super) fn fold(index: &mut Index, stored: &Stored) {
         );
         return;
     }
+    if stored.kind == KIND_CURSOR {
+        index
+            .cursors
+            .entry(stored.tenant.clone())
+            .or_default()
+            .insert(stored.run_id.clone(), stored.lane_idx);
+        return;
+    }
     let Some(entry) = index.runs.get_mut(&stored.run_id) else {
         return;
     };
@@ -427,6 +444,7 @@ fn is_known_kind(kind: u8) -> bool {
         || kind == KIND_LANE_ENDED
         || kind == KIND_FINISH_RUN
         || kind == KIND_ABANDON_RUN
+        || kind == KIND_CURSOR
 }
 
 /// Read the frame at ordinal `at` from the file's current position, or `None`
@@ -557,6 +575,7 @@ pub(super) fn full_replay(file: &mut File, index: &mut Index) -> Result<(), Tena
     }
     check_header(&header)?;
     index.policies.clear();
+    index.cursors.clear();
     index.runs.clear();
     index.frames = 0;
     index.committed = u64::saturating_from(HEADER_LEN);

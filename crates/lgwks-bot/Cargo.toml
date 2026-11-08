@@ -388,6 +388,11 @@ path = "src/bin/broker_fence.rs"
 required-features = ["wire"]
 
 [[bin]]
+name = "durable-stop"
+path = "src/bin/durable_stop.rs"
+required-features = ["script", "wire"]
+
+[[bin]]
 name = "record-projection"
 path = "src/bin/record_projection.rs"
 required-features = ["ecs", "wire"]

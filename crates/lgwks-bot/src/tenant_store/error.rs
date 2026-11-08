@@ -63,6 +63,13 @@ pub enum TenantStoreError {
         /// The tenant that was already initialised.
         tenant: String,
     },
+    /// A cursor asked to move behind where it stands; nothing was written.
+    CursorBehind {
+        /// Where it stands.
+        held: u64,
+        /// Where it was asked to go.
+        asked: u64,
+    },
     /// A run id this store already holds; the second begin wrote nothing.
     DuplicateRun {
         /// The run id that was already begun.
@@ -129,6 +136,10 @@ impl fmt::Display for TenantStoreError {
                 formatter,
                 "tenant {tenant:?} is already initialised; its policy never changes"
             ),
+            Self::CursorBehind { held, asked } => write!(
+                formatter,
+                "this cursor stands at {held} and cannot move back to {asked}"
+            ),
             Self::DuplicateRun { ref run } => write!(
                 formatter,
                 "run {run:?} was already begun; the second begin wrote nothing"
@@ -174,6 +185,7 @@ impl std::error::Error for TenantStoreError {
             | Self::DuplicateRun { .. }
             | Self::NoSuchRun { .. }
             | Self::Ambiguous { .. }
+            | Self::CursorBehind { .. }
             | Self::LaneLost { .. } => None,
         }
     }

@@ -172,9 +172,10 @@
 "crates/lgwks-bot/src/script/fan_out.rs" = 7
 "crates/lgwks-bot/src/script/fetch.rs" = 13
 "crates/lgwks-bot/src/script/graph.rs" = 16
+"crates/lgwks-bot/src/script/journaled_cancel.rs" = 11
 "crates/lgwks-bot/src/script/justify.rs" = 23
 "crates/lgwks-bot/src/script/map.rs" = 21
-"crates/lgwks-bot/src/script/mod.rs" = 31
+"crates/lgwks-bot/src/script/mod.rs" = 32
 "crates/lgwks-bot/src/script/outside.rs" = 2
 "crates/lgwks-bot/src/script/ready.rs" = 10
 "crates/lgwks-bot/src/script/ready/error.rs" = 5
@@ -227,7 +228,7 @@
 "crates/lgwks-bot/src/tenant_store.rs" = 3
 "crates/lgwks-bot/src/tenant_store/error.rs" = 1
 "crates/lgwks-bot/src/tenant_store/rows.rs" = 27
-"crates/lgwks-bot/src/tenant_store/store.rs" = 14
+"crates/lgwks-bot/src/tenant_store/store.rs" = 16
 "crates/lgwks-bot/src/verb.rs" = 9
 "crates/lgwks-deps/src/advisories/mod.rs" = 1
 "crates/lgwks-deps/src/agent_standards.rs" = 14
@@ -356,9 +357,11 @@
 "crates/lgwks-bot/src/journal/records/replay.rs" = 5
 "crates/lgwks-bot/src/journal/records/write.rs" = 5
 "crates/lgwks-bot/src/journal/seam.rs" = 1
+"crates/lgwks-bot/src/script/journaled_cancel.rs" = 11
 "crates/lgwks-bot/src/script/run_store/step.rs" = 1
 "crates/lgwks-bot/src/script/scope.rs" = 1
 "crates/lgwks-bot/src/script/scope/identity.rs" = 6
+"crates/lgwks-bot/src/tenant_store/store.rs" = 2
 "crates/lgwks-deps/src/agent_standards.rs" = 2
 "crates/lgwks-std/src/http/pool.rs" = 1
 "crates/lgwks-std/src/http/stream.rs" = 1

@@ -132,6 +132,9 @@ mod ready;
 pub mod run_store;
 #[cfg(not(feature = "testing"))]
 pub(crate) mod run_store;
+// A scope's stop in the consumer's own journal (#878).
+#[cfg(feature = "wire")]
+mod journaled_cancel;
 pub(crate) mod scope;
 mod send;
 #[cfg(feature = "edge")]
@@ -173,6 +176,8 @@ pub use fetch::fetch_at;
 #[cfg(feature = "net")]
 pub use fetch::{FetchOptions, FetchResponse, PostBody, fetch};
 pub use graph::{GraphNode, GraphReport, MAX_GRAPH_NODES, NodeOutcome, graph, graph_at};
+#[cfg(feature = "wire")]
+pub use journaled_cancel::{CancelError, CancelRecord, CancelStage, JournaledCancel};
 pub use justify::{Allowance, Decision, Justify, JustifyCtx, Rule, Verdict};
 pub use map::{Architecture, FlowShape, Passthrough, StepKind, StepShape};
 pub use outside::{OutsideWord, admit_outside};
