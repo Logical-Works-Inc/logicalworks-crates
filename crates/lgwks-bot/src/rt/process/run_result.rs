@@ -37,7 +37,7 @@ impl CapturedStream {
     /// Every byte the child wrote, retained or not.
     #[must_use]
     #[doc(hidden)]
-    pub(crate) const fn total_bytes(&self) -> u64 {
+    pub const fn total_bytes(&self) -> u64 {
         self.total_bytes
     }
 
@@ -63,7 +63,7 @@ impl CapturedStream {
     /// Unicode replacement character (`U+FFFD`).
     #[must_use]
     #[doc(hidden)]
-    pub(crate) fn lossy_text(&self) -> String {
+    pub fn lossy_text(&self) -> String {
         String::from_utf8_lossy(&self.bytes).into_owned()
     }
 
@@ -77,7 +77,7 @@ impl CapturedStream {
     /// How many bytes this capture is retaining.
     #[must_use]
     #[doc(hidden)]
-    pub(crate) fn retained_capacity(&self) -> usize {
+    pub fn retained_capacity(&self) -> usize {
         self.bytes.len()
     }
 
@@ -101,7 +101,7 @@ impl CapturedStream {
     /// [`FrameReadError`]: crate::rt::process::FrameReadError
     #[must_use]
     #[doc(hidden)]
-    pub(crate) fn frames(&self, ceiling: usize) -> Frames {
+    pub fn frames(&self, ceiling: usize) -> Frames {
         Frames::of_capture(
             self.bytes.as_slice(),
             ceiling,
@@ -172,7 +172,7 @@ impl ProcessRun {
     /// is not the same answer as `None`.
     #[must_use]
     #[doc(hidden)]
-    pub(crate) fn exit_code(&self) -> Option<i32> {
+    pub fn exit_code(&self) -> Option<i32> {
         self.status.and_then(|status| status.code())
     }
 
@@ -184,7 +184,7 @@ impl ProcessRun {
     #[cfg(unix)]
     #[must_use]
     #[doc(hidden)]
-    pub(crate) fn signal(&self) -> Option<i32> {
+    pub fn signal(&self) -> Option<i32> {
         use std::os::unix::process::ExitStatusExt;
         self.status.and_then(|status| status.signal())
     }
@@ -195,7 +195,7 @@ impl ProcessRun {
     /// stop the supervisor ordered, not an exit the command chose.
     #[must_use]
     #[doc(hidden)]
-    pub(crate) const fn deadline_fired(&self) -> bool {
+    pub const fn deadline_fired(&self) -> bool {
         self.deadline_fired
     }
 

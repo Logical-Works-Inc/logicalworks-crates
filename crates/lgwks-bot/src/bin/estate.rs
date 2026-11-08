@@ -55,6 +55,29 @@ mod sealed;
 #[path = "estate/sealed_journal.rs"]
 mod sealed_journal;
 
+/// The `run_process` result door, read as a downstream caller reads it.
+async fn read_process_result(
+    supervisor: &mut lgwks_bot::rt::supervise::Supervisor,
+) -> Option<String> {
+    use lgwks_bot::rt::process::{CapturedStream, ProcessRun, ProcessSpec};
+    let run: ProcessRun = match supervisor
+        .run_process(&ProcessSpec::new("/usr/bin/true"))
+        .await
+    {
+        Ok(run) => run,
+        Err(err) => return Some(format!("run_process refused a plain program: {err}")),
+    };
+    let stdout: &CapturedStream = run.stdout();
+    drop(stdout.frames(64));
+    let clean = run.exit_code() == Some(0)
+        && run.signal().is_none()
+        && !run.deadline_fired()
+        && stdout.total_bytes() == 0
+        && stdout.lossy_text().is_empty()
+        && stdout.retained_capacity() == 0;
+    (!clean).then(|| "a plain program must exit zero with no output".to_owned())
+}
+
 /// One line to the caller's locked stdout; a write error reaches `main` as an I/O error.
 fn say(line: &str) -> std::io::Result<()> {
     writeln!(std::io::stdout().lock(), "{line}")
@@ -295,6 +318,9 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
             format!("the released payload must complete under its own task, got {outcome:?}"),
         );
     }
+    if let Some(problem) = read_process_result(&mut supervisor).await {
+        record(mismatch, problem);
+    }
     say(&format!(
         "process doors: gated lane completed under task {}",
         task.get()
@@ -306,9 +332,7 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
 /// Record the first deviation and keep it: the first mismatch is the root cause, and later ones
 /// are its symptoms.
 fn record(mismatch: &mut Option<String>, message: String) {
-    if mismatch.is_none() {
-        *mismatch = Some(message);
-    }
+    let _ = mismatch.get_or_insert(message);
 }
 
 /// The smoke's scratch directory, removed on every exit — an early `?` return included.
@@ -325,33 +349,22 @@ impl Drop for Scratch {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Some((first, rest)) = args.split_first()
-        && first == "serve"
-    {
-        return serve_ref::run(rest).map_err(Box::<dyn std::error::Error>::from);
-    }
-    if let Some((first, rest)) = args.split_first()
-        && first == "apps"
-    {
-        return apps::run(rest).map_err(Box::<dyn std::error::Error>::from);
-    }
-    if let Some((first, rest)) = args.split_first()
-        && first == "approvals"
-    {
-        // `main`'s `Err` is the one report of a refusal: the runtime prints it
-        // to stderr and exits 1.
-        let stdout = std::io::stdout();
-        let mut out = stdout.lock();
-        return approvals::run(rest, &mut out)
-            .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
-    }
-    if let Some((first, rest)) = args.split_first()
-        && first == "sealed"
-    {
-        let stdout = std::io::stdout();
-        let mut out = stdout.lock();
-        return sealed::run(rest, &mut out)
-            .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+    if let Some((first, rest)) = args.split_first() {
+        match first.as_str() {
+            "serve" => return serve_ref::run(rest).map_err(Box::<dyn std::error::Error>::from),
+            "apps" => return apps::run(rest).map_err(Box::<dyn std::error::Error>::from),
+            "approvals" => {
+                let stdout = std::io::stdout();
+                return approvals::run(rest, &mut stdout.lock())
+                    .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+            }
+            "sealed" => {
+                let stdout = std::io::stdout();
+                return sealed::run(rest, &mut stdout.lock())
+                    .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+            }
+            _ => {}
+        }
     }
     let mut mismatch: Option<String> = None;
     let mut estate = Estate::supervised("acme", 8)?;
@@ -373,18 +386,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
     .map_err(|error| format!("the probe task is refused: {error}"))?;
     let (first, second, report): (RunCheck, RunCheck, EstateReport) = driver.block_on(async {
+        let to_check = |run: &lgwks_bot::rt::estate::RunReport<u64>| RunCheck {
+            succeeded: matches!(run.disposition(), Disposition::Succeeded),
+            output: run.output().copied(),
+            error: run.error().map(|error| error.to_string()),
+        };
         let run = estate.run_task(&probe, 41).await;
-        let first = RunCheck {
-            succeeded: matches!(run.disposition(), Disposition::Succeeded),
-            output: run.output().copied(),
-            error: run.error().map(|error| error.to_string()),
-        };
+        let first = to_check(&run);
         let run = estate.run_task(&probe, 42).await;
-        let second = RunCheck {
-            succeeded: matches!(run.disposition(), Disposition::Succeeded),
-            output: run.output().copied(),
-            error: run.error().map(|error| error.to_string()),
-        };
+        let second = to_check(&run);
         estate.cancel();
         (first, second, estate.shutdown().await)
     });
@@ -396,23 +406,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "run 42: succeeded={} output={:?} error={:?}",
         second.succeeded, second.output, second.error,
     ))?;
-    if !first.succeeded || first.output != Some(42u64) {
-        record(
-            &mut mismatch,
-            format!(
-                "run 41 is not a successful 42: succeeded={} output={:?} error={:?}",
-                first.succeeded, first.output, first.error,
-            ),
-        );
-    }
-    if !second.succeeded || second.output != Some(43u64) {
-        record(
-            &mut mismatch,
-            format!(
-                "run 42 is not a successful 43: succeeded={} output={:?} error={:?}",
-                second.succeeded, second.output, second.error,
-            ),
-        );
+    for (name, target, check) in [("41", 42u64, &first), ("42", 43u64, &second)] {
+        if !check.succeeded || check.output != Some(target) {
+            record(
+                &mut mismatch,
+                format!(
+                    "run {name} is not a successful {target}: succeeded={} output={:?} error={:?}",
+                    check.succeeded, check.output, check.error,
+                ),
+            );
+        }
     }
     say(&format!(
         "shutdown: tenant={} tier={} admitted={} refused={} supervised={}",
