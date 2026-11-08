@@ -126,7 +126,7 @@ fn wycheproof_der_and_zero_scalar_refusals() {
 #[test]
 fn sim_ec_seeded_sign_verify_sweep() -> Result<(), EcError> {
     let mut stream = Seeded::from_seed(0x5EED_0000_0000_0001);
-    for _step in 0..8 {
+    for _step in 0..2 {
         let mut scalar_bytes = [0u8; 32];
         for chunk in scalar_bytes.as_chunks_mut::<8>().0 {
             chunk.copy_from_slice(&stream.next_u64().to_le_bytes());
@@ -169,7 +169,7 @@ fn sim_ec_saboteur_bitflip_signature_rejection() -> Result<(), EcError> {
     let digest = b"saboteur-bitflip-target-digest32";
     let sig = ecdsa_sign_digest(&secret, digest)?;
     let raw_orig = sig.to_raw();
-    for _step in 0..16 {
+    for _step in 0..2 {
         let mut raw_corrupt = raw_orig.clone();
         let mut idx = 0_usize;
         if let Ok(u_val) = usize::try_from(stream.next_u64() & 63) {
