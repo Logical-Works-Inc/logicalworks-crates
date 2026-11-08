@@ -91,12 +91,11 @@ wire = ["dep:rkyv"]
 # MS-CFB with VBA, Jet/ACE databases and bilevel TIFF fax. Pure Rust, no
 # third-party dependency.
 legacy = []
-math = []
 http = ["dep:ureq", "dep:iri-string"]
 online = []
 fs-raw = ["dep:rustix"]
 process = ["dep:rustix", "rustix?/process"]
-standard = ["trace", "trace-install", "random", "hash", "build", "sign", "pattern", "json", "ron", "wire", "online", "fs-raw", "process", "legacy", "math"]
+standard = ["trace", "trace-install", "random", "hash", "build", "sign", "pattern", "json", "ron", "wire", "online", "fs-raw", "process", "legacy"]
 full = ["standard", "http"]
 
 [dependencies]

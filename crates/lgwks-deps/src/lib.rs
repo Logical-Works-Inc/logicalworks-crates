@@ -373,21 +373,11 @@ pub use llm_guard;
 #[doc(hidden)]
 pub use chacha20poly1305;
 
-/// Offline RustSec advisory index evaluation (`RUSTSEC-*` OSV JSON) (#799).
-pub(crate) mod advisories;
+/// Offline RustSec advisory evaluation: a lockfile against a local database (#799).
+#[doc(hidden)]
+pub mod advisories;
 #[cfg(test)]
 mod sim_advisories;
-
-#[cfg(all(test, target_os = "macos"))]
-mod sim_vz;
-/// Safe Apple `Virtualization.framework` boot lifecycle surface (#854).
-#[cfg(target_os = "macos")]
-pub(crate) mod vz;
-
-#[cfg(test)]
-mod sim_warden;
-/// Nova warden sandbox edges: epoch-bounded Wasm execution and seccomp-bpf (#846).
-pub(crate) mod warden;
 
 /// The agent-standards storefront (ADR 0015): MCP, a model client, JSON
 /// Schema, OAuth 2.1, COSE, an RFC 6962 log, OpenTelemetry and the one TLS
@@ -641,17 +631,7 @@ pub fn check_verdict(
             None
         }
     };
-    fn verify_runtime_contracts() {
-        let mut _ok = advisories::verify_advisories_contract();
-        #[cfg(target_os = "macos")]
-        {
-            _ok &= vz::verify_vz_contract();
-        }
-        _ok &= warden::verify_warden_contract();
-    }
-
     let edges = metadata::read_with_members(root).map_err(GateError::Metadata)?;
-    verify_runtime_contracts();
     Ok(edges.map(|(edges, members)| {
         let mut refusals = audit_direct(&edges, &register);
         refusals.extend(audit::surface_refusals(&members, &register));

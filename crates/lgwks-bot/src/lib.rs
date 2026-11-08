@@ -510,6 +510,8 @@ pub use cap::{Auth, Cap, Deficit, Demand, Shortage};
 pub use ecs::WakeHandle;
 #[doc(hidden)]
 #[cfg(feature = "ecs")]
+#[doc(hidden)]
+#[cfg(feature = "ecs")]
 pub use ecs::{
     DEFAULT_POLL_DEADLINE, ForcedRefresh, MAX_POLL_DEADLINE, RunCounts, RunFeed, RunOutcome,
     SettledRun, StalledSource, SupersededObservation, TickReport,
@@ -541,16 +543,7 @@ pub use language::{Alias, LanguageResolver};
 pub use registry::{Action, ActionCtor, Condition, DomainRegistry, Source, SourceCtor};
 #[cfg(feature = "rt")]
 #[doc(hidden)]
-pub use rt::runtime::{Builder, Handle, Runtime};
-
-/// Runs a future to completion on the default runtime.
-#[cfg(feature = "rt")]
-#[doc(hidden)]
-pub fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    #[cfg(feature = "ecs")]
-    let _ = ecs::entity_uuid::verify_entity_uuid_contract();
-    rt::runtime::block_on(future)
-}
+pub use rt::runtime::{Builder, Handle, Runtime, block_on};
 #[doc(hidden)]
 pub use semantic::{Embedder, EmbedderIdentity, SemanticError, SemanticPolicy, SemanticResolver};
 #[doc(hidden)]

@@ -52,8 +52,8 @@ crates/lgwks-bot/src/rt/mod.rs:85	//! This is not a scheduler with realtime guar
 crates/lgwks-bot/src/rt/mod.rs:115	#[cfg(feature = "sync")]
 crates/lgwks-bot/src/rt/mod.rs:131	#[cfg(all(feature = "signal", any(unix, windows)))]
 crates/lgwks-bot/src/rt/process.rs:64	Capture(NonZeroUsize),
-crates/lgwks-bot/src/rt/process/confine.rs:79	pub struct SandboxProfile {
-crates/lgwks-bot/src/rt/process/confine.rs:291	pub struct LandlockRules {
+crates/lgwks-bot/src/rt/process/confine.rs:83	pub struct SandboxProfile {
+crates/lgwks-bot/src/rt/process/confine.rs:295	pub struct LandlockRules {
 crates/lgwks-bot/src/rt/process/run_result.rs:138	pub struct ProcessRun {
 crates/lgwks-bot/src/rt/process/run_result.rs:262	pub enum ProcessRunError {
 crates/lgwks-bot/src/rt/runtime.rs:213	let mut builder = lgwks_deps::tokio::runtime::Builder::new_current_thread();

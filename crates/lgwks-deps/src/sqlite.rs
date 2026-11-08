@@ -34,17 +34,6 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(60);
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SqliteError {
-    /// A connection failure or refusal.
-    Connection(String),
-    /// A query failure on a specific SQL statement.
-    Query {
-        /// The SQL statement that failed.
-        sql: String,
-        /// Detail of the query failure.
-        detail: String,
-    },
-    /// A database migration error.
-    Migration(String),
     /// The engine refused the open, a pragma, or a statement.
     Engine {
         /// What the engine said.
@@ -66,12 +55,6 @@ impl fmt::Display for SqliteError {
     /// The refusal, naming the engine's report or the two versions.
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::Connection(ref detail) => write!(formatter, "sqlite connection error: {detail}"),
-            Self::Query {
-                ref sql,
-                ref detail,
-            } => write!(formatter, "sqlite query error on {sql:?}: {detail}"),
-            Self::Migration(ref detail) => write!(formatter, "sqlite migration error: {detail}"),
             Self::Engine { ref cause } => {
                 write!(formatter, "the estate sqlite store refused: {cause}")
             }
@@ -132,12 +115,13 @@ pub fn open(path: &Path) -> Result<rusqlite::Connection, SqliteError> {
         std::fs::create_dir_all(parent).map_err(SqliteError::engine)?;
     }
     let connection = rusqlite::Connection::open(path).map_err(SqliteError::engine)?;
+    // Before the first statement: a first open beside another first open must
+    // wait on the file's locks rather than fail on them (#873).
     connection
-        .pragma_update(None, "journal_mode", "WAL")
+        .busy_timeout(BUSY_TIMEOUT)
         .map_err(SqliteError::engine)?;
-    let mode: String = connection
-        .pragma_query_value(None, "journal_mode", |row| row.get(0))
-        .map_err(SqliteError::engine)?;
+    take_wal(&connection, path)?;
+    let mode = journal_mode(&connection)?;
     if !mode.eq_ignore_ascii_case("wal") {
         lgwks_std::trace::warn!(
             mode = %mode,
@@ -152,42 +136,71 @@ pub fn open(path: &Path) -> Result<rusqlite::Connection, SqliteError> {
         .pragma_update(None, "synchronous", "FULL")
         .map_err(SqliteError::engine)?;
     connection
-        .pragma_update(
-            None,
-            "busy_timeout",
-            i64::try_from(BUSY_TIMEOUT.as_millis()).map_err(SqliteError::engine)?,
-        )
-        .map_err(SqliteError::engine)?;
-    connection
         .pragma_update(None, "foreign_keys", "ON")
         .map_err(SqliteError::engine)?;
     Ok(connection)
 }
 
+/// The journal mode the store reports.
+#[cfg(feature = "sqlite")]
+fn journal_mode(connection: &rusqlite::Connection) -> Result<String, SqliteError> {
+    connection
+        .pragma_query_value(None, "journal_mode", |row| row.get(0))
+        .map_err(SqliteError::engine)
+}
+
+/// Move a store that is not yet in WAL into it, one opener at a time.
+///
+/// Changing the journal mode takes an exclusive lock, and SQLite does not run
+/// the busy handler for every step of that change, so two first opens can see
+/// `database is locked` straight through any busy timeout (#873). The change is
+/// made under a blocking kernel lock on the sidecar `<path>.open-lock`, which
+/// the kernel releases if the holder dies. A store already in WAL never touches
+/// the sidecar, so a reopen costs one pragma read and creates nothing.
+#[cfg(feature = "sqlite")]
+fn take_wal(connection: &rusqlite::Connection, path: &Path) -> Result<(), SqliteError> {
+    if journal_mode(connection)?.eq_ignore_ascii_case("wal") {
+        return Ok(());
+    }
+    let mut sidecar = path.as_os_str().to_owned();
+    sidecar.push(".open-lock");
+    let guard = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&sidecar)
+        .map_err(SqliteError::engine)?;
+    guard.lock().map_err(SqliteError::engine)?;
+    let changed = connection
+        .pragma_update(None, "journal_mode", "WAL")
+        .map_err(SqliteError::engine);
+    let released = guard.unlock().map_err(SqliteError::engine);
+    changed.and(released)
+}
+
 /// Migrate an opened store to `target`, running each step once.
 ///
 /// `migrations[i]` is the statement batch that moves the store from version
-/// `i` to `i + 1`, so `target` must be at most `migrations.len()`. The version
-/// the file carries is read from `user_version`; every step past it runs as
-/// one batch, and `user_version` advances only after its step commits, so a
-/// crash replays the unapplied tail rather than a half version. A store
-/// already at `target` runs nothing and reports its version.
+/// `i` to `i + 1`, so `target` must be at most `migrations.len()`. Each step
+/// and its `user_version` commit in one immediate transaction, and the version
+/// is re-read inside it, so a crash leaves no half version and an opener that
+/// lost the race to another one runs nothing twice (#872). A store already at
+/// `target` runs nothing and reports its version. Because the transaction is
+/// this function's, a step cannot carry its own `BEGIN` or `COMMIT`.
 ///
 /// # Errors
 ///
 /// [`SqliteError::Downgrade`] when the file is already past `target`;
 /// [`SqliteError::Engine`] when a step, or the version read or write, is
-/// refused. A refused step leaves the earlier steps committed and
-/// `user_version` at the last one that did: the next open replays the tail.
+/// refused. A refused step rolls back whole and leaves `user_version` at the
+/// last step that committed: the next open replays the tail.
 #[cfg(feature = "sqlite")]
 pub fn migrate(
     connection: &rusqlite::Connection,
     target: u32,
     migrations: &[&str],
 ) -> Result<u32, SqliteError> {
-    let found: u32 = connection
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(SqliteError::engine)?;
+    let found = user_version(connection)?;
     if found > target {
         lgwks_std::trace::warn!(
             found,
@@ -216,14 +229,40 @@ pub fn migrate(
     }
     for (offset, statement) in migrations.iter().skip(have).take(steps).enumerate() {
         let version = found.saturating_add(u32::try_from(offset).map_err(SqliteError::engine)?);
-        connection
-            .execute_batch(statement)
-            .map_err(SqliteError::engine)?;
-        connection
-            .pragma_update(None, "user_version", version.saturating_add(1))
-            .map_err(SqliteError::engine)?;
+        run_step(connection, version, statement)?;
     }
     Ok(target)
+}
+
+/// The migration version `connection`'s file carries.
+#[cfg(feature = "sqlite")]
+fn user_version(connection: &rusqlite::Connection) -> Result<u32, SqliteError> {
+    connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(SqliteError::engine)
+}
+
+/// Run the step from `version` to `version + 1`, unless another opener already did.
+///
+/// `IMMEDIATE` takes the write lock before the version is read, so the read
+/// and the write it decides are one critical section across every process that
+/// holds the file. Dropping an uncommitted transaction rolls it back.
+#[cfg(feature = "sqlite")]
+fn run_step(
+    connection: &rusqlite::Connection,
+    version: u32,
+    statement: &str,
+) -> Result<(), SqliteError> {
+    let step =
+        rusqlite::Transaction::new_unchecked(connection, rusqlite::TransactionBehavior::Immediate)
+            .map_err(SqliteError::engine)?;
+    if user_version(&step)? > version {
+        return Ok(());
+    }
+    step.execute_batch(statement).map_err(SqliteError::engine)?;
+    step.pragma_update(None, "user_version", version.saturating_add(1))
+        .map_err(SqliteError::engine)?;
+    step.commit().map_err(SqliteError::engine)
 }
 
 /// The `sqlite` command's argument parsing and reporting.
@@ -423,278 +462,6 @@ pub mod cli {
         writeln!(out, "synchronous={synchronous}")?;
         writeln!(out, "busy_timeout_ms={}", BUSY_TIMEOUT.as_millis())?;
         writeln!(out, "tables={tables}")?;
-        Ok(())
-    }
-}
-
-// ── Generic SQLite Executor & Row Layer ──────────────────────────────────────
-
-/// Standard SQLite pragmas initializing WAL mode, normal synchrony, foreign keys, and 5000 ms timeout.
-#[doc(hidden)]
-#[cfg(test)]
-pub(crate) const PRAGMA_INIT_SQL: &str = "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;";
-
-/// A typed SQLite value for query parameters and column results.
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-#[doc(hidden)]
-#[cfg(test)]
-pub(crate) enum SqliteVal {
-    /// SQL NULL value.
-    Null,
-    /// 64-bit signed integer.
-    Integer(i64),
-    /// 64-bit IEEE 754 floating point number.
-    Real(f64),
-    /// UTF-8 text string.
-    Text(String),
-    /// Binary blob payload.
-    Blob(Vec<u8>),
-}
-
-/// A single row returned from a SQLite query.
-#[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
-#[doc(hidden)]
-#[cfg(test)]
-pub(crate) struct SqliteRow {
-    /// Columns as `(name, value)` pairs.
-    columns: Vec<(String, SqliteVal)>,
-}
-
-#[cfg(test)]
-impl SqliteRow {
-    /// Constructs a new SQLite row from column pairs.
-    #[must_use]
-    #[doc(hidden)]
-    pub(crate) fn new(columns: Vec<(String, SqliteVal)>) -> Self {
-        Self { columns }
-    }
-
-    /// The columns and their values in order.
-    #[must_use]
-    #[doc(hidden)]
-    pub(crate) fn columns(&self) -> &[(String, SqliteVal)] {
-        &self.columns
-    }
-
-    /// Looks up a column value by name.
-    #[must_use]
-    #[doc(hidden)]
-    pub(crate) fn get(&self, name: &str) -> Option<&SqliteVal> {
-        self.columns
-            .iter()
-            .find(|column| column.0 == name)
-            .map(|column| &column.1)
-    }
-}
-
-/// An executor capable of executing SQLite statements and queries.
-#[doc(hidden)]
-#[cfg(test)]
-pub(crate) trait SqliteExecutor {
-    /// Initializes standard pragmas on the SQLite connection.
-    fn init_pragmas(&mut self) -> Result<(), SqliteError>;
-
-    /// Executes a modifying statement, returning the number of affected rows.
-    fn execute(&mut self, sql: &str, params: &[SqliteVal]) -> Result<u64, SqliteError>;
-
-    /// Executes a query statement, returning the matched rows.
-    fn query(&mut self, sql: &str, params: &[SqliteVal]) -> Result<Vec<SqliteRow>, SqliteError>;
-}
-
-#[cfg(test)]
-fn to_rusqlite_params(params: &[SqliteVal]) -> Vec<Box<dyn rusqlite::ToSql>> {
-    params
-        .iter()
-        .map(|val| -> Box<dyn rusqlite::ToSql> {
-            match *val {
-                SqliteVal::Null => Box::new(rusqlite::types::Null),
-                SqliteVal::Integer(num) => Box::new(num),
-                SqliteVal::Real(flt) => Box::new(flt),
-                SqliteVal::Text(ref text_val) => Box::new(text_val.clone()),
-                SqliteVal::Blob(ref blob_val) => Box::new(blob_val.clone()),
-            }
-        })
-        .collect()
-}
-
-/// Prepares a SQLite statement and boxes query parameters.
-#[cfg(test)]
-#[cfg(feature = "sqlite")]
-fn prep_stmt<'a>(
-    conn: &'a mut rusqlite::Connection,
-    sql: &str,
-    params: &[SqliteVal],
-) -> Result<(rusqlite::Statement<'a>, Vec<Box<dyn rusqlite::ToSql>>), SqliteError> {
-    let stmt = conn.prepare(sql).map_err(|err_val| SqliteError::Query {
-        sql: sql.to_owned(),
-        detail: err_val.to_string(),
-    })?;
-    let boxed_params = to_rusqlite_params(params);
-    Ok((stmt, boxed_params))
-}
-
-/// Borrows boxed SQLite parameters as a slice of trait objects.
-#[cfg(test)]
-#[cfg(feature = "sqlite")]
-fn to_sql_refs(params: &[Box<dyn rusqlite::ToSql>]) -> Vec<&dyn rusqlite::ToSql> {
-    params.iter().map(|item| item.as_ref()).collect()
-}
-
-#[cfg(test)]
-#[cfg(feature = "sqlite")]
-impl SqliteExecutor for rusqlite::Connection {
-    fn init_pragmas(&mut self) -> Result<(), SqliteError> {
-        self.execute_batch(PRAGMA_INIT_SQL)
-            .map_err(|err_val| SqliteError::Connection(err_val.to_string()))
-    }
-
-    fn execute(&mut self, sql: &str, params: &[SqliteVal]) -> Result<u64, SqliteError> {
-        let (mut statement, boxed_params) = prep_stmt(self, sql, params)?;
-        let slice = to_sql_refs(&boxed_params);
-        let affected =
-            statement
-                .execute(slice.as_slice())
-                .map_err(|err_val| SqliteError::Query {
-                    sql: sql.to_owned(),
-                    detail: err_val.to_string(),
-                })?;
-        let mut count = 0_u64;
-        if let Ok(num) = u64::try_from(affected) {
-            count = num;
-        }
-        Ok(count)
-    }
-
-    fn query(&mut self, sql: &str, params: &[SqliteVal]) -> Result<Vec<SqliteRow>, SqliteError> {
-        let (mut statement, boxed_params) = prep_stmt(self, sql, params)?;
-        let slice = to_sql_refs(&boxed_params);
-        let column_names: Vec<String> = statement
-            .column_names()
-            .map(|col_name| col_name.to_owned())
-            .collect();
-        let mut rows_iter =
-            statement
-                .query(slice.as_slice())
-                .map_err(|err_val| SqliteError::Query {
-                    sql: sql.to_owned(),
-                    detail: err_val.to_string(),
-                })?;
-        let mut result_rows = Vec::new();
-        while let Some(row_ref) = rows_iter.next().map_err(|err_val| SqliteError::Query {
-            sql: sql.to_owned(),
-            detail: err_val.to_string(),
-        })? {
-            let mut row_cols = Vec::with_capacity(column_names.len());
-            for (col_idx, col_name) in column_names.iter().enumerate() {
-                let value_ref = row_ref
-                    .get_ref(col_idx)
-                    .map_err(|err_val| SqliteError::Query {
-                        sql: sql.to_owned(),
-                        detail: err_val.to_string(),
-                    })?;
-                let sqlite_val = match value_ref {
-                    rusqlite::types::ValueRef::Null => SqliteVal::Null,
-                    rusqlite::types::ValueRef::Integer(val_i64) => SqliteVal::Integer(val_i64),
-                    rusqlite::types::ValueRef::Real(val_f64) => SqliteVal::Real(val_f64),
-                    rusqlite::types::ValueRef::Text(bytes) => {
-                        let text_str = String::from_utf8_lossy(bytes).into_owned();
-                        SqliteVal::Text(text_str)
-                    }
-                    rusqlite::types::ValueRef::Blob(bytes) => SqliteVal::Blob(bytes.to_vec()),
-                };
-                row_cols.push((col_name.clone(), sqlite_val));
-            }
-            result_rows.push(SqliteRow::new(row_cols));
-        }
-        Ok(result_rows)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// In-memory mock executor for testing `SqliteExecutor` trait methods.
-    #[derive(Debug, Default)]
-    struct MockExecutor {
-        /// Number of times pragmas were initialized.
-        pragmas_init_count: usize,
-        /// Recorded statements.
-        executed: Vec<String>,
-    }
-
-    impl SqliteExecutor for MockExecutor {
-        fn init_pragmas(&mut self) -> Result<(), SqliteError> {
-            self.pragmas_init_count = self.pragmas_init_count.saturating_add(1);
-            Ok(())
-        }
-
-        fn execute(&mut self, sql: &str, _params: &[SqliteVal]) -> Result<u64, SqliteError> {
-            self.executed.push(sql.to_owned());
-            Ok(1)
-        }
-
-        fn query(
-            &mut self,
-            _sql: &str,
-            _params: &[SqliteVal],
-        ) -> Result<Vec<SqliteRow>, SqliteError> {
-            let columns = vec![
-                ("id".to_owned(), SqliteVal::Integer(42)),
-                ("name".to_owned(), SqliteVal::Text("test".to_owned())),
-            ];
-            Ok(vec![SqliteRow::new(columns)])
-        }
-    }
-
-    #[test]
-    fn test_pragma_init_sql_content() -> Result<(), String> {
-        if !PRAGMA_INIT_SQL.contains("WAL") {
-            return Err("PRAGMA_INIT_SQL must set WAL mode".to_owned());
-        }
-        if !PRAGMA_INIT_SQL.contains("busy_timeout = 5000") {
-            return Err("PRAGMA_INIT_SQL must set busy_timeout".to_owned());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn test_sqlite_row_get() -> Result<(), String> {
-        let row = SqliteRow::new(vec![
-            ("status".to_owned(), SqliteVal::Text("active".to_owned())),
-            ("count".to_owned(), SqliteVal::Integer(10)),
-        ]);
-        if row.get("status") != Some(&SqliteVal::Text("active".to_owned())) {
-            return Err("status column mismatch".to_owned());
-        }
-        if row.get("missing").is_some() {
-            return Err("missing column should return None".to_owned());
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn test_mock_executor() -> Result<(), String> {
-        let mut mock = MockExecutor::default();
-        mock.init_pragmas()
-            .map_err(|err_val| format!("{err_val}"))?;
-        if mock.pragmas_init_count != 1 {
-            return Err("pragmas not initialized".to_owned());
-        }
-        let affected = mock
-            .execute("UPDATE items SET count = 1", &[])
-            .map_err(|err_val| format!("{err_val}"))?;
-        if affected != 1 {
-            return Err("affected rows mismatch".to_owned());
-        }
-        let rows = mock
-            .query("SELECT * FROM items", &[])
-            .map_err(|err_val| format!("{err_val}"))?;
-        if rows.len() != 1 {
-            return Err("rows length mismatch".to_owned());
-        }
         Ok(())
     }
 }

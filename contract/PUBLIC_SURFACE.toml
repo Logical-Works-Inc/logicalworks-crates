@@ -175,7 +175,8 @@
 "crates/lgwks-bot/src/script/ready/state.rs" = 1
 "crates/lgwks-bot/src/script/run_store.rs" = 15
 "crates/lgwks-bot/src/script/run_store/conformance.rs" = 7
-"crates/lgwks-bot/src/script/scope.rs" = 25
+"crates/lgwks-bot/src/script/scope.rs" = 20
+"crates/lgwks-bot/src/script/scope/identity.rs" = 6
 "crates/lgwks-bot/src/script/send.rs" = 3
 "crates/lgwks-bot/src/script/serve.rs" = 2
 "crates/lgwks-bot/src/script/stream.rs" = 12
@@ -219,6 +220,7 @@
 "crates/lgwks-bot/src/tenant_store/rows.rs" = 27
 "crates/lgwks-bot/src/tenant_store/store.rs" = 14
 "crates/lgwks-bot/src/verb.rs" = 9
+"crates/lgwks-deps/src/advisories/mod.rs" = 1
 "crates/lgwks-deps/src/agent_standards.rs" = 14
 "crates/lgwks-deps/src/audit.rs" = 2
 "crates/lgwks-deps/src/catalog.rs" = 13
@@ -337,6 +339,7 @@
 "crates/lgwks-ast/src/script/tree/vocab.rs" = 28
 "crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/script/scope.rs" = 1
+"crates/lgwks-bot/src/script/scope/identity.rs" = 6
 "crates/lgwks-deps/src/agent_standards.rs" = 2
 "crates/lgwks-std/src/http/pool.rs" = 1
 "crates/lgwks-std/src/http/stream.rs" = 1

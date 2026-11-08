@@ -22,8 +22,10 @@
 //! directory the architecture diff reads as the base (default: `origin/main`
 //! through the repository's git).
 
+mod args;
 #[path = "bin/shared/children.rs"]
 mod children;
+mod render;
 
 use std::collections::BTreeMap;
 use std::io;
@@ -31,7 +33,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
+use args::{GateArgError, parse_gate_args};
 use children::{Captured, Children, Launch, STOPPED, TIMED_OUT, UNRUNNABLE};
+use render::{render_human, render_json};
 
 /// How long the clippy leg may run: a consumer workspace builds real code.
 const CLIPPY_BOUND: Duration = Duration::from_secs(600);
@@ -119,105 +123,6 @@ impl Leg {
             },
         )
     }
-}
-
-/// What the gate was asked to do, after one consuming pass over its arguments.
-struct GateArgs {
-    /// The repository to gate; the working directory when absent.
-    target: PathBuf,
-    /// Emit one JSON document instead of the human transcript.
-    json: bool,
-    /// The `lgwks-ast` binary.
-    ast: String,
-    /// The architecture diff's base: a revision or a directory.
-    base: String,
-}
-
-/// Why the gate's arguments were refused.
-struct GateArgError(String);
-
-/// Logs `reason` where the gate refused its arguments, then hands it back:
-/// a refusal the operator cannot diagnose is a refusal the operator cannot
-/// repair, so every one carries the token that caused it.
-fn refuse(reason: String) -> Result<GateArgs, GateArgError> {
-    lgwks_std::trace::debug!(reason = %reason, "gate: refusing its arguments");
-    Err(GateArgError(reason))
-}
-
-/// Parses the gate's arguments: at most one positional path, `--json` as a
-/// mode that may repeat, `--ast` and `--base` each at most once. A refusal
-/// names the token, the way `check`'s refusals do.
-fn parse_gate_args(args: &[String]) -> Result<GateArgs, GateArgError> {
-    let mut target: Option<PathBuf> = None;
-    let mut json = false;
-    let mut ast: Option<String> = None;
-    let mut base: Option<String> = None;
-    let mut cursor = args.iter();
-    while let Some(argument) = cursor.next() {
-        match argument.as_str() {
-            "--help" | "-h" => {
-                return refuse("help".to_owned());
-            }
-            "--json" => json = true,
-            "--ast" | "--base" => {
-                let flag = argument.clone();
-                let Some(value) = cursor.next() else {
-                    return refuse(format!("{flag} needs a value: {flag} VALUE"));
-                };
-                if value.starts_with("--") {
-                    return refuse(format!(
-                        "{flag} was given {value:?}, which is another option, not a value"
-                    ));
-                }
-                let taken = if flag == "--ast" {
-                    ast.is_some()
-                } else {
-                    base.is_some()
-                };
-                if taken {
-                    return refuse(format!(
-                        "{flag} was given more than once; the gate runs one tool against one base"
-                    ));
-                }
-                if flag == "--ast" {
-                    ast = Some(value.clone());
-                } else {
-                    base = Some(value.clone());
-                }
-            }
-            flag if flag.starts_with("--") => {
-                return refuse(format!("unknown option for `gate`: {flag}"));
-            }
-            path => {
-                if target.is_some() {
-                    return refuse(format!(
-                        "`gate` audits one repository, and {path:?} is a second path"
-                    ));
-                }
-                target = Some(PathBuf::from(path));
-            }
-        }
-    }
-    // Each option left unsaid takes its documented default: the current
-    // directory, the installed `lgwks-ast`, and `origin/main` as the base.
-    let target = match target {
-        Some(target) => target,
-        None => PathBuf::from("."),
-    };
-    let ast = match ast {
-        Some(ast) => ast,
-        None => "lgwks-ast".to_owned(),
-    };
-    let base = match base {
-        Some(base) => base,
-        None => "origin/main".to_owned(),
-    };
-    Ok(GateArgs {
-        target,
-        json,
-        ast,
-        base,
-    })
 }
 
 /// The environment a leg's children see: inherited, minus what `cargo run`
@@ -761,96 +666,6 @@ fn gate_code(legs: &[Leg]) -> ExitCode {
         ExitCode::from(1)
     } else {
         ExitCode::SUCCESS
-    }
-}
-
-/// One JSON string field: quoted, with the three escapes a detail can carry.
-fn field(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len().saturating_add(2));
-    quoted.push('"');
-    for ch in text.chars() {
-        match ch {
-            '"' => quoted.push_str("\\\""),
-            '\\' => quoted.push_str("\\\\"),
-            '\n' => quoted.push(' '),
-            _ => quoted.push(ch),
-        }
-    }
-    quoted.push('"');
-    quoted
-}
-
-/// The machine rendering: one document, one leg per row.
-fn render_json(root: &Path, base: &str, legs: &[Leg]) -> String {
-    let rows: Vec<String> = legs
-        .iter()
-        .map(|leg| {
-            format!(
-                "{{\"name\":{},\"verdict\":{},\"detail\":{}}}",
-                field(leg.name),
-                field(leg.verdict.word()),
-                field(&leg.detail),
-            )
-        })
-        .collect();
-    format!(
-        "{{\"tool\":\"lgwks-deps-gate\",\"path\":{},\"base\":{},\"legs\":[\n{}\n]}}\n",
-        field(&root.to_string_lossy()),
-        field(base),
-        rows.join(",\n"),
-    )
-}
-
-/// The human rendering: one summary line per leg, the transcripts of the
-/// legs that did not pass, then the verdict.
-fn render_human(root: &Path, legs: &[Leg], out: &mut impl io::Write) -> io::Result<()> {
-    for leg in legs {
-        writeln!(
-            out,
-            "{:13} {:5}  {}",
-            leg.name,
-            leg.verdict.word(),
-            leg.detail
-        )?;
-    }
-    for leg in legs.iter().filter(|leg| leg.verdict != Verdict::Pass) {
-        writeln!(
-            out,
-            "\n--- {} ({}) ---\n{}",
-            leg.name,
-            leg.verdict.word(),
-            leg.transcript
-        )?;
-    }
-    let failures = legs
-        .iter()
-        .filter(|leg| leg.verdict == Verdict::Fail)
-        .count();
-    let errors = legs
-        .iter()
-        .filter(|leg| leg.verdict == Verdict::Error)
-        .count();
-    let skips = legs
-        .iter()
-        .filter(|leg| leg.verdict == Verdict::Skip)
-        .count();
-    if failures == 0 && errors == 0 {
-        writeln!(
-            out,
-            "GATE PASS  {} — every applicable leg passed{}",
-            root.display(),
-            if skips == 0 {
-                String::new()
-            } else {
-                format!(", {skips} skipped (named above, not evidence)")
-            }
-        )
-    } else {
-        writeln!(
-            out,
-            "GATE REFUSED  {} — {failures} leg(s) failed, {errors} errored",
-            root.display()
-        )
     }
 }
 

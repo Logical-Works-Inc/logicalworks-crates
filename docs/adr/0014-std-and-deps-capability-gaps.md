@@ -14,7 +14,7 @@ Eighteen open capability issues span `lgwks_std`, `lgwks_bot`, `lgwks_macros`, a
 
 ## Decision
 
-1. **Eliminate six capabilities in-tree (Rung 5).** Implement `capture_descendants_many` (`#798`), `Element` tuple packing (`0x00`..`0x33`, `#851`), and deterministic IEEE 754 `math` (`#837`) in `lgwks_std` with zero new external dependencies. Implement inherited-FD passing (`#814`), anonymous-pipe start gates (`#808`), and `EntityUuid`/`TenantEntityIndex` (`#851`) in `lgwks_bot`. Implement `#[derive(Error)]` (`#842`) in `lgwks_macros` and `lgwks_ast`, retiring `thiserror` from `contract/APPROVED.toml`. Implement local RustSec lockfile evaluation (`#799`) in `lgwks_deps::advisories` over existing lockfile, SemVer, and BLAKE3 primitives.
+1. **Eliminate six capabilities in-tree (Rung 5).** Implement `capture_descendants_many` (`#798`), `Element` tuple packing (`0x00`..`0x33`, `#851`), and deterministic IEEE 754 `math` (`#837`) in `lgwks_std` with zero new external dependencies. Implement inherited-FD passing (`#814`), anonymous-pipe start gates (`#808`), and `EntityUuid`/`TenantEntityIndex` (`#851`) in `lgwks_bot`. Implement `#[derive(Error)]` (`#842`) in `lgwks_macros` and `lgwks_ast`, retiring `thiserror` from `contract/APPROVED.toml`. Implement local RustSec lockfile evaluation (`#799`) in `lgwks_deps::advisories` over existing lockfile and SemVer primitives.
 2. **Isolate NIST curves in `lgwks_std::ec` (`#794`, `#840`).** Wrap pure-Rust `p256`, `p384`, and `p521` (`=0.14.0`, `arithmetic`, `ecdsa`, `zeroize`) behind `lgwks_std::ec` with strict low-`S` verification, SEC1 point encoding, and scalar multiplication.
 3. **Unify SQLite linkage and admit storefront boundaries (Rung 4/8).** Align `rusqlite` and `sqlx-sqlite` on one `libsqlite3-sys` version (`#849`) and extract `SqliteExecutor` so both engines share the `WAL` + `synchronous = FULL` + `user_version` contract. Pin `appcui_proc_macro = "=0.3.6"` (`#841`). Admit `web-loco` (`#848`), `pki-x509` and `pdf-sign` (`#833`), `warden-wasm`/`warden-seccomp`/`warden-wat` (`#846`, retiring `wasmtime` from `contract/DEFERRAL.toml`), `apple-vz` (`#854` safe `lgwks_deps::vz` wrapper), `mcp-remote` (`#850`), `ui-preview` (`#836`), and `proptest` (`#838`) as default-off `lgwks_deps` features with schema-3 `[approved.retire]` mortgages.
 
@@ -23,6 +23,16 @@ Eighteen open capability issues span `lgwks_std`, `lgwks_bot`, `lgwks_macros`, a
 - **Admitting `foundationdb-tuple`, `thiserror`, `libm`, and `rustsec` as storefront dependencies.** Each duplicates a parser, digest, or fixed wire format the workspace already owns, increasing supply-chain surface and cold compile times.
 - **Keeping `SIGSTOP` polling for gated process spawns (`#808`).** Costs a 5 ms poll loop per lane and cannot fail closed before `exec` when the coordinator is killed with `SIGKILL`.
 - **Exposing raw `objc2-virtualization` types to downstream crates (`#854`).** Forces `unsafe` Objective-C message sends into consumer crates that enforce `#[forbid(unsafe_code)]`.
+
+## What landed
+
+A review of the first delivery found part of it unreachable, wired only by calls that discarded a self-check. This section says what is true of the tree.
+
+- The command over the audit is `lgwks-deps advisories`, and `advisories::run` is its one public item. The advisory digest is FNV-1a-128, not BLAKE3, because `hash` is not on this crate's normal edge.
+- The `math` module and the ECS identity index had no caller outside their crates and were removed. Their sims had found `sqrt` one ULP off and `tenant_keys` reading a neighbour whose name holds a NUL. Issue #837 and the ECS part of #851 stay open until a consumer lands with them.
+- The first in-tree `ec`, `vz` and `warden` were removed. The `ec` module signed with a BLAKE3-derived nonce it called RFC 6979 and carried no known-answer tests; the other two held data and no engine.
+- Decision 2 and the `warden`, `apple-vz`, `web-loco`, `pki-x509`, `pdf-sign`, `mcp-remote`, `ui-preview` and `proptest` parts of Decision 3 remain open on their issues.
+- The `SqliteExecutor` type was never reached outside its tests and is gone.
 
 ## Consequences
 

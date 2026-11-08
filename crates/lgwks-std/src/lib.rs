@@ -70,9 +70,6 @@ extern crate self as lgwks_std;
 #[cfg(feature = "build")]
 #[doc(hidden)]
 pub mod build;
-/// NIST elliptic curve cryptography: P-256, P-384, P-521 ECDSA and ECDH (feature `sign`).
-#[cfg(feature = "sign")]
-pub(crate) mod ec;
 /// Single-import encoding primitives: base64 and percent-encoding.
 #[doc(hidden)]
 pub mod encoding;
@@ -107,9 +104,6 @@ pub mod leb128;
 #[cfg(feature = "legacy")]
 #[doc(hidden)]
 pub mod legacy;
-/// Deterministic IEEE 754 pure-Rust elementary math (`f64` and `f32`).
-#[cfg(feature = "math")]
-pub(crate) mod math;
 /// TCP reachability probing, zero-dep (feature `online`).
 #[cfg(feature = "online")]
 #[doc(hidden)]
@@ -145,10 +139,6 @@ mod serde_facade;
 #[cfg(feature = "sign")]
 #[doc(hidden)]
 pub mod sign;
-#[cfg(all(test, feature = "sign"))]
-mod sim_ec;
-#[cfg(all(test, feature = "math"))]
-mod sim_math;
 /// Pure, replaceable similarity metrics and weighted composition.
 #[doc(hidden)]
 pub mod similarity;
@@ -167,14 +157,3 @@ pub mod trace;
 #[cfg(feature = "wire")]
 #[doc(hidden)]
 pub mod wire;
-
-#[cfg(feature = "random")]
-#[doc(hidden)]
-pub(crate) fn audit_std_contracts() -> bool {
-    let ok = true;
-    #[cfg(feature = "math")]
-    let ok = ok && math::verify_math_contract();
-    #[cfg(feature = "sign")]
-    let ok = ok && ec::verify_ec_contract();
-    ok
-}

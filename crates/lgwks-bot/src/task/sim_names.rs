@@ -65,9 +65,14 @@ trait Names {
 
 impl Names for Stream {
     fn legal(&mut self, length: usize) -> Result<String, String> {
-        (0..length)
+        let name: String = (0..length)
             .map(|_| self.choose(ALPHABET).map(char::from))
-            .collect()
+            .collect::<Result<_, _>>()?;
+        // Only dots is the one legal-alphabet name the rule refuses (CWE-22).
+        if name.bytes().all(|byte| byte == b'.') {
+            return Ok("a".repeat(length));
+        }
+        Ok(name)
     }
 
     fn planted(&mut self, length: usize) -> Result<(String, usize, u8), String> {
@@ -89,7 +94,9 @@ fn reference(name: &str, max: usize) -> Option<NameFault> {
         Some(NameFault::Empty)
     } else if name.len() > max {
         Some(NameFault::TooLong)
-    } else if name.bytes().any(|byte| !ALPHABET.contains(&byte)) {
+    } else if name.bytes().any(|byte| !ALPHABET.contains(&byte))
+        || name.bytes().all(|byte| byte == b'.')
+    {
         Some(NameFault::BadChar)
     } else {
         None

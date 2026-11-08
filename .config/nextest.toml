@@ -95,9 +95,13 @@ success-output = 'immediate'
 
 # #819: the sealed disk-fault sweep prints its receipt (seed count, wall time,
 # peak RSS, trace fingerprint) on success too: the line is the acceptance
-# evidence, and a passing test's output is otherwise discarded.
+# evidence, and a passing test's output is otherwise discarded. Its 60 s budget
+# measures the sweep, so it runs with every test slot to itself: beside the rest
+# of a three-crate run on one Mac it took 89.7 s and 82.4 s, all of it contention.
 [[profile.default.overrides]]
 filter = 'package(lgwks_bot) & binary(it) & test(/^sim_sealed_disk::sealed_disk_seed_sweep/)'
+threads-required = 'num-test-threads'
+priority = 100
 success-output = 'immediate'
 
 # The storefront consumers (INV-DEP-9) are one test per family, and every one is
