@@ -66,6 +66,7 @@ mod origin_binding;
 mod prop_parsers;
 mod sdk_surface;
 // The wrapper's journeys run `/bin/sh` and a program that reads a pipe.
+mod sim_advisories_cli;
 #[cfg(unix)]
 mod sim_churn_slot;
 mod sim_dependency_policy;
@@ -90,6 +91,8 @@ mod sim_register_policy;
 #[cfg(feature = "lgwks")]
 mod sim_retire;
 mod sim_seed_draws;
+#[cfg(feature = "sqlite")]
+mod sim_sqlite_first_open;
 mod sim_vendor_coverage;
 #[cfg(feature = "sqlite")]
 mod sqlite_defaults;

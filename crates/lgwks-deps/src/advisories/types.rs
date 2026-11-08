@@ -97,14 +97,14 @@ impl Advisory {
         &self.package
     }
 
-    /// Optional title describing the advisory.
-    #[must_use]
+    /// The advisory title, when it carries one.
+    #[cfg(test)]
     pub(crate) fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
 
-    /// Optional publication date in `"YYYY-MM-DD"` format.
-    #[must_use]
+    /// The publication date, when it carries one.
+    #[cfg(test)]
     pub(crate) fn date(&self) -> Option<&str> {
         self.date.as_deref()
     }
@@ -187,7 +187,8 @@ impl AdvisoryMatch {
         &self.installed_version
     }
 
-    /// Returns the matched advisory's kind.
+    /// Whether this match is a vulnerability or an informational notice: only a
+    /// vulnerability fails `lgwks-deps advisories`.
     #[inline]
     #[must_use]
     pub(crate) fn match_kind(&self) -> &AdvisoryKind {
@@ -206,7 +207,8 @@ impl AdvisoryMatch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub(crate) struct AdvisoryReport {
-    /// Deterministic FNV-1a digest of the advisory database.
+    /// Deterministic FNV-1a digest of the advisory database: it names a checkout
+    /// for a report, and is not a tamper seal.
     db_digest: String,
     /// Total number of advisory files loaded.
     advisories_loaded: usize,

@@ -192,6 +192,11 @@ fn load_advisories_and_digest(db_path: &Path) -> Result<(Vec<Advisory>, String),
 }
 
 /// Audits a `Cargo.lock` file against a local RustSec advisory database directory.
+///
+/// # Errors
+///
+/// [`AdvisoryError`] when the lockfile or the database cannot be read, or an
+/// advisory or a version in them is malformed: a refusal, never a clean report.
 pub(crate) fn audit_lockfile(
     lock_path: &Path,
     db_path: &Path,

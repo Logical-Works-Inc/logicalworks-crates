@@ -306,46 +306,6 @@ pub fn set_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<()> {
     }
 }
 
-/// Query whether `FD_CLOEXEC` is currently set on `file_des`.
-///
-/// # Errors
-///
-/// An [`io::Error`] if the `fcntl` syscall fails.
-#[doc(hidden)]
-#[cfg(all(unix, feature = "process"))]
-pub fn is_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<bool> {
-    match rustix::io::fcntl_getfd(file_des) {
-        Ok(flags) => Ok(flags.contains(rustix::io::FdFlags::CLOEXEC)),
-        Err(error) => {
-            let io_err = io::Error::from(error);
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(error = ?io_err, "is_cloexec: fcntl_getfd failed");
-            Err(io_err)
-        }
-    }
-}
-
-/// Duplicate `source` and clear `FD_CLOEXEC` on the returned duplicate.
-///
-/// # Errors
-///
-/// An [`io::Error`] if duplicating or clearing `FD_CLOEXEC` fails.
-#[doc(hidden)]
-#[cfg(all(unix, feature = "process"))]
-pub fn dup_fd_inheritable(source: std::os::fd::BorrowedFd<'_>) -> io::Result<std::os::fd::OwnedFd> {
-    let duplicated = match rustix::io::dup(source) {
-        Ok(owned) => owned,
-        Err(error) => {
-            let io_err = io::Error::from(error);
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(error = ?io_err, "dup_fd_inheritable: dup failed");
-            return Err(io_err);
-        }
-    };
-    clear_cloexec(std::os::fd::AsFd::as_fd(&duplicated))?;
-    Ok(duplicated)
-}
-
 #[cfg(all(unix, feature = "process"))]
 /// Convert a rustix errno into the std error surface.
 fn errno_to_io(errno: rustix::io::Errno) -> io::Error {

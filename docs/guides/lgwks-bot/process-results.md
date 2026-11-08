@@ -88,11 +88,11 @@ supervisor applies it through the platform's own exec wrapper, so the boundary
 holds the child and every descendant, a `setsid` escapee included:
 
 - `Confinement::SandboxProfile` (macOS) runs the child under `sandbox-exec -p`
-  (`crates/lgwks-bot/src/rt/process/confine.rs:79`).
+  (`crates/lgwks-bot/src/rt/process/confine.rs:83`).
 - `Confinement::Landlock` (Linux) runs it under util-linux `setpriv`, 2.40 or
   later, with a deny-by-default filesystem allowlist: `LandlockRules::allow(path,
   PathAccess::Read | ReadWrite)`, at most 64 rules
-  (`crates/lgwks-bot/src/rt/process/confine.rs:291`). Grant the child's
+  (`crates/lgwks-bot/src/rt/process/confine.rs:295`). Grant the child's
   program and libraries (`/usr`, `/lib`, `/etc`) read-only and its work tree
   read-write; anything unnamed is refused by the kernel with `EACCES`.
 

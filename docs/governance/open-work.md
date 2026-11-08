@@ -11,7 +11,7 @@ Reconciled 2026-11-05 against the 34 open issues, after the 2026-11-05 cut
 | Priority | Work | Observed gap and completion evidence |
 |---|---|---|
 | P0 | Publish verification | Six crates cut at 2026-11-05 and verified with `published-consumer` against published manifests |
-| P1 | Estate UUID (#851) | `now_v7` and the tuple UUID element shipped in lgwks_std 4.0.0 (#858); serde declined (ADR 0010). Open: the rest of the FoundationDB tuple layer and the ECS identity surface |
+| P1 | Estate UUID (#851) | `now_v7` and the tuple UUID element shipped in lgwks_std 4.0.0 (#858); serde declined (ADR 0010). The tuple layer is on main. Open: the ECS identity surface, which lands with its first consumer |
 | P1 | Source and age on every result (#778) | Nothing merged. Needs an enveloped `Observe::poll` (lgwks_bot 8.0.0), workbook and mail readers in lgwks_ast, and a matched benchmark |
 | P1 | Cold build in 90 s (#860) | 184 s cold under `ci-bot` (#857); the lgwks_bot `it`, lib-test and lib units are the critical path |
 | P1 | appcui consumer build (#841) | lgwks_deps 6.0.0 still pins `appcui =0.5.5` without its macro crate; a fresh resolve fails |
@@ -19,10 +19,9 @@ Reconciled 2026-11-05 against the 34 open issues, after the 2026-11-05 cut
 | P1 | Journal and policy authority | #819 seeded faults shipped in #824, #820 fail-closed start in #829, #779 tokens in #843. Open: #817 model-call record/outbox, #818 pre-filter, #821 effect broker |
 | P2 | Parsers in lgwks_ast | #834 SQL to a relational IR, #852 TOML and YAML; every parser lives in lgwks_ast (Director, 2026-11-04) |
 | P2 | Relational projections | #835 incremental projections over the journal, #828 and #839 the embedded SQL engine |
-| P2 | Process supervision | #798 one snapshot for many roots, #808 and #814 inherited-fd start gates |
-| P2 | Crypto | #794 and #840 NIST curves, #833 X.509, CMS and PDF signing |
-| P2 | Dependency gaps | #836, #837, #838, #842, #848, #849, #850 and #799: each a `gap` issue, cited on the manifest line that admits a stand-in |
-| P2 | Sandbox and virtualization | #846 Nova warden edges, #854 the Virtualization.framework binding |
+| P2 | Crypto | #794 and #840 NIST curves (the modules that claimed them were removed as unreachable, ADR 0014), #833 X.509, CMS and PDF signing |
+| P2 | Dependency gaps | #836, #837, #838, #848 and #850: each a `gap` issue, cited on the manifest line that admits a stand-in |
+| P2 | Sandbox and virtualization | #846 Nova warden edges, #854 the Virtualization.framework binding; the modules that claimed them were removed as unreachable |
 | P2 | Benchmarks and hygiene | #789 durable-workflow benchmark, #822 no machine-absolute paths in graph output |
 | Standing | Dependency admission | Any new third-party edge goes through `skills/lgwks-dependency-admission/SKILL.md` and lands in `contract/APPROVED.toml` |
 

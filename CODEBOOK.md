@@ -57,10 +57,8 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `id::v7` | the process-wide RFC 9562 method 1 generator; `new_v7` refuses, `now_v7` clamps | INV-ID-2, INV-ID-4 |
 | `id::tuple` | the FoundationDB tuple layer: all 12 typecodes (`Element`, `pack_element`, `pack_elements`, `unpack_element`, `unpack_elements`), `0x30` and 16 network-order bytes; `TupleError` | INV-ID-5 |
 | `math` | deterministic pure-Rust IEEE 754 `f64` and `f32` elementary functions (`sqrt`, `cbrt`, `exp`, `ln`, `pow`, `sin`, `cos`, `atan2`) | INV-STD-LOCALE-1 |
-| `ec` | constant-time NIST P-256, P-384, and P-521 ECDSA (`rfc6979`) and ECDH primitives | INV-RANDOM-1 |
 
-`Uuid` implements no serde trait (ADR 0010 decision 3). The ECS identity surface lives in `lgwks_bot::ecs::entity_uuid` (`EntityUuid`, `TenantEntityIndex`, #851).
-
+`Uuid` implements no serde trait (ADR 0010 decision 3).
 ### `lgwks` (the `lgwks_deps` binary)
 
 | Module | Command |
@@ -104,10 +102,8 @@ The estate identity type, replacing the `uuid` crate for stored identities
 
 | Module | Owns | Invariant |
 |---|---|---|
-| `advisories` | offline RustSec advisory Markdown parser and semver evaluator (#799) | INV-SEC-AUDIT-1 |
-| `sqlite` | `PRAGMA_INIT_SQL`, `SqliteExecutor`, `SqliteRow`, `SqliteVal`, and `rusqlite` opener (#849) | INV-DEP-EDGE-OWNED |
-| `warden` | WebAssembly and seccomp sandbox resource limits (`WasmLimits`, `WardenError`, #846) | INV-DEP-EDGE-OWNED |
-| `vz` | Apple `Virtualization.framework` Linux VM configuration and main-thread token (#854) | INV-DEP-EDGE-OWNED |
+| `advisories` | offline RustSec advisory parser and semver evaluator; `lgwks-deps advisories` (#799) | INV-SEC-AUDIT-1 |
+| `sqlite` | the one opener and `migrate`: serialized first open, one transaction per step (#872, #873) | INV-DEP-EDGE-OWNED |
 
 ### `lgwks_bot::rt::serve` and `lgwks_bot::task`
 

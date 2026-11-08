@@ -483,6 +483,23 @@ pub enum TupleError {
         /// The type code of the unterminated element.
         code: u8,
     },
+    /// An integer element holds a value outside `i64`.
+    ///
+    /// A refusal rather than a clamp: two distinct keys must never read as one
+    /// value, and a key that clamped to a neighbour's identity would name the
+    /// wrong row.
+    IntegerOutOfRange {
+        /// The integer's type code.
+        code: u8,
+    },
+    /// An integer element carries a leading byte its minimal encoding would not.
+    ///
+    /// The layer packs each value one way, so a padded form is a second key for
+    /// one value and is refused rather than aliased.
+    NonCanonicalInteger {
+        /// The integer's type code.
+        code: u8,
+    },
 }
 
 impl fmt::Display for TupleError {
@@ -508,6 +525,14 @@ impl fmt::Display for TupleError {
             Self::InvalidUtf8 { at } => write!(
                 formatter,
                 "tuple string element contains invalid UTF-8 at byte offset {at}"
+            ),
+            Self::IntegerOutOfRange { code } => write!(
+                formatter,
+                "tuple integer with type code {code:#04x} is outside the i64 range"
+            ),
+            Self::NonCanonicalInteger { code } => write!(
+                formatter,
+                "tuple integer with type code {code:#04x} is not minimally encoded"
             ),
             Self::Unterminated { code } => write!(
                 formatter,

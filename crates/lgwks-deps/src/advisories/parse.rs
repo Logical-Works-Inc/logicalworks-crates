@@ -4,6 +4,9 @@ use std::path::Path;
 
 use super::types::{Advisory, AdvisoryError, AdvisoryKind, err_frontmatter};
 
+#[cfg(test)]
+mod sim_parse;
+
 /// Unquotes a TOML string literal and trims surrounding whitespace.
 pub(super) fn unquote(input_str: &str) -> String {
     let trimmed = input_str.trim();
@@ -108,13 +111,41 @@ enum FrontmatterSection {
     Other,
 }
 
-/// Parses comma-separated items and appends them to `out`.
+/// Splits a TOML array body on its top-level commas and appends each item.
+///
+/// A comma inside a quoted string belongs to that string: RustSec writes
+/// `patched = [">= 1.0.1, < 1.1.0", ">= 1.1.3"]`, where the first item is one
+/// conjunction. Splitting it would make each half its own alternative, and
+/// `< 1.1.0` or `>= 1.0.1` between them matches every version, so a vulnerable
+/// lock would read as patched.
 fn parse_items(source: &str, out: &mut Vec<String>) {
-    for item in source.split(',') {
-        let cleaned = unquote(item);
+    let mut push_item = |raw: &str| {
+        let cleaned = unquote(raw);
         if !cleaned.is_empty() {
             out.push(cleaned);
         }
+    };
+    let mut open_quote: Option<char> = None;
+    let mut start = 0_usize;
+    for (idx, ch) in source.char_indices() {
+        match open_quote {
+            Some(quote) => {
+                if ch == quote {
+                    open_quote = None;
+                }
+            }
+            None if ch == '"' || ch == '\'' => open_quote = Some(ch),
+            None if ch == ',' => {
+                if let Some(item) = source.get(start..idx) {
+                    push_item(item);
+                }
+                start = idx.saturating_add(1);
+            }
+            None => {}
+        }
+    }
+    if let Some(item) = source.get(start..) {
+        push_item(item);
     }
 }
 

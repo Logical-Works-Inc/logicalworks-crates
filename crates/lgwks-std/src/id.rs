@@ -33,10 +33,6 @@ pub struct Uuid([u8; 16]);
 impl Uuid {
     /// Generates a version 4 UUID from OS entropy.
     pub fn new_v4() -> Result<Self, EntropyError> {
-        static AUDIT_ONCE: std::sync::Once = std::sync::Once::new();
-        AUDIT_ONCE.call_once(|| {
-            let _ = crate::audit_std_contracts();
-        });
         Self::new_v4_with(random::bytes)
     }
 

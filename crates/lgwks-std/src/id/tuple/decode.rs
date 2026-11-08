@@ -221,10 +221,13 @@ fn unpack_element_internal<'a>(
             } else {
                 (1_u64 << shift_bits).saturating_sub(1)
             };
-            let mut val_i64 = i64::MIN;
-            if let Ok(num) = i64::try_from(i128::from(encoded).saturating_sub(i128::from(max_n))) {
-                val_i64 = num;
+            if chunk.first().copied() == Some(0xff) {
+                return refuse(TupleError::NonCanonicalInteger { code });
             }
+            let Ok(val_i64) = i64::try_from(i128::from(encoded).saturating_sub(i128::from(max_n)))
+            else {
+                return refuse(TupleError::IntegerOutOfRange { code });
+            };
             let after = match rest.get(len_usize..) {
                 Some(slice) => slice,
                 None => &[],
@@ -246,10 +249,12 @@ fn unpack_element_internal<'a>(
                 let byte = *byte_ref;
                 unsigned_val = (unsigned_val << 8) | u64::from(byte);
             }
-            let mut val_i64 = 0_i64;
-            if let Ok(num) = i64::try_from(unsigned_val) {
-                val_i64 = num;
+            if chunk.first().copied() == Some(0x00) {
+                return refuse(TupleError::NonCanonicalInteger { code });
             }
+            let Ok(val_i64) = i64::try_from(unsigned_val) else {
+                return refuse(TupleError::IntegerOutOfRange { code });
+            };
             let after = match rest.get(len_usize..) {
                 Some(slice) => slice,
                 None => &[],

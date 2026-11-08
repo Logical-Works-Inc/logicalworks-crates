@@ -27,30 +27,28 @@ use std::time::Duration;
 /// so the group below still leads the wrapper and through it the target.
 #[cfg(all(unix, feature = "process"))]
 pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
+    start_holding(spec, None)
+}
+
+/// [`start`] with one more descriptor inherited for this spawn alone: the read
+/// end of a start gate.
+#[cfg(all(unix, feature = "process"))]
+fn start_holding(
+    spec: &ProcessSpec,
+    gate: Option<std::os::fd::BorrowedFd<'_>>,
+) -> io::Result<(OwnedChild, i32)> {
     let mut command = spec.command()?;
     spec.configure(&mut command)?;
     // The group kill reaches what the child spawned; `OwnedChild`'s drop-time
     // kill reaches the direct child on the paths where no group kill ran.
     command.process_group(0);
-    // Under the start-sweep lock from the spawn until the track below: a new
-    // leader is sweepable before it is tracked, so the lock keeps every
-    // adoption pass from collecting a leader that exits fast.
-    #[cfg(all(target_os = "linux", feature = "process"))]
-    let _start_sweep = crate::journal::owner::lock(&START_SWEEP);
-    let spawned = command.into_std().spawn();
-    spec.restore_cloexec();
-    #[cfg(all(unix, feature = "process"))]
-    {
-        use std::os::fd::AsFd as _;
-        if let Ok(devnull) = std::fs::File::open("/dev/null") {
-            let is_clo = lgwks_std::process::is_cloexec(devnull.as_fd());
-            if matches!(is_clo, Ok(false)) {
-                drop(lgwks_std::process::dup_fd_inheritable(devnull.as_fd()));
-            }
-        }
-        let _ = lgwks_std::process::MAX_CAPTURE_ROOTS;
-        drop(lgwks_std::process::capture_descendants_many(&[]));
-    }
+    // Under the start lock from before the first inheritable descriptor until
+    // the track below. Two jobs, one lock: a descriptor cleared for this child
+    // is inheritable for exactly this window, so no other supervised fork may
+    // run inside it; and a new leader is sweepable before it is tracked, so an
+    // adoption pass must not collect a leader that exits fast.
+    let start_lock = crate::journal::owner::lock(&START_SWEEP);
+    let spawned = spawn_with_inheritance(spec, gate, command);
     let child = OwnedChild::own(spawned?)?;
     // Read before the child is awaited: an unreaped child still has its id,
     // and a group leader's group id is its own pid, which `process_group(0)`
@@ -63,14 +61,37 @@ pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
     // Released before the collection below: the pass takes the same lock, and
     // a mutex is not reentrant, so holding it across the call would deadlock
     // the start on its own sweep.
-    #[cfg(all(target_os = "linux", feature = "process"))]
-    drop(_start_sweep);
+    drop(start_lock);
     // A start is the second moment adopted zombies are collected, beside the
     // confirmation pass: a supervisor that only ever starts children still
     // releases the adoptees its earlier trees stranded.
     #[cfg(all(target_os = "linux", feature = "process"))]
     let _collected = sweep_adopted();
     Ok((child, group))
+}
+
+/// Run the spawn with this child's descriptors inheritable, and only for it.
+///
+/// Called under [`START_SWEEP`]. `FD_CLOEXEC` comes back on before the lock is
+/// released, so the next supervised fork cannot inherit either the spec's
+/// descriptors or the gate. A clear that fails refuses the spawn: a child that
+/// would start missing its gate or its descriptor must not start at all.
+#[cfg(all(unix, feature = "process"))]
+fn spawn_with_inheritance(
+    spec: &ProcessSpec,
+    gate: Option<std::os::fd::BorrowedFd<'_>>,
+    command: lgwks_deps::tokio::process::Command,
+) -> io::Result<std::process::Child> {
+    let cleared = spec.clear_cloexec().and_then(|()| match gate {
+        Some(fd) => lgwks_std::process::clear_cloexec(fd),
+        None => Ok(()),
+    });
+    let spawned = cleared.and_then(|()| command.into_std().spawn());
+    spec.restore_cloexec();
+    if let Some(fd) = gate {
+        lgwks_std::process::set_cloexec(fd)?;
+    }
+    spawned
 }
 
 /// Start `spec` with its program held behind an anonymous pipe start gate.
@@ -83,25 +104,30 @@ pub(super) fn start_gated(
 ) -> io::Result<(OwnedChild, i32, std::io::PipeWriter)> {
     let (gate_reader, gate_writer) = std::io::pipe()?;
     let gate_rx_fd = std::os::fd::OwnedFd::from(gate_reader);
-    lgwks_std::process::clear_cloexec(std::os::fd::AsFd::as_fd(&gate_rx_fd))?;
     let raw_fd = std::os::fd::AsRawFd::as_raw_fd(&gate_rx_fd);
-    let (child, group) = start(&spec.gated_with_fd(raw_fd))?;
+    let (child, group) = start_holding(
+        &spec.gated_with_fd(raw_fd),
+        Some(std::os::fd::AsFd::as_fd(&gate_rx_fd)),
+    )?;
     drop(gate_rx_fd);
     Ok((child, group, gate_writer))
 }
 
-/// Serialises a start's spawn-to-track against every adoption sweep.
+/// The one lock every supervised start takes.
 ///
-/// [`track_leader`] runs after [`OwnedChild::own`], and owning takes locks and
-/// builds pipe readers: under concurrency the new leader is visible in the
-/// process table — and therefore sweepable — before it is tracked. A sweep
+/// Serialises two things that must not interleave a start. A descriptor cleared
+/// for one child is inheritable until it is restored, so a second fork in that
+/// window would carry it into an unrelated child ([`spawn_with_inheritance`]).
+/// And on Linux [`track_leader`] runs after [`OwnedChild::own`], and owning takes
+/// locks and builds pipe readers: under concurrency the new leader is visible in
+/// the process table — and therefore sweepable — before it is tracked. A sweep
 /// pass landing in that window collects a leader that exits fast, and its
 /// driver's exit observation fails with `ECHILD`, which surfaces as an
 /// unobservable run with no exit code. Both sides hold this lock — the start
-/// from the spawn until the track, the sweep for the whole scan-and-reap pass —
-/// so a pass never interleaves a start. Short holds only, never across an
-/// await: the spawn and the nonblocking reaps are both synchronous.
-#[cfg(all(target_os = "linux", feature = "process"))]
+/// from before the fork until the track, the sweep for the whole scan-and-reap
+/// pass — so a pass never interleaves a start. Short holds only, never across
+/// an await: the spawn and the nonblocking reaps are both synchronous.
+#[cfg(all(unix, feature = "process"))]
 pub(super) static START_SWEEP: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// How many tree scopes this process has named, disambiguating reused pids.

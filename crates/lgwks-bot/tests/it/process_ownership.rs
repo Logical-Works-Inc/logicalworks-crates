@@ -263,6 +263,87 @@ fn inherited_fd_passes_pipe_and_isolates_sibling() -> Result<(), Box<dyn std::er
     })
 }
 
+/// One thread's spawns: `spec` over and over, each child's exit awaited.
+fn spawn_rounds(spec: &ProcessSpec, rounds: u32) -> Result<(), String> {
+    let runtime = Runtime::new().map_err(|error| error.to_string())?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::default();
+        for _ in 0..rounds {
+            supervisor
+                .spawn_process(spec)
+                .await
+                .map_err(|error| error.to_string())?;
+            let report = outcome(&mut supervisor)
+                .await
+                .map_err(|error| error.to_string())?;
+            if report.is_process_failure() {
+                let refusal = Err(format!(
+                    "a child held a descriptor it was never given: {report:?}"
+                ));
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "spawn_rounds: a child failed");
+                return refusal;
+            }
+        }
+        Ok(())
+    })
+}
+
+/// The race `inherited_fd_passes_pipe_and_isolates_sibling` cannot see: one
+/// thread's descriptor is inheritable for the instant of its fork, and a
+/// sibling forked on another thread in that instant would carry it (CWE-403).
+/// Every supervised spawn in the process takes one lock for that window.
+#[test]
+fn a_sibling_started_beside_an_inherited_fd_never_holds_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    const ROUNDS: u32 = 64;
+    let mut inheritors = Vec::new();
+    let mut held = Vec::new();
+    let mut readers = Vec::new();
+    for _ in 0..4 {
+        let (reader, writer) = std::io::pipe()?;
+        let writer = std::os::fd::OwnedFd::from(writer);
+        held.push(std::os::fd::AsRawFd::as_raw_fd(&writer));
+        readers.push(reader);
+        let mut spec = ProcessSpec::new("sh");
+        spec.arg("-c").arg("exit 0");
+        spec.inherit_fd(writer);
+        inheritors.push(spec);
+    }
+    let probes: String = held
+        .iter()
+        .map(|fd| format!("if [ -e /dev/fd/{fd} ]; then exit 42; fi; "))
+        .collect();
+    let mut sibling = ProcessSpec::new("sh");
+    // `test` on `/dev/fd` and no redirect: bash keeps fd 10 open around any
+    // redirect, and fd 10 is one of the numbers probed.
+    sibling.arg("-c").arg(format!("{probes}exit 0"));
+    // The control: with nothing racing it, a sibling holds none of these. A probe
+    // that fires here is reading the shell, not the race.
+    spawn_rounds(&sibling, 1).map_err(|error| format!("control, fds {held:?}: {error}"))?;
+    let outcomes: Vec<Result<(), String>> = std::thread::scope(|scope| {
+        // Every spawner runs before the first join: joining as they start would
+        // run them one at a time, and the race needs them together.
+        let mut runners = Vec::new();
+        for spec in &inheritors {
+            runners.push(scope.spawn(move || spawn_rounds(spec, ROUNDS)));
+            let sibling = &sibling;
+            runners.push(scope.spawn(move || spawn_rounds(sibling, ROUNDS)));
+        }
+        runners
+            .into_iter()
+            .map(|runner| match runner.join() {
+                Ok(result) => result,
+                Err(_) => Err("a spawner panicked".to_owned()),
+            })
+            .collect()
+    });
+    for result in outcomes {
+        result?;
+    }
+    drop(readers);
+    Ok(())
+}
+
 /// Test that ProcessSpec::configure validates MAX_INHERITED_FDS and duplicate fds.
 #[test]
 fn inherited_fd_validation_refuses_invalid_inputs() -> Result<(), Box<dyn std::error::Error>> {

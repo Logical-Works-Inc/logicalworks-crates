@@ -94,8 +94,10 @@ fn read_table_pairs() -> io::Result<Vec<(i32, i32)>> {
         .collect())
 }
 
-/// Linux and macOS: reads a single process table snapshot and traverses each
-/// root in `roots`. Bounded by [`MAX_CAPTURE_ROOTS`].
+/// Linux and macOS: traverses each root in `roots`, bounded by [`MAX_CAPTURE_ROOTS`].
+/// Past 32 roots on Linux, and at any count on macOS, one process table read
+/// serves them all; 32 or fewer on Linux walk `/proc` per root, which is cheaper
+/// and is not one instant across the roots.
 ///
 /// # Errors
 ///

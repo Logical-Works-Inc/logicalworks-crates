@@ -39,6 +39,76 @@ const RFC_V7_PACKED: [u8; PACKED_LEN] = [
     0x8f,
 ];
 
+/// What the tuple specification's integer rule says about one packed element:
+/// the sign and width from the code, then the model in `i128`, apart from the code.
+fn integer_model(code: u8, width: u32, body: &[u8]) -> Result<i64, TupleError> {
+    let magnitude = body.iter().fold(0_i128, |held, byte| {
+        held.saturating_mul(256).saturating_add(i128::from(*byte))
+    });
+    let positive = code > 0x14;
+    let padding = if positive { 0x00 } else { 0xff };
+    if body.first().copied() == Some(padding) {
+        let refusal = Err(TupleError::NonCanonicalInteger { code });
+        crate::trace::debug!(error = ?refusal.as_ref().err(), "integer_model: padded");
+        return refusal;
+    }
+    let value = if positive {
+        magnitude
+    } else {
+        magnitude
+            .saturating_sub(256_i128.saturating_pow(width))
+            .saturating_add(1)
+    };
+    match i64::try_from(value) {
+        Ok(read) => Ok(read),
+        Err(_) => Err(TupleError::IntegerOutOfRange { code }),
+    }
+}
+
+/// Catches the alias this decoder shipped with: a positive integer past `i64`
+/// read as 0 and a negative one as `i64::MIN`, so two distinct keys named one
+/// row. Every width, sign and boundary byte against the model.
+#[test]
+fn sim_tuple_weird_bytes_integers_outside_i64_are_refused_never_clamped() -> Result<(), String> {
+    let boundary = [0x00_u8, 0x7f, 0x80, 0xff, 0x01, 0xfe];
+    for seed in SEEDS {
+        let mut stream = Seeded::from_seed(seed);
+        for _ in 0..PER_SEED {
+            let drawn = stream.index(8).map_err(|error| error.to_string())?;
+            let width = drawn.saturating_add(1);
+            let width_code = u8::try_from(width).map_err(|error| error.to_string())?;
+            let width_bits = u32::from(width_code);
+            let code = if stream.next_u64().is_multiple_of(2) {
+                0x14_u8.saturating_sub(width_code)
+            } else {
+                0x14_u8.saturating_add(width_code)
+            };
+            let mut key = vec![code];
+            for _ in 0..width {
+                let [byte, ..] = stream.next_u64().to_be_bytes();
+                key.push(byte);
+            }
+            let pick = stream.index(12).map_err(|error| error.to_string())?;
+            if let (Some(first), Some(byte)) = (key.get_mut(1), boundary.get(pick)) {
+                *first = *byte;
+            }
+            let body = key.get(1..).ok_or("the body of a packed integer")?;
+            let want = integer_model(code, width_bits, body);
+            let got = unpack_element(&key).map(|(element, _)| element);
+            match (want, got) {
+                (Ok(value), Ok(Element::Int(read))) if read == value => {}
+                (Err(expected), Err(refused)) if expected == refused => {}
+                (model, code_said) => {
+                    return Err(format!(
+                        "seed {seed:#x} key {key:02x?}: model {model:?}, code {code_said:?}"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// One identifier of 128 drawn bits, no version imposed.
 fn draw_uuid(stream: &mut Seeded) -> Uuid {
     let [h0, h1, h2, h3, h4, h5, h6, h7] = stream.next_u64().to_be_bytes();

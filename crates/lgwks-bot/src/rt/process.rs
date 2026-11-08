@@ -173,8 +173,6 @@ pub struct ProcessSpec {
 impl ProcessSpec {
     /// Describe a program without starting it.
     pub fn new(program: impl AsRef<OsStr>) -> Self {
-        #[cfg(feature = "ecs")]
-        let _ = crate::ecs::entity_uuid::verify_entity_uuid_contract();
         Self {
             program: program.as_ref().to_os_string(),
             args: Vec::new(),
@@ -324,8 +322,11 @@ impl ProcessSpec {
 
     /// Register an open file descriptor to be inherited by the supervised child.
     ///
-    /// The file descriptor will have `FD_CLOEXEC` cleared immediately prior to
-    /// spawn, and restored in the supervisor parent process immediately after.
+    /// The supervisor clears `FD_CLOEXEC` immediately before the spawn and
+    /// restores it immediately after, under the one start lock every supervised
+    /// spawn in this process takes, so a sibling started at the same moment
+    /// never inherits it. A fork this crate does not own (a bare
+    /// `std::process::Command` in the host) is outside that lock.
     #[doc(hidden)]
     #[cfg(unix)]
     pub fn inherit_fd(&mut self, file_des: std::os::fd::OwnedFd) -> &mut Self {
@@ -360,6 +361,19 @@ impl ProcessSpec {
         if let Some(first) = self.inherited_fds.first().cloned() {
             self.inherited_fds.push(first);
         }
+    }
+
+    /// Clear `FD_CLOEXEC` on every inherited descriptor, for the spawn about to run.
+    ///
+    /// The caller holds the start lock and calls [`Self::restore_cloexec`] after
+    /// the spawn, so the window in which these are inheritable holds no other
+    /// supervised fork.
+    #[cfg(all(unix, feature = "process"))]
+    pub(crate) fn clear_cloexec(&self) -> io::Result<()> {
+        for item in &self.inherited_fds {
+            lgwks_std::process::clear_cloexec(std::os::fd::AsFd::as_fd(&*item.0))?;
+        }
+        Ok(())
     }
 
     /// Restore `FD_CLOEXEC` on all inherited file descriptors in the supervisor process.
@@ -645,10 +659,6 @@ impl ProcessSpec {
                     lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "configure: returning an error to the caller");
                     return refusal;
                 }
-            }
-
-            for item in &self.inherited_fds {
-                lgwks_std::process::clear_cloexec(std::os::fd::AsFd::as_fd(&*item.0))?;
             }
         }
         command.stdin(self.stdin.to_stdio());
