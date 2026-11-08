@@ -68,6 +68,7 @@ the crate is the decision. An `off` row states why in ADR 0003.
 | merkle log | `lgwks_deps::storefront::ct_merkle` | `lgwks_deps` | `merkle-log` | off — The RFC 6962 append-only log with inclusion and consistency proofs, generic over its digest (the journey hashes with lgwks_std's BLAKE3). One flag: --features merkle-log (ADR 0015). | merkle, merkle tree, rfc 6962, transparency log, inclusion proof, consistency proof, append-only log |
 | opentelemetry | `lgwks_deps::storefront::opentelemetry` | `lgwks_deps` | `otel` | off — OpenTelemetry API and SDK with OTLP/HTTP export and the bridge from lgwks_std::trace spans, on the ring provider. One flag: --features otel (ADR 0015). | opentelemetry, otel, otlp, gen_ai spans, traces, metrics, tracing bridge, observability |
 | record journal | `lgwks_bot::journal::RecordJournal` | `lgwks_bot` | `wire` | on | durable log, journal, write ahead log, wal, append only log, compare and append, hash chain, torn tail, event log, crash recovery |
+| environment fence | `lgwks_bot::broker::Broker` | `lgwks_bot` | `always` | on | fencing token, stale owner, split brain, takeover, generation, epoch, withdraw an operation, kill switch, offline bound, lease |
 
 ## When the gate refuses your code
 

@@ -52,5 +52,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0014](0014-std-and-deps-capability-gaps.md) | Capability gaps split between first-party elimination and storefront boundaries |
 | [0015](0015-agent-standards-storefront.md) | The storefront sells the agent standards on one ring TLS provider |
 | [0016](0016-record-journal-for-a-consumers-own-history.md) | A durable journal over a consumer's own record |
+| [0017](0017-a-broker-fence-a-generation-does-not-answer.md) | The broker's fence for what a generation does not answer |
 
 New records go at the bottom of that table.

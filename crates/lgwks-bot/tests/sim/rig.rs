@@ -31,7 +31,7 @@ use lgwks_bot::journal::{
     JournalEntry, JournalError, JournalPosition, MemoryJournal,
 };
 use lgwks_bot::spec::{Bot, EffectIdentity, EffectScope};
-use lgwks_bot::{Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, Observe};
+use lgwks_bot::{Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, InputIdentity, Observe};
 
 /// The value [`FixedSource`] yields on every poll.
 ///
@@ -330,6 +330,29 @@ impl Observe for FixedSource {
 
     fn domain_id(&self) -> &str {
         "test::fixed_source"
+    }
+}
+
+/// A source the test can retarget, so each tick can open new work.
+///
+/// An event's id is part of `PartialEq` and of `InputIdentity`, which is the point:
+/// two events with equal payloads must still be two events.
+pub struct Requests<T>(pub Rc<RefCell<T>>);
+
+impl<T: Copy + PartialEq + InputIdentity + 'static> Observe for Requests<T> {
+    type Output = T;
+
+    fn required_caps(&self) -> &[Cap] {
+        &[]
+    }
+
+    async fn poll(&self, call: (Auth, ())) -> Result<T, BotError> {
+        call.0.check(Observe::required_caps(self))?;
+        Ok(*self.0.borrow())
+    }
+
+    fn domain_id(&self) -> &str {
+        "test::requests"
     }
 }
 

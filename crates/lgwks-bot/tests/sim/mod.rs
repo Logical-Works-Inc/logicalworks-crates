@@ -41,6 +41,8 @@
 
 #[cfg(all(feature = "ecs", feature = "wire"))]
 pub mod rig;
+#[cfg(feature = "wire")]
+pub mod scratch_file;
 
 use std::error::Error;
 use std::fs;

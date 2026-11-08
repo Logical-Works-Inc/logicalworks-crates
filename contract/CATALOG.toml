@@ -613,3 +613,13 @@ feature = "wire"
 default = "on"
 words = ["durable log", "journal", "write ahead log", "wal", "append only log", "compare and append", "hash chain", "torn tail", "event log", "crash recovery"]
 replaces = ["an append-only file with fsync by hand", "a Vec of events lost on restart", "a torn-tail scan of your own"]
+
+[[capability]]
+name = "environment fence"
+path = "lgwks_bot::broker::Broker"
+file = "crates/lgwks-bot/src/broker.rs"
+crate = "lgwks_bot"
+feature = "always"
+default = "on"
+words = ["fencing token", "stale owner", "split brain", "takeover", "generation", "epoch", "withdraw an operation", "kill switch", "offline bound", "lease"]
+replaces = ["a generation counter and a check by hand", "a lease timer a clock can extend", "a withdrawn-operations set of your own"]

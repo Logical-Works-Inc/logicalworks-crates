@@ -381,3 +381,8 @@ required-features = ["testing"]
 name = "record-journal"
 path = "src/bin/record_journal.rs"
 required-features = ["wire"]
+
+[[bin]]
+name = "broker-fence"
+path = "src/bin/broker_fence.rs"
+required-features = ["wire"]

@@ -53,13 +53,16 @@ const DENIALS: [&str; 7] = [
 /// operation's own documentation rather than a claim with nothing behind it.
 /// Flattened text turns `replace_grants` into `replace grants`, which every
 /// spelling of the call carries.
-const OPERATION: [&str; 3] = [
+const OPERATION: [&str; 5] = [
     // The operation, in any spelling: `replace_grants`, `EcsBot::replace_grants`.
     "replace grants",
     // Its report: `GrantReplacement::withdrawn` / `added`.
     "grant replacement",
     // The property it implements, named as the guide names it.
     "live revocation",
+    // The broker's one-way withdrawal of an operation, as its invariant names it.
+    "inv fence 1",
+    "sim broker fence",
 ];
 
 /// Phrases that show the mention is about a different subject.
@@ -111,7 +114,35 @@ const OTHER_SUBJECTS: [&str; 5] = [
 /// decide surface is a different subject from `GrantSet` capability lifetime,
 /// which has no `revoke` and is what this scan protects. A mention there claims
 /// denial of a bearer token by id, not revocation of a capability.
-const NOT_AUTHORITY_CLAIMS: [(&str, &str); 13] = [
+///
+/// The six broker entries are the same bargain for effect attempts (#876):
+/// `Broker::revoke_operation` is a shipped, tested one-way withdrawal of one
+/// operation's dispatch authority, and it says nothing about `GrantSet`.
+const NOT_AUTHORITY_CLAIMS: [(&str, &str); 19] = [
+    (
+        "crates/lgwks-bot/src/broker.rs",
+        "the broker's refusals name its shipped withdrawal of an operation, not GrantSet",
+    ),
+    (
+        "crates/lgwks-bot/src/broker/fence.rs",
+        "the shipped Broker::revoke_operation itself, not GrantSet",
+    ),
+    (
+        "crates/lgwks-bot/src/bin/broker_fence.rs",
+        "the binary that drives Broker::revoke_operation, not GrantSet",
+    ),
+    (
+        "crates/lgwks-bot/tests/it/broker_fence_cli.rs",
+        "the journey proof of Broker::revoke_operation, not a capability claim",
+    ),
+    (
+        "crates/lgwks-bot/tests/it/sim_broker_fence.rs",
+        "the simulation proof of Broker::revoke_operation, not a capability claim",
+    ),
+    (
+        "docs/adr/0017-a-broker-fence-a-generation-does-not-answer.md",
+        "the decision record of Broker::revoke_operation, not GrantSet",
+    ),
     (
         "docs/frontier.md",
         "the state-of-the-art survey: its mentions are published research and design \
