@@ -4,8 +4,6 @@
 //! declares the upstream crate itself. No feature is on by default; the
 //! feature table on the crate page names what each one enables.
 
-#[cfg(feature = "merkle-log")]
-pub use crate::Sha256;
 #[cfg(feature = "appcui")]
 pub use crate::appcui;
 #[cfg(feature = "axum")]

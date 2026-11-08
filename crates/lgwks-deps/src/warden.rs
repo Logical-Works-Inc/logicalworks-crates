@@ -21,8 +21,9 @@ pub(crate) const DEFAULT_MAX_TABLE_ELEMENTS: u32 = 10_000;
 /// Maximum allowable WASM linear memory: 4 GiB (32-bit WASM limit).
 #[cfg(target_pointer_width = "64")]
 pub(crate) const MAX_PERMITTED_MEMORY_BYTES: usize = 4 * 1024 * 1024 * 1024;
+/// Maximum allowable WASM linear memory on 32-bit targets: 2 GiB.
 #[cfg(not(target_pointer_width = "64"))]
-pub(crate) const MAX_PERMITTED_MEMORY_BYTES: usize = usize::MAX;
+pub(crate) const MAX_PERMITTED_MEMORY_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 /// Errors arising from sandbox validation or execution traps.
 #[derive(Debug, Clone, PartialEq, Eq)]

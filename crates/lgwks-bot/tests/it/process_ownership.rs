@@ -243,6 +243,11 @@ fn inherited_fd_passes_pipe_and_isolates_sibling() -> Result<(), Box<dyn std::er
             );
         }
 
+        let child_outcome = outcome(&mut supervisor).await?;
+        if child_outcome.is_process_failure() {
+            return Err(std::io::Error::other("child process should succeed").into());
+        }
+
         // Sibling spawned without inherit_fd must not be able to write to that fd number (EBADF).
         let sibling_script = format!("echo sibling-bad >&{writer_raw} || exit 42");
         let mut sibling_spec = ProcessSpec::new("sh");

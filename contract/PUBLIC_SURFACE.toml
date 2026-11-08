@@ -242,7 +242,7 @@
 "crates/lgwks-deps/src/refusal.rs" = 4
 "crates/lgwks-deps/src/retire.rs" = 4
 "crates/lgwks-deps/src/sqlite.rs" = 12
-"crates/lgwks-deps/src/storefront.rs" = 25
+"crates/lgwks-deps/src/storefront.rs" = 24
 "crates/lgwks-deps/src/vendor.rs" = 11
 "crates/lgwks-macros/src/lib.rs" = 1
 "crates/lgwks-std/src/encoding.rs" = 8

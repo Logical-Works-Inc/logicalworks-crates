@@ -232,7 +232,7 @@ jobs:
           retention-days: 7
       - name: Cache hit rate
         if: ${{ always() }}
-        run: sccache --show-stats
+        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
   # The Linux shards. They build and run in the `rust:<pin>-trixie` container
   # the Mac's Linux leg used: its util-linux 2.41 `setpriv` applies the
@@ -366,7 +366,7 @@ jobs:
           retention-days: 7
       - name: Cache hit rate
         if: ${{ always() }}
-        run: sccache --show-stats
+        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
   # The macOS shards hold the Darwin seams (province#9: macos-15 for the darwin
   # syscall seams, Miri darwin and the timing gates; Miri and the timing gates
