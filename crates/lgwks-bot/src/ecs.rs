@@ -198,6 +198,9 @@ mod ledger;
 // the edge, its one producer.
 #[cfg(feature = "edge")]
 mod requests;
+// A consumer's fold over its own record journal, on a world of its own (#877).
+#[cfg(all(feature = "ecs", feature = "wire"))]
+mod projection;
 #[cfg(feature = "ecs")]
 mod resources;
 // Runs into the world: the admitted and settled events (ADR 0006 R3).
@@ -228,6 +231,8 @@ pub use builder::EcsBuilder;
 #[cfg(feature = "ecs")]
 pub use builder::EcsObserveBuilder;
 pub use lgwks_std::retry::RetryPolicy;
+#[cfg(all(feature = "ecs", feature = "wire"))]
+pub use projection::{ProjectionError, RecordFold, RecordProjection};
 #[cfg(all(feature = "edge", test))]
 pub(crate) use requests::RequestRefused;
 #[cfg(feature = "edge")]

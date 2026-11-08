@@ -111,10 +111,10 @@ The estate identity type, replacing the `uuid` crate for stored identities
 |---|---|---|
 | `journal::records` | `RecordJournal`, the durable log over a consumer's own record (ADR 0016) | INV-RECORD-1 |
 | `broker::fence` | authenticate, withdraw by name, the offline count, adoption over records, `broker-fence` (ADR 0017) | INV-FENCE-1 |
+| `ecs::projection` | `RecordProjection`, a consumer's fold on the ECS world, `record-projection` (ADR 0018) | INV-PROJECTION-1 |
 | `ecs::effects::outcomes` | settling and recording what an attempt became | INV-BOT-14 |
 | `journal::seam` | the `EffectJournal` trait every effect store implements | INV-BOT-14 |
 | `journal::file::corruption` | the typed account of a refused frame | INV-RECORD-1 |
 | `script::run_store::step` | the durable step, `remember` and `remembered_at` | INV-BOT-14 |
-| `rt::serve::ingress` | request ingress, live guard, submission, and retry answering | INV-BOT-50 |
 | `task::disposition` | task disposition, effect knowledge, fault attribution, and terminal mapping | INV-BOT-14 |
-| `task::store::append` | ordered append commit and index folding on the storage owner thread | INV-BOT-50 |
+| `rt::serve::ingress`, `task::store::append` | request ingress and retry answering; ordered append on the storage owner thread | INV-BOT-50 |
