@@ -262,7 +262,6 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     if let Ok((reader, _writer)) = std::io::pipe() {
         spec.inherit_fd(std::os::fd::OwnedFd::from(reader));
         let _ = (spec.inherited_fd_count(), spec.inherited_raw_fds());
-        spec.duplicate_first_inherited_fd_for_test();
     }
     let mut spawned: GatedIdentifiedSpawn =
         match supervisor.spawn_process_identified_gated(&spec).await {
