@@ -579,7 +579,6 @@ impl SqliteExecutor for rusqlite::Connection {
         let slice = to_sql_refs(&boxed_params);
         let column_names: Vec<String> = statement
             .column_names()
-            .into_iter()
             .map(|col_name| col_name.to_owned())
             .collect();
         let mut rows_iter =

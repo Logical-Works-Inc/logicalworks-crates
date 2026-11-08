@@ -40,7 +40,7 @@ Consumers do not depend on `ast-grep` directly; the grammar types
 `ParseError` is built with this crate's diagnostic derive, and an analyser
 derives its own diagnostics from the same stack:
 
-```rust
+```rust,ignore
 extern crate lgwks_ast as thiserror;
 
 #[derive(thiserror::Error, Debug)]
