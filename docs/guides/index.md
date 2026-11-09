@@ -17,8 +17,8 @@ for the version you are installing.
 
 `lgwks_bot` depends on `lgwks_macros`, `lgwks_std`, `lgwks_ast` and
 `lgwks_deps`; `lgwks_macros` depends on `lgwks_ast`, `lgwks_deps` and
-`lgwks_std`; `lgwks_ast` depends on `lgwks_deps` through its `script` feature;
-and `lgwks_deps` depends on `lgwks_std`. Adding one does not require adopting
+`lgwks_std`; `lgwks_deps` depends on `lgwks_ast` and `lgwks_std`; and `lgwks_ast`
+depends on `lgwks_std` only for its `tool`. Adding one does not require adopting
 the others. In particular, adding `lgwks_ast` to a project that already uses
 tokio and serde_json does not ask you to replace them; the dependency policy in
 [`../../AGENTS.md`](../../AGENTS.md) governs contributions to this repository,
@@ -29,20 +29,13 @@ not your application's manifest.
 The versions in each crate's manifest are the source of truth for this tree;
 the registry is the source of truth for what you install. The release process in
 [`../releasing.md`](../releasing.md) keeps the two apart: a tag is created only
-after the upload it names.
+after the upload it names. The [root README](../../README.md#crates) lists this
+tree's versions, and a test holds that table to the manifests.
 
-| Crate | `Cargo.toml` version | Read it at |
-|---|---|---|
-| `lgwks_std` | 4.0.0 | [docs.rs/lgwks_std](https://docs.rs/lgwks_std) |
-| `lgwks_bot` | 7.0.0 | [docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) |
-| `lgwks_ast` | 5.0.0 | [docs.rs/lgwks_ast](https://docs.rs/lgwks_ast) |
-| `lgwks_deps` | 6.0.0 | [docs.rs/lgwks_deps](https://docs.rs/lgwks_deps) |
-| `lgwks_macros` | 2.0.0 | [docs.rs/lgwks_macros](https://docs.rs/lgwks_macros) |
-| `drishti` | 0.1.0 | [docs.rs/drishti](https://docs.rs/drishti) |
-
-From those versions on, three surfaces carry a compatibility promise. The
+Four surfaces carry a compatibility promise. The
 orchestration surface is `script!`, `try_join!` and the `script` module of
-`lgwks_bot`, plus `lgwks_ast::script`. The code-understanding surface is
+`lgwks_bot`, plus `lgwks_ast::script`. The [kernel surface](lgwks-bot/kernel.md)
+is `lgwks_bot::kernel`, for a host of flows (ADR 0021). The code-understanding surface is
 `lgwks_ast`'s documented parser (`Language`, `try_parse`, `inspect_ast`,
 `ParseError`, `Diagnostic`) and scanner (`lgwks_ast::scan`). The admission
 surface is `lgwks_deps`'s gate (`check_dependencies`, `check_verdict`,

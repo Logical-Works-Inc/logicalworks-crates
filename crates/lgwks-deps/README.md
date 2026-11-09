@@ -18,9 +18,10 @@ The binary is the gate; the library is the storefront.
 cargo install lgwks_deps    # the `lgwks-deps` binary
 cargo add lgwks_deps        # the storefront library
 ```
-No feature is on by default, so `cargo add lgwks_deps` pulls no third-party
-crate. The Rust source detectors the CLI once carried behind a default `scan`
-feature moved to `lgwks_ast` with the one Rust reader: run `lgwks-ast scan`
+The default features are `debug-doctor` and `lgwks`, and the storefront's default
+selection is empty: name a storefront feature to select it, with
+`default-features = false` to drop those two. The Rust source detectors the CLI
+once carried behind a default `scan` feature moved to `lgwks_ast` with the one Rust reader: run `lgwks-ast scan`
 ([ADR 0002](../../docs/adr/0002-scan-routed-through-lgwks-ast.md)).
 
 ## Storefront

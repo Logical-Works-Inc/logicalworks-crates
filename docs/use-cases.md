@@ -92,8 +92,10 @@ implements the first two under those names.
   vacuous proof presented against `bot.net` is denied; that case is covered by
   test.
 
-It does not implement short-lived credentials, MCP tool routing, human approval
-gates, or isolated enclaves. Those are absent, not partially built.
+The rest of that list has since arrived in part: capability tokens carry caveats
+and an expiry (#779), a human decision parks the run (ADR 0009), and the storefront
+sells an MCP client and server (ADR 0015). Isolated enclaves are absent, and this
+is still not a sandbox.
 
 ### In-process background work
 

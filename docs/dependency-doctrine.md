@@ -1,8 +1,8 @@
 # Dependency doctrine
 
-This document defines the dependency policy for the Logical Works crates: which
-capabilities are provided in-tree, which third-party crates are admitted, and
-how a new dependency is registered. It applies to every crate in this workspace.
+The dependency policy for the Logical Works crates: which capabilities are
+provided in-tree, which third-party crates are admitted, and how a new dependency
+is registered. It applies to every crate in this workspace.
 
 Every dependency edge carries supply-chain surface, build-time cost, and license
 and advisory obligations. Widely used crates (`tokio`, `syn`, `serde_json`,
@@ -30,13 +30,16 @@ Cognitive load is `std` + `bot` + `deps`, plus the standalone `ast`:
 - `lgwks_std`: the core surface, depended on by the other three or used alone.
 - `lgwks_bot` — async, runners, actors.
 - `lgwks_deps` — the **storefront**: install it, select features, get deps.
-- `lgwks_ast` — standalone, and finished. Complete, not parked: no further work
-  is owed on it.
+- `lgwks_ast` — the one parser. Its only workspace edge is the optional one to
+  `lgwks_std` for its `tool`.
 
 A new dependency is registered with `owner = "lgwks_deps"` and exposed as an
-optional feature of `lgwks_deps` (for example `--features gpui`). Storefront
-capability features are default-off; the reviewed `scan` gate-tool feature is
-the explicit default-on exception. `lgwks_std`'s core feature stack and
+optional feature of `lgwks_deps` (for example `--features gpui`).
+
+The storefront's default selection is empty: a default that cannot build on a
+declared target is not a default, as ADR 0003 records.
+
+`lgwks_std`'s core feature stack and
 `lgwks_ast`'s parser are settled. `lgwks_std` cannot route through
 `lgwks_deps` because `lgwks_deps` depends on `lgwks_std`; the reverse would be
 a cycle.
@@ -73,9 +76,8 @@ Before adding any edge:
    `byteorder`). If yes, stop.
 2. **Does a workspace module do it?** Check the matrix in §3. If yes, import
    `lgwks_std`, `lgwks_bot`, or `lgwks_ast`, not the crate underneath.
-3. **Is it a Rust parser or multi-language parser?** Rust source scanning
-   belongs to `lgwks_deps::scan` and multi-language parsing to `lgwks_ast`. A
-   second parser is not admitted (§5).
+3. **Is it a Rust parser or multi-language parser?** Both belong to `lgwks_ast`,
+   whose `scan` reads Rust source (ADR 0002). A second parser is not admitted (§5).
 4. **Is it async / actor work?** Async, runners, and actor roles are
    `lgwks_bot`; its tokio engine is selected through the `lgwks_deps` storefront.
    The zero-dependency synchronous executor is `lgwks_std::task`. See §4.

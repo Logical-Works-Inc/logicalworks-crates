@@ -35,6 +35,8 @@ mod seed;
 #[path = "../../../lgwks-bot/tests/sim/seed_helpers.rs"]
 mod seed_helpers;
 
+/// The pages an agent starts from, held to the tree.
+mod agent_start_page;
 // The runner's journeys need `kill`, `ps` and the process groups its watchdog
 // stops, which every Unix host has and Windows does not.
 #[cfg(unix)]
@@ -67,6 +69,7 @@ mod prop_parsers;
 mod sdk_surface;
 // The wrapper's journeys run `/bin/sh` and a program that reads a pipe.
 mod sim_advisories_cli;
+mod sim_agent_start_page;
 #[cfg(unix)]
 mod sim_churn_slot;
 mod sim_dependency_policy;

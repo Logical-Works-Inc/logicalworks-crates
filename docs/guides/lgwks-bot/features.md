@@ -7,12 +7,14 @@ consequence the name does not carry.
 ## Defaults
 
 ```toml
-default = ["script"]
-script = ["rt", "time", "sync", "macros", "dep:lgwks_macros", "dep:lgwks_ast", "lgwks_ast/script"]
+default = ["script", "ecs", "trace", "wire", "ron"]
+script = ["rt", "time", "sync", "macros", "dep:lgwks_macros", "dep:lgwks_ast", "lgwks_ast/script", "lgwks_deps/script", "wire", "ecs"]
 ```
-That is the `cargo add lgwks_bot` build: `script!` and the four driver features
-it stands on. It pulls tokio through the `lgwks_deps` storefront, and
-`lgwks_deps` is the only crate in the workspace that authors a `tokio` edge.
+That is the `cargo add lgwks_bot` build: `script!`, the four driver features it
+stands on, the ECS substrate and the encodings the journal persists through. It
+pulls tokio through the `lgwks_deps` storefront, and `lgwks_deps` is the only
+crate in the workspace that authors a `tokio` edge. The set is the portable
+boundary: `wasm32-wasip1` builds exactly these defaults (ADR 0003).
 
 ## The full table
 
@@ -29,33 +31,32 @@ it stands on. It pulls tokio through the `lgwks_deps` storefront, and
 | `edge` | `net`, `script` | `rt::edge`: the HTTP edge, axum on the driver, every request answered by a `RequestFeed` from its own tenant's state (ADR 0006 R4), and the world driven beside it on its wakes and `Every` deadlines (R5); the `edge-load` binary |
 | `signal` | `rt` | `rt::signal`: OS signal streams. Compiled only on `unix` or `windows` (`crates/lgwks-bot/src/rt/mod.rs:131`) |
 | `ephemeral` | | `EffectScope::ephemeral()`, `RunId::mint()`, `EnvironmentId::mint()`. Host-only: minting needs OS entropy, and `lgwks_std::random` is linux/macOS/windows only. Off by default for the same reason `signal` is — the default set is built for `wasm32-wasip1` |
-| `script` | `rt`, `time`, `sync`, `macros` | `script!`, `try_join!` and the `script` module, the supported interface; reads flows through `lgwks_ast`'s `script` reader. On by default |
+| `script` | `rt`, `time`, `sync`, `macros`, `wire`, `ecs` | `script!`, `try_join!` and the `script` module, the supported interface; reads flows through `lgwks_ast`'s `script` reader. On by default |
+| `ecs` | `wire` | the `bevy_ecs` substrate, `Bot` and the four verbs. On by default |
+| `trace` | | `lgwks_std::trace` without its installer. On by default |
+| `wire` | | the wire encoding the journal, the tenant store and the effect keys persist through. On by default |
+| `ron` | | the RON notation `FlowSpec` reads. On by default |
 | `inspect` | | structural code inspection through `lgwks_ast` (every grammar) |
-| `profile` | | the per-stage profiler |
-| `full` | | `rt`, `time`, `sync`, `macros`, `io`, `net`, `process`, `fs`, `edge`, `signal`, `ephemeral`, `script`, `inspect`, `profile` |
+| `profile` | `ecs` | the per-stage profiler |
+| `legacy` | | the `lgwks_std` legacy format codecs |
+| `testing` | `script`, `ephemeral` | the run-store conformance suite a caller runs against their own store |
+| `sealed` | `script` | journal and run-store records sealed at rest, each under its own data key (#785) |
+| `full` | | every feature above |
 
 The module gates are in `crates/lgwks-bot/src/rt/mod.rs:115`. `rt::supervise` and
 `rt::sync` are both behind `sync`, so disabling `sync` removes the supervisor as
 well as the channels.
 
-## `--no-default-features` does not remove the ECS substrate
+## `--no-default-features` is the process-only build
 
-`crates/lgwks-bot/Cargo.toml` carries `bevy_ecs` as an unconditional edge through
-the storefront:
+It removes tokio, every `rt` driver, `script!`, `bevy_ecs` and the encodings, so
+a consumer that only supervises processes never compiles them (#687,
+[ADR 0007](../../adr/0007-process-only-defaults.md)). It is a narrow build, not
+the supported surface.
 
-```toml
-lgwks_deps = { workspace = true, default-features = false, features = ["bevy-ecs"] }
-```
-The manifest comment next to it gives the reason: the ECS substrate is how a bot
-executes, "so it is not a candidate the caller may decline." A no-default build
-still compiles the schedule, `Bot`, and all four verbs. What it removes is tokio
-and every `rt` driver, leaving `lgwks_std::task` as the executor that drives the
-verbs. If you were reaching for `--no-default-features` to keep bevy out of your
-tree, this crate cannot do that, and no feature flag changes it.
-
-`lgwks_bot` also depends on `lgwks_std` with the `json` and `http` features
-enabled, because `BotSpec` serializes through the JSON facade and `domain::net`
-reads through the HTTP client. Those two edges are not optional either.
+Every build keeps `lgwks_std` with `json`, `hash`, `trace` and `random`: JSON for
+the documents, BLAKE3 for the content identities and the tracing facade for the
+diagnostics. `net` adds `lgwks_std/http`, so no TLS stack is compiled without it.
 
 ## `io` is not implied by `rt`
 

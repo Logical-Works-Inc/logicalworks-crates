@@ -57,13 +57,13 @@ One manifest key, three alternative lines. Use exactly one of them:
 [dependencies]
 # Zero external deps: defaults off, core selected. The default build is
 # `standard`, so a bare `lgwks_std = "4"` is NOT zero-dependency.
-lgwks_std = { version = "3", default-features = false, features = ["core"] }
+lgwks_std = { version = "4", default-features = false, features = ["core"] }
 
 # Only what you pick, with the defaults off.
-# lgwks_std = { version = "3", default-features = false, features = ["hash", "json"] }
+# lgwks_std = { version = "4", default-features = false, features = ["hash", "json"] }
 
 # Everything, the C-compiling HTTP stack included.
-# lgwks_std = { version = "3", features = ["full"] }
+# lgwks_std = { version = "4", features = ["full"] }
 ```
 The feature table, module reference, JSON and RON decoder notes, entropy target
 rules, walk threat models, time profile and glob text semantics are in the

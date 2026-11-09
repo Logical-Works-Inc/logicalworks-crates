@@ -94,19 +94,16 @@ every bound the checked parse applies is in [bounds](../../docs/guides/lgwks-ast
 
 ## The other crates
 
-Five crates ship from this repository — the four in the table below plus
-`lgwks_macros`, a proc-macro crate carrying the syntax of `lgwks_bot::script!`
+`lgwks_macros` is a proc-macro crate carrying the syntax of `lgwks_bot::script!`,
 which exists only because Rust requires a proc macro to live in its own crate.
-It is not a surface of its own; use it through `lgwks_bot`. They share a
-release process, not a dependency graph: `lgwks_bot` and `lgwks_deps` depend on
-`lgwks_std` (unconditionally, plus an optional `lgwks_macros` behind `bot`'s
-`script` feature), and `lgwks_ast` reaches `lgwks_deps` and `lgwks_std` only
-through its `script` and `tool` features.
+It is not a surface of its own; use it through `lgwks_bot`. `lgwks_deps` depends
+on this crate and `lgwks_std`, `lgwks_bot` on those and `lgwks_macros`, and this
+crate reaches `lgwks_std` only through its `tool` feature.
 
 | Crate | What it gives you |
 |---|---|
 | [`lgwks_std`](https://docs.rs/lgwks_std) | Everyday primitives with no async runtime required: codecs, a blocking HTTP client, retry, default structured debugging, time, hashing, ids |
-| [`lgwks_bot`](https://docs.rs/lgwks_bot) | A runtime for bots that run for weeks: four verbs, capability-gated authority, change-triggered execution, supervised background work |
+| [`lgwks_bot`](https://docs.rs/lgwks_bot) | `script!`: orchestration with bounded fan-out, deadlines, retries under a shared budget and tenant-keyed steps |
 | [`lgwks_deps`](https://docs.rs/lgwks_deps) | The audited storefront for third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
 
 Logical Works Incorporated publishes `lgwks_ast` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.

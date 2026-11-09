@@ -4,18 +4,19 @@ Part of [`GOVERNANCE.md`](../../GOVERNANCE.md), which indexes every section.
 
 ## 6. Open correctness and acceptance work
 
-Reconciled 2026-11-05 against the 34 open issues, after the 2026-11-05 cut
+Reconciled 2026-11-08 against the 34 open issues, after the 2026-11-08 cuts
 (`ledger-2026-10-26.md`). Every row of the 2026-10-09 table had closed by
 2026-10-19. Per §1, unwired code is a wiring defect, not a closed item.
 
 | Priority | Work | Observed gap and completion evidence |
 |---|---|---|
-| P0 | Publish verification | Six crates cut at 2026-11-05 and verified with `published-consumer` against published manifests |
+| P0 | Publish verification | Every crate cut on 2026-11-08 is verified with `published-consumer` against what crates.io serves |
+| P1 | Target and app defects | #892 `lgwks_std` does not compile for `aarch64-apple-ios`, which fails the local `target-matrix` lane; #889 16 tenants can fill the global plan ceiling of `rt::apps`; #890 `bin/estate.rs` hard-codes a host path |
 | P1 | Estate UUID (#851) | `now_v7` and the tuple UUID element shipped in lgwks_std 4.0.0 (#858); serde declined (ADR 0010). The tuple layer is on main. Open: the ECS identity surface, which lands with its first consumer |
-| P1 | Source and age on every result (#778) | Nothing merged. Needs an enveloped `Observe::poll` (lgwks_bot 8.0.0), workbook and mail readers in lgwks_ast, and a matched benchmark |
-| P1 | Cold build in 90 s (#860) | 184 s cold under `ci-bot` (#857); the lgwks_bot `it`, lib-test and lib units are the critical path |
-| P1 | appcui consumer build (#841) | lgwks_deps 6.0.0 still pins `appcui =0.5.5` without its macro crate; a fresh resolve fails |
-| P1 | The app layer (#780) | #780 ceremony reference app shipped in lgwks_bot (#847); #830 OpenAPI 3.1 shipped in #832. Open: #815 durable cell log, #816 blocking provider effects, #823 2x axum, #845 supported surface |
+| P1 | Source and age on every result (#778) | Nothing merged. Needs an enveloped `Observe::poll` in a major of lgwks_bot, workbook and mail readers in lgwks_ast, and a matched benchmark |
+| P1 | Cold build in 90 s (#860) | 184 s cold under `ci-bot` (#857); the lgwks_bot `it`, lib-test and lib units are the critical path. A consumer's cold default build of lgwks_bot 8.1.0 measured 68.03 s against the 60 s budget |
+| P1 | appcui consumer build (#841) | lgwks_deps still pins `appcui =0.5.5` without its macro crate; a fresh resolve fails |
+| P1 | The app layer (#780) | #780 ceremony reference app shipped in lgwks_bot (#847); #830 OpenAPI 3.1 shipped in #832. #845's supported surface shipped as `lgwks_bot::kernel` in 8.1.0. Open: #815 durable cell log, #816 blocking provider effects, #823 2x axum |
 | P1 | Journal and policy authority | #819 seeded faults shipped in #824, #820 fail-closed start in #829, #779 tokens in #843. Open: #817 model-call record/outbox, #818 pre-filter, #821 effect broker |
 | P2 | Parsers in lgwks_ast | #834 SQL to a relational IR, #852 TOML and YAML; every parser lives in lgwks_ast (Director, 2026-11-04) |
 | P2 | Relational projections | #835 incremental projections over the journal, #828 and #839 the embedded SQL engine |

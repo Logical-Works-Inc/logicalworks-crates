@@ -41,6 +41,6 @@ below, and fails when either holds a name the other lacks.
 - **`core` is not `#![no_std]`.** `core` is a cargo feature, and selecting it
   withdraws the default set — including `trace`. It is not a promise about the
   `no_std` attribute.
-- **Feature availability and default availability are different facts.** `trace`
-  is default-on; every other feature is default-off; `full` turns on twelve of
-  them. A disabled selector does not silently acquire an optional engine.
+- **Feature availability and default availability are different facts.** The
+  default is `standard`, every capability but `http`, and `full` adds `http`. A
+  disabled selector does not silently acquire an optional engine.

@@ -2,8 +2,7 @@
 
 Moved verbatim from `WORKFLOW.md` on 2026-10-22, when every Markdown file in a
 repository was held to 120 lines (Director, 2026-10-10) and that file had grown
-to 445. No rule changed in the move; `WORKFLOW.md` is the index and keeps the §
-numbers.
+to 445. `WORKFLOW.md` is the index and keeps the § numbers.
 
 ---
 
@@ -19,11 +18,10 @@ without GitHub, and writes a receipt.
 ./scripts/ci-local.sh --list       # lane ids and surfaces
 ./scripts/ci-local.sh --receipt    # also write evidence/ci-local-<sha>.md
 ```
-
-`scripts/gate-lanes.toml` is the one definition of "the gate". `ci_local.py`
-executes the lanes from it; `.github/workflows/ci.yml` runs the same commands
-against the same lane ids; `scripts/check-gate-parity.py` refuses any drift
-between the two. They do **not** run in the same order — CI fans the lanes out
+`scripts/gate-lanes.toml` is the one definition of "the gate". The `ci-local`
+binary of `lgwks_deps` executes the lanes from it; `.github/workflows/ci.yml` runs
+the same commands against the same lane ids; the `check-gate-parity` binary refuses
+any drift between the two. They do **not** run in the same order — CI fans the lanes out
 across jobs and needs — and a green local run is evidence only for the lanes
 whose `surfaces` include `local`. The receipt names every lane this surface
 did not cover.
@@ -45,13 +43,12 @@ journey result`, so the checks list shows the result without requiring a reader
 to open the aggregate log. A check row reads the report its lane wrote and
 passes only on that lane's own pass line; it does not build the workspace again.
 
-CI runs on the self-hosted macOS arm64 runners on this machine (Director,
-2026-10-04), with the Linux suites in a container on the same machine and the
-Windows legs of the AppCUI and GPUI storefronts on hosted `windows-latest`.
-§12 is the CI's specification. `check-gate-parity.py` refuses a required lane
-with no matching CI step, a CI gate step no lane claims, a substituted command,
-and a toolchain pin that drifted. It does not police runner labels; the OS
-matrix is a coverage decision, not a routing accident.
+Every job runs on a GitHub-hosted runner, because the repository is public and a
+self-hosted runner would execute a fork's pull request on its host
+(INV-CI-RUNNER-CLASS-1). The specification of CI is §12.
+
+The `check-gate-parity` binary refuses a required lane with no matching CI step, a CI gate step no lane claims, a
+substituted command, a toolchain pin that drifted, and a job naming `self-hosted`.
 
 ---
 
@@ -59,11 +56,9 @@ matrix is a coverage decision, not a routing accident.
 
 | Repo | Gate script | Runner | Workflow |
 |---|---|---|---|
-| `logicalworks-crates` | `scripts/ci-local.sh` | six self-hosted instances on this Mac (`[self-hosted, macOS, ARM64, lwc]`), a Linux container on the same machine, hosted `windows-latest` for the Windows legs | `.github/workflows/ci.yml`, specified by §12 |
+| `logicalworks-crates` | `scripts/ci-local.sh` | GitHub-hosted runners only: Linux, macOS and Windows | `.github/workflows/ci.yml`, specified by §12 |
 
-Every self-hosted job runs on one machine, so the OS matrix is kept by the
-Linux container and the hosted Windows legs rather than by more machines. Keep
-it: dropping a leg is a coverage loss, not a speed-up.
+Keep the OS matrix: dropping a leg is a coverage loss, not a speed-up.
 
 Linux is the correct rung wherever a test is `#![cfg(target_os = "linux")]` and
 installs a seccomp filter. On a non-Linux host such a test compiles to nothing

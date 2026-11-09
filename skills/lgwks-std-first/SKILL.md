@@ -16,9 +16,9 @@ first-party module exists is the most common agent defect in this repo, and
 
 1. Is it in `std`? (`OnceLock`/`LazyLock`, `available_parallelism`,
    `mpsc`, `thread`, `fs`, `net`, `from_le_bytes`.)
-2. Is it a workspace module? (table below.)
-3. Is it parsing? Rust scanning is `lgwks_deps::scan`; multi-language is
-   `lgwks_ast`. Do not add a second parser.
+2. Is it a workspace module? (table below, and `docs/catalog.md`.)
+3. Is it parsing? Every parser is `lgwks_ast`, including the Rust scan
+   (`lgwks_ast::scan`). Do not add a second parser.
 4. Is it async? `lgwks_bot` for the runtime, runners, and actors;
    `lgwks_std::task` for the zero-dep synchronous subset.
 5. Still missing? `skills/lgwks-dependency-admission/SKILL.md`.
@@ -40,6 +40,7 @@ Import the right-hand side, not the crate.
 | `fs4`, `statvfs` | `lgwks_std::fs::available_space` | `fs-raw` |
 | `regex` | `lgwks_std::pattern::Regex` | `pattern` |
 | `blake3` | `lgwks_std::hash` | `hash` |
+| `ed25519-dalek` | `lgwks_std::sign` | `sign` |
 | `serde` | `lgwks_std::json::{Serialize, Deserialize}` | `json` |
 | `serde_json` | `lgwks_std::json` | `json` |
 | `ron` | `lgwks_std::ron` | `ron` |
@@ -51,16 +52,18 @@ Import the right-hand side, not the crate.
 | `futures`, `pollster`, `async-trait`, sync-only `tokio` | `lgwks_std::task` | core |
 | actor/state frameworks | `lgwks_bot` | — |
 | `tree-sitter`, `ast-grep-*` | `lgwks_ast` | — |
-| `syn`, `proc-macro2` | `lgwks_deps::scan` | `scan` |
+| `syn`, `proc-macro2` for reading source | `lgwks_ast::scan` | `scan` |
+| `thiserror` | `#[derive(lgwks_macros::Error)]`, or `lgwks_ast::define_error!` | — |
 | admission/audit tooling | `lgwks_deps` | — |
 | `once_cell`, `lazy_static` | `std::sync::{OnceLock, LazyLock}` | — |
 | `num_cpus` | `std::thread::available_parallelism` | — |
 | `bytes`, `byteorder` | slices + `from_le_bytes` | — |
 
-`lgwks_std` is zero-dependency by default (`core`); each feature pulls exactly
-one vetted stack. Check `crates/lgwks-std/README.md` for the feature table.
+`lgwks_std`'s default is `standard`, every capability but `http`; only
+`default-features = false, features = ["core"]` has zero dependencies. Each feature
+pulls one vetted stack, tabled in `docs/guides/lgwks-std/index.md`.
 
-**serde derive:** do not add `serde` as a direct dependency — the gate refuses
+**serde derive:** do not add `serde` as a direct dependency, because the gate refuses
 it (`allowed_consumers = lgwks_std`). Re-export and annotate instead:
 
 ```rust
@@ -69,60 +72,42 @@ use lgwks_std::json;
 #[serde(crate = "lgwks_std::json::serde")]
 struct Doc { n: u32 }
 ```
-
-## tokio — two tiers, one owned engine
+## tokio: two tiers, one owned engine
 
 **Synchronous (`lgwks_std::task`, zero deps):** `block_on`, `join_all`, and
 `spawn_blocking` replace `futures`, `pollster`, and `async-trait` for code that
 only awaits futures and keeps blocking work off the driving thread.
 
-**Asynchronous (`lgwks_bot`):** timers, wakeable channels, async sockets, and a
-worker pool. `tokio` is an optional feature of the `lgwks_deps` storefront and
-the bot reaches it through this single facade; the gate refuses any other
-`tokio` consumer.
-
-```rust
-use lgwks_bot::rt::task::join_all_bounded;
-use lgwks_bot::rt::time::{Duration, sleep};
-
-let runtime = lgwks_bot::Runtime::new().expect("runtime");
-let results = runtime.block_on(async {
-    join_all_bounded(4, (0..64).map(|i| async move {
-        sleep(Duration::from_millis(1)).await;
-        i
-    }))
-    .await
-});
-```
-
-Use `lgwks_bot::rt::task::join_all_bounded` (bot features `rt, sync`) for fan-out: it caps concurrency,
-preserves input order, and resumes an input panic on the awaiting task instead
-of aborting the process. Enter async through `Runtime::block_on` — there is no
-attribute macro (a re-exported proc-macro would expand to `::tokio` paths you
-cannot resolve without a `tokio` edge).
+**Asynchronous (`lgwks_bot`):** write it as a `script!` flow, whose blocks bound
+fan-out, deadlines and retries (`skills/lgwks-use-the-crates/SKILL.md`). Below it,
+`lgwks_bot::rt` has timers, channels, sockets and `rt::task::join_all_bounded`.
+`tokio` is an optional feature of the `lgwks_deps` storefront, the bot reaches it
+through this single facade, and the gate refuses any other `tokio` consumer. There
+is no attribute macro, because it would expand to `::tokio` paths you cannot resolve
+without a `tokio` edge: enter through `lgwks_bot::block_on`.
 
 Boundary: not a realtime scheduler, and worker completion order is
 nondeterministic. `net` does not apply the HTTP egress policy. A high-connection
-async server is inside this tier now — say so; do not add `tokio` yourself.
+async server is inside this tier now, through the `edge` feature, so do not add
+`tokio` yourself.
 
-## syn — do not add a second parser
+## syn: do not add a second parser
 
 - Multi-language structure → `lgwks_ast` (`Language::of_path`, `try_parse`,
   `inspect_ast`); grammars are cargo features, and ast-grep types are
   re-exported so consumers never depend on ast-grep directly.
-- Rust source scanning → `lgwks_deps::scan` (owns the `syn` exception).
+- Rust source scanning → `lgwks_ast::scan` (ADR 0002).
 - Rust semantic analysis (types, traits, macro expansion) is not provided;
   state that requirement explicitly rather than introducing a second parser.
 
-## Real gaps (no equivalent — do not fake it)
+## Real gaps (no equivalent, do not fake it)
 
-`thiserror`/`anyhow` (implement `std::error::Error`); `log`/`env_logger`
-(`tracing` is not a gap: `lgwks_std::trace`, feature `trace`, is default-on, and
-printing from library code is `forbid`); `clap` (parse `std::env::args`);
-`toml`/`yaml`/`csv` (use `json`/`ron`); crypto beyond BLAKE3
-(register it); `rand` distributions (only OS entropy exists).
+`anyhow` (use a typed error); `log`/`env_logger` (`tracing` is not a gap:
+`lgwks_std::trace` is default-on, and printing from library code is `forbid`);
+`clap` (parse `std::env::args`); `toml`/`yaml`/`csv` (use `json`/`ron`); `rand`
+distributions (only OS entropy exists).
 
 For any gap: either write the minimal `lgwks_std` module (ELIMINATE), or
 register the crate through `skills/lgwks-dependency-admission/SKILL.md` with a
 reason naming what `std` cannot do. Never add the edge without the register
-entry — `lgwks-deps check` is the first CI lane and will refuse it.
+entry, because `lgwks-deps check` is the first CI lane and will refuse it.

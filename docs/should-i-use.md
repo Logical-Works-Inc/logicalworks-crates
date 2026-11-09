@@ -1,9 +1,9 @@
 # Should I use logicalworks-crates?
 
 `logicalworks-crates` is the Rust repository of Logical Works Incorporated: six
-independently versioned crates, each usable alone (`lgwks_std` 4.0.0, `lgwks_bot`
-7.0.0, `lgwks_ast` 5.0.0, `lgwks_macros` 2.0.0, `lgwks_deps` 6.0.0 and `drishti`
-0.1.0 in this tree). It is not a framework and not a rewrite of the
+independently versioned crates, each usable alone (`lgwks_std`, `lgwks_bot`,
+`lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`, at the versions the
+[root README](../README.md#crates) lists). It is not a framework and not a rewrite of the
 ecosystem: it is the layer where a program's authority, its dependency graph and
 its code reading are decided once instead of in every project.
 
@@ -46,7 +46,7 @@ ecosystem, a support contract, or a package whose bus factor you can ignore.
   `tracing` and `tree-sitter` have years of production use and a large pool of
   people who have already hit your bug. That matters more than any property here.
 - **You need a support contract or an LTS.** There is no SLA, no paid support
-  channel, and no long-term branch. The compatibility promise covers three
+  channel, and no long-term branch. The compatibility promise covers four
   surfaces only, listed in the [consumer guides](guides/index.md); everything
   else is `#[doc(hidden)]` support code that may change in any release.
 - **You want an agent framework.** `lgwks_bot` does not call a model, own prompts,
@@ -68,7 +68,7 @@ ecosystem, a support contract, or a package whose bus factor you can ignore.
 | `lgwks_bot` | Work is in-process, long-lived, must cancel cleanly, and its authority must be provable | You need a broker-backed queue (`fang`, `apalis`), or an LLM client layer |
 | `lgwks_ast` | A linter, codemod or audit reads several languages into one shape | You need a parser generator, or one language with a bespoke parser |
 | `lgwks_macros` | You are using `script!`; it is reached through `lgwks_bot` | Always: there is no standalone reason to depend on it |
-| `lgwks_deps` | You want dependency admission, an audit command, and a storefront with no default third-party edge | You want a licence scanner or an SBOM generator; it is neither |
+| `lgwks_deps` | You want dependency admission, an audit command, and a storefront where you select each third-party stack | You want a licence scanner or an SBOM generator; it is neither |
 | `drishti` | You want the brand's tokens, ink effects or residency model as deterministic, replayable code, or its design publication | You need a usable UI framework today: its proof gates G01–G15 are blocked and no browser host exists |
 
 ## What you are not buying

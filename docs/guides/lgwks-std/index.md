@@ -4,39 +4,43 @@ Everyday Rust primitives with no async runtime required, each behind one
 audited dependency stack. The package is `lgwks_std` (underscore) in the
 directory `crates/lgwks-std` (hyphen), used as `use lgwks_std::...`.
 
-Current version: `4.0.0`. MSRV: Rust 1.98.0, edition 2024
-(`crates/lgwks-std/Cargo.toml`).
+The [root README](../../../README.md#crates) lists this tree's version. MSRV: Rust
+1.98.0, edition 2024 (`crates/lgwks-std/Cargo.toml`).
 
 ## Install
 
 ```sh
-cargo add lgwks_std                                     # core + trace
-cargo add lgwks_std --features json,http                # pick what you need
+cargo add lgwks_std                                     # standard: all but http
+cargo add lgwks_std --features http                     # add the HTTP client
 cargo add lgwks_std --no-default-features --features core   # zero external deps
 ```
 ## Feature selection
 
-The default is `core` plus `trace`. That is two features, and the second one
-matters: it is what makes the default build pull the tracing facade and the
-subscriber bootstrap rather than zero external crates.
+The default is `standard`, every capability but `http`, whose TLS stack compiles C
+per target (ADR 0003). `full` adds it.
 
 | Feature | Modules | External deps |
 |---|---|---|
-| `core` (default) | `encoding`, `fs`, `glob`, `hex`, `leb128`, `retry`, `task`, `time` | none |
-| `trace` (default) | `trace` | `tracing`, `tracing-subscriber` stack |
+| `core` | `encoding`, `fs`, `glob`, `hex`, `leb128`, `retry`, `task`, `time` | none |
+| `trace` | `trace` | `tracing` |
+| `trace-install` | the default subscriber bootstrap | `tracing-subscriber` stack |
 | `random` | `random`, `id` | `getrandom` |
 | `hash` | `hash` | `blake3` |
+| `build` | a build script's input digest and directives | none beyond `hash` and `trace` |
+| `sign` | `sign` | `ed25519-dalek` |
 | `pattern` | `pattern` | `regex` |
 | `json` | `json` | `serde`, `serde_json` |
 | `ron` | `ron` | `serde`, `ron` |
 | `wire` | `wire` | `rkyv` |
-| `http` | `http` | `ureq`, `iri-string` |
+| `legacy` | `legacy` | none |
+| `http` (not in `standard`) | `http` | `ureq`, `iri-string` |
 | `online` | `online` | none |
 | `fs-raw` | `fs` | `rustix` |
 | `process` | `process` | `rustix` on Unix; none on Windows |
+| `standard` (default) | all of the above but `http` | all of those |
 | `full` | all of the above | all of the above |
 
-Features compose. Pick the ones you use and let the rest stay compiled out.
+Features compose, and `--no-default-features` lets you pick only the ones you use.
 
 ### The zero-dependency configuration
 
@@ -47,9 +51,8 @@ it needs both halves:
 [dependencies]
 lgwks_std = { version = "4", default-features = false, features = ["core"] }
 ```
-`default-features = false` removes `trace`. `features = ["core"]` puts the core
-modules back. A bare `lgwks_std = "4"` is **not** zero-dependency: it is
-`core` plus `trace`.
+`default-features = false` removes `standard`. `features = ["core"]` puts the core
+modules back. A bare `lgwks_std = "4"` is **not** zero-dependency: it is `standard`.
 
 This is checkable rather than assertable. From a clean project:
 
@@ -57,9 +60,8 @@ This is checkable rather than assertable. From a clean project:
 cargo tree -e normal | grep lgwks_std
 ```
 Against this repository, `cargo tree -p lgwks_std --no-default-features
---features core -e normal` prints a single line, `lgwks_std v4.0.0`, and nothing
-beneath it. The default build prints the tracing facade and subscriber stack
-under it.
+--features core -e normal` prints a single line, the crate itself, and nothing
+beneath it. The default build prints every stack of `standard` under it.
 
 ## More pages
 

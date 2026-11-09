@@ -57,13 +57,11 @@ sixteen results.
 
 ## The other crates
 
-Five crates ship from this repository — the four in the table below plus
-`lgwks_macros`, a proc-macro crate carrying the syntax of `lgwks_bot::script!`
+`lgwks_macros` is a proc-macro crate carrying the syntax of `lgwks_bot::script!`,
 which exists only because Rust requires a proc macro to live in its own crate.
-It is not a surface of its own; use it through `lgwks_bot`. They share a
-release process, not a dependency graph: `lgwks_bot` and `lgwks_deps` depend on
-`lgwks_std` (unconditionally, plus an optional `lgwks_macros` behind `bot`'s
-`script` feature), and `lgwks_ast` stands alone.
+It is not a surface of its own; use it through `lgwks_bot`. This crate depends on
+`lgwks_std`, `lgwks_deps`, `lgwks_ast` and `lgwks_macros`, and `drishti` depends
+on this crate.
 
 | Crate | What it gives you |
 |---|---|

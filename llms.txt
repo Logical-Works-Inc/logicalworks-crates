@@ -17,6 +17,7 @@ Development index. Every link below resolves against `main` as it stood when thi
 
 ## Documentation
 
+- [SKILLS: your first session in this repository](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/SKILLS.md) — Where an agent starts in this repository: the map, the task-to-skill route, the commands that work and the traps.
 - [Use cases and boundaries](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/use-cases.md) — What each crate is for, what none of them is, how they differ from the crates a search finds first, agent security and in-process background work.
 - [Choosing a crate](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/choosing-a-crate.md) — Which crate and feature for a need, the exact dependency graph, and the default-feature caveat on the zero-dependency core.
 - [Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) — The decision question a reader arrives with: who publishes this, when to use each crate, when not to, and what to use instead.
@@ -24,7 +25,8 @@ Development index. Every link below resolves against `main` as it stood when thi
 - [Consumer guides](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/index.md) — Choose a crate, the versions in this tree, and the supported interface.
 - [lgwks_bot](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/index.md) — `lgwks_bot`: purpose, non-goals, and the supported versions.
 - [Getting started with lgwks_bot](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/getting-started.md) — One source, one condition, one effect, compiled and run.
-- [lgwks_bot features](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/features.md) — Every `lgwks_bot` feature, and what `--no-default-features` does not remove.
+- [lgwks_bot features](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/features.md) — Every `lgwks_bot` feature, and what `--no-default-features` removes.
+- [lgwks_bot::kernel: the parts under a flow](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/kernel.md) — `lgwks_bot::kernel`: the promised clock, journal, broker, lease, gate, effect and retry, and a shell to try each.
 - [Authority in lgwks_bot](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/authority.md) — Admission, the `Auth` snapshot, and the no-sandbox boundary.
 - [What a failed tick means](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/failures.md) — Poll failure, partial action failure, and unknown effect.
 - [Bounded background work](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/guides/lgwks-bot/background-work.md) — Bounded fan-out, supervision, and the cancellation limits.

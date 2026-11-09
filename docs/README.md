@@ -12,6 +12,7 @@ the rest of this table is design history and contributor policy.
 
 | Document | Covers |
 |---|---|
+| [`SKILLS.md`](../SKILLS.md) | Where an agent starts in this repository: the map, the task-to-skill route, the commands that work and the traps. |
 | [`docs/use-cases.md`](use-cases.md) | What each crate is for, what none of them is, how they differ from the crates a search finds first, agent security and in-process background work. |
 | [`docs/choosing-a-crate.md`](choosing-a-crate.md) | Which crate and feature for a need, the exact dependency graph, and the default-feature caveat on the zero-dependency core. |
 | [`docs/should-i-use.md`](should-i-use.md) | The decision question a reader arrives with: who publishes this, when to use each crate, when not to, and what to use instead. |
@@ -19,7 +20,8 @@ the rest of this table is design history and contributor policy.
 | [`docs/guides/index.md`](guides/index.md) | Choose a crate, the versions in this tree, and the supported interface. |
 | [`docs/guides/lgwks-bot/index.md`](guides/lgwks-bot/index.md) | `lgwks_bot`: purpose, non-goals, and the supported versions. |
 | [`docs/guides/lgwks-bot/getting-started.md`](guides/lgwks-bot/getting-started.md) | One source, one condition, one effect, compiled and run. |
-| [`docs/guides/lgwks-bot/features.md`](guides/lgwks-bot/features.md) | Every `lgwks_bot` feature, and what `--no-default-features` does not remove. |
+| [`docs/guides/lgwks-bot/features.md`](guides/lgwks-bot/features.md) | Every `lgwks_bot` feature, and what `--no-default-features` removes. |
+| [`docs/guides/lgwks-bot/kernel.md`](guides/lgwks-bot/kernel.md) | `lgwks_bot::kernel`: the promised clock, journal, broker, lease, gate, effect and retry, and a shell to try each. |
 | [`docs/guides/lgwks-bot/authority.md`](guides/lgwks-bot/authority.md) | Admission, the `Auth` snapshot, and the no-sandbox boundary. |
 | [`docs/guides/lgwks-bot/failures.md`](guides/lgwks-bot/failures.md) | Poll failure, partial action failure, and unknown effect. |
 | [`docs/guides/lgwks-bot/background-work.md`](guides/lgwks-bot/background-work.md) | Bounded fan-out, supervision, and the cancellation limits. |
@@ -111,5 +113,5 @@ the rest of this table is design history and contributor policy.
 
 Each crate also carries its own README: [`lgwks_std`](../crates/lgwks-std/README.md),
 [`lgwks_bot`](../crates/lgwks-bot/README.md),
-[`lgwks_ast`](../crates/lgwks-ast/README.md),
-[`lgwks_deps`](../crates/lgwks-deps/README.md).
+[`lgwks_ast`](../crates/lgwks-ast/README.md), [`lgwks_macros`](../crates/lgwks-macros/README.md),
+[`lgwks_deps`](../crates/lgwks-deps/README.md), [`drishti`](../crates/drishti/README.md).

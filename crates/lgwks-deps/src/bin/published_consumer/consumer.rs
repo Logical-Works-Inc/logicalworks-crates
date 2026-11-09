@@ -21,8 +21,8 @@ const LOG_LINES: usize = 40;
 const STD_MINIMAL: &str =
     "fn main() { assert_eq!(lgwks_std::hex::encode(&[1u8, 2, 3, 4]), \"01020304\"); }\n";
 
-/// The modules `lgwks_deps` 4.0.0 keeps at its root. `scan` is not one of them:
-/// it moved to `lgwks_ast` (#408), and importing it failed the 4.0.0 receipt.
+/// The modules `lgwks_deps` keeps at its root. `scan` is not one of them: it
+/// moved to `lgwks_ast` (#408), and importing it failed the 4.0.0 receipt.
 pub(crate) const DEPS_IMPORTS: &str =
     "#[allow(unused_imports)]\nuse lgwks_deps::{contract, lock, metadata};\nfn main() {}\n";
 
@@ -68,7 +68,7 @@ pub(crate) struct Row {
 }
 
 /// Every consumer, in receipt order. `lgwks_bot`'s runnable flow is on its
-/// script page: its `README.md` is the overview and holds no Rust block.
+/// script page, and its `README.md` opens with the same block by a test.
 /// `lgwks_macros` is linked on its own, so a version that resolves only
 /// through `lgwks_bot` is still caught.
 pub(crate) const ROWS: [Row; 10] = [

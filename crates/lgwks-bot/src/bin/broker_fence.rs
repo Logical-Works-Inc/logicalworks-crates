@@ -227,7 +227,11 @@ impl Fence {
             Some("close") => answer(self.broker.close(id).map(|()| "\"closed\":true".to_owned())),
             Some("status") => self.status(action(Some("1"))?),
             other => {
-                let refusal = Err(CliError::Usage(format!("no command named {other:?}")));
+                let why = match other {
+                    Some(name) => format!("no command named {name:?}"),
+                    None => "an empty line names no command".to_owned(),
+                };
+                let refusal = Err(CliError::Usage(why));
                 lgwks_std::trace::debug!(?other, "broker-fence: answering a mistyped command");
                 return refusal;
             }

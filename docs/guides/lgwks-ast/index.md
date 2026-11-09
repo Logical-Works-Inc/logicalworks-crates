@@ -1,14 +1,15 @@
 # lgwks_ast consumer guide
 
 One AST type across several languages, with grammar selection by cargo feature
-and bounded traversal. Current version: `5.0.0`, MSRV Rust 1.98.0, edition 2024.
+and bounded traversal. The [root README](../../../README.md#crates) lists this
+tree's version; the MSRV is Rust 1.98.0, edition 2024.
 
 ```sh
 cargo add lgwks_ast
 ```
 Adding this crate does not ask you to change anything else in your manifest. It
-stands alone: it does not depend on `lgwks_std`, `lgwks_bot`, or `lgwks_deps`,
-and adding it to a project that already uses tokio and serde_json leaves those
+reaches `lgwks_std` only for its `tool`, depends on no other crate here, and
+adding it to a project that already uses tokio and serde_json leaves those
 alone. The dependency policy in
 [`AGENTS.md`](../../../AGENTS.md) governs contributions to this repository,
 not your application.
@@ -16,31 +17,28 @@ not your application.
 ## Grammar selection
 
 One cargo feature per grammar, forwarding to `ast-grep-language`. The default
-build enables seven:
+build enables `full`, all 28 grammars, with the `script` reader, the emitter, the
+`lgwks-ast` tool, the scan and the legacy reader (ADR 0003):
 
 ```toml
 [dependencies]
-lgwks_ast = "6"    # rust, python, typescript, javascript, go, java, swift
+lgwks_ast = "6"
 ```
-Add the rest by name, or take everything:
+A smaller build opts out and names only what it reads:
 
 ```toml
 [dependencies]
-lgwks_ast = { version = "6", features = ["lang-c", "lang-cpp", "lang-scala", "lang-kotlin", "lang-tsx"] }
+lgwks_ast = { version = "6", default-features = false, features = ["lang-rust", "lang-python"] }
 ```
-```toml
-[dependencies]
-lgwks_ast = { version = "6", features = ["full"] }
-```
-`full` enables all 28 grammars. A language whose feature is off does not exist in
+A language whose feature is off does not exist in
 `Language::ALL` and is never returned by `Language::of_path`, so a consumer never
 compiles a grammar it cannot select. That also means an unselected language comes
 back as `None` from a path lookup rather than as a language that then fails to
 parse.
 
-| Default on | Also available as its own feature |
-|---|---|
-| `lang-rust`, `lang-python`, `lang-typescript`, `lang-javascript`, `lang-go`, `lang-java`, `lang-swift` | `lang-tsx`, `lang-c`, `lang-cpp`, `lang-csharp`, `lang-scala`, `lang-kotlin`, `lang-bash`, `lang-css`, `lang-dart`, `lang-elixir`, `lang-haskell`, `lang-hcl`, `lang-html`, `lang-json`, `lang-lua`, `lang-md`, `lang-nix`, `lang-php`, `lang-ruby`, `lang-solidity`, `lang-yaml` |
+| Every grammar has its own feature, and `full` is all of them |
+|---|
+| `lang-rust`, `lang-python`, `lang-typescript`, `lang-javascript`, `lang-go`, `lang-java`, `lang-swift`, `lang-tsx`, `lang-c`, `lang-cpp`, `lang-csharp`, `lang-scala`, `lang-kotlin`, `lang-bash`, `lang-css`, `lang-dart`, `lang-elixir`, `lang-haskell`, `lang-hcl`, `lang-html`, `lang-json`, `lang-lua`, `lang-md`, `lang-nix`, `lang-php`, `lang-ruby`, `lang-solidity`, `lang-yaml` |
 
 ### One rename to know about
 

@@ -41,7 +41,7 @@ It does not treat those platform-bound combinations as all-target features.
 
 ```toml
 [dependencies]
-lgwks_deps = { version = "3", default-features = false, features = ["tokio"] }
+lgwks_deps = { version = "6", default-features = false, features = ["tokio"] }
 ```
 The ML features are off by default, so the default build compiles none of
 Candle's closure. Selecting `ml-candle` pulls `hf-hub` transitively through
