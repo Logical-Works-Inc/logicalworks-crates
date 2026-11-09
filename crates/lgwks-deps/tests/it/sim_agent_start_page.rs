@@ -30,6 +30,33 @@ fn every_decision_record_is_in_the_record_index() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+/// Catches a bump whose notes promise a version the manifests do not hold, the
+/// page `docs/releasing.md` tells a consumer to read first (Keep a Changelog 1.1.0).
+#[test]
+fn the_newest_release_row_names_what_the_manifests_hold() -> Result<(), Box<dyn std::error::Error>>
+{
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let changelog = std::fs::read_to_string(root.join("CHANGELOG.md"))?;
+    let row = changelog
+        .lines()
+        .find_map(|line| line.strip_prefix("- "))
+        .ok_or("the changelog has no release row")?;
+    let (versions, rest) = row.split_once(" - ").ok_or("the row has no date")?;
+    let (_, link) = rest.split_once("](").ok_or("the row links no notes")?;
+    let notes = link.trim_end_matches(')');
+    assert!(root.join(notes).is_file(), "{notes} is not a page");
+    for pair in versions.split(" / ") {
+        let (name, version) = pair.split_once(' ').ok_or("a crate with no version")?;
+        let manifest = root.join(format!("crates/{}/Cargo.toml", name.replace('_', "-")));
+        let text = std::fs::read_to_string(manifest)?;
+        assert!(
+            text.contains(&format!("\nversion = \"{version}\"\n")),
+            "the newest row says {name} {version}, and its manifest disagrees"
+        );
+    }
+    Ok(())
+}
+
 /// How many pages each simulation draws.
 const SEEDS: u64 = 2_048;
 

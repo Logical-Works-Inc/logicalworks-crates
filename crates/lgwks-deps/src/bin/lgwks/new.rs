@@ -22,7 +22,7 @@ is refused rather than clobbered.
 ";
 
 /// The `lgwks_bot` release the scaffold pins, kept beside the workspace's.
-const BOT_VERSION: &str = "8.1.1";
+const BOT_VERSION: &str = "8.2.0";
 
 /// The `lgwks_std` release the scaffold pins, kept beside the workspace's.
 const STD_VERSION: &str = "4.1.1";
