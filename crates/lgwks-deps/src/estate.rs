@@ -14,7 +14,8 @@
 /// The crates this repository publishes on crates.io, in both spellings Cargo
 /// folds when it resolves a registry package.
 ///
-/// These are the five workspace members and nothing else. Every other byte must
+/// These are the five substrate crates and nothing else; `drishti`, the sixth
+/// workspace member, is not on the ladder. Every other byte must
 /// match, which is the byte-exact identity INV-DEP-14 requires of an approval:
 /// `LGWKS_STD`, `lgwksstd` and the bare prefix `lgwks_` are not estate crates.
 const ESTATE_CRATES: [&str; 10] = [

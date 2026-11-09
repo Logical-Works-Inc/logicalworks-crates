@@ -4,7 +4,7 @@ Read README.md, VISION.md, docs/decisions.md, docs/codebase.md, and docs/assuran
 
 ## Scope and truth
 
-- Published 0.0.1 is documentation-only. The working tree realizes the presentation seats named in D15/D16 (`design`, `ink_lab`, `runtime`, `native`). Do not turn other planned modules into empty runtime scaffolds or advertise undocumented functionality.
+- Published 0.0.1 was documentation-only. Version 0.1.3 realizes the presentation seats named in D15/D16 (`design`, `ink_lab`, `runtime`, `native`) and the `drishti` command. Do not turn other planned modules into empty runtime scaffolds or advertise undocumented functionality.
 - Separate user direction, proposals, blocked obligations, implemented behavior, and executed evidence. A declaration is not a capability.
 - Keep one owner per concern: requirements in contract/requirements.tsv; journeys in experience/journeys.tsv; structure in docs/codebase.md; decisions/gaps in docs/decisions.md; observed status in docs/status.md.
 - Preserve existing work and source provenance. Do not edit sibling repositories or introduce dependencies merely to complete this repository's plan.
@@ -26,6 +26,6 @@ Reuse GPUI for presentation. Do not create competing LOK/Braid/Secure Authority/
 
 ## Verification
 
-Run the exact commands in README.md. Tests validate the document bundle only. Product acceptance additionally requires all applicable docs/assurance.md families, real public journeys, independent evidence, resource measurements, and restored Keel integration. No test output may be labeled a runtime pass when it only built documentation.
+Run the exact commands in README.md. `tests/bundle.rs` validates the document bundle; `tests/cli.rs` and `tests/sim/` are the crate's other suites. Product acceptance additionally requires all applicable docs/assurance.md families, real public journeys, independent evidence, resource measurements, and restored Keel integration. No test output may be labeled a runtime pass when it only built documentation.
 
 Report changed files, executed commands, results, and blockers. Commit, push, publish, or change repository visibility only with explicit task authority. Crates.io publication is public and effectively persistent; review the exact packaged files first.
