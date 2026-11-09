@@ -1,0 +1,8 @@
+# Docs
+
+Reasoning behind the one-line rules. [Index](../invariants-long-form.md).
+
+- **INV-DOC-1** Bare `//!` intra-doc links break when `lib.rs` also doc-comments the `mod`; use reference definitions. · enforced by: rustdoc `-D warnings` in CI
+- **INV-DOC-2** A documentation claim about a capability is stated at the level the evidence supports, names the test that observes it, and names its owning issue when the property is not yet exercised. A claim resolved to a file and a line, a green job, or a passing unit suite is not evidence of the behavioural property. And an admitted dependency edge, a build check and an external observation are three different things. Why: #155 and #170 found prose describing a journal with no lock, a registry that accepted duplicates, a 33-grammar matrix that has 28, a lint split that does not partition its corpus. A portability verdict that rested on a three-OS *build*. Enforced by: the `doc-citations` lane, which runs the `check-doc-citations` binary (citation layer: a cited line must exist and still read as a person last checked it).
+
+  The claim layer is docs/std-ast-deps-closure-matrix.md: every one of the twenty-one lgwks_std modules, lgwks_ast and lgwks_deps carries a state from the fixed vocabulary exercised / present / unexercised-gap / assurance-gap / admitted-not-implemented, plus the test that exists

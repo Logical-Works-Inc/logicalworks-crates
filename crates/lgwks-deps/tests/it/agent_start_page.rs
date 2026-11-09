@@ -83,6 +83,40 @@ fn identity(directory: &str) -> Result<(String, String), Box<dyn Error>> {
     }
 }
 
+/// The long form named `scripts/check-gate-parity.py` for weeks after the Python
+/// ban deleted it, because at 2798 lines the size law refused any edit (audit of
+/// 2026-11-08, INV-DOC-7). Split, each page stays editable, reachable and honest.
+#[test]
+fn every_long_form_page_is_indexed_editable_and_names_no_deleted_script() -> TestResult {
+    let index = page("docs/invariants-long-form.md")?;
+    let mut pages = 0_usize;
+    for entry in fs::read_dir(root().join("docs/invariants"))? {
+        let path = entry?.path();
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+        let name = name.ok_or("a long-form page has no file name")?;
+        let text = fs::read_to_string(&path)?;
+        assert!(
+            index.contains(&format!("(invariants/{name})")),
+            "{name} is not indexed"
+        );
+        assert!(
+            text.lines().count() <= 120,
+            "{name} is over the 120-line law"
+        );
+        assert!(
+            !text.contains(".py"),
+            "{name} names a Python script the ban deleted"
+        );
+        pages += 1;
+    }
+    assert!(pages > 1, "the long form is one page again");
+    assert!(
+        index.lines().count() <= 120,
+        "the long-form index is over the law"
+    );
+    Ok(())
+}
+
 /// What the live tree holds.
 fn known() -> Result<Known, Box<dyn Error>> {
     let mut binaries = BTreeSet::new();

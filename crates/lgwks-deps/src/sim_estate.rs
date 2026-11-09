@@ -1,8 +1,8 @@
 //! Seeded sweeps over the closed estate list (#701).
 //!
 //! The rule under test is `is_estate_crate`: an edge is admitted by provenance
-//! only when its name is one of the five crates this repository publishes, in
-//! either spelling Cargo folds. The properties below hold the list to that
+//! only when its name is one of the five substrate crates this repository
+//! publishes, in either spelling Cargo folds. The properties below hold the list to that
 //! sentence from the outside: a published name is admitted, and a name that is
 //! not one — another case, an extension, a prefix, a random word — is refused.
 //!

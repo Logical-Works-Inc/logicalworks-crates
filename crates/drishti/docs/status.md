@@ -1,21 +1,22 @@
 # Status and evidence boundary
 
-Version: 0.0.1. Date: 2026-09-12. Product stage: **design publication**.
+Version: 0.1.3. Last audited: 2026-11-08. Product stage: **design publication plus a deterministic reference core**.
 
 ## Present
 
 - Original authored vision, architecture, structure, decisions, research synthesis, and assurance requirements.
 - 37 traceable requirements and 33 specified human/agent acceptance journeys.
 - The first realized presentation seats (Director instruction, 2026-09-30): Logical Works brand tokens (`src/design.rs`), the eleven-effect ink lab (`src/ink_lab.rs`), and the GPU residency model (`src/runtime.rs`). These are deterministic reference cores with unit tests; they emit frame geometry and receipts and do not claim a device.
+- A native host (`src/native.rs`, feature `ui`) that presents ink frames in a GPUI window, and the `drishti` command (`src/bin/drishti`, default feature `cli`).
 - Finalized product contract with 40 initial answers, 14 follow-up answers, subsequent corrections, derived constraints and explicit remaining proof obligations.
-- A dependency-free Cargo documentation package with Rustdoc modules and document-bundle integrity tests.
+- A Cargo package with Rustdoc modules and document-bundle integrity tests. The library reaches `lgwks_std`, `cli` adds `lgwks_bot`, and `ui` adds GPUI through `lgwks_deps`.
 - Source-grounded blockers for browser hosting, GPUI integration, script selection/confinement, estate consumer support, resource calibration, and strict Keel admission.
 
 ## Absent / unverified
 
-No accelerated backend (wgpu/WebGPU), UI, browser host, interpreter integration, sandbox, host authority adapter, shared compute/render residency, or performance result is implemented. The ink lab and residency model are deterministic reference cores, not a qualified renderer; `BytePerShape` transfers are modelled, not captured. All product journeys — including J31–J33 — remain `unmeasured`. Keel is not wired. No executable gate claims runtime acceptance.
+No qualified GPU backend, browser host, interpreter integration, sandbox, host authority adapter, shared compute/render residency, or performance result is implemented. The native host has run on macOS only; Windows and Linux compile through the same feature and have not been run. The ink lab and residency model are deterministic reference cores, not a qualified renderer; `BytePerShape` transfers are modelled, not captured. All product journeys — including J31–J33 — remain `unmeasured`. Keel is not wired. No executable gate claims runtime acceptance.
 
-The planned runtime tree is only partly realized: the on-disk seats are `src/design.rs`, `src/ink_lab.rs` and `src/runtime.rs`. Documentation modules remain a publishing mechanism, not placeholder runtime implementations. This package cannot be used to build a frontend today.
+The planned runtime tree is only partly realized: the on-disk seats are `src/design.rs`, `src/ink_lab.rs`, `src/runtime.rs`, `src/native.rs` and `src/bin/drishti`. Documentation modules remain a publishing mechanism, not placeholder runtime implementations. This package cannot be used to build a frontend today.
 
 ## Original publication verification record
 

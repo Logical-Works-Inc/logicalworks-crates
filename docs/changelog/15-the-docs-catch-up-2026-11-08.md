@@ -27,3 +27,5 @@ An audit found published pages describing crates several releases old. A reader 
 ## For an agent in this repository
 
 `SKILLS.md` is the start page, routing a task to one skill under `skills/` ([ADR 0022](../adr/0022-an-agents-start-page-held-by-a-test.md)). Suite tests hold those pages, the publish order, the bot's feature guide, the front page's versions and each manifest line's major to the tree.
+
+After these releases, the invariants' long form split into pages under `docs/invariants/`, because its size refused every correction, and its deleted script names were replaced by the binaries that took over. `drishti`'s status page now describes 0.1.3; crates.io shows that page at its next release.
