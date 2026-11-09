@@ -240,6 +240,231 @@ fn sim_record_projection_neighbour_a_thousand_tenants_keep_their_own_rows() -> O
     Ok(())
 }
 
+/// A view of `records`, each fed at the sequence it would have.
+fn fed(records: &[u64], fold: Tenants, limit: usize) -> Outcome<RecordProjection<u64, Tenants>> {
+    let mut view = RecordProjection::empty(fold, limit);
+    let mut sequence = 0_u64;
+    for value in records {
+        sequence = sequence.saturating_add(1);
+        view.fold_one(&RecordEntry::staged(sequence, *value))
+            .map_err(|cause| cause.to_string())?;
+    }
+    Ok(view)
+}
+
+/// Catches a fed view that differs from a rebuild of the same records, and a log kept
+/// only in memory needing a file: the rebuild is the reference.
+#[test]
+fn sim_record_projection_neighbour_a_view_fed_with_no_file_equals_a_rebuild() -> Outcome {
+    let scratch = ScratchFile::new("projection-fed")?;
+    let mut journal = RecordJournal::<u64>::open(scratch.path())?;
+    let batch: Vec<u64> = (0..3_000).map(|value| record(value % 7, value)).collect();
+    journal.compare_and_append_all(journal.tail(), &batch)?;
+    let view = fed(&batch, Tenants::default(), 8)?;
+    let rebuilt = RecordProjection::rebuild(&journal, Tenants::default(), 8)?;
+    assert_eq!(rows_of(&view), rows_of(&rebuilt));
+    assert_eq!(view.fold().unrouted, rebuilt.fold().unrouted);
+    assert_eq!(view.applied(), rebuilt.applied());
+    Ok(())
+}
+
+/// Catches an empty view starting anywhere but the start of the journal.
+#[test]
+fn sim_record_projection_giant_and_empty_an_empty_view_catches_up_to_a_rebuild() -> Outcome {
+    let scratch = ScratchFile::new("projection-empty-view")?;
+    let mut journal = RecordJournal::<u64>::open(scratch.path())?;
+    let mut view = RecordProjection::empty(Tenants::default(), 8);
+    assert_eq!(view.applied(), None);
+    assert_eq!(view.rows().count(), 0);
+    assert_eq!(view.catch_up(&journal)?, 0);
+    journal.compare_and_append_all(journal.tail(), &[record(1, 1), record(2, 2)])?;
+    assert_eq!(view.catch_up(&journal)?, 2);
+    let rebuilt = RecordProjection::rebuild(&journal, Tenants::default(), 8)?;
+    assert_eq!(rows_of(&view), rows_of(&rebuilt));
+    Ok(())
+}
+
+/// Catches a gap, a repeat or a step back folding on: each is named, then the view
+/// refuses everything, and the refused record changed nothing.
+#[test]
+fn sim_record_projection_wrong_order_a_fed_record_out_of_order_poisons() -> Outcome {
+    for (next, expected) in [(3, 2), (2, 2), (1, 2), (0, 2), (u64::MAX, 2)] {
+        let mut view = fed(&[record(1, 1)], Tenants::default(), 8)?;
+        let answered = view.fold_one(&RecordEntry::staged(next, record(1, 2)));
+        if next == 2 {
+            assert!(answered.is_ok(), "the next record folds");
+            assert_eq!(view.applied(), Some(2));
+            continue;
+        }
+        assert!(
+            matches!(answered, Err(ProjectionError::Diverged { expected: wanted, found }) if wanted == expected && found == next),
+            "sequence {next}"
+        );
+        assert_eq!(view.applied(), Some(1), "sequence {next}");
+        assert_eq!(view.row(&1), Some(&Seen(vec![1])), "sequence {next}");
+        assert!(matches!(
+            view.fold_one(&RecordEntry::staged(2, record(1, 2))),
+            Err(ProjectionError::Poisoned)
+        ));
+    }
+    Ok(())
+}
+
+/// Catches the double-click: the same entry twice must not count twice.
+#[test]
+fn sim_record_projection_double_clicker_the_same_entry_fed_twice_is_refused() -> Outcome {
+    let mut view = RecordProjection::empty(Tenants::default(), 8);
+    let entry = RecordEntry::staged(1, record(1, 1));
+    view.fold_one(&entry)?;
+    assert!(matches!(
+        view.fold_one(&entry),
+        Err(ProjectionError::Diverged {
+            expected: 2,
+            found: 1
+        })
+    ));
+    assert_eq!(view.row(&1), Some(&Seen(vec![1])));
+    Ok(())
+}
+
+/// Catches a fed failure leaving a view that answers on, by either path: half a fold
+/// must look the same wherever it came from.
+#[test]
+fn sim_record_projection_saboteur_a_refused_fed_record_poisons_both_paths() -> Outcome {
+    let scratch = ScratchFile::new("projection-fed-poison")?;
+    let journal = RecordJournal::<u64>::open(scratch.path())?;
+    let refusing = Tenants {
+        refuses: Some(record(1, 2)),
+        ..Tenants::default()
+    };
+    let mut view = fed(&[record(1, 1)], refusing, 8)?;
+    assert!(matches!(
+        view.fold_one(&RecordEntry::staged(2, record(1, 2))),
+        Err(ProjectionError::Fold(_))
+    ));
+    assert_eq!(view.applied(), Some(1), "the refused record is not applied");
+    assert!(matches!(
+        view.fold_one(&RecordEntry::staged(2, record(1, 3))),
+        Err(ProjectionError::Poisoned)
+    ));
+    assert!(matches!(
+        view.catch_up(&journal),
+        Err(ProjectionError::Poisoned)
+    ));
+    Ok(())
+}
+
+/// Catches a limit that a fed record slips past, one that fires on a held row, and a
+/// view left answering after it fired.
+#[test]
+fn sim_record_projection_giant_and_empty_a_fed_view_keeps_the_row_limit() -> Outcome {
+    let mut view = fed(
+        &[record(1, 1), record(2, 2), record(1, 3)],
+        Tenants::default(),
+        2,
+    )?;
+    assert_eq!(view.applied(), Some(3));
+    assert!(matches!(
+        view.fold_one(&RecordEntry::staged(4, record(3, 4))),
+        Err(ProjectionError::RowLimit { limit: 2 })
+    ));
+    assert_eq!(view.row(&3), None);
+    assert!(matches!(
+        view.fold_one(&RecordEntry::staged(4, record(1, 4))),
+        Err(ProjectionError::Poisoned)
+    ));
+    let mut none = RecordProjection::empty(Tenants::default(), 0);
+    assert!(matches!(
+        none.fold_one(&RecordEntry::staged(1, record(1, 1))),
+        Err(ProjectionError::RowLimit { limit: 0 })
+    ));
+    Ok(())
+}
+
+/// Catches a record fed ahead of the sync being folded again when the file reaches it,
+/// and a catch-up that fails because the view is ahead of the file.
+#[test]
+fn sim_record_projection_clock_fool_a_view_ahead_of_the_file_does_not_refold() -> Outcome {
+    let scratch = ScratchFile::new("projection-ahead")?;
+    let mut journal = RecordJournal::<u64>::open(scratch.path())?;
+    let staged = [record(1, 1), record(1, 2), record(2, 3)];
+    let mut view = fed(&staged, Tenants::default(), 8)?;
+    assert_eq!(view.catch_up(&journal)?, 0, "the file holds nothing yet");
+    journal.compare_and_append(journal.tail(), &staged[0])?;
+    assert_eq!(view.catch_up(&journal)?, 0, "the file is still behind");
+    journal.compare_and_append_all(journal.tail(), &staged[1..])?;
+    assert_eq!(view.catch_up(&journal)?, 0, "the file reached the view");
+    journal.compare_and_append(journal.tail(), &record(2, 4))?;
+    assert_eq!(view.catch_up(&journal)?, 1, "only what is past the view");
+    let rebuilt = RecordProjection::rebuild(&journal, Tenants::default(), 8)?;
+    assert_eq!(rows_of(&view), rows_of(&rebuilt));
+    Ok(())
+}
+
+/// A consumer's group commit: staged records reach the view at once and the file at a
+/// sync, with crashes between. Checked at each step against what the file holds.
+fn group_commit(seed: u64) -> Outcome<Vec<(u64, Seen)>> {
+    let mut dice = Seeded::from_seed(seed);
+    let scratch = ScratchFile::new("projection-group")?;
+    let mut journal = RecordJournal::<u64>::open(scratch.path())?;
+    let mut view = RecordProjection::empty(Tenants::default(), 64);
+    let mut durable: BTreeMap<u64, Seen> = BTreeMap::new();
+    let mut shown = durable.clone();
+    let mut staged = Vec::new();
+    let mut sequence = 0_u64;
+    for _ in 0..60 {
+        match dice.below(4)? {
+            0 | 1 => {
+                let tenant = dice.below(6)?;
+                let value = record(tenant, dice.below(1_000)?);
+                sequence = sequence.saturating_add(1);
+                view.fold_one(&RecordEntry::staged(sequence, value))
+                    .map_err(|cause| cause.to_string())?;
+                staged.push(value);
+                if tenant != 0 {
+                    shown.entry(tenant).or_default().0.push(sequence);
+                }
+            }
+            2 => {
+                if !staged.is_empty() {
+                    journal.compare_and_append_all(journal.tail(), &staged)?;
+                }
+                staged.clear();
+                durable.clone_from(&shown);
+                assert_eq!(
+                    view.catch_up(&journal)?,
+                    0,
+                    "seed {seed}: the sync refolded"
+                );
+            }
+            _ => {
+                staged.clear();
+                sequence = journal.tail().sequence();
+                shown.clone_from(&durable);
+                view = RecordProjection::rebuild(&journal, Tenants::default(), 64)?;
+                let held: BTreeMap<u64, Seen> = rows_of(&view).into_iter().collect();
+                assert_eq!(held, durable, "seed {seed}: a crash keeps only the file");
+            }
+        }
+        let held: BTreeMap<u64, Seen> = rows_of(&view).into_iter().collect();
+        assert_eq!(held, shown, "seed {seed}: the view shows what was staged");
+    }
+    Ok(rows_of(&view))
+}
+
+/// Catches a view that loses a staged record, keeps a crashed one, or replays differently.
+#[test]
+fn sim_record_projection_pulled_plug_a_group_commit_matches_the_model_and_replays() -> Outcome {
+    for seed in 0..48 {
+        assert_eq!(
+            group_commit(seed)?,
+            group_commit(seed)?,
+            "seed {seed} did not replay"
+        );
+    }
+    Ok(())
+}
+
 /// Every operation a seed draws, checked against the reference model, as a trace.
 fn monkey(seed: u64) -> Outcome<Vec<(u64, Seen)>> {
     let mut dice = Seeded::from_seed(seed);

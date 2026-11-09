@@ -10,6 +10,12 @@
 //! call until the host rebuilds it. A continued journal is read from its checkpoint,
 //! so the checkpoint must carry what the fold needs, and
 //! [`RecordEntry::is_checkpoint`] says which record that is.
+//!
+//! A consumer that batches its writes can read its view before the sync lands, by
+//! feeding it through [`RecordProjection::fold_one`]. Until then the view holds a
+//! record the journal does not, and a crash loses it. The journal is still the
+//! truth: a restart rebuilds from the file, and what the sync never wrote is gone
+//! from the view as it is from the log (ADR 0024).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -244,15 +250,7 @@ impl<R: Durable, F: RecordFold<R>> RecordProjection<R, F> {
         fold: F,
         max_rows: usize,
     ) -> Result<Self, ProjectionError<F::Error>> {
-        let mut view = Self {
-            fold,
-            world: World::new(),
-            entities: BTreeMap::new(),
-            applied: None,
-            max_rows,
-            poisoned: false,
-            records: PhantomData,
-        };
+        let mut view = Self::empty(fold, max_rows);
         for entry in journal.replay().map_err(ProjectionError::Journal)? {
             view.step(&entry.map_err(ProjectionError::Journal)?)?;
         }
@@ -303,14 +301,110 @@ impl<R: Durable, F: RecordFold<R>> RecordProjection<R, F> {
                 return Ok(folded);
             }
             for entry in &page {
-                if let Err(cause) = self.step(entry) {
-                    self.poisoned = true;
-                    lgwks_std::trace::debug!(after, "RecordProjection::catch_up: poisoned");
-                    return Err(cause);
-                }
+                self.fold_one(entry)?;
                 folded = folded.saturating_add(1);
             }
         }
+    }
+}
+
+impl<R, F: RecordFold<R>> RecordProjection<R, F> {
+    /// A view of nothing yet, for a consumer that feeds it with
+    /// [`fold_one`](Self::fold_one) or [`catch_up`](Self::catch_up)s it from the start.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{RecordFold, RecordProjection};
+    ///
+    /// fn fresh<F: RecordFold<u64>>(fold: F) -> bool {
+    ///     let view: RecordProjection<u64, F> = RecordProjection::empty(fold, 16);
+    ///     view.applied().is_none() && view.rows().count() == 0
+    /// }
+    /// ```
+    #[must_use]
+    pub fn empty(fold: F, max_rows: usize) -> Self {
+        Self {
+            fold,
+            world: World::new(),
+            entities: BTreeMap::new(),
+            applied: None,
+            max_rows,
+            poisoned: false,
+            records: PhantomData,
+        }
+    }
+
+    /// Fold one entry, which may be one no file holds yet.
+    ///
+    /// The first entry of a view may have any sequence, as a continued journal's
+    /// does, and each later one must be the next. A record the sync then loses stays
+    /// in the view until the host rebuilds it from the file, which is what a restart
+    /// does. [`catch_up`](Self::catch_up) reads past this view's cursor, so a record
+    /// fed here is not folded again when the file reaches it. Nothing compares the
+    /// two: a host that writes something else at that sequence must rebuild.
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectionError::Poisoned`] after any earlier failure. [`Fold`], [`Diverged`]
+    /// and [`RowLimit`] poison this view, as they do on a catch-up.
+    ///
+    /// [`Fold`]: ProjectionError::Fold
+    /// [`Diverged`]: ProjectionError::Diverged
+    /// [`RowLimit`]: ProjectionError::RowLimit
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use lgwks_bot::journal::RecordEntry;
+    /// use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
+    ///
+    /// struct Tally;
+    ///
+    /// impl RecordFold<u64> for Tally {
+    ///     type Key = u64;
+    ///     type Row = u64;
+    ///     type Error = std::convert::Infallible;
+    ///
+    ///     fn route(&self, record: &u64) -> Option<u64> {
+    ///         Some(*record)
+    ///     }
+    ///
+    ///     fn apply(&mut self, _: &RecordEntry<u64>, row: Option<&mut u64>) -> Result<(), Self::Error> {
+    ///         if let Some(count) = row {
+    ///             *count = count.saturating_add(1);
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut view = RecordProjection::empty(Tally, 16);
+    /// view.fold_one(&RecordEntry::staged(1, 5))?;
+    /// assert_eq!(view.row(&5), Some(&1));
+    /// assert!(matches!(
+    ///     view.fold_one(&RecordEntry::staged(3, 5)),
+    ///     Err(ProjectionError::Diverged { expected: 2, found: 3 })
+    /// ));
+    /// assert!(matches!(
+    ///     view.fold_one(&RecordEntry::staged(2, 5)),
+    ///     Err(ProjectionError::Poisoned)
+    /// ));
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn fold_one(&mut self, entry: &RecordEntry<R>) -> Result<(), ProjectionError<F::Error>> {
+        if self.poisoned {
+            let refusal = Err(ProjectionError::Poisoned);
+            lgwks_std::trace::debug!(applied = ?self.applied, "RecordProjection::fold_one: this view must be rebuilt");
+            return refusal;
+        }
+        let refusal = self.step(entry);
+        if refusal.is_err() {
+            self.poisoned = true;
+            lgwks_std::trace::debug!(applied = ?self.applied, "RecordProjection::fold_one: poisoned");
+        }
+        refusal
     }
 
     /// Fold one entry.

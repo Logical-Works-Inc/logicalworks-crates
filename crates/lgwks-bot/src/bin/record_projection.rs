@@ -18,12 +18,17 @@ const USAGE: &str = "usage: record-projection <journal> <max-rows>
 reads one command per line and prints one JSON line for each:
   fill <tenant> <count>   append count values for a tenant, durably
   poison <tenant>         append a record the fold refuses
+  stage <tenant> <count>  fold count values into the view ahead of the journal
+  sync                    append what is staged, durably
   catch-up                fold what the journal gained
   show                    print the rows and their digest
-  rebuild                 discard the view and fold the journal again";
+  rebuild                 discard the view and anything staged, and fold the journal again";
 
 /// A low half the fold refuses, for trying a poisoned view from the outside.
 const POISON: u64 = 0xFFFF_FFFF;
+
+/// The most records `stage` holds ahead of the journal.
+const MAX_STAGED: usize = 4_096;
 
 /// A record the tally refuses.
 #[derive(Debug)]
@@ -97,6 +102,8 @@ struct Session {
     view: View,
     /// The rows a rebuilt view may hold.
     max_rows: usize,
+    /// Records the view holds and the journal does not, up to [`MAX_STAGED`].
+    staged: Vec<u64>,
 }
 
 /// A refusal as one JSON line.
@@ -134,8 +141,56 @@ fn number(word: Option<&str>) -> Option<u64> {
 }
 
 impl Session {
-    /// Fold the whole journal into a new view.
+    /// Fold `count` records into the view ahead of the journal, numbered after
+    /// whatever the view and the file already hold.
+    fn stage(&mut self, tenant: u64, count: u64) -> String {
+        let room = MAX_STAGED.saturating_sub(self.staged.len());
+        let fits = match usize::try_from(count) {
+            Ok(wanted) => wanted <= room,
+            Err(cause) => {
+                lgwks_std::trace::debug!(%cause, "a count past what this machine can address");
+                false
+            }
+        };
+        if !fits {
+            return format!("{{\"ok\":false,\"refused\":\"staged_limit\",\"limit\":{MAX_STAGED}}}");
+        }
+        let view: &mut RecordProjection<u64, Tally> = match self.view {
+            Ok(ref mut view) => view,
+            Err(ref why) => return no_view(why),
+        };
+        if let Err(cause) = view.catch_up(&self.journal) {
+            return refused(&cause);
+        }
+        let mut sequence = 0_u64;
+        if let Some(last) = view.applied() {
+            sequence = last;
+        }
+        for value in 0..count {
+            let record = (tenant << 32) | (value & 0xFFFF);
+            sequence = sequence.saturating_add(1);
+            if let Err(cause) = view.fold_one(&RecordEntry::staged(sequence, record)) {
+                return refused(&cause);
+            }
+            self.staged.push(record);
+        }
+        format!("{{\"ok\":true,\"staged\":{count}}}")
+    }
+
+    /// Append what is staged, durably, in the order the view folded it.
+    fn sync(&mut self) -> Result<String, JournalError> {
+        let held = std::mem::take(&mut self.staged);
+        if !held.is_empty() {
+            self.journal
+                .compare_and_append_all(self.journal.tail(), &held)?;
+        }
+        Ok(format!("{{\"ok\":true,\"synced\":{}}}", held.len()))
+    }
+
+    /// Fold the whole journal into a new view; what was staged is gone, as a crash
+    /// would lose it.
     fn rebuild(&mut self) -> String {
+        self.staged.clear();
         match RecordProjection::rebuild(&self.journal, Tally::default(), self.max_rows) {
             Ok(view) => {
                 let line = format!("{{\"ok\":true,\"applied\":{}}}", applied_of(&view));
@@ -187,7 +242,14 @@ impl Session {
         let mut words = line.split_whitespace();
         let command = words.next();
         let (first, second) = (number(words.next()), number(words.next()));
+        // A write past records the view already numbered would give them a second
+        // sequence, so what is staged lands first.
+        if !self.staged.is_empty() && matches!(command, Some("fill" | "poison")) {
+            return Ok("{\"ok\":false,\"refused\":\"staged_first\"}".to_owned());
+        }
         Ok(match (command, first, second) {
+            (Some("stage"), Some(tenant), Some(count)) => self.stage(tenant, count),
+            (Some("sync"), None, None) => self.sync()?,
             (Some("fill"), Some(tenant), Some(count)) => {
                 let batch: Vec<u64> = (0..count)
                     .map(|value| (tenant << 32) | (value & 0xFFFF))
@@ -219,6 +281,7 @@ fn run(journal: &Path, max_rows: usize) -> Result<(), Stopped> {
         journal: opened,
         view,
         max_rows,
+        staged: Vec::new(),
     };
     let mut out = std::io::stdout().lock();
     for line in std::io::stdin().lock().lines() {

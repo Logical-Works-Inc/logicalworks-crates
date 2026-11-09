@@ -43,6 +43,36 @@ pub struct RecordEntry<R> {
 }
 
 impl<R> RecordEntry<R> {
+    /// An entry no file holds yet, for a consumer that folds a record before its
+    /// sync lands, or that keeps its log only in memory.
+    ///
+    /// `sequence` is the one the record will have once written, and a record is
+    /// never a checkpoint here. No chain holds it, so its position's head is the
+    /// genesis constant, which a fold must not read as evidence of anything.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::journal::{JournalPosition, RecordEntry};
+    ///
+    /// let entry = RecordEntry::staged(7, 9_u64);
+    /// assert_eq!(entry.position().sequence(), 7);
+    /// assert_eq!(entry.position().head(), JournalPosition::genesis().head());
+    /// assert_eq!(*entry.record(), 9);
+    /// assert!(!entry.is_checkpoint());
+    /// ```
+    #[must_use]
+    pub fn staged(sequence: u64, record: R) -> Self {
+        Self {
+            position: JournalPosition {
+                sequence,
+                ..JournalPosition::genesis()
+            },
+            record,
+            checkpoint: false,
+        }
+    }
+
     /// Where the chain holds this record.
     ///
     /// # Examples
