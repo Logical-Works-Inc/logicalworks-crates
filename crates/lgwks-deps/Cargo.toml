@@ -257,12 +257,12 @@ rusqlite = { version = "=0.41.0", default-features = false, features = ["bundled
 # Pinned exactly (estate issue #785). ChaCha20-Poly1305 is pure Rust with no
 # C toolchain, so the no-flag build stays portable: the engine is selected,
 # never the crate.
-chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"], optional = true }
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"], optional = true }
 # Formatted-Rust printing for `lgwks expand` (#787): the minimal syn parser and
 # the minimal pretty printer. Both are pure Rust with no C toolchain, so the
 # no-flag build stays portable: the engines are selected, never the crates.
-prettyplease = { version = "=0.2.37", default-features = false, optional = true }
-syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing"], optional = true }
+prettyplease = { version = "=0.3.0", default-features = false, optional = true }
+syn = { version = "=3.0.9", default-features = false, features = ["full", "parsing", "printing"], optional = true }
 # The one script reader and emitter (#787): `lgwks_ast` with the `emit`,
 # `legacy` and `hunks` features. A workspace member, so it needs no register
 # entry; default features off so no tree-sitter grammar rides along, only the
