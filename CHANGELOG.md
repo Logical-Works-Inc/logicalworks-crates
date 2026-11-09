@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_ast 6.0.2 / lgwks_deps 6.3.0 / lgwks_macros 2.1.1 / lgwks_bot 8.2.0 / drishti 0.1.4 - 2026-11-09: [notes](docs/changelog/16-one-record-ahead-of-the-sync-2026-11-09.md)
 - lgwks_std 4.1.1 / lgwks_ast 6.0.1 / lgwks_deps 6.2.1 / lgwks_bot 8.1.1 - 2026-11-08: [notes](docs/changelog/15-the-docs-catch-up-2026-11-08.md)
 - lgwks_bot 8.1.0 - 2026-11-08: [notes](docs/changelog/14-kernel-surface-2026-11-08.md)
 - lgwks_bot 8.0.1 - 2026-11-08: [notes](docs/changelog/13-edge-alone-2026-11-08.md)

@@ -59,19 +59,19 @@
       "tag": "lgwks_std-v4.1.1"
     },
     {
-      "tag": "lgwks_bot-v8.1.1"
+      "tag": "lgwks_bot-v8.2.0"
     },
     {
-      "tag": "lgwks_ast-v6.0.1"
+      "tag": "lgwks_ast-v6.0.2"
     },
     {
-      "tag": "lgwks_deps-v6.2.1"
+      "tag": "lgwks_deps-v6.3.0"
     },
     {
-      "tag": "lgwks_macros-v2.1.0"
+      "tag": "lgwks_macros-v2.1.1"
     },
     {
-      "tag": "drishti-v0.1.3"
+      "tag": "drishti-v0.1.4"
     }
   ]
 }
