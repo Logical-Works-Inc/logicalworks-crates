@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_deps"
 description = "Dependency admission, supply-chain policy, and debugger-doctor CLI for a Rust workspace: every external edge and default trace install is verified."
-version = "6.2.0"
+version = "6.2.1"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -21,8 +21,8 @@ default-run = "lgwks-deps"
 # Depending on serde_json directly here would make the checker its own first
 # bypass.
 #
-# There is no default feature: the zero-gate source scan (INV-SCAN-ZERO) used to
-# be the one, and held `syn` here. It now lives in `lgwks_ast` (feature `scan`),
+# The zero-gate source scan (INV-SCAN-ZERO) was once a default feature here and
+# held `syn`. It now lives in `lgwks_ast` (feature `scan`),
 # which reads Rust through its one tree-sitter parser (ADR 0002, #408), so this
 # crate authors no Rust grammar at all.
 [features]

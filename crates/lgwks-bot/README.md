@@ -36,27 +36,31 @@ For architectural comparisons and benchmarks against Temporal and raw Tokio, see
 
 ## Quickstart
 
-Flow in 12 lines:
+A complete program, the one `published-consumer` builds from crates.io:
 ```rust
 use lgwks_bot::script::{FlowError, Scope, Tenant};
 
 lgwks_bot::script! {
-    /// Resilient, bounded, tenant-partitioned pipeline in 12 lines
-    flow sync_records(client: &ApiClient, db: &Database, records: Vec<Record>) -> SyncReport:
-        step validate:
-            admit records.iter().all(|r| r.is_valid())?
-        step upload:
-            let receipts = each record in records:
-                retry up to 3 times, waiting 50ms:
-                    within 5s:
-                        client.upload(&record).await?
-        step commit:
-            db.record_sync(&receipts).await?
-        give back SyncReport::success(receipts.len())
+    /// Square every number, as many at once as the machine sustains; each
+    /// attempt gets a second and a failure worth retrying is retried under
+    /// the same key.
+    pub flow squares(numbers: Vec<u64>) -> u64:
+        let squared = each number in numbers:
+            retry up to 3 times, waiting 10ms:
+                within 1s:
+                    number.saturating_mul(number)
+        give back squared.iter().sum()
+}
+
+fn main() -> Result<(), FlowError> {
+    let scope = Scope::root(Tenant::new("acme")?);
+    let total = lgwks_bot::block_on(squares(&scope, vec![1, 2, 3]))?;
+    assert_eq!(total, 14);
+    assert!(ARCHITECTURE.to_string().contains("each number in numbers"));
+    Ok(())
 }
 ```
-
-The supported interface is `script!`, `try_join!` and the `script` module. [README-script.md](README-script.md) has a complete flow; [docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) has runnable examples.
+The supported interface is `script!`, `try_join!`, the `script` module and, for a host of flows, `lgwks_bot::kernel`. [README-script.md](README-script.md) explains the flow above; [docs.rs/lgwks_bot](https://docs.rs/lgwks_bot) has runnable examples.
 
 ## Features
 
@@ -64,9 +68,11 @@ The supported interface is `script!`, `try_join!` and the `script` module. [READ
 |---|---|---|
 | `rt`, `time`, `sync`, `macros` | on | the orchestration runtime surface, driven through `lgwks_deps` |
 | `script` | on | `script!` and the `script` module |
-| `io`, `net`, `fs`, `process`, `signal` | off | the matching runtime drivers |
+| `ecs`, `trace`, `wire`, `ron` | on | the ECS substrate, the trace macros and the encodings the journal persists through |
+| `io`, `net`, `fs`, `process`, `signal`, `edge` | off | the matching runtime drivers, and the HTTP edge on axum |
 | `inspect` | off | structural code inspection through `lgwks_ast` |
-| `ephemeral`, `profile` | off | run identities from `lgwks_std::random`; the per-stage profiler |
+| `ephemeral`, `profile`, `testing` | off | run identities from `lgwks_std::random`; the per-stage profiler; the run-store conformance suite |
+| `sealed`, `legacy` | off | records sealed at rest; the `lgwks_std` legacy codecs |
 | `full` | off | every feature above |
 
 ## Architecture: one ECS world, one driver
@@ -81,8 +87,6 @@ framework an agent or a developer writes in.
 
 The boundary is a test, not a convention: `tests/it/core_boundary.rs` fails the
 build if a core module names the driver or a file outside `ecs/` names bevy.
-The `Estate`, `Host` and `Supervisor` still build their own runtimes in 4.0.0;
-ADR 0006 R2 and R3 move them onto the one driver and into the world.
 
 This is **not a sandbox**. In-process code can always dial out directly, and
 capability gating is auditable authority, not isolation. A flow's `Tenant` is
@@ -90,8 +94,8 @@ its trusted host's partition key rather than an authenticated identity.
 
 ## Stability
 
-Everything outside `script!`, `try_join!` and the `script` module is
-`#[doc(hidden)]` support code with no compatibility promise. Which release
+Everything outside `script!`, `try_join!`, the `script` module and `lgwks_bot::kernel`
+is `#[doc(hidden)]` support code with no compatibility promise. Which release
 carries a symbol is in [`CHANGELOG.md`](../../CHANGELOG.md), with the 3.0.0
 migration notes under [`docs/changelog/`](../../docs/changelog). The minimum
 supported Rust version is 1.98.

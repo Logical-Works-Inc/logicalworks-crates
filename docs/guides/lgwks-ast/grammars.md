@@ -1,54 +1,50 @@
 # lgwks_ast grammar selection
 
-One cargo feature per grammar forwards to `ast-grep-language`. The default
-enables seven languages; every other grammar ast-grep-language ships is its own
-opt-in feature, and `full` enables all 28:
+One cargo feature per grammar forwards to `ast-grep-language`. The default set
+holds `full`, which enables all 28, so a default build parses every language in
+the table. To carry fewer, turn the default off and name each grammar:
 
 ```toml
 [dependencies]
-lgwks_ast = { version = "1", features = ["lang-c", "lang-cpp", "lang-scala", "lang-kotlin", "lang-tsx"] }
-# or everything: features = ["full"]
+lgwks_ast = { version = "6", default-features = false, features = ["lang-c", "lang-cpp", "lang-scala", "lang-kotlin", "lang-tsx"] }
 ```
+`Language::C` is spelled `Language::CLang`. The workspace lint contract forbids
+single-character identifiers, and that lint is `forbid` rather than `deny`, so it
+cannot be lowered from source by an `#[allow]` on the variant. `Language::name()`
+reports `"c"`, which is the stable identity findings match on, and the feature is
+`lang-c`.
 
-**0.2.0 renames one variant.** `Language::C` is now `Language::CLang`. The
-workspace lint contract forbids single-character identifiers, and that lint is
-`forbid` rather than `deny`, so it cannot be lowered from source by an
-`#[allow]` on the variant. The variant itself had to change. `Language::name()`
-still reports `"c"`, which is the stable identity findings match on, and the
-`lang-c` *feature* is unchanged, so only Rust code that names the variant is
-affected.
-
-| Feature | Language | Extensions | Default |
-|---------|----------|------------|---------|
-| `lang-rust` | Rust | `rs` | yes |
-| `lang-python` | Python | `py`, `pyi` | yes |
-| `lang-typescript` | TypeScript | `ts`, `mts`, `cts` | yes |
-| `lang-javascript` | JavaScript | `js`, `jsx`, `mjs`, `cjs`, `vue`, `svelte` | yes |
-| `lang-go` | Go | `go` | yes |
-| `lang-java` | Java | `java` | yes |
-| `lang-swift` | Swift | `swift` | yes |
-| `lang-tsx` | TSX (parsed by the TypeScript grammar; shares it with `lang-typescript`) | `tsx` | no |
-| `lang-c` | C | `c`, `h` | no |
-| `lang-cpp` | C++ | `cpp`, `hpp`, `cc`, `cxx`, `hh`, `hxx` | no |
-| `lang-csharp` | C# | `cs` | no |
-| `lang-scala` | Scala | `scala`, `sc` | no |
-| `lang-kotlin` | Kotlin | `kt`, `kts` | no |
-| `lang-bash` | Bash / POSIX shell | `sh`, `bash` | no |
-| `lang-css` | CSS | `css` | no |
-| `lang-dart` | Dart | `dart` | no |
-| `lang-elixir` | Elixir | `ex`, `exs` | no |
-| `lang-haskell` | Haskell | `hs` | no |
-| `lang-hcl` | HCL / Terraform | `hcl`, `tf` | no |
-| `lang-html` | HTML | `html`, `htm` | no |
-| `lang-json` | JSON | `json` | no |
-| `lang-lua` | Lua | `lua` | no |
-| `lang-md` | Markdown | `md`, `markdown` | no |
-| `lang-nix` | Nix | `nix` | no |
-| `lang-php` | PHP | `php` | no |
-| `lang-ruby` | Ruby | `rb` | no |
-| `lang-solidity` | Solidity | `sol` | no |
-| `lang-yaml` | YAML | `yaml`, `yml` | no |
-| `full` | all of the above | — | no |
+| Feature | Language | Extensions |
+|---------|----------|------------|
+| `lang-rust` | Rust | `rs` |
+| `lang-python` | Python | `py`, `pyi` |
+| `lang-typescript` | TypeScript | `ts`, `mts`, `cts` |
+| `lang-javascript` | JavaScript | `js`, `jsx`, `mjs`, `cjs`, `vue`, `svelte` |
+| `lang-go` | Go | `go` |
+| `lang-java` | Java | `java` |
+| `lang-swift` | Swift | `swift` |
+| `lang-tsx` | TSX (parsed by the TypeScript grammar; shares it with `lang-typescript`) | `tsx` |
+| `lang-c` | C | `c`, `h` |
+| `lang-cpp` | C++ | `cpp`, `hpp`, `cc`, `cxx`, `hh`, `hxx` |
+| `lang-csharp` | C# | `cs` |
+| `lang-scala` | Scala | `scala`, `sc` |
+| `lang-kotlin` | Kotlin | `kt`, `kts` |
+| `lang-bash` | Bash / POSIX shell | `sh`, `bash` |
+| `lang-css` | CSS | `css` |
+| `lang-dart` | Dart | `dart` |
+| `lang-elixir` | Elixir | `ex`, `exs` |
+| `lang-haskell` | Haskell | `hs` |
+| `lang-hcl` | HCL / Terraform | `hcl`, `tf` |
+| `lang-html` | HTML | `html`, `htm` |
+| `lang-json` | JSON | `json` |
+| `lang-lua` | Lua | `lua` |
+| `lang-md` | Markdown | `md`, `markdown` |
+| `lang-nix` | Nix | `nix` |
+| `lang-php` | PHP | `php` |
+| `lang-ruby` | Ruby | `rb` |
+| `lang-solidity` | Solidity | `sol` |
+| `lang-yaml` | YAML | `yaml`, `yml` |
+| `full` | all of the above | — |
 
 A language whose feature is off does not exist in `Language::ALL` and is never
 returned by `Language::of_path`, so a consumer never compiles a grammar it

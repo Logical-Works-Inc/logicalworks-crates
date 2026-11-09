@@ -19,21 +19,20 @@ approvals.
 1. Branch from `main`. One concern per branch.
 2. Check the existing surface before writing new code. If the capability is
    genuinely missing, follow `skills/lgwks-dependency-admission/SKILL.md`.
-3. Update `CHANGELOG.md` under `[Unreleased]`, with per-crate Added, Changed,
-   and Decisions entries. A behaviour or message change without a changelog
-   entry is incomplete.
+3. A release adds a page under `docs/changelog/` and a row at the top of
+   `CHANGELOG.md`, stating what a consumer will notice per crate. A behaviour or
+   message change that reaches a release without one is incomplete.
 4. Document every `pub mod` listing with a `///` on the declaration line;
    parent listings render empty otherwise.
 5. New public API ships with a `/// ```rust` doc example so `cargo test --doc`
    compiles it, or an example under `examples/`.
-6. Run the full gate before pushing.
+6. Run the gate before pushing. Its lanes are defined once, in
+   `scripts/gate-lanes.toml`, and an agent starts at [`SKILLS.md`](SKILLS.md).
 
 ```sh
-cargo test --workspace --all-targets --locked
-cargo clippy --workspace --all-targets --locked -- -D warnings
-cargo fmt --all -- --check
-cargo run -p lgwks_deps -- check .
-./scripts/lgwks-std-package-smoke.sh
+./scripts/ci-local.sh --fast            # the lanes marked fast
+./scripts/ci-local.sh                   # every local lane
+cargo nextest run --workspace --locked  # the suites alone
 ```
 ## Contributions and copyright
 
@@ -56,5 +55,5 @@ contribution ([`LICENSING.md`](LICENSING.md)).
   exists.
 - Match the file you are in: naming, comment density, idioms. Comments state
   constraints the code cannot show. No narration, no history, no reassurance.
-- `0.x` means minors may break. Bump the crate version, record it in the
-  changelog, and never match on error strings across crates.
+- Past 1.0.0 a breaking change bumps the major (`docs/releasing.md` §3). Never
+  match on error strings across crates.

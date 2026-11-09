@@ -2,7 +2,7 @@
 //! (`lgwks_std --features full` and `lgwks_ast`), the workspace suite, the
 //! `lgwks_bot` full-feature suite and the AppCUI storefront, run on Linux.
 //!
-//! CI runs on the self-hosted macOS runners (Director, 2026-10-04). The
+//! A local gate often runs on macOS, and CI's Linux jobs run hosted. The
 //! supervisor and `lgwks_std::process` have Linux-only paths (`/proc` child
 //! lists, the Linux reap, Landlock), so a macOS-only gate would compile them and
 //! run none. On macOS this runs the suites inside a container; on a Linux host

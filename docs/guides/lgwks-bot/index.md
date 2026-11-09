@@ -40,10 +40,9 @@ pub use crate::ecs::{
     EffectEvidence, PendingWork, RetryPolicy, TransitionHold, WorkId,
 };
 ```
-There is one execution path. `crates/lgwks-bot/Cargo.toml` states that
-`bevy_ecs` is not optional and not behind a feature, because a default-off flag
-"would mean nothing exercises it, the workspace gate never compiles it, and it
-rots into a second opinion nobody chose."
+There is one execution path, on the `bevy_ecs` substrate behind the default-on
+`ecs` feature. A process-only consumer opts out of it with
+`default-features = false` (#687, [ADR 0007](../../adr/0007-process-only-defaults.md)).
 
 `Bot::tick` is the synchronous adapter (`crates/lgwks-bot/src/ecs/bot.rs:487`): it
 drives the non-`Send` verb futures on a thread-parking executor, so there is
@@ -56,12 +55,12 @@ a future. See [failures](failures.md) for why the refusal is not a failed tick.
 
 ## Supported versions
 
-`crates/lgwks-bot/Cargo.toml` declares version `7.0.0` and `rust-version =
-"1.98"`, edition 2024. Which release first carries a symbol, and what each
-major removed, is in [`CHANGELOG.md`](../../../CHANGELOG.md) and
+The [root README](../../../README.md#crates) lists this tree's version, and the
+MSRV is Rust 1.98, edition 2024. Which release first carries a symbol, and what
+each major removed, is in [`CHANGELOG.md`](../../../CHANGELOG.md) and
 [`docs/changelog/`](../../changelog); 4.0.0 removed `EcsBot::world` and
-`Clock::sleep` under ADR 0006, and 7.0.0 takes `lgwks_std` 4's own
-`json::Value` through `lgwks_bot::json`.
+`Clock::sleep` under ADR 0006, 7.0.0 takes `lgwks_std` 4's own `json::Value`
+through `lgwks_bot::json`, and 8.1.0 adds [`lgwks_bot::kernel`](kernel.md).
 
 ## Install and import
 
@@ -70,13 +69,10 @@ Add the crate and the default features come with it:
 ```sh
 cargo add lgwks_bot
 ```
-That is `script`, which brings `rt`, `time`, `sync`, and `macros`
-(`crates/lgwks-bot/Cargo.toml`). The default build pulls tokio through the
-`lgwks_deps` storefront's `tokio` feature.
+That is `script`, `ecs`, `trace`, `wire` and `ron`; `script` brings `rt`, `time`,
+`sync` and `macros` (`crates/lgwks-bot/Cargo.toml`). The default build pulls tokio
+through the `lgwks_deps` storefront's `tokio` feature.
 
-`--no-default-features` withdraws the async surface and the tokio edge. It does
-**not** remove `bevy_ecs`. The ECS substrate is unconditional, so a no-default
-build still compiles the schedule and the four verbs, driving them on
-`lgwks_std::task`. If your reason for disabling defaults was to avoid the ECS
-substrate, this crate cannot do that; see [features](features.md) for the
-feature-by-feature facts.
+`--no-default-features` withdraws the async surface, the tokio edge and `bevy_ecs`.
+It is the process-only build, and it compiles neither `script!` nor a `Bot`; see
+[features](features.md) for the feature-by-feature facts.

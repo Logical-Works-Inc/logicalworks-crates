@@ -12,8 +12,9 @@ you to discover.
 - **No sandbox.** Capability gating "stops confused-deputy calls and accidental
   ungated use; it is not a sandbox, since in-process code can always dial out
   directly" (`crates/lgwks-bot/src/cap.rs:15`). See [authority](authority.md).
-- **No revocable authority.** `GrantSet` has no `revoke`, and a built bot holds
-  a clone of the set it was admitted with. See [authority](authority.md).
+- **No revocable `GrantSet`.** It has no `revoke`, and a built bot holds a clone
+  of the set it was admitted with. A broker's fence withdraws a reach instead
+  (INV-FENCE-1). See [authority](authority.md).
 - **A spec is a document, not the DSL.** `Bot::from_spec` materializes a
   validated `BotSpec` against a `DomainRegistry` — see [domains](domains.md) —
   through the same `assemble`/`build` path a native bot uses. It is
@@ -40,6 +41,7 @@ you to discover.
 | [Failures](failures.md) | Poll failure, partial action failure, unknown effect |
 | [Background work](background-work.md) | Bounded fan-out, supervision, and the cancellation limits |
 | [Migrating to 1.0.0](migrating-to-1-0.md) | What `spawn`, `JoinHandle`, `Child` and `Command` became, and the traps the compiler cannot show |
-| [Sessions](sessions.md) | Unreleased. Validated guidance flows |
-| [Resolution](resolution.md) | Unreleased. Lexical and semantic resolution, and what `Degraded` means |
-| [Domains](domains.md) | Unreleased. The `domain_id -> constructor` registry a spec's identifiers resolve through |
+| [The kernel surface](kernel.md) | The clock, journal, broker, lease, gate, effect and retry a host of flows stands on |
+| [Sessions](sessions.md) | Support code. Validated guidance flows |
+| [Resolution](resolution.md) | Support code. Lexical and semantic resolution, and what `Degraded` means |
+| [Domains](domains.md) | Support code. The `domain_id -> constructor` registry a spec's identifiers resolve through |

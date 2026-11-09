@@ -64,11 +64,9 @@ Two distinct jobs get confused under "parsing Rust":
   bounded AST walk): `lgwks_ast`. It re-exports the ast-grep types as
   `Parsed`/`AstNode` and compiles exactly the grammars you select. Consumers do
   not depend on `ast-grep` directly.
-- **Rust source scanning inside the gate** (the zero-gate detectors):
-  `lgwks_deps::scan`, which is the one reviewed exception that depends on
-  `syn`/`proc-macro2` (optional, behind the default-on `scan` feature). A real
-  Rust grammar is the only honest oracle for Rust source, and a parser is not a
-  data format the gate polices, so it is not self-refuting.
+- **Rust source scanning** (the zero-gate detectors): `lgwks_ast::scan`, behind
+  its default-on `scan` feature, which reads Rust through the same tree-sitter
+  parser (ADR 0002). A real Rust grammar is the only honest oracle for Rust source.
 
 **Boundary:** the workspace provides no general-purpose Rust semantic API
 (types, trait resolution, macro expansion), because nothing here requires one. A

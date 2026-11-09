@@ -27,7 +27,7 @@ const MAX_DEPTH: usize = 32;
 
 /// Files the Documentation table does not already carry, with their reasons.
 const OPTIONAL: [(&str, &str); 6] = [
-    ("CHANGELOG.md", "Per-release changes across all four crates"),
+    ("CHANGELOG.md", "Per-release changes across all six crates"),
     (
         "SECURITY.md",
         "Attack surface, reporting process, and advisories assessed",

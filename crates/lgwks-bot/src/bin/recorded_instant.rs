@@ -157,7 +157,8 @@ impl Session {
                 let ran: Duration = self.clock.clock().now();
                 format!("{{\"ok\":true,\"elapsed\":{}}}", ran.as_nanos())
             }
-            other => refused("usage", format!("no command named {other:?}")),
+            Some(other) => refused("usage", format!("no command named {other:?}")),
+            None => refused("usage", "an empty line names no command"),
         })
     }
 }

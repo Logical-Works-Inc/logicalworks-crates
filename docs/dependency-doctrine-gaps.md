@@ -9,13 +9,13 @@ capability is neither assumed to be present nor added as an unregistered edge:
 
 | Capability | Path |
 |---|---|
-| `thiserror`, `anyhow` | Implement `std::error::Error` manually; keep typed error enums at library boundaries (the workspace's own crates do this). |
+| `thiserror`, `anyhow` | Derive through `#[derive(lgwks_macros::Error)]` or `lgwks_ast::define_error!`, and keep typed error enums at library boundaries. |
 | `log`, `env_logger` | Nothing to add: `lgwks_std::trace` is the logging path, and it is default-on. `print_stdout`/`print_stderr` are `forbid` (§6.1), so there is no print path to route through. |
 | `clap`, `argh` | Parse `std::env::args` directly; CLI parsing is not a capability of this workspace. |
 | `toml`, `serde_yaml`, `csv` | Not provided. Use `json`/`ron` for data; the gate parses TOML line-wise on purpose to avoid a TOML dependency. |
-| `sha2`, `hmac`, `aes-gcm`, `argon2`, `ed25519` | Not provided (BLAKE3 only). Crypto is a BOUNDARY tier: register it with the concrete reason. |
+| `sha2`, `hmac`, `aes-gcm`, `argon2` | Not provided (BLAKE3 hashes and `lgwks_std::sign` seals with ed25519). Other crypto is a BOUNDARY tier: register it with the concrete reason. |
 | `rand` distributions | `lgwks_std::random` is OS entropy only; derive the distribution you need or register `rand`. |
-| In-process TLS providers | Terminate at the OS reverse proxy: zero new crates. `ring` and `webpki-roots` carry licence terms the register does not accept; see [patches](patches.md). |
+| In-process TLS providers | Inbound terminates at the OS reverse proxy. Outbound has one provider, rustls on ring behind `tls-ring` (ADR 0015, INV-TLS-1); see [patches](patches.md). |
 | `bytes`, `byteorder` | Use slices and `from_le_bytes`/`to_le_bytes`. |
 
 ### 6.1 The print ban is a lint, not a style preference
@@ -31,8 +31,10 @@ artifact that governs.
 
 The consequence for the row above is not "where do logs go" but *whether there
 is a log at all*. A diagnostic the caller will need belongs in the return type:
-carry only facts the operation actually observed, rather than narrating them to
-a stream the caller may not be reading. `lgwks_std::ron::to_writer` preserves
+carry only facts the operation observed, not a narration to a stream the caller
+may not read.
+
+`lgwks_std::ron::to_writer` preserves
 the original I/O error and reports no byte count because `write_all` does not
 expose how much of a failing write the writer accepted.
 
@@ -47,7 +49,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
-
 An explicit `writeln!` to a locked handle is not what `print_stdout` matches, and
 it forces the caller to confront the case `println!` hides: a broken pipe. A
 program whose consumer went away (`mycmd | head`) must treat
@@ -68,7 +69,6 @@ cargo run -p lgwks_deps -- request foo 1.2 # print a block to fill in
 # edit contract/APPROVED.toml, add the Cargo.toml edge, update closure tests
 cargo run -p lgwks_deps -- check .          # must print OK
 ```
-
 An approval with no authored Cargo edge is refused as stale authority
 (`UnusedApproval`); an authored edge with no approval is refused as
 unregistered (`UnregisteredEdge`). Both directions are enforced.

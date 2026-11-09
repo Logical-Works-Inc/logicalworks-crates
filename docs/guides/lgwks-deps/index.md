@@ -6,11 +6,14 @@ There are two ways to use this crate, and they have different dependency costs.
 cargo install lgwks_deps    # the `lgwks-deps` binary: the gate
 cargo add lgwks_deps        # the storefront library
 ```
-The binary is the gate. The library is the storefront. Current version:
-`6.0.0`, MSRV Rust 1.98.0, edition 2024.
+The binary is the gate. The library is the storefront. The
+[root README](../../../README.md#crates) lists this tree's version; the MSRV is
+Rust 1.98.0, edition 2024.
 
-No feature is on by default, so `cargo add lgwks_deps` pulls no third-party
-crate: every storefront capability is selected by name, and the lists live in
+The default features are `debug-doctor` and `lgwks`, the debugger doctor and the
+`lgwks` app command. The storefront's default selection is empty, because a default
+that cannot build on a declared target is not a default (ADR 0003), so each
+capability is selected by name, and the lists live in
 [`storefront.md`](storefront.md). The gate's embedding API, `check_dependencies`,
 is always present and is covered in [`embedding.md`](embedding.md).
 

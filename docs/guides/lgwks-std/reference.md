@@ -6,8 +6,8 @@ Part of the [lgwks_std consumer guide](index.md). Moved from the crate README.
 
 | Feature | Modules | What it adds | External deps |
 |---------|---------|-------------|---------------|
-| `core` (default) | encoding, fs, glob, hex, leb128, retry, seeded, similarity, task, time | — | **0** |
-| `trace` (default) | trace | Structured logging plus default debugger install | tracing, tracing-subscriber stack |
+| `core` | encoding, fs, glob, hex, leb128, retry, seeded, similarity, task, time | — | **0** |
+| `trace` | trace | Structured logging; `trace-install` adds the default debugger install | tracing; tracing-subscriber stack with `trace-install` |
 | `random` | random, id | UUID v4 and time-ordered v7, OS entropy | getrandom |
 | `hash` | hash | BLAKE3 content-addressable hashing | blake3 |
 | `pattern` | pattern | Compiled regex with explicit compile, input and replacement-output limits | regex |
@@ -18,6 +18,8 @@ Part of the [lgwks_std consumer guide](index.md). Moved from the crate README.
 | `online` | online | TCP reachability probing | none |
 | `fs-raw` | fs | Bytes available on a filesystem, unprivileged; handle-relative `fs::capability::Dir` for trees being rewritten while you walk them | rustix |
 | `process` | process | Signal a whole process group; observe a child's exit without releasing its pid | rustix |
+| `sign`, `build`, `legacy` | sign, build, legacy | Detached seals; a build script's digest; legacy format codecs | ed25519-dalek for `sign`; none else |
+| `standard` (default) | all but `http` | — | all of those |
 | `full` | all of the above | — | all of the above |
 
 ## Module reference

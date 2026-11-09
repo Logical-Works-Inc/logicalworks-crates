@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> **Read `INVARIANTS.md` before the first edit.** It is the short, enforced list of this repo's domain rules; this file is the long-form context.
+> **Starting here? Read [`SKILLS.md`](SKILLS.md), then `INVARIANTS.md` before the first edit.** The first routes your task to one skill, and the second is the short, enforced list of this repo's domain rules. This file is the dependency doctrine.
 
 Six files are the governance surface, and each owns exactly one concern:
 
@@ -35,7 +35,7 @@ There are three dependency surfaces and one standalone parser:
 - `lgwks_std`: the core surface.
 - `lgwks_bot`: async, runners, and the actor roles.
 - `lgwks_deps`: everything else, the **storefront**. The end user installs it
-  and holds every feature that builds on their target; selecting is an opt-out.
+  and selects features by name; ADR 0003 records why that selection starts empty.
 - `lgwks_ast`: standalone, and the one parser. It reads source in many
   languages through tree-sitter and, through its default `script` feature,
   reads the `script!` language (`lgwks_ast::script::parse`), which
@@ -46,16 +46,16 @@ There are three dependency surfaces and one standalone parser:
 If a capability exists in `std`, `lgwks_std`, `lgwks_bot`, or `lgwks_ast`, use
 it. A **new** third-party dependency is an optional, feature-gated edge of
 `lgwks_deps`, registered in `contract/APPROVED.toml` with `owner =
-"lgwks_deps"`, and on by default unless ADR 0003 records its cost. `lgwks-deps
-check .` refuses every authored external edge with no owner, and refuses an
-approval with no authored edge.
+"lgwks_deps"`. It is on by default unless ADR 0003 records its cost or a declared
+target denies it. `lgwks-deps check .` refuses every authored external edge with
+no owner, and refuses an approval with no authored edge.
 
 ## The dependency policy (2026-09-12)
 
 1. The surfaces are `std`, `bot`, and `deps`; `ast` is the one standalone crate.
 2. `lgwks_deps` is the install-and-select storefront: every other dependency is
-   an optional feature there, on by default where the target can carry it and
-   the measured cost is recorded in ADR 0003 (today: `gpui`, the `ml-*` set).
+   an optional feature there, on by default unless ADR 0003 records its cost or
+   a declared target denies it.
 3. A new dependency is registered under `lgwks_deps`. Do not introduce a new
    owner crate or a new top-level crate for third-party code.
 4. Grandfathered: `lgwks_std`'s existing core feature stack and `lgwks_ast`'s
@@ -91,7 +91,6 @@ The lane table is the list; this file keeps no second copy of its commands.
 ./scripts/ci-local.sh --fast           # the lanes marked fast
 ./scripts/ci-local.sh --lane std-first # one lane, as CI runs it
 ```
-
 `lgwks-deps check` (lane `deps-register`) is the first CI job. A green compile
 with an unregistered edge is a refused build, not a passing one.
 
