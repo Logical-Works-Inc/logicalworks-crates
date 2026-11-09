@@ -12,15 +12,15 @@
 //!
 //! | Feature | Default | Enables |
 //! |---|---|---|
-//! | `lang-rust`, `lang-python`, `lang-typescript`, `lang-javascript`, `lang-go`, `lang-java`, `lang-swift` | on | one tree-sitter grammar each, and `parser` |
-//! | `lang-*` (the other 21, `lang-tsx` and `lang-c` among them) | off | one more grammar each, and `parser` |
+//! | `lang-*` (28 of them) | on, through `full` | one tree-sitter grammar each, and `parser`; with `default-features = false`, name the ones you need |
 //! | `parser` | on, through any `lang-*` | the multi-language parser and its grammar stack |
-//! | `script` | off | `script::parse`, the reader of the `script!` language |
+//! | `script` | on | `script::parse`, the reader of the `script!` language |
 //! | `emit` | on | `script::emit::script`, the one Rust emitter; implies `script` |
-//! | `tool` | off | `Script::to_json` and the `lgwks-ast script` binary; implies `script` |
-//! | `scan` | off | the zero-gate Rust source detectors and `lgwks-ast scan`; implies `lang-rust` |
+//! | `tool` | on | `Script::to_json` and the `lgwks-ast script` binary; implies `script` |
+//! | `scan` | on | the zero-gate Rust source detectors and `lgwks-ast scan`; implies `lang-rust` |
+//! | `legacy` | on | the COBOL and JCL reader, its graphs and its JSON verdicts |
 //! | `hunks` | on, through `tool` | `hunks`, the lines a change adds, read from `git diff` |
-//! | `full` | off | all 28 grammars |
+//! | `full` | on | all 28 grammars |
 
 // Lint contract (missing_docs deny, unsafe_code forbid, broken intra-doc
 // links deny) comes from the workspace root.

@@ -48,6 +48,7 @@ set, and effects already in flight keep the proofs they started with.
 | `bot.fs` | `Cap::FS` | Filesystem access: read, write, watch paths |
 | `bot.sys` | `Cap::SYS` | System access: process control, environment |
 | `bot.notify` | `Cap::NOTIFY` | Notification delivery: Slack, email, webhooks |
+| `bot.model` | `Cap::new("bot.model")` | The `ask` word's model call; granted by name, and `all_shipped` leaves it out |
 
 Custom capabilities use `Cap::new("your.domain.cap")`.
 
@@ -56,7 +57,7 @@ A flow's `Tenant` is chosen by the trusted host that builds it: it keeps honest
 tenants from sharing keys, not adversaries from choosing a name (`SECURITY.md`).
 ## Shipped domains
 
-Nine domains ship with the crate, each implementing one or more verbs:
+Ten domains ship with the crate, one behind the `inspect` feature, each implementing one or more verbs:
 
 | Domain | Module | Capabilities | Verbs |
 |--------|--------|-------------|-------|
@@ -69,6 +70,7 @@ Nine domains ship with the crate, each implementing one or more verbs:
 | Notifications | `domain::notify` | `bot.notify`, `bot.net` | Execute |
 | Flow | `domain::flow` | inherited | Execute (pipeline) |
 | Evaluators | `domain::eval` | — | Evaluate (changed, threshold) |
+| Inspection | `domain::inspect` (feature `inspect`) | `bot.fs` to read an artifact | Observe, Query |
 
 ## Serializable specs
 
@@ -115,6 +117,4 @@ document from a closed vocabulary — `changed`, `always`, `threshold::above(<n>
 identifier outside it is a reported need, never a silently always-true gate.
 
 The builder chain remains the DSL for anything a document cannot express. There
-is deliberately no `bot!` proc-macro: it would hide the per-call `Auth::check`
-that auditors read. The orchestration *between* calls is a different matter, and
-has one: [`script!`](README-script.md#orchestration-script).
+is deliberately no `bot!` proc-macro: it would hide the per-call `Auth::check` that auditors read. The orchestration *between* calls is a different matter, and has one: [`script!`](README-script.md#orchestration-script).

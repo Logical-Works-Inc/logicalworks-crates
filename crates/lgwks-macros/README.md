@@ -22,7 +22,7 @@ documentation for the full language and the list of what it refuses.
 ## The words
 
 Every word of the language, one row each. The macro dispatches on the same
-table this is rendered from (`src/lexicon.rs`), and a test refuses a README
+table this is rendered from (`LEXICON` in `lgwks_ast`), and a test refuses a README
 whose table differs from it. A line that starts with none of these words is
 plain Rust.
 

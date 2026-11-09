@@ -5,7 +5,7 @@ Pages of this guide: [scope and finding](general-bot-fold.md) · [what is new](g
 6. **The politeness frontier.** ✅ Landed in this change: `frontier.rs` —
    `ConstraintKey`, `Resolved`, `RulesState`, the three-armed `Admission`, a
    validated `PolitenessPolicy`, and the `Frontier` that admits against every
-   constraint a request shares. Three of this document's own commitments were
+   constraint a request shares. Three of this page's own commitments were
    revised while implementing it, and each revision is a finding rather than a
    preference:
 
@@ -53,7 +53,8 @@ Pages of this guide: [scope and finding](general-bot-fold.md) · [what is new](g
    non-settlement as a typed terminal outcome (§3.4).
 10. **The recorder and its visible-delta compiler** (§3.3), on the ECS substrate.
 11. **The agent domain**, closed-enum actions and `FlowBounds` budget (§5.7).
-12. **The MCP adapter**, over the four verbs.
+12. **The MCP adapter**, over the four verbs. The protocol edge, `rmcp`, is already
+    admitted through `lgwks_deps` (ADR 0015).
 13. **Semantic-tier calibration.** `SemanticPolicy::DEFAULT` is `{ threshold:
     0.72, margin: 0.05 }`: declared, not fitted (§3.6), and constructor
     arguments because the right values depend on the model. What is missing is
@@ -82,7 +83,7 @@ the caller to handle it. It is recorded here because `Degraded` looks like a
 value that could be folded into `Absent`, and it cannot: that is the exact
 collapse step 5 exists to prevent.
 
-## 7. What this document does not decide
+## 7. What this page does not decide
 
 - Whether the durable queue is a storefront feature or stays out of the
   workspace entirely. It needs the dependency doctrine's ruling, not this

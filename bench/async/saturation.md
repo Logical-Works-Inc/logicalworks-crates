@@ -6,10 +6,9 @@ The knee at six in-flight bounds, and what twice the knee for 30 seconds does. P
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --saturation --window=1 --json=bench/async/saturation-backpressure.json
 ```
-
 Bounds `64`, `1,024`, `10,000`, `16,384`, `100,000`, `131,072` — the issue's
 list and the delivery brief's list, because they name different decades and
 neither is a subset of the other, and a sweep that quietly drops a tier reads as
@@ -70,11 +69,10 @@ Queue depth and the refusal rate are in the results file per point
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --overload --bound=64 --knee=10000 --baseline-seconds=5 \
     --overload-seconds=30 --recovery-seconds=90 --json=bench/async/overload.json
 ```
-
 Load average **19.88**, 4:10.33 wall, peak RSS 5,521,408 bytes. Baseline 5 s at
 5,000/s, overload 30 s at 20,000/s (twice the 10,000/s knee), recovery 90 s at
 5,000/s:

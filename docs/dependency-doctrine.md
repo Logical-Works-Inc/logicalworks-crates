@@ -91,7 +91,7 @@ Before adding any edge:
 7. **Mortgage every edge.** Each approval carries a row in the companion
    ledger `contract/LIFECYCLE.toml` naming `replacement`, `removal_trigger`
    and `last_reviewed`; an approval with no row is refused as
-   `MissingLifecycle`. `lgwks-deps ledger` prints the review page the quarter closes on.
+   `MissingLifecycle`. The `ledger` binary of `lgwks_deps` prints the review page the quarter closes on.
 
 A direct edge that skips this flow fails `lgwks-deps check` with the exact
 crate, requirement, and source class named.

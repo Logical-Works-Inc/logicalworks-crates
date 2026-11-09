@@ -42,21 +42,21 @@ one.
 
 **Also not measured / not claimed:**
 
-- **The sample is small.** The default is three trials per cell. Uncertainty is
+- **The sample is small.** `bench.toml` runs one trial per profile, five per (model, arm, task) cell. Uncertainty is
   reported as the *full per-trial list*, not as a confidence interval: a small
   sample does not earn one.
-- **This is not a leaderboard.** It compares two API surfaces of one crate
-  across fixed model versions under five instructions; it says nothing about any
-  other library.
+- **This is not a leaderboard.** It compares the six API arms under `api/`, the
+  `futures` comparator among them, across fixed model versions under five
+  instructions; it says nothing about any library outside them.
 - The absolute numbers are one host, one toolchain, one run.
 - `orchestration_sites` is a token-count proxy, not a proof of complexity.
 
-## The two API sheets and the fairness rules
+## The API sheets and the fairness rules
 
-Both sheets (`api/old.md`, `api/new.md`) are the same shape, the same length
+The hand-written sheets under `api/` are the same shape, the same length
 budget (≤ 250 lines each), and each ends with one small compiling example of a
 bounded fan-out. Each says the model may use only the items on that sheet plus
-`std` and `ai_task_support`.
+`std` and `ai_task_support`. The lexicon arm's context is the generated `docs/script-lexicon.md`.
 
 Fairness rules held constant across every cell:
 
@@ -65,6 +65,6 @@ Fairness rules held constant across every cell:
 - the same hidden oracle (the model never sees `tasks/*/oracle.rs`);
 - the same repair budget (`--max-repairs`, default 4);
 - the same compile and test commands, and the same serialization (one cargo
-  process at a time under an `fcntl` lock).
+  process at a time under an exclusive lock on one file).
 
-The only thing that differs between the two arms is the API sheet.
+The only thing that differs between arms is the API sheet.

@@ -4,19 +4,18 @@ Part of the [measurement rigs](README.md); the adversarial rows, markdown and th
 fan-out tiers are in [ast-adversarial.md](ast-adversarial.md).
 
 Per-grammar parse throughput, peak resident set size, and the share of a checked
-parse spent in the validation walk, measured against the three grammars' inputs a
-hostile file actually carries. Produced by
+parse spent in the validation walk, measured against the inputs a
+hostile file carries. Produced by
 `crates/lgwks-ast/examples/parse_budget.rs`; the committed evidence is
 [`ast-budget.tsv`](ast-budget.tsv), 224 rows.
 
 ```sh
-cargo run --release -p lgwks_ast --features full --example parse_budget -- --help-ish
+cargo run --release --locked -p lgwks_ast --features full --example parse_budget
 # one process per (grammar, shape) and per tier, because peak RSS is a process
 # high-water mark and one process over everything could only report the widest:
 AST_BUDGET_SHAPE_BYTES=262144 AST_BUDGET_TIMEOUT=120 \
   scripts/measure-ast-budget.sh /tmp/lgwks-ast-budget
 ```
-
 **Machine and toolchain.** Apple M5 Pro, 15 cores, macOS 27.0, rustc 1.99.0,
 release profile. One machine, one run: these are absolute numbers for this host,
 not a cross-platform claim. The process floor — the same binary, all 28 grammar
@@ -38,7 +37,8 @@ that is a measurement finding rather than a convenience: at 256 KiB of nested
 braces the **Dart** grammar takes **97.5 seconds** in the parser, and at 2 MiB it
 did not finish in 120 s. The two ceilings are named separately in
 `ast-budget.tsv` (`bytes` on every row) so a smaller figure is never read as the
-ceiling's. Representative and `longline` are at the full 2 MiB.
+ceiling's. Representative is tiled to the full 2 MiB; `longline` removes that
+source's newlines, so its bytes run under it, and `scala` `longline` is at 501 490.
 
 ## Throughput and peak RSS at 2 MiB, per grammar
 

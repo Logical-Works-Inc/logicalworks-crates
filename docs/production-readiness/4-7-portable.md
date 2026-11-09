@@ -2,23 +2,22 @@
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 
-**⚠️ — Linux runs the suites, Windows one containment test, eight targets are
-built. A build receipt is not an execution receipt; this says which is which.**
+**⚠️ — Linux and macOS run suites, Windows one containment job, seven targets
+are built. A build receipt is not an execution receipt; this says which is which.**
 
-Twenty-one job definitions in `.github/workflows/ci.yml`, counted at this
-change. Their `runs-on` distribution is **12 self-hosted macOS, 4
-`ubuntu-latest`, 2 `macos-latest`, 2 `windows-latest` (`gpui-windows`,
-`process-windows`), 1 `matrix.os`**, and that single `matrix.os` job is
-`appcui-native`, whose legs are self-hosted macOS and `windows-latest` — so
-"three operating systems" is true of those storefront features and not of the
-estate. The Linux paths execute in a container on the self-hosted macOS runner
-(`tests_linux`) and `lgwks_std`'s full suite on `ubuntu-latest`. A
+Every job in `.github/workflows/ci.yml` runs on a GitHub-hosted runner:
+`ubuntu-24.04-arm` for the Linux legs, `macos-15` for the Darwin seams and
+`windows-latest` for the GPUI, process and AppCUI Windows legs
+([the table](../workflow/ci-layout.md)). So "three operating systems" is true of
+those storefront features and of process containment, and not of the estate. The
+Linux paths execute in the `rust:1.99.1-trixie` container on `ubuntu-24.04-arm`
+(`tests_linux`), and `lgwks_std`'s full suite runs on the same runner image. A
 `wasm32-wasip1` boundary lane checks that the default feature set compiles for
 WASI — a build check, not an executed containment test. `os.uname` and other
 host-only calls are behind `platform` dispatch.
 
-**The executed target matrix (#276).** `scripts/check-target-matrix.sh` is a
-required lane that runs `cargo check --locked --target <t>` per declared target
+**The executed target matrix (#276).** The `check-target-matrix` binary of
+`lgwks_deps` is a required lane that runs `cargo check --locked --target <t>` per declared target
 and per crate. On `aarch64-apple-darwin` (rustc 1.99.0), 42 checks in 69 s from
 an empty target directory:
 
@@ -26,11 +25,13 @@ an empty target directory:
 |---|---|---|---|---|---|---|
 | `aarch64-apple-darwin` (host) | builds | builds | builds | builds | builds | builds |
 | `aarch64-unknown-linux-gnu` | builds | builds | builds | builds | **builds** | **builds** |
-| `x86_64-unknown-linux-musl` | builds | builds | builds | builds | **not exercised** | **not exercised** |
+| `x86_64-unknown-linux-musl`, `x86_64-unknown-freebsd`, `aarch64-linux-android` | builds | builds | builds | builds | **not exercised** | **not exercised** |
 | `wasm32-wasip1` | builds | builds | builds | builds | builds | **not exercised** |
-| `x86_64-unknown-freebsd` | builds | builds | builds | builds | **not exercised** | **not exercised** |
-| `aarch64-linux-android` | builds | builds | builds | builds | **not exercised** | **not exercised** |
 | `aarch64-apple-ios` | builds | builds | builds | builds | builds | builds |
+
+This table is the run named above. Since then #892 reports the `aarch64-apple-ios`
+row failing for `lgwks_std` and `lgwks_ast`: `read_table_pairs` has no iOS
+definition, so that row claims nothing until #892 closes.
 
 **"Builds" is a build receipt and "not exercised" is a named gap, not a pass.**
 The two `aarch64-unknown-linux-gnu` cells marked **builds** come from the arm64
@@ -106,15 +107,10 @@ it. `tests/process_job.rs` drives a real job on a Windows host: the
 grandchild settling empty, a deadline, a refused capture, and T19–T21 as four named tests and four seeded simulations.
 The Windows receipt is that run's JUnit report (`docs/acceptance/t-rows-windows.toml`) plus the scripted and Miri ones.
 
-**The feature × OS × backend × assurance matrix, and what it does not say.** The
-bot's supervised process backend returns `Unsupported` off Unix and Windows,
-and a green `windows-latest` job is a *containment* receipt only for
-`process-windows`, which stops a real job object; every other Windows job builds
-or lints. A build check and an executed containment test are different facts, and
-only the second one is a portability claim about the runtime. The eight-target
-matrix above is itself a build receipt: every row was executed by `cargo check`
-and none of them ran a test.
+**The feature × OS × backend × assurance matrix, and what it does not say.** The bot's supervised process backend returns `Unsupported` off Unix and Windows,
+and a green `windows-latest` job is a *containment* receipt only for `process-windows`, which stops a real job object; every other Windows job builds or lints.
+A build check and an executed containment test are different facts, and only the second one is a portability claim about the runtime.
+The seven-target matrix above is itself a build receipt: every row was executed by `cargo check` and none of them ran a test.
 
-*Not covered:* 32-bit, any target outside the eight rows, and any executed test
-on a non-hosted-runner target. The performance numbers in §4.9 are from one
-machine and are explicitly not a cross-platform claim.
+*Not covered:* 32-bit, any target outside the seven rows, and any executed test on a non-hosted-runner target.
+The performance numbers in §4.9 are from one machine and are explicitly not a cross-platform claim.

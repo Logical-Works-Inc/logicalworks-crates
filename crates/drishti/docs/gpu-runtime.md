@@ -16,7 +16,7 @@ candidate rather than proof of universal fallback. Before admitting a GPU
 dependency, the framework owes an honest answer to three questions that do not
 need a driver to answer:
 
-1. What work is actually demanded, and what is merely allocated?
+1. What work is demanded, and what is merely allocated?
 2. What is uploaded, what is reused, and how many bytes move?
 3. What happens when the device is lost or must drain, and how is stale state
    invalidated?
@@ -79,8 +79,8 @@ new evidence.
 * **No shared device/queue/allocator.** GPUI using wgpu somewhere does not
   establish one shareable residency contract for compute and render. That proof
   (G03) remains blocked; this module does not claim it.
-* **No driver or adapter.** `wgpu` is an optional registered feature admitted
-  through `lgwks_deps`, not a direct dependency of this package.
+* **No driver or adapter.** No `wgpu` edge is registered. A backend would be admitted
+  through `lgwks_deps` (G15), not as a direct dependency of this package.
 * **No performance claim.** There is no p50/p95/p99, no peak RSS, and no
   comparison against a competent baseline; the assurance contract forbids
   inventing them.
@@ -100,7 +100,6 @@ report.uploaded_bytes · report.reused · report.uploads() -> &[Render]
 runtime.lose_device() · drain() · recover() -> epoch
 runtime.totals() -> RuntimeTotals · runtime.ink_stats() -> Stats
 ```
-
 `RuntimeError` is typed: `DeviceUnavailable`, `Backpressure`, `HostLimit`, and
 `Rejected(InkError)` for a malformed delta, input or option (see
 [the ink lab](crate::ink_lab) for the accepted domains). A rejected call

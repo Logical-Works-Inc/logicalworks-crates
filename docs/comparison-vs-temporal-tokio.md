@@ -4,63 +4,65 @@ Choosing an async and workflow orchestration model shapes reliability and operat
 
 | Property | Raw Tokio | Temporal (Rust SDK) | `lgwks_bot` |
 |---|---|---|---|
-| **Primary Abstraction** | Bare async futures & tasks | Activity & Workflow stubs | Indented `script!` flows on ECS world |
-| **Deployment Model** | In-process library | External server cluster + workers | In-process library |
-| **Operational Overhead** | None | High (Cluster, DB, mTLS, metrics) | Zero (Runs embedded with `cargo add`) |
-| **Scheduling Latency** | Sub-microsecond | 10ms - 50ms (gRPC network hops) | Sub-microsecond (Nanosecond in-memory ECS) |
-| **Fan-Out Safety** | Manual (`Semaphore`) | Worker task queues | **Compiler-guaranteed** (`each x in xs:`) |
-| **Cancellation** | Fragile (task leaks) | Server-coordinated | **Hierarchical & guaranteed** (`within D:`) |
-| **Retry Budgets** | Manual loops | Exponential backoff | **Shared attempt budget** (`retry up to N`) |
-| **Crash Resumption** | None (in-memory) | Replay event history | **Step-keyed journal** (`step name:`) |
-| **Code Versioning** | N/A | **Fragile** (Replay non-determinism) | **Zero** (Honest state transitions) |
-| **AI Agent Admission** | None | None | **Native** (`admit the model's plan:`) |
+| **Primary abstraction** | Bare async futures and tasks | Activity and workflow stubs | Indented `script!` flows on one ECS world |
+| **Deployment model** | In-process library | External server cluster plus workers | In-process library |
+| **Operational overhead** | None | Cluster, database, mTLS, metrics | None beyond your process (`cargo add`) |
+| **Scheduling cost** | The baseline | gRPC hops to the server; not measured here | Facade p50 1.02x–1.17x raw Tokio ([results](../bench/async/results.md)); an ECS tick 834 ns to 136 µs ([§4.9](production-readiness/4-9-performance.md)) |
+| **Fan-out safety** | Manual (`Semaphore`) | Worker task queues | Enforced when the macro expands (`each x in xs:`); a typed number is refused |
+| **Cancellation** | Manual; a spawned child can outlive its parent | Server-coordinated | Cooperative through the scope tree (`within D:`, on the scope's clock) |
+| **Retry budgets** | Manual loops | Backoff policy per activity | One attempt budget (`retry up to N times:`) |
+| **Crash resumption** | None (in-memory) | Replay of the event history | `remember name:` runs its block once per run; a resume reads the value back |
+| **Changing the code** | N/A | Replay must stay deterministic across versions | A resume reads recorded values by name and replays no history; whether a changed flow still fits them is the author's review |
+| **Untrusted model output** | None | None | `admit from model through (gate):` admits the bytes as a `Plan` or fails the step |
 
-## 1. The Raw Tokio Trap: Unbounded Async "Gotos"
+No matched benchmark against Temporal exists in this repository: [`bench/bot-defects.md`](../bench/bot-defects.md) states the exclusion.
+
+## 1. The raw Tokio trap: unbounded async "gotos"
 
 Tokio provides exceptional I/O primitives, not execution governance:
-- **Unbounded Fan-out**: `tokio::spawn` during high load exhausts memory and descriptors.
-- **Leaked Futures**: `tokio::time::timeout` drops outer futures while spawned child tasks run detached.
-- **Retry Storms**: Ad-hoc retry loops lack shared deadlines, causing downstream thrashing.
+- **Unbounded fan-out**: `tokio::spawn` during high load exhausts memory and descriptors.
+- **Leaked futures**: `tokio::time::timeout` drops outer futures while spawned child tasks run detached.
+- **Retry storms**: Ad-hoc retry loops lack shared deadlines, causing downstream thrashing.
 
-In `lgwks_bot`, bounds and retries are enforced by syntax:
+In `lgwks_bot`, bounds and retries are carried by the words:
 ```rust
 lgwks_bot::script! {
     flow process_orders(client: &OrderClient, orders: Vec<Order>) -> Vec<Receipt>:
         let receipts = each order in orders:
             retry up to 3 times, waiting 50ms:
                 within 5s:
-                    client.process(&order).await?
+                    client.process(&order).await.or_retry()?
         give back receipts
 }
 ```
 
-## 2. Temporal vs. lgwks_bot: Replay Fragility & Infrastructure Tax
+## 2. Temporal vs. lgwks_bot: replay and the infrastructure tax
 
-Temporal coordinates cross-language enterprise microservices, but introduces two major frictions:
-1. **The Replay Trap**: Temporal replays workflow history from line 1 on restart. Updating business logic without strict version markers causes historical instances to fail with non-deterministic replay errors. `lgwks_bot` uses deterministic step keys (`step name:`) and event-driven ECS state transitions—persisting completed step outcomes without synthetic replay constraints.
-2. **Infrastructure Footprint**: Temporal requires external Go servers, persistence stores (Cassandra/Postgres), and Elasticsearch. `lgwks_bot` embeds directly in your Rust process with zero external services.
+Temporal coordinates cross-language enterprise microservices, and it brings two frictions:
+1. **Replay**: Temporal replays workflow history from the first line on restart. Updating business logic without version markers can make historical instances fail with non-deterministic replay errors. A `remember name:` block keeps its value under its name, and a resume reads that value back without replaying history.
+2. **Infrastructure footprint**: Temporal requires server processes and a persistence store. `lgwks_bot` embeds in your Rust process with no external service.
 
-## 3. The AI Agent Problem: Securing Untrusted Tool Calls
+## 3. The AI agent problem: untrusted tool calls
 
-Autonomous LLM agents fail on tool execution (hallucinated parameters, infinite loops, hung external endpoints). `lgwks_bot` provides formal admission barriers:
+Autonomous LLM agents fail on tool execution (hallucinated parameters, infinite loops, hung external endpoints). `lgwks_bot` admits the model's bytes before anything runs:
 ```rust
 lgwks_bot::script! {
-    flow execute_agent_plan(sandbox: &Sandbox, plan: AgentPlan) -> ExecutionSummary:
-        step verify_plan:
-            admit plan.is_policy_compliant()?
-        step run_tools:
-            let results = each tool in plan.tools:
-                retry up to 2 times, waiting 100ms:
-                    within 10s:
-                        sandbox.dispatch_tool(&tool).await?
-        give back ExecutionSummary::new(results)
+    flow execute_agent_plan(sandbox: &Sandbox, gate: &PlanGate, reply: Vec<u8>) -> Vec<ToolResult>:
+        let plan = admit from model through (gate):
+            reply
+        let tools = sandbox.tools_of(&plan)
+        let results = each tool in tools:
+            retry up to 2 times, waiting 100ms:
+                within 10s:
+                    sandbox.dispatch_tool(&tool).await.or_retry()?
+        give back results
 }
 ```
 
-## When to Recommend What
+## When to recommend what
 
 - **Recommend `lgwks_bot`**: In-process Rust services, background tasks, or AI agents requiring bounded fan-out, shared retry budgets, and crash resilience without external clusters.
 - **Recommend Temporal**: Cross-language pipelines spanning Python, Go, and Java microservices requiring human approvals spanning months.
-- **Recommend Raw Tokio**: Low-level protocol decoders and primitive byte streams.
+- **Recommend raw Tokio**: Low-level protocol decoders and primitive byte streams.
 
 See [Quickstart](../crates/lgwks-bot/README.md) and [Choosing a crate](choosing-a-crate.md).

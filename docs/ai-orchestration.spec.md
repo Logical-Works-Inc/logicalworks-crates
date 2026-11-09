@@ -1,7 +1,8 @@
 # AI workloads and AI consumers of the orchestration SDK
 
-Status: **proposed**, tracked by [#87](https://github.com/srinji-kaggss/logicalworks-crates/issues/87).
-These requirements specialize the generic task lifecycle; they do not install
+Status: **the target, not an implementation receipt.** Its tracker,
+[#87](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/87), is closed,
+and falsifier rows T26 to T30 hold the tests. These requirements specialize the generic task lifecycle; they do not install
 a planner, model client or second agent framework inside `lgwks_bot`.
 Primary research and exact current code are in [the evidence record](orchestration-evidence.md).
 
@@ -108,29 +109,12 @@ policy decision, not reuse of an unrelated prior consent.
 **AI-07.** Cancellation, timeout and disconnect are not interchangeable. Scoped
 work cancels under its declared lifetime; explicit durable submissions can
 outlive the client. Resuming attaches to existing work rather than inventing a
-new run. Repeated user delivery uses a request identity with payload equality;
-the same key with different input is a conflict. Identical input without the
-same request identity may be a genuinely new user request and must not be
-silently deduplicated.
+new run. Repeated user delivery uses a request identity with payload equality; the same key with different input is a conflict. Identical input without the same request identity may be a genuinely new user request and must not be silently deduplicated.
 
 ## Verification and evaluation
 
-**AI-08.** Verification must read application state independently of the actor's
-success assertion. Separate schema correctness, subject coverage, task quality
-and effect occurrence. A PR review can be correctly published and still have
-poor findings; a good draft can exist when publication failed. Report both.
-Prompt injection resistance is a tested property of a concrete adapter and
-policy combination, not a guarantee delivered by typed JSON.
+**AI-08.** Verification must read application state independently of the actor's success assertion. Separate schema correctness, subject coverage, task quality and effect occurrence. A PR review can be correctly published and still have poor findings; a good draft can exist when publication failed. Report both. Prompt injection resistance is a tested property of a concrete adapter and policy combination, not a guarantee delivered by typed JSON.
 
-**AI-09.** Evaluate with fixed model versions, matched task/evidence budgets,
-held-out tasks and recorded prompts/tool definitions. Compare the old API and
-new task facade on compile success, substantive correctness, amount of manual
-orchestration, tool/API mistakes, recovery accuracy, tokens and interventions.
-Measure sample variance and disclose tool/model failures. Compare same-model
-runs before attributing improvement to architecture. No claim of frontier
-performance follows from a nicer API, more agents or a microbenchmark.
+**AI-09.** Evaluate with fixed model versions, matched task/evidence budgets, held-out tasks and recorded prompts/tool definitions. Compare the old API and new task facade on compile success, substantive correctness, amount of manual orchestration, tool/API mistakes, recovery accuracy, tokens and interventions. Measure sample variance and disclose tool/model failures. Compare same-model runs before attributing improvement to architecture. No claim of frontier performance follows from a nicer API, more agents or a microbenchmark.
 
-The required workload set includes PR review, bounded multi-API fan-out,
-readiness-before-request, watch overflow, missing authority, lost response,
-subject change, isolated untrusted content, partial worker failure and context
-reset. See [acceptance](orchestration-acceptance.spec.md).
+The required workload set includes PR review, bounded multi-API fan-out, readiness-before-request, watch overflow, missing authority, lost response, subject change, isolated untrusted content, partial worker failure and context reset. See [acceptance](orchestration-acceptance.spec.md).

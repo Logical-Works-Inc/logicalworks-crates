@@ -109,7 +109,7 @@ page and the gate's refusal text; a developer adding a crate to a new project.
 
 ## Assumptions and constraints
 
-Five workspace members stay, and no dependency is added for this work
+The workspace members stay (five then, six since ADR 0006 R6), and no dependency is added for this work
 (`INV-DEP-1`); the site deploys only where a Pages site exists, which the Pages
 workflow reports rather than assumes.
 

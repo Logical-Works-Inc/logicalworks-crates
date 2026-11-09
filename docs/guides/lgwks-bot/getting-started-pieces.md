@@ -53,9 +53,9 @@ grant and is refused on a host without it, and nothing in the flow changes.
 
 ## Where to go next
 
-- [Features](features.md) for which cargo features you actually need.
+- [Features](features.md) for which cargo features you need.
 - [Authority](authority.md) before you design anything around revoking a grant:
-  `GrantSet` has no revoke operation.
+  `GrantSet` has no revoke operation, and `EcsBot::replace_grants` narrows a running bot.
 - [Failures](failures.md) before you write a retry.
 - [Background work](background-work.md) if the bot needs work running beside the
   flow rather than inside it.

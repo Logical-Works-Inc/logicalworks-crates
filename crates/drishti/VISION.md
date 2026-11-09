@@ -1,6 +1,6 @@
 # Vision: creativity without coordination debt
 
-Status: product direction formalized on 2026-09-12; runtime unimplemented.
+Status: product direction formalized on 2026-09-12. The reference cores and the native host exist; the qualified runtime does not ([status](docs/status.md)).
 
 ## The product
 

@@ -11,7 +11,7 @@ Part two of [the system and ecosystem capability gap specification](std-deps-cap
 | `#794`, `#840` | `lgwks_std::ec` (`ec`) | `p256 =0.14.0`, `p384 =0.14.0`, `p521 =0.14.0` (`arithmetic`, `ecdsa`, `zeroize`) | `lgwks_std::ec` |
 | `#833` | `lgwks_deps` `pki-x509`, `pdf-sign` | `der`, `spki`, `pkcs8`, `x509-cert`, `cms`, `lopdf` | `lgwks_std::sign` |
 | `#846` | `lgwks_deps` `warden-wasm`, `warden-seccomp`, `warden-wat` | `wasmtime =36.0.14`, `seccompiler =0.5.0` (Linux), `wat =1.240.0` | `lgwks_bot::warden` |
-| `#854` | `lgwks_deps::vz` (`apple-vz`, macOS) | `objc2-virtualization =0.3.2`, `objc2-foundation =0.3.2`, `block2 =0.6.2` | `lgwks_std::process` |
+| `#854` | `lgwks_deps::vz` (`apple-vz`, macOS), not built | `objc2-virtualization =0.3.2`, `objc2-foundation =0.3.2`, `block2 =0.6.2` | `lgwks_std::process` |
 | `#850` | `lgwks_deps` `mcp-remote` | `rmcp =3.8.0` (`server`, `transport-streamable-http-server`, `auth`) | `lgwks_bot::rt::serve` |
 | `#836` | `lgwks_deps` `ui-preview` | `winit`, `softbuffer`, `cosmic-text` | `drishti::native` |
 | `#838` | `lgwks_deps` `proptest` | `proptest =1.11.0` (`std`, `allowed_kinds = "normal,dev"`) | `lgwks_std::seeded` |
@@ -29,12 +29,12 @@ Part two of [the system and ecosystem capability gap specification](std-deps-cap
 
 | Axis | Guarantee across all 15 workstreams | Discriminating falsifier |
 |---|---|---|
-| **Frontier** | Eliminates `thiserror`, `uuid`, `foundationdb-tuple`, `libm`, and `rustsec`; unifies `libsqlite3-sys`; replaces `SIGSTOP` polling with pipe EOF/write gates. | `sim_tuple_full`, `sim_error_derive`, `sim_math`, `sim_advisories`, and pipe-gate latency bench (`< 50 us`). |
+| **Frontier** | Eliminates `thiserror`, `uuid`, `foundationdb-tuple`, `libm`, and `rustsec`; unifies `libsqlite3-sys`; replaces `SIGSTOP` polling with pipe EOF/write gates. | `sim_tuple`, `sim_error_derive`, `sim_advisories`, and a `sim_math` and pipe-gate latency bench (`< 50 us`) landing with their surfaces. |
 | **Hyperscale** | Bounds `capture_descendants_many` (`16_384` roots, `4_096` PIDs), tuple keys (`32` depth, `10_000` bytes), inherited FDs (`8`), and WASM stores (`WasmLimits`). | `sim_capture_many` (10,000 roots in 1 table read); `unbounded_wasm_store_is_unconstructible`. |
 | **Idiomatic** | Typed `#[non_exhaustive]` error enums, zero `.unwrap()`/`.expect()`, `MainThreadToken` thread proof, and `OwnedFd` RAII ownership. | `cargo clippy --workspace --all-targets --locked -- -D warnings`. |
-| **Generalized** | Full 12-code FDB tuple grammar (`0x00`..`0x33`) with nested null escaping; generic/lifetime `#[derive(Error)]`. | `sim_tuple_full` (5,000 schemas) and `sim_error_derive` (1,000 enum/struct shapes). |
+| **Generalized** | Full 12-code FDB tuple grammar (`0x00`..`0x33`) with nested null escaping; generic/lifetime `#[derive(Error)]`. | `sim_tuple` and `sim_error_derive`. |
 | **Decoupled** | Preserves `std -> lgwks_std -> lgwks_bot -> lgwks_ast -> lgwks_deps`; keeps web/ORM in `loco-rs`; mortgages every external edge. | `cargo run -p lgwks_deps -- check .` and `storefront_consumers`. |
-| **Ephemeral** | Pipe start gate exits `99` on coordinator `SIGKILL` via kernel write-end `EOF` before `exec`; `lgwks_deps::sqlite::open` enforces `WAL` + `FULL`. | `coordinator_sigkill_before_release_exits_gated_child_without_running_payload`. |
+| **Ephemeral** | Pipe start gate exits `99` on coordinator `SIGKILL` via kernel write-end `EOF` before `exec`; `lgwks_deps::sqlite::open` enforces `WAL` + `FULL`. | `tests/it/process_ownership.rs`. |
 | **Portable** | Bit-identical IEEE 754 `math` and pure-Rust NIST curves on Darwin, Linux, Windows, and `wasm32-wasip1`; target-gated `apple-vz` and `warden-seccomp`. | `cargo run -p lgwks_deps --bin check-target-matrix` and `sim_math` cross-target digest. |
 | **Multi-tenant** | `TenantEntityIndex` prefixes ECS entity keys with `(Tenant, Uuid)` tuple bytes; `warden` isolates each tenant in its own `wasmtime::Store`. | A seeded two-tenant sweep including a tenant name holding NUL, landing with the surface. |
 | **Fastest** | `capture_descendants_many` cuts 10,000-root process polling from 10,000 table scans to 1 scan + BFS; pipe gate removes `RELEASE_POLL` sleeps. | 10,000-root snapshot p50/p95/p99 `< 15 ms` in `bench/`. |

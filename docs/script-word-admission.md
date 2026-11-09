@@ -89,10 +89,10 @@ the generator writes it.
 
 ## 6. Wire it and land it
 
-- Emit the call in `crates/lgwks-macros/src/emit.rs`, and the map entry so
+- Emit the call in `crates/lgwks-ast/src/script/emit.rs`, and the map entry so
   the architecture map and the run's trail name the step (SL-6).
 - Add the rule to `INVARIANTS.md` in one line, or extend the line it
-  belongs to; the file stays at 150 lines or fewer.
+  belongs to; the file stays at 120 lines or fewer.
 - One PR per word, closing its issue, with the sites, the refusal cases, the
   guarantees and their tests listed in the body, and the gate green.
 
@@ -114,7 +114,6 @@ recurrent first, with each shape's lines, files and first three sites:
 ```sh
 cargo run --locked --release -p lgwks_ast --features tool --bin lgwks-ast -- script census .
 ```
-
 The census measures and never gates: it exits 0, and a gated passthrough share
 would be gamed by moving code out of scripts, which is the opposite of the
 goal. The spec lists it among the outcome measures for that reason.

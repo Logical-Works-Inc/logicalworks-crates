@@ -1,25 +1,28 @@
 # lgwks_ast bounds and refusals
 
-Three constants, in different units, bounding different work.
+Five constants, in different units, bounding different work.
 
 | Constant | Value | Bounds |
 |---|---|---|
 | `MAX_SOURCE_BYTES` | 2 MiB | the bytes handed to tree-sitter |
 | `MAX_AST_NODES` | 2,000,000 | the validation walk, and every downstream walk |
+| `MAX_AST_DEPTH` | 512 | the same walks, on branch depth |
+| `DEFAULT_PARSE_DEADLINE` | 10 s | the parser's own work on one checked parse |
 | `MAX_DETECT_BYTES` | 64 KiB | one content-detection probe |
 
 The two parse bounds are not interchangeable, and the crate says so plainly
 (`crates/lgwks-ast/src/parser.md:73`):
 
 > [`MAX_SOURCE_BYTES`] bounds the bytes handed to the parser and is what keeps
-> parse work linear in input; [`MAX_AST_NODES`] is measured on the tree *after*
-> tree-sitter has built it, so it bounds the validation walk and every downstream
-> walk, not the parser's own allocation. Neither is a hard memory ceiling.
+> parse work linear in input; [`MAX_AST_NODES`] and [`MAX_AST_DEPTH`] are measured
+> on the tree *after* tree-sitter has built it, so they bound the validation walk
+> and every downstream walk, not the parser's own allocation.
 
-Read that first sentence twice if you were planning to rely on `MAX_AST_NODES` as
+Read that sentence twice if you were planning to rely on `MAX_AST_NODES` as
 a parser memory guard. It is a *post-parse* bound. A 2 MiB source that expands
 into a huge tree is parsed before the node count is checked; what the constant
-stops is an unbounded walk over the result.
+stops is an unbounded walk over the result. The parser's own time is what
+`DEFAULT_PARSE_DEADLINE` bounds, because a hostile grammar input is super-linear.
 
 `MAX_DETECT_BYTES` is small on purpose, because detection trial-parses each
 distinct candidate in full.
@@ -27,7 +30,7 @@ distinct candidate in full.
 ## Refusals
 
 `try_parse` returns `Result<Parsed, ParseError>`, and `ParseError` is
-`#[non_exhaustive]` with four variants:
+`#[non_exhaustive]` with seven variants:
 
 | Variant | Trigger |
 |---|---|
@@ -35,6 +38,9 @@ distinct candidate in full.
 | `ParserUnavailable { language, detail }` | the grammar produced no tree |
 | `InvalidSyntax { language, diagnostics, diagnostics_truncated }` | the tree carries bounded `ERROR`/`MISSING` diagnostics with half-open source-byte ranges |
 | `AstTooLarge { language, observed, limit }` | the tree exceeded the node bound |
+| `AstTooDeep { language, observed, limit }` | the tree exceeded `MAX_AST_DEPTH` |
+| `ContainerNestingTooDeep { language, observed, limit }` | one line declares more block containers than `MAX_MARKDOWN_CONTAINERS_PER_LINE`, refused before any grammar runs |
+| `TimedOut { language, after }` | the parser was still working when its deadline passed |
 
 None of them may be reported as clean. That is the point of the type: a
 tree-sitter tree with recovery nodes is not proof of valid syntax, so `try_parse`

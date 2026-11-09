@@ -9,7 +9,7 @@ present or a domain implementation.
 
 ### 3.1 The interface model — **landed in this change**
 
-`docs/guidance-runner-spec.md:193` deferred *"the interface model (element
+`docs/guidance-runner-spec.md` deferred *"the interface model (element
 entities, recognition-vector components, acquisition systems) on the ECS
 substrate"*, blocked on Workstream A. Workstream A has landed
 (`lgwks_std::similarity`: `EditDistance`, `Jaccard`, `PathSimilarity`,
@@ -69,10 +69,8 @@ text, then a class path — and falls back down it.
 
 This slice is landed (`interface.rs`, step 4 below). A ladder
 must be walked against candidates, which means each candidate must offer the
-anchors the ladder names; `ElementFacts` does not carry them yet, and shipping a
-ladder that cannot be joined to its candidates would be a half-built path of
-exactly the kind the one-path rule forbids. The shape is settled, though, and it
-is small:
+anchors the ladder names, so `ElementFacts` carries them (`with_anchor`, `anchor`).
+The shape is small:
 
 - `Anchor` — a closed enum (`Id`, `TestId`, `Role`, `Text`, `ClassPath`) with an
   explicit `rank()`. Explicit rather than derived `Ord`, because a derived order

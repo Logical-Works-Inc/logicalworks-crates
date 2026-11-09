@@ -49,12 +49,14 @@ ecosystem, a support contract, or a package whose bus factor you can ignore.
   channel, and no long-term branch. The compatibility promise covers four
   surfaces only, listed in the [consumer guides](guides/index.md); everything
   else is `#[doc(hidden)]` support code that may change in any release.
-- **You want an agent framework.** `lgwks_bot` does not call a model, own prompts,
-  route tools or manage providers. It is the execution substrate beneath one.
+- **You want an agent framework.** `lgwks_bot` is the execution substrate beneath
+  one. Its `ask` word calls a model through a host's `ModelPort`, under `bot.model`,
+  a token budget and a deadline. It ships no provider, prompt library or tool
+  router, and the provider stack is `lgwks_deps::storefront::genai`.
 - **You want a distributed system.** These crates refuse a network path rather
   than pretend; read [distributed boundaries](distributed-boundaries.md) first.
 - **`MPL-2.0` is a problem for you.** `lgwks_bot` is file-level copyleft;
-  `lgwks_std`, `lgwks_ast`, `lgwks_deps` and `drishti` are Apache-2.0. The rule and the
+  `lgwks_std`, `lgwks_ast`, `lgwks_deps`, `lgwks_macros` and `drishti` are Apache-2.0. The rule and the
   commercial licence are in [`LICENSING.md`](../LICENSING.md).
 - **You need breadth.** One crate here does not replace a stack: adopting
   `lgwks_ast` does not ask you to drop tokio or serde, and adopting `lgwks_bot`

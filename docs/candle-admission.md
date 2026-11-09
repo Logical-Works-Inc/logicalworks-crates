@@ -5,13 +5,13 @@ description: Candle ownership, default-off feature boundary, transitive-surface 
 resource: /docs/candle-admission.md
 tags: [dependencies, candle, ml, inference, tokenizers]
 decision: 2026-09-18
-stale_after: 2026-10-18
+stale_after: 2026-12-09
 sources: [/docs/dependency-doctrine.md, /contract/APPROVED.toml, https://github.com/huggingface/candle, https://crates.io/crates/candle-transformers/0.11.0, https://crates.io/crates/tokenizers/0.23.2]
 ---
 
 # Candle ML inference storefront admission
 
-This document records the approval of Candle as the ML inference runtime of the
+This page records the approval of Candle as the ML inference runtime of the
 `lgwks_deps` storefront, together with the alternatives measured against it, the
 limits of its transitive surface, and the verification required before the
 capability is relied upon.
@@ -25,7 +25,7 @@ recorded with the date `2026-09-18`.
 
 The approval record is the commit that adds the register blocks and the authored
 edges, per `docs/dependency-doctrine.md` §7 and the register header. This
-document is evidence of that approval; it is not a signed artifact.
+page is evidence of that approval; it is not a signed artifact.
 
 ## Ownership and alternatives
 
@@ -51,7 +51,8 @@ lockfile provenance, not package-level authority, and it is large. Selecting
 resulting tree is therefore network-capable. The intended runtime behaviour is
 to load a local checkpoint without calling the hub; that intent is a runtime
 property to be verified, not a property implied by this admission. No
-advisory-clean or universal safety claim is made for the closure.
+advisory-clean or universal safety claim is made for the closure. An upstream pin
+of Candle is recorded in `contract/PATCHES.toml` and [`docs/patches.md`](patches.md).
 
 ## Verification plan
 
@@ -62,7 +63,7 @@ advisory-clean or universal safety claim is made for the closure.
    candle_transformers, tokenizers}` are reachable.
 3. The real admission gate accepts the owned edges (`lgwks-deps check` prints
    OK) and the closure test continues to require every non-facade dependency to
-   be `optional = true`, so the default build stays zero-dependency.
+   be `optional = true`, so a `--no-default-features` build stays zero-dependency.
 4. Workspace fmt, clippy, and tests remain mandatory, and the package smoke is
    unchanged.
 5. CPU compilation is checked on the Linux CI job; the Metal backend is

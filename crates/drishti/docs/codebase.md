@@ -1,6 +1,6 @@
 # Codebase structure and dependency direction
 
-Status: planned runtime structure, not generated skeletons. Only the documentation package and bundle tests exist today.
+Status: planned runtime structure, not generated skeletons. The realized seats below exist today; the rest of the planned tree does not.
 
 ## Actual publication structure
 
@@ -30,11 +30,11 @@ docs/
 contract/requirements.tsv      normative requirement registry
 experience/journeys.tsv        acceptance scenarios, all unexecuted
 tests/bundle.rs                document inventory/reference integrity only
+tests/cli.rs                   the drishti command, through its binary
 tests/sim/                     seeded deterministic simulation of the engine and runtime
 examples/ink_preview.rs        writes an animated SVG preview of the mark (public-API consumer)
 examples/ink_lab.rs            opens the ink lab window and prints a measured session report
 ```
-
 One public `drishti` package is the planned authoring surface. Internal modules are not separate public crates merely because they have different responsibilities. The 0.0.1 release exported only documentation; the working tree now adds the first realized seats as an explicit API transition. These realized seats are deterministic reference cores with unit and simulation tests, not qualified runtime subsystems: `design` and `ink_lab` realize the planned brand/motion seats, `runtime` realizes the planned `presentation/residency.rs` seat, and `native` is the first slice of the planned `presentation/gpui.rs` seat. The rest of the planned tree below remains **planned / absent**.
 
 The planned runtime tree, a plan and not shipped code, is in [planned-tree.md](planned-tree.md).
@@ -49,9 +49,9 @@ An observed asynchronous result returns through operations to the host's transit
 
 Use `std` first, `lgwks_std` for owned primitives, `lgwks_bot` for admitted async/actor work, and `lgwks_ast` where its supported parser contract is needed. All new third-party dependencies, including GPUI or a scripting engine, go through optional `lgwks_deps` storefront features and the owning approval registry. No direct `tokio`, `serde_json`, `rhai`, `mlua`, or `wgpu` edge is silently introduced in Drishti.
 
-The documentation-only release has zero dependencies; that is not evidence of the future runtime's dependency cost. Runtime manifests must pin actual usable published/source identities and measure complete target feature closures. Do not copy upstream source into this repository as a shortcut around admission.
+The documentation-only 0.0.1 release had zero dependencies; that is not evidence of the future runtime's dependency cost. Runtime manifests must pin actual usable published/source identities and measure complete target feature closures. Do not copy upstream source into this repository as a shortcut around admission.
 
-Observed local logicalworks-crates facts: its `lgwks_deps` manifest exposes a `gpui` feature and depends on GPUI 0.2; it currently enables `gpui/default`. An independent review during this session observed the public `pub use gpui` export under that feature, correcting the earlier source observation made before the sibling changed. Its doctrine also contains older `lgwks_rt` ownership prose while the source now re-exports tokio from the storefront. Export existence does not establish the complete consumer contract: version/macro compatibility, executor ownership, and target closure still require verification. Drishti does not repair the sibling repository as part of this design publication.
+The `lgwks_deps` manifest exposes a `gpui` feature over GPUI 0.2 and a public `pub use gpui` export under it. Export existence does not establish the complete consumer contract: version/macro compatibility, executor ownership, and target closure still require verification.
 
 ## Feature plan, not current Cargo features
 
@@ -63,4 +63,4 @@ GPUI main currently contains web/wgpu adapter crates, but the admitted GPUI 0.2 
 
 The requirement registry maps each obligation to its planned module seat and a named future test file. The journey registry supplies public-surface falsification cases. Runtime implementation begins only after the relevant open design obligations are closed, tests are specified with independent oracles, and strict assurance can report honestly. File existence will never be used as a substitute for executed behavior.
 
-The finalized product contract is maintained in `docs/decisions.md`, not a second plan or API specification. Added requirements for HTML hosting, phone parity, design tokens/controls, default recovery, compact agent semantics and diagnostics bind to the seats above. This allocation is not permission to implement new storage engines, duplicate LOK/Braid authority, or create separate per-platform applications. Cargo remains the baseline workflow; a convenience CLI is optional and not present.
+The finalized product contract is maintained in `docs/decisions.md`, not a second plan or API specification. Added requirements for HTML hosting, phone parity, design tokens/controls, default recovery, compact agent semantics and diagnostics bind to the seats above. This allocation is not permission to implement new storage engines, duplicate LOK/Braid authority, or create separate per-platform applications. Cargo remains the baseline workflow; the `drishti` command (`src/bin/drishti.rs`) is a convenience behind the default `cli` feature.

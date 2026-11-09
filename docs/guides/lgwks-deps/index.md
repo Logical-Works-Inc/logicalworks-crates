@@ -33,6 +33,12 @@ lgwks-deps init [PATH]          # fail-closed starting register
 lgwks-deps freshness [PATH]     # resolved versus latest on crates.io
 lgwks-deps vendor check [PATH]  # prove the lockfile is covered by the shared vendor tree
 lgwks-deps debug [PATH]         # doctor the default lgwks_std debugger surface
+lgwks-deps catalog [ROOT]       # every capability the estate owns; --json, --write, --check
+lgwks-deps invariants [PATH]    # audit the optional invariant register
+lgwks-deps retire --report [PATH]  # every edge's exit mortgage and the distance to zero
+lgwks-deps advisories <LOCK> <DB>  # audit a Cargo.lock against a local RustSec database
+lgwks-deps gate [PATH]          # admission, citations, requirements, owners, script check, clippy, architecture
+lgwks-deps sqlite <PATH> [TARGET [SQL ...]]  # open with estate defaults; report or migrate
 ```
 `check` reads `cargo metadata --no-deps` rather than the transitive lockfile
 closure, because only metadata preserves which package authored an edge

@@ -5,7 +5,7 @@ Part of the [lgwks_std consumer guide](index.md).
 ## Notes that save a support round
 
 **`online` is not part of `core`.** It is its own feature, with no external
-dependency, and it does not come with the default build.
+dependency, and the default `standard` set carries it.
 
 **There is no production temporary-directory path.** `tempfile` is a
 `[dev-dependencies]` edge (`crates/lgwks-std/Cargo.toml`), so it is not in your
@@ -42,7 +42,7 @@ directories, or implement full POSIX shell expansion.
 The compatibility entry point keeps the former permissive dialect: an
 unmatched `[` is literal and `**` may appear inside a component, as in
 `a**b`. New callers can compile strictly and distinguish malformed patterns
-from ordinary no-match results:
+from ordinary no-match results.
 
 Classes use `[abc]`; an initial `!` or `^` negates the class, and an interior
 `x-y` denotes an inclusive range ordered by Unicode scalar value. A hyphen at
@@ -69,5 +69,5 @@ allocation per token. `glob` is not a drop-in replacement for the upstream
 `glob::Pattern`: its accepted legacy forms differ, and it does not provide
 directory traversal.
 
-`crates/lgwks-std/README.md` carries the replacement matrix: which module stands
-in for which third-party crate.
+`docs/dependency-doctrine-matrix.md` carries the replacement matrix: which module
+stands in for which third-party crate. `skills/lgwks-std-first/SKILL.md` is its operational map.

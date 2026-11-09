@@ -31,7 +31,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/guides/lgwks-bot/domains.md`](guides/lgwks-bot/domains.md) | Support code (`#[doc(hidden)]`): the domain registry, and what a spec's identifiers resolve to. |
 | [`docs/guides/lgwks-std/index.md`](guides/lgwks-std/index.md) | `lgwks_std`: install, feature selection, and logging. |
 | [`docs/guides/lgwks-ast/index.md`](guides/lgwks-ast/index.md) | `lgwks_ast`: install, identify, parse and inspect, and where to go next. |
-| [`docs/guides/lgwks-ast/bounds-and-refusals.md`](guides/lgwks-ast/bounds-and-refusals.md) | The three constants a checked parse applies and the four refusals each one answers. |
+| [`docs/guides/lgwks-ast/bounds-and-refusals.md`](guides/lgwks-ast/bounds-and-refusals.md) | The constants a checked parse applies and the seven refusals they answer. |
 | [`docs/guides/lgwks-ast/custom-and-diagnostics.md`](guides/lgwks-ast/custom-and-diagnostics.md) | A caller-registered grammar and the shared typed-diagnostic derive. |
 | [`docs/guides/lgwks-ast/grammars.md`](guides/lgwks-ast/grammars.md) | Grammar selection by cargo feature, and the extension table each build compiles. |
 | [`docs/guides/lgwks-ast/script-and-custom.md`](guides/lgwks-ast/script-and-custom.md) | The `script!` reader and the custom-language entry points of `lgwks_ast`. |
@@ -47,7 +47,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/declarative-orchestration.spec.md`](declarative-orchestration.spec.md) | The task-first front door: typed task, host and report, and straight-line typed results. Implemented in part as `lgwks_bot::task`; each requirement is owned by the falsifier rows that require it. |
 | [`docs/declarative-orchestration-composition.spec.md`](declarative-orchestration-composition.spec.md) | Part two of the task-first specification: composition, admission and repair, one registry and execution path, ownership and visibility. |
 | [`docs/orchestration-lifecycle.spec.md`](orchestration-lifecycle.spec.md) | Single-owner state, atomic fingerprint and value commits, attempt-bound evidence, readiness and process-tree ownership, and the honest durability boundary. |
-| [`docs/script-language.spec.md`](script-language.spec.md) | The `script!` language: one lexicon, one parser, one call per line, guarantees carried by words, and where the parser lives. Proposed, not shipped. |
+| [`docs/script-language.spec.md`](script-language.spec.md) | The `script!` language: one lexicon, one parser, one call per line, guarantees carried by words, and where the parser lives. Implemented. |
 | [`docs/catalog.md`](catalog.md) | Every capability the estate owns, its owner path, its crate, its feature and whether it is on by default. Generated from `contract/CATALOG.toml`; the std-first gate's refusals name rows in it. |
 | [`docs/adr/README.md`](adr/README.md) | The architecture decision record contract: every record against ISO/IEC/IEEE 42010, the fields it must hold, and the index of records. |
 | [`docs/adr/0001-one-rust-reader.md`](adr/0001-one-rust-reader.md) | ADR 0001: Rust is read by one parser, `lgwks_ast`. The decision is backed by fidelity, latency, peak-RSS and hostile-nesting measurements on this repository's own sources. |
@@ -80,7 +80,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/frontier.md`](frontier.md) | The state of the art across the nine areas this bot competes in, with measured anchors and the design decision each forces. |
 | [`docs/framework-comparison.md`](framework-comparison.md) | Why the field looks the same, the four axes it differs on, and the axis nobody occupies. |
 | [`docs/production-readiness.md`](production-readiness.md) | Nine-axis production readiness of `lgwks_bot`, the case that it replaces non-AI automation and RPA, and the rows that currently fail their own gate. |
-| [`docs/std-ast-deps-closure-matrix.md`](std-ast-deps-closure-matrix.md) | All twenty-one `lgwks_std` modules, `lgwks_ast` and `lgwks_deps`: each with its feature, its evidence state, the test that exists on the named revision, and its owning issue. |
+| [`docs/std-ast-deps-closure-matrix.md`](std-ast-deps-closure-matrix.md) | All twenty-four `lgwks_std` modules, `lgwks_ast` and `lgwks_deps`: each with its feature, its evidence state, the test that exists on the named revision, and its owning issue. |
 | [`docs/std-deps-capability-gaps.spec.md`](std-deps-capability-gaps.spec.md) | First-party (`ELIMINATE`) and storefront (`BOUNDARY`) specifications for open `lgwks_std` and `lgwks_deps` capability gaps (`#794`..`#854`), linking part two. |
 | [`docs/invariants-long-form.md`](invariants-long-form.md) | The reasoning, measurements and stated limits behind each one-line rule in `INVARIANTS.md`. |
 | [`docs/releasing.md`](releasing.md) | The release process. |
@@ -110,6 +110,7 @@ the rest of this table is design history and contributor policy.
 | [`CHANGELOG.md`](../CHANGELOG.md) | Per-release changes across all six crates. |
 | [`docs/changelog/12-2026-09-21-cut-never-published-p1.md`](changelog/12-2026-09-21-cut-never-published-p1.md) | The unpublished 2026-09-21 cut, page 1, linking its other twelve pages. |
 | [`SECURITY.md`](../SECURITY.md) | Attack surface, reporting process, and advisories assessed. |
+| [`REQUIREMENTS.md`](../REQUIREMENTS.md) | The immutable product requirements, linking their six pages under `docs/requirements/`. |
 
 Each crate also carries its own README: [`lgwks_std`](../crates/lgwks-std/README.md),
 [`lgwks_bot`](../crates/lgwks-bot/README.md),

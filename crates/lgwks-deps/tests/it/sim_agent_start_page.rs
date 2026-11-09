@@ -6,8 +6,29 @@
 
 use std::collections::BTreeSet;
 
-use crate::agent_start_page::{Known, findings};
+use crate::agent_start_page::{Known, command_findings, findings};
 use crate::seed::{Rng, Trace};
+
+/// Catches a record the index omits before CI does: `llms-txt` refuses one, and
+/// ADR 0024 landed that way on 2026-11-09 with every local gate green.
+#[test]
+fn every_decision_record_is_in_the_record_index() -> Result<(), Box<dyn std::error::Error>> {
+    let records = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/adr");
+    let index = std::fs::read_to_string(records.join("README.md"))?;
+    let mut seen = 0_usize;
+    for entry in std::fs::read_dir(&records)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".md") && name != "README.md" {
+            seen = seen.saturating_add(1);
+            assert!(
+                index.contains(&format!("]({name})")),
+                "{name} has no index row"
+            );
+        }
+    }
+    assert!(seen > 0, "the walk found the records");
+    Ok(())
+}
 
 /// How many pages each simulation draws.
 const SEEDS: u64 = 2_048;
@@ -147,6 +168,55 @@ fn sim_a_link_resolves_from_the_page_that_holds_it() {
             findings(&page, "", &known(), &inside).len(),
             lines,
             "seed {seed}"
+        );
+    }
+}
+
+/// The fat-finger names a command the binary lacks in every spelling a page uses,
+/// and the saboteur hides one in a fence: the oracle is the planted word. A healthy
+/// page's real commands and placeholders must stay silent, or the rule is noise.
+#[test]
+fn sim_a_page_command_the_binary_lacks_is_named() {
+    const PRINTED: &str = "lgwks-deps check [PATH]\nlgwks-deps catalog [ROOT]\n";
+    const HEALTHY: [&str; 6] = [
+        "Run `lgwks-deps check .` first.",
+        "`cargo run -p lgwks_deps -- catalog --json`",
+        "`lgwks-deps <command>` is the shape.",
+        "`lgwks-deps --help` and `lgwks-deps scan`, which moved.",
+        "`lgwks-deps`, `lgwks` and the gate binaries.",
+        "```sh\nlgwks-deps catalog --check\n```",
+    ];
+    const PLANTED: [&str; 4] = [
+        "Then `lgwks-deps WORD .` runs.",
+        "`cargo run -p lgwks_deps -- WORD`",
+        "```sh\nlgwks-deps WORD --json\n```",
+        "See `lgwks-deps WORD`, and read on.",
+    ];
+    for seed in 0..SEEDS {
+        let mut rng = Rng::new(seed);
+        let mut lines = Vec::new();
+        for _ in 0..rng.between(1, 12) {
+            if let Some(line) = draw(&mut rng, HEALTHY.len()).and_then(|at| HEALTHY.get(at)) {
+                lines.push((*line).to_owned());
+            }
+        }
+        assert_eq!(
+            command_findings(&lines.join("\n"), PRINTED),
+            Vec::<String>::new(),
+            "seed {seed}: a healthy page was refused"
+        );
+        let word = format!("gone{}", rng.below(1_000));
+        let Some(fault) = draw(&mut rng, PLANTED.len()).and_then(|at| PLANTED.get(at)) else {
+            continue;
+        };
+        let Some(at) = draw(&mut rng, lines.len()) else {
+            continue;
+        };
+        lines.insert(at, fault.replace("WORD", &word));
+        assert_eq!(
+            command_findings(&lines.join("\n"), PRINTED),
+            vec![format!("an unknown command, lgwks-deps {word}")],
+            "seed {seed}: the planted command went unnamed or was named twice"
         );
     }
 }

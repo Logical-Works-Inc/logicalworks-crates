@@ -5,7 +5,7 @@ Part of [production readiness](../production-readiness.md), §5 and §6.
 ## 5. Why Rust, without the adjectives
 
 "Blazing fast and safe" is a marketing sentence. Here is what the language
-actually contributes, and what it does not.
+contributes, and what it does not.
 
 **Speed, relative to the RPA category.** The commercial guidance platforms run
 their rules engine on the application's own JavaScript thread. That is the
@@ -17,13 +17,13 @@ here is a monomorphised Rust closure. JVM and .NET automation platforms pay GC
 pauses at exactly the wrong moments — during a UI wait — and Rust has no collector.
 Those are category-level differences and they compound.
 
-**Speed, relative to a for-loop.** Slower, by 118x to 2 665x. Stated above.
+**Speed, relative to a for-loop.** Slower, by 26x to 2 738x ([§4.9](4-9-performance.md)).
 
 **Safety, mechanically rather than aspirationally.**
 
-- `forbid(unsafe_code)` at workspace scope. The language will not compile a
-  data race into existence in safe Rust, and this workspace does not permit the
-  escape hatch.
+- `forbid(unsafe_code)` at workspace scope, with the exceptions `CODEBOOK.md` §2.1
+  lists. The language will not compile a data race into existence in safe Rust,
+  and every other crate root keeps the escape hatch shut.
 - Capability is a value. `Auth` is minted only by `GrantSet::issue`, travels
   with the call, and is checked at build and on every invocation. In every
   rival in §3, authority is a token in a config file or an ambient global.
@@ -39,7 +39,7 @@ Those are category-level differences and they compound.
 **What Rust does not give you.** Correctness of the model. Memory safety is not
 crash safety, is not protocol safety, and is not "the effect did not fire
 twice." Those are the effect kernel's job and §4.6 says how far that job has
-actually been verified.
+been verified.
 
 ## 6. What is deliberately excluded from this evaluation
 
@@ -53,10 +53,11 @@ direction of bias.
   catalogue.
 - **No human usability measurement.** [`async-sdk-shape.md`](../async-sdk-shape.md)
   states the contract — a task author supplies the script, not the machinery.
-  #87 implemented it (closed 2026-10-03), and `bench/ai-authoring/runs/` holds
-  324 fixed-model trials across six model runs plus 38 dry and mutant control
+  #87 implemented it (closed 2026-10-03). Through 2026-10-04 `bench/ai-authoring/runs/`
+  held 324 fixed-model trials across six model runs plus 38 dry and mutant control
   trials (`results.jsonl` line counts), including the four-arm comparison against
-  `futures` that §4.1 scores. A fixed model is not a person (INV-BOT-141), so
+  `futures` that §4.1 scores. A 165-record matrix followed on 2026-10-17, 330 local-model
+  records sit outside the repository, and control trials now stand at 263. A fixed model is not a person (INV-BOT-141), so
   human authoring time is still unmeasured, and excluding it favours this crate.
 - **No cost-per-outcome numbers.** RPA is bought on cost per successful
   transaction. Nothing here measures that.

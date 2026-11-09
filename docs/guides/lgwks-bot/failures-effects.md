@@ -34,12 +34,10 @@ lgwks_bot::script! {
             act notify::page on "oncall" with depth
 }
 ```
-
 ```text
 indeterminate: ran 1 time(s): paging/page/retry/page: notify::page: may have taken effect — the reply never arrived
 not delivered: ran 3 time(s): paging/page/retry: gave up after 3 attempts; last: paging/page/retry/page: notify::page: connection refused
 ```
-
 Outside a flow, a classifier of your own is `matches!(*error,
 BotError::EffectIndeterminate { .. })`, the variant and not the text.
 
@@ -57,18 +55,22 @@ whatever the budget says — until the caller says what happened:
 bot.resolve_effect(&key, EffectEvidence::Applied)?;    // it happened: recorded, not replayed
 bot.resolve_effect(&key, EffectEvidence::NotApplied)?; // it did not: eligible again
 ```
-
 The key binds the run, flow, environment, action, attempt, and admitted input.
 It is required rather than inferred: a delayed report for a different attempt
 must not make an unaccounted-for effect eligible to run again.
 
-`resolve_effect` therefore distinguishes three refusals, and only the first of
+`resolve_effect` therefore distinguishes four refusals, and only the first of
 them means what it always meant:
 
 - `BotError::NoSuchWork` — there is no held effect at this address: it ran, its
   condition was false, or it has not been reached. Accepting evidence for an
   entry that has an answer would let a caller believe an effect was acknowledged
   when nothing was.
+- `BotError::EvidenceSuperseded` — the chain holds a transition whose revision is
+  not the one the work was read from. Nothing changed; re-read `pending` and report
+  against the generation there now.
+- `BotError::EvidenceStaleAttempt` — the generation still holds, but the entry has
+  moved on to a later attempt. The report is about an attempt that is over.
 - `BotError::EvidenceContradicted` — this generation's entry is already settled
   and the new evidence says the opposite. Nothing changed. Repeating the *same*
   evidence is not this: it succeeds idempotently.
@@ -87,8 +89,8 @@ hold retries receipt/recording work only; it never re-enters the action.
 tick. Nothing was observed, no condition was evaluated and no effect ran,
 because the synchronous adapter refused to park the thread before it started.
 It is returned whenever `tick` is called while an async runtime is running on
-that thread, on a current-thread runtime and on a multi-worker one alike: a
+that thread, on a current-thread runtime and on a multi-worker one alike. A
 parked thread starves the reactor the bot's own verbs need, so the deadlock it
 would otherwise cause is not something the adapter can wait out. Await
-`bot.tick_async()` instead, or drive the tick from outside the runtime. The
-README's "Running a tick from async code" section has both forms.
+`bot.tick_async()` instead, or drive the tick from outside the runtime. [Running a
+tick from async code](../../../crates/lgwks-bot/README-execution.md#running-a-tick-from-async-code) has both forms.

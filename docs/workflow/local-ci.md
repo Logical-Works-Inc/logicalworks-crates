@@ -1,6 +1,6 @@
 # Workflow §1, §10, §11: local CI, the runner map, the WWFD cycle
 
-Moved verbatim from `WORKFLOW.md` on 2026-10-22, when every Markdown file in a
+Moved from `WORKFLOW.md` on 2026-10-22, when every Markdown file in a
 repository was held to 120 lines (Director, 2026-10-10) and that file had grown
 to 445. `WORKFLOW.md` is the index and keeps the § numbers.
 
@@ -14,7 +14,7 @@ without GitHub, and writes a receipt.
 ```sh
 ./scripts/ci-local.sh              # full gate
 ./scripts/ci-local.sh --fast       # the lanes marked fast
-./scripts/ci-local.sh --lane ID    # one lane, what CI runs per step
+./scripts/ci-local.sh --lane <id>    # one lane, what CI runs per step
 ./scripts/ci-local.sh --list       # lane ids and surfaces
 ./scripts/ci-local.sh --receipt    # also write evidence/ci-local-<sha>.md
 ```
@@ -60,12 +60,10 @@ substituted command, a toolchain pin that drifted, and a job naming `self-hosted
 
 Keep the OS matrix: dropping a leg is a coverage loss, not a speed-up.
 
-Linux is the correct rung wherever a test is `#![cfg(target_os = "linux")]` and
-installs a seccomp filter. On a non-Linux host such a test compiles to nothing
-and the suite reports green having verified nothing, which is silent coverage
-loss. macOS is a reduced rung for quick signal, not an equivalent one.
-
-A container (`act`, Docker) is not sufficient for a seccomp gate.
+Linux is the correct rung wherever a test is `#![cfg(target_os = "linux")]`. On a
+non-Linux host such a test compiles to nothing and the suite reports green having
+verified nothing, which is silent coverage loss. macOS is a reduced rung for quick
+signal, not an equivalent one.
 
 ---
 

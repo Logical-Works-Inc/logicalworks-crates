@@ -34,13 +34,12 @@ any dotted name by convention, so nothing prevented one.
 
 **The fix has since landed.** Capability lists are a set, so the sorted
 representation is now the only one: `Auth::new` sorts and de-duplicates at mint
-(`crates/lgwks-bot/src/cap.rs:365`), and both the membership question
+(`crates/lgwks-bot/src/cap.rs`), and both the membership question
 (`covers_cap`) and the coverage question (`uncovered`) are binary searches over
-that sorted slice (`crates/lgwks-bot/src/cap.rs:382`). The product this table
+that sorted slice. The product this table
 measures moves from `required.len() * granted.len()` to
 `required.len() * log2(granted.len())`, paid once per mint rather than once per
-check. The derivation is stated on the type itself
-(`crates/lgwks-bot/src/cap.rs:345`).
+check. The derivation is stated on `Auth` itself.
 
 Measured after the fix, in the same rig:
 

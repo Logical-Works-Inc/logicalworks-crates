@@ -35,8 +35,8 @@ fork's pull request on the Director's Mac.
 
 | Runner | Jobs |
 |---|---|
-| `ubuntu-24.04-arm` (4 vCPU) | the Linux archives and shards (in `rust:1.99.1-trixie`, for util-linux 2.41 `setpriv` and Landlock, #337), the workspace build and simulation evidence, the evidence job, gate, advisories, std-full, no-default, docs, feature matrix, target matrix, portable storefront legs, the timing gates, Pages, both check rows |
-| `macos-15` (3 vCPU) | the macOS archives and shards (through `churn-slot`, INV-CI-SLOT-1), clippy, GPUI and Metal storefronts, AppCUI, Miri (the darwin seam); `ld64.lld` is the toolchain's `rust-lld` |
+| `ubuntu-24.04-arm` (4 vCPU) | the Linux shards (in `rust:1.99.1-trixie`, for util-linux 2.41 `setpriv` and Landlock, #337), the workspace build and simulation evidence, the evidence job, gate, advisories, std-full, no-default, docs, feature matrix, target matrix, portable storefront legs, the timing gates, Pages, both check rows |
+| `macos-15` (3 vCPU) | the macOS shards (through `churn-slot`, INV-CI-SLOT-1), clippy, GPUI and Metal storefronts, AppCUI, Miri (the darwin seam); `ld64.lld` is the toolchain's `rust-lld` |
 | `windows-latest` | GPUI Windows, process containment on Windows, AppCUI Windows |
 
 ### A docs-only change
@@ -48,15 +48,19 @@ the change touches to the docs bar. `Build and workspace tests` then reads the
 classification and the gate, and still holds the 300 s wall. A push to `main`
 runs everything.
 
-### Compile once, test wide
+### Each shard builds what it runs
 
-Each suite (the workspace without lgwks_bot, and lgwks_bot full) is compiled
-once per platform by `cargo nextest archive` (lane `test-archive`) and uploaded.
-Its shards download the archive and run `--partition slice:N/M` on runners of
-their own, so no shard compiles. The lane commands take the archive through
-`${NEXTEST_BUILD:-<cargo flags>}`, so `ci-local` runs the same lanes from source.
-The archive carries `target/debug/churn-slot` (`[profile.default.archive]` in
-`.config/nextest.toml`), because an archive run resolves the wrapper inside the
+Each suite (the workspace without lgwks_bot, and lgwks_bot's `bot-rest` and
+`bot-it-*` groups) is compiled in the job of each shard that runs it: lane
+`suite-build` lists the binaries, which builds them and runs none, and the run lane
+then takes `--partition slice:N/M`. This replaced a build-once archive whose upload,
+second runner and download put 60 to 90 s between the compile and the tests (run
+41671270220). The lane commands take the selection through
+`${NEXTEST_BUILD:-<cargo flags>}`, so `ci-local` runs the same lanes from source. The
+first Linux shard of each suite still archives what it built (`simulation-archive`),
+and `simulation-evidence` lists those archives instead of compiling the tests again.
+An archive carries `target/debug/churn-slot` (`[profile.default.archive]` in
+`.config/nextest.toml`), because a run from one resolves the wrapper inside the
 extracted target. The acceptance-receipts binary is built by the evidence job
 and handed to the required row as an artifact, off the run's critical path.
 The `compile` lane (every target, benches and examples included) runs nothing,
@@ -89,8 +93,8 @@ Tools arrive prebuilt and pinned through `taiki-e/install-action`
 | Frontier | Measured against the 13-instance self-hosted layout it replaces: main 41569522596 passed at 280 s warm, and cold pushes failed at 289 to 364 s. | the PR's before/after table, `ci-runs.md` |
 | Hyperscale | Every resource is bounded: `timeout-minutes` on every job, nextest `slow-timeout` with `terminate-after` on every test, artifacts with a retention, caches saved from one ref. Shards add runners, not load on one machine. | `ci.yml`, `.config/nextest.toml` |
 | Idiomatic | One definition of the gate: `scripts/gate-lanes.toml`. CI steps carry the lane commands verbatim and `check-gate-parity` refuses drift. Standard actions only. | `cargo run --locked -p lgwks_deps --bin check-gate-parity` |
-| Generalized | Every lane runs on every pull request that changes code: every feature set, the target matrix, WASI, all 28 grammars, macOS, Linux and Windows. A docs-only change runs the gate lanes (ADR 0011). | parity: 76 lanes, 54 shared |
-| Decoupled | A shard waits only on its archive; the check rows and the receipt read what other jobs wrote and build nothing. | `needs:` in `ci.yml` |
+| Generalized | Every lane runs on every pull request that changes code: every feature set, the target matrix, WASI, all 28 grammars, macOS, Linux and Windows. A docs-only change runs the gate lanes (ADR 0011). | the counts `check-gate-parity` prints |
+| Decoupled | A shard builds and runs alone; the check rows and the receipt read what other jobs wrote and build nothing. | `needs:` in `ci.yml` |
 | Ephemeral | A hosted runner is destroyed after its job. The caches are caches: losing one costs a cold build and never changes an outcome. | `hosted-rust` |
 | Portable | arm64 Linux natively and in trixie, arm64 macOS, x86_64 Windows, and `cargo check` across the declared target matrix. The wall check reads GNU and BSD `date`. | `check-target-matrix`, the `ci-wall` lane |
 | Multi-tenant | Runs of different pull requests share no machine and no writer; a pull request's runs supersede rather than race, and only main writes a cache. | `concurrency:` in `ci.yml` |

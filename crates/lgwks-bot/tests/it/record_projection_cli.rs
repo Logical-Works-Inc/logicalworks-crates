@@ -21,6 +21,14 @@ fn binary() -> PathBuf {
     )
 }
 
+/// Each answer says what its place in `expected` wants, and there are no others.
+fn says_each(answers: &[String], expected: &[&str]) {
+    assert_eq!(answers.len(), expected.len(), "{answers:?}");
+    for (answered, wanted) in answers.iter().zip(expected) {
+        assert!(answered.contains(wanted), "{answered} should say {wanted}");
+    }
+}
+
 /// Catches a rebuild that differs from the view a killed process held.
 #[test]
 fn a_view_rebuilt_after_a_kill_has_the_digest_the_dead_process_showed() -> Outcome {
@@ -59,10 +67,56 @@ fn a_poisoned_view_refuses_until_a_rebuild_also_says_why() -> Outcome {
         "\"refused\":\"no_view\"",
         "\"refused\":\"usage\"",
     ];
-    assert_eq!(answers.len(), expected.len(), "{answers:?}");
-    for (answered, wanted) in answers.iter().zip(expected) {
-        assert!(answered.contains(wanted), "{answered} should say {wanted}");
-    }
+    says_each(&answers, &expected);
+    Ok(())
+}
+
+/// Catches a staged record surviving a kill it was never synced through, and a synced
+/// one being lost: the view after a restart is the file, whatever the dead one showed.
+#[test]
+fn a_kill_before_the_sync_loses_what_the_view_showed_and_a_kill_after_keeps_it() -> Outcome {
+    let scratch = ScratchFile::new("projection-cli-stage")?;
+    let arguments = [scratch.path().as_os_str(), "16".as_ref()];
+    let mut owner = Owner::start(&binary(), &arguments)?;
+    let answered = owner.answers("fill 1 2\nstage 2 3\nshow\nsync\nshow\nstage 3 4\nshow\n")?;
+    owner.kill()?;
+    assert!(answered[1].contains("\"staged\":3"), "{}", answered[1]);
+    assert!(answered[2].contains("\"rows\":2"), "{}", answered[2]);
+    assert!(answered[2].contains("\"applied\":5"), "{}", answered[2]);
+    assert!(answered[3].contains("\"synced\":3"), "{}", answered[3]);
+    assert!(answered[6].contains("\"applied\":9"), "{}", answered[6]);
+
+    let after = session(&binary(), &arguments, "show\n")?;
+    assert_eq!(
+        after[0].trim(),
+        answered[4].trim(),
+        "the synced view, and not the one holding what the kill lost"
+    );
+    Ok(())
+}
+
+/// Catches a write jumping staged records, and a staged pile with no bound.
+#[test]
+fn staged_records_land_first_and_stop_at_their_limit() -> Outcome {
+    let scratch = ScratchFile::new("projection-cli-limit")?;
+    let answers = session(
+        &binary(),
+        &[scratch.path().as_os_str(), "16".as_ref()],
+        "stage 1 4097\nstage 1 4096\nstage 1 1\nfill 1 1\npoison 1\nsync\nsync\nfill 1 1\nrebuild\nshow\n",
+    )?;
+    let expected: [&str; 10] = [
+        "\"refused\":\"staged_limit\"",
+        "\"staged\":4096",
+        "\"refused\":\"staged_limit\"",
+        "\"refused\":\"staged_first\"",
+        "\"refused\":\"staged_first\"",
+        "\"synced\":4096",
+        "\"synced\":0",
+        "\"filled\":1",
+        "\"applied\":4097",
+        "\"applied\":4097",
+    ];
+    says_each(&answers, &expected);
     Ok(())
 }
 

@@ -54,7 +54,7 @@ active execution slots while retaining bounded continuation state.
 
 The existing `GrantSet` remains a snapshot: it has no revoke operation, so a
 running-authority amendment is a new, recorded host admission epoch rather than
-a retroactive change to an `Auth`. The dispatch boundary must revalidate under
+a retroactive change to an `Auth`; `EcsBot::replace_grants` is that amendment for a running bot. The dispatch boundary must revalidate under
 the applicable host policy before new effects. This requires an actual authority adapter to enforce externally;
 a comment or cloned capability list is not live authority.
 
@@ -64,8 +64,8 @@ a comment or cloned capability list is not live authority.
 to typed constructor, declared requirements and result codec. Native tasks,
 `BotSpec` and `FlowSpec` use that same registry and execution/recording path.
 Do not add a mandatory second workflow manifest, parallel untyped interpreter
-or a proc-macro that conceals authority. Existing `FlowSpec::Route` does not
-already implement an external dispatch; any call node extension needs a wire
+or a proc-macro that conceals authority. No existing `FlowSpec` node
+implements an external dispatch; any call node extension needs a wire
 version and explicit lowering.
 
 The runtime's internal program graph is an implementation representation,

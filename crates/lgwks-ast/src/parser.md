@@ -12,10 +12,10 @@ and parses through this crate and does not depend on `ast-grep` directly.
 
 ## The README is compiled
 
-This module documentation is generated from `README.md`, so the usage
-example above is built and run as a doctest on every `cargo test`, so
-`cargo test -p lgwks_ast --doc` fails if the example stops compiling or
-stops asserting what the text above claims — as it did while `try_parse`
+The README and this page are included on a hidden item at the crate root
+(`src/lib.rs`), so their examples are built and run as doctests, and
+`cargo test -p lgwks_ast --doc` fails if an example stops compiling or
+stops asserting what its text claims — as it did while `try_parse`
 was documented as if it were infallible.
 
 ## Code observability
@@ -28,13 +28,13 @@ analysers define `Display` and `Error` with it instead of each declaring
 ## Grammar selection
 
 One cargo feature per grammar forwards to `ast-grep-language`. The default
-enables seven widely-used languages — Rust, Python, TypeScript, JavaScript,
-Go, Java and Swift — and every remaining grammar ast-grep-language ships
-(C#, CSS, Dart, Elixir, Haskell, HCL, HTML, JSON, Lua, Markdown, Nix, PHP,
-Ruby, Solidity, YAML, and the rest) is its own opt-in `lang-*` feature, and
-`full` enables all 28. A language whose feature is off is not in
-[`Language::ALL`] and is never returned by [`Language::of_path`], so no
-consumer pays to compile a grammar it cannot select.
+set carries `full`, which enables all 28 grammars ast-grep-language ships
+(Rust, Python, TypeScript, C#, CSS, Dart, Elixir, Haskell, HCL, HTML, JSON,
+Lua, Markdown, Nix, PHP, Ruby, Solidity, YAML, and the rest). With
+`default-features = false`, each `lang-*` feature selects one grammar.
+A language whose feature is off is not in
+[`Language::ALL`] and is never returned by [`Language::of_path`], so a
+consumer that narrows the set pays for no grammar it cannot select.
 
 Two notes on reading that table. `lang-tsx` is a *selection*, not a separate
 grammar: ast-grep parses `.tsx` with the TypeScript parser, so it forwards to

@@ -7,10 +7,9 @@ and the in-flight tiers are #269.
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --rounds=11 --alloc-report --json=bench/async/results.json
 ```
-
 `--rounds=<n>` sets the paired-round count (default 15). `--alloc-report` runs a
 separate, counted window; it is never mixed into a timed round.
 
@@ -87,5 +86,5 @@ baseline's 2,595 at a million concurrent tasks.
   in `bench/src/alloc_count.rs` rather than left inside a number.
 - Nothing here measures durability, restart cost, or history scaling. Those are
   different layers and a number from this rig would not speak to them.
-- `lgwks_bot::Bot::tick` (the ECS path) beyond 256 sources is still not measured
-  here; that is the synchronous rig in `bench/`.
+- `lgwks_bot::Bot::tick` (the ECS path) is not measured here; that is the
+  synchronous rig in `bench/`.

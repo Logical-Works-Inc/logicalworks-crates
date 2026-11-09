@@ -6,10 +6,9 @@ That many tasks concurrently admitted, against throughput through 64 slots. Part
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --inflight --json=bench/async/inflight.json
 ```
-
 This is the distinction from the concurrency ladder and the point of this row:
 each tier's **bound is the tier**, and every body parks on a gate until the whole
 tier is admitted, so the peak in-flight count is what the bodies observed rather

@@ -5,7 +5,7 @@ version = "8.1.1"
 edition = "2024"
 rust-version = "1.98"
 # Deliberately not the workspace's Apache-2.0: the bot is the artefact the whole
-# estate embeds, so it carries file-level copyleft while its three siblings stay
+# estate embeds, so it carries file-level copyleft while its siblings stay
 # permissive. A proprietary consumer is still permitted — MPL-2.0 §3.3 — and
 # only modification of the MPL-covered files carries an obligation. See
 # `LICENSING.md` at the repository root for the dual-licence model.

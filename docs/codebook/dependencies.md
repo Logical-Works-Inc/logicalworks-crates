@@ -9,15 +9,16 @@ Estate first, in this order. The **reuse ladder** (std → `lgwks_std` →
 the dependency graph. The graph, read from the manifests, is:
 ```text
 lgwks_std      (depends on nothing in this workspace)
-lgwks_ast      (depends on nothing in this workspace)
-lgwks_macros   (proc-macro support crate; no workspace deps)
-lgwks_bot      → lgwks_std, and optionally lgwks_macros (feature `script`)
-lgwks_deps     → lgwks_std, unconditionally and twice (features `json`, `random`)
+lgwks_ast      → lgwks_std, optional (feature `tool`, `scan` and `legacy` readers)
+lgwks_deps     → lgwks_std, and optionally lgwks_ast (feature `lgwks`)
+lgwks_macros   → lgwks_std, lgwks_ast, lgwks_deps
+lgwks_bot      → lgwks_std, and optionally lgwks_ast, lgwks_deps, lgwks_macros
+drishti        → lgwks_std, and optionally lgwks_bot, lgwks_deps
 ```
-So `lgwks_ast` sits at the end of the ladder while sitting at the *top* of the
-dependency graph, `lgwks_deps` depends only on `lgwks_std` and not on
-`lgwks_bot`, and `lgwks_macros` is absent from the ladder entirely. Reach for a
-capability in ladder order; do not read the ladder as a build order.
+So `lgwks_ast` sits late in the ladder and early in the graph, `lgwks_deps` depends
+on `lgwks_ast` and never the reverse, and `lgwks_macros` and `drishti` are absent
+from the ladder entirely. Reach for a capability in ladder order; do not read the
+ladder as a build order.
 
 - JSON is `lgwks_std::json` with `#[serde(crate = "lgwks_std::json::serde")]`.
   Do not declare `serde` directly.
@@ -29,8 +30,8 @@ capability in ladder order; do not read the ladder as a build order.
 - Estate edges come from the registry (crates.io), not a git rev. A git pin
   cannot witness that it still matches a published release and silently drifts
   behind the estate's own published surface.
-- `allow-git = []` in `deny.toml`. `required-git-spec = "rev"` if a git edge is
-  ever authorized. Exact resolved versions are pinned by `Cargo.lock`.
+- A git pin is a recorded exception in `contract/PATCHES.toml`, with its `rev`
+  ([`docs/patches.md`](../patches.md)). Exact resolved versions are pinned by `Cargo.lock`.
 - If a capability exists in `std`, `lgwks_std`, `lgwks_bot`, or `lgwks_ast`, use
   it. Duplicating a parser, runtime, codec, HTTP client, ID type, time helper, or
   fs wrapper the estate already provides is a defect.
@@ -54,7 +55,7 @@ capability in ladder order; do not read the ladder as a build order.
 | `String` errors in library code | typed error enums with `source()` |
 | `unreachable!()` | a typed `Err` the caller can handle |
 | struct expression on a `#[non_exhaustive]` type | the type's `pub fn new(...)` |
-| `println!` / `eprintln!` in library code | `tracing` |
+| `println!` / `eprintln!` in library code | `lgwks_std::trace` |
 | `process::exit` outside a crash fixture | return the typed error |
 
 ---
@@ -64,7 +65,7 @@ capability in ladder order; do not read the ladder as a build order.
 A green compile, a green test suite, and green CI are first-party evidence of
 exactly what they ran and nothing more. They do not prove:
 
-- that the 50 non-lint-expressible anti-patterns are absent;
+- that the anti-patterns no lint expresses are absent;
 - that a measurement environment exists where none is committed;
 - that a migration is complete because its documentation says "canonical";
 - that a scale, cost, availability, or superiority claim is established.

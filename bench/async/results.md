@@ -12,7 +12,6 @@ load average 6.86, no CI run live.** One host, one run.
 cargo build --release --locked --manifest-path bench/async/Cargo.toml
 bench/async/target/release/lgwks-bench-async --rounds=15 --alloc-report --json=bench/async/results.json
 ```
-
 | scenario | tasks | bound | facade p50 | facade p99 | base p50 | base p99 | p50 ratio | p99 ratio | 95% CI (paired, p50) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | quiet-async-bot | 256 | 8 | 0.412 ms | 0.565 ms | 0.352 ms | 0.400 ms | 1.17x | 1.41x | [1.09, 1.24] distinguishes |
@@ -50,16 +49,15 @@ figure is a point reading, not an interval.
 
 ## The §3 workload matrix — every row, with its receipt
 
-`--matrix` drives each row lgwks_bot can actually drive today and records what it
+`--matrix` drives each row lgwks_bot can drive today and records what it
 produced. A row that fails aborts the run with the row named, because a matrix
 with one quietly-skipped row reads as coverage.
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --matrix --json=bench/async/matrix.json
 ```
-
 Recorded output, Apple M5 Pro, macOS 27.0, rustc 1.98.0:
 
 | row | shape | placed | completed | cancelled | aborted | work units |

@@ -7,14 +7,16 @@ Pages of this guide: [overview](index.md) · [non-goals and next steps](index-sc
 These are absent, and the absence is stated in the source rather than left for
 you to discover.
 
-- **No model client.** The crate runs your logic and gates its authority. It
-  does not call a model, hold a prompt, or know what an LLM is.
+- **No model client.** The crate runs your logic and gates its authority. The
+  `ask` word calls a model through a host's `ModelPort`, under `bot.model`, a token
+  budget and a deadline. No provider, prompt library or tool router ships here;
+  the provider stack is `lgwks_deps::storefront::genai`.
 - **No sandbox.** Capability gating "stops confused-deputy calls and accidental
   ungated use; it is not a sandbox, since in-process code can always dial out
   directly" (`crates/lgwks-bot/src/cap.rs:15`). See [authority](authority.md).
 - **No revocable `GrantSet`.** It has no `revoke`, and a built bot holds a clone
-  of the set it was admitted with. A broker's fence withdraws a reach instead
-  (INV-FENCE-1). See [authority](authority.md).
+  of the set it was admitted with. `EcsBot::replace_grants` narrows a running bot,
+  and a broker's fence withdraws a reach (INV-FENCE-1). See [authority](authority.md).
 - **A spec is a document, not the DSL.** `Bot::from_spec` materializes a
   validated `BotSpec` against a `DomainRegistry` — see [domains](domains.md) —
   through the same `assemble`/`build` path a native bot uses. It is
@@ -24,7 +26,7 @@ you to discover.
   `always`, `threshold::above(<n>)`, `threshold::below(<n>)`); anything the
   document cannot express stays on the builder chain.
 - **No `#[tokio::main]` equivalent.** Entry to the async surface is
-  `Runtime::block_on`.
+  `Runtime::block_on`, or `lgwks_bot::block_on` for a flow.
 - **No exactly-once delivery.** An action that may have taken effect after its
   request was sent fails as `BotError::EffectIndeterminate`, and reconciling
   that is your decision. See [failures](failures.md). The durable dispatch and
@@ -37,7 +39,7 @@ you to discover.
 |---|---|
 | [Getting started](getting-started.md) | One source, one condition, one effect, compiled and run |
 | [Features](features.md) | Every feature, what it adds, and what it does not |
-| [Authority](authority.md) | Admission, the `Auth` snapshot, and the no-revocation boundary |
+| [Authority](authority.md) | Admission, the `Auth` snapshot, and narrowing a running bot through `replace_grants` |
 | [Failures](failures.md) | Poll failure, partial action failure, unknown effect |
 | [Background work](background-work.md) | Bounded fan-out, supervision, and the cancellation limits |
 | [Migrating to 1.0.0](migrating-to-1-0.md) | What `spawn`, `JoinHandle`, `Child` and `Command` became, and the traps the compiler cannot show |

@@ -21,7 +21,7 @@ Direction is not implementation acceptance. `user-direction` records the Directo
 | D13 | proposed | Native-trusted and confined-guest profiles have separate guarantees | Rust memory safety and script API restrictions do not prove hostile-code isolation |
 | D14 | proposed | Human, accessibility, and agent interactions share scoped semantics | An agent is not a privileged alternate product; visual tasks still need visual proof |
 | D15 | user-direction | The Logical Works brand is drishti's default presentation language; the ink lab and GPU residency are the first realized reference core | Director, 2026-09-30: "I want drishti to feel like this as the gpu accelerated runtime and the inklab. Spec is in js but drishti remains the rust framework as specced out in repo." The JavaScript engine (S22) is the behavioural source and drishti stays the Rust framework; this supersedes the earlier documentation-only runtime prohibition for the presentation seats only |
-| D16 | user-direction | A working native ink lab over the estate: GPUI admitted through `lgwks_deps`'s `gpui` storefront feature behind drishti's optional `ui` feature | Director, 2026-10-05: "I need a fully working version of this based on our estate". The default build stays dependency-free. A direct `gpui` or `wgpu` edge and a forked renderer were rejected |
+| D16 | user-direction | A working native ink lab over the estate: GPUI admitted through `lgwks_deps`'s `gpui` storefront feature behind drishti's optional `ui` feature | Director, 2026-10-05: "I need a fully working version of this based on our estate". The `ui` feature is off by default, and a direct `gpui` or `wgpu` edge and a forked renderer were rejected |
 
 ## Source conflicts resolved for this design
 

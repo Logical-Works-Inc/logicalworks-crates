@@ -91,10 +91,12 @@ beneath it. The default build prints every stack of `standard` under it.
 | `http` | blocking HTTPS client, rustls-only TLS |
 | `online` | TCP reachability probing |
 
+This table is the common subset; the [reference](reference.md) lists all twenty-four.
+
 ## Where to go next
 
-- [lgwks_bot](../lgwks-bot/index.md) for capability-gated automation, which
-  depends on this crate with `json` and `http` enabled.
+- [lgwks_bot](../lgwks-bot/index.md) for capability-gated automation. Every
+  build of it keeps `json`, `hash`, `trace` and `random` here, and its `net` feature adds `http`.
 - [lgwks_ast](../lgwks-ast/index.md) for the parser and the diagnostic derive.
 - [lgwks_deps](../lgwks-deps/index.md) if you want the admission gate on your own
   workspace.

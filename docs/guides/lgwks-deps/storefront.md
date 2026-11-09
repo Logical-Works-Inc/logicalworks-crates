@@ -7,7 +7,8 @@ This page lists the features that bring an upstream crate in through
 
 Each feature exposes its reviewed upstream capability through the storefront, so
 you never declare it directly. `cargo add tokio` and `cargo add gpui` are refused
-by the gate as second edges. Every feature is off by default.
+by the gate as second edges. A feature is on by default unless ADR 0003 records
+its cost or a declared target denies it, and the default today selects none of them.
 
 | Feature | Re-exports | Notes |
 |---|---|---|
@@ -33,10 +34,9 @@ by the gate as second edges. Every feature is off by default.
 | `ml-candle` | `candle_core`, `candle_nn`, `candle_transformers` | ML inference: tensor compute and transformer models. |
 | `ml-candle-metal` | as `ml-candle`, plus Candle's macOS Metal backend | macOS-only. |
 | `ml-tokenizers` | `lgwks_deps::tokenizers` | The matching tokenizer stack. |
-| `process-group-probe` | `lgwks_deps::process_group::exists` (deprecated) | Forwards to `lgwks_std::process::process_group_exists`, the one process-group backend; kept for 1.x compatibility. |
 
 The facade-only consumer matrix compiles GPUI examples on Linux, macOS, and
-Windows, Candle Metal only on macOS, and the process-group probe only on Unix.
+Windows, and Candle Metal only on macOS.
 It does not treat those platform-bound combinations as all-target features.
 
 ```toml

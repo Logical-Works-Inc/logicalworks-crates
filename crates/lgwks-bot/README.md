@@ -1,6 +1,6 @@
 # lgwks_bot
 
-**Resilient workflow orchestration & durable execution engine for Rust: indented `script!` flows with compiler-guaranteed bounds, shared retry budgets, crash-safe step checkpoints, and native admission barriers for AI agent plans.**
+**Resilient workflow orchestration & durable execution engine for Rust: indented `script!` flows with bounds the macro enforces, shared retry budgets, values a resume reads back, and native admission barriers for AI agent plans.**
 
 Pages of this README: [overview](README.md) · [execution model](README-execution.md) · [failure](README-failure.md) · [authority, domains and specs](README-authority.md) · [script!](README-script.md) · [async runtime](README-runtime.md) · [supervision](README-supervision.md)
 
@@ -20,19 +20,20 @@ Writing resilient async logic in Rust usually forces a bad compromise:
 
 `lgwks_bot` embeds enterprise durable workflow orchestration directly inside your Rust process. Zero external servers required.
 
-## The 7 Production Traps Ruled Out by Design
+## The 8 Production Traps Ruled Out by Design
 
 | Block | What it structurally rules out |
 |---|---|
 | `each x in xs:` | **Unbounded fan-out & leaks**: Concurrency is bounded; if an item fails, siblings abort cleanly. |
-| `within 2s:` | **Silent hangs & zombie tasks**: Mandatory deadlines; cancellation propagates down the tree. |
+| `within 2s:` | **Silent hangs & zombie tasks**: A deadline on the scope's clock; cancellation propagates down the tree. |
 | `retry up to 3 times, waiting 100ms:` | **Retry storms**: Unified attempt budget with jitter; permanent errors are never retried. |
 | `together:` | **Unstructured concurrency**: Replaces `tokio::spawn` with structured branches. |
-| `step name:` | **Anonymous crashes**: Deterministic keys; state checkpoints enable crash resumption without replay drift. |
-| `await ready(&db, 30s)` | **Sleep-based readiness guesses**: Deterministic readiness probes instead of sleep loops. |
-| `admit the model's plan:` | **Untrusted AI execution**: Gated admission ensures untrusted LLM outputs cannot execute without validation. |
+| `step name:` | **Anonymous failures**: A named scope with its own key and error location. |
+| `remember name:` | **Lost work on a crash**: The block runs once per run; a resume reads its value back. |
+| `ready x from (readiness) within 30s:` | **Sleep-based readiness guesses**: Readiness probes instead of sleep loops. |
+| `admit from model through (gate):` | **Untrusted AI execution**: Gated admission ensures untrusted LLM outputs cannot execute without validation. |
 
-For architectural comparisons and benchmarks against Temporal and raw Tokio, see [Durable Execution in Rust](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md).
+For an architectural comparison against Temporal and raw Tokio, see [Durable Execution in Rust](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md).
 
 ## Quickstart
 
@@ -113,8 +114,5 @@ Logical Works Incorporated publishes `lgwks_bot` as one of six independently ver
 
 MPL-2.0 — Copyright 2026 Logical Works Incorporated
 
-Deliberately not the workspace's Apache-2.0. The bot is the artefact the rest of
-the estate embeds, so it carries file-level copyleft while its siblings stay
-permissive. A proprietary consumer is still permitted — MPL-2.0 §3.3 — and
-only modification of the MPL-covered files carries an obligation. See
-[`LICENSING.md`](../../LICENSING.md).
+Deliberately not the workspace's Apache-2.0. The bot is the artefact the rest of the estate embeds, so it carries file-level copyleft while its siblings stay permissive.
+A proprietary consumer is still permitted — MPL-2.0 §3.3 — and only modification of the MPL-covered files carries an obligation. See [`LICENSING.md`](../../LICENSING.md).

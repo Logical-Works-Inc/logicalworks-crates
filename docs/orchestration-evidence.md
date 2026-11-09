@@ -2,7 +2,8 @@
 
 Reviewed 2026-09-21. Source baseline:
 `51897f8c0cda627d3b3abcee28bda6ebb690f7a1` of
-`srinji-kaggss/logicalworks-crates`. Tracking [#87](https://github.com/srinji-kaggss/logicalworks-crates/issues/87).
+`srinji-kaggss/logicalworks-crates` (now `Logical-Works-Inc/logicalworks-crates`). Tracking
+[#87](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/87), since closed. This page is that review's record.
 
 ## Assessment
 
@@ -16,7 +17,7 @@ the falsifiers in the acceptance specification are.
 This is a source review and specification change. No Rust compiler is available
 in this review environment; no new Rust test, HOL4 proof or real GitHub review
 journey was executed. Existing exact-head
-[CI 35647079835](https://github.com/srinji-kaggss/logicalworks-crates/actions/runs/35647079835)
+[CI 35647079835](https://github.com/Logical-Works-Inc/logicalworks-crates/actions/runs/35647079835)
 reported success, and its test log was inspected in the preceding reassessment.
 That is evidence for its existing tests, not for the proposed falsifiers.
 
@@ -26,16 +27,16 @@ All source links below are pinned rather than mutable main links.
 
 | ID | Evidence | Finding / implication |
 |---|---|---|
-| E01 | [Typed builder](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L2484-L2523) | Source/condition/action compatibility is enforced before public builder erasure. Preserve this repair. |
-| E02 | [Bound payload and discarded action output](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L2262-L2345) | The old mixed-input failure is repaired; the chain still reduces successful output to effect accounting, not a general typed workflow result. |
-| E03 | [Settlement](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L1052-L1110) | Duplicate record checked only when not settleable; revision is not a physical-attempt identity. |
-| E04 | [Historical fingerprint update](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L2094-L2200), [handover before schedule](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L1921-L1942), [atomic fold refusal](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L1350-L1415) | Historical cache defect: a successful fingerprint survived a different source's failure although its value did not commit. The detached-cache path is now retired. |
-| E05 | [Process handover and disarming](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/supervise.rs#L945-L1014), [group guard](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/supervise.rs#L1236-L1326) | Guard is constructed in the management future; direct-child exit disarms descendant cleanup; signalling errors are discarded. |
-| E06 | [Public process surface](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/process.rs), [method bans](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/clippy.toml) | Engine Command remains executable; banning spawn alone is not a description-only API. |
-| E07 | [Task fan-out](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/task.rs#L43-L110) | Parallel Send/static bound is not a local non-Send composition facade; aggregate result memory is separately unbounded by the active-task limit. |
-| E08 | [Process consumer polling](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/tests/rt_process.rs#L39-L73), [domain stub](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/domain/sys.rs#L64-L90) | At the baseline, real subprocess support was not a result-bearing admitted bot operation. `Supervisor::run_process` and the `domain::sys::Process` binding now return a child's captured output and status, enforced by `crates/lgwks-bot/tests/it/sys_process_binding.rs`. |
-| E09 | [Materializer boundary](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/lib.rs#L153-L178), [older SDK proposal](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/docs/async-sdk-shape.md) | Need one real registry and a task-first facade, not another parallel plan interpreter. |
-| E10 | [Benchmark](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/bench/README.md), [proof boundary](https://github.com/srinji-kaggss/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/proofs/README.md) | One-machine loop comparison is not frontier orchestration evidence; model theorems do not prove the Rust implementation. |
+| E01 | [Typed builder](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L2484-L2523) | Source/condition/action compatibility is enforced before public builder erasure. Preserve this repair. |
+| E02 | [Bound payload and discarded action output](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L2262-L2345) | The old mixed-input failure is repaired; the chain still reduces successful output to effect accounting, not a general typed workflow result. |
+| E03 | [Settlement](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L1052-L1110) | Duplicate record checked only when not settleable; revision is not a physical-attempt identity. |
+| E04 | [Historical fingerprint update](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L2094-L2200), [handover before schedule](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L1921-L1942), [atomic fold refusal](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/ecs.rs#L1350-L1415) | Historical cache defect: a successful fingerprint survived a different source's failure although its value did not commit. The detached-cache path is now retired. |
+| E05 | [Process handover and disarming](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/supervise.rs#L945-L1014), [group guard](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/supervise.rs#L1236-L1326) | Guard is constructed in the management future; direct-child exit disarms descendant cleanup; signalling errors are discarded. |
+| E06 | [Public process surface](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/process.rs), [method bans](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/clippy.toml) | Engine Command remains executable; banning spawn alone is not a description-only API. |
+| E07 | [Task fan-out](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/rt/task.rs#L43-L110) | Parallel Send/static bound is not a local non-Send composition facade; aggregate result memory is separately unbounded by the active-task limit. |
+| E08 | [Process consumer polling](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/tests/rt_process.rs#L39-L73), [domain stub](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/domain/sys.rs#L64-L90) | At the baseline, real subprocess support was not a result-bearing admitted bot operation. `Supervisor::run_process` and the `domain::sys::Process` binding now return a child's captured output and status, enforced by `crates/lgwks-bot/tests/it/sys_process_binding.rs`. |
+| E09 | [Materializer boundary](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/crates/lgwks-bot/src/lib.rs#L153-L178), [older SDK proposal](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/docs/async-sdk-shape.md) | Need one real registry and a task-first facade, not another parallel plan interpreter. |
+| E10 | [Benchmark](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/bench/README.md), [proof boundary](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/51897f8c0cda627d3b3abcee28bda6ebb690f7a1/proofs/README.md) | One-machine loop comparison is not frontier orchestration evidence; model theorems do not prove the Rust implementation. |
 
 ### Historical cache counterexample (fixed by retiring the detached cache)
 
@@ -48,10 +49,10 @@ change. Atomicity must include the optimization cache, not just the value.
 
 ### Existing repair work
 
-[#86](https://github.com/srinji-kaggss/logicalworks-crates/pull/86) was open,
+[#86](https://github.com/Logical-Works-Inc/logicalworks-crates/pull/86) was open,
 not merged, at inspection; its then-head was
 `1747cbb4a68c0f6ff8281bdd083e69f5f45f5c0f`. Its description states the EffectKey
-identity layer is not yet wired to the ledger. This document relies on that
+identity layer is not yet wired to the ledger. This page relies on that
 explicit scope statement, not a claim that every change on that branch was
 reviewed. Reuse its vocabulary after checking the actual integration revision.
 Do not close attempt-bound acceptance because an identity struct exists.

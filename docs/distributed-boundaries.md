@@ -1,6 +1,6 @@
 # Distributed-mesh boundaries
 
-This document records what `lgwks_std` and `lgwks_bot` provide and refuse on a
+This page records what `lgwks_std` and `lgwks_bot` provide and refuse on a
 mesh data path. Gaps are named explicitly, on the same principle as the
 dependency doctrine (`docs/dependency-doctrine.md` §6), so that a caller neither
 assumes coverage nor adds an unregistered dependency. Each row names the owner of
@@ -16,10 +16,10 @@ the capability: implemented here, caller policy, storefront BOUNDARY (requires
 | Retries, exponential backoff, total deadlines | Caller policy | `lgwks_std::retry::RetryPolicy` (zero-dep values) + caller sleep |
 | Typed failure stage/class and byte-preserving repeated response headers | Shipped | `lgwks_std::http`; `headers()` is a documented lossy String projection |
 | `Idempotency-Key` attachment | Shipped helper | `Options::idempotency_key` keeps one key; receiver defines deduplication and payload-conflict behavior |
-| Connection pooling / keep-alive reuse | Not implemented | Caller concern; the client builds one agent per call. Bursts stay bounded via `lgwks_bot::rt::task::join_all_bounded` |
+| Connection pooling / keep-alive reuse | Shipped | `lgwks_std::http::Client` with `PoolConfig`; `get` and `post` still build one agent per call ([the guide](guides/lgwks-std/http.md)) |
 | Per-phase timeout configuration | One shared total `timeout`; failure classification reports ureq's observed connect/TLS, send, headers, body, and EOF-probe stage where available | `lgwks_std::http`; TLS handshake is part of ureq's connect stage |
-| mTLS, custom CA bundles, client identity material | Missing | Storefront BOUNDARY (`rustls-pki`/`pem`-class crate with reason); `std` has no PKI loader |
-| Pagination cursors, streaming bodies, SSE | Missing | `lgwks_std` for sync-reader shapes; async streaming is a storefront transport decision |
+| mTLS, custom CA bundles, client identity material | Shipped | `lgwks_std::http::TlsOptions` (PEM only, RSA and ECDSA identities; Ed25519 identity is refused by name) |
+| Pagination cursors, streaming bodies, SSE | Shipped, blocking | `Client::get_stream`, `into_sse`, `paginate` in `lgwks_std::http`; there is no async streaming client by decision |
 | Raw-socket egress policy | Caller applies policy | `lgwks_bot::rt::net` explicitly does NOT pass the HTTP gate |
 
 ## Identity and keys
@@ -30,7 +30,7 @@ the capability: implemented here, caller policy, storefront BOUNDARY (requires
 | Time-ordered IDs (UUIDv7) for WAL keys / dedup | Shipped | `lgwks_std::id` (`Uuid::new_v7`, `Uuid::unix_millis`; feature `random`): strictly increasing across the process, a backwards clock keeps the last stamp, a spent counter borrows the next millisecond (INV-ID-2) |
 | Keyed BLAKE3 MAC primitive | Shipped | `lgwks_std::hash::keyed` |
 | Key sourcing, rotation, keyring loading | Out of scope | Host secret manager; a keyring crate would be a storefront BOUNDARY |
-| Peer signatures (`ed25519`-class) | Missing | Storefront BOUNDARY, never `lgwks_std` directly |
+| Peer signatures (`ed25519`) | Shipped | `lgwks_std::sign` |
 
 ## Time
 
@@ -83,6 +83,6 @@ deployment boundaries rather than library defaults.
   primitive format and the application schema/version in an envelope before
   persisting or exchanging archives; checked access does not validate either.
 - `BotSpec` uses `deny_unknown_fields`, correct for strict manifests, wrong
-  for rolling mesh channels. `BotSpec` has no `version` field yet; adding one
-  plus a per-channel unknown-field policy is recorded future work.
+  for rolling mesh channels. `BotSpec` carries a `version` field, and a version this
+  build does not implement is refused; a per-channel unknown-field policy is recorded future work.
 - `ron` is config-format, not wire: same versioning absence, same rule.

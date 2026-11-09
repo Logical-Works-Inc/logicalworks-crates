@@ -4,16 +4,15 @@ Part of [production readiness](../production-readiness.md), §4, nine axes.
 
 **⚠️ — the declared input space is covered. The messy one is not.**
 
-Covered and gated: per-feature compile lanes for `lgwks_std` (7 of its 12
-non-`default`/`full` features — `hash`, `pattern`, `json`, `wire`, `http`,
-`online`, `fs-raw`) and three `lgwks_deps` single-feature checks (`tokio`,
-`gpui`, `ml-candle`+`ml-tokenizers`); 4 `lgwks_bot` legs (no-default, `full`,
-`net`+`process`+`fs`+`signal`, and `wasm32-wasip1` with `rt`) and one combined
-28-grammar `lgwks_ast` invocation; plus RON flow parsing. It does **not** cover
-every crate or every feature: `lgwks_std`'s remaining 5 features (`core`,
-`trace`, `random`, `ron`, `process`) have no per-feature lane of their own. The
-28-grammar figure is `DECLARED_GRAMMARS` in `crates/lgwks-ast/src/lib.rs`, not
-a wider matrix.
+Covered and gated: `lgwks_std` under `--features full` (lane `tests-std-full`), three
+`lgwks_deps` single-feature checks (`feat-deps-tokio`, `feat-deps-gpui`, `feat-deps-ml`).
+Also gated are five `lgwks_bot` legs (`feat-bot` for no-default and default, `feat-bot-all` for
+`net`+`process`+`fs`+`signal` and all features, `wasi-boundary` for `wasm32-wasip1`
+with `rt`), and `grammar-matrix`, which tests each `lgwks_ast` grammar alone; plus RON
+flow parsing. It does **not** cover every feature: no lane tests a `lgwks_std` feature
+alone since the `tests-std-per-feature-{a,b,c}` lanes left the table. The
+28-grammar figure is `DECLARED_GRAMMARS` in
+`crates/lgwks-ast/src/parser/feature_matrix_tests.rs`, not a wider matrix.
 
 **This is the axis the whole product turns on, and it is where the gap is
 largest.** The reason automation is hard is not the happy path. It is that
@@ -27,7 +26,7 @@ The state of that, honestly:
 | The request may or may not have landed before the process died | ✅ tested | `durable_dispatch`, `OutcomeUnknown` barrier |
 | The journal itself cannot be read | ✅ tested | `durable_dispatch`, `#123` |
 | An event returns, or a payload is equal but the event is new | ✅ tested | `durable_dispatch`, `#129` |
-| A spawned process left orphans | ⚠️ partly | `process_ownership` (T19/T20); `process_escape` stops a real `setsid` descendant by pid and observes it gone (T21, INV-BOT-112); a descendant orphaned to init before the cleanup, and every non-Unix target, are still uncontained (#263) |
+| A spawned process left orphans | ⚠️ partly | `process_ownership` (T19/T20); `process_escape` stops a real `setsid` descendant by pid and observes it gone (T21, INV-BOT-112); a descendant orphaned to init before the cleanup is still uncontained, and Windows holds its tree in a job object with no escape driven against it ([§4.7](4-7-portable.md)) |
 | A locator resolved to the wrong frame or wrong kind | ✅ tested | `locator_eligibility`, `#108` |
 | Two equal payloads, distinct event ids | ✅ tested | `durable_dispatch` |
 | A contradictory outcome overwriting a settled one | ✅ tested | `durable_dispatch`, refused |

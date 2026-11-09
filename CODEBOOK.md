@@ -40,10 +40,10 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 | Crate | Path | Owns | Invariants |
 |---|---|---|---|
 | `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP, trace install; no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20 |
-| `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision | the `lgwks_bot` rows of `INVARIANTS.md` |
+| `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision, and `interface` element resolution, whose scoring rules and eligibility gates are `interface/scoring.rs` | the `lgwks_bot` rows of `INVARIANTS.md` |
 | `lgwks_ast` | `crates/lgwks-ast` | the one parser: language identification, tree-sitter grammars, `script!` reading, `scan` | SL-2 |
 | `lgwks_macros` | `crates/lgwks-macros` | the `script!` compiler | SL-2 |
-| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, `ci-local`, the `lgwks` CLI | INV-DEP-EDGE-OWNED |
+| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI | INV-DEP-EDGE-OWNED |
 | `drishti` | `crates/drishti` | frontend orchestration: design publication and a deterministic reference core | the `drishti` rows of `INVARIANTS.md` |
 
 ### `lgwks_std::id`

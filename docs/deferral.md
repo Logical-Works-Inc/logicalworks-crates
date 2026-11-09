@@ -34,7 +34,7 @@ reviewed after the revenue slice is live, not before.
 
 ## Review
 
-The quarterly dependency review reads `lgwks-deps ledger`, closes or
+The quarterly dependency review reads the `ledger` binary of `lgwks_deps`, closes or
 re-affirms every row, and refreshes `deferred_on`. A row without a trigger or
 an owner is refused at load; a trigger that states no measurement is refused
 with its field.

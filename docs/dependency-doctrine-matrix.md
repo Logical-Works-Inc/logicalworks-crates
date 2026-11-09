@@ -11,7 +11,7 @@ Import from the in-tree column. "Feature" is the `lgwks_std` cargo feature.
 | `hex` | `lgwks_std::hex` | core | encode/decode |
 | `base64` | `lgwks_std::encoding::base64` | core | RFC 4648 standard |
 | `percent-encoding` | `lgwks_std::encoding::percent` | core | strict decode |
-| `uuid` | `lgwks_std::id::Uuid` | `random` | v4 generation + parse |
+| `uuid` | `lgwks_std::id::Uuid` | `random` | v4 and v7 generation + parse |
 | `getrandom`, `rand` (entropy) | `lgwks_std::random` | `random` | OS CSPRNG only; no distributions |
 | `chrono`, `time` | `lgwks_std::time` | core | UTC RFC 3339 + proleptic Gregorian calendar; no IANA time zones |
 | `glob` | `lgwks_std::glob` | core | matching only; Unicode-scalar dialect with strict/legacy policies; not full upstream `glob` or POSIX parity; traversal is `fs` |

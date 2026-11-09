@@ -11,6 +11,10 @@
 //! silently repaired. `--update` rewrites the lock, but only for requirements
 //! whose id appears in the Supersession log section of `REQUIREMENTS.md`.
 //!
+//! The spine may span pages (ADR 0023): `REQUIREMENTS.md`, then each
+//! `docs/requirements/*.md` in name order, read as one text. An id declared
+//! twice is refused, because the later copy would hide an edit to the earlier.
+//!
 //! Usage: `check-requirements [--update] [ROOT]`. The exit status is non-zero on
 //! any mismatch or on a refused update.
 //!
@@ -28,8 +32,20 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use digest::digest_of;
+
+mod digest;
+#[cfg(test)]
+mod tests;
+
 /// The lock's name as it is spelled in messages.
 const LOCK_NAME: &str = "scripts/requirements.lock";
+
+/// The directory whose Markdown pages continue `REQUIREMENTS.md`.
+const PAGES_DIR: &str = "docs/requirements";
+
+/// How many continuation pages one spine may hold; a tree is caller data.
+const MAX_PAGES: usize = 64;
 
 /// The lock's header comment, written verbatim ahead of its rows.
 const LOCK_HEADER: &str = "\
@@ -43,86 +59,6 @@ const LOCK_HEADER: &str = "\
 # with no Supersession log entry naming that id is refused; record the
 # supersession first, then `--update`.
 ";
-
-/// SHA-256 round constants (FIPS 180-4, section 4.2.2).
-const ROUND: [u32; 64] = [
-    0x428a_2f98,
-    0x7137_4491,
-    0xb5c0_fbcf,
-    0xe9b5_dba5,
-    0x3956_c25b,
-    0x59f1_11f1,
-    0x923f_82a4,
-    0xab1c_5ed5,
-    0xd807_aa98,
-    0x1283_5b01,
-    0x2431_85be,
-    0x550c_7dc3,
-    0x72be_5d74,
-    0x80de_b1fe,
-    0x9bdc_06a7,
-    0xc19b_f174,
-    0xe49b_69c1,
-    0xefbe_4786,
-    0x0fc1_9dc6,
-    0x240c_a1cc,
-    0x2de9_2c6f,
-    0x4a74_84aa,
-    0x5cb0_a9dc,
-    0x76f9_88da,
-    0x983e_5152,
-    0xa831_c66d,
-    0xb003_27c8,
-    0xbf59_7fc7,
-    0xc6e0_0bf3,
-    0xd5a7_9147,
-    0x06ca_6351,
-    0x1429_2967,
-    0x27b7_0a85,
-    0x2e1b_2138,
-    0x4d2c_6dfc,
-    0x5338_0d13,
-    0x650a_7354,
-    0x766a_0abb,
-    0x81c2_c92e,
-    0x9272_2c85,
-    0xa2bf_e8a1,
-    0xa81a_664b,
-    0xc24b_8b70,
-    0xc76c_51a3,
-    0xd192_e819,
-    0xd699_0624,
-    0xf40e_3585,
-    0x106a_a070,
-    0x19a4_c116,
-    0x1e37_6c08,
-    0x2748_774c,
-    0x34b0_bcb5,
-    0x391c_0cb3,
-    0x4ed8_aa4a,
-    0x5b9c_ca4f,
-    0x682e_6ff3,
-    0x748f_82ee,
-    0x78a5_636f,
-    0x84c8_7814,
-    0x8cc7_0208,
-    0x90be_fffa,
-    0xa450_6ceb,
-    0xbef9_a3f7,
-    0xc671_78f2,
-];
-
-/// SHA-256 initial hash value (FIPS 180-4, section 5.3.3).
-const INITIAL: [u32; 8] = [
-    0x6a09_e667,
-    0xbb67_ae85,
-    0x3c6e_f372,
-    0xa54f_f53a,
-    0x510e_527f,
-    0x9b05_688c,
-    0x1f83_d9ab,
-    0x5be0_cd19,
-];
 
 /// Why the check could not run.
 #[derive(Debug)]
@@ -153,6 +89,16 @@ enum CheckError {
     },
     /// The text to digest is longer than a SHA-256 length field can state.
     TooLong,
+    /// Two headings declare one requirement.
+    DeclaredTwice {
+        /// The requirement id.
+        id: u64,
+    },
+    /// The spine continues on more pages than [`MAX_PAGES`].
+    TooManyPages {
+        /// How many pages the directory holds.
+        count: usize,
+    },
 }
 
 impl fmt::Display for CheckError {
@@ -175,6 +121,15 @@ impl fmt::Display for CheckError {
                 write!(formatter, "{LOCK_NAME}:{line}: bad requirement id {key:?}")
             }
             Self::TooLong => write!(formatter, "the sentence is too long to digest"),
+            Self::DeclaredTwice { id } => write!(
+                formatter,
+                "R{id} is declared twice across REQUIREMENTS.md and {PAGES_DIR}: the later copy \
+                 would hide an edit to the earlier one"
+            ),
+            Self::TooManyPages { count } => write!(
+                formatter,
+                "{PAGES_DIR} holds {count} pages, past the ceiling of {MAX_PAGES}"
+            ),
         }
     }
 }
@@ -228,6 +183,49 @@ fn read(path: &Path) -> Result<String, CheckError> {
     }
 }
 
+/// The continuation pages under `root`, in name order. No directory is no pages,
+/// so a repository that keeps one file reads as it always did.
+fn continuation_pages(root: &Path) -> Result<Vec<PathBuf>, CheckError> {
+    let directory = root.join(PAGES_DIR);
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
+    let unreadable = |cause: io::Error| CheckError::Io {
+        path: directory.clone(),
+        cause,
+    };
+    let reader = match fs::read_dir(&directory) {
+        Ok(reader) => reader,
+        Err(cause) => return fail(unreadable(cause), "continuation_pages"),
+    };
+    let mut pages = Vec::new();
+    for entry in reader {
+        let path = match entry {
+            Ok(entry) => entry.path(),
+            Err(cause) => return fail(unreadable(cause), "continuation_pages"),
+        };
+        if path.extension().is_some_and(|extension| extension == "md") {
+            pages.push(path);
+        }
+    }
+    if pages.len() > MAX_PAGES {
+        let count = pages.len();
+        return fail(CheckError::TooManyPages { count }, "continuation_pages");
+    }
+    pages.sort();
+    Ok(pages)
+}
+
+/// The spine's whole text: `REQUIREMENTS.md`, then each continuation page.
+fn read_spine(root: &Path, requirements_path: &Path) -> Result<String, CheckError> {
+    let mut text = read(requirements_path)?;
+    for page in continuation_pages(root)? {
+        text.push('\n');
+        text.push_str(&read(&page)?);
+    }
+    Ok(text)
+}
+
 /// A run of ASCII digits as a requirement id, or `None` when it does not fit.
 fn parse_id(digits: &str) -> Option<u64> {
     match digits.parse::<u64>() {
@@ -237,87 +235,6 @@ fn parse_id(digits: &str) -> Option<u64> {
             None
         }
     }
-}
-
-/// Mixes one 64-byte block into the running state.
-fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
-    let mut schedule = [0_u32; 64];
-    let (words, _) = block.as_slice().as_chunks::<4>();
-    for (slot, word) in schedule.iter_mut().zip(words) {
-        *slot = u32::from_be_bytes(*word);
-    }
-    for round in 16..64_usize {
-        let early = schedule[round.saturating_sub(15)];
-        let late = schedule[round.saturating_sub(2)];
-        let low = early.rotate_right(7) ^ early.rotate_right(18) ^ early.wrapping_shr(3);
-        let high = late.rotate_right(17) ^ late.rotate_right(19) ^ late.wrapping_shr(10);
-        schedule[round] = schedule[round.saturating_sub(16)]
-            .wrapping_add(low)
-            .wrapping_add(schedule[round.saturating_sub(7)])
-            .wrapping_add(high);
-    }
-    let [
-        mut aa,
-        mut bb,
-        mut cc,
-        mut dd,
-        mut ee,
-        mut ff,
-        mut gg,
-        mut hh,
-    ] = *state;
-    for (constant, word) in ROUND.iter().zip(schedule.iter()) {
-        let sum_e = ee.rotate_right(6) ^ ee.rotate_right(11) ^ ee.rotate_right(25);
-        let choose = (ee & ff) ^ (!ee & gg);
-        let first = hh
-            .wrapping_add(sum_e)
-            .wrapping_add(choose)
-            .wrapping_add(*constant)
-            .wrapping_add(*word);
-        let sum_a = aa.rotate_right(2) ^ aa.rotate_right(13) ^ aa.rotate_right(22);
-        let majority = (aa & bb) ^ (aa & cc) ^ (bb & cc);
-        let second = sum_a.wrapping_add(majority);
-        hh = gg;
-        gg = ff;
-        ff = ee;
-        ee = dd.wrapping_add(first);
-        dd = cc;
-        cc = bb;
-        bb = aa;
-        aa = first.wrapping_add(second);
-    }
-    for (slot, added) in state.iter_mut().zip([aa, bb, cc, dd, ee, ff, gg, hh]) {
-        *slot = slot.wrapping_add(added);
-    }
-}
-
-/// The SHA-256 of `data`, as eight state words.
-fn sha256(data: &[u8]) -> Result<[u32; 8], CheckError> {
-    let length = match u64::try_from(data.len()) {
-        Ok(length) => length,
-        Err(_) => return fail(CheckError::TooLong, "sha256"),
-    };
-    let Some(bits) = length.checked_mul(8) else {
-        return fail(CheckError::TooLong, "sha256");
-    };
-    let mut message = data.to_vec();
-    message.push(0x80);
-    while message.len() & 63 != 56 {
-        message.push(0);
-    }
-    message.extend_from_slice(&bits.to_be_bytes());
-    let mut state = INITIAL;
-    let (blocks, _) = message.as_chunks::<64>();
-    for block in blocks {
-        compress(&mut state, block);
-    }
-    Ok(state)
-}
-
-/// The first twelve hex digits of `sentence`'s SHA-256: the lock's digest.
-fn digest_of(sentence: &str) -> Result<String, CheckError> {
-    let state = sha256(sentence.as_bytes())?;
-    Ok(format!("{:08x}{:04x}", state[0], state[1].wrapping_shr(16)))
 }
 
 /// A requirement heading, `### R12. Title`, as its id.
@@ -465,7 +382,9 @@ fn parse_requirements(text: &str) -> Result<Parsed, CheckError> {
         if quote.is_empty() {
             return fail(CheckError::NoBlockquote { id }, "parse_requirements");
         }
-        sentences.insert(id, normative_sentence(&quote));
+        if sentences.insert(id, normative_sentence(&quote)).is_some() {
+            return fail(CheckError::DeclaredTwice { id }, "parse_requirements");
+        }
     }
     Ok(Parsed { sentences, logged })
 }
@@ -578,7 +497,7 @@ pub fn execute(
         writeln!(err, "REQUIREMENTS.md is missing")?;
         return Ok(1);
     }
-    let parsed = parse_requirements(&read(&requirements_path)?)?;
+    let parsed = parse_requirements(&read_spine(root, &requirements_path)?)?;
     if parsed.sentences.is_empty() {
         writeln!(err, "REQUIREMENTS.md declares no requirements")?;
         return Ok(1);
@@ -655,127 +574,4 @@ pub fn execute(
         parsed.sentences.len()
     )?;
     Ok(0)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        digest_of, execute, heading_id, is_log_heading, log_ids, parse_lock, parse_requirements,
-        quote_body,
-    };
-    use std::error::Error;
-    use std::path::Path;
-
-    type TestResult = Result<(), Box<dyn Error>>;
-
-    /// FIPS 180-4 / RFC 6234 test vectors: the empty message, "abc", and the
-    /// 56-byte message that forces a second block.
-    #[test]
-    fn the_digest_matches_the_published_sha256_vectors() -> TestResult {
-        assert_eq!(
-            digest_of("")?,
-            "e3b0c44298fc",
-            "SHA-256 of the empty message"
-        );
-        assert_eq!(digest_of("abc")?, "ba7816bf8f01", "SHA-256 of abc");
-        assert_eq!(
-            digest_of("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")?,
-            "248d6a61d206",
-            "SHA-256 of the two-block message"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_heading_names_its_id_and_a_plain_line_names_none() {
-        assert_eq!(
-            heading_id("### R12. Human mess is in scope"),
-            Some(12),
-            "a heading"
-        );
-        assert_eq!(heading_id("### R12 no dot"), None, "no dot");
-        assert_eq!(heading_id("## R12. wrong level"), None, "wrong level");
-        assert_eq!(heading_id("### R. no id"), None, "no digits");
-    }
-
-    #[test]
-    fn a_quote_loses_its_marker_and_one_space() {
-        assert_eq!(quote_body("> text"), Some("text"), "marker and space");
-        assert_eq!(quote_body(">text"), Some("text"), "marker only");
-        assert_eq!(quote_body("  >  two"), Some(" two"), "one space only");
-        assert_eq!(quote_body("text"), None, "no marker");
-    }
-
-    #[test]
-    fn the_log_heading_and_its_ids_are_found() {
-        assert!(is_log_heading("## Supersession log"), "the heading");
-        assert!(!is_log_heading("### Supersession log"), "a deeper heading");
-        assert_eq!(
-            log_ids("R3 and R41, not XR5 or R6x"),
-            vec![3, 41],
-            "standalone ids"
-        );
-    }
-
-    #[test]
-    fn requirements_collapse_a_wrapped_quote_and_record_the_log() -> TestResult {
-        let text = "### R1. One\n\n> first\n> second\n\n### R2. Two\n> only\n\n## Supersession log\nR2 moved\n";
-        let parsed = parse_requirements(text)?;
-        assert_eq!(
-            parsed.sentences.get(&1).map(String::as_str),
-            Some("first second"),
-            "a wrapped quote collapses"
-        );
-        assert_eq!(
-            parsed.sentences.get(&2).map(String::as_str),
-            Some("only"),
-            "a one-line quote"
-        );
-        assert!(parsed.logged.contains(&2), "the log names R2");
-        Ok(())
-    }
-
-    #[test]
-    fn a_heading_without_a_quote_is_refused() {
-        assert!(
-            parse_requirements("### R1. One\n\ntext\n").is_err(),
-            "a requirement with no blockquote is not written yet"
-        );
-    }
-
-    #[test]
-    fn a_lock_row_needs_three_tab_separated_fields() -> TestResult {
-        let rows = parse_lock("# header\nR7\tabc\tsentence\n")?;
-        assert_eq!(
-            rows.get(&7).map(|row| row.digest.as_str()),
-            Some("abc"),
-            "the digest is read"
-        );
-        assert!(
-            parse_lock("R7 abc sentence\n").is_err(),
-            "spaces are not tabs"
-        );
-        assert!(
-            parse_lock("X7\tabc\tsentence\n").is_err(),
-            "the id must start with R"
-        );
-        Ok(())
-    }
-
-    /// The committed lock verifies against the committed `REQUIREMENTS.md`: the
-    /// digests the Python script recorded are the digests this binary computes.
-    #[test]
-    fn the_committed_lock_verifies() -> TestResult {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let mut out = Vec::new();
-        let mut err = Vec::new();
-        let code = execute(&root, false, &mut out, &mut err)?;
-        assert_eq!(
-            code,
-            0,
-            "the committed lock must verify: {}",
-            String::from_utf8_lossy(&err)
-        );
-        Ok(())
-    }
 }

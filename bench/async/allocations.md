@@ -6,10 +6,9 @@ Every allocation window priced separately, and why the latency target is a diffe
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --alloc-attribution --json=bench/async/alloc-attribution.json
 ```
-
 1,024 tasks per wave, counted in a window separate from every timed round, on one
 unchanged harness. **BEFORE** is `origin/main`'s `cancel.rs` and `supervise.rs`;
 **AFTER** is this branch. Per task:

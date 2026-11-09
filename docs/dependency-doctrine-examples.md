@@ -22,8 +22,9 @@ tokio through the `lgwks_deps` storefront.
 
 **Async tier: `lgwks_bot` (the async and runner surface of this workspace).** Timers, wakeable
 channels, async sockets, and a multi-threaded worker pool cannot be built on
-`std` without an I/O reactor and `unsafe`, and `lgwks_std` forbids both.
-`lgwks_bot` therefore wraps **tokio core** through the `lgwks_deps` storefront,
+`std` without an I/O reactor and `unsafe`. The `lgwks_std` crate holds no reactor and
+keeps `unsafe` to its two named syscall modules (INV-STD-UNSAFE-1).
+So `lgwks_bot` wraps **tokio core** through the `lgwks_deps` storefront,
 and `tokio` is registered in `contract/APPROVED.toml` with
 `owner = "lgwks_deps"`. The gate refuses any other workspace crate that authors
 a `tokio` edge, so this facade is the single entry. The shape is a
@@ -72,4 +73,5 @@ Two distinct jobs get confused under "parsing Rust":
 (types, trait resolution, macro expansion), because nothing here requires one. A
 second Rust parser is not admitted. Structural queries route through
 `lgwks_ast::Language::Rust`; a caller that genuinely requires `syn` for semantic
-work states that reason and registers it.
+work states that reason and registers it, as `lgwks_deps` does beside
+`prettyplease` for `lgwks expand` (#787).

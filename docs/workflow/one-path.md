@@ -2,8 +2,8 @@
 
 Moved from `WORKFLOW.md` on 2026-10-22, when every Markdown file in a repository
 was held to 120 lines (Director, 2026-10-10). One rule changed in the move, and
-only one: §4's storefront carve-out, which ADR 0003 supersedes. Everything else
-is verbatim.
+only one: §4's storefront carve-out, which ADR 0003 supersedes. The §5 time-box
+later took the estate contract's three hours.
 
 ---
 
@@ -53,5 +53,5 @@ broad.
   the new implementation alongside the old, point callers at it one at a time,
   verify tests, then delete the old code.
 
-Time-box is thirty minutes by default. Not terminal within the box: stop, report
-the SHA and the receipt, await direction. Identical-state retry is forbidden.
+One goal gets at most three hours. Not terminal within the box: land what is proven,
+and report the SHA and the receipt. Identical-state retry is forbidden.
