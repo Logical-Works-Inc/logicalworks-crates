@@ -3,11 +3,10 @@
 `features = ["script"]` adds `lgwks_ast::script::parse`, the one reader of the
 `script!` orchestration language: tokens (a macro's input, or
 `TokenStream::from_str` over a file) in, a typed `Script` out, or a `Refusal`
-located at its token that names what to write instead. `lgwks_macros` compiles
+located at its token that names what to write instead. The `lgwks_macros` crate compiles
 scripts through it, so a tool that maps, checks or dry-compiles a script gets
 exactly the tree and the refusals `cargo build` does. The feature selects no
-grammar; it builds `proc-macro2` through the `lgwks_deps` storefront and
-nothing else.
+grammar; it builds `proc-macro2` and nothing else.
 
 `script::read_source` finds every `script!` in one Rust file the way the
 compiler hands them to the macro (by token, at any nesting, under any path
@@ -19,14 +18,13 @@ prefix; never inside a string or comment) and reads each through `parse`.
 lgwks-ast script map   [--json] [PATH...]   # every script's map, as its ARCHITECTURE renders
 lgwks-ast script check [--json] [PATH...]   # only refusals, at cargo build's line:column
 ```
-
 A directory is walked for `.rs` files (skipping `target`, `vendor`,
 `node_modules`, `third_party`, `.venv`, `.git`, `.jj`); no `PATH` means `.`.
 Exit 0 when nothing is refused, 2 when a script is refused, a file is not Rust
 tokens or a path cannot be read. The repository's `script-check` gate lane runs
 `check` over the whole tree. The tool lives here rather than in `lgwks-deps`
-because `script` reaches `proc-macro2` through `lgwks_deps`, and `lgwks_deps`
-depending back on this crate is a cycle Cargo refuses.
+because `lgwks_deps` depends on this crate (feature `lgwks`), and the reverse
+edge is a cycle Cargo refuses.
 
 ## Custom languages
 

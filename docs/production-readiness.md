@@ -1,7 +1,7 @@
 # Production readiness of `lgwks_bot`, and why it replaces non-AI automation
 
 Status: **diagnostic, provisional, and currently a NO-GO for unattended
-consequential automation.** The purpose of this document is to show what is
+consequential automation.** This page shows what is
 measured, what is proved, what is only argued, and what would have to be true
 before a person should point this at money, messages, or infrastructure without
 watching it.
@@ -27,7 +27,7 @@ never exceeds 120 lines; each section keeps its number, heading and score here.
 ## 1. The headline, before the method
 
 **This does not currently pass its own release gate.** Issue
-[#109](https://github.com/srinji-kaggss/logicalworks-crates/issues/109) held eight
+[#109](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/109) held eight
 invariants: five were observed externally against a real journal under a real
 `SIGKILL`, and three closed on their repair alone. You can ship this today for
 attended, inspectable automation where a human can intervene; not yet for a bot
@@ -38,7 +38,7 @@ that runs for weeks and acts without you.
   closed-loop latency target met ([`bench/async/vps.md`](../bench/async/vps.md)),
   and the acceptance campaign ran 251 of 251 named tests on both containment
   backends in CI run
-  [38795282994](https://github.com/srinji-kaggss/logicalworks-crates/actions/runs/38795282994).
+  [38795282994](https://github.com/Logical-Works-Inc/logicalworks-crates/actions/runs/38795282994).
   The dated update pages are in git history before 2026-10-27.
 
 ## 2. The claim under test
@@ -89,8 +89,8 @@ store. [Read 4.6](production-readiness/4-6-ephemeral.md), then
 
 ### 4.7 Portable — same semantics on all declared targets
 
-**⚠️** — one operating system executed, eight targets built; a build receipt is
-not an execution receipt. [Read 4.7](production-readiness/4-7-portable.md).
+**⚠️** — Linux and macOS run suites, Windows one containment job, seven targets
+built; a build receipt is not an execution receipt. [Read 4.7](production-readiness/4-7-portable.md).
 
 ### 4.8 Multi-tenant — isolated under concurrent use
 
@@ -99,7 +99,7 @@ not an execution receipt. [Read 4.7](production-readiness/4-7-portable.md).
 
 ### 4.9 Performance — fastest correct implementation
 
-**⚠️** — the synchronous tick loses by 28x to 2 605x; the async facade by 2% to
+**⚠️** — the synchronous tick loses by 26x to 2 738x; the async facade by 2% to
 17% at p50. [Read 4.9](production-readiness/4-9-performance.md).
 
 ## 5. Why Rust, without the adjectives

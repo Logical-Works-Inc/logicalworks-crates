@@ -1,8 +1,8 @@
 # The `lgwks_bot` rig: what the numbers say
 
-Part of the [measurement rigs](README.md). Read off the headline table in
-[bot-headline.md](bot-headline.md) and the profile in [bot-profile.md](bot-profile.md):
-on this tree a quiet tick costs 896.0–2 055.4 ns, and the effect-heavy scenarios
+Part of the [measurement rigs](README.md). Read off the `940e253cd` table in
+[the rig's README](README.md) and the profile in [bot-profile.md](bot-profile.md):
+on that tree a quiet tick costs 896.0–2 055.4 ns, and the effect-heavy scenarios
 cost 54 248.3–133 986.7 ns.
 
 ## Cost is in the act, not the poll

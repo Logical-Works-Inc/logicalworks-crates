@@ -1,6 +1,6 @@
 # Architecture: meaning, work, authority, presentation
 
-Status: proposed technical design. No runtime described here exists in this package.
+Status: proposed technical design. The runtime described here is absent from this package except the realized seats [status.md](status.md) names.
 
 ## Ownership comes before module names
 
@@ -39,7 +39,6 @@ creator declarations / admitted human or agent actions
                          |
       pixels / input geometry / accessibility / semantics
 ```
-
 This diagram is a logical relation, not a requirement to serialize every stage. Independent work may overlap after its own prerequisites and admission hold.
 
 ## Operation semantics

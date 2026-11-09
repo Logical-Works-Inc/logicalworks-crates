@@ -56,7 +56,8 @@ only the quickstart.
 ## What these crates are not
 
 - **Not an agent framework.** `lgwks_bot` runs your logic and gates its
-  authority; it does not call a model for you.
+  authority. Its `ask` word calls a model through a host's `ModelPort`, and it
+  ships no provider, prompt library or tool router.
 - **Not an async runtime.** `lgwks_bot::rt` is a curated surface over tokio,
   which owns the engine. Parity and the deliberate divergences are documented in
   [`docs/async-parity.md`](async-parity.md).

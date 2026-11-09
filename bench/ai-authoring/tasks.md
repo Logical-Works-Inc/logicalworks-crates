@@ -58,7 +58,8 @@ as `tests/oracle.rs`; it asserts on the harness instrumentation, one
   `Unknown` (2); waiting past the deadline is typed (3); dropping mid-wait
   applies nothing twice (4); `SIGKILL` mid-effect (Unix-only, in a child
   running the phase-1 test) followed by an in-process recovery applies exactly
-  once in total and returns `recovered:{key}` (5).
+  once in total and returns `recovered:{key}` (5). The oracle's sixth test is that
+  child, `phase1_blocks_until_released`.
 
 The oracles are deterministic: no counter is asserted on a wall-clock sleep. The
 only waits are short ones that let a future begin, plus the 200 ms the drop

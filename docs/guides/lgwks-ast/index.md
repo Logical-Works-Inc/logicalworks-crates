@@ -77,6 +77,6 @@ detection incomplete.
 
 ## More
 
-[Bounds and refusals](bounds-and-refusals.md) names the three constants and the four
+[Bounds and refusals](bounds-and-refusals.md) names the constants and the seven
 refusals. [Custom languages and typed diagnostics](custom-and-diagnostics.md) covers a
 caller-registered grammar and the shared derive.

@@ -14,7 +14,6 @@ nproc                       4            (the VM's cores; the cap is the cgroup'
 /sys/fs/cgroup/cpu.max      200000 100000   = 2 CPUs
 /sys/fs/cgroup/memory.max   2147483648      = 2 GiB, swap capped to the same
 ```
-
 OrbStack on the M5 Pro host, `rust:1.99.0-bookworm`, release build, the
 machine's cargo config. Taken 2026-10-11 13:22–13:38Z at host load 2.8, with
 nothing else compiling: 947.8 s wall for the whole matrix.
@@ -28,8 +27,7 @@ nothing else compiling: 947.8 s wall for the whole matrix.
 | at-capacity | 512 | 4 | 0.000642 | 0.000739 | 0.000508 | 0.001009 | 1.27x | [1.19, 1.30] |
 | single-permit | 512 | 1 | 0.001446 | 0.001719 | 0.001266 | 0.001546 | 1.14x | [1.12, 1.17] |
 
-Every ratio is inside #269's 2x target under the cap; on the uncapped
-15-core host the same table reads 1.36x–4.49x ([results.md](results.md)).
+Every ratio is inside #269's 2x target under the cap. On the uncapped 15-core host the same table read 1.36x–4.49x on 2026-10-11, before #320; [results.md](results.md) reads 1.02x–1.17x now, and this VPS table predates #320.
 Fewer cores mean less cross-core wake traffic for the baseline to win on.
 
 | tasks | facade p50 | facade p95 | facade p99 | base p50 | base p95 | base p99 |

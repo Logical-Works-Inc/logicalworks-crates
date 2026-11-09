@@ -10,7 +10,7 @@ keep, and the rows where they do not reach.
 
 | grammar | shape | bytes | parse p50 | walk p50 | walk share | peak RSS |
 |---|---|---:|---:|---:|---:|---:|
-| `dart` | nested | 262 144 | **97.500 s** | 15.5 ms | 0.0% | 11 MiB |
+| `dart` | nested | 262 144 | **97.500 s** | 15.5 ms | 0.0% | — (killed at 120 s) |
 | `scala` | longline | 501 490 | **29.812 s** | 10.3 ms | 0.0% | 75 MiB |
 | `dart` | unbalanced | 131 072 | 24.897 s | 7.8 ms | 0.0% | — (killed at 120 s) |
 | `ruby` | longline | 1 647 756 | 5.591 s | 59.0 ms | 1.0% | 692 MiB |
@@ -30,11 +30,11 @@ names a tighter one through `try_parse_within`. The parser checks every hundred
 operations, so the thread is released within the deadline plus microseconds
 rather than after 97 s (INV-AST-5).
 
-Two rows are recorded as killed rather than finished: `dart` `nested` and
-`unbalanced` at 2 MiB, and `scala` `longline` at 2 MiB, all by the rig's own
-120-second bound. `scala` `longline` is in the table at **512 KiB**, where it
-completes in 29.8 s; the row in `ast-budget.tsv` carries
-`note bytes=524288_not_2097152_unfinished_at_120s`. A rig that stopped at the
+Three shapes did not finish at 2 MiB inside the rig's own 120-second bound:
+`dart` `nested`, `dart` `unbalanced` and `scala` `longline`. Each is in the table at the
+smaller size its `bytes` column names, and `scala` `longline` completes at 501 490
+bytes in 29.8 s. The two `dart` runs hit the bound before reporting a peak, so
+`ast-budget.tsv` holds `none` for it. A rig that stopped at the
 first of those would have reported 108 rows instead of 112, which is why the
 timeout records the partial row rather than dropping it.
 

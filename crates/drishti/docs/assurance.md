@@ -2,7 +2,7 @@
 
 This is how the code I have written or will write attempts to be frontier and universal.
 
-The design reuses GPUI and the Logicalworks estate, separates semantics from scheduling and effects, and treats the immersive reference experience as a test fixture rather than a singleton assumption. Research sources and limits are in the research document. Requirements bind to owner seats and independent journey oracles. The current evidence covers only the documentation package; runtime acceptance remains blocked by the decision ledger.
+The design reuses GPUI and the Logicalworks estate, separates semantics from scheduling and effects, and treats the immersive reference experience as a test fixture rather than a singleton assumption. Research sources and limits are in the research document. Requirements bind to owner seats and independent journey oracles. The current evidence covers the documentation package, the reference cores and the `drishti` command; runtime acceptance remains blocked by the decision ledger.
 
 ## DMADV now; DMAIC for measured improvements
 
@@ -54,7 +54,7 @@ Historical baseline `37dd4667a4724128d1961defd43909cefbfe774b` contains the foll
 | Missing/unknown mutation shards non-green | `keel-tools/src/mutation_coverage.rs` | Preserve incomplete-evidence refusal; no invented mutation percentage |
 | At most 50 files and 12,000 changed lines per PR | `schema/pr-size-budget.json` | Structure work into reviewable changes rather than weaken the limit |
 
-Historical MI-VS 76 was advisory; the current local MI_Logical source describes a different partially calibrated metric. Neither becomes an unexplained release gate here. Historical detector fixtures also admitted known misses; Drishti must not describe that as complete defect detection. A recorded threshold never substitutes for proving that a gate actually reads and enforces it.
+Historical MI-VS 76 was advisory; the current local MI_Logical source describes a different partially calibrated metric. Neither becomes an unexplained release gate here. Historical detector fixtures also admitted known misses; Drishti must not describe that as complete defect detection. A recorded threshold never substitutes for proving that a gate reads and enforces it.
 
 When Keel is restored: pin a real artifact/source identity, discover its supported consumer schema, map every applicable family to a real command and source scope, execute negative controls, and wire local/hosted checks to the same runner and retained terminal record. Do not copy the old self-qualification graph as this consumer's verification. Runtime release stays blocked until required evidence exists.
 
@@ -74,7 +74,7 @@ An uncovered Director case is an acceptance failure: reproduce the lowest violat
 
 ## Documentation-stage proof
 
-The current package tests registry format, identity/reference uniqueness, planned test-path classification, local document references, unmeasured journey status, and the public documentation namespace. Negative inputs must be rejected by the bundle validator. Cargo builds, lint, tests, Rustdoc, packaging, and publication are checked at their real entry points.
+`tests/bundle.rs` tests registry format, identity/reference uniqueness, planned test-path classification, local document references, unmeasured journey status, and the public documentation namespace; `tests/cli.rs` and `tests/sim/` drive the command and the reference cores. Negative inputs must be rejected by the bundle validator. Cargo builds, lint, tests, Rustdoc, packaging, and publication are checked at their real entry points.
 
 These finite structural checks cannot establish research completeness, correctness of every sentence, future runtime semantics, or usable UI. Independent document review must inspect contradictions and unsupported claims. Product journeys stay `unmeasured` regardless of documentation CI results.
 

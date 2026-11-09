@@ -26,7 +26,7 @@ boundary: `wasm32-wasip1` builds exactly these defaults (ADR 0003).
 | `macros` | `rt` | the `join!`, `select!`, and `try_join!` re-exports at the crate root |
 | `io` | `rt` | `rt::io`: `AsyncRead`, `AsyncWrite`, `AsyncBufRead`, `BufReader`, `BufWriter`, `duplex`, `copy` |
 | `net` | `io` | `rt::net`: `TcpListener`, `TcpStream`, `UdpSocket`, `lookup_host` |
-| `process` | `io`, `sync` | `rt::process`: `Command` — how to describe a child, with `StdioPolicy::Capture` for a bounded stream. Running one is `Supervisor::spawn_process` (reported later) or `Supervisor::run_process` (returns its `ProcessRun`), and they are the only ways: `Child` and its pipes are deliberately not exported |
+| `process` | `io`, `sync` | `rt::process`: `ProcessSpec` — how to describe a child, with `StdioPolicy::Capture` for a bounded stream. Running one is `Supervisor::spawn_process` (reported later) or `Supervisor::run_process` (returns its `ProcessRun`), and they are the only ways: `Child` and its pipes are deliberately not exported |
 | `fs` | `io` | `rt::fs`: an async filesystem, a blocking-threadpool wrapper |
 | `edge` | `net`, `script` | `rt::edge`: the HTTP edge, axum on the driver, every request answered by a `RequestFeed` from its own tenant's state (ADR 0006 R4), and the world driven beside it on its wakes and `Every` deadlines (R5); the `edge-load` binary |
 | `signal` | `rt` | `rt::signal`: OS signal streams. Compiled only on `unix` or `windows` (`crates/lgwks-bot/src/rt/mod.rs:131`) |

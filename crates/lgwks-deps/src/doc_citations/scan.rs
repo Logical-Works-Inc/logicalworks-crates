@@ -11,10 +11,16 @@ use super::{CiteError, Collected, MAX_DEPTH, fail, read};
 const EXTENSIONS: [&str; 8] = ["rs", "py", "sh", "toml", "md", "json", "yml", "yaml"];
 
 /// Documents that cite a different repository, and are therefore not checked.
-const EXTERNAL_PAGES: [(&str, &str); 1] = [(
-    "docs/bevy-admission.md",
-    "cites the Bevy repository, not this one",
-)];
+const EXTERNAL_PAGES: [(&str, &str); 2] = [
+    (
+        "docs/bevy-admission.md",
+        "cites the Bevy repository, not this one",
+    ),
+    (
+        "docs/bevy-admission-hazard.md",
+        "the second page of the same review, citing the Bevy repository",
+    ),
+];
 
 /// The std library file whose public modules the closure matrix must list.
 const STD_LIB: &str = "crates/lgwks-std/src/lib.rs";

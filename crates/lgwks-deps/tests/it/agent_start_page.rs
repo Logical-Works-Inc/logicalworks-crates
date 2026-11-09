@@ -167,15 +167,20 @@ fn path_word(word: &str) -> Option<&str> {
     (rooted || top_page).then_some(bare)
 }
 
-/// The words of `line` a reader takes as literal: all of a fenced line, and the
-/// spans between backticks of any other.
-fn literal_words(line: &str, fenced: bool) -> Vec<&str> {
+/// What `line` holds as literal text: all of a fenced line, and the spans between
+/// backticks of any other. A flag and its value are read within one span, so
+/// `--bin`, followed by a span of its own, names nothing.
+fn literal_spans(line: &str, fenced: bool) -> Vec<&str> {
     if fenced {
-        return line.split_whitespace().collect();
+        return vec![line];
     }
-    line.split('`')
-        .skip(1)
-        .step_by(2)
+    line.split('`').skip(1).step_by(2).collect()
+}
+
+/// The words of `line` a reader takes as literal.
+fn literal_words(line: &str, fenced: bool) -> Vec<&str> {
+    literal_spans(line, fenced)
+        .into_iter()
         .flat_map(str::split_whitespace)
         .collect()
 }
@@ -187,6 +192,7 @@ fn link_targets(line: &str) -> Vec<&str> {
         .filter_map(|piece| piece.split_once(')'))
         .map(|(target, _)| target)
         .filter(|target| !target.contains("://") && !target.starts_with('#'))
+        .filter(|target| !target.contains("::") && !target.starts_with("mailto:"))
         .map(|target| match target.split_once('#') {
             Some((before, _)) => before,
             None => target,
@@ -228,15 +234,18 @@ fn line_findings(
             found.push(format!("a dead path, {path}"));
         }
     }
-    for pair in words.windows(2) {
-        let (Some(flag), Some(named)) = (pair.first(), pair.get(1)) else {
-            continue;
-        };
-        if let Some((kind, set)) = named_by_flag(flag, known)
-            && !is_placeholder(named)
-            && !set.contains(*named)
-        {
-            found.push(format!("an unknown {kind}, {named}"));
+    for span in literal_spans(line, fenced) {
+        let spoken: Vec<&str> = span.split_whitespace().collect();
+        for pair in spoken.windows(2) {
+            let (Some(flag), Some(named)) = (pair.first(), pair.get(1)) else {
+                continue;
+            };
+            if let Some((kind, set)) = named_by_flag(flag, known)
+                && !is_placeholder(named)
+                && !set.contains(*named)
+            {
+                found.push(format!("an unknown {kind}, {named}"));
+            }
         }
     }
     for target in link_targets(line) {
@@ -281,12 +290,15 @@ fn skill_names() -> Result<Vec<String>, Box<dyn Error>> {
     Ok(names)
 }
 
-/// Every Markdown file under `directory`, depth bounded.
+/// Every Markdown file under `directory`, depth bounded, skipping build output.
 fn markdown_under(directory: &Path, depth: u8, out: &mut Vec<PathBuf>) -> TestResult {
     assert!(depth <= 8, "{} is nested too deep", directory.display());
     for entry in fs::read_dir(directory)? {
         let path = entry?.path();
         if path.is_dir() {
+            if path.file_name().is_some_and(|name| name == "target") {
+                continue;
+            }
             markdown_under(&path, depth.saturating_add(1), out)?;
         } else if path.extension().is_some_and(|extension| extension == "md") {
             out.push(path);
@@ -471,32 +483,251 @@ fn a_manifest_line_in_a_page_names_the_current_major() -> TestResult {
     Ok(())
 }
 
-/// `lgwks-deps catalog` stood in a skill, but the catalog is its own binary and an
-/// agent who ran the line got "unknown command". The binary's own usage decides.
-#[test]
-fn a_gate_subcommand_in_a_page_is_one_the_binary_prints() -> TestResult {
+/// The binary's own usage text, which decides what a page may call a command.
+fn printed_usage() -> Result<String, Box<dyn Error>> {
     let usage = Command::new(env!("CARGO_BIN_EXE_lgwks-deps")).output()?;
-    let printed = format!(
+    Ok(format!(
         "{}{}",
         String::from_utf8_lossy(&usage.stdout),
         String::from_utf8_lossy(&usage.stderr)
-    );
-    let base = root();
-    let mut pages = vec![base.join("SKILLS.md"), base.join("AGENTS.md")];
-    markdown_under(&base.join("skills"), 0, &mut pages)?;
-    markdown_under(&base.join("docs/guides"), 0, &mut pages)?;
-    let mut unknown = Vec::new();
-    for path in &pages {
-        let text = fs::read_to_string(path)?;
-        for rest in text.split("-p lgwks_deps -- ").skip(1) {
-            let word = rest.split_whitespace().next().ok_or("a line ends at --")?;
-            let bare = word.trim_matches(['`', '.', ',', ')']);
-            if !bare.starts_with('<') && !printed.contains(&format!("lgwks-deps {bare}")) {
-                unknown.push(format!("{}: {bare}", path.display()));
+    ))
+}
+
+/// Every word of `text` run as a command of `lgwks-deps` that `printed` does not
+/// show. `scan` moved to `lgwks-ast` and answers with where it went (ADR 0002).
+pub(crate) fn command_findings(text: &str, printed: &str) -> Vec<String> {
+    let mut named = Vec::new();
+    for rest in text.split("-p lgwks_deps -- ").skip(1) {
+        named.extend(rest.split_whitespace().next());
+    }
+    let mut fenced = false;
+    for line in text.lines() {
+        if line.starts_with("```") {
+            fenced = !fenced;
+            continue;
+        }
+        for span in literal_spans(line, fenced) {
+            let words: Vec<&str> = span.split_whitespace().collect();
+            for pair in words.windows(2) {
+                if let [program, word] = *pair
+                    && program == "lgwks-deps"
+                {
+                    named.push(word);
+                }
             }
         }
     }
-    assert!(unknown.is_empty(), "{}", unknown.join("\n"));
+    named
+        .into_iter()
+        .map(|word| word.trim_matches(['`', '.', ',', ')', ';', ':']))
+        .filter(|word| !word.starts_with(['-', '<', '[', '$', '|', '&', '#']) && !word.is_empty())
+        .filter(|word| *word != "scan" && !printed.contains(&format!("lgwks-deps {word}")))
+        .map(|word| format!("an unknown command, lgwks-deps {word}"))
+        .collect()
+}
+
+/// `lgwks-deps catalog` stood in a skill, and an agent who ran the line got "unknown
+/// command". Judged against the live binary's usage, what it prints passes and a
+/// command it dropped is named, however a page spells the call.
+#[test]
+fn a_gate_subcommand_in_a_page_is_one_the_binary_prints() -> TestResult {
+    let printed = printed_usage()?;
+    let live = "`lgwks-deps check .` then `lgwks-deps catalog --json`\n\
+                `cargo run -p lgwks_deps -- tiers`\n";
+    assert_eq!(command_findings(live, &printed), Vec::<String>::new());
+    let dropped = command_findings("`lgwks-deps ledger`\n", &printed);
+    assert_eq!(dropped, ["an unknown command, lgwks-deps ledger"]);
+    Ok(())
+}
+
+/// The pages that describe the tree as it stands. An ADR, a changelog page, a
+/// ledger or a recorded run states what was true on its date, so it is not read.
+fn living_pages() -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let base = root();
+    let mut pages = Vec::new();
+    for entry in fs::read_dir(&base)? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|extension| extension == "md") {
+            pages.push(path);
+        }
+    }
+    for tree in ["docs", "skills", "bench", "proofs"] {
+        markdown_under(&base.join(tree), 0, &mut pages)?;
+    }
+    for directory in CRATES {
+        markdown_under(&base.join("crates").join(directory), 0, &mut pages)?;
+    }
+    let dated = [
+        "CHANGELOG.md",
+        "docs/adr/",
+        "docs/changelog/",
+        "docs/governance/ledger",
+        "bench/ai-authoring/runs/",
+    ];
+    pages.retain(|path| {
+        let Ok(relative) = path.strip_prefix(&base) else {
+            return false;
+        };
+        let relative = relative.to_string_lossy();
+        !relative.contains("/tests/") && !dated.iter().any(|prefix| relative.starts_with(prefix))
+    });
+    pages.sort();
+    Ok(pages)
+}
+
+/// Whole pages whose subject is another repository, so a path on them is that
+/// repository's. A row a page no longer needs fails the test that reads this list.
+const FOREIGN_PAGES: [(&str, &str); 2] = [
+    (
+        "docs/bevy-admission-hazard.md",
+        "crates/bevy_time/src/virt.rs",
+    ),
+    (
+        "crates/drishti/docs/research.md",
+        "kernel/crates/canvas-syscall/src/authorize.rs",
+    ),
+];
+
+/// One name a page may hold that the tree does not: the page, the name, and why.
+const NAMED_ELSEWHERE: [(&str, &str, &str); 3] = [
+    (
+        "docs/governance/gates.md",
+        "docs/archive/",
+        "the first retired document creates it",
+    ),
+    (
+        "bench/async/results.md",
+        "bench/async/target/release/lgwks-bench-async",
+        "build output, which git does not hold",
+    ),
+    (
+        "docs/prd/README.md",
+        "NNNN-short-name.md",
+        "the shape a new record's name takes",
+    ),
+];
+
+/// Whether `found` is a name [`NAMED_ELSEWHERE`] admits on `page`.
+fn admitted(page: &str, found: &str) -> bool {
+    NAMED_ELSEWHERE.iter().any(|&(listed, name, _)| {
+        listed == page
+            && found
+                .trim_end_matches('/')
+                .ends_with(name.trim_end_matches('/'))
+    })
+}
+
+/// An audit by pattern on 2026-11-09 found a skill's `lgwks-deps catalog`, two
+/// pages' `lgwks-deps ledger` and an INV naming a moved test, none of them on a
+/// page the start-page test read. So every living page is read, and a path resolves
+/// from the page, from its crate or from the root.
+#[test]
+fn every_living_page_names_only_what_the_tree_holds() -> TestResult {
+    let known = known()?;
+    let printed = printed_usage()?;
+    let base = root();
+    let pages = living_pages()?;
+    assert!(pages.len() > 200, "the walk found only {}", pages.len());
+    let mut wrong = Vec::new();
+    for path in &pages {
+        let inside = path.strip_prefix(&base)?;
+        let relative = inside.to_string_lossy().into_owned();
+        let directory = match inside.parent() {
+            Some(parent) => parent.to_string_lossy().into_owned(),
+            None => String::new(),
+        };
+        let crate_root: PathBuf = inside.components().take(2).collect();
+        let exists = |named: &str| {
+            base.join(named).exists()
+                || base.join(&directory).join(named).exists()
+                || (relative.starts_with("crates/") && base.join(&crate_root).join(named).exists())
+        };
+        let text = fs::read_to_string(path)?;
+        let mut found = command_findings(&text, &printed);
+        if !FOREIGN_PAGES.iter().any(|&(page, _)| page == relative) {
+            found.extend(
+                findings(&text, &directory, &known, &exists)
+                    .into_iter()
+                    .filter(|finding| !finding.starts_with("a machine path")),
+            );
+        }
+        for finding in found {
+            if !admitted(&relative, &finding) {
+                wrong.push(format!("{relative}: {finding}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+    Ok(())
+}
+
+/// An allow-list is where an error hides, so a row the page no longer holds is
+/// itself a failure, and a foreign page must still be about what it was admitted for.
+#[test]
+fn every_allowed_name_is_still_on_its_page() -> TestResult {
+    for (name, held) in FOREIGN_PAGES {
+        assert!(page(name)?.contains(held), "{name} no longer names {held}");
+    }
+    for (name, held, why) in NAMED_ELSEWHERE {
+        assert!(!why.is_empty(), "{name} states no reason for {held}");
+        assert!(page(name)?.contains(held), "{name} no longer names {held}");
+    }
+    Ok(())
+}
+
+/// Text handed to a model verbatim: its bytes are the input a recorded run graded.
+const RECORDED_INPUTS: &str = "bench/ai-authoring/api/";
+
+/// A page past the law is refused at every commit that stages it, so it cannot be
+/// fixed. `docs/frontier.md` held 685 lines and `REQUIREMENTS.md` 397 (ADR 0023).
+#[test]
+fn every_living_page_keeps_to_the_size_law() -> TestResult {
+    let base = root();
+    let mut over = Vec::new();
+    for path in living_pages()? {
+        let relative = path.strip_prefix(&base)?.to_string_lossy().into_owned();
+        let lines = fs::read_to_string(&path)?.lines().count();
+        if lines > 120 && !relative.starts_with(RECORDED_INPUTS) {
+            over.push(format!("{relative}: {lines} lines"));
+        }
+    }
+    assert!(over.is_empty(), "{}", over.join("\n"));
+    Ok(())
+}
+
+/// PRD 0001, the catalog's own register and the estate's contract all say
+/// `lgwks-deps catalog`, and it answered "unknown command". The command and the
+/// lane's binary are one implementation, so they answer in the same bytes.
+#[test]
+fn the_catalog_subcommand_is_the_catalog_binary() -> TestResult {
+    let base = root();
+    let run = |arguments: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_lgwks-deps"))
+            .arg("catalog")
+            .args(arguments)
+            .output()
+    };
+    let command = run(&["--json", &base.to_string_lossy()])?;
+    let binary = Command::new(env!("CARGO_BIN_EXE_catalog"))
+        .arg("--json")
+        .arg(&base)
+        .output()?;
+    assert!(command.status.success(), "the command answers the tree");
+    assert!(!command.stdout.is_empty(), "the command printed nothing");
+    assert_eq!(command.stdout, binary.stdout, "two answers for one catalog");
+    let check = run(&["--check", &base.to_string_lossy()])?;
+    assert!(check.status.success(), "the catalog holds on the live tree");
+    let typo = run(&["--jsno"])?;
+    assert_eq!(typo.status.code(), Some(2), "a typo is a refusal");
+    let said = String::from_utf8_lossy(&typo.stderr);
+    assert!(
+        said.contains("unknown option for `catalog`: --jsno"),
+        "{said}"
+    );
+    assert!(
+        printed_usage()?.contains("lgwks-deps catalog"),
+        "usage omits it"
+    );
     Ok(())
 }
 

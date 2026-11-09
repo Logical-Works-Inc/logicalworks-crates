@@ -19,7 +19,9 @@ const DOCUMENT_ROOTS: [&str; 2] = ["crates", "docs"];
 ///
 /// Tracked files plus untracked ones `.gitignore` does not exclude: a new file is
 /// checked before it is staged, and build output is not. `None`, not an empty
-/// set, when git cannot answer, because "no files" would pass every check.
+/// set, when git cannot answer, because "no files" would pass every check. An
+/// empty listing is no answer either: a copy of the tree inside another
+/// checkout's ignored directory exits 0 and lists nothing.
 pub(super) fn repository_files(repo: &Path) -> Option<BTreeSet<PathBuf>> {
     let listing = match Command::new("git")
         .arg("-C")
@@ -39,7 +41,7 @@ pub(super) fn repository_files(repo: &Path) -> Option<BTreeSet<PathBuf>> {
             return None;
         }
     };
-    if !listing.status.success() {
+    if !listing.status.success() || listing.stdout.is_empty() {
         return None;
     }
     Some(
@@ -307,6 +309,37 @@ mod tests {
             source_files(repo)?,
             vec![kept],
             "only the repository's own file"
+        );
+        Ok(())
+    }
+
+    /// A copy of the tree under another checkout's ignored `target/` is where the
+    /// commit gate's mutation run works. git exits 0 there and lists nothing, which
+    /// read as "the repository holds no source" and failed every crate as empty.
+    #[test]
+    fn a_copy_inside_an_ignored_directory_reads_its_own_disk() -> TestResult {
+        let scratch = Scratch::new()?;
+        let outer = &scratch.root;
+        if !Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .arg(outer)
+            .status()?
+            .success()
+        {
+            return Err("git init failed".into());
+        }
+        fs::write(outer.join(".gitignore"), "target/\n")?;
+        let copy = outer.join("target/gate/src");
+        let source = copy.join("crates/demo/src/lib.rs");
+        if let Some(parent) = source.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&source, "pub fn demo() {}\n")?;
+        assert_eq!(
+            source_files(&copy)?,
+            vec![source],
+            "the copy's own source, not an empty repository"
         );
         Ok(())
     }

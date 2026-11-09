@@ -18,7 +18,7 @@ The vision is primary. Universality, ergonomics, security, efficiency, accessibi
 
 1. `VISION.md`: product identity, authoring promise, universality, and reference experience.
 2. `docs/architecture.md`: ownership, orchestration, effects, presentation, and limits.
-3. `docs/codebase.md`: complete planned module structure and responsibility boundaries.
+3. `docs/codebase.md`: the realized seats, the planned module structure and responsibility boundaries.
 4. `docs/decisions.md`: finalized product contract, all 40 answers and conflict-resolution provenance, source conflicts, and blocking proof obligations.
 5. `docs/research.md`: scripting, prior art, and what evidence changed the design.
 6. `docs/assurance.md`: strict acceptance and eventual Keel integration.
@@ -64,7 +64,7 @@ These commands do not discharge runtime, security, experience, performance, or K
 
 ## Finalized requirements amendment
 
-The 2026-09-12 contract amendment in `docs/contract.md` captures the Director's answers and subsequent corrections, including phone workflow parity, structural recovery instead of prompt friction, first-party trust at the chosen layer, and reuse of LOK/Braid authority contracts. Engineering derivations and open proof obligations are labeled separately. The working-tree amendment is not a republication of the immutable 0.0.1 release and does not authorize runtime implementation.
+The 2026-09-12 contract amendment in `docs/contract.md` captures the Director's answers and subsequent corrections, including phone workflow parity, structural recovery instead of prompt friction, first-party trust at the chosen layer, and reuse of LOK/Braid authority contracts. Engineering derivations and open proof obligations are labeled separately. The working-tree amendment is not a republication of the immutable 0.0.1 release and does not authorize runtime implementation; D15 and D16 later authorized the presentation seats.
 
 ## Publisher
 

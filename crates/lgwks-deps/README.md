@@ -48,7 +48,10 @@ lgwks-deps freshness [PATH]     # resolved versus latest on crates.io
 lgwks-deps vendor check [PATH]  # prove the lockfile is covered by the shared vendor tree
 lgwks-deps debug [PATH]         # doctor the default lgwks_std debugger surface
 lgwks-deps sqlite <PATH> [TARGET [SQL ...]]  # open with estate defaults; report or migrate
+lgwks-deps catalog [ROOT]       # every capability the estate owns; --json, --write, --check
+lgwks-deps gate [PATH]          # admission, citations, requirements, owners, script check, clippy, architecture
 ```
+The usage block also lists `invariants`, `retire` and `advisories`.
 `check` runs as the first CI lane. The binary diagnoses; it never approves.
 Approval is a committed diff with a human's name on it, and the register format
 is documented in `contract/APPROVED.toml`.
@@ -110,8 +113,7 @@ enforced.
 
 ## The other crates
 
-Logical Works Incorporated publishes `lgwks_deps` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+Logical Works Incorporated publishes `lgwks_deps` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`. [Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
 
 ## License
 

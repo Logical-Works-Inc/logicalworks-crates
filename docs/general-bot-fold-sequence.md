@@ -71,18 +71,16 @@ Each step lands green and independently. Steps 1–6 have landed. Next is 7.
      cause text are still distinguishable, which is the property that makes the
      state representable rather than inferred. The regression test asserts
      exactly that pair.
-   - **A refusal outranks an unsettled effect.** `Terminal::Refused` stays
-     `Failure` however many effects were left unsettled. Folding a decided
-     refusal into `Partial` would let it hide in the same class as a possible
-     duplicate, and a consumer that must act on a refusal has to see it. This is
-     the frontier's rule again — a provisional or decided outcome may not be
-     spelled as the other — arriving in the outcome vocabulary.
+   - **A refusal does not settle an unsettled effect.** The rule was first that
+     `Terminal::Refused` stays `Failure` however many effects were left unsettled,
+     and the repair above replaced it. `Disposition::Refused` is reported with the
+     `EffectLedger` beside it, so the refusal stays visible and
+     `needs_reconciliation` still says an earlier effect may be live. This is the
+     frontier's rule again, arriving in the outcome vocabulary: a provisional or
+     decided outcome may not be spelled as the other.
 
-   **Named honestly, because the step is smaller than it sounds:** there is no
-   live producer yet. All three `Execute` domains in this workspace
-   (`notify::Slack`, `gh::Merge`, `sys::Process`) are unbound stubs that always
-   return `DomainError { cause: "binding required" }`, so nothing today times
-   out mid-effect. What landed is the vocabulary and the law; the first domain
-   to bind a real request is the one that has to report `EffectIndeterminate`
-   rather than `DomainError` on a timeout, and until it does, this closes the
-   *type* defect without changing a runtime path.
+   **Named honestly, because the step was smaller than it sounds:** it had no live
+   producer when it landed, because every `Execute` domain then was an unbound
+   stub. What landed was the vocabulary and the law. The `gh` domain now binds a
+   real child process and reports `EffectIndeterminate` (`domain/gh/error.rs`),
+   and `notify` and `chat` still refuse with `binding required`.

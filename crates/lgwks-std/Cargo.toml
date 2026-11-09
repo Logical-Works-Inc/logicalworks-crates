@@ -14,7 +14,7 @@ keywords = ["stdlib", "json", "uuid", "http-client", "tracing"]
 
 # INV-STDPLUS-APPROVED-ONLY: every dependency here is a vetted leaf or
 # single-purpose stack with zero further external deps. The gate test
-# `deps_are_approved_leaves` in ../lgwks-deps/src/lib.rs reads this
+# `deps_are_approved_leaves` in ../lgwks-deps/src/tests/leaves.rs reads this
 # file and verifies each entry is on the approved list.
 #
 # APPROVED STACK (2026-08-24):

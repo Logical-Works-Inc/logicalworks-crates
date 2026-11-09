@@ -13,9 +13,8 @@ competitor or harness-only dependency can leak into the shipped graph.
 ```sh
 cd bench/std-measure
 CARGO_TARGET_DIR=/tmp/lgwks-std-measure-target \
-  cargo run --release -- results.txt
+  cargo run --release --locked -- results.txt
 ```
-
 The single positional argument is where the full report is written; the same
 text is printed to stdout. Omit it to print without writing. The run takes a
 few minutes: 23 scenarios, 200 000 timed calls for each retry row and 20 000 for

@@ -17,7 +17,7 @@ external handoff would instead need a journal whose durability meets
 per append — about 3 ms — which would put a disk round-trip inside every timed
 window and make the table a measurement of `FileJournal` rather than of the
 schedule. That is a different claim, and it is stated when it is made (see the
-journal cost figures in `docs/production-readiness.md` §4.6), not folded in here.
+journal cost figures in `docs/production-readiness/4-6-ephemeral.md`), not folded in here.
 
 `MemoryJournal` retains at most `MAX_JOURNAL_EVENTS` (100 000) events and
 **refuses** the next append rather than dropping evidence, so a workload that
@@ -37,13 +37,13 @@ consequences, both of them visible in the output:
 #279 asks for change ticks where the source reports its own revision, with the
 digest path kept for sources that cannot, and for the record of which uses
 which. The seam is `Observe::revision() -> Option<u64>`
-(`crates/lgwks-bot/src/spec.rs:499`):
+(`crates/lgwks-bot/src/spec.rs:519`):
 
 - A source that reports `Some(revision)` takes the **change-tick path**: the
   substrate compares the reported revision against the one it committed with
   the value it holds and **skips the poll entirely** when they agree. The rig's
   own source reports the value `tick / period` as its revision
-  (`bench/src/main.rs:119`), so the quiet-tick poll cost in the profile is
+  (`bench/src/main.rs:137`), so the quiet-tick poll cost in the profile is
   measured on this path.
 - A source that reports `None` takes the **value-compare path**: the substrate
   polls, and the source compares the fresh value against the held one inside

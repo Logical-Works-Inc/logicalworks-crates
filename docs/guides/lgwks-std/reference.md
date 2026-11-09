@@ -75,10 +75,10 @@ On a refusal the buffer passed to `fill_bytes` is **unspecified** — partly
 written, wholly written, or untouched — and must not be read. `bytes::N` has no
 such window: a failed draw returns no array.
 
-`scripts/check-target-matrix.sh` is the gate lane that runs `cargo check` across
+The `check-target-matrix` binary of `lgwks_deps` is the gate lane that runs `cargo check` across
 the declared target set (Linux glibc and musl, aarch64 and x86_64, WASI,
-FreeBSD, Android, iOS, and the host), so "supported" means a build that was
-executed rather than a `cfg` that was read.
+FreeBSD, Android, iOS, and the host). So "supported" means a build that was
+executed rather than a `cfg` that was read. Issue #892 tracks the iOS failure that lane reports.
 
 ## Threat models: which walk to use
 

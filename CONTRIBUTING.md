@@ -50,7 +50,8 @@ contribution ([`LICENSING.md`](LICENSING.md)).
 
 ## Standards
 
-- `#![forbid(unsafe_code)]` everywhere; no `unwrap` outside tests; typed errors
+- `unsafe_code` is `forbid` across the workspace, with the syscall modules of
+  `lgwks_std` as the one exception (INV-STD-UNSAFE-1); no `unwrap` outside tests; typed errors
   at library boundaries, with `source()` forwarding where a wrapped error
   exists.
 - Match the file you are in: naming, comment density, idioms. Comments state

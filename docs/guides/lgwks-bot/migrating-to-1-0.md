@@ -34,7 +34,6 @@ lgwks_bot::script! {
         give back out
 }
 ```
-
 `each` runs as many at once as the machine sustains, returns results in input
 order and stops the rest at the first failure. Where you are not in a flow, the
 tool underneath is an owned `JoinSet`: `spawn` each body, then
@@ -80,7 +79,7 @@ running the tests.
    over) or a `JoinSet` (`try_join_next`).
 5. **Check what you redirect.** Mapping `Stdio::from(file)` to
    `StdioPolicy::Null` kept the build green and silently emptied `llvm-cov`'s
-   output, because that tool writes its result to stdout. See the open gaps
+   output, because that tool writes its result to stdout. See the gaps
    below.
 
 ## Gaps this migration found, and what closed them

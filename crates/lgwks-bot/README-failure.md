@@ -56,12 +56,12 @@ Two consequences follow, and neither is fixed by retrying blindly:
   that retry should match on the variant and treat these two differently.
 
 An effect that may already have happened is never re-attempted on its own: the
-entry is held and reported, and `Bot::resolve_effect(work, revision, evidence)`
+entry is held and reported, and `Bot::resolve_effect(&key, evidence)`
 is how a caller says what happened — `EffectEvidence::Applied` records it without
 replaying it, `NotApplied` makes the entry eligible for an attempt again. The
-`revision` is the one `Bot::pending()` reported with the work, and it is not
-optional: a chain reuses one slot for every generation over it, so the revision
-is the only part of the identity that says *which* attempt the evidence is about.
+`key` is the one `Bot::pending()` reported with the work, and it carries the
+generation: a chain reuses one slot for every generation over it, so that is
+the only part of the identity that says *which* attempt the evidence is about.
 A report naming a generation that has since been superseded is refused with
 `BotError::EvidenceSuperseded`, and one contradicting the evidence already
 recorded for its generation is refused with `BotError::EvidenceContradicted`;

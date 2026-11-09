@@ -118,7 +118,7 @@ const OTHER_SUBJECTS: [&str; 5] = [
 /// The six broker entries are the same bargain for effect attempts (#876):
 /// `Broker::revoke_operation` is a shipped, tested one-way withdrawal of one
 /// operation's dispatch authority, and it says nothing about `GrantSet`.
-const NOT_AUTHORITY_CLAIMS: [(&str, &str); 19] = [
+const NOT_AUTHORITY_CLAIMS: [(&str, &str); 22] = [
     (
         "crates/lgwks-bot/src/broker.rs",
         "the broker's refusals name its shipped withdrawal of an operation, not GrantSet",
@@ -147,6 +147,19 @@ const NOT_AUTHORITY_CLAIMS: [(&str, &str); 19] = [
         "docs/frontier.md",
         "the state-of-the-art survey: its mentions are published research and design \
          targets, not statements about this crate's shipped authority",
+    ),
+    (
+        "docs/frontier-capability-authority.md",
+        "the same survey's capability section (ADR 0023 split the page), its mentions \
+         published research and design targets",
+    ),
+    (
+        "docs/frontier-synthesis.md",
+        "the same survey's synthesis (ADR 0023 split the page), a design target",
+    ),
+    (
+        "docs/frontier-tamper-evident-logs.md",
+        "the same survey's log section (ADR 0023 split the page), a design target",
     ),
     (
         "crates/lgwks-bot/src/dist_lease.rs",

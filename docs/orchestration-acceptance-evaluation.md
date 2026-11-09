@@ -14,24 +14,21 @@ A test name, comment, executable path or green compile alone proves none of
 its asserted runtime outcomes. Keep failures and negative controls.
 
 Documentation acceptance and implementation acceptance are different gates.
-The spec PR may close only the documentation work; #87 stays open until the
-required implementation/evidence exists. No reduced coverage floor, hidden
+Closing #87 accepted no row: the acceptance page's table holds each row's state. No
+reduced coverage floor, hidden
 exclusions, ignored regression or invented success counters.
 
 ## Candidate tests
 
-Candidate regressions now exist near T07, T09–T12, T14, T19 and T20, in
+Every row now names its tests in `docs/acceptance/t-rows.toml`, among them
 `crates/lgwks-bot/tests/it/durable_dispatch.rs` and
 `crates/lgwks-bot/tests/it/process_ownership.rs`, and the design they enforce is
-described in [effect-kernel.md](effect-kernel.md). **T22 additionally has
-candidate tests** in `crates/lgwks-bot/tests/it/t22_process_surface.rs`
+described in [effect-kernel.md](effect-kernel.md). **T22's tests are** in `crates/lgwks-bot/tests/it/t22_process_surface.rs`
 (`public_process_description_rejects_direct_execution_t22`,
 `the_guaranteed_task_set_does_not_expose_detach_all` and
 `supervisor_is_the_sanctioned_process_runner`). Those are unit and
-integration journeys against the public surface. They are not this
-specification's acceptance run: no row in the spec is marked accepted, and the
-externally bounded subprocess and OS-containment evidence the rows require has
-not been collected.
+integration journeys against the public surface. The acceptance campaign ran them
+at `dfc13a96`, and no row in the spec is marked accepted.
 
 **A candidate test is presence, not acceptance, and T22 is where that is
 easiest to get wrong.** `t22_process_surface.rs` type-checks single-file
@@ -101,7 +98,6 @@ for whichever revision is checked out, so a stale receipt is visible rather than
 receipt can only lower a row's claim; promoting a row is a review decision, not
 something a green run does.
 
-The implementation PR must include compiled public examples and feature-matrix
+An implementation change must include compiled public examples and feature-matrix
 checks under `AGENTS.md`, dependency-policy checks, docs version boundaries, and
-a migration record. This specification change adds no production code and does
-not claim the release gates have run.
+a migration record.

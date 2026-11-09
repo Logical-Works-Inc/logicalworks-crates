@@ -50,7 +50,7 @@ states what was measured, not what is hoped for.
 
 | Axis | Measured evidence | Where |
 |---|---|---|
-| Frontier | Owner-serialized writes with a poisoned-ambiguity handle, rather than a per-write lock and a silent timeout. A dropped waiter used to complete invisibly; the handle is now poisoned with the reason | `journal::file::a_dropped_waiter_poisons_the_handle_and_a_reopen_does_not_duplicate` |
+| Frontier | Owner-serialized writes with a poisoned-ambiguity handle, rather than a per-write lock and a silent timeout. A dropped waiter used to complete invisibly; the handle is now poisoned with the reason | `journal::file::tests::a_dropped_waiter_poisons_the_handle_and_a_reopen_does_not_duplicate` |
 | Hyperscale | Concurrency tiers 100 / 1k / 10k / 100k swept; the reached level is 50,000 on one store, bounded by `MAX_JOURNAL_EVENTS` of 100,000 at two events per fact. Requested, reached and ceiling are all in the trace | `sim_scale::tier_r*` |
 | Idiomatic | `clippy -D warnings` over the workspace and all targets: 0 errors. `cargo fmt --check`: clean. Every `allow` in new code carries a `reason` | workspace gate |
 | Generalized | The async append shares the sync append's frame preparation and length-check, write, `sync_all` path, so the two cannot drift into writing different bytes | `src/journal/file.rs` |
@@ -58,7 +58,7 @@ states what was measured, not what is hoped for.
 | Ephemeral | Every scratch store is under the system temp directory, named by seed and by `lgwks_std::random` bytes, and removed on drop. A process id would have been shorter and wrong: the OS reuses it | `sim::Sim::scratch` |
 | Portable | Reopen across a fresh handle, path round-trip, and a real file-backed reopen; no wall-clock or pid enters a trace hash | `sim_journal::reopen_portability_r*`, `sim_scale::portable_r*` |
 | Multi-tenant | 5,000 concurrent provisions, 5,000 distinct tails, 10,000 events, no cross-tenant history | `sim_scale::the_named_five_thousand_tenant_provision` |
-| Fastest | 2,852 tests in 162.465s wall under nextest, 1,990 of them simulation, with source-visible simulation coverage at 1,111 of 2,055 tests | `cargo nextest run --workspace --locked`; `python3 scripts/ci_local.py --lane simulation-evidence` |
+| Fastest | 2,852 tests in 162.465s wall under nextest, 1,990 of them simulation, with source-visible simulation coverage at 1,111 of 2,055 tests | `cargo nextest run --workspace --locked`; `./scripts/ci-local.sh --lane simulation-evidence` |
 
 **Rule 7, refuse the theater.** No `wwfd boot` + `mem show` as a session-start
 ritual. No prophylactic skill loading. No re-reading source already held in

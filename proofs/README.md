@@ -84,7 +84,6 @@ signature store. It is run as a plain script:
 ```sh
 /path/to/HOL/bin/hol < proofs/bot-spec.sml
 ```
-
 `proof-run.log` was produced by HOL4 `Trindemossen 2`, built from source commit
 `ab2229321a87364f9910f2fc5fcc9ad8217a2325`. The build is not vendored here;
 `HOL4 source:` at the top of the script records the commit the log corresponds to.
@@ -97,7 +96,6 @@ why the log, not the source comment, is the evidence. That claim is greppable:
 ```sh
 grep -nE 'mk_thm|new_axiom|cheat|mk_oracle_thm|OBJ|mk_thm' proofs/bot-spec.sml
 ```
-
 returns nothing.
 
 The log ends with a self-check: each theorem is re-checked against its statement
@@ -110,18 +108,10 @@ Line 88 of `proof-run.log` carries:
 ```
 <<HOL warning: Context.snapshot: ambient context read while a running proof was running (in scratch)>>
 ```
-
 This is HOL4's hygiene warning that a proof read ambient context (the scratch
 simpset) rather than only its own. It affects proof *hygiene*, not soundness: the
-kernel still checked every inference, and the warning appears between `T2_MONO`
-and `T3`, both of which are `[VERIFIED]` in the self-check. It is recorded here
-because a reader diffing the log against this table should not have to wonder
-whether it was noticed.
+kernel still checked every inference, and the warning appears between `T2_MONO` and `T3`, both of which are `[VERIFIED]` in the self-check. It is recorded here because a reader diffing the log against this table should not have to wonder whether it was noticed.
 
 ## Relationship to the rest of the repository
 
-This directory is evidence, not a build input. Nothing in the crate compiles it,
-no gate reads it, and it is not on the road to a release — it is here so the
-design claims in `docs/guides/lgwks-bot/` can be checked against something
-stronger than prose where that is honestly possible, and so the places where it
-is not possible are written down.
+This directory is evidence, not a build input. Nothing in the crate compiles it, no gate reads it, and it is not on the road to a release — it is here so the design claims in `docs/guides/lgwks-bot/` can be checked against something stronger than prose where that is honestly possible, and so the places where it is not possible are written down.

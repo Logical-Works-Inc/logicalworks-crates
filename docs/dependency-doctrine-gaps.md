@@ -12,7 +12,7 @@ capability is neither assumed to be present nor added as an unregistered edge:
 | `thiserror`, `anyhow` | Derive through `#[derive(lgwks_macros::Error)]` or `lgwks_ast::define_error!`, and keep typed error enums at library boundaries. |
 | `log`, `env_logger` | Nothing to add: `lgwks_std::trace` is the logging path, and it is default-on. `print_stdout`/`print_stderr` are `forbid` (§6.1), so there is no print path to route through. |
 | `clap`, `argh` | Parse `std::env::args` directly; CLI parsing is not a capability of this workspace. |
-| `toml`, `serde_yaml`, `csv` | Not provided. Use `json`/`ron` for data; the gate parses TOML line-wise on purpose to avoid a TOML dependency. |
+| `toml`, `serde_yaml`, `csv` | Not provided. Use `json`/`ron` for data; the gate reads its register through its own strict TOML-subset parser, to avoid a TOML dependency. |
 | `sha2`, `hmac`, `aes-gcm`, `argon2` | Not provided (BLAKE3 hashes and `lgwks_std::sign` seals with ed25519). Other crypto is a BOUNDARY tier: register it with the concrete reason. |
 | `rand` distributions | `lgwks_std::random` is OS entropy only; derive the distribution you need or register `rand`. |
 | In-process TLS providers | Inbound terminates at the OS reverse proxy. Outbound has one provider, rustls on ring behind `tls-ring` (ADR 0015, INV-TLS-1); see [patches](patches.md). |
@@ -92,6 +92,6 @@ unregistered (`UnregisteredEdge`). Both directions are enforced.
   exits 2 — the same code it exits under `enforce = true`. The verdict is a
   function of the refusals alone, so the reviewable one-token diff that adoption
   mode depends on cannot change a build's result. (Issue #204.)
-- `deps_are_approved_leaves` in `crates/lgwks-deps/src/lib.rs` pins the exact
+- `deps_are_approved_leaves` in `crates/lgwks-deps/src/tests/leaves.rs` pins the exact
   allowed dependency names for `lgwks_std` and for the gate itself, so a new
   edge cannot be added by editing a manifest alone.

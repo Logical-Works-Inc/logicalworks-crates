@@ -50,11 +50,11 @@ T21 is observed only as an honest non-containment (§1); with rows of its own
 axis unobserved, this axis stays ⚠️ and the §1 verdict stands.
 
 **A length prefix that lies about an acknowledged frame is refused, not
-trimmed ([#262](https://github.com/srinji-kaggss/logicalworks-crates/issues/262)).**
-Until this change the one hold the module documentation itself named was real: an
+trimmed ([#262](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/262)).**
+Until this change the one hold the module documentation itself named was real. An
 acknowledged final frame whose stored length was changed from `L` to `L + k`
 was truncated on open, because a complete prefix over a frame the file cannot
-hold looks like an append cut short, and the head-short shape (`k` in `1..=32`)
+hold looks like an append cut short. The head-short shape (`k` in `1..=32`)
 was classified as torn without being asked at all. An open now decides on the
 bytes. Any payload length under the bytes present that reproduces the stored head,
 or a later whole frame that authenticates, was acknowledged, and the file is
@@ -66,14 +66,18 @@ prefix of one cut-short append is trimmed. Observed by
 `an_append_cut_at_every_byte_of_the_final_frame_is_repaired` (the control: no
 genuine cut is refused), and by `tests/it/sim_journal_tail.rs`, which sweeps seeded
 journals of one to a thousand frames through inflated, deflated, bit-flipped and
-cut prefixes, two tenants concurrently. **What it does not cover:** a final frame
+cut prefixes, two tenants concurrently.
+
+**What it does not cover:** a final frame
 whose length and head are both damaged has nothing to authenticate it and is
 trimmed (`a_final_frame_with_a_lying_length_and_a_damaged_head_is_the_stated_limit`),
 and a hand that truncates a file mid-frame is indistinguishable from a crash. The
 journal stays below the unattended-automation bar for the reasons in the ceiling
-paragraph of the continuation page, not for this one. The run store and the repair ledger shared the
-same defect through `frame::read_raw`, which treated every cut frame as a clean end;
-they now ask the same question of the same bytes, with each store's own head over
+paragraph of the continuation page, not for this one.
+
+The run store and the repair ledger shared the
+same defect through `frame::read_raw`, which treated every cut frame as a clean end.
+They now ask the same question of the same bytes, with each store's own head over
 its decoded record (`task::store::tests` and `task::ledger::tests`, including a
 ceiling-sized noise tail decided in bounded time). Their tests were not run against
 the unfixed code, so for those two stores the control is the cut-append test only.

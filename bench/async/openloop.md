@@ -37,9 +37,8 @@ a range, not a value).
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- --sim-open-loop
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --sim-open-loop
 ```
-
 ## Body kinds — timer, then CPU
 
 Timer bodies park: `--saturation` and `--refusal` run `--body-kind=timer` by
@@ -62,11 +61,10 @@ one door under another door's name.
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --saturation --window=1 --body-kind=cpu --cpu-rounds=300000 --workers=2 \
     --json=bench/async/saturation-cpu.json
 ```
-
 The recorder survives the deep queues a CPU sweep builds past its knee: every `u64` has a
 bucket, and samples past the 34 s ceiling land in the top one and count as clamped.
 
@@ -74,9 +72,8 @@ bucket, and samples past the 34 s ceiling land in the top one and count as clamp
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- --flood-split --rounds=41
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --flood-split --rounds=41
 ```
-
 The wall-clock half of INV-BOT-151 (`flood.rs`). Each paired round runs the
 neighbour alone and under four attacker submissions per neighbour task, back
 to back in alternating order, on a 64-permit pool with a 32-permit ceiling,
@@ -91,10 +88,9 @@ macOS arm64 host read throughput p50 1018‰ / 986‰ and decision p50
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- \
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- \
     --refusal --window=1 --json=bench/async/saturation-refuse.json
 ```
-
 The same ladder on `Supervisor::try_spawn`. Load average **16.09**, 2:56.55 wall,
 peak RSS 244,367,360 bytes:
 

@@ -10,6 +10,8 @@ public licence does not cover.
 | `lgwks_std` | Apache-2.0 | [`crates/lgwks-std/LICENSE`](crates/lgwks-std/LICENSE) |
 | `lgwks_ast` | Apache-2.0 | [`crates/lgwks-ast/LICENSE`](crates/lgwks-ast/LICENSE) |
 | `lgwks_deps` | Apache-2.0 | [`crates/lgwks-deps/LICENSE`](crates/lgwks-deps/LICENSE) |
+| `lgwks_macros` | Apache-2.0 | [`crates/lgwks-macros/LICENSE`](crates/lgwks-macros/LICENSE) |
+| `drishti` | Apache-2.0 | [`crates/drishti/LICENSE`](crates/drishti/LICENSE) |
 | `lgwks_bot` | **MPL-2.0** | [`crates/lgwks-bot/LICENSE`](crates/lgwks-bot/LICENSE) |
 
 Copyright 2026 Logical Works Incorporated.
@@ -19,7 +21,7 @@ Copyright 2026 Logical Works Incorporated.
 The root [`LICENSE`](LICENSE) is **MPL-2.0**, and it covers this repository: the
 documentation, the scripts, the CI configuration, and everything else in the
 tree that a crate's own `LICENSE` does not already cover. Each crate is governed
-by the file in its own directory, so the three Apache-2.0 crates stay
+by the file in its own directory, so the five Apache-2.0 crates stay
 Apache-2.0 as consumed artefacts while the repository they are built in is
 MPL-2.0. Where the two could be read as disagreeing, the crate's own file
 governs that crate.
@@ -74,7 +76,7 @@ will be recorded here when it is made. Until then, do not send patches to
 `lgwks_bot`. [`CONTRIBUTING.md`](CONTRIBUTING.md) states the same rule where a
 contributor will see it.
 
-This constrains nothing for the other three crates, which are Apache-2.0 with no
+This constrains nothing for the other five crates, which are Apache-2.0 with no
 relicensing ambition and need no agreement.
 
 ## The published versions did not change

@@ -28,10 +28,9 @@ the world (`crates/lgwks-bot/src/ecs/builder.rs:634`):
 ```rust
 world.insert_resource(Grants(grants.clone()));
 ```
-
 `Grants` is a private resource holding that clone. `GrantSet`
-(`crates/lgwks-bot/src/gate.rs:14`) has three methods that add or inspect:
-`empty`, `all_shipped`, `grant`, plus `admit` and `issue`. There is no `revoke`,
+(`crates/lgwks-bot/src/gate.rs:14`) adds and inspects through `empty`, `all_shipped`,
+`grant`, `grant_expiring`, `admit`, `uncovered`, `issue` and `issue_at`. There is no `revoke`,
 and no method that removes a capability: the set is data, and revoking it is an
 operation on the bot that holds it — `EcsBot::replace_grants` — not on the set.
 
@@ -43,7 +42,7 @@ The consequences, stated plainly:
 - An `Auth` you hold stays valid for the capabilities it covers. It is a
   capability-membership proof inside this process, not a signature and not an
   identity. A proof minted from an expiring grant lapses when its lifetime has
-  passed (see "A credential can lapse" below), but that lifetime is fixed at the
+  passed (see "A credential can lapse" above), but that lifetime is fixed at the
   mint and a built bot mints afresh on every call, so it does not narrow a
   running bot.
 - Narrowing a running bot is `replace_grants`: it swaps the retained set

@@ -24,11 +24,10 @@ here reproduces the tables: they record the run that made them. The ways whose
 sources remain each run one scenario per call:
 
 ```text
-cargo run --release -p lgwks_bot --example compare_orchestration -- <way> <scenario>
+cargo run --release --locked -p lgwks_bot --example compare_orchestration -- <way> <scenario>
 (cd bench/orchestration/go && go run . <scenario>)
 (cd bench/orchestration/node && node pool.mjs <scenario>)    # or effect.mjs
 ```
-
 `<way>` for the Rust example is `script`, `join_all`, `joinset` or `host`
 (`Host::run` per item); `host` has no row in the 2026-09-30 tables.
 Third-party code is pinned by checksum file or lockfile:

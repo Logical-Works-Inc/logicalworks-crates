@@ -18,7 +18,7 @@ Finished tasks are reaped at every entry point, which matters because a
 `JoinSet` retains a completed task's slot until it is joined. `Drop` cancels and
 aborts, so there is no `close()` to forget.
 
-A process cannot leak either. `spawn_process(command)` starts a child under the
+A process cannot leak either. `spawn_process(spec)` starts a child under the
 same ceiling and returns a `TaskId` rather than a `Child`, so there is no handle
 to drop. The child is placed in its own process group and the **group** is
 killed — when the task is cancelled, and when the supervisor drops or aborts —

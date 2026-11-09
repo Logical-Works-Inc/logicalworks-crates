@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::agent_start_page::{Known, findings};
+use crate::agent_start_page::{Known, command_findings, findings};
 use crate::seed::{Rng, Trace};
 
 /// How many pages each simulation draws.
@@ -147,6 +147,55 @@ fn sim_a_link_resolves_from_the_page_that_holds_it() {
             findings(&page, "", &known(), &inside).len(),
             lines,
             "seed {seed}"
+        );
+    }
+}
+
+/// The fat-finger names a command the binary lacks in every spelling a page uses,
+/// and the saboteur hides one in a fence: the oracle is the planted word. A healthy
+/// page's real commands and placeholders must stay silent, or the rule is noise.
+#[test]
+fn sim_a_page_command_the_binary_lacks_is_named() {
+    const PRINTED: &str = "lgwks-deps check [PATH]\nlgwks-deps catalog [ROOT]\n";
+    const HEALTHY: [&str; 6] = [
+        "Run `lgwks-deps check .` first.",
+        "`cargo run -p lgwks_deps -- catalog --json`",
+        "`lgwks-deps <command>` is the shape.",
+        "`lgwks-deps --help` and `lgwks-deps scan`, which moved.",
+        "`lgwks-deps`, `lgwks` and the gate binaries.",
+        "```sh\nlgwks-deps catalog --check\n```",
+    ];
+    const PLANTED: [&str; 4] = [
+        "Then `lgwks-deps WORD .` runs.",
+        "`cargo run -p lgwks_deps -- WORD`",
+        "```sh\nlgwks-deps WORD --json\n```",
+        "See `lgwks-deps WORD`, and read on.",
+    ];
+    for seed in 0..SEEDS {
+        let mut rng = Rng::new(seed);
+        let mut lines = Vec::new();
+        for _ in 0..rng.between(1, 12) {
+            if let Some(line) = draw(&mut rng, HEALTHY.len()).and_then(|at| HEALTHY.get(at)) {
+                lines.push((*line).to_owned());
+            }
+        }
+        assert_eq!(
+            command_findings(&lines.join("\n"), PRINTED),
+            Vec::<String>::new(),
+            "seed {seed}: a healthy page was refused"
+        );
+        let word = format!("gone{}", rng.below(1_000));
+        let Some(fault) = draw(&mut rng, PLANTED.len()).and_then(|at| PLANTED.get(at)) else {
+            continue;
+        };
+        let Some(at) = draw(&mut rng, lines.len()) else {
+            continue;
+        };
+        lines.insert(at, fault.replace("WORD", &word));
+        assert_eq!(
+            command_findings(&lines.join("\n"), PRINTED),
+            vec![format!("an unknown command, lgwks-deps {word}")],
+            "seed {seed}: the planted command went unnamed or was named twice"
         );
     }
 }

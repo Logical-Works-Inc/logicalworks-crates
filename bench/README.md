@@ -51,7 +51,6 @@ by field and aborts on any mismatch — and its own results, in
 CARGO_TARGET_DIR=/tmp/lgwks-bench-target \
   cargo run --release --locked --manifest-path bench/Cargo.toml -- --json=bench/results.json
 ```
-
 `--capcheck-only` skips the timing scenarios. The rig writes a JSON copy of its
 results and prints a human table; `results.json` in this directory is the
 committed record of the run in the headline. Two more doors:
@@ -67,7 +66,6 @@ cargo run --release --locked --manifest-path bench/Cargo.toml -- --alloc-report
 cargo run --release --locked --manifest-path bench/Cargo.toml -- \
   --scenario wide-4096x10 --alloc-report --profile
 ```
-
 `--scenario NAME` (or `--scenario=NAME`) restricts the timing run and both
 doors to that row; both doors run when both are asked for, in that order.
 
@@ -78,7 +76,8 @@ about the instrument.
 
 ## The result in one table
 
-One run on main `940e253cd` with #279's changes. The reading, the run-to-run
+One run on main `940e253cd` with #279's changes. The headline's own table reads a
+later run on `f1dc7434c`, with the quiet-tick skip (`poll-only-64x100` 854.9 ns, 26.36x). The reading, the run-to-run
 spread, the earlier run it is compared with and what each row is made of are in
 [the headline](bot-headline.md).
 
@@ -94,7 +93,7 @@ spread, the earlier run it is compared with and what each row is made of are in
 across the three doors). The four rows hold the change-tick fraction at one in
 ten and vary only the source count; the run fits them at **slope 1.206** (2.31x
 per doubling) and prints that line itself, and `--profile` puts the superlinear
-term in `act` ([§4.9](../../docs/production-readiness/4-9-performance.md)):
+term in `act` ([§4.9](../docs/production-readiness/4-9-performance.md)):
 
 | scenario | bot ns/tick | baseline ns/tick | ratio | 95% CI |
 |---|---:|---:|---:|---|

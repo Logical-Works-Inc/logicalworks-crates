@@ -29,7 +29,6 @@ if let Some(deficit) = Deficit::from_shortages(shortages) {
     return Err(BotError::CapabilityDenied { deficit });
 }
 ```
-
 So a bot that declares `bot.net` and is built with `GrantSet::empty()` fails
 before it ever ticks. The same gate runs on both terminal builder calls
 (`EcsBuilder::build` and `EcsObserveBuilder::build`), because both route through
@@ -80,7 +79,7 @@ state with no side effect to gate.
 Coverage is exact set membership, not subsumption
 (`crates/lgwks-bot/src/cap.rs:526`). A proof scoped to `bot.fs` presented to a
 source requiring `bot.net` is denied. A proof covering nothing authorizes
-nothing. Both cases have tests in `crates/lgwks-bot/src/spec.rs`
+nothing. Both cases have tests in `crates/lgwks-bot/src/spec/tests.rs`
 (`wrong_scope_proof_is_denied_confused_deputy`, `call_with_empty_proof_is_denied_at_the_callee`).
 
 The framework mints a fresh proof per call from the grant set it retained, so you

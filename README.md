@@ -115,6 +115,6 @@ Report vulnerabilities through the process in [`SECURITY.md`](SECURITY.md), not 
 
 ## License
 
-Copyright 2026 Logical Works Incorporated. `lgwks_std`, `lgwks_ast`, `lgwks_deps` and `drishti` are Apache-2.0;
+Copyright 2026 Logical Works Incorporated. `lgwks_std`, `lgwks_ast`, `lgwks_deps`, `lgwks_macros` and `drishti` are Apache-2.0;
 `lgwks_bot` is [MPL-2.0](crates/lgwks-bot/LICENSE), file-level copyleft. Each crate ships its own `LICENSE`;
 [`LICENSING.md`](LICENSING.md) states the rule, why the bot differs, and the commercial licence.

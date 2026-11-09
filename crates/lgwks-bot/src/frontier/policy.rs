@@ -13,7 +13,7 @@ use super::PolitenessError;
 /// The values are constructor arguments rather than constants inside the gate,
 /// because the right ones depend on the target and on the operator's
 /// obligations. [`Self::DEFAULT`] is declared, not fitted, and until a
-/// calibration exists (see `docs/general-bot-fold.md` §6 item 13) it is an
+/// calibration exists (see `docs/general-bot-fold-frontier.md` item 13) it is an
 /// unmeasured default rather than a validated one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

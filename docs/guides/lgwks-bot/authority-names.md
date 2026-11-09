@@ -13,7 +13,8 @@ Four capabilities ship (`crates/lgwks-bot/src/cap.rs:56`):
 | `Cap::SYS` | `bot.sys` | process control, environment |
 | `Cap::NOTIFY` | `bot.notify` | Slack, email, webhook push |
 
-`GrantSet::all_shipped()` grants all four. `Cap::new` accepts any name
+`GrantSet::all_shipped()` grants all four. The `ask` word checks a fifth name,
+`Cap::new("bot.model")`, which a host grants by name. `Cap::new` accepts any name
 (`crates/lgwks-bot/src/cap.rs:67`), because custom capabilities are data-driven:
 `Cap::new("your.domain.cap")` is a valid capability that nothing grants unless
 you grant it. Enforcement is equality at the gate, so a misspelled name is simply
@@ -30,7 +31,6 @@ The second is refused at the step that needs the grant, and the action never run
 ```text
 no grant: watching/watch/page: blocked: 1 ungranted: bot.notify
 ```
-
 `grant` is idempotent (`crates/lgwks-bot/src/gate.rs:59`), so granting a
 capability twice is the same as granting it once and you need not track what an
 earlier call added.

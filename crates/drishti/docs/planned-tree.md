@@ -2,7 +2,7 @@
 
 ## Planned runtime source tree
 
-Every path below is **planned / absent**. These are ownership seats, not stub capabilities.
+Every path below is **planned**, and absent unless [status](status.md) names it as an on-disk seat. These are ownership seats, not stub capabilities.
 
 ```text
 src/
@@ -62,6 +62,5 @@ tests/faults/                   interruption, loss, corruption, partial failure
 benches/                       matched direct-GPUI/idiomatic-comparator workloads
 examples/                      complete applications, not fake success demos
 ```
-
 Before introducing the runtime paths, decide whether each source seat is genuinely needed. A planned module may merge with an adjacent owner through a recorded decision; requirements and tests must not disappear with the file. The scripting adapter alternatives must not both be implemented by inertia.
 

@@ -26,9 +26,9 @@ default-run = "lgwks-deps"
 # which reads Rust through its one tree-sitter parser (ADR 0002, #408), so this
 # crate authors no Rust grammar at all.
 [features]
-# Every capability this crate owns is on by default (Director, 2026-10-22, #732):
-# the proc-macro authoring stack, the `script!` token reader, the whole tokio
-# storefront and the Bevy runtime set. ADR 0003 is the decision.
+# The default set is the doctor and the `lgwks` binary. Every other capability
+# (the proc-macro stack, the `script!` token reader, the tokio storefront, the
+# Bevy runtime set) is a named feature below. ADR 0003 is the decision.
 #
 # The storefront's default selection is empty, and that is a decision this
 # register states rather than an omission: the target matrix builds this crate
@@ -43,9 +43,9 @@ default-run = "lgwks-deps"
 # flag an agent has to guess. Three groups are default-off with their measured
 # cost in ADR 0003:
 #
-#   * `gpui` — the Apple-only GPU UI framework. `objc2` refuses to compile off
-#     Apple targets, so a default carrying it would make this crate fail to build
-#     on Linux and Windows.
+#   * `gpui` — Zed's GPU UI framework. macOS builds need an Xcode Metal toolchain
+#     and Linux builds the platform development stack, so a default carrying it
+#     would fail to build wherever those are absent.
 #   * `ml-candle`, `ml-candle-metal`, `ml-tokenizers` — an ML inference runtime
 #     and the HuggingFace tokenizer. Measured on this machine 2026-10-22:
 #     `cargo check -p lgwks_deps --features ml-candle,ml-tokenizers` cost 90 s on
@@ -58,8 +58,8 @@ default = ["debug-doctor", "lgwks"]
 macro = ["dep:proc-macro2", "dep:quote"]
 # The `lgwks expand` formatter (#787): pretty-printing the emitted Rust needs
 # the tokens parsed (syn) and printed (prettyplease), neither of which the
-# estate owns. One feature for the pair, default-on like every capability this
-# crate owns, following the `macro` precedent (one feature, two edges).
+# estate owns. One feature for the pair, default-on through `lgwks`, following
+# the `macro` precedent (one feature, two edges).
 prettyplease = ["dep:prettyplease", "dep:syn"]
 # The `lgwks` binary (#787): the one script reader and emitter (`lgwks_ast`)
 # plus the formatter `expand` prints through. Default-on; the binary requires
@@ -73,8 +73,8 @@ script = ["dep:proc-macro2"]
 # Storefront features. `lgwks_deps` is the install-and-select surface:
 # the end user enables the third-party capability they want. gpui is Zed's GPU
 # desktop UI framework; `tokio` is the async engine behind `lgwks_bot`'s runner
-# surface. Both are selected above except gpui, whose Apple-only closure is why
-# it is not in the default set.
+# surface. None is in the default set; the `default` comment above says why, and
+# `lgwks-deps catalog` lists each one.
 gpui = ["dep:gpui", "gpui/default"]
 appcui = ["dep:appcui"]
 # Day-0 revenue slice (#721): HTTP routing, HTTP middleware and the AI input
@@ -119,8 +119,8 @@ tokio-full = [
 # ECS storefront. One state substrate serves three consumers: `lgwks_bot`'s
 # four-verb actors, drishti's incremental derivation, and the GPU framework's
 # demand-driven execution. `bevy-ecs` is the substrate; the other three are what
-# turn it into a runtime rather than a data structure. All four are in the
-# default set and pull no renderer, no windowing, and no audio.
+# turn it into a runtime rather than a data structure. All four are default-off,
+# like every storefront group, and pull no renderer, no windowing, and no audio.
 bevy-ecs = ["dep:bevy_ecs"]
 bevy-app = ["bevy-ecs", "dep:bevy_app"]
 bevy-time = ["bevy-ecs", "dep:bevy_time"]

@@ -19,7 +19,6 @@ Own a `Client` when a loop or a fan-out issues many exchanges:
 let client = Client::with_pool(Options::default(), PoolConfig::default())?;
 let response = client.get_with(url, client.options())?;
 ```
-
 One agent, many exchanges: a second request to a reached origin reuses the
 idle keep-alive connection. `PoolConfig` sets the idle ceilings and the
 idle age (ten connections, three per host, fifteen seconds — ureq's own
@@ -62,6 +61,6 @@ pool reuse, one-shot cost, expiry, clones, tenant isolation
 (`http::tests::pool`); chunked and torn streams, ceiling outcomes, SSE
 dispatch, pagination walks (`http::tests::streaming`); roots, key forms,
 mismatches, Ed25519, truncation sweeps (`http::tests::tls`). Seeded
-simulations sweep bursts and chunkings (`tests/it/sim_http_{pool,stream}`);
+simulations sweep bursts and chunkings (`tests/it/sim_http_pool.rs`, `tests/it/sim_http_stream.rs`);
 the mTLS handshake runs against a real `rustls` server with a private CA
-that requires client certificates (`tests/it/sim_http_tls`).
+that requires client certificates (`tests/it/sim_http_tls.rs`).

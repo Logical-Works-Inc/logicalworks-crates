@@ -1,9 +1,10 @@
 # Workflow §12: the CI run table
 
 Moved verbatim from `WORKFLOW.md` §12 on 2026-10-22, when every Markdown file in
-a repository was held to 120 lines (Director, 2026-10-10). One row is added by a
-newer run; nothing else changed. The specification is
-[`ci-layout.md`](ci-layout.md).
+a repository was held to 120 lines (Director, 2026-10-10). Every row is a run of the
+self-hosted layout retired on 2026-11-03 (province#9), so the table is that layout's
+record, and a phrase like "§12 fact 3" in a row means the specification of its day.
+The current specification is [`ci-layout.md`](ci-layout.md).
 
 | Run | Commit | Layout | Wall clock | Job-seconds | Result |
 |---|---|---|---|---|---|

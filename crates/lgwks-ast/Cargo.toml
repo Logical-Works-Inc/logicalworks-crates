@@ -113,8 +113,8 @@ hunks = ["dep:tracing"]
 # The zero-gate source detectors (INV-SCAN-ZERO, #408): `lgwks_ast::scan` and
 # the `lgwks-ast scan` subcommand, which read Rust through the one parser and
 # need nothing it does not already hold: the Rust grammar and the checked parse.
-# They live here because `script` makes this crate depend on `lgwks_deps`, so
-# `lgwks_deps` calling back is a cycle Cargo refuses (ADR 0001). Default off.
+# They live here because `lgwks_deps` depends on this crate (feature `lgwks`), so
+# the reverse edge is a cycle Cargo refuses (ADR 0001). Default on.
 scan = ["lang-rust"]
 # The CODE half of legacy comprehension (#777): the COBOL and JCL reader with
 # its PERFORM, CALL, file, field and job graphs and line-pinned summaries,

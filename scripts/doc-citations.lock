@@ -78,7 +78,6 @@ crates/lgwks-bot/src/session.rs:1	//! Validated declarative guidance flows and a
 crates/lgwks-bot/src/session/graph.rs:122	pub enum Disposition {
 crates/lgwks-bot/src/session/graph.rs:149	pub struct EffectLedger {
 crates/lgwks-bot/src/session/graph.rs:280	Refused {
-crates/lgwks-bot/src/session/graph.rs:387	pub struct FlowSpec {
 crates/lgwks-bot/src/session/graph.rs:421	bounds,
 crates/lgwks-bot/src/session/graph.rs:455	/// Parse and validate a flow using the shared JSON facade.
 crates/lgwks-bot/src/session/limits.rs:16	/// one costs memory for nothing.
@@ -94,15 +93,12 @@ crates/lgwks-bot/src/session/runner.rs:673	/// The one place a session reads a t
 crates/lgwks-bot/src/session/scope.rs:294	total = total
 crates/lgwks-bot/src/session/scope.rs:442	pub struct TemplateInterpolator;
 crates/lgwks-bot/src/session/validate.rs:121	for option in options {
-crates/lgwks-bot/src/session/validate.rs:184	/// A helper for the pair rather than two calls: the branch's whole contract is
 crates/lgwks-bot/src/session/validate.rs:528	return refusal;
 crates/lgwks-bot/src/session/value.rs:94	String,
 crates/lgwks-bot/src/session/value.rs:151	pub fn decode_answer(&self, answer: &str) -> Result<Value, AnswerRejection> {
 crates/lgwks-bot/src/session/value.rs:207	pub(crate) fn decode_integer(raw: &str) -> Option<i64> {
-crates/lgwks-bot/src/session/value.rs:287	Literal(Value),
 crates/lgwks-bot/src/spec.rs:351	pub use crate::ecs::{
 crates/lgwks-bot/src/spec.rs:738	let auth: Auth = grants.issue(self.0.required_caps())?;
 crates/lgwks-deps/src/lib.rs:23	//! remote CI. It reads `cargo metadata --no-deps`, not the transitive lockfile
 crates/lgwks-std/src/process/identity.rs:386	pub fn reap_orphaned_group(leader: &ProcessIdentity) -> io::Result<OrphanReap> {
 crates/lgwks-std/src/task/blocking.rs:155	pub fn spawn_blocking<F, T>(job: F) -> JoinHandle<T>
-docs/guidance-runner-spec.md:193	`review`.

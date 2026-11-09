@@ -101,6 +101,10 @@ USAGE
   second PATH exits 2 without auditing anything. --contract's FILE is a
   register and never the audit target, whichever order the two appear in.
   lgwks-deps invariants [PATH]         audit the optional invariant register
+  lgwks-deps catalog [ROOT]            every capability the estate owns, its owner
+             [--json]                  and whether it is on by default; one JSON
+             [--write]                 object, a re-render of docs/catalog.md, or
+             [--check]                 a refusal when the catalog and tree disagree
    lgwks-deps retire --report [PATH]     render every edge's exit mortgage:
               [--json]                   replacement, blocker, measured cost
                                          and review, with the summed distance
@@ -287,6 +291,7 @@ fn dispatch(
         Some("advisories") => lgwks_deps::advisories::run(&args[1..], USAGE, out, err),
         Some("retire") => handle_retire(&args[1..], out, err),
         Some("invariants") => handle_invariants(&args[1..], out, err),
+        Some("catalog") => handle_catalog(&args[1..], out, err),
         Some("request") => run_request(args.get(1), args.get(2), out, err),
         Some("init") => run_init(args.get(1).map(PathBuf::from), out, err),
         Some("tiers") => handle_tiers(out),
@@ -516,6 +521,7 @@ macro_rules! unwrap_or_refuse {
     };
 }
 
+mod catalog_cmd;
 mod check_args;
 mod check_report;
 mod debug_cmd;
@@ -525,6 +531,7 @@ mod request_cmd;
 mod retire_cmd;
 mod vendor_cmd;
 
+use catalog_cmd::handle_catalog;
 use check_args::handle_check;
 use check_report::{
     CheckOutcome, InvariantReport, report_check, report_check_with_invariant_error,

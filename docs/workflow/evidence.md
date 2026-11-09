@@ -47,7 +47,7 @@ collapse these into "done".
 ### Merge gate
 
 Source review may proceed against local receipts. Merge eligibility requires
-executed reproduction of the affected lanes on hosted or self-hosted CI. A
+executed reproduction of the affected lanes on hosted CI. A
 bounded exception requires explicit Director authorization recorded in
 `GOVERNANCE.md` with its replacement evidence enumerated. A local PASS claim
 alone is never a satisfied execution gate.

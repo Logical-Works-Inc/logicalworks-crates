@@ -5,13 +5,13 @@ description: AppCUI ownership, default-off feature boundary and release evidence
 resource: /docs/appcui-admission.md
 tags: [dependencies, appcui, terminal, rocco]
 decision: 2026-09-17
-stale_after: 2026-10-17
+stale_after: 2026-12-09
 sources: [/docs/dependency-doctrine.md, /contract/APPROVED.toml, https://github.com/gdt050579/AppCUI-rs, https://crates.io/crates/appcui/0.5.5]
 ---
 
 # AppCUI native terminal storefront admission
 
-This document records the approval of AppCUI as the native terminal rendering
+This page records the approval of AppCUI as the native terminal rendering
 capability for Rocco, with the alternatives measured against it, the ownership
 boundary, and the release evidence observed to date.
 

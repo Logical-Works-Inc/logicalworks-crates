@@ -220,6 +220,15 @@ fn item(trimmed: &str) -> bool {
         })
 }
 
+/// Whether a trimmed line is an ATX heading: one to six `#`, then a space, a tab
+/// or the end of the line (CommonMark 0.31 §4.2). A wrapped `#108) was closed`
+/// is prose.
+fn heading(trimmed: &str) -> bool {
+    let body = trimmed.trim_start_matches('#');
+    let depth = trimmed.len().saturating_sub(body.len());
+    (1..=6).contains(&depth) && (body.is_empty() || body.starts_with([' ', '\t']))
+}
+
 /// Classifies `line`, given whether a fence is open.
 fn kind(line: &str, fenced: bool) -> Kind {
     let trimmed = line.trim_start();
@@ -227,7 +236,7 @@ fn kind(line: &str, fenced: bool) -> Kind {
         Kind::Fence
     } else if trimmed.is_empty() {
         Kind::Blank
-    } else if trimmed.starts_with('#') {
+    } else if heading(trimmed) {
         Kind::Heading
     } else if trimmed.starts_with('|') {
         Kind::Table
@@ -527,6 +536,27 @@ mod tests {
             skipped
                 .iter()
                 .any(|finding| finding.contains("skips a level")),
+            "{skipped:?}"
+        );
+    }
+
+    /// CommonMark 0.31 §4.2: a heading is one to six `#` and then a space, so a
+    /// sentence wrapped onto a line opening `#108)` stays in its paragraph, and a
+    /// real heading after it is judged against the real level above.
+    #[test]
+    fn a_wrapped_issue_number_is_prose_and_not_a_heading() {
+        let wrapped = judge(
+            "# T\n\nSays.\n\n## A\n\nSays that the rest,\n#108) stayed open.\n\n### B\n\nSays.\n",
+        );
+        assert!(wrapped.is_empty(), "{wrapped:?}");
+        let seven = judge("# T\n\nSays.\n\n####### Not a heading\n\n## B\n\nSays.\n");
+        assert!(seven.is_empty(), "{seven:?}");
+        let skipped =
+            judge("# T\n\nSays.\n\n## A\n\nSays that the rest,\n#108) stayed open.\n\n#### Deep\n");
+        assert!(
+            skipped
+                .iter()
+                .any(|finding| finding.contains("a level-4 heading under a level-2 one")),
             "{skipped:?}"
         );
     }

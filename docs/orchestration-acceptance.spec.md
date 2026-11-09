@@ -3,18 +3,20 @@
 Status: **the acceptance campaign has run, at `dfc13a96` (`origin/main`,
 2026-10-15); no row is accepted**. Every T01–T36 falsifier names its tests
 ([`acceptance/t-rows.toml`](acceptance/t-rows.toml)), and CI run
-[38795282994](https://github.com/srinji-kaggss/logicalworks-crates/actions/runs/38795282994)
+[38795282994](https://github.com/Logical-Works-Inc/logicalworks-crates/actions/runs/38795282994)
 ran exactly those on the two supported containment backends, macOS
 (`darwin-arm64`) and Linux (`linux-aarch64`, the container leg): both receipts
 read 251 of 251 named tests passing and 35 of 36 rows `exercised`. The run's
 conclusion is `cancelled`: its `GPUI Windows renderer` job hit the 5-minute job
-cap, and every job the receipts read passed. The rows that need an independent
+cap, and every job the receipts read passed.
+
+The rows that need an independent
 oracle run their children from outside (T03 `t03_non_yielding`, T14
 `durable_crash_observation` with a real `SIGKILL`, T21 `process_escape`). T21 is
 the one partial row: that run had no Windows receipt, and no escape from a job
 is driven on Windows. The Windows tests for T19–T21 are named in
 [`acceptance/t-rows-windows.toml`](acceptance/t-rows-windows.toml) and receipted
-as `windows-x86_64` by the Windows job (owner [#263](https://github.com/srinji-kaggss/logicalworks-crates/issues/263)).
+as `windows-x86_64` by the Windows job ([#263](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/263), closed).
 The record is that run's `acceptance-receipts` artifact; the table below renders
 the macOS receipt. No row reads `accepted` because the map claims none; only the
 map promotes a row. A passing existing workflow does not execute tests that have
@@ -66,9 +68,7 @@ and multi-axis evaluation that would accept these rows are in
 | T36 | DX-11 | Progress buffer overflow loses only declared detail and increments counters; authoritative terminal/Unknown state is still retrievable. A quiet client never requires a task-owned reporting loop. |
 
 Test implementations must use externally bounded subprocesses for hangs and
-crash paths. A timeout on the executor that may be blocked is not an independent
-oracle. Run process containment checks on the actual supported OS backends;
-compiling a cfg branch is not runtime evidence for it.
+crash paths. A timeout on the executor that may be blocked is not an independent oracle. Run process containment checks on the actual supported OS backends; compiling a cfg branch is not runtime evidence for it.
 
 ## Per-row evidence at this revision
 

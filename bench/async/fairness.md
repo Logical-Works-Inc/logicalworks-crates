@@ -4,7 +4,7 @@ Why the rig is its own workspace, the gate that refuses a ratio on unequal work,
 
 ## Its own workspace root, and why
 
-The comparison needs a raw `tokio` edge the four published crates must never
+The comparison needs a raw `tokio` edge the published crates must never
 author. `lgwks-deps check` discovers packages through Cargo's own
 `workspace_members`, so a separate root is invisible to the gate — the same
 arrangement `bench/` uses.
@@ -68,9 +68,8 @@ work-count reason*.
 
 ```sh
 CARGO_TARGET_DIR=/tmp/lgwks-bench-async \
-  cargo run --release --manifest-path bench/async/Cargo.toml -- --mutant-check
+  cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --mutant-check
 ```
-
 Recorded output, Apple M5 Pro, macOS 27.0, rustc 1.98.0, 512 tasks at bound 8:
 
 ```
@@ -80,7 +79,6 @@ the refusal names a work-count field, so the gate discriminates on work
 mutant tally:  placed 512 completed 505 cancelled 0 aborted 0 work_units 509
 honest tally:  placed 512 completed 512 cancelled 0 aborted 0 work_units 512
 ```
-
 The mutant is the honest facade body with one parameter flipped — `Drain::GiveUp`
 instead of `Drain::Complete` — so the defect is readable in a diff of one line
 rather than by comparing two functions. Which field the gate *names* depends on

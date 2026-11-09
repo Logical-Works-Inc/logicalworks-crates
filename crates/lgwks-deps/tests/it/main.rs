@@ -91,6 +91,7 @@ mod sim_metadata_dimensions;
 mod sim_origin;
 mod sim_policy_properties;
 mod sim_register_policy;
+mod sim_requirements_pages;
 #[cfg(feature = "lgwks")]
 mod sim_retire;
 mod sim_seed_draws;

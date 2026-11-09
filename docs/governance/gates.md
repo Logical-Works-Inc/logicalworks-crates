@@ -71,8 +71,9 @@ governance change and follows these rules:
    level to pass a check is a suppressed gate, and it is a defect.
 4. It never turns a `forbid` into a `deny` except through the documented
    exceptions in `CODEBOOK.md` §2.1.
-5. Retiring a document moves it to `docs/archive/` and registers the
-   supersession here. There is never a second live copy.
+5. Retiring a document moves it to `docs/archive/`, a directory the first such
+   move creates, and registers the supersession here. There is never a second
+   live copy.
 6. This repository's dependency doctrine (`AGENTS.md`, `docs/dependency-doctrine.md`,
    `contract/APPROVED.toml`) is a *narrower* rule layered on top of `CODEBOOK.md`
    §10. Where they conflict on a dependency question, the narrower rule wins.

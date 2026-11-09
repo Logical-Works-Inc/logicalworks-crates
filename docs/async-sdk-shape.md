@@ -1,26 +1,28 @@
 # The async surface as an SDK
 
+Continued in: [Corrections](async-sdk-shape-corrections.md).
+
 Status: **design contract; step 1 of the front door has since shipped.** Reviewed
 against `51897f8c0cda627d3b3abcee28bda6ebb690f7a1`, 2026-09-21.
-Tracking: [#87](https://github.com/srinji-kaggss/logicalworks-crates/issues/87).
+Its tracker was [#87](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/87).
 This revision replaces the earlier scope-first proposal.
 
 **What has changed since this page was written, so it is not read as the
-current SDK.** `lgwks_bot::task` now ships `Host`, `Task` and `Report` — build
-a `Host` once with a tenant, stop token, admission ceiling, deadline and trail
-capacity, define a `Task` with `task(name, body)`, and `host.run(&task,
-input).await` returns a `Report` carrying the disposition, the typed output, the
+current SDK.** The `lgwks_bot::task` module now ships `Host`, `Task` and `Report`.
+Build a `Host` once with a tenant, stop token, admission ceiling, deadline and trail
+capacity, define a `Task` with `task(name, body)`, and call `host.run(&task,
+input).await`. The `Report` carries the disposition, the typed output, the
 located error and a bounded step trail (INV-BOT-20, exercised by
 `tests/it/task_front_door.rs` and `tests/it/sim_task.rs`). **Bodies are polled on the
 calling task, so they need not be `Send` and inputs may borrow** — which is the
-property this document argued for and which `async-parity.md` §5a now records as
-the only shipped route for a non-`Send` future.
+property this page argued for and which `async-parity.md` §3 now records as
+the shipped route for a non-`Send` future.
 
 So this page is **half historical**. The contract and the reasoning below are
-still the design of record and the rest of #87 is still open, but:
+still the design of record, and #87 itself is closed, but:
 
 - The symbols below are **not** all proposals any more; the ones in
-  `lgwks_bot::task` ship, with the names that module actually uses.
+  `lgwks_bot::task` ship, with the names that module uses.
 - **Do not read a symbol spelling below as the available API.** Where this page
   and `lgwks_bot::task` disagree, `lgwks_bot::task` is what a consumer compiles
   against. A proposed spelling that never shipped is a design record, not an
@@ -46,7 +48,6 @@ Illustrative target, not a compilable example of a shipped API:
 let review = task("review-pr", review_script);
 let report = host.run(review, pr).await?;
 ```
-
 A host is configured once with explicit policy and adapters. That configuration
 is real work and must be included in usability measurements. A tiny call site
 that hides hundreds of bespoke orchestration lines in `review_script` fails
@@ -100,55 +101,3 @@ implementation/integration facilities beneath the task-first facade, not a
 checklist every application repeats. This proposal does not authorize replacing
 Tokio, removing ECS, adding a parallel workflow engine, or adding dependencies
 outside `AGENTS.md`'s ownership policy.
-
-## Corrections to the earlier proposal
-
-1. **Scope/spawn is not the front door.** Structured lifetime remains necessary,
-   but consumers should name business work rather than manage child handles.
-   A result reference is not ownership of the execution; dropping a view must
-   not abandon its owner.
-2. **No second mandatory `PlanSpec`.** Native task code, existing `BotSpec` and
-   existing `FlowSpec` must converge on registered typed operations and one
-   execution/recording path. They are not equivalent today: `FlowSpec`'s Route
-   is a node transition, not a tool call. Evolve versioned node forms where
-   needed instead of asserting that a materializer already exists.
-3. **No magical scoped parallel borrowing.** Same-task local composition may
-   borrow and remain non-Send. Parallel/remote work crosses an explicit owned
-   boundary. Do not promise all lifetime/execution properties simultaneously;
-   see the Rust research in the evidence document.
-4. **No destructor-as-join claim.** Rust allows safe values to be forgotten and
-   Drop cannot await. The host owns cleanup, reports unresolved cleanup and
-   provides an explicit drain. Memory safety must not depend on a caller
-   polling a future to completion.
-5. **No absolute no-spawn claim about `lgwks_std::task`.** It has a
-   `spawn_blocking` facility. Scheduling policy must cover actual entry paths,
-   not names the guide wishes were absent.
-6. **No reopening owner decisions by implication.** The first-party scheduler
-   direction and the accepted existing time layers remain recorded decisions.
-   Exact simulated replay is a separate, unproved capability; wall-clock APIs
-   alone do not establish it. Any additional clock seam requires its own
-   implementation and acceptance, not a claim that it has already landed.
-
-## Entry modes and guarantees
-
-`run` is a scoped invocation under a live host. A deliberately persistent
-submission is a separately named operation on a configured durable host; it is
-not the accidental consequence of dropping a handle. Local borrowed tasks
-cannot be submitted as remote/durable work.
-
-An arbitrary async function may run locally. It does not thereby become
-serializable or restartable. Durable tasks use versioned registered operation
-boundaries and recorded results; opaque scripts are a single effect unless
-they opt into an explicit checkpoint protocol. Model calls are external,
-potentially costly operations, not pure expressions recomputed during replay.
-
-## Delivery order
-
-Repair the concrete lifecycle/cache defects first or alongside the facade;
-then land one typed local task returning a real result, bounded composition,
-owned process/readiness operations, registry materialization and the verified
-PR-review journey. Durable resumption and AI proposal helpers build on those
-same boundaries. A backend without a real consumer/test is not closure.
-
-The [acceptance specification](orchestration-acceptance.spec.md) is the release
-contract. Merging these documents alone does not close #87.

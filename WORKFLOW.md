@@ -24,7 +24,7 @@ agent entry point is `AGENTS.md`.
 | 8, 9 | Agent economics; data safety and the guard | [`docs/workflow/agents.md`](docs/workflow/agents.md) |
 | 10, 11 | The runner map; the mandatory WWFD cycle | [`docs/workflow/local-ci.md`](docs/workflow/local-ci.md) |
 | 12 | The CI specification | [`docs/workflow/ci-layout.md`](docs/workflow/ci-layout.md) |
-| 12 | The CI run table, 25 runs | [`docs/workflow/ci-runs.md`](docs/workflow/ci-runs.md) |
+| 12 | The CI run table of the retired self-hosted layout | [`docs/workflow/ci-runs.md`](docs/workflow/ci-runs.md) |
 
 ## The rules a reader needs before the first tool call
 

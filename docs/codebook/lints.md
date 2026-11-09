@@ -34,9 +34,10 @@ property is the only reason the contract binds without a human in the loop.
 
 | Lint | Why `deny` |
 |---|---|
-| `print_stderr` / `print_stdout` | `main.rs`, `src/bin/`, `examples/`, `benches/` are exempt surfaces under the PRINTS rule and must be able to lower the lint with a reasoned `#[expect]` |
-| `exit` | crash and process-kill fixtures must call `process::exit` to skip `Drop`; `forbid` would make those fixtures unexpressible |
-| `unsafe_code` | one reviewed FFI leaf must carry `#[expect(unsafe_code, reason = "...")]`; `E0453` forbids lowering `forbid`. Every safe crate still states `#![forbid(unsafe_code)]` at its root and is therefore stricter than the table |
+| `clippy::disallowed_methods` / `clippy::disallowed_types` | API bans with real, narrow, test-scoped exceptions: a test of the thread-parking `lgwks_std::task` must spawn a thread and sleep, so it carries a reasoned `#[expect]` at the test module |
+| `missing_docs` / `rustdoc::broken_intra_doc_links` | documentation rules the workspace holds at `deny`, read by the doc lanes |
+
+`print_stderr`, `print_stdout` and `exit` are `forbid`: a binary writes through an `io::Write` handle and returns an `ExitCode`. `unsafe_code` is `forbid` too, and `lgwks_std` alone copies the table with one line lowered to `allow` for its syscall modules, held closed by two tests (INV-STD-UNSAFE-1).
 
 ### 2.2 The four silent traps
 
@@ -63,15 +64,15 @@ with a control crate (`exit`, `print_stderr`, `print_stdout` all at `deny`):
 | `std::process::exit` inside `fn main` | `clippy::exit` does not fire there under any call form (`std::process::exit`, `use std::process::exit`, `use std::process`) | a `#[expect(clippy::exit)]` on a bin that only exits from `main` is unfulfilled, and the `deny` never bites. A crash fixture that must exit calls it from a helper (`fn fail(...) -> !`), never from `main` |
 | `writeln!(std::io::stderr(), ..)` | `clippy::print_stderr` does not fire | the PRINTS rule bans it and the lint does not. It is an API-ban and review rule, not a lint rule |
 
-`clippy::exit` does fire on the same call from any other function. That is the
-whole reason the crash fixtures keep their exit site in a helper.
+`clippy::exit` does fire on the same call from any other function. All three lints
+have since moved to `forbid`, so a fixture cannot lower them at all.
 
 ### 2.3 The coverage ceiling
 
 **The corpus has 75 entries and the workspace configures 75 lints, but the two
-numbers are not a partition.** Of the 75 anti-patterns, 69 are configured as
-`clippy` lints, 5 as `rustc` lints (moved out of the `clippy::` namespace
-because they are not clippy's), and 1 as a `rustdoc` lint. The remaining
+numbers are not a partition.** The table holds 68 `clippy` lints, 6 `rustc` lints
+(three of them moved out of the `clippy::` namespace because they are not
+clippy's) and 1 `rustdoc` lint: 70 at `forbid`, 4 at `deny` and 1 at `warn`. Other
 entries of the corpus need Miri, hardware performance counters, allocation
 profiling, or human review; they are not lint-expressible and no configuration
 will catch them.
