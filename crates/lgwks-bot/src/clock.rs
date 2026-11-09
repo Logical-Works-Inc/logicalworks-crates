@@ -66,7 +66,9 @@
 //! [`ClockSnapshot::remaining_from`] gives the remaining duration of a budget at
 //! the recorded point, and a restarted clock restored to that point has the same
 //! remaining budget. Nothing on this type can be mistaken for a wall-clock
-//! timestamp, because it carries no epoch and no host identity.
+//! timestamp, because it carries no epoch and no host identity. A value that does
+//! carry an epoch, and can be recorded and restored exactly, is a [`RecordedInstant`]
+//! from an [`EpochClock`].
 //!
 //! # No-runtime construction
 //!
@@ -79,11 +81,17 @@
 //! [`Clock::wall`]: crate::clock::Clock::wall
 //! [`WallClock`]: crate::clock::WallClock
 //! [`ClockSnapshot::remaining_from`]: crate::clock::ClockSnapshot::remaining_from
+//! [`EpochClock`]: crate::clock::EpochClock
+//! [`RecordedInstant`]: crate::clock::RecordedInstant
 
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+mod epoch;
+
+pub use epoch::{EpochClock, RecordedInstant};
 
 /// Largest duration a logical instant can represent, saturating rather than
 /// wrapping.
@@ -229,11 +237,17 @@ pub enum ClockError {
         /// The largest advance that would have been accepted.
         ceiling: Duration,
     },
+    /// The system clock reads before the Unix epoch, so no [`EpochClock`] can be
+    /// anchored on it.
+    BeforeEpoch,
 }
 
 impl fmt::Display for ClockError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
+            Self::BeforeEpoch => {
+                formatter.write_str("the system clock reads before the Unix epoch")
+            }
             Self::NotVirtual => formatter
                 .write_str("the clock follows real time and cannot be advanced by a caller"),
             Self::OutOfRange { requested, .. } => {
@@ -753,57 +767,4 @@ fn nanos_to_duration(nanos: u64) -> Duration {
 }
 
 #[cfg(all(test, feature = "time"))]
-mod tests {
-    use super::Clock;
-    use std::future::Future as _;
-    use std::pin::pin;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::task::{Context, Poll, Wake, Waker};
-    use std::time::Duration;
-
-    /// A waker that counts its wakes, so the test can prove the advance
-    /// reached the parked future rather than only that its condition held.
-    struct Countdown(AtomicUsize);
-
-    impl Wake for Countdown {
-        fn wake(self: Arc<Self>) {
-            self.0.fetch_add(1, Ordering::Relaxed);
-        }
-    }
-
-    /// A virtual sleep is pending until an advance reaches its deadline, and
-    /// then ready — with no runtime, no timer and no real time spent.
-    #[test]
-    fn a_virtual_sleep_waits_for_the_advance_that_reaches_its_deadline() {
-        let clock = Clock::virtual_at(Duration::ZERO);
-        let woken = Arc::new(Countdown(AtomicUsize::new(0)));
-        let waker = Waker::from(Arc::clone(&woken));
-        let mut context = Context::from_waker(&waker);
-        let mut sleep = pin!(clock.sleep(Duration::from_millis(10)));
-        assert!(
-            matches!(sleep.as_mut().poll(&mut context), Poll::Pending),
-            "a virtual clock nobody advanced must not complete its sleep"
-        );
-        assert!(
-            clock.advance(Duration::from_millis(5)).is_ok(),
-            "half the deadline is inside the representable range"
-        );
-        assert!(
-            matches!(sleep.as_mut().poll(&mut context), Poll::Pending),
-            "half the deadline is not the deadline"
-        );
-        assert!(
-            clock.advance(Duration::from_millis(5)).is_ok(),
-            "the second half is inside the representable range"
-        );
-        assert!(
-            woken.0.load(Ordering::Relaxed) >= 1,
-            "the advance must wake the parked sleep, not only satisfy its condition"
-        );
-        assert!(
-            matches!(sleep.as_mut().poll(&mut context), Poll::Ready(())),
-            "an advance that reaches the deadline must complete the sleep"
-        );
-    }
-}
+mod tests;

@@ -287,6 +287,8 @@ mod journal_scale;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod journal_writer_fence;
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod kernel_surface;
 #[cfg(all(feature = "script", feature = "legacy"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod legacy_script;
@@ -333,6 +335,8 @@ mod proposal;
 mod readme_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod ready;
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod recorded_instant_cli;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod registry;
@@ -525,6 +529,8 @@ mod sim_proposal;
 mod sim_readme_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod sim_ready;
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod sim_recorded_instant;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_repair;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]

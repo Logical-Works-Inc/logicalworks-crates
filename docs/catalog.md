@@ -72,6 +72,8 @@ the crate is the decision. An `off` row states why in ADR 0003.
 | record projection | `lgwks_bot::RecordProjection` | `lgwks_bot` | `ecs` | on | read model, materialized view, event sourcing, fold over a log, rebuild from journal, deterministic replay, catch up |
 | durable stop | `lgwks_bot::script::JournaledCancel` | `lgwks_bot` | `script` | on | durable cancellation, cancel survives restart, journaled cancel, resume cancellation, stop a run across a crash |
 | app authentication | `lgwks_bot::app::Principal` | `lgwks_bot` | `edge` | on | bearer key, authenticate request, api key, 401 at the edge, authorization header |
+| recorded instant | `lgwks_bot::kernel::clock::RecordedInstant` | `lgwks_bot` | `wire` | on | epoch timestamp, record a time, seeded clock, replay a timestamp, unix nanos |
+| kernel surface | `lgwks_bot::kernel` | `lgwks_bot` | `wire` | on | supported runtime parts, host flows, journal broker lease, compatibility promise, build a runtime |
 
 ## When the gate refuses your code
 
