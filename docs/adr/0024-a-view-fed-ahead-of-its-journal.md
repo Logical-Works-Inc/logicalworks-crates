@@ -33,7 +33,7 @@ Elements and relations: `RecordProjection::empty`, `RecordProjection::fold_one`,
 
 ## Correspondence
 
-Refines ADR 0016, whose journal stays the truth.
+Refines ADR 0016, whose journal stays the truth, and ADR 0018, whose fold this feeds.
 
 ## Verification
 

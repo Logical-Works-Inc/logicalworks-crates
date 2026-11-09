@@ -9,6 +9,27 @@ use std::collections::BTreeSet;
 use crate::agent_start_page::{Known, command_findings, findings};
 use crate::seed::{Rng, Trace};
 
+/// Catches a record the index omits before CI does: `llms-txt` refuses one, and
+/// ADR 0024 landed that way on 2026-11-09 with every local gate green.
+#[test]
+fn every_decision_record_is_in_the_record_index() -> Result<(), Box<dyn std::error::Error>> {
+    let records = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/adr");
+    let index = std::fs::read_to_string(records.join("README.md"))?;
+    let mut seen = 0_usize;
+    for entry in std::fs::read_dir(&records)? {
+        let name = entry?.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".md") && name != "README.md" {
+            seen = seen.saturating_add(1);
+            assert!(
+                index.contains(&format!("]({name})")),
+                "{name} has no index row"
+            );
+        }
+    }
+    assert!(seen > 0, "the walk found the records");
+    Ok(())
+}
+
 /// How many pages each simulation draws.
 const SEEDS: u64 = 2_048;
 
