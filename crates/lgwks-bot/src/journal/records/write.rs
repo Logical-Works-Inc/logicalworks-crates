@@ -148,6 +148,45 @@ impl<R: Durable> RecordJournal<R> {
         Ok(acks)
     }
 
+    /// Say whether `record` would append now, without writing it.
+    ///
+    /// It runs what an append runs before the disk is touched: the seal, the event
+    /// and byte ceilings, and the frame ceiling on the archived record. A consumer
+    /// that stages records for a group commit asks this before it stages one, so a
+    /// record the next sync would refuse is refused while nothing has read it yet.
+    /// Records staged and not yet appended are not counted against the ceilings, and
+    /// the append itself can still fail at the disk.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+    /// use lgwks_bot::journal::{JournalError, RecordJournal};
+    ///
+    /// let path = std::env::temp_dir().join(format!("record-doc-admits-{}", std::process::id()));
+    /// # drop(std::fs::remove_file(&path));
+    /// let journal = RecordJournal::<Vec<u8>>::open(&path)?;
+    /// journal.admits(&vec![7; 1_024])?;
+    /// assert!(matches!(
+    ///     journal.admits(&vec![7; 70_000]),
+    ///     Err(JournalError::CapacityExceeded { .. })
+    /// ));
+    /// assert_eq!(journal.committed(), 0, "nothing was written");
+    /// # drop(journal);
+    /// # drop(std::fs::remove_file(&path));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`JournalError::Superseded`] when this handle sealed its journal,
+    /// [`JournalError::CapacityExceeded`] over a ceiling, and
+    /// [`JournalError::Encoding`] when the record does not archive.
+    pub fn admits(&self, record: &R) -> Result<(), JournalError> {
+        self.prepare(self.position, record).map(drop)
+    }
+
     /// Everything one append checks and frames before the disk is touched.
     fn prepare(
         &self,
