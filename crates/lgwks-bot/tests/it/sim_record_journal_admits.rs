@@ -23,7 +23,9 @@ fn admits(journal: &RecordJournal<Vec<u8>>, len: usize) -> bool {
 fn ceiling(journal: &RecordJournal<Vec<u8>>) -> Outcome<usize> {
     let (mut low, mut high) = (0_usize, 1_usize << 20);
     if !admits(journal, low) || admits(journal, high) {
-        return Err("the ceiling is not between 0 and 1 MiB".into());
+        let refusal = Err("the ceiling is not between 0 and 1 MiB".into());
+        lgwks_std::trace::debug!(low, high, "the ceiling probe found no bracket");
+        return refusal;
     }
     while high.saturating_sub(low) > 1 {
         let middle = low.saturating_add(high.saturating_sub(low) >> 1_u32);
