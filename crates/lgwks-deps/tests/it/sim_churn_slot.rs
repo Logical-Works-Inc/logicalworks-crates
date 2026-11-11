@@ -285,6 +285,65 @@ fn a_program_that_cannot_start_and_a_call_with_none_are_refused_by_name() -> Res
     })
 }
 
+/// What a program the wrapper starts sees as `TMPDIR` when its caller gave
+/// `tmpdir`, and what the wrapper said on standard error.
+fn seen_tmpdir(
+    dir: &Path,
+    tmpdir: &str,
+    choice: Option<&str>,
+) -> Result<(String, String), Failure> {
+    let mut command = wrapper(dir, 2);
+    command
+        .env("TMPDIR", tmpdir)
+        .args(["/bin/sh", "-c", "printf '%s' \"$TMPDIR\""]);
+    match choice {
+        Some(said) => command.env("LWC_CHURN_TMP", said),
+        None => command.env_remove("LWC_CHURN_TMP"),
+    };
+    let output = command.output()?;
+    if !output.status.success() {
+        return refuse(format!("the probe exited {:?}", output.status.code()));
+    }
+    Ok((
+        String::from_utf8(output.stdout)?,
+        String::from_utf8(output.stderr)?,
+    ))
+}
+
+/// Catches a wrapper that leaves a test on the physical disk's fsync queue, or
+/// that moves a directory its caller chose (a CI job's own RAM disk).
+#[test]
+fn only_a_default_temporary_directory_is_moved_to_the_shared_volume() -> Result<(), Failure> {
+    replay_sweep("shared-temp", SEEDS, |rng, trace: &mut Trace| {
+        let marker = rng.next_u64();
+        let dir = scratch("shared-temp", marker)?;
+        let default = format!("/var/folders/{marker:x}/T/");
+        let chosen = dir.join(format!("chosen-{marker:x}"));
+        let chosen = chosen.to_str().ok_or("a scratch path is UTF-8")?.to_owned();
+        let (moved, said) = seen_tmpdir(&dir, &default, None)?;
+        let (kept, _) = seen_tmpdir(&dir, &chosen, None)?;
+        let (inherited, _) = seen_tmpdir(&dir, &default, Some("inherit"))?;
+        clear(&dir);
+        let shared = moved == "/Volumes/lgwks-test-tmp/tmp/";
+        let declined = moved == default && said.contains("keeping TMPDIR");
+        if cfg!(target_os = "macos") && !shared && !declined {
+            return refuse(format!(
+                "a default TMPDIR became {moved:?} and the wrapper said {said:?}"
+            ));
+        }
+        if !cfg!(target_os = "macos") && moved != default {
+            return refuse(format!("off macOS a default TMPDIR became {moved:?}"));
+        }
+        if kept != chosen || inherited != default {
+            return refuse(format!(
+                "a chosen TMPDIR became {kept:?} and an inherited one {inherited:?}"
+            ));
+        }
+        trace.record_number("shared", u64::from(shared));
+        Ok(())
+    })
+}
+
 #[test]
 fn a_program_that_has_exited_leaves_no_slot_held() -> Result<(), Failure> {
     replay_sweep("released", SEEDS, |rng, trace: &mut Trace| {

@@ -43,7 +43,7 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 | `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision, and `interface` element resolution, whose scoring rules and eligibility gates are `interface/scoring.rs` | the `lgwks_bot` rows of `INVARIANTS.md` |
 | `lgwks_ast` | `crates/lgwks-ast` | the one parser: language identification, tree-sitter grammars, `script!` reading, `scan` | SL-2 |
 | `lgwks_macros` | `crates/lgwks-macros` | the `script!` compiler | SL-2 |
-| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI | INV-DEP-EDGE-OWNED |
+| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1 |
 | `drishti` | `crates/drishti` | frontend orchestration: design publication and a deterministic reference core | the `drishti` rows of `INVARIANTS.md` |
 
 ### `lgwks_std::id`

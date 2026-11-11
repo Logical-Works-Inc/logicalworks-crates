@@ -61,5 +61,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0023](0023-every-page-judged-whole.md) | Every page judged whole |
 | [0024](0024-a-view-fed-ahead-of-its-journal.md) | A view fed ahead of its journal |
 | [0025](0025-a-command-holds-its-request.md) | A command holds its request |
+| [0026](0026-tests-run-on-a-shared-ram-volume.md) | A macOS test on the default directory runs on one shared RAM volume at one slot per core |
 
 New records go at the bottom of that table.
