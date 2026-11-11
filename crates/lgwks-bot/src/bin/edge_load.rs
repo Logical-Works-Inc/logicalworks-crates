@@ -7,6 +7,7 @@
 //! edge-load app              serve the counter as an app SDK app until stdin closes
 //! edge-load app-ask          the app counter with one provider ask per post
 //! edge-load app-keyed        the app counter behind a key per tenant, `key-{tenant}`
+//! edge-load app-command      the app counter whose answer comes from a command
 //! edge-load plan FILE        serve a model-written plan through App::from_plan
 //! edge-load hit ADDR CONNS REQUESTS TENANTS
 //! edge-load hit-keyed ADDR CONNS REQUESTS TENANTS
@@ -80,7 +81,7 @@ impl fmt::Display for LoadError {
         match *self {
             Self::Usage => {
                 f.write_str(
-                    "usage: edge-load world | axum | app | app-ask | app-keyed | plan FILE | hit ADDR CONNS REQUESTS TENANTS | hit-keyed ADDR CONNS REQUESTS TENANTS",
+                    "usage: edge-load world | axum | app | app-ask | app-keyed | app-command | plan FILE | hit ADDR CONNS REQUESTS TENANTS | hit-keyed ADDR CONNS REQUESTS TENANTS",
                 )
             }
             Self::Io(ref cause) => write!(f, "i/o: {cause}"),
@@ -114,6 +115,7 @@ fn main() -> Result<(), LoadError> {
         ["app"] => app(),
         ["app-ask"] => app_ask(),
         ["app-keyed"] => app_keyed(),
+        ["app-command"] => app_command(),
         ["plan", path] => plan(path),
         ["hit", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants, false),
         ["hit-keyed", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants, true),
@@ -182,6 +184,10 @@ impl Provider for EchoTenant {
             _ => None,
         }
     }
+
+    fn command(&self, tenant: &str, _: Option<&Principal>, _: &[u8]) -> Option<Vec<u8>> {
+        Some(tenant.as_bytes().to_vec())
+    }
 }
 
 /// One tenant's counts in `app-ask`: posts, and the asks answered back.
@@ -224,6 +230,37 @@ fn app_ask() -> Result<(), LoadError> {
                         asked.answers = asked.answers.saturating_add(1);
                     }
                     Vec::new()
+                },
+            ),
+    )
+}
+
+/// The counter with its request held across a command: each post leaves the worker for
+/// the command pool and comes back through the tenant's mailbox before it is answered,
+/// so the round trip is what the client times. `GET` answers the count as it stands.
+fn app_command() -> Result<(), LoadError> {
+    serve_app(
+        App::new("edge-load-command")
+            .state::<u64>()
+            .grant(Cap::new("app.command"))
+            .provider(EchoTenant)
+            .route(AppMethod::POST, "/count", |_: &mut u64, (): ()| {
+                vec![Effect::Command {
+                    body: Box::default(),
+                    reply_to: ReplyTag::new("counted"),
+                }]
+            })
+            .route(AppMethod::GET, "/count", |count: &mut u64, (): ()| {
+                vec![Effect::reply(200, count.to_string().into_bytes())]
+            })
+            .on(
+                ReplyTag::new("counted"),
+                |count: &mut u64, input: &OnInput| match *input.result() {
+                    EffectResult::Value(_) => {
+                        *count = count.saturating_add(1);
+                        vec![Effect::reply(200, count.to_string().into_bytes())]
+                    }
+                    _ => vec![Effect::reply(503, Vec::new())],
                 },
             ),
     )

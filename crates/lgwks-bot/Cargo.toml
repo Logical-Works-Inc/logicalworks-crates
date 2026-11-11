@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_bot"
 description = "Resilient workflow orchestration & durable execution on one ECS world: script! flows with bounded fan-out, deadlines, retry budgets, sagas, and agent plan admission."
-version = "8.2.0"
+version = "8.3.0"
 edition = "2024"
 rust-version = "1.98"
 # Deliberately not the workspace's Apache-2.0: the bot is the artefact the whole
@@ -403,3 +403,8 @@ required-features = ["script", "wire"]
 name = "record-projection"
 path = "src/bin/record_projection.rs"
 required-features = ["ecs", "wire"]
+
+[[bin]]
+name = "command-journal"
+path = "src/bin/command_journal.rs"
+required-features = ["edge", "ephemeral"]

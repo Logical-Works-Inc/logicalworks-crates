@@ -21,7 +21,7 @@ use std::thread::{Builder, JoinHandle};
 use super::mailbox::{Mailbox, PushRefused};
 use super::reply::ReplySlot;
 use super::{
-    CHECKPOINT_BYTES, CHECKPOINT_EVERY, Cell, CellError, CellRefused, EffectRunner,
+    CHECKPOINT_BYTES, CHECKPOINT_EVERY, Cell, CellError, CellRefused, Delivery, EffectRunner,
     MAX_MESSAGE_BYTES, MAX_STEPS_PER_MESSAGE, MAX_WORKERS, RETRY_AFTER_MS, Steps, SubmitRefused,
 };
 use crate::ecs::{MAX_TENANTS, Response};
@@ -32,6 +32,10 @@ const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
 
 /// FNV-1a prime.
 const FNV_PRIME: u64 = 0x0100_0000_01b3;
+
+/// What a slot held open across a deferral hears when its message is refused. An
+/// edge answering a fresh request answers from the refusal and never reads this.
+const REFUSED_BODY: &[u8] = b"the host could not take the answer; retry with the request's key";
 
 /// The counters one host reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,17 +54,20 @@ pub(crate) struct HostCounts {
 /// One submission: a message and where its answer goes.
 ///
 /// The message is `Some` until the worker moves it into the tenant's log. A
-/// job dropped before its slot is settled answers `503` on the way out.
+/// job dropped before its slot is settled answers `503` on the way out, unless
+/// the runner took the slot, and with it that same duty.
 struct Job<M> {
     /// The message, taken into the tenant's tail by the worker.
     message: Option<M>,
     /// Where the answer goes.
     reply: Arc<ReplySlot>,
+    /// Whether the runner holds the slot now.
+    held: bool,
 }
 
 impl<M> Drop for Job<M> {
     fn drop(&mut self) {
-        if !self.reply.is_settled() {
+        if !self.held && !self.reply.is_settled() {
             lgwks_std::trace::debug!("cell: a job was dropped unanswered");
             self.reply.complete(Response::new(
                 503,
@@ -280,6 +287,7 @@ impl<C: Cell> CellHost<C> {
                 lgwks_std::trace::warn!("cell: a worker panicked on the way out");
             }
         }
+        self.core.runner.close();
     }
 }
 
@@ -304,13 +312,15 @@ impl<C: Cell> DynHost<C::Message> for CellHost<C> {
         let job = Job {
             message: Some(message),
             reply,
+            held: false,
         };
         // A refused job is answered by the edge from the refusal, so its own
         // drop must not answer first: settle it quietly with the same status.
         match mailbox.try_push(job) {
             Ok(()) => Ok(()),
             Err(PushRefused::Full(job)) => {
-                job.reply.complete(Response::new(503, Vec::new()));
+                job.reply
+                    .complete(Response::new(503, REFUSED_BODY.to_vec()));
                 self.refuse(
                     tenant,
                     SubmitRefused::Overloaded {
@@ -319,7 +329,8 @@ impl<C: Cell> DynHost<C::Message> for CellHost<C> {
                 )
             }
             Err(PushRefused::Closed(job) | PushRefused::Poisoned(job)) => {
-                job.reply.complete(Response::new(503, Vec::new()));
+                job.reply
+                    .complete(Response::new(503, REFUSED_BODY.to_vec()));
                 self.refuse(tenant, SubmitRefused::Closed)
             }
         }
@@ -336,6 +347,7 @@ impl<C: Cell> DynHost<C::Message> for CellHost<C> {
         let job = Job {
             message: Some(message),
             reply,
+            held: false,
         };
         mailbox.push_blocking(job).inspect_err(|error| {
             lgwks_std::trace::debug!(%error, tenant, "cell: the waiting submit was refused");
@@ -399,13 +411,16 @@ impl<C: Cell> Worker<C> {
             return;
         };
         let answer = match cell_of::<C>(&self.core, &mut self.table, C::tenant(&message)) {
-            Some(cell) => apply_logged(&self.core, cell, message),
+            Some(cell) => apply_logged(&self.core, cell, message, &job.reply),
             None => {
                 self.core.refused.fetch_add(1, Ordering::Relaxed);
-                Response::new(503, b"tenant ceiling reached".to_vec())
+                Some(Response::new(503, b"tenant ceiling reached".to_vec()))
             }
         };
-        job.reply.complete(answer);
+        match answer {
+            Some(answer) => job.reply.complete(answer),
+            None => job.held = true,
+        }
     }
 }
 
@@ -436,12 +451,14 @@ fn cell_of<'table, C: Cell>(
     table.get_mut(tenant)
 }
 
-/// Append `message` to the tenant's log, apply it, and settle its answer.
+/// Append `message` to the tenant's log, apply it, and settle its answer; `None`
+/// when the runner took `reply` and something it owns will settle it.
 fn apply_logged<C: Cell>(
     core: &HostCore<C>,
     cell: &mut TenantCell<C::State, C::Message>,
     message: C::Message,
-) -> Response {
+    reply: &Arc<ReplySlot>,
+) -> Option<Response> {
     cell.tail_bytes = cell.tail_bytes.saturating_add(C::weight(&message));
     cell.tail.push(message.clone());
     let tenant_name = C::tenant(&message).to_owned();
@@ -452,11 +469,13 @@ fn apply_logged<C: Cell>(
     match applied {
         Ok(Ok(effects)) => {
             core.settled.fetch_add(1, Ordering::Relaxed);
-            let answer = match core.runner.run(&tenant_name, effects) {
-                Some(response) => response,
-                None => {
+            let asker = cell.tail.last().and_then(C::asker);
+            let answer = match core.runner.run(&tenant_name, asker, effects, reply) {
+                Delivery::Answer(response) => Some(response),
+                Delivery::Held => None,
+                Delivery::Silent => {
                     lgwks_std::trace::debug!("cell: the cell returned no reply effect");
-                    Response::new(500, b"the cell returned no answer".to_vec())
+                    Some(Response::new(500, b"the cell returned no answer".to_vec()))
                 }
             };
             checkpoint_if_due::<C>(cell);
@@ -465,17 +484,20 @@ fn apply_logged<C: Cell>(
         Ok(Err(CellRefused::BudgetSpent)) => {
             drop_last::<C>(cell);
             core.refused.fetch_add(1, Ordering::Relaxed);
-            Response::new(503, b"the cell spent its step budget".to_vec())
+            Some(Response::new(
+                503,
+                b"the cell spent its step budget".to_vec(),
+            ))
         }
         Err(_) => {
             drop_last::<C>(cell);
             rebuild(core, cell);
             core.panicked.fetch_add(1, Ordering::Relaxed);
             core.settled.fetch_add(1, Ordering::Relaxed);
-            Response::new(
+            Some(Response::new(
                 500,
                 b"the tenant cell panicked and was rebuilt; the message was not applied".to_vec(),
-            )
+            ))
         }
     }
 }

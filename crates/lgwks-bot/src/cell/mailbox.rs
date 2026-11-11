@@ -1,4 +1,5 @@
-//! One worker's bounded mailbox: submitters push, the worker pops.
+//! A bounded mailbox: submitters push, one worker takes batches or a pool of
+//! threads takes one job each.
 //!
 //! Blocking submitters wait for room on the room bell, the worker waits for
 //! work on the work bell, and closing rings both, so no waiter parks past the
@@ -13,7 +14,7 @@ use super::CellError;
 
 /// A bounded queue between submitters and one worker.
 #[derive(Debug)]
-pub(super) struct Mailbox<J> {
+pub(crate) struct Mailbox<J> {
     /// The queued jobs and the closed flag, behind one lock.
     inner: Mutex<Inner<J>>,
     /// Rung when a job is popped: room for a blocked submitter.
@@ -32,9 +33,9 @@ struct Inner<J> {
     /// Whether the host is shut down: no submitter is admitted, the worker
     /// drains what is queued and then exits.
     closed: bool,
-    /// Whether the worker is parked on the work bell, so a push rings it only
-    /// when someone is listening.
-    parked: bool,
+    /// How many takers are parked on the work bell, so a push rings it only when
+    /// someone is listening.
+    parked: usize,
     /// Jobs of the batch the worker took last and may still be serving; they
     /// count against the bound with the queue until the next take.
     serving: usize,
@@ -43,7 +44,7 @@ struct Inner<J> {
 /// Why a push did not queue. The job travels back so the caller decides what
 /// its submitter hears.
 #[derive(Debug)]
-pub(super) enum PushRefused<J> {
+pub(crate) enum PushRefused<J> {
     /// The mailbox is closed.
     Closed(J),
     /// The mailbox is full.
@@ -54,12 +55,12 @@ pub(super) enum PushRefused<J> {
 
 impl<J> Mailbox<J> {
     /// A mailbox holding at most `bound` jobs, and at least one.
-    pub(super) fn new(bound: usize) -> Self {
+    pub(crate) fn new(bound: usize) -> Self {
         Self {
             inner: Mutex::new(Inner {
                 queue: VecDeque::new(),
                 closed: false,
-                parked: false,
+                parked: 0,
                 serving: 0,
             }),
             room: Condvar::new(),
@@ -84,7 +85,7 @@ impl<J> Mailbox<J> {
     /// # Errors
     ///
     /// [`PushRefused`] carrying the job back.
-    pub(super) fn try_push(&self, job: J) -> Result<(), PushRefused<J>> {
+    pub(crate) fn try_push(&self, job: J) -> Result<(), PushRefused<J>> {
         let Some(mut inner) = self.lock() else {
             lgwks_std::trace::debug!(bound = self.bound, "cell: a push met a poisoned mailbox");
             return Err(PushRefused::Poisoned(job));
@@ -99,7 +100,7 @@ impl<J> Mailbox<J> {
             return Err(PushRefused::Full(job));
         }
         inner.queue.push_back(job);
-        let parked = inner.parked;
+        let parked = inner.parked > 0;
         drop(inner);
         if parked {
             self.work.notify_one();
@@ -175,24 +176,58 @@ impl<J> Mailbox<J> {
             if inner.closed {
                 return Ok(false);
             }
-            inner.parked = true;
-            inner = match self.work.wait(inner) {
-                Ok(woke) => woke,
-                Err(_) => {
-                    lgwks_std::trace::warn!(
-                        bound = self.bound,
-                        "cell: the mailbox broke under a parked worker"
-                    );
-                    return Err(CellError::Poisoned { what: "mailbox" });
-                }
-            };
-            inner.parked = false;
+            inner = self.park(inner)?;
+        }
+    }
+
+    /// Take the oldest job, waiting while there are none; `None` once the closed
+    /// mailbox has drained. For a pool of takers, each serving one job at a time,
+    /// so the bound counts only what is queued.
+    ///
+    /// # Errors
+    ///
+    /// [`CellError::Poisoned`] on a poisoned lock.
+    pub(crate) fn take_one(&self) -> Result<Option<J>, CellError> {
+        let Some(mut inner) = self.lock() else {
+            lgwks_std::trace::warn!(bound = self.bound, "cell: a taker met a poisoned mailbox");
+            return Err(CellError::Poisoned { what: "mailbox" });
+        };
+        loop {
+            if let Some(job) = inner.queue.pop_front() {
+                return Ok(Some(job));
+            }
+            if inner.closed {
+                return Ok(None);
+            }
+            inner = self.park(inner)?;
+        }
+    }
+
+    /// Wait on the work bell, counted as parked while waiting. A taker rechecks the
+    /// queue under the lock on waking, so a ring it missed cannot strand a job.
+    fn park<'lock>(
+        &self,
+        mut inner: MutexGuard<'lock, Inner<J>>,
+    ) -> Result<MutexGuard<'lock, Inner<J>>, CellError> {
+        inner.parked = inner.parked.saturating_add(1);
+        match self.work.wait(inner) {
+            Ok(mut woke) => {
+                woke.parked = woke.parked.saturating_sub(1);
+                Ok(woke)
+            }
+            Err(_) => {
+                lgwks_std::trace::warn!(
+                    bound = self.bound,
+                    "cell: the mailbox broke under a parked taker"
+                );
+                Err(CellError::Poisoned { what: "mailbox" })
+            }
         }
     }
 
     /// Refuse every later submitter and wake every waiter; queued jobs still
     /// drain.
-    pub(super) fn close(&self) {
+    pub(crate) fn close(&self) {
         if let Some(mut inner) = self.lock() {
             inner.closed = true;
         }

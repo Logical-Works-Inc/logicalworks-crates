@@ -115,6 +115,6 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `ecs::projection` | `RecordProjection`, a consumer's fold on the ECS world, `record-projection` (ADR 0018) | INV-PROJECTION-1 |
 | `script::journaled_cancel` | a scope's stop in the consumer's journal, `durable-stop` (ADR 0019) | INV-STOP-1 |
 | `ecs::effects::outcomes`, `journal::seam` | settling what an attempt became; the `EffectJournal` trait | INV-BOT-14 |
-| `app::auth` | `Principal`, `RequestHeaders`: who a request is, at the edge (ADR 0020) | INV-EDGE-1 |
+| `app::auth`, `app::command` | `Principal`, `RequestHeaders`: who a request is, at the edge (ADR 0020); `CommandLimits` and the pool a held command runs on, `command-journal` (ADR 0025) | INV-EDGE-1, INV-COMMAND-1 |
 | `script::run_store::step`, `task::disposition` | the durable step; task disposition and fault attribution | INV-BOT-14 |
 | `rt::serve::ingress`, `task::store::append` | request ingress and retry answering; ordered append on the storage owner thread | INV-BOT-50 |

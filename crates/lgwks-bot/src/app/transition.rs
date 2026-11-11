@@ -4,10 +4,12 @@
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
+use super::command::{CommandPool, CommandRequest, Feedback};
 use super::{HostSlot, MAX_EFFECTS_PER_APPLY, Method, Principal, Provider};
+use crate::cap::Cap;
 use crate::cell::{
-    Cell, CellHost, CellRefused, DynHost, Effect, EffectResult, EffectRunner, MAX_MESSAGE_BYTES,
-    OnInput, ReplySlot, ReplyTag, Steps, first_reply,
+    COMMAND_CAP, Cell, CellHost, CellRefused, Delivery, DynHost, Effect, EffectResult,
+    EffectRunner, MAX_MESSAGE_BYTES, OnInput, ReplySlot, ReplyTag, Steps, first_reply,
 };
 use crate::ecs::Response;
 use crate::gate::GrantSet;
@@ -145,7 +147,17 @@ pub(super) enum AppMessage {
         tenant: Box<str>,
         /// The answer, carrying its tag.
         input: OnInput,
+        /// Who the effect was asked for, so a chain of commands keeps its asker.
+        principal: Option<Principal>,
     },
+}
+
+/// The bytes `principal` adds to a message.
+fn who_weight(principal: Option<&Principal>) -> usize {
+    match principal {
+        Some(who) => who.weight(),
+        None => 0,
+    }
 }
 
 /// The app's cell: every route and `on` handler over one tenant's state.
@@ -188,6 +200,14 @@ where
         }
     }
 
+    fn asker(message: &AppMessage) -> Option<&Principal> {
+        match *message {
+            AppMessage::Route { ref principal, .. } | AppMessage::On { ref principal, .. } => {
+                principal.as_ref()
+            }
+        }
+    }
+
     fn weight(message: &AppMessage) -> usize {
         match *message {
             AppMessage::Route {
@@ -196,26 +216,24 @@ where
                 ref body,
                 ref principal,
                 ..
-            } => {
-                let who = match *principal {
-                    Some(ref who) => who.weight(),
-                    None => 0,
-                };
-                tenant
-                    .len()
-                    .saturating_add(path.len())
-                    .saturating_add(body.len())
-                    .saturating_add(who)
-            }
+            } => tenant
+                .len()
+                .saturating_add(path.len())
+                .saturating_add(body.len())
+                .saturating_add(who_weight(principal.as_ref())),
             AppMessage::On {
                 ref tenant,
                 ref input,
+                ref principal,
             } => {
                 let answer = match *input.result() {
                     EffectResult::Value(ref bytes) => bytes.len(),
                     EffectResult::Refused(_) | EffectResult::Unavailable => 0,
                 };
-                tenant.len().saturating_add(answer)
+                tenant
+                    .len()
+                    .saturating_add(answer)
+                    .saturating_add(who_weight(principal.as_ref()))
             }
         }
     }
@@ -258,9 +276,80 @@ where
     }
 }
 
+/// Where answers re-enter: the tenant's own mailbox, as `on` messages.
+pub(super) struct Answers<S: Clone + Default + Send + 'static> {
+    /// The host answers re-enter through.
+    host: HostSlot<S>,
+}
+
+impl<S> Answers<S>
+where
+    S: Clone + Default + Send + 'static,
+{
+    /// Answers with no host yet.
+    pub(super) fn new() -> Self {
+        Self {
+            host: HostSlot::new(),
+        }
+    }
+}
+
+/// Settle `slot`, if a request waits on it, with `status` and `body`.
+fn settle(slot: Option<&Arc<ReplySlot>>, status: u16, body: &[u8]) {
+    if let Some(waiting) = slot {
+        waiting.complete(Response::new(status, body.to_vec()));
+    }
+}
+
+impl<S> Feedback for Answers<S>
+where
+    S: Clone + Default + Send + 'static,
+{
+    fn feed(
+        &self,
+        tenant: &str,
+        asker: Option<Principal>,
+        reply_to: ReplyTag,
+        result: EffectResult,
+        slot: Option<Arc<ReplySlot>>,
+    ) {
+        let Some(host) = self.host.get().and_then(Weak::upgrade) else {
+            lgwks_std::trace::debug!(tenant, "app: the runner has no host to answer through");
+            settle(
+                slot.as_ref(),
+                503,
+                b"the host has gone; retry with the request's key",
+            );
+            return;
+        };
+        let message = AppMessage::On {
+            tenant: tenant.into(),
+            input: OnInput::new(reply_to, result),
+            principal: asker,
+        };
+        if <AppCell<S> as Cell>::weight(&message) > MAX_MESSAGE_BYTES {
+            lgwks_std::trace::debug!(tenant, "app: a provider answer is past the host ceiling");
+            settle(
+                slot.as_ref(),
+                502,
+                b"the answer is past the host's ceiling; retry with the request's key",
+            );
+            return;
+        }
+        let target = match slot {
+            Some(waiting) => waiting,
+            None => Arc::new(ReplySlot::new()),
+        };
+        // A refusal settles the slot itself, so a waiter hears it from there.
+        if let Err(refusal) = host.try_submit(tenant, message, target) {
+            lgwks_std::trace::debug!(%refusal, tenant, "app: a provider answer was refused");
+        }
+    }
+}
+
 /// The app's runner: the first `Reply` answers the request; every other
-/// effect is checked against the grants, served by the provider, and its
-/// answer fed back through the tenant's mailbox.
+/// effect is checked against the grants and served by the provider, a command
+/// on a pool of its own, and its answer fed back through the tenant's mailbox.
 pub(super) struct AppRunner<S: Clone + Default + Send + 'static> {
     /// The caps dispatch may run under.
     grants: GrantSet,
@@ -269,8 +358,10 @@ pub(super) struct AppRunner<S: Clone + Default + Send + 'static> {
     /// The store an `AwaitApproval` effect parks through, when the app was
     /// given one.
     store: Option<RunStore>,
-    /// The host answers re-enter through.
-    host: HostSlot<S>,
+    /// Where answers re-enter.
+    answers: Arc<Answers<S>>,
+    /// The pool commands run on, when the app was granted `app.command`.
+    commands: Option<CommandPool>,
 }
 
 impl<S> AppRunner<S>
@@ -282,25 +373,28 @@ where
         grants: GrantSet,
         provider: Arc<dyn Provider>,
         store: Option<RunStore>,
+        answers: Arc<Answers<S>>,
+        commands: Option<CommandPool>,
     ) -> Self {
         Self {
             grants,
             provider,
             store,
-            host: HostSlot::new(),
+            answers,
+            commands,
         }
     }
 
     /// Feed answers back through `host`. Weak, so the runner the host owns
     /// never keeps the host alive.
     pub(super) fn bind(&self, host: &Arc<CellHost<AppCell<S>>>) {
-        if self.host.set(Arc::downgrade(host)).is_err() {
+        if self.answers.host.set(Arc::downgrade(host)).is_err() {
             lgwks_std::trace::debug!("app: the runner was bound twice; the first host stands");
         }
     }
 
     /// Serve `effect` under the grants and feed its answer back for `tenant`.
-    fn dispatch(&self, tenant: &str, effect: &Effect) {
+    fn dispatch(&self, tenant: &str, asker: Option<&Principal>, effect: &Effect) {
         let Some(reply_to) = effect.reply_to().cloned() else {
             return;
         };
@@ -317,20 +411,54 @@ where
                 }
             },
         };
-        let Some(host) = self.host.get().and_then(Weak::upgrade) else {
-            lgwks_std::trace::debug!(tenant, "app: the runner has no host to answer through");
-            return;
-        };
-        let message = AppMessage::On {
-            tenant: tenant.into(),
-            input: OnInput::new(reply_to, result),
-        };
-        if <AppCell<S> as Cell>::weight(&message) > MAX_MESSAGE_BYTES {
-            lgwks_std::trace::debug!(tenant, "app: a provider answer is past the host ceiling");
+        self.answers
+            .feed(tenant, asker.cloned(), reply_to, result, None);
+    }
+
+    /// Hand one command to the pool, under the grants, with the waiter it holds.
+    ///
+    /// None of this waits: every refusal goes back through the tenant's mailbox as
+    /// an answer, and whoever waits on `slot` is settled whatever happens to it.
+    fn command(
+        &self,
+        tenant: &str,
+        asker: Option<&Principal>,
+        body: Box<[u8]>,
+        reply_to: ReplyTag,
+        slot: Option<Arc<ReplySlot>>,
+    ) {
+        let needed = Cap::new(COMMAND_CAP);
+        if !self.grants.grants(&needed) {
+            lgwks_std::trace::debug!(%needed, tenant, "app: a command was denied its cap");
+            let refused = EffectResult::Refused(needed);
+            self.answers
+                .feed(tenant, asker.cloned(), reply_to, refused, slot);
             return;
         }
-        if let Err(refusal) = host.try_submit(tenant, message, Arc::new(ReplySlot::new())) {
-            lgwks_std::trace::debug!(%refusal, tenant, "app: a provider answer was refused");
+        let pool = self.commands.as_ref();
+        let Some(pool) = pool.filter(|_| body.len() <= MAX_MESSAGE_BYTES) else {
+            lgwks_std::trace::debug!(tenant, bytes = body.len(), "app: a command was not run");
+            let answer = EffectResult::Unavailable;
+            self.answers
+                .feed(tenant, asker.cloned(), reply_to, answer, slot);
+            return;
+        };
+        let request = CommandRequest {
+            tenant,
+            asker: asker.cloned(),
+            body,
+            reply_to,
+            slot,
+        };
+        if let Err(back) = pool.hand(request) {
+            settle(
+                back.slot.as_ref(),
+                503,
+                b"the command queue is full and nothing ran; retry with the request's key",
+            );
+            let answer = EffectResult::Unavailable;
+            self.answers
+                .feed(tenant, back.asker, back.reply_to, answer, back.slot);
         }
     }
 
@@ -364,7 +492,38 @@ impl<S> EffectRunner for AppRunner<S>
 where
     S: Clone + Default + Send + 'static,
 {
-    fn run(&self, tenant: &str, effects: Vec<Effect>) -> Option<Response> {
-        first_reply(effects, |effect| self.dispatch(tenant, &effect))
+    fn run(
+        &self,
+        tenant: &str,
+        asker: Option<&Principal>,
+        effects: Vec<Effect>,
+        reply: &Arc<ReplySlot>,
+    ) -> Delivery {
+        // A reply anywhere in the list answers the request, so no command holds it:
+        // a handler may return them in either order.
+        let answered = effects
+            .iter()
+            .any(|effect| matches!(*effect, Effect::Reply(_)));
+        let mut holder = (!answered).then(|| Arc::clone(reply));
+        let mut held = false;
+        let answer = first_reply(effects, |effect| match effect {
+            Effect::Command { body, reply_to } => {
+                let slot = holder.take();
+                held = held || slot.is_some();
+                self.command(tenant, asker, body, reply_to, slot);
+            }
+            other => self.dispatch(tenant, asker, &other),
+        });
+        match answer {
+            Some(response) => Delivery::Answer(response),
+            None if held => Delivery::Held,
+            None => Delivery::Silent,
+        }
+    }
+
+    fn close(&self) {
+        if let Some(pool) = self.commands.as_ref() {
+            pool.close();
+        }
     }
 }

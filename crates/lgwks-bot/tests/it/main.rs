@@ -738,3 +738,17 @@ mod edge_load_keyed;
 
 #[cfg(all(feature = "edge", any(not(lwc_it_group), lwc_it_group = "g3")))]
 mod sim_app_edge;
+
+#[cfg(all(
+    feature = "edge",
+    feature = "ephemeral",
+    any(not(lwc_it_group), lwc_it_group = "g7")
+))]
+mod app_command;
+
+#[cfg(all(
+    feature = "edge",
+    feature = "ephemeral",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod command_journal_cli;

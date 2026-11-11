@@ -24,32 +24,42 @@
 //! [`App::authenticate`] judges every tenant request at the edge: a refusal is
 //! `401` with nothing read or queued, and [`App::route_as`] hands the handler the
 //! [`Principal`].
+//!
+//! [`Effect::Command`] hands a tenant's command to a durable service the host
+//! owns, through [`Provider::command`] on a bounded pool of its own, and the
+//! request stays open until an `on` handler answers it (ADR 0025).
 
 use core::fmt;
 use std::net::TcpListener;
 use std::sync::{Arc, OnceLock};
 
 use crate::cap::Cap;
-use crate::cell::{CellError, CellHost, DEFAULT_MAILBOX_BOUND, EffectRunner};
+use crate::cell::{COMMAND_CAP, CellError, CellHost, DEFAULT_MAILBOX_BOUND, EffectRunner};
 use crate::gate::GrantSet;
 use crate::rt::edge::EdgeStop;
 use crate::task::RunStore;
 
 mod auth;
 mod check;
+mod command;
 mod error;
 mod serve;
 #[cfg(test)]
 mod sim_app;
+#[cfg(test)]
+mod sim_command;
+#[cfg(test)]
+mod sim_command_faults;
 mod transition;
 
 pub use crate::cell::{Effect, EffectResult, OnInput, ReplyTag};
 pub use auth::{Principal, RequestHeaders};
+pub use command::CommandLimits;
 pub use error::AppError;
 
 use auth::Authenticate;
 use error::refused;
-use transition::{AppCell, AppRunner, OnEntry, RouteEntry};
+use transition::{Answers, AppCell, AppRunner, OnEntry, RouteEntry};
 
 /// A plan may carry at most this many bytes.
 const MAX_PLAN_BYTES: usize = 64 * 1_024;
@@ -106,7 +116,48 @@ impl fmt::Display for Method {
 /// [`EffectResult::Unavailable`].
 pub trait Provider: Send + Sync + 'static {
     /// Serve `effect` for `tenant`: the answer's bytes, or `None`.
+    ///
+    /// It runs on the worker that owns the tenant, so it must not wait. An
+    /// [`Effect::Command`] never arrives here: it goes to [`Provider::command`].
     fn dispatch(&self, tenant: &str, effect: &Effect) -> Option<Vec<u8>>;
+
+    /// Serve a command for `tenant`, asked for by `principal`, and answer once it
+    /// has landed; `None` is answered [`EffectResult::Unavailable`], and so is a panic.
+    ///
+    /// It runs on the app's command pool, off every worker, so it may block on a
+    /// durable write without stalling a tenant. The principal comes from the log and
+    /// not from the handler, so it cannot be forged. A client that loses its answer
+    /// retries, and this can run twice for one act: the body carries an idempotency
+    /// key, and this method honours it (ADR 0025).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::app::{Effect, Principal, Provider};
+    ///
+    /// struct Ledger;
+    ///
+    /// impl Provider for Ledger {
+    ///     fn dispatch(&self, _: &str, _: &Effect) -> Option<Vec<u8>> {
+    ///         None
+    ///     }
+    ///
+    ///     fn command(&self, tenant: &str, _: Option<&Principal>, body: &[u8]) -> Option<Vec<u8>> {
+    ///         Some(format!("{tenant} wrote {} bytes", body.len()).into_bytes())
+    ///     }
+    /// }
+    ///
+    /// assert_eq!(Ledger.command("a", None, b"xy"), Some(b"a wrote 2 bytes".to_vec()));
+    /// ```
+    fn command(&self, tenant: &str, principal: Option<&Principal>, body: &[u8]) -> Option<Vec<u8>> {
+        lgwks_std::trace::debug!(
+            tenant,
+            named = principal.is_some(),
+            bytes = body.len(),
+            "app: this provider serves no command"
+        );
+        None
+    }
 }
 
 /// The provider of an app that names none: every effect is unavailable.
@@ -133,6 +184,8 @@ pub struct App<S = ()> {
     approvals: Option<RunStore>,
     /// Who decides who a request is, when the app names one.
     authenticator: Option<Authenticate>,
+    /// The bounds commands run under.
+    commands: CommandLimits,
     /// Routes in registration order.
     routes: Vec<RouteEntry<S>>,
     /// `on` handlers in registration order.
@@ -149,6 +202,7 @@ impl App<()> {
             provider: Arc::new(NoProvider),
             approvals: None,
             authenticator: None,
+            commands: CommandLimits::default(),
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -164,6 +218,7 @@ impl App<()> {
             provider: self.provider,
             approvals: self.approvals,
             authenticator: self.authenticator,
+            commands: self.commands,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -288,6 +343,26 @@ where
         self
     }
 
+    /// Run commands under `limits`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use lgwks_bot::Cap;
+    /// use lgwks_bot::app::{App, CommandLimits};
+    ///
+    /// let limits = CommandLimits::new(8, 64, 16, Duration::from_secs(5));
+    /// let app = App::new("ledger").grant(Cap::new("app.command")).command_limits(limits);
+    /// assert!(app.check().is_ok());
+    /// ```
+    #[must_use]
+    pub fn command_limits(mut self, limits: CommandLimits) -> Self {
+        self.commands = limits;
+        self
+    }
+
     /// Check the app, then serve `listener` until `stop`, answering every
     /// tenant from its own state.
     ///
@@ -297,8 +372,14 @@ where
     /// could start, and [`AppError::ServeIo`] when the listener fails.
     pub fn serve(self, listener: TcpListener, stop: &EdgeStop) -> Result<(), AppError> {
         let authenticator = self.authenticator.clone();
+        let held_for = self.runs_commands().then(|| self.commands.deadline());
         let host = self.start(auto_workers(), DEFAULT_MAILBOX_BOUND)?;
-        serve::serve_host(host, authenticator, listener, stop)
+        serve::serve_host(host, authenticator, held_for, listener, stop)
+    }
+
+    /// Whether this app was granted commands, and so owns a pool to run them on.
+    fn runs_commands(&self) -> bool {
+        self.grants.grants(&Cap::new(COMMAND_CAP))
     }
 
     /// Check the app and start its cell host on `workers` threads, the runner
@@ -309,7 +390,24 @@ where
         mailbox_bound: usize,
     ) -> Result<Arc<CellHost<AppCell<S>>>, AppError> {
         self.check()?;
-        let runner = Arc::new(AppRunner::new(self.grants, self.provider, self.approvals));
+        let answers = Arc::new(Answers::new());
+        let commands = if self.runs_commands() {
+            let feed: Arc<dyn command::Feedback> = Arc::<Answers<S>>::clone(&answers);
+            let provider = Arc::clone(&self.provider);
+            match command::CommandPool::start(&self.commands, provider, feed) {
+                Ok(pool) => Some(pool),
+                Err(cause) => return refused(AppError::Spawn { cause }),
+            }
+        } else {
+            None
+        };
+        let runner = Arc::new(AppRunner::new(
+            self.grants,
+            self.provider,
+            self.approvals,
+            answers,
+            commands,
+        ));
         let cell = AppCell::new(self.routes, self.ons);
         let erased: Arc<dyn EffectRunner> = Arc::<AppRunner<S>>::clone(&runner);
         let host = match CellHost::start(cell, erased, workers, mailbox_bound) {

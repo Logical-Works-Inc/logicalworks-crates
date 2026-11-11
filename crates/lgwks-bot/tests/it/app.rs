@@ -20,7 +20,7 @@ use lgwks_std::json::Value;
 
 /// How an app journey broke.
 #[derive(Debug)]
-enum JourneyFailed {
+pub(crate) enum JourneyFailed {
     /// The socket failed.
     Io(std::io::Error),
     /// The answer was not an HTTP response.
@@ -171,14 +171,14 @@ fn notes_app(seen: &Arc<AtomicU64>) -> App<Notes> {
 
 /// A client of one served app.
 #[derive(Clone, Copy)]
-struct Client(SocketAddr);
+pub(crate) struct Client(SocketAddr);
 
 impl Client {
     /// Send one request on a fresh connection and read the answer to its end:
     /// status and body. The write side stays open: hyper drops a request
     /// whose connection half-closes before it answers, and `connection:
     /// close` ends the stream once it has.
-    fn exchange(
+    pub(crate) fn exchange(
         self,
         method: &str,
         path: &str,
@@ -211,7 +211,7 @@ impl Client {
     }
 
     /// Require `method` `path` with `body` to answer `status` and `wanted`.
-    fn answers(
+    pub(crate) fn answers(
         self,
         method: &str,
         path: &str,
@@ -232,7 +232,7 @@ impl Client {
 }
 
 /// Serve `app` on a loopback port until `journey` finishes; its result.
-fn serve_app<S>(
+pub(crate) fn serve_app<S>(
     app: App<S>,
     journey: impl FnOnce(Client) -> Result<(), JourneyFailed> + Send,
 ) -> Result<(), Box<dyn std::error::Error>>
