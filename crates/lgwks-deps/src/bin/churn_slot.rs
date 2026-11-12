@@ -423,15 +423,21 @@ fn shared_temp(dir: &Path) -> Result<PathBuf, SlotError> {
 }
 
 /// No shared volume off macOS: the wrapper runs there only through a caller's
-/// own configuration, which keeps its `TMPDIR`.
+/// own configuration, which keeps its `TMPDIR`. The same `ensure_temp` path
+/// answers, with an attach that refuses, so every target takes one lock and
+/// returns one volume error rather than a second hand-written refusal.
 #[cfg(not(target_os = "macos"))]
 fn shared_temp(dir: &Path) -> Result<PathBuf, SlotError> {
-    let cause = io::Error::new(
-        io::ErrorKind::Unsupported,
-        "a RAM volume is made on macOS only",
-    );
-    let path = dir.to_path_buf();
-    fail(SlotError::Volume { path, cause }, "shared_temp")
+    ensure_temp(
+        &dir.join("no-shared-volume"),
+        &dir.join("volume.lock"),
+        || {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "a RAM volume is made on macOS only",
+            ))
+        },
+    )
 }
 
 /// The temporary directory a test runs with when the shared volume is wanted, or
