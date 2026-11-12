@@ -77,17 +77,40 @@ const USAGE: &str = "usage: lgwks-ast script map|check|census|diff [--json] [--t
   PATH    a directory to walk for .rs files (and, for scan, Cargo.toml), or one\n\
           file; default `.`\n";
 
-/// Directory names never walked: build output, vendored and foreign trees,
-/// and version-control metadata.
-const SKIPPED: [&str; 7] = [
-    "target",
-    "vendor",
-    "node_modules",
-    "third_party",
-    ".venv",
-    ".git",
-    ".jj",
-];
+/// Whether a walked directory is version-control metadata, build output, a
+/// dependency cache or a vendored tree, and so not the repository's own source.
+///
+/// `relative` is the directory's path from the walk root. A name alone proves
+/// nothing: `crates/lgwks-bot/src/vendor/` is source that compiles and ships,
+/// and a skip by name at any depth left it unscanned (#911 item 9a). So each
+/// name is skipped only where it is what it is called:
+///
+/// - `.git` and `.jj` anywhere, since nothing else is named so;
+/// - `vendor` and `third_party` only at the root, where `cargo vendor` and a
+///   vendored tree put them;
+/// - `target` at the root or beside a `Cargo.toml`, where cargo writes it, and
+///   `node_modules` at the root or beside a `package.json`;
+/// - `.venv` at the root or where it holds the `pyvenv.cfg` every virtual
+///   environment carries.
+fn is_skipped(root: &Path, relative: &Path) -> bool {
+    let Some(name) = relative.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    let parent = match relative.parent() {
+        Some(parent) => parent,
+        None => Path::new(""),
+    };
+    let at_root = parent.as_os_str().is_empty();
+    let beside = |marker: &str| root.join(parent).join(marker).is_file();
+    match name {
+        ".git" | ".jj" => true,
+        "vendor" | "third_party" => at_root,
+        "target" => at_root || beside("Cargo.toml"),
+        "node_modules" => at_root || beside("package.json"),
+        ".venv" => at_root || root.join(relative).join("pyvenv.cfg").is_file(),
+        _ => false,
+    }
+}
 
 /// The largest source file read, in bytes. A Rust file past it is refused by
 /// name rather than read into memory whole: no hand-written source in a
@@ -500,9 +523,9 @@ impl std::error::Error for ReadingError {}
 ///
 /// The walk streams entries out as the filesystem returns them instead of
 /// materializing the tree: one open listing per ancestor, never the tree.
-/// A directory the walk admits is withheld by name ([`SKIPPED`]) before the
-/// walk lists it, which is the exclusion the predicate walk states by
-/// refusing to descend.
+/// A directory the walk admits is withheld ([`is_skipped`]) before the walk
+/// lists it, which is the exclusion the predicate walk states by refusing to
+/// descend.
 ///
 /// # Errors
 ///
@@ -557,13 +580,7 @@ fn files_under(root: &Path, wanted: Wanted) -> Result<Vec<PathBuf>, ReadingError
             root: root.to_path_buf(),
             cause: io::Error::new(failure.source_error().kind(), failure),
         })?;
-        if entry.file_type().is_dir()
-            && entry
-                .path()
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| SKIPPED.contains(&name))
-        {
+        if entry.file_type().is_dir() && is_skipped(root, entry.relative_path()) {
             walk.skip_children();
             continue;
         }

@@ -28,10 +28,8 @@ pub(super) enum Kind {
     },
 }
 
-/// Whether `ch` continues an identifier or word.
-pub(super) fn is_word(ch: char) -> bool {
-    ch.is_alphanumeric() || ch == '_'
-}
+/// The one lexer the audit and the unwrap lane share (`shared/rust_code.rs`).
+pub(super) use super::rust_code::{code_only, is_word};
 
 /// The text, or empty when there is none.
 fn or_empty(text: Option<&str>) -> &str {
@@ -39,140 +37,6 @@ fn or_empty(text: Option<&str>) -> &str {
         Some(found) if !found.is_empty() => found,
         Some(_) | None => "",
     }
-}
-
-/// The index of the first `needle` in `chars` at or after `from`.
-fn find_sequence(chars: &[char], needle: &[char], from: usize) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(from);
-    }
-    let last = chars.len().checked_sub(needle.len())?;
-    (from..=last).find(|&at| chars.get(at..at.saturating_add(needle.len())) == Some(needle))
-}
-
-/// Blanks `start..end` of `out` to spaces, keeping newlines.
-fn blank(out: &mut [char], start: usize, end: usize) {
-    let stop = end.min(out.len());
-    for slot in out.iter_mut().take(stop).skip(start) {
-        if *slot != '\n' {
-            *slot = ' ';
-        }
-    }
-}
-
-/// The index of the first `target` in `chars` at or after `from`, else `chars.len()`.
-fn find_char_or_end(chars: &[char], target: char, from: usize) -> usize {
-    match chars
-        .iter()
-        .skip(from)
-        .position(|candidate| *candidate == target)
-    {
-        Some(offset) => from.saturating_add(offset),
-        None => chars.len(),
-    }
-}
-
-/// The text with every comment and literal blanked, offsets preserved.
-///
-/// A `use` statement or a bare `name::` path can only be code, so the scan has to
-/// tell code from a string or comment that happens to spell one. This is a lexer
-/// for exactly the Rust forms that can hide code-like text: line and nested
-/// block comments, string and byte-string literals with escapes, raw strings
-/// with any number of `#`, and character literals, which are told apart from
-/// lifetimes by their closing quote. Every blanked character becomes a space and
-/// every newline is kept, so an offset and a line number mean the same thing in
-/// the result as in the file.
-pub(super) fn code_only(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = chars.clone();
-    let length = chars.len();
-    let mut index = 0_usize;
-    while index < length {
-        let ch = chars[index];
-        let after = chars.get(index.saturating_add(1)).copied();
-        if ch == '/' && after == Some('/') {
-            let end = find_char_or_end(&chars, '\n', index);
-            blank(&mut out, index, end);
-            index = end;
-        } else if ch == '/' && after == Some('*') {
-            let mut depth = 1_usize;
-            let mut cursor = index.saturating_add(2);
-            while cursor < length && depth > 0 {
-                let pair = (chars.get(cursor), chars.get(cursor.saturating_add(1)));
-                if pair == (Some(&'/'), Some(&'*')) {
-                    depth = depth.saturating_add(1);
-                    cursor = cursor.saturating_add(2);
-                } else if pair == (Some(&'*'), Some(&'/')) {
-                    depth = depth.saturating_sub(1);
-                    cursor = cursor.saturating_add(2);
-                } else {
-                    cursor = cursor.saturating_add(1);
-                }
-            }
-            blank(&mut out, index, cursor);
-            index = cursor;
-        } else if ch == 'r'
-            && (index == 0
-                || chars
-                    .get(index.saturating_sub(1))
-                    .is_some_and(|before| !is_word(*before) || *before == 'b'))
-        {
-            let mut hashes = 0_usize;
-            while chars.get(index.saturating_add(1).saturating_add(hashes)) == Some(&'#') {
-                hashes = hashes.saturating_add(1);
-            }
-            let quote_at = index.saturating_add(1).saturating_add(hashes);
-            if chars.get(quote_at) == Some(&'"') {
-                let mut closing = vec!['"'];
-                closing.extend(std::iter::repeat_n('#', hashes));
-                let from = index.saturating_add(2).saturating_add(hashes);
-                let end = match find_sequence(&chars, &closing, from) {
-                    Some(found) => found.saturating_add(closing.len()),
-                    None => length,
-                };
-                blank(&mut out, index, end);
-                index = end;
-            } else {
-                index = index.saturating_add(1);
-            }
-        } else if ch == '"' {
-            let mut cursor = index.saturating_add(1);
-            while cursor < length && chars[cursor] != '"' {
-                cursor = cursor.saturating_add(if chars[cursor] == '\\' { 2 } else { 1 });
-            }
-            blank(&mut out, index, cursor.saturating_add(1));
-            index = cursor.saturating_add(1);
-        } else if ch == '\'' {
-            if after == Some('\\') {
-                let from = if chars.get(index.saturating_add(2)) == Some(&'\'') {
-                    index.saturating_add(3)
-                } else {
-                    index.saturating_add(2)
-                };
-                let end = match chars
-                    .iter()
-                    .skip(from)
-                    .position(|candidate| *candidate == '\'')
-                {
-                    Some(offset) => from.saturating_add(offset).saturating_add(1),
-                    None => length,
-                };
-                blank(&mut out, index, end);
-                index = end;
-            } else if index.saturating_add(2) < length
-                && chars[index.saturating_add(2)] == '\''
-                && after != Some('\n')
-            {
-                blank(&mut out, index, index.saturating_add(3));
-                index = index.saturating_add(3);
-            } else {
-                index = index.saturating_add(1);
-            }
-        } else {
-            index = index.saturating_add(1);
-        }
-    }
-    out.into_iter().collect()
 }
 
 /// Splits a `use` group body on the commas outside nested braces.
