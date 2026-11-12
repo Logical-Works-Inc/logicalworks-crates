@@ -347,6 +347,39 @@ fn the_simulation_lane_reads_listings_not_archives() -> TestResult {
     Ok(())
 }
 
+/// Catches the bot shards' hash going back to opt-level 0.
+///
+/// Source: run 43237164800 (#931) walled 330 s against 300 with every test
+/// green. bot-rest slice 2 held the journal frame search's noise case for
+/// 40.8 s of its 52.8 s tests, nearly all blake3 compiled at opt-level 0
+/// (ADR 0033). Locally under `ci-bot` it ran 18.704 s before and 1.024 s after.
+#[test]
+fn the_bot_shards_compile_blake3_optimized() -> TestResult {
+    let manifest = read_repo("Cargo.toml")?;
+    let lines: Vec<&str> = manifest.lines().map(str::trim).collect();
+    let table = lines
+        .iter()
+        .position(|line| *line == "[profile.ci-bot.package.blake3]")
+        .ok_or(SimError::Shape("the ci-bot profile has no blake3 table"))?;
+    let body: Vec<&str> = lines
+        .iter()
+        .skip(table.saturating_add(1))
+        .take_while(|line| !line.starts_with('['))
+        .copied()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .collect();
+    assert_eq!(
+        body,
+        ["opt-level = 3"],
+        "blake3 builds at opt-level 3 under ci-bot"
+    );
+    assert!(
+        lines.contains(&"[profile.ci-bot.package.\"*\"]"),
+        "the other ci-bot dependencies keep their own table"
+    );
+    Ok(())
+}
+
 /// Catches a verdict that depends on anything but the seed.
 #[test]
 fn sim_the_same_seed_replays_the_same_split_verdict() -> TestResult {
