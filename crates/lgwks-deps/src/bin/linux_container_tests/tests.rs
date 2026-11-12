@@ -11,7 +11,6 @@ use crate::plan::{
     names, nextest_platform, nextest_version, owner, rustflags_variable, shell_line, slug,
     suite_commands, target_rustflags, toolchain_channel,
 };
-use crate::toml_subset::{read_tables, text};
 use crate::vps;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -32,21 +31,11 @@ const OWNERS: [&str; 4] = [
 const CARGO_CONFIG: &str = "[build]\nrustflags = [\"-C\", \"debuginfo=0\"]\n\n[target.aarch64-apple-darwin]\nrustflags = [\n    # Use Apple's fast modern linker explicitly\n    \"-C\", \"link-arg=-fuse-ld=lld\",\n    # Build directly for M-series native instructions\n    \"-C\", \"target-cpu=native\",\n]\n\n[target.x86_64-apple-darwin]\nrustflags = [\"-C\", \"target-cpu=skylake\"]\n";
 
 /// The text of a file at the repository root.
-fn repo_file(name: &str) -> Result<String, Box<dyn Error>> {
+pub(crate) fn repo_file(name: &str) -> Result<String, Box<dyn Error>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(name);
     Ok(std::fs::read_to_string(path)?)
-}
-
-/// The `command` of the lane called `id` in the lane table.
-fn lane_command(lanes: &str, id: &str) -> Option<String> {
-    read_tables(lanes)
-        .iter()
-        .filter(|table| table.path == "lane")
-        .find(|table| text(table, "id") == Some(id))
-        .and_then(|table| text(table, "command"))
-        .map(str::to_owned)
 }
 
 /// Words as owned strings.
@@ -189,40 +178,6 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
         one.tools_image, other.tools_image,
         "the derived image is shared by every runner"
     );
-    Ok(())
-}
-
-#[test]
-fn the_commands_are_the_ones_the_lane_table_names() -> TestResult {
-    // scripts/gate-lanes.toml is the one definition of the gate (INV-GOV-1): the Linux
-    // leg runs the `tests`, `app-builds` and `tests-bot-full` lanes' commands,
-    // nothing shorter.
-    let lanes = repo_file("scripts/gate-lanes.toml")?;
-    for (suite, lane) in [
-        ("workspace", "tests"),
-        ("apps", "app-builds"),
-        ("bot-full", "tests-bot-full"),
-    ] {
-        let mut command = lane_command(&lanes, lane).ok_or("a lane is missing from the table")?;
-        // CI fills each `${NAME:-<default>}` slot (a test archive, an apps row's
-        // filter, province#9); a local run leaves them unset, so the shell runs
-        // the default, quoted as the leg quotes it.
-        while let Some((head, tail)) = command.split_once("${") {
-            let (_, default) = tail.split_once(":-").ok_or("a slot with no default")?;
-            let (selection, rest) = default.split_once('}').ok_or("an unclosed slot")?;
-            command = format!("{head}{selection}{rest}");
-        }
-        let command = command.replace('"', "'");
-        let ours: Vec<String> = suite_commands(suite, None)
-            .ok_or("a suite is unknown")?
-            .iter()
-            .map(|argv| shell_line(argv))
-            .collect();
-        assert!(
-            command.starts_with(&ours.join(" && ")),
-            "{suite} runs {ours:?} but the {lane} lane is {command}"
-        );
-    }
     Ok(())
 }
 

@@ -74,7 +74,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 |---|---|---|
 | `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV`, read through `lgwks_ast::hunks` | INV-DOC-3 |
 | `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs | INV-DOC-5 |
-| `check_gate_parity::lane_split`, `sim_lane_split` | rule 6: a test moved to `app-builds` runs once, never twice or never (ADR 0028) | INV-CI-RUNNER-CLASS-1 |
+| `check_gate_parity::lane_split`, `sim_lane_split`; `linux_container_tests::lane_tests` | rule 6: a test moved to `app-builds` runs once, never twice or never; the Linux leg's suites are the lanes' commands (ADR 0028) | INV-CI-RUNNER-CLASS-1 |
 
 ### `lgwks_ast::scan` and `lgwks_ast::hunks`
 
