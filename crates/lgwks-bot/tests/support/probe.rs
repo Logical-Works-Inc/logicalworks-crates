@@ -28,7 +28,11 @@ pub(crate) fn probe_test(module: &str, test: &str) -> String {
 /// A probe child is selected by `--exact`, so a name carrying the crate's own
 /// segment selects nothing: the child runs zero tests, exits 0, and the parent
 /// reads a kill probe that never ran as one that passed.
+///
+/// This file is compiled into every `lwc_it_group` shard, and the acceptance
+/// receipts refuse a test name two shards report, so its tests run in one group.
 #[test]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 fn a_probe_name_drops_only_the_crate_segment() {
     assert_eq!(
         probe_test("it::journal_continuation", "a_kill"),
@@ -55,6 +59,7 @@ fn a_probe_name_drops_only_the_crate_segment() {
 /// The child command is this binary, filtered to exactly one test, with its
 /// output left uncaptured so the parent sees what the probe printed.
 #[test]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 fn a_probe_command_runs_this_binary_on_one_exact_test() -> Result<(), Box<dyn std::error::Error>> {
     let command = probe_command("journal_continuation::a_kill")?;
     assert_eq!(
