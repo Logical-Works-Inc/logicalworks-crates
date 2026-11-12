@@ -83,11 +83,42 @@ runs:
       if: runner.os == 'macOS'
       shell: bash
       run: ln -sf "$(rustc --print sysroot)/lib/rustlib/aarch64-apple-darwin/bin/rust-lld" /opt/homebrew/bin/ld64.lld && /opt/homebrew/bin/ld64.lld --version
+    # rust-cache's own key ends in a hash of `.cargo/config.toml` and every
+    # member manifest, and on a miss of that hash it restores the nearest entry
+    # and then deletes every artifact older than a week (its restore calls
+    # `cleanTargetDir(target, [], true)`). An entry carries artifacts forward
+    # unrebuilt, so most are older than that: #916 added one `[[bin]]` and a
+    # config table, and every workspace shard compiled its 186 dependencies
+    # again, 141 to 159 s against 42 to 49 s on main (run 43144663118). This key
+    # is what the dependency build is compiled from: the compiler, the pin, the
+    # registry and git packages of Cargo.lock, the members' dependency lists
+    # with their own versions dropped (a release changes none), the root
+    # profiles and the build environment. With rust-cache's hashes off, its key
+    # and restore key are this one string, so a restore is exact or nothing,
+    # and nothing it restored is deleted.
+    - name: Key the dependency build by what it is compiled from
+      if: inputs.caches == 'true'
+      id: deps-key
+      shell: bash
+      run: |
+        set -euo pipefail
+        digest() { if command -v sha1sum >/dev/null 2>&1; then sha1sum; else shasum -a 1; fi; }
+        hash="$( {
+          rustc -vV
+          cat rust-toolchain.toml
+          awk 'BEGIN { RS = "" } /\nsource = / { print }' Cargo.lock
+          awk 'BEGIN { RS = "" } /^\[\[package\]\]/ && !/\nsource = / { sub(/\nversion = "[^"]*"/, ""); print }' Cargo.lock
+          awk '/^\[/ { keep = ($0 ~ /^\[profile/) } keep' Cargo.toml
+          env | LC_ALL=C sort | awk -F= '$1 ~ /^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)/ && $2 != ""'
+        } | digest | cut -c1-12 )"
+        echo "deps key ${hash}"
+        echo "hash=${hash}" >> "${GITHUB_OUTPUT}"
     - name: Cache the registry and the dependency build
       if: inputs.caches == 'true'
       uses: Swatinem/rust-cache@v2
       with:
-        shared-key: ${{ inputs.cache-key }}
+        shared-key: ${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}
+        add-rust-environment-hash-key: "false"
         # Every ref saving filled the 10 GiB cap and evicted main's entries,
         # so pull requests compiled cold (10.66 GiB on 2026-11-03, main 1.41).
         # Saved from main alone, the cache is one ref's worth and a pull

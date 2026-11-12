@@ -75,7 +75,14 @@ One owner per layer, both in `hosted-rust`:
 - **rust-cache** holds the registry and the dependency build, keyed by the
   lane group the job builds (`cache-key`), and saves from `main` alone.
   Before this, every ref saved: 9.71 GiB of 10 in 153 entries on 2026-11-03,
-  and pull requests evicted main's entries and compiled cold.
+  and pull requests evicted main's entries and compiled cold. The key's hash
+  is the action's own, over what the dependency build is compiled from (ADR
+  0028), because rust-cache's hash moved on any manifest or config edit, and a
+  miss deleted every restored artifact older than a week.
+
+The scaffolded-app journeys (lane `app-builds`) run on two `tests_linux` rows of
+their own, `apps run` and `apps clippy`. Each nests a cargo build of a new app's
+whole tree, and in a workspace shard the two held one lock for 100 s.
 - **sccache** (v0.18.0, GitHub Actions backend) holds compiled crates. Every
   hosted job checks out at the same path, so workspace crates hit as well as
   registry crates. `CARGO_INCREMENTAL=0`, because sccache cannot cache an

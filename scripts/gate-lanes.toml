@@ -198,8 +198,22 @@ required = true
 # NEXTEST_BUILD is the cargo selection nextest builds and runs: unset, the whole
 # workspace; CI sets it per shard to the packages that shard runs, which the
 # `suite-build` lane compiled in the same job.
-command = "cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}"
+# The scaffolded-app journeys are the `app-builds` lane: each is a nested cargo
+# build of a new app's whole dependency tree, and in a shard the two families
+# held one target lock and the step for 100 s (run 43144663118).
+command = "cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy)))' ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run all workspace tests"
+
+[[lane]]
+id = "app-builds"
+group = "workspace"
+surfaces = "local ci"
+required = true
+# `lgwks run` and the expansion's clippy check each compile a scaffolded app,
+# and the two share no artifacts, so CI runs each family on its own runner
+# (APPS_FILTER); unset, both run here in one process.
+command = '''cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy))}"'''
+ci_step = "Run the scaffolded app tests"
 
 [[lane]]
 id = "suite-build"

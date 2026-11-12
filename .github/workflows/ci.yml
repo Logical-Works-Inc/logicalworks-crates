@@ -301,6 +301,15 @@ jobs:
           # binary it runs: without `--test` the list built every lgwks_bot test
           # target, 181 s of the row's 283 s (run 41791513019).
           - { suite: saturation, archive: bot-saturation, tier: "tier 10,000", partition: "", build: "-p lgwks_bot --test sim_review_path --locked --no-default-features --features script,process,time,sync,ephemeral --cargo-profile ci-bot", sat_bins: "--test sim_review_path", sat_filter: "binary(sim_review_path) & test(=saturation_r32_tier_10000)" }
+          # The scaffolded-app journeys: `lgwks run` builds a new app, and the
+          # clippy test checks its expansion, each a nested cargo build of the
+          # app's whole dependency tree. In a workspace shard the two held one
+          # target lock and the step for 100 s, and a cold shard ended 304 s in
+          # and was cancelled (run 43144663118). Here each family builds only
+          # lgwks_deps' `it` binary, and the run and check builds, which share no
+          # artifacts, run on runners of their own.
+          - { suite: apps, archive: apps, tier: "apps run", partition: "", build: "-p lgwks_deps --test it --locked --cargo-profile ci-it", apps_filter: "binary(it) & test(/^(lgwks_e2e|lgwks_json)::/)" }
+          - { suite: apps, archive: apps, tier: "apps clippy", partition: "", build: "-p lgwks_deps --test it --locked --cargo-profile ci-it", apps_filter: "binary(it) & test(=sim_lgwks_expand::expanded_app_passes_clippy)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -334,10 +343,10 @@ jobs:
       # archived once per suite (nextest writes into an existing directory
       # only, run 41605078279).
       - name: Archive the suite for the simulation lane
-        if: matrix.suite != 'saturation' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         run: mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst
       - name: Upload the suite archive
-        if: matrix.suite != 'saturation' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         uses: actions/upload-artifact@v7
         with:
           name: nextest-archive-${{ matrix.archive }}-Linux
@@ -346,7 +355,12 @@ jobs:
           retention-days: 1
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
-        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
+        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy)))' ${PARTITION:+--partition $PARTITION}
+      - name: Run the scaffolded app tests
+        if: matrix.suite == 'apps'
+        env:
+          APPS_FILTER: ${{ matrix.apps_filter }}
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy))}"
       - name: Run lgwks-bot async runner tests
         if: matrix.suite == 'bot-full'
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
@@ -357,7 +371,7 @@ jobs:
           SATURATION_FILTER: ${{ matrix.sat_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
       - name: Upload Linux lgwks-bot JUnit report
-        if: matrix.suite != 'workspace'
+        if: matrix.suite != 'workspace' && matrix.suite != 'apps'
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-junit-linux-${{ strategy.job-index }}
@@ -468,7 +482,7 @@ jobs:
           sccache: "false"
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
-        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot)' ${PARTITION:+--partition $PARTITION}
+        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy)))' ${PARTITION:+--partition $PARTITION}
       - name: Run lgwks-bot async runner tests
         if: matrix.suite == 'bot-full'
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
