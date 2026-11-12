@@ -74,7 +74,7 @@
 "crates/lgwks-bot/src/ecs/bot_run.rs" = 2
 "crates/lgwks-bot/src/ecs/builder.rs" = 12
 "crates/lgwks-bot/src/ecs/profile.rs" = 11
-"crates/lgwks-bot/src/ecs/projection.rs" = 11
+"crates/lgwks-bot/src/ecs/projection.rs" = 12
 "crates/lgwks-bot/src/ecs/requests.rs" = 11
 "crates/lgwks-bot/src/ecs/resources.rs" = 20
 "crates/lgwks-bot/src/ecs/runs.rs" = 9
@@ -357,7 +357,7 @@
 "crates/lgwks-bot/src/broker/fence.rs" = 8
 "crates/lgwks-bot/src/cap_token.rs" = 1
 "crates/lgwks-bot/src/clock/epoch.rs" = 12
-"crates/lgwks-bot/src/ecs/projection.rs" = 11
+"crates/lgwks-bot/src/ecs/projection.rs" = 12
 "crates/lgwks-bot/src/journal/file/corruption.rs" = 6
 "crates/lgwks-bot/src/journal/records.rs" = 5
 "crates/lgwks-bot/src/journal/records/read.rs" = 8
