@@ -372,6 +372,10 @@ pub fn decode_packed(
 /// Encodes a [`Decimal`] into a COBOL packed (`COMP-3`) field of `digits`
 /// picture digits, with the zero pad an even picture needs.
 ///
+/// The sign nibble is the one IBM COBOL writes: `C` or `D` for a signed
+/// picture, `F` for an unsigned one, so a record decoded and encoded again
+/// keeps the bytes the mainframe wrote.
+///
 /// # Errors
 ///
 /// [`DecimalError::Limit`] past the byte ceiling,
@@ -392,10 +396,10 @@ pub fn encode_packed(
         nibbles.push(0);
     }
     nibbles.extend(drawn.iter().copied());
-    let sign_nibble: u8 = if signed && value.is_negative() {
-        0x0d
-    } else {
-        0x0c
+    let sign_nibble: u8 = match (signed, value.is_negative()) {
+        (false, _) => 0x0f,
+        (true, true) => 0x0d,
+        (true, false) => 0x0c,
     };
     nibbles.push(sign_nibble);
     let (pairs, remainder) = nibbles.as_chunks::<2>();

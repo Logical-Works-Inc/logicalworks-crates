@@ -500,6 +500,74 @@ fn the_inline_boundary_holds_at_its_declared_length() -> Outcome {
     Ok(())
 }
 
+#[test]
+/// `Map::extend` keeps exactly what inserting each member in turn keeps: keys
+/// ascending, each once, a repeated key holding its last value, whether the
+/// keys arrive sorted, reversed or drawn with repeats, into an empty map or
+/// one already holding members. A `BTreeMap` of the same members is the
+/// model (#831: the map replaces a `BTreeMap`).
+fn sim_map_extend_matches_insert_one_by_one() {
+    for seed in SWEEP_SEEDS {
+        let mut state = seeded_stream(seed);
+        for _ in 0..DRAWS {
+            let held = below(&mut state, 12);
+            let added = below(&mut state, 40);
+            let span = below(&mut state, 24).saturating_add(1);
+            let draw = |state: &mut Seeded, count: usize, order: usize| -> Vec<(String, String)> {
+                let mut members: Vec<(String, String)> = (0..count)
+                    .map(|index| (format!("k{:02}", below(state, span)), format!("v{index}")))
+                    .collect();
+                match order {
+                    0 => members.sort(),
+                    1 => members.sort_by(|left, right| right.cmp(left)),
+                    _ => {}
+                }
+                members
+            };
+            let held_order = below(&mut state, 3);
+            let added_order = below(&mut state, 3);
+            let before = draw(&mut state, held, held_order);
+            let after = draw(&mut state, added, added_order);
+            let mut inserted = Map::new();
+            let mut model = std::collections::BTreeMap::new();
+            for pair in before.iter().chain(after.iter()) {
+                inserted.insert(pair.0.as_str(), Value::String(Text::from(pair.1.as_str())));
+                model.insert(pair.0.clone(), pair.1.clone());
+            }
+            let member = |pair: &(String, String)| {
+                (pair.0.clone(), Value::String(Text::from(pair.1.as_str())))
+            };
+            let mut extended: Map = before.iter().map(member).collect();
+            extended.extend(after.iter().map(member));
+            assert_eq!(
+                extended, inserted,
+                "seed {seed:#018x}: extend must keep what member-by-member insert keeps"
+            );
+            let seen: Vec<(&str, &str)> = extended
+                .iter()
+                .filter_map(|(key, value)| match *value {
+                    Value::String(ref text) => Some((key, text.as_str())),
+                    _ => None,
+                })
+                .collect();
+            let wanted: Vec<(&str, &str)> = model
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect();
+            assert_eq!(
+                seen, wanted,
+                "seed {seed:#018x}: keys ascend once each, the last value of a repeat winning"
+            );
+            let twice = extended.clone();
+            extended.extend(Vec::<(&str, Value)>::new());
+            assert_eq!(
+                extended, twice,
+                "seed {seed:#018x}: an empty extend changes nothing"
+            );
+        }
+    }
+}
+
 /// The replay trace of every document drawn under `seed`.
 fn document_trace(seed: u64) -> u64 {
     let mut state = seeded_stream(seed);

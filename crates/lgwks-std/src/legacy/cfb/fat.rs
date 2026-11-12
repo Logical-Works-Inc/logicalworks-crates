@@ -19,7 +19,14 @@ impl CfbFile {
     /// a declared size.
     pub(crate) fn read_chain(&self, start: u32, limits: &Limits) -> Result<Vec<u8>, CfbError> {
         let chain = self.follow_chain(start, limits)?;
-        let mut out: Vec<u8> = Vec::new();
+        // Every sector a legal chain names lies inside the image, so the
+        // image length caps the reservation a hostile chain could ask for.
+        let mut out: Vec<u8> = Vec::with_capacity(
+            chain
+                .len()
+                .saturating_mul(self.sector_len)
+                .min(self.image.len()),
+        );
         for sector in chain.iter() {
             let at = sector_offset(*sector, self.sector_len, self.image.len())?;
             let Some(window) = self.image.get(at..at.saturating_add(self.sector_len)) else {
@@ -38,22 +45,38 @@ impl CfbFile {
 }
 
 /// Walks one chain through `table` (the FAT or the mini FAT) from `start`,
-/// refusing a revisit, an index past the table and a link into FAT or DIFAT
+/// refusing a cycle, an index past the table and a link into FAT or DIFAT
 /// sectors; every step is bounded by [`Limits::check_pages`], so a cyclic
 /// table cannot loop forever.
+///
+/// A cycle is found by Brent's algorithm, as OpenMcdf walks the same chains:
+/// a parked sector moves to the walker each time the steps since it was
+/// parked reach a doubling power. Any cycle is met within a small multiple
+/// of its length past its entry, with two words of state and no
+/// allocation, where testing every earlier sector made a walk of `n`
+/// sectors cost `n²/2` comparisons. The refusal names a sector on the
+/// cycle.
 pub(crate) fn walk_chain(table: &[u32], start: u32, limits: &Limits) -> Result<Vec<u32>, CfbError> {
     if start == ENDOFCHAIN || start == FREESECT {
         return Ok(Vec::new());
     }
     let mut chain: Vec<u32> = Vec::new();
     let mut at = start;
+    let mut parked = start;
+    let mut power: usize = 1;
+    let mut since_parked: usize = 0;
     loop {
         limits.check_pages(chain.len().saturating_add(1))?;
-        if chain.contains(&at) {
+        if since_parked > 0 && at == parked {
             let refusal = Err(CfbError::FatCycle { sector: at });
             #[cfg(feature = "trace")]
             crate::trace::debug!(at, "cfb: refusing a chain cycle");
             return refusal;
+        }
+        if since_parked == power {
+            parked = at;
+            power = power.saturating_mul(2);
+            since_parked = 0;
         }
         let next = usize::try_from(at)
             .ok()
@@ -75,6 +98,7 @@ pub(crate) fn walk_chain(table: &[u32], start: u32, limits: &Limits) -> Result<V
             return refusal;
         }
         at = next;
+        since_parked = since_parked.saturating_add(1);
     }
 }
 

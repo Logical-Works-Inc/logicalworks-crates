@@ -91,6 +91,63 @@ fn the_packed_layout_matches_its_vector() -> Result<(), lgwks_std::legacy::decim
 }
 
 #[test]
+/// An unsigned picture packs with the `F` sign IBM COBOL writes for it, a
+/// signed one keeps `C` and `D`, and every form decodes back. Each seeded
+/// magnitude is packed both ways, so the sign nibble is the only byte the
+/// two encodings may differ in.
+fn an_unsigned_packed_value_carries_the_f_sign()
+-> Result<(), lgwks_std::legacy::decimal::DecimalError> {
+    let unsigned = encode_packed(Decimal::new(789, 0), 3, false, &BOUNDS)?;
+    assert_eq!(
+        unsigned,
+        vec![0x78, 0x9f],
+        "PIC 9(3) COMP-3 789 must be 78 9F"
+    );
+    assert_eq!(
+        encode_packed(Decimal::new(789, 0), 3, true, &BOUNDS)?,
+        vec![0x78, 0x9c],
+        "PIC S9(3) COMP-3 +789 must be 78 9C"
+    );
+    assert_eq!(
+        decode_packed(&unsigned, 3, 0, false, &BOUNDS)?,
+        Decimal::new(789, 0),
+        "the F-signed bytes must decode back unsigned"
+    );
+    for seed in SWEEP_SEEDS {
+        let mut state = seeded_stream(seed);
+        for _ in 0..24 {
+            let magnitude = draw_coefficient(&mut state).saturating_abs();
+            let digits = below(&mut state, 18).saturating_add(1);
+            let Ok(plain) = encode_packed(Decimal::new(magnitude, 0), digits, false, &BOUNDS)
+            else {
+                continue;
+            };
+            let signed = encode_packed(Decimal::new(magnitude, 0), digits, true, &BOUNDS)?;
+            let (Some((&plain_last, plain_digits)), Some((&signed_last, signed_digits))) =
+                (plain.split_last(), signed.split_last())
+            else {
+                continue;
+            };
+            assert_eq!(
+                plain_digits, signed_digits,
+                "seed {seed}: only the sign nibble may differ between the two encodings"
+            );
+            assert_eq!(
+                (plain_last & 0x0f, signed_last & 0x0f),
+                (0x0f, 0x0c),
+                "seed {seed}: unsigned {magnitude} must end F and signed must end C"
+            );
+            assert_eq!(
+                decode_packed(&plain, digits, 0, false, &BOUNDS)?,
+                Decimal::new(magnitude, 0),
+                "seed {seed}: unsigned {magnitude} in {digits} digits must decode back"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 /// Hostile nibbles and signs answer typed errors: a digit past 9, a sign
 /// past `C`/`D`/`F`, a truncation and a zero-byte ceiling.
 fn hostile_nibbles_answer_typed_errors() {

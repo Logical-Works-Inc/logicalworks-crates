@@ -31,22 +31,7 @@ impl Map {
     /// Builds an object from members in any order, the last of a repeated key
     /// winning; sorts once rather than inserting one at a time.
     pub(crate) fn from_members(mut entries: Vec<(Text, Value)>) -> Self {
-        let sorted = entries
-            .windows(2)
-            .all(|pair| matches!(*pair, [(ref left, _), (ref right, _)] if left < right));
-        if !sorted {
-            // Stable, so repeated keys stay in document order; `dedup_by`
-            // hands each later duplicate with the kept earlier one, and the
-            // later value moves into the kept slot so the last one wins.
-            entries.sort_by(|left, right| left.0.cmp(&right.0));
-            entries.dedup_by(|later, kept| {
-                let repeated = later.0 == kept.0;
-                if repeated {
-                    std::mem::swap(&mut later.1, &mut kept.1);
-                }
-                repeated
-            });
-        }
+        normalize(&mut entries);
         Self { entries }
     }
 
@@ -131,6 +116,27 @@ impl Map {
     }
 }
 
+/// Sorts `entries` by key and keeps the last value of a repeated key, so a
+/// run of members in any order becomes a map's sorted, unique vector.
+fn normalize(entries: &mut Vec<(Text, Value)>) {
+    let sorted = entries
+        .windows(2)
+        .all(|pair| matches!(*pair, [(ref left, _), (ref right, _)] if left < right));
+    if !sorted {
+        // Stable, so repeated keys stay in arrival order; `dedup_by` hands
+        // each later duplicate with the kept earlier one, and the later
+        // value moves into the kept slot so the last one wins.
+        entries.sort_by(|left, right| left.0.cmp(&right.0));
+        entries.dedup_by(|later, kept| {
+            let repeated = later.0 == kept.0;
+            if repeated {
+                std::mem::swap(&mut later.1, &mut kept.1);
+            }
+            repeated
+        });
+    }
+}
+
 /// The members of a [`Map`] in key order, borrowed.
 #[derive(Clone)]
 pub struct Iter<'map> {
@@ -212,10 +218,18 @@ impl<K: Into<Text>, V: Into<Value>> FromIterator<(K, V)> for Map {
 }
 
 impl<K: Into<Text>, V: Into<Value>> Extend<(K, V)> for Map {
+    /// Appends every member after the present ones and sorts once, so a
+    /// later member of a repeated key wins as it would through
+    /// [`Map::insert`], without shifting the vector once per member. The
+    /// stable sort finds the sorted run already present and merges the
+    /// appended run into it.
     fn extend<I: IntoIterator<Item = (K, V)>>(&mut self, members: I) {
-        for (key, value) in members {
-            self.insert(key, value.into());
-        }
+        self.entries.extend(
+            members
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into())),
+        );
+        normalize(&mut self.entries);
     }
 }
 
