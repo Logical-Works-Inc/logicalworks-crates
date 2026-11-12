@@ -162,16 +162,34 @@ mod tests {
                     .to_owned(),
             );
         }
-        // `nextest --no-run` compiles every test binary whatever the filter:
-        // the prebuild built all 51 and outlasted the job's 10 minutes (run
-        // 43282569391), where v0.4.2's lane builds the 5 holding a property.
-        if workflow.lines().any(|line| {
-            line.trim_start()
-                .strip_prefix("run:")
-                .is_some_and(|command| command.contains("--no-run"))
-        }) {
+        // A `nextest --no-run` naming no target compiles every test binary
+        // whatever the filter: it built all 51 and outlasted the job's 10
+        // minutes (run 43282569391). One naming the lane's targets is what the
+        // cold lane needs: v0.4.3's compile alone ran past its 392.8 s cap on
+        // a 3-slot hosted Mac (run 43315235672).
+        let prebuilds: Vec<(usize, &str)> = workflow
+            .match_indices("run:")
+            .filter_map(|(at, _)| {
+                let command = workflow.get(at..)?.strip_prefix("run:")?.lines().next()?;
+                command.contains("--no-run").then_some((at, command))
+            })
+            .collect();
+        if prebuilds
+            .iter()
+            .any(|&(_, command)| !(command.contains("--lib") && command.contains("--test it")))
+        {
             problems.push(
                 "logical_ci.yml prebuilds every test binary the engine's property lane skips"
+                    .to_owned(),
+            );
+        }
+        let engine = engine_step(workflow);
+        if !prebuilds
+            .iter()
+            .any(|&(at, _)| engine.is_some_and(|engine| at < engine))
+        {
+            problems.push(
+                "logical_ci.yml leaves the property lane's cold compile inside its lane cap"
                     .to_owned(),
             );
         }
@@ -182,9 +200,12 @@ mod tests {
                 "logical_ci.yml shows lane output without checking a record exists".to_owned(),
             );
         }
-        // ADR 0029 states why the prebuild went and the run it outlasted.
-        if !adr.contains("so the job runs no\n  prebuild") || !adr.contains("(run 43282569391)") {
-            problems.push("ADR 0029 does not record why the job runs no prebuild".to_owned());
+        // ADR 0029 states why the whole prebuild went and why the selected
+        // one came back, each with its run.
+        if !adr.contains("(run 43282569391)") || !adr.contains("(run 43315235672)") {
+            problems.push(
+                "ADR 0029 does not record why the job prebuilds only the lane's targets".to_owned(),
+            );
         }
         // The engine compiles this repository, whose `.cargo/config.toml`
         // links macOS with ld64.lld; a bare runner failed every compile in
@@ -302,6 +323,16 @@ mod tests {
             ],
             "a copy that brings back the 51-binary prebuild is named"
         );
+        let in_cap = gate.replacen("--test it --no-run", "--test it", 1);
+        assert_ne!(in_cap, gate, "the prebuild the control drops must exist");
+        assert_eq!(
+            inline_gate_problems(&in_cap, &adr),
+            vec![
+                "logical_ci.yml leaves the property lane's cold compile inside its lane cap"
+                    .to_owned()
+            ],
+            "a copy with no selected prebuild before the engine is named"
+        );
         let unguarded = gate.replacen(
             "test -f \"$RUNNER_TEMP/logical_ci-record.json\" || exit 0\n",
             "",
@@ -347,7 +378,9 @@ mod tests {
         );
         assert_eq!(
             inline_gate_problems(&gate, &unrecorded),
-            vec!["ADR 0029 does not record why the job runs no prebuild".to_owned()],
+            vec![
+                "ADR 0029 does not record why the job prebuilds only the lane's targets".to_owned()
+            ],
             "an ADR that drops the run the prebuild outlasted is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);

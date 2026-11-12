@@ -136,10 +136,14 @@ jobs:
         run: test -f .logical_ci/plan.json || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" plan --new
       - name: Init tenant policy (idempotent by policy version)
         run: '"$RUNNER_TEMP/lci/logical_ci-macos-arm64" init --tenant "$LCI_TENANT" --gates "$LCI_GATES" --hardness "$LCI_HARDNESS"'
-      # No prebuild: `nextest --no-run` compiles every test binary whatever
-      # the filter, so the step that warmed A02 built all 51 and outlasted
-      # the job's 10 minutes (run 43282569391). v0.4.2's lane builds only
-      # the targets that hold a property test.
+      # The lane's own targets, built before the engine runs. Cold on a 3-slot
+      # hosted Mac, v0.4.3's narrowed lane was still compiling when its 392.8 s
+      # cap killed it (run 43315235672). A `--no-run` naming no target compiled
+      # all 51 test binaries and outlasted the job (run 43282569391); this one
+      # names the 5 targets the engine's log printed, so the compile spends
+      # the job's 10 minutes and the lane runs on built targets.
+      - name: Build the property lane's targets
+        run: cargo nextest run --locked -p lgwks_ast -p lgwks_bot -p lgwks_deps -p lgwks_std --bin lgwks-deps --lib --test it --no-run
       - name: Run ci and keep the sealed record
         id: ci
         continue-on-error: true

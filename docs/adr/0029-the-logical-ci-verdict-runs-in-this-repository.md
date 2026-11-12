@@ -57,8 +57,8 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
   43280694006); the job took 308 s in all until main's post-job save warms the build.
 - That prebuild was `nextest --no-run`, which compiles all 51 test binaries whatever the
   filter. On the next run it outlasted the job's 10 minutes (run 43282569391). v0.4.2's
-  lane builds only the targets that hold a property test, 5 of the 51, so the job runs no
-  prebuild. Cold on a 3-core hosted Mac it was still killed at 394 s (run 43300556873).
+  lane builds only the targets that hold a property test, 5 of the 51, so the job dropped
+  the prebuild. Cold on a 3-core hosted Mac it was still killed at 394 s (run 43300556873).
 - The job compiles the lane at `ci-it`'s levels: `CARGO_PROFILE_TEST_OPT_LEVEL=0` and a
   `$CARGO_HOME/config.toml` with dependencies and lgwks_bot at 1. The test profile builds
   dependencies at 3. Cold with sccache off and 3 jobs, the gate fell from 264.8 s wall and
@@ -66,7 +66,10 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
   ci.yml test job does, so clippy-driver lints nothing in the lane. A02 sealed GO on a hosted
   Mac (run 43311128463) and UNMEASURED at 397 s on a 3-slot one (run 43313551426).
 - v0.4.3 widens the build only for a file that names a property test by its path, `fn` or
-  `mod`, which drops lgwks_macros and seven targets here: cold, 264.8 s to 242.8 s.
+  `mod`, which drops lgwks_macros and seven targets here: cold, 264.8 s to 242.8 s. On a
+  3-slot hosted Mac its compile still ran past the 392.8 s cap (run 43315235672), so the job
+  builds the lane's own 5 targets first with `--no-run`, the selection the engine printed,
+  and the lane runs on them inside the job's 10 minutes.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:
