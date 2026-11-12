@@ -81,6 +81,13 @@ mod tests {
                 adr,
                 format!("the signed logical_ci {tag} release"),
             ),
+            // The v0.4.3 re-pin moved the header and missed this one, which
+            // told a reader the old release's platforms were the current ones.
+            (
+                "ADR 0029's runner line",
+                adr,
+                format!("runs on `macos-latest`: {tag} ships"),
+            ),
         ];
         for (place, text, phrase) in named {
             if !text.contains(&phrase) {
@@ -215,8 +222,15 @@ mod tests {
         );
         assert_eq!(
             inline_gate_problems(&half, &adr).len(),
-            3,
-            "a tag moved without its header, comment and ADR is named three times"
+            4,
+            "a tag moved without its header, comment and both ADR lines is named four times"
+        );
+        let stale = adr.replacen("runs on `macos-latest`: v", "runs on `macos-latest`: v9", 1);
+        assert_ne!(stale, adr, "the ADR text the control mutates must exist");
+        assert_eq!(
+            inline_gate_problems(&gate, &stale).len(),
+            1,
+            "an ADR runner line left on another release is named"
         );
         let swapped = gate.replacen("LCI_VERIFIER_SHA256: '", "LCI_VERIFIER_SHA256: 'X", 1);
         let swapped_problems = inline_gate_problems(&swapped, &adr);

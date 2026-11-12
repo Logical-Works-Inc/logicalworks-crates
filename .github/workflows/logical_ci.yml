@@ -5,7 +5,7 @@ name: logical_ci
 # 0 s on every run. The job below is logical_ci's own gate.yml at
 # Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
 # step for step on its macos-arm64 asset, re-pinned to
-# pin the signed v0.4.2 release: its ci/property-and-loom builds only the targets that hold a
+# pin the signed v0.4.3 release: its ci/property-and-loom builds only the targets that hold a
 # property test (5 of this workspace's 51 test binaries) and the packages that model loom,
 # where a whole-workspace build ran A02 out of its 397.9 s lane (runs 43244596498, 43278464658).
 on:
@@ -26,7 +26,7 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.4.2 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
+    # mac-specific: logical_ci v0.4.3 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
     runs-on: macos-latest
     timeout-minutes: 10
     env:
@@ -34,7 +34,7 @@ jobs:
       LCI_TENANT: crates
       LCI_HARDNESS: C
       LCI_GATES: ''
-      LCI_RELEASE: v0.4.2
+      LCI_RELEASE: v0.4.3
       # The engine built every lane's Rust into its own cache directory, which
       # no rust-cache entry holds, so A02 compiled the workspace cold on every
       # run and its lane ended at 397.1 s (run 43273499037). Building into the
@@ -56,7 +56,7 @@ jobs:
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: '08a5e50a4ed6d432cceb60c3673f5d72455af3d56c32f4ab903611fab33e9ead'
+      LCI_VERIFIER_SHA256: '2a8ad3bb200aed08ef0227f286c617f38a70d51103aab1aa156be1549f7207f0'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
