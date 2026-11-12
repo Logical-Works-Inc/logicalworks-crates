@@ -60,6 +60,55 @@ fn the_commands_are_the_ones_the_lane_table_names() -> TestResult {
     Ok(())
 }
 
+/// Catches the clean-consumer gate journey running in the workspace suite, or
+/// in no suite at all.
+///
+/// Source: run 43213006642, where the lane table had moved the journey to the
+/// `app-builds` lane (#927) and this leg still ran it in `workspace`. The
+/// workspace filter must exclude it under every partition and the apps filter
+/// must select it, each exactly once.
+#[test]
+fn the_gate_journey_leaves_the_workspace_suite_for_the_apps_suite() -> TestResult {
+    let journey = "test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)";
+    let filter_of = |suite: &str, partition: Option<&str>| -> Result<String, &'static str> {
+        let commands = suite_commands(suite, partition).ok_or("a suite is unknown")?;
+        let argv = commands.first().ok_or("a suite runs no command")?;
+        let at = argv
+            .iter()
+            .position(|word| word == "-E")
+            .ok_or("a suite has no filter")?;
+        argv.get(at.saturating_add(1))
+            .cloned()
+            .ok_or("a filter flag has no value")
+    };
+    let whole = filter_of("workspace", None)?;
+    let sliced = filter_of("workspace", Some("count:10/10"))?;
+    assert_eq!(
+        whole, sliced,
+        "a partition never changes what the workspace suite excludes"
+    );
+    assert_eq!(
+        whole.matches(journey).count(),
+        1,
+        "workspace names the journey once: {whole}"
+    );
+    assert!(
+        whole.contains(&format!("or {journey}))")),
+        "the journey sits inside the workspace suite's exclusion: {whole}"
+    );
+    let apps = filter_of("apps", None)?;
+    assert_eq!(
+        apps.matches(journey).count(),
+        1,
+        "apps selects the journey once: {apps}"
+    );
+    assert!(
+        apps.starts_with("binary(it) & ("),
+        "apps selects it from the it binary: {apps}"
+    );
+    Ok(())
+}
+
 /// Catches a slot reader that fails on the `:+` form the `tests` lane uses,
 /// keeps a slot's braces, or reads past an unclosed one.
 #[test]

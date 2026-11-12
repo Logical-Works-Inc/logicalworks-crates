@@ -14,9 +14,12 @@ use crate::{Failure, fail};
 /// (ADR 0028).
 pub(crate) const SUITES: [&str; 5] = ["targets", "workspace", "apps", "bot-full", "appcui"];
 
-/// The scaffolded-app journeys: each nests a cargo build of a new app's tree.
-const APP_JOURNEYS: &str =
-    "test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy)";
+/// The journeys that nest a cargo build: the scaffolded apps, and the clean
+/// consumer the gate passes (#927). The workspace suite leaves each out and
+/// the apps suite runs it, so both filters are made from this one list.
+const APP_JOURNEYS: &str = "test(/^(lgwks_e2e|lgwks_json)::/) | \
+     test(=sim_lgwks_expand::expanded_app_passes_clippy) | \
+     test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)";
 
 /// Where the container's build output lives: the target volume's mount, and the
 /// `CARGO_TARGET_DIR` every command inside it builds into.
