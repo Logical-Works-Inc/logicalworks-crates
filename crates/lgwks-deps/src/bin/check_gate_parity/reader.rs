@@ -21,6 +21,13 @@ pub(super) struct Job {
     pub(super) name: String,
     /// The steps that run commands.
     pub(super) steps: Vec<Step>,
+    /// Every key of the job or of one of its steps that keeps the job's lane
+    /// from running or from failing: an `if:` that is always false and a
+    /// `continue-on-error: true`, each worded for the report (rule 7).
+    pub(super) findings: Vec<String>,
+    /// The `run:` bodies of steps that open with `- run:`: no name to key a lane
+    /// on, so they sit outside `steps`, and rule 7 reads them all the same.
+    pub(super) loose_runs: Vec<String>,
 }
 
 /// One `[[lane]]` entry of the lane table.
@@ -69,6 +76,16 @@ struct Reading {
     folded: bool,
     /// How many run steps the job has had.
     run_index: usize,
+    /// Whether the `run:` being collected opened a `- run:` step.
+    loose: bool,
+    /// The bodies of the `- run:` steps so far.
+    loose_runs: Vec<String>,
+    /// The neutering keys found in the current job so far.
+    findings: Vec<String>,
+    /// How the report names the step being read.
+    step_label: String,
+    /// How many steps the job has started.
+    step_count: usize,
 }
 
 impl Reading {
@@ -85,6 +102,38 @@ impl Reading {
             in_run: false,
             folded: false,
             run_index: 0,
+            loose: false,
+            loose_runs: Vec::new(),
+            findings: Vec::new(),
+            step_label: String::new(),
+            step_count: 0,
+        }
+    }
+
+    /// Starts the step at `label`; the keys that follow belong to it.
+    fn begin_step(&mut self, label: String) {
+        self.flush_run();
+        self.step_label = label;
+        self.step_count = self.step_count.saturating_add(1);
+    }
+
+    /// Records a neutering key of the step being read.
+    fn note_step(&mut self, what: &str) {
+        self.findings
+            .push(format!("step {:?} has {what}", self.step_label));
+    }
+
+    /// Starts collecting a `run:` whose value is `value`: a block header opens
+    /// a block, anything else is the whole body.
+    fn begin_run(&mut self, value: &str) {
+        if matches!(value, "" | "|" | "|-" | ">" | ">-" | "|+" | ">+") {
+            self.in_run = true;
+            self.folded = value.starts_with('>');
+            self.run_lines.clear();
+        } else {
+            self.run_lines = vec![value.to_owned()];
+            self.in_run = false;
+            self.flush_run();
         }
     }
 
@@ -110,10 +159,6 @@ impl Reading {
         if !self.in_run && self.run_lines.is_empty() {
             return;
         }
-        let name = match self.pending_name.take() {
-            Some(name) => name,
-            None => format!("{}:run[{}]", self.id(), self.run_index),
-        };
         let run = if self.folded {
             self.run_lines
                 .iter()
@@ -124,12 +169,21 @@ impl Reading {
         } else {
             self.run_lines.join("\n")
         };
-        let job = self.display_name();
-        self.steps.push(Step { name, run, job });
-        self.run_index = self.run_index.saturating_add(1);
+        if self.loose {
+            self.loose_runs.push(run);
+        } else {
+            let name = match self.pending_name.take() {
+                Some(name) => name,
+                None => format!("{}:run[{}]", self.id(), self.run_index),
+            };
+            let job = self.display_name();
+            self.steps.push(Step { name, run, job });
+            self.run_index = self.run_index.saturating_add(1);
+        }
         self.run_lines.clear();
         self.in_run = false;
         self.folded = false;
+        self.loose = false;
     }
 
     /// Ends the current job.
@@ -140,7 +194,14 @@ impl Reading {
         self.flush_run();
         let name = self.display_name();
         let steps = std::mem::take(&mut self.steps);
-        self.jobs.push(Job { name, steps });
+        let findings = std::mem::take(&mut self.findings);
+        let loose_runs = std::mem::take(&mut self.loose_runs);
+        self.jobs.push(Job {
+            name,
+            steps,
+            findings,
+            loose_runs,
+        });
         self.job_id = None;
     }
 }
@@ -174,6 +235,56 @@ fn unquote(value: &str) -> String {
         .to_owned()
 }
 
+/// A scalar as GitHub reads it in an `if:` or a boolean key: the comment gone,
+/// the quotes gone, a `${{ ... }}` wrapper gone and the spaces collapsed.
+fn expression(value: &str) -> String {
+    let value = match value.split_once(" #") {
+        Some((before, _)) => before,
+        None => value,
+    };
+    let bare = unquote(value);
+    let inner = match bare
+        .strip_prefix("${{")
+        .and_then(|rest| rest.strip_suffix("}}"))
+    {
+        Some(inner) => inner,
+        None => bare.as_str(),
+    };
+    unquote(inner)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase()
+}
+
+/// Whether an `if:` value is false whatever the run's context holds.
+fn never_runs(value: &str) -> bool {
+    let condition = expression(value);
+    matches!(condition.as_str(), "false" | "0") || condition.starts_with("false &&")
+}
+
+/// What a `key: value` mapping line does to its job or step when it keeps the
+/// lane from running (`if:` always false) or from failing the run
+/// (`continue-on-error: true`); nothing for any other key.
+fn neutering(text: &str) -> Option<&'static str> {
+    let (key, value) = text.split_once(':')?;
+    match key.trim() {
+        "if" if never_runs(value) => Some("an `if:` that is always false"),
+        "continue-on-error" if expression(value) == "true" => Some("`continue-on-error: true`"),
+        _ => None,
+    }
+}
+
+/// The neutering key on a line indented exactly `indent` spaces.
+fn neutering_at(line: &str, indent: usize) -> Option<&'static str> {
+    let head = line.get(..indent)?;
+    let rest = line.get(indent..)?;
+    if head.chars().any(|ch| ch != ' ') || rest.starts_with(' ') {
+        return None;
+    }
+    neutering(rest)
+}
+
 /// Reads the workflow's jobs and their command steps.
 pub(super) fn read_workflow(text: &str) -> Vec<Job> {
     let mut state = Reading::new();
@@ -185,6 +296,8 @@ pub(super) fn read_workflow(text: &str) -> Vec<Job> {
             state.steps.clear();
             state.in_steps = false;
             state.run_index = 0;
+            state.step_count = 0;
+            state.step_label.clear();
             continue;
         }
         if state.job_id.is_none() {
@@ -194,6 +307,10 @@ pub(super) fn read_workflow(text: &str) -> Vec<Job> {
             && !value.is_empty()
         {
             state.job_name = unquote(value);
+            continue;
+        }
+        if let Some(what) = neutering_at(raw, 4) {
+            state.findings.push(format!("the job has {what}"));
             continue;
         }
         if keyed(raw, 4, "steps").is_some_and(str::is_empty) {
@@ -206,21 +323,28 @@ pub(super) fn read_workflow(text: &str) -> Vec<Job> {
         if let Some(value) = raw.strip_prefix("      - name:")
             && !value.trim().is_empty()
         {
-            state.flush_run();
+            state.begin_step(unquote(value));
             state.pending_name = Some(unquote(value));
+            continue;
+        }
+        if let Some(entry) = raw.strip_prefix("      - ") {
+            state.begin_step(format!("#{}", state.step_count.saturating_add(1)));
+            if let Some(what) = neutering(entry) {
+                state.note_step(what);
+            } else if let Some(value) = entry.strip_prefix("run:") {
+                state.loose = true;
+                state.begin_run(value.trim_start());
+            }
+            continue;
+        }
+        if let Some(what) = neutering_at(raw, 8) {
+            state.flush_run();
+            state.note_step(what);
             continue;
         }
         if let Some(value) = keyed(raw, 8, "run") {
             state.flush_run();
-            if matches!(value, "" | "|" | "|-" | ">" | ">-" | "|+" | ">+") {
-                state.in_run = true;
-                state.folded = value.starts_with('>');
-                state.run_lines.clear();
-            } else {
-                state.run_lines = vec![value.to_owned()];
-                state.in_run = false;
-                state.flush_run();
-            }
+            state.begin_run(value);
             continue;
         }
         if state.in_run {
