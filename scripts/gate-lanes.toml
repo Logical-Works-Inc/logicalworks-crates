@@ -232,15 +232,16 @@ command = "cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/nu
 ci_step = "Build the suite"
 
 [[lane]]
-id = "simulation-archive"
+id = "simulation-listing"
 surfaces = "ci"
 required = true
-# The first Linux shard of each suite archives the binaries it built, and the
-# `simulation-evidence` lane lists those archives (SIMULATION_ARCHIVES) instead
-# of compiling every workspace test again. nextest writes into an existing
-# directory only (run 41605078279).
-command = "mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst"
-ci_step = "Archive the suite for the simulation lane"
+# The first Linux shard of each suite writes the nextest listing of the
+# binaries it built, and the `simulation-evidence` lane counts those listings
+# (SIMULATION_LISTINGS) instead of compiling every workspace test again. The
+# compiled archives this replaced took up to 177 s to upload (run
+# 43228739672, ADR 0032).
+command = "mkdir -p nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > nextest-listing/listing.json"
+ci_step = "List the suite for the simulation lane"
 
 [[lane]]
 id = "simulation-lane-build"
@@ -253,26 +254,26 @@ command = "cargo build --locked -p lgwks_deps --bin ci-local"
 ci_step = "Build the simulation lane"
 
 [[lane]]
-id = "simulation-archives-ready"
+id = "simulation-listings-ready"
 surfaces = "ci"
 required = true
 # Waits, bounded at 60 polls, until the first Linux shard of every suite has
-# uploaded its archive to this run, and fails naming the suites that never did.
+# uploaded its listing to this run, and fails naming the suites that never did.
 command = '''set -euo pipefail
 for attempt in $(seq 1 60); do
   listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
   missing=""
   for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
-    case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
+    case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
   done
-  if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi
+  if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
   echo "attempt ${attempt}: waiting on${missing}"
   sleep 4
 done
-echo "::error::the suite archives never arrived:${missing}"
+echo "::error::the suite listings never arrived:${missing}"
 exit 1
 '''
-ci_step = "Wait for the Linux suite archives"
+ci_step = "Wait for the Linux suite listings"
 
 [[lane]]
 id = "sqlite3-program"

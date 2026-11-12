@@ -163,14 +163,15 @@ jobs:
         run: |
           test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"
 
-  # The simulation lane lists the test binaries the Linux shards built: the
-  # first shard of each suite writes them into a nextest archive after its
-  # build (SIMULATION_ARCHIVES), so nothing compiles every workspace test again
-  # (cold, that alone was cancelled at 293 s in run 41627777207). It runs in
-  # the shards' container, whose glibc the binaries need. It starts with the
-  # shards rather than after them: it builds the lane runner while they
-  # compile and takes each archive as it is uploaded, so it ends before the
-  # slowest shard instead of 40 s after it (run 41698583571).
+  # The simulation lane counts the tests the Linux shards built: the first
+  # shard of each suite writes the nextest listing of its build
+  # (SIMULATION_LISTINGS), so nothing compiles every workspace test again
+  # (cold, that alone was cancelled at 293 s in run 41627777207). A listing
+  # is all the lane reads. The compiled archives it used to upload took 2 to
+  # 177 s per bot-it shard and cancelled bot-it-g5 at its cap with every test
+  # passing (run 43228739672, ADR 0032). It starts with the shards rather
+  # than after them: it builds the lane runner while they compile and takes
+  # each listing as it is uploaded (run 41698583571).
   workspace_build:
     name: Workspace build and simulation evidence
     needs: changes
@@ -185,7 +186,7 @@ jobs:
     timeout-minutes: 5
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
-      SIMULATION_ARCHIVES: nextest-archive/nextest-archive-workspace-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-rest-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-scale-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-surface-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-refusals-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g1-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g2-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g3-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g4-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g5-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g6-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g7-Linux/suite.tar.zst nextest-archive/nextest-archive-bot-it-g8-Linux/suite.tar.zst
+      SIMULATION_LISTINGS: nextest-listing/nextest-listing-workspace-Linux/listing.json nextest-listing/nextest-listing-bot-rest-Linux/listing.json nextest-listing/nextest-listing-bot-it-scale-Linux/listing.json nextest-listing/nextest-listing-bot-it-surface-Linux/listing.json nextest-listing/nextest-listing-bot-it-refusals-Linux/listing.json nextest-listing/nextest-listing-bot-it-g1-Linux/listing.json nextest-listing/nextest-listing-bot-it-g2-Linux/listing.json nextest-listing/nextest-listing-bot-it-g3-Linux/listing.json nextest-listing/nextest-listing-bot-it-g4-Linux/listing.json nextest-listing/nextest-listing-bot-it-g5-Linux/listing.json nextest-listing/nextest-listing-bot-it-g6-Linux/listing.json nextest-listing/nextest-listing-bot-it-g7-Linux/listing.json nextest-listing/nextest-listing-bot-it-g8-Linux/listing.json
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust 1.99.1
@@ -196,7 +197,7 @@ jobs:
           nextest: "true"
       - name: Build the simulation lane
         run: cargo build --locked -p lgwks_deps --bin ci-local
-      - name: Wait for the Linux suite archives
+      - name: Wait for the Linux suite listings
         env:
           TOKEN: ${{ github.token }}
         run: |
@@ -205,19 +206,19 @@ jobs:
             listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
             missing=""
             for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
-              case "${listed}" in *"\"name\":\"nextest-archive-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
+              case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
             done
-            if [ -z "${missing}" ]; then echo "every suite archive is uploaded"; exit 0; fi
+            if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
             echo "attempt ${attempt}: waiting on${missing}"
             sleep 4
           done
-          echo "::error::the suite archives never arrived:${missing}"
+          echo "::error::the suite listings never arrived:${missing}"
           exit 1
-      - name: Download the Linux test archives
+      - name: Download the Linux suite listings
         uses: actions/download-artifact@v8
         with:
-          pattern: nextest-archive-*-Linux
-          path: nextest-archive
+          pattern: nextest-listing-*-Linux
+          path: nextest-listing
       - name: Deterministic simulation evidence
         run: |
           set -euo pipefail
@@ -345,18 +346,18 @@ jobs:
         run: command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }
       - name: Build the suite
         run: cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null
-      # The simulation lane's input: the binaries this build already made,
-      # archived once per suite (nextest writes into an existing directory
-      # only, run 41605078279).
-      - name: Archive the suite for the simulation lane
+      # The simulation lane's input: the listing of the binaries this build
+      # already made, once per suite. The lane only counts tests, so a JSON
+      # listing replaces the compiled archive (ADR 0032).
+      - name: List the suite for the simulation lane
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
-        run: mkdir -p nextest-archive && cargo nextest archive ${NEXTEST_BUILD} --archive-file nextest-archive/suite.tar.zst
-      - name: Upload the suite archive
+        run: mkdir -p nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > nextest-listing/listing.json
+      - name: Upload the suite listing
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         uses: actions/upload-artifact@v7
         with:
-          name: nextest-archive-${{ matrix.archive }}-Linux
-          path: nextest-archive/suite.tar.zst
+          name: nextest-listing-${{ matrix.archive }}-Linux
+          path: nextest-listing/listing.json
           if-no-files-found: error
           retention-days: 1
       - name: Run all workspace tests
