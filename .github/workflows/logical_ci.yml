@@ -35,6 +35,12 @@ jobs:
       LCI_HARDNESS: C
       LCI_GATES: ''
       LCI_RELEASE: v0.4.1
+      # The engine built every lane's Rust into its own cache directory, which
+      # no rust-cache entry holds, so A02 compiled the workspace cold on every
+      # run and its lane ended at 397.1 s (run 43273499037). Building into the
+      # workspace target lets the hosted-rust step below restore main's
+      # dependency build into the same directory the lanes compile in.
+      LOGICAL_CI_TARGET_DIR: ${{ github.workspace }}/target
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
@@ -116,6 +122,14 @@ jobs:
           LCI_RECORD="$RUNNER_TEMP/logical_ci-record.json"
           set +e; "$RUNNER_TEMP/lci/logical_ci-macos-arm64" ci --tenant "$LCI_TENANT" --json > "$LCI_RECORD"; code=$?; set -e
           echo "exit=$code" | tee -a "$GITHUB_OUTPUT"; cat "$LCI_RECORD"
+      # The sealed record keeps each lane's output by digest alone, so a lane
+      # that ran out of time named no step (run 43273499037). `show` prints
+      # each lane's redacted output tail from the run the record names.
+      - name: Show each lane's output
+        if: always()
+        run: |
+          run_id="$(jq -r '.run_id // empty' "$RUNNER_TEMP/logical_ci-record.json")"
+          test -z "$run_id" || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" show "$run_id" --tenant "$LCI_TENANT"
       - name: Upload sealed record
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

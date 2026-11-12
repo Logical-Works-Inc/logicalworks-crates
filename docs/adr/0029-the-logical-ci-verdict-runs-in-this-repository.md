@@ -47,6 +47,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - v0.3.0's loom run built every member in release, though lgwks_std alone models loom. A02
   sealed UNMEASURED when its lane ended at 397.9 s (run 43244596498). v0.4.1 builds only the
   modelling packages, and on this tree its property-and-loom gate holds in 82.42 s, 2.46 GB peak.
+- With v0.4.1 the lane still ended at 397.1 s (run 43273499037): the engine compiled into its
+  own cache directory, which no rust-cache entry holds. `LOGICAL_CI_TARGET_DIR` puts its builds
+  in the workspace target that hosted-rust restores, and `show` prints each lane's output.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:

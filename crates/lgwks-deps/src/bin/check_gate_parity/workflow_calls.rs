@@ -117,6 +117,14 @@ mod tests {
                 ));
             }
         }
+        // The engine's own cache directory is held by no rust-cache entry, so
+        // A02 compiled cold and ran out at 397.1 s (run 43273499037).
+        if !workflow.contains("LOGICAL_CI_TARGET_DIR: ${{ github.workspace }}/target") {
+            problems.push(
+                "logical_ci.yml lets the engine build outside the cached workspace target"
+                    .to_owned(),
+            );
+        }
         // The engine compiles this repository, whose `.cargo/config.toml`
         // links macOS with ld64.lld; a bare runner failed every compile in
         // 30 s (run 43242590489), so the repository's own setup runs first.
@@ -196,6 +204,19 @@ mod tests {
                     .to_owned()
             ],
             "a copy that downloads one platform's verifier alone is named"
+        );
+        let uncached = gate.replacen(
+            "LOGICAL_CI_TARGET_DIR: ${{ github.workspace }}/target",
+            "LOGICAL_CI_TARGET_DIR: /tmp/elsewhere",
+            1,
+        );
+        assert_eq!(
+            inline_gate_problems(&uncached, &adr),
+            vec![
+                "logical_ci.yml lets the engine build outside the cached workspace target"
+                    .to_owned()
+            ],
+            "a copy whose engine builds outside the cached target is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
         assert_eq!(
