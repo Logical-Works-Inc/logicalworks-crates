@@ -95,6 +95,19 @@ mod tests {
                 None => problems.push(format!("logical_ci.yml sets no {key}")),
             }
         }
+        // ci/property-and-loom probes nextest first; without it A02 seals
+        // UNMEASURED in 142 ms (run 43232168262), and a held one is kept.
+        for needle in [
+            "\"cargo-nextest 0.9.149\"*) echo \"nextest=held\"",
+            "if: steps.tools.outputs.nextest != 'held'",
+            "tool: nextest@0.9.149",
+        ] {
+            if !workflow.contains(needle) {
+                problems.push(format!(
+                    "logical_ci.yml does not install nextest: no `{needle}`"
+                ));
+            }
+        }
         problems
     }
 
@@ -131,6 +144,18 @@ mod tests {
                 .iter()
                 .all(|problem| problem.starts_with("LCI_VERIFIER_SHA256 is not 64")),
             "a malformed verifier pin is named: {swapped_problems:?}"
+        );
+        let bare = gate.replacen("tool: nextest@0.9.149", "tool: cargo-hack", 1);
+        assert_eq!(
+            inline_gate_problems(&bare, &adr),
+            vec!["logical_ci.yml does not install nextest: no `tool: nextest@0.9.149`".to_owned()],
+            "a copy that drops the nextest install is named"
+        );
+        let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
+        assert_eq!(
+            inline_gate_problems(&clobbering, &adr).len(),
+            1,
+            "a copy that writes over a held nextest is named"
         );
         let mut out = Vec::new();
         let mut err = Vec::new();

@@ -3,8 +3,9 @@ name: logical_ci
 # This repository is public and logical_ci is private, and GitHub never lets a
 # public repository call a private reusable workflow: the `uses:` call failed in
 # 0 s on every run. The job below is logical_ci's own gate.yml at
-# Logical-Works-Inc/logical_ci@94f57e0fc7b4e9ef14a93e64c8ad0786e2b7fc33 ("gate:
-# pin the signed v0.3.0 release"), step for step, with its pins unchanged.
+# Logical-Works-Inc/logical_ci@05cc968962397ca7c89095fcae8c0719400eafb9 (#213,
+# over "gate: pin the signed v0.3.0 release"), step for step, with its pins
+# unchanged.
 on:
   pull_request:
   push:
@@ -40,6 +41,24 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      # ci/property-and-loom selects the subject's property tests with
+      # nextest's filterset and probes `cargo nextest --version` first, so a
+      # runner without it seals A02 UNMEASURED in 142 ms on every run
+      # (#923, run 43232168262). A runner that already holds that nextest
+      # keeps it: writing over a binary its other jobs run failed with curl 56
+      # (logical_ci#213 selftest).
+      - name: Find the tools the runner already holds
+        id: tools
+        run: |
+          case "$(cargo nextest --version 2>/dev/null)" in
+            "cargo-nextest 0.9.149"*) echo "nextest=held" >> "$GITHUB_OUTPUT" ;;
+            *) echo "nextest=absent" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Install the tools the engine's lanes probe
+        if: steps.tools.outputs.nextest != 'held'
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: nextest@0.9.149
       - name: Refuse an unpinned gate
         run: |
           for pin in "$LCI_RELEASE_PUBKEY" "$LCI_VERIFIER_SHA256"; do

@@ -19,9 +19,10 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 ## Decision
 
 1. **The gate's steps run here.** `logical_ci.yml` carries logical_ci's gate.yml at
-   `94f57e0f`, which pins the signed v0.3.0 release (first `75a0a1f5` and v0.2.0). It keeps that file's release key pin, its
-   verifier sha256 pin and its order: refuse an unpinned gate, download, check the verifier, verify
-   the seal, then `plan --new`, `init` and `ci` for tenant `crates` at hardness C.
+   `05cc9689`, which pins the signed logical_ci v0.3.0 release and installs cargo-nextest 0.9.149
+   unless the runner holds it (first `75a0a1f5` and v0.2.0). It keeps that file's release key pin,
+   its verifier sha256 pin and its order: refuse an unpinned gate, download, check the verifier,
+   verify the seal, then `plan --new`, `init` and `ci` for tenant `crates` at hardness C.
 2. **A missing token is named.** The download step refuses with `LOGICAL_CI_TOKEN is not set on
    this repository` before it calls `gh`.
 3. **A fork's pull request skips the job.** GitHub hands a fork no secret, so the job could only
@@ -41,8 +42,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - The inline copy drifts when logical_ci re-pins. The header names the commit it copies, and a
   re-pin changes `LCI_RELEASE` and both pins here in one commit.
 - The release is macOS arm64 only, so the job runs on `macos-latest`.
-- Run locally on 7fa13b2b, the release verifies and `ci` returns UNMEASURED in 48.5 s. Its policy
-  gates A02, and `ci/property-and-loom` finds no `#[cfg(loom)]` model in this repository.
+- The policy gates A02, and `ci/property-and-loom` probes cargo-nextest first. Without it the hosted
+  run sealed UNMEASURED in 142 ms (run 43232168262). With nextest 0.9.149, `ci` on 0531bb6
+  returns GO with A02 passed, in 153.5 s wall and 2.35 GB peak RSS on the logical_ci Mac.
 
 ## Correspondence
 
