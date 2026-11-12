@@ -133,7 +133,7 @@ impl core::str::FromStr for Decimal {
             (None, Some(rest)) => (false, rest, 1_usize),
             (None, None) => (false, text, 0_usize),
         };
-        let mut coefficient: i128 = 0;
+        let mut folded = Digits::new();
         let mut places: u32 = 0;
         let mut pointed = false;
         let mut digits = 0_usize;
@@ -146,7 +146,7 @@ impl core::str::FromStr for Decimal {
             if !byte.is_ascii_digit() {
                 return crate::legacy::refuse(DecimalError::NotANumber { offset });
             }
-            coefficient = fold_digit(coefficient, byte.saturating_sub(b'0'), offset)?;
+            folded.push(byte.saturating_sub(b'0'), offset)?;
             digits = digits.saturating_add(1);
             if pointed {
                 places = places.saturating_add(1);
@@ -155,6 +155,7 @@ impl core::str::FromStr for Decimal {
         if digits == 0 {
             return crate::legacy::refuse(DecimalError::NotANumber { offset: text.len() });
         }
+        let coefficient = folded.value();
         let signed = if negative {
             coefficient.saturating_neg()
         } else {
@@ -269,19 +270,67 @@ pub(crate) fn digits_of(value: i128, digits: usize) -> Result<Vec<u8>, DecimalEr
     Ok(out)
 }
 
-/// Folds one digit nibble into the accumulator, refusing values past 9.
+/// Digits a `u64` chunk holds before it folds into the coefficient:
+/// 10^19 - 1 is below `u64::MAX` (about 1.8 * 10^19), 10^20 - 1 is not.
+const CHUNK_DIGITS: u8 = 19;
+
+/// The decimal digits of a field folded into its coefficient, most
+/// significant first, shared by packed, zoned and plain-text decoding.
 ///
-/// `offset` is the byte the nibble came from, which is what the error names.
-fn fold_digit(accumulator: i128, nibble: u8, offset: usize) -> Result<i128, DecimalError> {
-    if nibble > 9 {
-        let refusal = Err(DecimalError::BadNibble { offset, nibble });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!(offset, nibble, "decimal: refusing a non-digit nibble");
-        return refusal;
+/// A digit costs one `u64` multiply-add into the open chunk; the saturating
+/// `i128` multiply-add runs once per [`CHUNK_DIGITS`] digits instead of once
+/// per digit, the decode's largest cost. The value only grows as digits
+/// arrive, so saturating once per chunk lands on the same `i128::MAX` the
+/// digit-by-digit fold did for a field past 38 digits.
+struct Digits {
+    /// The digits folded so far, saturating at `i128::MAX`.
+    coefficient: i128,
+    /// The open chunk's digits, below 10^19.
+    chunk: u64,
+    /// How many digits the open chunk holds.
+    held: u8,
+}
+
+impl Digits {
+    /// No digits yet.
+    const fn new() -> Self {
+        Self {
+            coefficient: 0,
+            chunk: 0,
+            held: 0,
+        }
     }
-    Ok(accumulator
-        .saturating_mul(10)
-        .saturating_add(i128::from(nibble)))
+
+    /// Folds one digit nibble in, refusing values past 9; `offset` is the
+    /// byte the nibble came from, which is what the error names.
+    fn push(&mut self, nibble: u8, offset: usize) -> Result<(), DecimalError> {
+        if nibble > 9 {
+            return crate::legacy::refuse(DecimalError::BadNibble { offset, nibble });
+        }
+        self.chunk = self.chunk.wrapping_mul(10).wrapping_add(u64::from(nibble));
+        self.held = self.held.wrapping_add(1);
+        if self.held >= CHUNK_DIGITS {
+            self.flush();
+        }
+        Ok(())
+    }
+
+    /// Folds the open chunk into the coefficient.
+    fn flush(&mut self) {
+        let scale = 10_i128.saturating_pow(u32::from(self.held));
+        self.coefficient = self
+            .coefficient
+            .saturating_mul(scale)
+            .saturating_add(i128::from(self.chunk));
+        self.chunk = 0;
+        self.held = 0;
+    }
+
+    /// The coefficient of every digit pushed so far.
+    fn value(&mut self) -> i128 {
+        self.flush();
+        self.coefficient
+    }
 }
 
 /// Reads the sign nibble of a packed or zoned field: `C`/`F` positive, `D`
@@ -335,7 +384,7 @@ pub fn decode_packed(
         digits,
         limits,
     )?;
-    let mut coefficient: i128 = 0;
+    let mut folded = Digits::new();
     let last = bytes.len().saturating_sub(1);
     for (offset, byte) in bytes.iter().enumerate() {
         let high = byte.saturating_div(16);
@@ -350,23 +399,24 @@ pub fn decode_packed(
                 crate::trace::debug!(offset, high, "decimal: refusing a nonzero packed pad");
                 return refusal;
             }
-            coefficient = fold_digit(coefficient, low, offset)?;
+            folded.push(low, offset)?;
         } else if offset == last {
-            coefficient = fold_digit(coefficient, high, offset)?;
+            folded.push(high, offset)?;
             let sign = read_sign(low, offset)?;
+            let coefficient = folded.value();
             if !signed && sign == Sign::Negative {
                 let refusal = Err(DecimalError::NegativeUnsigned { coefficient });
                 #[cfg(feature = "trace")]
                 crate::trace::debug!(offset, "decimal: refusing a negative unsigned packed value");
                 return refusal;
             }
-            coefficient = apply_sign(coefficient, sign);
+            return Ok(Decimal::new(apply_sign(coefficient, sign), scale));
         } else {
-            coefficient = fold_digit(coefficient, high, offset)?;
-            coefficient = fold_digit(coefficient, low, offset)?;
+            folded.push(high, offset)?;
+            folded.push(low, offset)?;
         }
     }
-    Ok(Decimal::new(coefficient, scale))
+    Ok(Decimal::new(folded.value(), scale))
 }
 
 /// Encodes a [`Decimal`] into a COBOL packed (`COMP-3`) field of `digits`
@@ -482,15 +532,15 @@ pub(crate) fn decode_zoned(
     limits: &Limits,
 ) -> Result<Decimal, DecimalError> {
     check_width(bytes, digits, bytes.len(), digits, limits)?;
-    let mut coefficient: i128 = 0;
+    let mut folded = Digits::new();
     let last = bytes.len().saturating_sub(1);
     for (offset, byte) in bytes.iter().enumerate() {
         let zone = byte.saturating_div(16);
         let digit = byte.rem_euclid(16);
-        coefficient = fold_digit(coefficient, digit, offset)?;
+        folded.push(digit, offset)?;
         if offset == last && signed {
             let sign = read_sign(zone, offset)?;
-            coefficient = apply_sign(coefficient, sign);
+            return Ok(Decimal::new(apply_sign(folded.value(), sign), 0));
         } else if zone != 0x0f {
             let refusal = Err(DecimalError::BadSign {
                 offset,
@@ -501,7 +551,7 @@ pub(crate) fn decode_zoned(
             return refusal;
         }
     }
-    Ok(Decimal::new(coefficient, 0))
+    Ok(Decimal::new(folded.value(), 0))
 }
 
 /// Encodes a [`Decimal`] into a COBOL zoned field of `digits` bytes.
