@@ -149,6 +149,32 @@ fn new_check_expand_run_serves_one_request() -> TestResult {
     assert_untracked(&dir)
 }
 
+/// A scaffold builds under the workspace's own dev profile, with no
+/// debuginfo and no incremental state, beside the patch to the tree under
+/// test: the repository's `.cargo/config.toml` never reaches a scratch app.
+#[test]
+fn a_scaffolded_app_builds_under_the_workspace_dev_profile() -> TestResult {
+    let scratch = Scratch::fresh("profile").map_err(|error| format!("no scratch: {error}"))?;
+    let name = app_name()?;
+    reference_app(scratch.dir(), name.as_str())?;
+    let path = scratch.dir().join(".cargo").join("config.toml");
+    let config = std::fs::read_to_string(&path)
+        .map_err(|error| format!("the scratch cargo config could not be read: {error}"))?;
+    for wanted in [
+        "[profile.dev]",
+        "incremental = false",
+        "debug = 0",
+        "[patch.crates-io]",
+    ] {
+        if !config.lines().any(|line| line == wanted) {
+            return refuse(format!(
+                "the scratch cargo config lacks `{wanted}`:\n{config}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The app directory holds the scaffold's two files and the lock `run`
 /// resolved, nothing else: the build lands in the shared target.
 fn assert_untracked(dir: &Path) -> TestResult {
