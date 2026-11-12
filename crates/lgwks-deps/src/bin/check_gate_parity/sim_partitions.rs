@@ -1,4 +1,4 @@
-//! Seeded fools against rule 8 (`partitions.rs`). A reference model draws jobs
+//! Seeded fools against rule 9 (`partitions.rs`). A reference model draws jobs
 //! of sliced and unsliced rows and steps for each suite, renders them as a
 //! workflow, and names every step that runs a sliced suite without
 //! `--partition`. The checker must name exactly those, in order, however the
@@ -207,7 +207,7 @@ fn render(stream: &mut Seeded, jobs: &[ModelJob]) -> Result<(String, bool), SimE
     Ok((text, fragment))
 }
 
-/// The problems the model expects: rule 8's own message for every step of a
+/// The problems the model expects: rule 9's own message for every step of a
 /// job that runs a suite the job slices and passes no `--partition`.
 fn expected(jobs: &[ModelJob], fragment: bool) -> Vec<String> {
     let mut problems = Vec::new();
@@ -229,7 +229,7 @@ fn expected(jobs: &[ModelJob], fragment: bool) -> Vec<String> {
                 if step.condition.contains(&wanted) && !step.partition {
                     problems.push(format!(
                         "ci.yml: job {} slices suite {row_suite}, but step {:?} passes no \
-                         --partition, so every slice reruns the whole set (rule 8)",
+                         --partition, so every slice reruns the whole set (rule 9)",
                         job.id, step.label
                     ));
                 }
@@ -253,7 +253,7 @@ fn drawn(seed: u64) -> Result<(String, Vec<String>), SimError> {
 /// Every seeded workflow gets exactly the model's problems, in order, and the
 /// same seed replays to the same text and verdict.
 #[test]
-fn sim_rule_8_names_exactly_the_steps_the_model_names() -> TestResult {
+fn sim_rule_9_names_exactly_the_steps_the_model_names() -> TestResult {
     let (mut flagged, mut clean) = (0_u32, 0_u32);
     for seed in 0..SEEDS {
         let (text, wanted) = drawn(seed)?;

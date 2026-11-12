@@ -453,11 +453,17 @@ fn stop_matching_leader(pid: i32) -> io::Result<OrphanReap> {
             DescendantSet::default()
         }
     };
-    stopped_unless_refused(kill_process_group(pid))?;
-    stopped_unless_refused(kill_process(pid))?;
-    for pid in descendants.pids() {
-        stopped_unless_refused(kill_process(*pid))?;
-    }
+    // Every signal is sent whatever the one before it answered: a refusal
+    // (`EPERM` on a descendant that changed owner) is reported after the sweep,
+    // never a reason to leave the rest of the tree running (#913 item 1).
+    let group = stopped_unless_refused(kill_process_group(pid));
+    let leader = stopped_unless_refused(kill_process(pid));
+    let swept = super::signal_every(descendants.pids().iter().copied(), |descendant| {
+        stopped_unless_refused(kill_process(descendant))
+    });
+    group?;
+    leader?;
+    swept?;
     Ok(OrphanReap::Signalled { descendants })
 }
 

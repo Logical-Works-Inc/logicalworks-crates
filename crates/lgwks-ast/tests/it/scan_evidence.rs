@@ -219,6 +219,90 @@ fn build_output_and_vendored_trees_are_not_scanned() -> TestResult {
     Ok(())
 }
 
+/// Plants `files` in a scratch tree and scans it. The scan must read every file
+/// of the tree and exit 1: it reports a swallowed error at line 6 of each path
+/// in `read`, and names no path in `skipped`.
+fn scan_tree(name: &str, files: &[(&str, &str)], read: &[&str], skipped: &[&str]) -> TestResult {
+    let root = Scratch::new(name)?;
+    for &(path, contents) in files {
+        plant(root.path(), path, contents)?;
+    }
+    let output = scan(root.path(), &[])?;
+    let (stdout, stderr) = text(&output);
+    assert_eq!(output.status.code(), Some(1), "{stdout} {stderr}");
+    assert!(!stderr.contains("could not be read"), "{stderr}");
+    for path in read {
+        assert!(
+            stdout.contains(&format!("{path}:6: [ERROR-SWALLOW]")),
+            "{path} is read: {stdout}"
+        );
+    }
+    for path in skipped {
+        assert!(!stdout.contains(path), "{path} is skipped: {stdout}");
+    }
+    Ok(())
+}
+
+/// #911 item 9a: `crates/lgwks-bot/src/vendor/` compiles and ships, and the
+/// walk skipped any directory named `vendor` or `third_party` at any depth, so
+/// it was never scanned. Requirement: those names are skipped only at the root
+/// the scan was given, where a vendored tree is; a source directory of that name
+/// below it is read.
+#[test]
+fn a_vendor_or_third_party_directory_inside_a_crate_is_scanned() -> TestResult {
+    scan_tree(
+        "scan-nested-vendor",
+        &[
+            ("crates/lgwks-bot/src/lib.rs", INFALLIBLE_CONTROLS),
+            ("crates/lgwks-bot/src/vendor/lost.rs", LOST_ERRORS),
+            ("crates/lgwks-bot/src/third_party/lost.rs", LOST_ERRORS),
+            ("vendor/dep/lib.rs", LOST_ERRORS),
+            ("third_party/dep/lib.rs", LOST_ERRORS),
+        ],
+        &[
+            "crates/lgwks-bot/src/vendor/lost.rs",
+            "crates/lgwks-bot/src/third_party/lost.rs",
+        ],
+        &["dep/lib.rs"],
+    )
+}
+
+/// #911 item 9a: `target` is cargo's output only beside a `Cargo.toml`, and
+/// `node_modules` npm's only beside a `package.json`. The same names inside a
+/// source tree are source.
+#[test]
+fn target_and_node_modules_are_skipped_only_beside_their_manifest() -> TestResult {
+    scan_tree(
+        "scan-nested-output-names",
+        &[
+            ("pkg/Cargo.toml", "[package]\nname = \"pkg\"\n"),
+            ("pkg/target/debug/out.rs", LOST_ERRORS),
+            ("pkg/src/target/lost.rs", LOST_ERRORS),
+            ("web/package.json", "{}\n"),
+            ("web/node_modules/dep/lib.rs", LOST_ERRORS),
+            ("web/src/node_modules/lost.rs", LOST_ERRORS),
+        ],
+        &["pkg/src/target/lost.rs", "web/src/node_modules/lost.rs"],
+        &["pkg/target/debug", "web/node_modules/dep"],
+    )
+}
+
+/// #911 item 9a: a virtual environment is recognised by the `pyvenv.cfg` it
+/// holds; a `.venv` directory of Rust source is read.
+#[test]
+fn a_venv_is_skipped_only_where_it_is_a_virtual_environment() -> TestResult {
+    scan_tree(
+        "scan-nested-venv",
+        &[
+            ("tool/.venv/pyvenv.cfg", "home = /usr/bin\n"),
+            ("tool/.venv/lib.rs", LOST_ERRORS),
+            ("tool/src/.venv/lost.rs", LOST_ERRORS),
+        ],
+        &["tool/src/.venv/lost.rs"],
+        &["tool/.venv/lib.rs"],
+    )
+}
+
 #[test]
 fn the_json_document_carries_the_findings_and_the_refusals() -> TestResult {
     let root = Scratch::new("scan-json")?;

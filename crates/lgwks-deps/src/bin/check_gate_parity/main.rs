@@ -27,16 +27,22 @@
 //!   6. One home per moved test. Every `test(...)` selector of the `app-builds`
 //!      lane is excluded by the `tests` lane and run by an `apps` row of ci.yml,
 //!      so a test the split moved runs once, neither twice nor never (ADR 0028).
-//!   7. No other repository's reusable workflow. No job of any workflow `uses:`
+//!   7. No neutered lane. A step the gate runs does not end in success whatever
+//!      its command did (`|| true`, `|| :`, `|| exit 0`, a final `; true`), and
+//!      no job or step carries an `if:` that is always false or
+//!      `continue-on-error: true` (#911 item 4). Rule 2 reads `||` as `&&` so
+//!      a lane's parts still match; this rule is what refuses the escape.
+//!   8. No other repository's reusable workflow. No job of any workflow `uses:`
 //!      a `.github/workflows/` file of another repository: GitHub refuses a
 //!      public repository's call to a private one before any job starts, which
 //!      failed `logical_ci.yml` in 0 s on every run (ADR 0029).
-//!   8. A sliced row runs its slice. A job that gives a suite `slice:` rows
+//!   9. A sliced row runs its slice. A job that gives a suite `slice:` rows
 //!      passes `--partition` in every step that runs that suite (#923).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
 mod lane_split;
+mod neuter;
 mod partitions;
 mod reader;
 #[cfg(test)]
@@ -140,12 +146,12 @@ fn command_parts(command: &str) -> Vec<String> {
         .collect()
 }
 
-/// Splits a step body into comparable command segments.
+/// The logical lines of a step body, normalised.
 ///
 /// A `run: |` block keeps newlines and each line is its own command, except a
-/// wrapped option line belongs to the command before it; `&&` and `||` are the
-/// separators within a line.
-fn step_segments(run: &str) -> Vec<String> {
+/// wrapped option line belongs to the command before it. The one reading of a
+/// step body: the command segments below and rule 7 both start from it.
+fn logical_lines(run: &str) -> Vec<String> {
     let mut logical: Vec<String> = Vec::new();
     let mut current = String::new();
     for raw in run.lines() {
@@ -166,6 +172,12 @@ fn step_segments(run: &str) -> Vec<String> {
         logical.push(current);
     }
     logical
+}
+
+/// Splits a step body into comparable command segments: `&&` and `||` are the
+/// separators within a logical line.
+fn step_segments(run: &str) -> Vec<String> {
+    logical_lines(run)
         .iter()
         .flat_map(|line| {
             line.replace("||", "&&")
@@ -345,6 +357,7 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
     problems.extend(foreign_workflow_problems("ci.yml", workflow_text));
     problems.extend(partition_problems("ci.yml", workflow_text));
     problems.extend(split_problems(manifest_text, workflow_text));
+    problems.extend(neuter::problems(&jobs, &claimed_steps));
     problems
 }
 

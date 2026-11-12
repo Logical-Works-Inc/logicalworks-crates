@@ -39,11 +39,11 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 
 | Crate | Path | Owns | Invariants |
 |---|---|---|---|
-| `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP, trace install; no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20 |
+| `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP (`http::stream::sse_decode`, the I/O-free event decoder; `http::tls::der`, the X.509 and key walk), trace install; no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20, INV-STD-HTTP-3, INV-TLS-2, INV-STD-PROCESS-2 |
 | `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision, and `interface` element resolution, whose scoring rules and eligibility gates are `interface/scoring.rs` | the `lgwks_bot` rows of `INVARIANTS.md` |
 | `lgwks_ast` | `crates/lgwks-ast` | the one parser: language identification, tree-sitter grammars, `script!` reading, `scan` | SL-2 |
 | `lgwks_macros` | `crates/lgwks-macros` | the `script!` compiler | SL-2 |
-| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1 |
+| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026); `src/bin/shared/rust_code.rs` is the one lexer `check-std-first` and the `ci_local::test_gated` unwrap lane share (ADR 0035) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1, INV-SCAN-GATED-1 |
 | `drishti` | `crates/drishti` | frontend orchestration: design publication and a deterministic reference core | the `drishti` rows of `INVARIANTS.md` |
 
 ### `lgwks_std::id`
@@ -74,7 +74,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 |---|---|---|
 | `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV`, read through `lgwks_ast::hunks` | INV-DOC-3 |
 | `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs | INV-DOC-5 |
-| `check_gate_parity::lane_split`, `sim_lane_split`, `workflow_calls`, `partitions`, `sim_partitions`; `linux_container_tests::lane_tests` | rule 6: a test moved to `app-builds` runs once, never twice or never; the Linux leg's suites are the lanes' commands (ADR 0028); rule 7: no workflow calls another repository's (ADR 0029); rule 8: a sliced row's step passes `--partition` (#923) | INV-CI-RUNNER-CLASS-1 |
+| `check_gate_parity::lane_split`, `sim_lane_split`, `neuter`, `workflow_calls`, `partitions`, `sim_partitions`; `linux_container_tests::lane_tests` | rule 6: a test moved to `app-builds` runs once, never twice or never; the Linux leg's suites are the lanes' commands (ADR 0028); rule 7, `neuter`: no gate step swallows its failure and no job or step is `if: false` or `continue-on-error: true` (ADR 0035); rule 8: no workflow calls another repository's (ADR 0029); rule 9: a sliced row's step passes `--partition` (#923) | INV-CI-RUNNER-CLASS-1, INV-CI-NEUTER-1 |
 
 ### `lgwks_ast::scan` and `lgwks_ast::hunks`
 

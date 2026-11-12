@@ -98,22 +98,35 @@ fn hex_offsets(text: &str) -> Vec<usize> {
     found
 }
 
-/// The offsets of `extern "C"` followed by a word character: `\bextern\s+"C"\b`.
+/// The offsets of a foreign-ABI declaration: `extern` and an ABI string
+/// (`"C"`, `"system"`, `"C-unwind"` and the rest), then a `{` block, with or
+/// without a space or an `unsafe` before it; or `"C"` glued to a word, the form
+/// this pattern first knew. The word is not required after the string: a
+/// pattern that wanted one never matched the block form, `extern "C" {`
+/// (#911 item 9c).
 fn ffi_offsets(text: &str) -> Vec<usize> {
     let mut found = Vec::new();
     for (index, _) in text.match_indices("extern") {
         if word_before(text, index) {
             continue;
         }
-        let rest = tail(text, index.saturating_add("extern".len()));
-        let spaced = after_space(rest);
-        if spaced.len() == rest.len() {
-            continue;
-        }
-        let Some(after) = spaced.strip_prefix("\"C\"") else {
+        let rest = after_space(tail(text, index.saturating_add("extern".len())));
+        let Some(literal) = rest.strip_prefix('"') else {
             continue;
         };
-        if after.chars().next().is_some_and(is_word) {
+        let Some((abi, after)) = literal.split_once('"') else {
+            continue;
+        };
+        if abi.is_empty()
+            || !abi
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+        {
+            continue;
+        }
+        let block = after_space(after).starts_with('{');
+        let glued = abi == "C" && after.chars().next().is_some_and(is_word);
+        if block || glued {
             found.push(index);
         }
     }
@@ -594,5 +607,53 @@ mod tests {
             reasons.iter().any(|why| why.contains("entropy")),
             "{reasons:?}"
         );
+    }
+
+    /// The reasons `std_first_hits` gives `text`.
+    fn reasons_of(text: &str) -> Vec<&'static str> {
+        std_first_hits(text)
+            .into_iter()
+            .map(|(_, why)| why)
+            .collect()
+    }
+
+    /// #911 item 9c: the pattern wanted a word character straight after the ABI
+    /// string, so a foreign block, `extern "C" {`, never matched. Requirement:
+    /// every spelling of a foreign block is raw FFI. Each is split across a
+    /// `concat!` so this file does not contain what the audit looks for.
+    #[test]
+    fn a_foreign_block_is_raw_ffi_in_every_spelling() {
+        let forms = [
+            concat!("ext", "ern \"C\" { fn f(); }"),
+            concat!("ext", "ern \"C\"{ fn f(); }"),
+            concat!("ext", "ern \"system\" { fn f(); }"),
+            concat!("unsafe ext", "ern \"C\" { fn f(); }"),
+            concat!("unsafe ext", "ern \"C-unwind\"\n{ fn f(); }"),
+        ];
+        for form in forms {
+            assert!(
+                reasons_of(form).iter().any(|why| why.contains("raw FFI")),
+                "{form:?} is raw FFI"
+            );
+        }
+    }
+
+    /// #911 item 9c, the controls: an `extern crate`, a longer word that opens
+    /// with the same letters, and an ABI string with no block after it are not
+    /// a foreign block.
+    #[test]
+    fn other_uses_of_the_extern_word_are_not_raw_ffi() {
+        let forms = [
+            concat!("ext", "ern crate serde;"),
+            "let externally = 1;",
+            concat!("ext", "ern \"C\" is prose"),
+            concat!("my_ext", "ern \"C\" { }"),
+        ];
+        for form in forms {
+            assert!(
+                !reasons_of(form).iter().any(|why| why.contains("raw FFI")),
+                "{form:?} is not raw FFI"
+            );
+        }
     }
 }

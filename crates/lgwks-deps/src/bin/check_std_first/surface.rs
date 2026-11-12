@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use super::lexer::{code_only, is_word};
 use super::ratchet::{Ratchet, ceilings, judge};
+use super::rust_code::{attributes, gates_on_test, item_end};
 use super::{AuditError, posix_relative, read};
 
 /// How the surface ratchet reads its table and words its findings.
@@ -37,101 +38,27 @@ const ITEMS: [&str; 14] = [
     "async", "unsafe", "extern",
 ];
 
-/// The index of the `]` that closes the `[` at `open`, else the end of `chars`.
-fn bracket_end(chars: &[char], open: usize) -> usize {
-    let mut depth = 0_usize;
-    for (index, ch) in chars.iter().enumerate().skip(open) {
-        match *ch {
-            '[' => depth = depth.saturating_add(1),
-            ']' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return index;
-                }
-            }
-            _ => {}
-        }
-    }
-    chars.len()
-}
-
-/// The index just past the `}` that closes the `{` at `open`, else the end.
-fn brace_end(chars: &[char], open: usize) -> usize {
-    let mut depth = 0_usize;
-    for (index, ch) in chars.iter().enumerate().skip(open) {
-        match *ch {
-            '{' => depth = depth.saturating_add(1),
-            '}' => {
-                depth = depth.saturating_sub(1);
-                if depth == 0 {
-                    return index.saturating_add(1);
-                }
-            }
-            _ => {}
-        }
-    }
-    chars.len()
-}
-
-/// The index just past the item that starts at `from`: its braces, or the `;`
-/// outside any parentheses and brackets (`fn f(a: [u8; 4]);` ends at the last one).
-fn item_end(chars: &[char], from: usize) -> usize {
-    let mut depth = 0_usize;
-    for (index, ch) in chars.iter().enumerate().skip(from) {
-        match *ch {
-            '(' | '[' => depth = depth.saturating_add(1),
-            ')' | ']' => depth = depth.saturating_sub(1),
-            ';' if depth == 0 => return index.saturating_add(1),
-            '{' if depth == 0 => return brace_end(chars, index),
-            _ => {}
-        }
-    }
-    chars.len()
-}
-
 /// Whether an attribute's text takes its item out of the count: `doc(hidden)`, or
 /// a `cfg` that holds only under `test`. `cfg(any(test, ..))` and `cfg(not(test))`
 /// compile in a shipped build, so they stay counted.
 fn is_hidden(attribute: &str) -> bool {
     let squeezed: String = attribute.chars().filter(|ch| !ch.is_whitespace()).collect();
-    if squeezed == "doc(hidden)" {
-        return true;
-    }
-    squeezed.starts_with("cfg(")
-        && !squeezed.contains("not(")
-        && !squeezed.contains("any(")
-        && squeezed
-            .split(|ch: char| !is_word(ch))
-            .any(|word| word == "test")
+    squeezed == "doc(hidden)" || gates_on_test(attribute)
 }
 
 /// `code` with every test-only and hidden item blanked, offsets and lines kept.
 fn visible(code: &str) -> String {
     let mut chars: Vec<char> = code.chars().collect();
-    let mut index = 0_usize;
-    while index < chars.len() {
-        let opens =
-            chars.get(index) == Some(&'#') && chars.get(index.saturating_add(1)) == Some(&'[');
-        if !opens {
-            index = index.saturating_add(1);
-            continue;
-        }
-        let open = index.saturating_add(1);
-        let close = bracket_end(&chars, open);
-        let Some(inside) = chars.get(open.saturating_add(1)..close) else {
-            break;
-        };
-        let body: String = inside.iter().collect();
-        if is_hidden(&body) {
-            let end = item_end(&chars, close.saturating_add(1));
-            for slot in chars.iter_mut().take(end).skip(index) {
-                if *slot != '\n' {
-                    *slot = ' ';
-                }
+    let hidden: Vec<(usize, usize)> = attributes(&chars)
+        .into_iter()
+        .filter(|attribute| !attribute.inner && is_hidden(&attribute.body))
+        .map(|attribute| (attribute.start, item_end(&chars, attribute.end)))
+        .collect();
+    for (start, end) in hidden {
+        for slot in chars.iter_mut().take(end).skip(start) {
+            if *slot != '\n' {
+                *slot = ' ';
             }
-            index = end;
-        } else {
-            index = close.saturating_add(1);
         }
     }
     chars.into_iter().collect()

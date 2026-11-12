@@ -28,8 +28,8 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
    this repository` before it calls `gh`.
 3. **A fork's pull request skips the job.** GitHub hands a fork no secret, so the job could only
    fail at the download.
-4. **No workflow calls another repository's.** `check-gate-parity` gains rule 7 and now holds
-   every workflow, not only `ci.yml` and `pages.yml`, to rules 5 and 7.
+4. **No workflow calls another repository's.** `check-gate-parity` gains rule 8 and now holds
+   every workflow, not only `ci.yml` and `pages.yml`, to rules 5 and 8.
 
 ## Alternatives rejected
 
@@ -80,9 +80,9 @@ Refines #802 and #865, which first called the gate. Relates to ADR 0028, the bud
 
 ## Verification
 
-- The `gate-parity` lane's rule 7 refuses a `uses:` of another repository's reusable workflow
+- The `gate-parity` lane's rule 8 refuses a `uses:` of another repository's reusable workflow
   in any workflow, by its line: `a_call_to_another_repositorys_reusable_workflow_is_refused`
-  and `every_workflow_the_checker_reads_is_held_to_rule_7`.
+  and `every_workflow_the_checker_reads_is_held_to_rule_8`.
 - The `logical_ci` job on every push to main and every same-repository pull request. A GO is a
   `logical_ci GO` line; anything else fails the job and names NO-GO or UNMEASURED.
 - `Pin the verifier` fails on a swapped verifier, and `Verify release plan and seal` fails on a

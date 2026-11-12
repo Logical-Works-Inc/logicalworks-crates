@@ -360,10 +360,10 @@ mod tests {
         Ok(())
     }
 
-    /// `ci.yml` is held to rule 7 through `check_parity`, and the repository's
+    /// `ci.yml` is held to rule 8 through `check_parity`, and the repository's
     /// root fails when one of the other workflows makes the call.
     #[test]
-    fn every_workflow_the_checker_reads_is_held_to_rule_7() -> TestResult {
+    fn every_workflow_the_checker_reads_is_held_to_rule_8() -> TestResult {
         let manifest = std::fs::read_to_string(root().join(MANIFEST_REL))?;
         let workflow = std::fs::read_to_string(root().join(WORKFLOW_REL))?;
         let routed = workflow.replacen(
@@ -379,7 +379,7 @@ mod tests {
             check_parity(&manifest, &routed)
                 .iter()
                 .any(|problem| problem.starts_with("ci.yml:") && problem.contains("ADR 0029")),
-            "ci.yml is held to rule 7"
+            "ci.yml is held to rule 8"
         );
         Ok(())
     }

@@ -108,7 +108,7 @@ pub(crate) fn partition_problems(workflow: &str, text: &str) -> Vec<String> {
                 }
                 problems.push(format!(
                     "{workflow}: job {} slices suite {suite}, but step {:?} passes no \
-                     --partition, so every slice reruns the whole set (rule 8)",
+                     --partition, so every slice reruns the whole set (rule 9)",
                     job.id, step.name
                 ));
             }
