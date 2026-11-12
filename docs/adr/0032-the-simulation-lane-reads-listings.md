@@ -42,7 +42,7 @@ and the lane reads them as JSON. With nothing named it lists the workspace from 
 - A shard's upload is one JSON file, so its tests start once its build ends: 1 s to list and
   1 s to upload on run 43234727204.
 - The listing is written outside the checkout. In the checkout, the authority-claims guard read
-  its test names as revocation claims and failed bot-it-g3 (run 43234727204).
+  its test names as unbacked claims and failed bot-it-g3 (run 43234727204).
 - An unreadable listing is the lane's I/O error naming the file; a listing that is not JSON is a
   refusal naming it.
 

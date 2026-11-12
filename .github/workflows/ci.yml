@@ -349,8 +349,8 @@ jobs:
       # The simulation lane's input: the listing of the binaries this build
       # already made, once per suite. The lane only counts tests, so a JSON
       # listing replaces the compiled archive (ADR 0032). It is written outside
-      # the checkout: the authority-claims guard reads every file there, and
-      # the listing's test names mention revocation (run 43234727204).
+      # the checkout: the authority-claims guard reads every file there, and it
+      # read the listing's test names as claims (run 43234727204).
       - name: List the suite for the simulation lane
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         run: mkdir -p /tmp/nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > /tmp/nextest-listing/listing.json
