@@ -444,7 +444,14 @@ fn decode_page(
         }
     }
     clear_padding(&mut bitmap, row_bytes, width);
-    TiffImage::from_bitmap(tags.width, tags.height, &bitmap)
+    // The bitmap is already height rows of row_bytes with its padding
+    // cleared, so it moves into the image instead of a second page copy.
+    Ok(TiffImage {
+        width: tags.width,
+        height: tags.height,
+        row_bytes,
+        bitmap,
+    })
 }
 
 /// The bits a row's last byte keeps, by how many pixels it holds (zero

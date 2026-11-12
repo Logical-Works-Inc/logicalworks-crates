@@ -29,6 +29,11 @@ pub mod limits;
 
 /// Refuses with `error`: logs it at debug level under `trace`, so every
 /// codec refusal is a signal as well as a value, then returns it.
+///
+/// Cold and never inlined: a refusal ends a decode, so its logging is kept
+/// out of the per-code loops that call this on every corrupt branch.
+#[cold]
+#[inline(never)]
 pub(crate) fn refuse<T, E: core::fmt::Display>(error: E) -> Result<T, E> {
     #[cfg(feature = "trace")]
     crate::trace::debug!(%error, "legacy codec: refusing the input");
