@@ -42,6 +42,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - The inline copy drifts when logical_ci re-pins. The header names the commit it copies, and a
   re-pin changes `LCI_RELEASE` and both pins here in one commit.
 - The release is macOS arm64 only, so the job runs on `macos-latest`.
+- The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:
+  on a bare runner `.cargo/config.toml`'s ld64.lld link failed every compile in 30 s and A02
+  sealed NO-GO (run 43242590489).
 - The policy gates A02, and `ci/property-and-loom` probes cargo-nextest first. Without it the hosted
   run sealed UNMEASURED in 142 ms (run 43232168262). With nextest 0.9.149, `ci` on 0531bb6
   returns GO with A02 passed, in 153.5 s wall and 2.35 GB peak RSS on the logical_ci Mac.

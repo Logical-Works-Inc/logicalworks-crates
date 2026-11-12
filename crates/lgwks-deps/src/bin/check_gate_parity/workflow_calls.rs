@@ -108,6 +108,17 @@ mod tests {
                 ));
             }
         }
+        // The engine compiles this repository, whose `.cargo/config.toml`
+        // links macOS with ld64.lld; a bare runner failed every compile in
+        // 30 s (run 43242590489), so the repository's own setup runs first.
+        let setup = workflow.find("uses: ./.github/actions/hosted-rust");
+        let engine = workflow.find("name: Run ci and keep the sealed record");
+        if !matches!((setup, engine), (Some(setup), Some(engine)) if setup < engine) {
+            problems.push(
+                "logical_ci.yml runs the engine before this repository's hosted-rust setup"
+                    .to_owned(),
+            );
+        }
         problems
     }
 
@@ -150,6 +161,19 @@ mod tests {
             inline_gate_problems(&bare, &adr),
             vec!["logical_ci.yml does not install nextest: no `tool: nextest@0.9.149`".to_owned()],
             "a copy that drops the nextest install is named"
+        );
+        let unprepared = gate.replacen(
+            "uses: ./.github/actions/hosted-rust",
+            "uses: ./.github/actions/none",
+            1,
+        );
+        assert_eq!(
+            inline_gate_problems(&unprepared, &adr),
+            vec![
+                "logical_ci.yml runs the engine before this repository's hosted-rust setup"
+                    .to_owned()
+            ],
+            "a copy that runs the engine on a bare runner is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
         assert_eq!(

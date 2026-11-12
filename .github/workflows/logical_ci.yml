@@ -41,6 +41,18 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
+      # The subject's own build environment, as every ci.yml job prepares it.
+      # `.cargo/config.toml` links macOS builds with /opt/homebrew/bin/ld64.lld,
+      # which a bare runner lacks, so every compile the engine started failed
+      # within 30 s and A02 sealed NO-GO (run 43242590489). This step is the
+      # repository's, not gate.yml's: it pins 1.99.1, links the toolchain's
+      # rust-lld there, and restores main's dependency build.
+      - name: Prepare this repository's Rust
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: logical-ci
+          nextest: "true"
       # ci/property-and-loom selects the subject's property tests with
       # nextest's filterset and probes `cargo nextest --version` first, so a
       # runner without it seals A02 UNMEASURED in 142 ms on every run
