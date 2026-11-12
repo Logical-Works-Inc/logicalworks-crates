@@ -66,5 +66,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0028](0028-a-cold-run-fits-the-budget.md) | A cold run fits the budget |
 | [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
 | [0032](0032-the-simulation-lane-reads-listings.md) | The simulation lane reads listings, not archives |
+| [0033](0033-the-bot-shards-hash-optimized.md) | The bot shards hash optimized |
 
 New records go at the bottom of that table.
