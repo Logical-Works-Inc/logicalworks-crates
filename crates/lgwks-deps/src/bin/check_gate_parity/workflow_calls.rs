@@ -147,6 +147,14 @@ mod tests {
                     .to_owned(),
             );
         }
+        // The hosted Mac's $CARGO_HOME may not exist, and the append alone
+        // failed the job in 30 s (run 43310559327).
+        if !workflow.contains("mkdir -p \"$CARGO_HOME\"\n") {
+            problems.push(
+                "logical_ci.yml writes the opt-levels into a $CARGO_HOME it never creates"
+                    .to_owned(),
+            );
+        }
         // `nextest --no-run` compiles every test binary whatever the filter:
         // the prebuild built all 51 and outlasted the job's 10 minutes (run
         // 43282569391), where v0.4.2's lane builds the 5 holding a property.
@@ -307,6 +315,16 @@ mod tests {
                     .to_owned()
             ],
             "a copy that builds the lane at opt-level 3 is named"
+        );
+        let homeless = gate.replacen("          mkdir -p \"$CARGO_HOME\"\n", "", 1);
+        assert_ne!(homeless, gate, "the line the control removes must exist");
+        assert_eq!(
+            inline_gate_problems(&homeless, &adr),
+            vec![
+                "logical_ci.yml writes the opt-levels into a $CARGO_HOME it never creates"
+                    .to_owned()
+            ],
+            "a copy that appends to a missing $CARGO_HOME is named"
         );
         let unrecorded = adr.replacen("(run 43282569391)", "", 1);
         assert_ne!(

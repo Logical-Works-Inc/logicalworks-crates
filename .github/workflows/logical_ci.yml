@@ -76,8 +76,12 @@ jobs:
       # ci-it's dependency levels for the test profile: `package."*"` has no
       # environment spelling, so it is written where cargo reads the user's
       # config. Cold, the gate fell from 264.8 s to 167.5 s wall (ADR 0029).
+      # The hosted Mac's $CARGO_HOME may not exist yet: the append alone
+      # failed with "No such file or directory" (run 43310559327).
       - name: Build the lane at ci-it's opt-levels
-        run: printf '[profile.test.package."*"]\nopt-level = 1\n\n[profile.test.package.lgwks_bot]\nopt-level = 1\n' >> "$CARGO_HOME/config.toml"
+        run: |
+          mkdir -p "$CARGO_HOME"
+          printf '[profile.test.package."*"]\nopt-level = 1\n\n[profile.test.package.lgwks_bot]\nopt-level = 1\n' >> "$CARGO_HOME/config.toml"
       # ci/property-and-loom selects the subject's property tests with
       # nextest's filterset and probes `cargo nextest --version` first, so a
       # runner without it seals A02 UNMEASURED in 142 ms on every run
