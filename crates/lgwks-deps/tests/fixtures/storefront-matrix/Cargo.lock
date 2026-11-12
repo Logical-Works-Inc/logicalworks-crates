@@ -4417,7 +4417,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_bot"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "lgwks_ast",
  "lgwks_deps",
@@ -4427,7 +4427,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "6.3.0"
+version = "7.0.0"
 dependencies = [
  "appcui",
  "axum",
@@ -4461,7 +4461,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_macros"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "lgwks_ast",
  "lgwks_deps",
