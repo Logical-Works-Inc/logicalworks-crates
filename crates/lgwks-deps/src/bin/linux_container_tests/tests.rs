@@ -141,8 +141,8 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
     // while another executed it (`No such file or directory`, bot-full).
     let sets: Vec<Vec<String>> = {
         // The volume name carries the suite order (`suites.join("-")`), so every
-        // non-empty ordered selection is a different name: four singles, twelve
-        // pairs, twenty-four triples and twenty-four orderings of all four.
+        // non-empty ordered selection is a different name: five singles, twenty
+        // pairs, sixty triples, 120 quadruples and 120 orderings of all five.
         fn orderings(found: &mut Vec<Vec<String>>, prefix: &mut Vec<String>) {
             if !prefix.is_empty() {
                 found.push(prefix.clone());
@@ -162,8 +162,8 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
     };
     assert_eq!(
         sets.len(),
-        64,
-        "four singles, twelve pairs, twenty-four triples, twenty-four orderings of all four"
+        325,
+        "5 + 20 + 60 + 120 + 120 ordered selections of the five suites"
     );
     let mut targets = Vec::new();
     for runner in OWNERS {
@@ -195,19 +195,24 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
 #[test]
 fn the_commands_are_the_ones_the_lane_table_names() -> TestResult {
     // scripts/gate-lanes.toml is the one definition of the gate (INV-GOV-1): the Linux
-    // leg runs the `tests` and `tests-bot-full` lanes' commands, nothing shorter.
+    // leg runs the `tests`, `app-builds` and `tests-bot-full` lanes' commands,
+    // nothing shorter.
     let lanes = repo_file("scripts/gate-lanes.toml")?;
-    for (suite, lane) in [("workspace", "tests"), ("bot-full", "tests-bot-full")] {
-        let command = lane_command(&lanes, lane).ok_or("a lane is missing from the table")?;
-        // CI passes a test archive in `${NEXTEST_BUILD:-<selection>}` (province#9);
-        // a local run leaves it unset, so the shell runs the selection.
-        let command = match command.split_once("${NEXTEST_BUILD:-") {
-            Some((head, tail)) => {
-                let (selection, rest) = tail.split_once('}').ok_or("an unclosed slot")?;
-                format!("{head}{selection}{rest}")
-            }
-            None => command,
-        };
+    for (suite, lane) in [
+        ("workspace", "tests"),
+        ("apps", "app-builds"),
+        ("bot-full", "tests-bot-full"),
+    ] {
+        let mut command = lane_command(&lanes, lane).ok_or("a lane is missing from the table")?;
+        // CI fills each `${NAME:-<default>}` slot (a test archive, an apps row's
+        // filter, province#9); a local run leaves them unset, so the shell runs
+        // the default, quoted as the leg quotes it.
+        while let Some((head, tail)) = command.split_once("${") {
+            let (_, default) = tail.split_once(":-").ok_or("a slot with no default")?;
+            let (selection, rest) = default.split_once('}').ok_or("an unclosed slot")?;
+            command = format!("{head}{selection}{rest}");
+        }
+        let command = command.replace('"', "'");
         let ours: Vec<String> = suite_commands(suite, None)
             .ok_or("a suite is unknown")?
             .iter()
@@ -508,7 +513,7 @@ fn an_unknown_suite_is_refused_before_anything_runs() {
     let refused = execute(&suites(&["workspace", "nonsense"]));
     assert_eq!(
         refused.err().map(|failure| failure.to_string()),
-        Some("unknown suite nonsense (targets, workspace, bot-full, appcui, vps)".to_owned()),
+        Some("unknown suite nonsense (targets, workspace, apps, bot-full, appcui, vps)".to_owned()),
         "the refusal names the suite and the ones that exist"
     );
 }

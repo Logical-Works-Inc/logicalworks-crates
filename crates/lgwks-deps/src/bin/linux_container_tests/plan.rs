@@ -9,8 +9,14 @@ use crate::{Failure, fail};
 
 /// The suites the leg runs, in the order a bare invocation runs them. The two
 /// target cells come first: they are compile-only, so a portability refusal is
-/// named before a suite spends minutes running.
-pub(crate) const SUITES: [&str; 4] = ["targets", "workspace", "bot-full", "appcui"];
+/// named before a suite spends minutes running. `apps` is the scaffolded-app
+/// journeys the workspace suite leaves out, as the `app-builds` lane holds them
+/// (ADR 0028).
+pub(crate) const SUITES: [&str; 5] = ["targets", "workspace", "apps", "bot-full", "appcui"];
+
+/// The scaffolded-app journeys: each nests a cargo build of a new app's tree.
+const APP_JOURNEYS: &str =
+    "test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy)";
 
 /// Where the container's build output lives: the target volume's mount, and the
 /// `CARGO_TARGET_DIR` every command inside it builds into.
@@ -143,20 +149,34 @@ fn words(parts: &[&str]) -> Vec<String> {
 pub(crate) fn suite_commands(suite: &str, partition: Option<&str>) -> Option<Vec<Vec<String>>> {
     match suite {
         "workspace" => {
-            // lgwks_bot runs whole in the bot-full suite, so this one leaves it
-            // out, exactly as the `tests` lane does.
+            // lgwks_bot runs whole in the bot-full suite and the app journeys in
+            // the apps suite, so this one leaves both out, exactly as the `tests`
+            // lane does.
+            let filter = format!(
+                "not binary(storefront_consumers) and not package(lgwks_bot) and not \
+                 (package(lgwks_deps) and binary(it) and ({}))",
+                APP_JOURNEYS.replace(" | ", " or ")
+            );
+            let mut command = words(&["cargo", "nextest", "run", "--workspace", "--locked", "-E"]);
+            command.push(filter);
+            if let Some(shard) = partition {
+                command.extend(words(&["--partition", shard]));
+            }
+            Some(vec![command])
+        }
+        "apps" => {
             let mut command = words(&[
                 "cargo",
                 "nextest",
                 "run",
-                "--workspace",
+                "-p",
+                "lgwks_deps",
+                "--test",
+                "it",
                 "--locked",
                 "-E",
-                "not binary(storefront_consumers) and not package(lgwks_bot)",
             ]);
-            if let Some(shard) = partition {
-                command.extend(words(&["--partition", shard]));
-            }
+            command.push(format!("binary(it) & ({APP_JOURNEYS})"));
             Some(vec![command])
         }
         "targets" => Some(vec![
