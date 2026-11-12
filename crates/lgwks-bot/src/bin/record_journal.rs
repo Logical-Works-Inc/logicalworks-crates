@@ -35,6 +35,13 @@ enum CliError {
     Usage(String),
     /// The journal refused.
     Journal(JournalError),
+    /// The journal would refuse one record of a batch, so none of the batch was written.
+    Refused {
+        /// Where the record sits in the batch, from zero.
+        index: u64,
+        /// What the journal said about it.
+        refusal: JournalError,
+    },
     /// The terminal or pipe refused.
     Output(std::io::Error),
 }
@@ -44,6 +51,10 @@ impl core::fmt::Display for CliError {
         match *self {
             Self::Usage(ref what) => write!(f, "{what}\n{USAGE}"),
             Self::Journal(ref refusal) => write!(f, "journal: {refusal}"),
+            Self::Refused { index, ref refusal } => write!(
+                f,
+                "journal: record {index} of the batch would be refused, so none was written: {refusal}"
+            ),
             Self::Output(ref cause) => write!(f, "output: {cause}"),
         }
     }
@@ -142,9 +153,21 @@ fn append(path: &Path, count: u64, size: usize) -> Result<(), CliError> {
 }
 
 /// `append-batch`: every record on one flush, in a handle that stops at its ceilings.
+///
+/// Each record is asked about before the flush, as a group commit stages it, so a
+/// refusal names the record the journal would not take and nothing is written.
 fn append_batch(path: &Path, count: u64, size: usize) -> Result<(), CliError> {
     let mut journal: RecordJournal<Vec<u8>> = RecordJournal::open(path)?;
-    let batch: Vec<Vec<u8>> = (0..count).map(|index| record_at(index, size)).collect();
+    let mut batch: Vec<Vec<u8>> = Vec::new();
+    for index in 0..count {
+        let record = record_at(index, size);
+        if let Err(refusal) = journal.admits(&record) {
+            let refused = Err(CliError::Refused { index, refusal });
+            lgwks_std::trace::debug!(index, "record-journal: a staged record would be refused");
+            return refused;
+        }
+        batch.push(record);
+    }
     for ack in journal.compare_and_append_all(journal.tail(), &batch)? {
         say_ack(ack)?;
     }

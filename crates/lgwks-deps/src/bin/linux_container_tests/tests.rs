@@ -11,7 +11,6 @@ use crate::plan::{
     names, nextest_platform, nextest_version, owner, rustflags_variable, shell_line, slug,
     suite_commands, target_rustflags, toolchain_channel,
 };
-use crate::toml_subset::{read_tables, text};
 use crate::vps;
 
 type TestResult = Result<(), Box<dyn Error>>;
@@ -32,21 +31,11 @@ const OWNERS: [&str; 4] = [
 const CARGO_CONFIG: &str = "[build]\nrustflags = [\"-C\", \"debuginfo=0\"]\n\n[target.aarch64-apple-darwin]\nrustflags = [\n    # Use Apple's fast modern linker explicitly\n    \"-C\", \"link-arg=-fuse-ld=lld\",\n    # Build directly for M-series native instructions\n    \"-C\", \"target-cpu=native\",\n]\n\n[target.x86_64-apple-darwin]\nrustflags = [\"-C\", \"target-cpu=skylake\"]\n";
 
 /// The text of a file at the repository root.
-fn repo_file(name: &str) -> Result<String, Box<dyn Error>> {
+pub(crate) fn repo_file(name: &str) -> Result<String, Box<dyn Error>> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .join(name);
     Ok(std::fs::read_to_string(path)?)
-}
-
-/// The `command` of the lane called `id` in the lane table.
-fn lane_command(lanes: &str, id: &str) -> Option<String> {
-    read_tables(lanes)
-        .iter()
-        .filter(|table| table.path == "lane")
-        .find(|table| text(table, "id") == Some(id))
-        .and_then(|table| text(table, "command"))
-        .map(str::to_owned)
 }
 
 /// Words as owned strings.
@@ -141,8 +130,8 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
     // while another executed it (`No such file or directory`, bot-full).
     let sets: Vec<Vec<String>> = {
         // The volume name carries the suite order (`suites.join("-")`), so every
-        // non-empty ordered selection is a different name: four singles, twelve
-        // pairs, twenty-four triples and twenty-four orderings of all four.
+        // non-empty ordered selection is a different name: five singles, twenty
+        // pairs, sixty triples, 120 quadruples and 120 orderings of all five.
         fn orderings(found: &mut Vec<Vec<String>>, prefix: &mut Vec<String>) {
             if !prefix.is_empty() {
                 found.push(prefix.clone());
@@ -162,8 +151,8 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
     };
     assert_eq!(
         sets.len(),
-        64,
-        "four singles, twelve pairs, twenty-four triples, twenty-four orderings of all four"
+        325,
+        "5 + 20 + 60 + 120 + 120 ordered selections of the five suites"
     );
     let mut targets = Vec::new();
     for runner in OWNERS {
@@ -189,35 +178,6 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
         one.tools_image, other.tools_image,
         "the derived image is shared by every runner"
     );
-    Ok(())
-}
-
-#[test]
-fn the_commands_are_the_ones_the_lane_table_names() -> TestResult {
-    // scripts/gate-lanes.toml is the one definition of the gate (INV-GOV-1): the Linux
-    // leg runs the `tests` and `tests-bot-full` lanes' commands, nothing shorter.
-    let lanes = repo_file("scripts/gate-lanes.toml")?;
-    for (suite, lane) in [("workspace", "tests"), ("bot-full", "tests-bot-full")] {
-        let command = lane_command(&lanes, lane).ok_or("a lane is missing from the table")?;
-        // CI passes a test archive in `${NEXTEST_BUILD:-<selection>}` (province#9);
-        // a local run leaves it unset, so the shell runs the selection.
-        let command = match command.split_once("${NEXTEST_BUILD:-") {
-            Some((head, tail)) => {
-                let (selection, rest) = tail.split_once('}').ok_or("an unclosed slot")?;
-                format!("{head}{selection}{rest}")
-            }
-            None => command,
-        };
-        let ours: Vec<String> = suite_commands(suite, None)
-            .ok_or("a suite is unknown")?
-            .iter()
-            .map(|argv| shell_line(argv))
-            .collect();
-        assert!(
-            command.starts_with(&ours.join(" && ")),
-            "{suite} runs {ours:?} but the {lane} lane is {command}"
-        );
-    }
     Ok(())
 }
 
@@ -508,7 +468,7 @@ fn an_unknown_suite_is_refused_before_anything_runs() {
     let refused = execute(&suites(&["workspace", "nonsense"]));
     assert_eq!(
         refused.err().map(|failure| failure.to_string()),
-        Some("unknown suite nonsense (targets, workspace, bot-full, appcui, vps)".to_owned()),
+        Some("unknown suite nonsense (targets, workspace, apps, bot-full, appcui, vps)".to_owned()),
         "the refusal names the suite and the ones that exist"
     );
 }

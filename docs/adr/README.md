@@ -62,5 +62,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0024](0024-a-view-fed-ahead-of-its-journal.md) | A view fed ahead of its journal |
 | [0025](0025-a-command-holds-its-request.md) | A command holds its request |
 | [0027](0027-the-repository-profile-wins-over-the-home-one.md) | The repository's dev profile wins over the home one, scratch apps included |
+| [0028](0028-a-cold-run-fits-the-budget.md) | A cold run fits the budget |
 
 New records go at the bottom of that table.

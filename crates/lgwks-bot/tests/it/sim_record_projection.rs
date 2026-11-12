@@ -7,7 +7,9 @@
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 
-use lgwks_bot::journal::{ContinuationPolicy, RecordEntry, RecordJournal};
+use lgwks_bot::journal::{
+    ContinuationPolicy, JournalError, JournalLimitKind, RecordEntry, RecordJournal,
+};
 use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
 use lgwks_std::seeded::Seeded;
 
@@ -18,7 +20,7 @@ type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 /// A tenant's row: the sequences it saw, so the order is part of the answer.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-struct Seen(Vec<u64>);
+pub(crate) struct Seen(pub(crate) Vec<u64>);
 
 /// A record's tenant, which is its high half, and zero names no tenant.
 const fn tenant_of(record: u64) -> u64 {
@@ -79,12 +81,14 @@ impl RecordFold<u64> for Count {
 }
 
 /// A record for `tenant` carrying `value`.
-const fn record(tenant: u64, value: u64) -> u64 {
+pub(crate) const fn record(tenant: u64, value: u64) -> u64 {
     (tenant << 32) | value
 }
 
 /// A view's rows as plain values, for comparing.
-fn rows_of(view: &RecordProjection<u64, Tenants>) -> Vec<(u64, Seen)> {
+pub(crate) fn rows_of<F: RecordFold<u64, Key = u64, Row = Seen>>(
+    view: &RecordProjection<u64, F>,
+) -> Vec<(u64, Seen)> {
     view.rows().map(|(key, row)| (*key, row.clone())).collect()
 }
 
@@ -241,7 +245,14 @@ fn sim_record_projection_neighbour_a_thousand_tenants_keep_their_own_rows() -> O
 }
 
 /// A view of `records`, each fed at the sequence it would have.
-fn fed(records: &[u64], fold: Tenants, limit: usize) -> Outcome<RecordProjection<u64, Tenants>> {
+pub(crate) fn fed<F: RecordFold<u64>>(
+    records: &[u64],
+    fold: F,
+    limit: usize,
+) -> Outcome<RecordProjection<u64, F>>
+where
+    F::Error: std::fmt::Display,
+{
     let mut view = RecordProjection::empty(fold, limit);
     let mut sequence = 0_u64;
     for value in records {
@@ -504,6 +515,131 @@ fn monkey(seed: u64) -> Outcome<Vec<(u64, Seen)>> {
     }
     let view = RecordProjection::rebuild(&journal, Tenants::default(), 64)?;
     Ok(rows_of(&view))
+}
+
+/// Whether `answer` is the frame ceiling's refusal.
+fn over_the_frame<T>(answer: &Result<T, JournalError>) -> bool {
+    matches!(
+        answer,
+        Err(JournalError::CapacityExceeded {
+            resource: JournalLimitKind::FrameBytes,
+            ..
+        })
+    )
+}
+
+/// The longest byte record a fresh journal admits, found by halving.
+fn largest_admitted(journal: &RecordJournal<Vec<u8>>) -> Outcome<usize> {
+    let (mut taken, mut refused) = (0_usize, 128 * 1024_usize);
+    journal.admits(&Vec::new())?;
+    if !over_the_frame(&journal.admits(&vec![0; refused])) {
+        lgwks_std::trace::debug!(refused, "largest_admitted: the frame ceiling did not bind");
+        return Err("a 128 KiB record passed the 64 KiB frame ceiling".into());
+    }
+    while refused.saturating_sub(taken) > 1 {
+        let middle = taken.saturating_add(refused.saturating_sub(taken) >> 1_u32);
+        match journal.admits(&vec![0; middle]) {
+            Ok(()) => taken = middle,
+            refusal if over_the_frame(&refusal) => refused = middle,
+            Err(other) => {
+                lgwks_std::trace::debug!(error = ?other, middle, "largest_admitted: refused for another reason");
+                return Err(other.into());
+            }
+        }
+    }
+    Ok(taken)
+}
+
+/// Around the frame ceiling, `admits` and the append agree on every record, and
+/// asking never moves the journal (#906).
+fn admits_agrees(seed: u64) -> Outcome<Vec<(usize, bool)>> {
+    let mut dice = Seeded::from_seed(seed);
+    let scratch = ScratchFile::new("record-admits")?;
+    let mut journal = RecordJournal::<Vec<u8>>::open(scratch.path())?;
+    let largest = largest_admitted(&journal)?;
+    let mut trace = Vec::new();
+    for _ in 0..12 {
+        let length = largest
+            .saturating_sub(32)
+            .saturating_add(usize::try_from(dice.below(64)?)?);
+        let record = vec![u8::try_from(dice.below(256)?)?; length];
+        let before = journal.committed();
+        let asked = journal.admits(&record);
+        assert_eq!(journal.committed(), before, "seed {seed}: asking appended");
+        let appended = journal.compare_and_append(journal.tail(), &record);
+        match (&asked, &appended) {
+            (&Ok(()), &Ok(_)) => {}
+            (&Err(_), &Err(_)) if over_the_frame(&asked) && over_the_frame(&appended) => {
+                assert_eq!(journal.committed(), before, "seed {seed}: a refusal wrote");
+            }
+            _ => {
+                lgwks_std::trace::debug!(
+                    seed,
+                    length,
+                    "admits_agrees: admits and the append disagree"
+                );
+                return Err(format!(
+                    "seed {seed}: {length} bytes, admits said {asked:?} and the append {appended:?}"
+                )
+                .into());
+            }
+        }
+        assert_eq!(
+            asked.is_ok(),
+            length <= largest,
+            "seed {seed}: {length} against {largest}"
+        );
+        trace.push((length, asked.is_ok()));
+    }
+    Ok(trace)
+}
+
+/// Catches an `admits` that drifts from the append's own checks at the frame ceiling.
+#[test]
+fn sim_record_projection_giant_admits_and_the_append_agree_at_the_frame_ceiling() -> Outcome {
+    let scratch = ScratchFile::new("record-admits-edge")?;
+    let mut journal = RecordJournal::<Vec<u8>>::open(scratch.path())?;
+    let largest = largest_admitted(&journal)?;
+    journal.compare_and_append(journal.tail(), &vec![1; largest])?;
+    let over = vec![1; largest.saturating_add(1)];
+    assert!(over_the_frame(&journal.admits(&over)));
+    assert!(over_the_frame(
+        &journal.compare_and_append(journal.tail(), &over)
+    ));
+    assert_eq!(
+        journal.committed(),
+        1,
+        "only the largest record was written"
+    );
+    for seed in 0..48 {
+        assert_eq!(
+            admits_agrees(seed)?,
+            admits_agrees(seed)?,
+            "seed {seed} did not replay"
+        );
+    }
+    Ok(())
+}
+
+/// Catches an `admits` that still says yes once its handle sealed the journal.
+#[test]
+fn sim_record_projection_saboteur_a_sealed_journal_admits_nothing() -> Outcome {
+    let scratch = ScratchFile::new("record-admits-sealed")?;
+    let mut journal =
+        RecordJournal::<Vec<u8>>::open_continuing(scratch.path(), ContinuationPolicy::declared())?;
+    journal.admits(&vec![2; 8])?;
+    let successor = journal.continue_with(&vec![3; 8])?;
+    assert!(matches!(
+        journal.admits(&vec![2; 8]),
+        Err(JournalError::Superseded { .. })
+    ));
+    let successor = successor.ok_or("a continuing journal sealed into no successor")?;
+    successor.admits(&vec![2; 8])?;
+    drop(successor);
+    drop(std::fs::remove_file(lgwks_bot::journal::successor_path(
+        scratch.path(),
+    )));
+    Ok(())
 }
 
 /// Catches any drift from the model, and any scheduler or hash order in the rows.
