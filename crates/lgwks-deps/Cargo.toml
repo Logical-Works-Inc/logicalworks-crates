@@ -257,12 +257,12 @@ rusqlite = { version = "0.41.1", default-features = false, features = ["bundled"
 # issue #785): one requirement here, the exact release in `Cargo.lock` (ADR
 # 0031). ChaCha20-Poly1305 is pure Rust with no C toolchain, so the no-flag
 # build stays portable: the engine is selected, never the crate.
-chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"], optional = true }
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"], optional = true }
 # Formatted-Rust printing for `lgwks expand` (#787): the minimal syn parser and
 # the minimal pretty printer. Both are pure Rust with no C toolchain, so the
 # no-flag build stays portable: the engines are selected, never the crates.
-prettyplease = { version = "0.2.37", default-features = false, optional = true }
-syn = { version = "2.0.119", default-features = false, features = ["full", "parsing", "printing"], optional = true }
+prettyplease = { version = "0.3.0", default-features = false, optional = true }
+syn = { version = "3.0.10", default-features = false, features = ["full", "parsing", "printing"], optional = true }
 # The one script reader and emitter (#787): `lgwks_ast` with the `emit`,
 # `legacy` and `hunks` features. A workspace member, so it needs no register
 # entry; default features off so no tree-sitter grammar rides along, only the
@@ -277,7 +277,7 @@ rustls = { version = "0.23.46", default-features = false, features = ["std", "tl
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
 rmcp = { version = "3.9.0", default-features = false, features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"], optional = true }
 genai = { version = "0.7.4", default-features = false, optional = true }
-jsonschema = { version = "0.60.2", default-features = false, optional = true }
+jsonschema = { version = "0.61.0", default-features = false, optional = true }
 oauth2 = { version = "5.0.0", default-features = false, optional = true }
 coset = { version = "0.4.2", default-features = false, optional = true }
 ct-merkle = { version = "0.3.0", default-features = false, optional = true }
