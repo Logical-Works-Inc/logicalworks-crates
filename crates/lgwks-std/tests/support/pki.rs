@@ -276,7 +276,7 @@ pub fn test_pki(seed: u64) -> Result<TestPki, String> {
 
     // The client: RSA-2048, signed by the CA.
     let client_rsa =
-        rsa::RsaPrivateKey::new(use_rng, 2048).map_err(|error| format!("test PKI: {error:?}"))?;
+        rsa::PrivateKey::new(use_rng, 2048).map_err(|error| format!("test PKI: {error:?}"))?;
     let client_pkcs8 = client_rsa
         .to_pkcs8_der()
         .map_err(|error| format!("test PKI: {error:?}"))?;
@@ -296,7 +296,7 @@ pub fn test_pki(seed: u64) -> Result<TestPki, String> {
 
     // An unrelated RSA key: the mismatch proof.
     let wrong_rsa =
-        rsa::RsaPrivateKey::new(use_rng, 2048).map_err(|error| format!("test PKI: {error:?}"))?;
+        rsa::PrivateKey::new(use_rng, 2048).map_err(|error| format!("test PKI: {error:?}"))?;
     let wrong_pkcs8 = wrong_rsa
         .to_pkcs8_der()
         .map_err(|error| format!("test PKI: {error:?}"))?;

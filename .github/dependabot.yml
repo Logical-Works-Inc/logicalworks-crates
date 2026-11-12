@@ -5,22 +5,27 @@
 #
 # 1. A version *within* an approved requirement is freshness: `cargo update`
 #    work, safe to land as a grouped PR, and the `lockfile`, `tests` and
-#    `advisories` lanes judge it. Those PRs arrive in `rust-patch-minor`.
+#    `advisories` lanes judge it. Those PRs arrive in `rust-patch-minor` and
+#    change `Cargo.lock` alone, because every registry edge is a caret
+#    requirement (ADR 0031, INV-DEP-5): no manifest, register or nested lock
+#    moves with them.
 #
 # 2. A new major is an *admission*, not freshness. `contract/APPROVED.toml`
-#    records a version rung per external edge (AGENTS.md, INV-DEP-5), so a bump
-#    past it is refused by `lgwks-deps check .` until the register is edited in
-#    the same change. Majors therefore arrive in `rust-major`, one PR whose
-#    review is the register edit: the rung moves only with its reason and its
-#    `approved_on` date. `appcui` is pinned exactly (`=0.5.5`) for the same
-#    reason, and a PR that moves the pin is that review.
+#    records a version rung per external edge (AGENTS.md), so a bump past it is
+#    refused by `lgwks-deps check .` until the register is edited in the same
+#    change. Majors therefore arrive in `rust-major`, one PR whose review is the
+#    register edit: the rung moves only with its reason and its `approved_on`
+#    date, and the nested lockfiles are re-locked in the same PR.
+#
+# A red PR from here is work to land, never to close:
+# `skills/lgwks-dependency-update/SKILL.md` is the route.
 #
 # Only real workspace roots are listed. The fixtures under
 # `crates/lgwks-deps/tests/fixtures/` are separate roots whose lockfiles hold
 # this workspace's path crates and one deliberately exact pin (`check-both`'s
-# `itoa`); `cargo update --workspace` on these roots is what the `lockfile` lane
-# already enforces on every version bump, so an update PR there would only
-# duplicate the root's.
+# `itoa`). They go stale only when a manifest moves, and the `lockfile` lane
+# and the suites that build them `--locked` refuse that, so an update PR there
+# would only duplicate the root's.
 version: 2
 updates:
   - package-ecosystem: cargo

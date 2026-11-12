@@ -64,5 +64,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0026](0026-tests-run-on-a-shared-ram-volume.md) | A macOS test on the default directory runs on one shared RAM volume at one slot per core |
 | [0027](0027-the-repository-profile-wins-over-the-home-one.md) | The repository's dev profile wins over the home one, scratch apps included |
 | [0028](0028-a-cold-run-fits-the-budget.md) | A cold run fits the budget |
+| [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
 
 New records go at the bottom of that table.

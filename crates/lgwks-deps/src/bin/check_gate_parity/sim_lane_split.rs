@@ -183,6 +183,31 @@ fn sim_a_moved_test_left_in_the_workspace_or_dropped_from_ci_is_named() -> TestR
     Ok(())
 }
 
+/// Catches the clean-consumer gate journey going back into a workspace slice.
+///
+/// Source: run 43203981708 (#927). That one nested cargo build ran 42.7 s
+/// behind a cold 165 s dependency build in slice 10/10, and the run's wall
+/// read 309 s against 300 with every job green. A count slice cannot split
+/// one test, so the `app-builds` lane holds it and rule 6 agrees.
+#[test]
+fn the_clean_consumer_gate_journey_runs_on_an_apps_row() -> TestResult {
+    let manifest = read_repo(MANIFEST_REL)?;
+    let workflow = read_repo(WORKFLOW_REL)?;
+    let journey = "test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)";
+    assert!(
+        moved(&manifest)?.iter().any(|selector| selector == journey),
+        "{MOVED_LANE} runs {journey}"
+    );
+    assert!(
+        workflow
+            .lines()
+            .any(|line| line.contains("suite: apps") && line.contains(journey)),
+        "an apps row of the workflow runs {journey}"
+    );
+    assert_eq!(split_problems(&manifest, &workflow), Vec::<String>::new());
+    Ok(())
+}
+
 /// Catches a verdict that depends on anything but the seed.
 #[test]
 fn sim_the_same_seed_replays_the_same_split_verdict() -> TestResult {
