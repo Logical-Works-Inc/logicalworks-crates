@@ -401,4 +401,97 @@ mod tests {
         );
         Ok(())
     }
+
+    /// The paths rust-cache saves, in its order: a restore naming any other
+    /// set computes another cache version and finds none of its entries.
+    const RUST_CACHE_PATHS: &str = "\"${home}/bin\" \"${home}/.crates.toml\" \
+        \"${home}/.crates2.json\" \"${home}/registry\" \"${home}/git\" \
+        \"${GITHUB_WORKSPACE}/target\"";
+
+    /// What keeps a pull request whose lockfile moved off a cold build (ADR
+    /// 0036): after rust-cache's step, a read-only restore of main's newest
+    /// entry for the group, on a pull request's miss only, over rust-cache's
+    /// own paths. Run 43311128730 walled at 312 s with it absent.
+    fn base_build_problems(action: &str) -> Vec<String> {
+        let mut problems = Vec::new();
+        if action.contains("uses: actions/cache@") || action.contains("uses: actions/cache/save@") {
+            problems.push("hosted-rust saves a second cache beside rust-cache".to_owned());
+        }
+        let (Some(cache), Some(base)) = (
+            action.find("id: rust-cache\n"),
+            action.find("uses: actions/cache/restore@"),
+        ) else {
+            problems.push("hosted-rust restores no base build after rust-cache".to_owned());
+            return problems;
+        };
+        if base < cache {
+            problems.push("hosted-rust restores its base build before rust-cache".to_owned());
+        }
+        if !action.contains(
+            "github.ref != 'refs/heads/main' && steps.rust-cache.outputs.cache-hit != 'true'",
+        ) {
+            problems.push(
+                "hosted-rust restores a base build where rust-cache already hit or on main"
+                    .to_owned(),
+            );
+        }
+        if !action.contains(RUST_CACHE_PATHS) {
+            problems.push("hosted-rust's base build names other paths than rust-cache".to_owned());
+        }
+        if !action.contains("restore-keys: v0-rust-${{ inputs.cache-key }}-\n") {
+            problems.push("hosted-rust's base build is not main's entry for its group".to_owned());
+        }
+        problems
+    }
+
+    /// The committed action holds the base build, and each way of losing it
+    /// is named on its own.
+    #[test]
+    fn a_moved_lockfile_restores_mains_nearest_build() -> TestResult {
+        let action =
+            std::fs::read_to_string(root().join(".github/actions/hosted-rust/action.yml"))?;
+        assert_eq!(base_build_problems(&action), Vec::<String>::new());
+        let controls = [
+            (
+                "      id: base-build\n      uses: actions/cache/restore@v6\n",
+                "      id: base-build\n",
+                "hosted-rust restores no base build after rust-cache",
+            ),
+            (
+                " && steps.rust-cache.outputs.cache-hit != 'true'",
+                "",
+                "hosted-rust restores a base build where rust-cache already hit or on main",
+            ),
+            (
+                "\"${home}/registry\" \"${home}/git\"",
+                "\"${home}/git\" \"${home}/registry\"",
+                "hosted-rust's base build names other paths than rust-cache",
+            ),
+            (
+                "restore-keys: v0-rust-${{ inputs.cache-key }}-\n",
+                "restore-keys: v0-rust-\n",
+                "hosted-rust's base build is not main's entry for its group",
+            ),
+            (
+                "uses: actions/cache/restore@v6",
+                "uses: actions/cache@v6",
+                "hosted-rust saves a second cache beside rust-cache",
+            ),
+        ];
+        for (from, to, named) in controls {
+            let broken = action.replacen(from, to, 1);
+            assert_ne!(
+                broken, action,
+                "the text the control mutates must exist: {from}"
+            );
+            assert!(
+                base_build_problems(&broken)
+                    .iter()
+                    .any(|problem| problem == named),
+                "{named}: {:?}",
+                base_build_problems(&broken)
+            );
+        }
+        Ok(())
+    }
 }

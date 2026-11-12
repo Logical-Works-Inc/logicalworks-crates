@@ -71,5 +71,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0033](0033-the-bot-shards-hash-optimized.md) | The bot shards hash optimized |
 | [0034](0034-a-stream-a-key-and-a-tree-stop-read-whole.md) | A stream, a key and a tree stop read whole |
 | [0035](0035-a-gate-reads-what-ships.md) | A gate reads what ships |
+| [0036](0036-a-moved-lockfile-builds-on-mains-nearest-entry.md) | A moved lockfile builds on main's nearest entry |
 
 New records go at the bottom of that table.
