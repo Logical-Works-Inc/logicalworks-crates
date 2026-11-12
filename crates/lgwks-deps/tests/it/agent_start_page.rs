@@ -446,7 +446,8 @@ fn the_start_page_is_linked_from_every_agent_entry() -> TestResult {
 }
 
 /// A manifest line is copied whole, so a stale major resolves an old release:
-/// the `lgwks_std` README's feature map still said `version = "3"` on 4.1.0.
+/// the `lgwks_std` README's feature map still said `version = "3"` on 4.1.0, and
+/// the storefront guide said `lgwks_deps` `version = "6"` on 7.0.0 (#934).
 #[test]
 fn a_manifest_line_in_a_page_names_the_current_major() -> TestResult {
     let base = root();

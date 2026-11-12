@@ -2590,7 +2590,7 @@ checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
 name = "drishti"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "lgwks_bot",
  "lgwks_deps",
@@ -4800,7 +4800,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_bot"
-version = "8.3.0"
+version = "8.3.1"
 dependencies = [
  "lgwks_ast",
  "lgwks_deps",
@@ -4811,7 +4811,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "6.3.0"
+version = "7.0.0"
 dependencies = [
  "appcui",
  "axum",
@@ -4854,7 +4854,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_macros"
-version = "2.1.1"
+version = "2.1.2"
 dependencies = [
  "lgwks_ast",
  "lgwks_deps",
