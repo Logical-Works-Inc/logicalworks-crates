@@ -143,6 +143,13 @@ mod tests {
                     .to_owned(),
             );
         }
+        // The show step runs if: always(); with no record jq exited 2 and
+        // named a second failure that was not one (run 43296258554).
+        if !workflow.contains("test -f \"$RUNNER_TEMP/logical_ci-record.json\" || exit 0") {
+            problems.push(
+                "logical_ci.yml shows lane output without checking a record exists".to_owned(),
+            );
+        }
         // ADR 0029 states why the prebuild went and the run it outlasted.
         if !adr.contains("so the job runs no\n  prebuild") || !adr.contains("(run 43282569391)") {
             problems.push("ADR 0029 does not record why the job runs no prebuild".to_owned());
@@ -255,6 +262,17 @@ mod tests {
                     .to_owned()
             ],
             "a copy that brings back the 51-binary prebuild is named"
+        );
+        let unguarded = gate.replacen(
+            "test -f \"$RUNNER_TEMP/logical_ci-record.json\" || exit 0\n",
+            "",
+            1,
+        );
+        assert_ne!(unguarded, gate, "the guard the control removes must exist");
+        assert_eq!(
+            inline_gate_problems(&unguarded, &adr),
+            vec!["logical_ci.yml shows lane output without checking a record exists".to_owned()],
+            "a show step that fails on a missing record is named"
         );
         let unrecorded = adr.replacen("(run 43282569391)", "", 1);
         assert_ne!(

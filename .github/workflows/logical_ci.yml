@@ -128,10 +128,14 @@ jobs:
           echo "exit=$code" | tee -a "$GITHUB_OUTPUT"; cat "$LCI_RECORD"
       # The sealed record keeps each lane's output by digest alone, so a lane
       # that ran out of time named no step (run 43273499037). `show` prints
-      # each lane's redacted output tail from the run the record names.
+      # each lane's redacted output tail from the run the record names. A job
+      # that failed before the engine ran has no record, and jq's exit 2 on
+      # the missing file failed this step too (run 43296258554); that job's
+      # failure is the earlier step's own.
       - name: Show each lane's output
         if: always()
         run: |
+          test -f "$RUNNER_TEMP/logical_ci-record.json" || exit 0
           run_id="$(jq -r '.run_id // empty' "$RUNNER_TEMP/logical_ci-record.json")"
           test -z "$run_id" || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" show "$run_id" --tenant "$LCI_TENANT"
       - name: Upload sealed record
