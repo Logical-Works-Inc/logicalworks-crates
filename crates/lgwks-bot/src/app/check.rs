@@ -196,6 +196,7 @@ where
             provider: std::sync::Arc::new(NoProvider),
             approvals: None,
             authenticator: None,
+            commands: super::CommandLimits::default(),
             routes,
             ons: Vec::new(),
         };

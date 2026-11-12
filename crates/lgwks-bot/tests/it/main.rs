@@ -166,30 +166,11 @@ mod sim;
 #[path = "../support/sweep.rs"]
 mod sweep_fixtures;
 
-/// This test binary re-invoked to run the one test named `test` as a probe child.
-///
-/// One builder for every kill and crash probe, so the executable and the
-/// argument shape cannot drift between them. `test` is the libtest name: the
-/// test's path below the crate root, which is what a test's own thread is named
-/// and what [`probe_test`] builds from a `module_path!()`.
 #[cfg(feature = "wire")]
-fn probe_command(test: &str) -> Result<std::process::Command, Box<dyn std::error::Error>> {
-    let mut command = std::process::Command::new(std::env::current_exe()?);
-    command.args([test, "--exact", "--nocapture"]);
-    Ok(command)
-}
-
-/// The libtest name of `test` declared in `module` (its `module_path!()`).
-///
-/// libtest names a test by its path below the crate root; the crate's own
-/// segment is what `module_path!()` adds and an `--exact` filter must not carry.
+#[path = "../support/probe.rs"]
+mod probe;
 #[cfg(feature = "wire")]
-fn probe_test(module: &str, test: &str) -> String {
-    match module.split_once("::") {
-        Some((_crate, path)) => format!("{path}::{test}"),
-        None => test.to_owned(),
-    }
-}
+use probe::{probe_command, probe_test};
 
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
@@ -745,3 +726,17 @@ mod edge_load_keyed;
 
 #[cfg(all(feature = "edge", any(not(lwc_it_group), lwc_it_group = "g3")))]
 mod sim_app_edge;
+
+#[cfg(all(
+    feature = "edge",
+    feature = "ephemeral",
+    any(not(lwc_it_group), lwc_it_group = "g7")
+))]
+mod app_command;
+
+#[cfg(all(
+    feature = "edge",
+    feature = "ephemeral",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod command_journal_cli;

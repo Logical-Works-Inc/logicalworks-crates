@@ -4,6 +4,7 @@
 use std::future::IntoFuture as _;
 use std::net::TcpListener;
 use std::sync::Arc;
+use std::time::Duration;
 
 use lgwks_deps::axum::Router;
 use lgwks_deps::axum::extract::{Request as HttpRequest, State};
@@ -27,12 +28,15 @@ struct Edge<S: Clone + Default + Send + 'static> {
     authenticator: Option<Authenticate>,
     /// Whether the edge still accepts, for a liveness probe.
     stop: CancellationToken,
+    /// How long a request may be held, when the app runs commands.
+    held_for: Option<Duration>,
 }
 
 /// Serve `host` on `listener` until `stop`, then close the host.
 pub(super) fn serve_host<S>(
     host: Arc<CellHost<AppCell<S>>>,
     authenticator: Option<Authenticate>,
+    held_for: Option<Duration>,
     listener: TcpListener,
     stop: &EdgeStop,
 ) -> Result<(), AppError>
@@ -43,6 +47,7 @@ where
         host: Arc::clone(&host),
         authenticator,
         stop: stop.token().clone(),
+        held_for,
     };
     let served = serve_http(edge, listener, stop);
     host.close();
@@ -142,8 +147,22 @@ where
         principal,
     };
     let reply = Arc::new(ReplySlot::new());
-    match edge.host.try_submit(tenant, message, Arc::clone(&reply)) {
-        Ok(()) => answer_pending(PendingReply::new(reply)).await,
-        Err(refusal) => refused_answer(refusal),
+    if let Err(refusal) = edge.host.try_submit(tenant, message, Arc::clone(&reply)) {
+        return refused_answer(refusal);
+    }
+    let pending = answer_pending(PendingReply::new(reply));
+    let Some(held_for) = edge.held_for else {
+        return pending.await;
+    };
+    match crate::rt::time::timeout(held_for, pending).await {
+        Ok(answered) => answered,
+        Err(elapsed) => {
+            lgwks_std::trace::debug!(%elapsed, tenant, "app: a held request ran out of time");
+            answer(
+                504,
+                b"no answer in time; the command may have landed, so retry it with its key"
+                    .to_vec(),
+            )
+        }
     }
 }

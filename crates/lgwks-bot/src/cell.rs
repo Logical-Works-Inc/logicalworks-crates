@@ -32,10 +32,13 @@
 //! [`EffectRunner`] outside the cell. The world's feed delivers the reply
 //! alone; the app SDK (#791) also serves fetch, ask, send, approval and
 //! timers through its provider, their results re-entering as messages
-//! through the mailbox.
+//! through the mailbox. A command runs off the worker altogether, and its
+//! answer can complete the request that asked for it (#898, ADR 0025).
 
+use crate::app::Principal;
 use crate::cap::Cap;
 use core::fmt;
+use std::sync::Arc;
 
 mod host;
 mod mailbox;
@@ -44,6 +47,7 @@ mod reply;
 mod sim_cell;
 
 pub(crate) use host::{CellHost, DynHost, HostCounts};
+pub(crate) use mailbox::{Mailbox, PushRefused};
 pub(crate) use reply::{PendingReply, ReplySlot};
 
 /// The per-message step budget: how many steps one `apply` may spend.
@@ -261,6 +265,20 @@ pub enum Effect {
         /// Which `on` handler receives the wake.
         reply_to: ReplyTag,
     },
+    /// Hand `body` to the app's command service, under `app.command`.
+    ///
+    /// It runs on a bounded pool off the worker, so a wait in the service stalls
+    /// no other tenant. With no [`Effect::Reply`] beside it, the first command of
+    /// a transition holds the request open until the `reply_to` handler answers
+    /// it. A cut command is a wrong act, so the body is never clipped: past the
+    /// host's message ceiling it is not run and answers
+    /// [`EffectResult::Unavailable`].
+    Command {
+        /// The command, handed over whole.
+        body: Box<[u8]>,
+        /// Which `on` handler receives the answer.
+        reply_to: ReplyTag,
+    },
 }
 
 /// The longest `reply_to` tag an effect may carry, in bytes.
@@ -280,6 +298,10 @@ pub(crate) const MAX_SEND_BODY_BYTES: usize = 8_192;
 
 /// The longest `After::millis` delay, in milliseconds.
 pub(crate) const MAX_AFTER_MILLIS: u64 = 3_600_000;
+
+/// The cap a [`Effect::Command`] runs under: the authority for the act, which
+/// `notify` is not.
+pub(crate) const COMMAND_CAP: &str = "app.command";
 
 /// The longest prefix of `text` that is at most `ceiling` bytes and ends on a
 /// character boundary.
@@ -355,7 +377,8 @@ impl Effect {
             | Self::Ask { ref reply_to, .. }
             | Self::Send { ref reply_to, .. }
             | Self::AwaitApproval { ref reply_to, .. }
-            | Self::After { ref reply_to, .. } => Some(reply_to),
+            | Self::After { ref reply_to, .. }
+            | Self::Command { ref reply_to, .. } => Some(reply_to),
         }
     }
 
@@ -368,6 +391,7 @@ impl Effect {
             Self::Ask { .. } => Some(Cap::new("app.ask")),
             Self::Send { .. } => Some(Cap::notify()),
             Self::AwaitApproval { .. } => Some(Cap::new("app.approval")),
+            Self::Command { .. } => Some(Cap::new(COMMAND_CAP)),
         }
     }
 
@@ -401,6 +425,7 @@ impl Effect {
                 millis: millis.min(MAX_AFTER_MILLIS),
                 reply_to,
             },
+            Self::Command { body, reply_to } => Self::Command { body, reply_to },
         }
     }
 }
@@ -431,8 +456,29 @@ impl OnInput {
 /// and the next message, and never for a message replayed in a rebuild, so a
 /// logged message's effects are delivered exactly once.
 pub(crate) trait EffectRunner: Send + Sync {
-    /// Deliver `effects` for `tenant`; the reply they carry, if any.
-    fn run(&self, tenant: &str, effects: Vec<Effect>) -> Option<crate::ecs::Response>;
+    /// Deliver `effects` for `tenant`, on behalf of `asker`, and say what becomes
+    /// of the request `reply` answers.
+    fn run(
+        &self,
+        tenant: &str,
+        asker: Option<&Principal>,
+        effects: Vec<Effect>,
+        reply: &Arc<ReplySlot>,
+    ) -> Delivery;
+
+    /// Stop what the runner owns, once the host's workers have gone. Idempotent.
+    fn close(&self) {}
+}
+
+/// What a runner did with the request a transition's effects were for.
+#[derive(Debug)]
+pub(crate) enum Delivery {
+    /// The effects carried this answer.
+    Answer(crate::ecs::Response),
+    /// The runner took the reply slot, and something it owns will settle it.
+    Held,
+    /// Nothing answers it: the host answers `500` rather than leave it hanging.
+    Silent,
 }
 
 /// The first [`Effect::Reply`] among `effects`; every other effect goes to
@@ -463,14 +509,24 @@ pub(crate) fn first_reply(
 pub(crate) struct ReplyRunner;
 
 impl EffectRunner for ReplyRunner {
-    fn run(&self, tenant: &str, effects: Vec<Effect>) -> Option<crate::ecs::Response> {
-        first_reply(effects, |effect| {
+    fn run(
+        &self,
+        tenant: &str,
+        _asker: Option<&Principal>,
+        effects: Vec<Effect>,
+        _reply: &Arc<ReplySlot>,
+    ) -> Delivery {
+        let answer = first_reply(effects, |effect| {
             lgwks_std::trace::debug!(
                 tenant,
                 ?effect,
                 "cell: the reply-only runner drops an effect"
             );
-        })
+        });
+        match answer {
+            Some(response) => Delivery::Answer(response),
+            None => Delivery::Silent,
+        }
     }
 }
 
@@ -494,6 +550,12 @@ pub(crate) trait Cell: Send + Sync + 'static {
     /// The bytes `message` holds, charged against [`MAX_MESSAGE_BYTES`] at
     /// submit and against [`CHECKPOINT_BYTES`] in the tail.
     fn weight(message: &Self::Message) -> usize;
+
+    /// Who asked for `message`, when the cell knows. The host reads it from the
+    /// log, so a handler's effects cannot name anyone else.
+    fn asker(_message: &Self::Message) -> Option<&Principal> {
+        None
+    }
 
     /// Fold one logged message into the tenant's state.
     ///

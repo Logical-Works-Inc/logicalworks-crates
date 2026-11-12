@@ -210,15 +210,51 @@ pub fn workspace_root() -> Result<PathBuf, String> {
     }
 }
 
+/// The `[profile.dev]` table of the workspace's own `.cargo/config.toml`,
+/// header and keys, comments dropped. A scaffold lives outside the
+/// repository, so that config never reaches it: without this copy every app a
+/// journey builds compiles the whole estate with full debuginfo, cold, and the
+/// two app journeys were the last tests of their CI slice (110.6 s and 73.1 s,
+/// run 42632155761).
+fn workspace_dev_profile(root: &Path) -> Result<String, String> {
+    let path = root.join(".cargo").join("config.toml");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
+    let mut table = String::new();
+    let mut inside = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            inside = line == "[profile.dev]";
+            if inside {
+                table.push_str("[profile.dev]\n");
+            }
+        } else if inside && !line.is_empty() && !line.starts_with('#') {
+            table.push_str(line);
+            table.push('\n');
+        }
+    }
+    if table.lines().count() < 2 {
+        lgwks_std::trace::debug!(
+            path = %path.display(),
+            "lgwks-test: the workspace cargo config sets no dev profile"
+        );
+        return Err(format!("{} sets no [profile.dev] keys", path.display()));
+    }
+    Ok(table)
+}
+
 /// Points every app scaffolded under `dir` at this workspace's `lgwks_bot`
 /// and `lgwks_std`, through a `.cargo/config.toml` beside the app rather
 /// than inside it: the tree under test is what the app builds against, never
 /// the last release on crates.io, and the scaffold itself stays untouched.
+/// The app also builds under the workspace's own dev profile.
 fn patch_workspace(dir: &Path) -> Result<(), String> {
     let root = workspace_root()?;
     let config = dir.join(".cargo");
     std::fs::create_dir_all(&config).map_err(|error| format!("no cargo config: {error}"))?;
-    let mut text = String::from("[patch.crates-io]\n");
+    let mut text = workspace_dev_profile(&root)?;
+    text.push_str("\n[patch.crates-io]\n");
     for (name, path) in [("lgwks_bot", "lgwks-bot"), ("lgwks_std", "lgwks-std")] {
         let crate_dir = root.join("crates").join(path);
         text.push_str(
