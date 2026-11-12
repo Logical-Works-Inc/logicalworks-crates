@@ -3,8 +3,8 @@ name: logical_ci
 # This repository is public and logical_ci is private, and GitHub never lets a
 # public repository call a private reusable workflow: the `uses:` call failed in
 # 0 s on every run. The job below is logical_ci's own gate.yml at
-# Logical-Works-Inc/logical_ci@75a0a1f5e8e1405dd35f439ca3a7b6379a7ae2b1 ("gate:
-# pin the signed v0.2.0 release"), step for step, with its pins unchanged.
+# Logical-Works-Inc/logical_ci@94f57e0fc7b4e9ef14a93e64c8ad0786e2b7fc33 ("gate:
+# pin the signed v0.3.0 release"), step for step, with its pins unchanged.
 on:
   pull_request:
   push:
@@ -23,7 +23,7 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.2.0 publishes only a macos-arm64 binary and verifier, and the pins are of those bytes.
+    # mac-specific: logical_ci v0.3.0 publishes only a macos-arm64 binary and verifier, and the pins are of those bytes.
     runs-on: macos-latest
     timeout-minutes: 10
     env:
@@ -31,11 +31,11 @@ jobs:
       LCI_TENANT: crates
       LCI_HARDNESS: C
       LCI_GATES: ''
-      LCI_RELEASE: v0.2.0
+      LCI_RELEASE: v0.3.0
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: 'e926e18195976e7c65a5ebb596685952fd5313ef1a60de7ab4bf7cc1f7003892'
+      LCI_VERIFIER_SHA256: 'd3a298375601d011f391798208c6b4eee63e70ce02ea772dd14eaa92ce807ad9'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:

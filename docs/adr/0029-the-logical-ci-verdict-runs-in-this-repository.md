@@ -7,7 +7,7 @@ Stakeholders: the Director; a contributor whose pull request waits on the `logic
 Concerns: a required verdict that never ran; a private product that must stay private.
 Requirements: R13
 Viewpoint: the gate viewpoint, one row per CI job and the release bytes it executes.
-Elements and relations: `.github/workflows/logical_ci.yml`, the signed logical_ci v0.2.0 release, the `LOGICAL_CI_TOKEN` repository secret.
+Elements and relations: `.github/workflows/logical_ci.yml`, the signed logical_ci v0.3.0 release, the `LOGICAL_CI_TOKEN` repository secret.
 
 ## Context
 
@@ -19,7 +19,7 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 ## Decision
 
 1. **The gate's steps run here.** `logical_ci.yml` carries logical_ci's gate.yml at
-   `75a0a1f5`, which pins the signed v0.2.0 release. It keeps that file's release key pin, its
+   `94f57e0f`, which pins the signed v0.3.0 release (first `75a0a1f5` and v0.2.0). It keeps that file's release key pin, its
    verifier sha256 pin and its order: refuse an unpinned gate, download, check the verifier, verify
    the seal, then `plan --new`, `init` and `ci` for tenant `crates` at hardness C.
 2. **A missing token is named.** The download step refuses with `LOGICAL_CI_TOKEN is not set on

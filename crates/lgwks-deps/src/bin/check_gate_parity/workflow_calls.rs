@@ -43,11 +43,95 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
 
+    /// The value of `KEY: value` in `text`, quotes stripped.
+    fn env_value<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+        text.lines()
+            .find_map(|line| line.trim_start().strip_prefix(key)?.strip_prefix(':'))
+            .map(|value| value.trim().trim_matches('\''))
+    }
+
+    /// The inline gate names one release everywhere (ADR 0029: a re-pin
+    /// moves `LCI_RELEASE` and both pins in one commit). The header, the
+    /// runner comment and the ADR name the tag `LCI_RELEASE` downloads, and
+    /// both pins are 64 lowercase hex digits, so a half-done re-pin fails here
+    /// before the job ever downloads.
+    fn inline_gate_problems(workflow: &str, adr: &str) -> Vec<String> {
+        let mut problems = Vec::new();
+        let Some(tag) = env_value(workflow, "LCI_RELEASE") else {
+            return vec!["logical_ci.yml sets no LCI_RELEASE".to_owned()];
+        };
+        let named = [
+            (
+                "the header",
+                workflow,
+                format!("pin the signed {tag} release"),
+            ),
+            (
+                "the runner comment",
+                workflow,
+                format!("logical_ci {tag} publishes"),
+            ),
+            (
+                "ADR 0029",
+                adr,
+                format!("the signed logical_ci {tag} release"),
+            ),
+        ];
+        for (place, text, phrase) in named {
+            if !text.contains(&phrase) {
+                problems.push(format!("{place} does not name {tag}: no `{phrase}`"));
+            }
+        }
+        for key in ["LCI_RELEASE_PUBKEY", "LCI_VERIFIER_SHA256"] {
+            match env_value(workflow, key) {
+                Some(hex)
+                    if hex.len() == 64
+                        && hex
+                            .bytes()
+                            .all(|digit| matches!(digit, b'0'..=b'9' | b'a'..=b'f')) => {}
+                Some(hex) => {
+                    problems.push(format!("{key} is not 64 lowercase hex digits: `{hex}`"));
+                }
+                None => problems.push(format!("logical_ci.yml sets no {key}")),
+            }
+        }
+        problems
+    }
+
     /// The call that failed every run is named by its line, the committed
     /// workflows make none, and this repository's own workflow and an action are
-    /// not such a call.
+    /// not such a call. The inline gate the call became names one release in its
+    /// header, its runner comment and ADR 0029, and a half-done re-pin is named.
     #[test]
     fn a_call_to_another_repositorys_reusable_workflow_is_refused() -> TestResult {
+        let gate = std::fs::read_to_string(root().join(".github/workflows/logical_ci.yml"))?;
+        let adr = std::fs::read_to_string(
+            root().join("docs/adr/0029-the-logical-ci-verdict-runs-in-this-repository.md"),
+        )?;
+        assert_eq!(
+            inline_gate_problems(&gate, &adr),
+            Vec::<String>::new(),
+            "the committed inline gate names one release"
+        );
+        let half = gate.replacen("LCI_RELEASE: v", "LCI_RELEASE: v9", 1);
+        assert_ne!(
+            half, gate,
+            "the fixture text the control mutates must exist"
+        );
+        assert_eq!(
+            inline_gate_problems(&half, &adr).len(),
+            3,
+            "a tag moved without its header, comment and ADR is named three times"
+        );
+        let swapped = gate.replacen("LCI_VERIFIER_SHA256: '", "LCI_VERIFIER_SHA256: 'X", 1);
+        let swapped_problems = inline_gate_problems(&swapped, &adr);
+        assert_eq!(swapped_problems.len(), 1, "only the verifier pin is wrong");
+        assert!(
+            swapped_problems
+                .iter()
+                .all(|problem| problem.starts_with("LCI_VERIFIER_SHA256 is not 64")),
+            "a malformed verifier pin is named: {swapped_problems:?}"
+        );
         let mut out = Vec::new();
         let mut err = Vec::new();
         assert_eq!(
