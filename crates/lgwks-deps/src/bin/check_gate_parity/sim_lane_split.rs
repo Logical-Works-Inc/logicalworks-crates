@@ -252,6 +252,39 @@ fn the_lockfile_lane_reads_every_tracked_lockfile() -> TestResult {
     Ok(())
 }
 
+/// Catches the update skill telling a reader to look for a message the
+/// `lockfile` lane no longer prints.
+///
+/// Source: #930 changed the lane's refusal from `stale fixture lockfile` to
+/// `stale lockfile` and widened it to every tracked lockfile, while
+/// `skills/lgwks-dependency-update/SKILL.md` still quoted the old message.
+#[test]
+fn the_update_skill_names_what_the_lockfile_lane_prints() -> TestResult {
+    let manifest = read_repo(MANIFEST_REL)?;
+    let skill = read_repo("skills/lgwks-dependency-update/SKILL.md")?;
+    let lanes = read_manifest(&manifest).lanes;
+    let command = lanes
+        .iter()
+        .find(|lane| lane.id == "lockfile")
+        .and_then(|lane| lane.command.as_deref())
+        .ok_or(SimError::Shape("the lockfile lane carries no command"))?;
+    let printed = command
+        .split("echo \\\"")
+        .nth(1)
+        .or_else(|| command.split("echo \"").nth(1))
+        .and_then(|rest| rest.split(" $f").next())
+        .ok_or(SimError::Shape("the lockfile lane prints no refusal"))?;
+    assert!(
+        skill.contains(&format!("`{printed}`")),
+        "the skill's repair table quotes the lane's refusal {printed:?}"
+    );
+    assert!(
+        skill.contains("every lockfile git\ntracks") || skill.contains("every lockfile git tracks"),
+        "the skill says the lane checks every tracked lockfile"
+    );
+    Ok(())
+}
+
 /// Catches a verdict that depends on anything but the seed.
 #[test]
 fn sim_the_same_seed_replays_the_same_split_verdict() -> TestResult {
