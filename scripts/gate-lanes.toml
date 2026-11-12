@@ -114,12 +114,15 @@ id = "lockfile"
 surfaces = "local ci"
 required = true
 fast = true
-# The storefront fixtures are separate workspaces with their own lockfiles, and
-# every version bump of a workspace crate makes them stale (#175 failed CI on
-# exactly that). Checking them here makes the release cut impossible to forget.
+# The storefront fixtures and the bench rigs are separate workspaces with their
+# own lockfiles, and every version bump of a workspace crate makes them stale
+# (#175 failed CI on exactly that). The loop reads every lockfile git tracks,
+# at any depth: a path glob checked 9 of the 16 and missed the bench roots and
+# the ones under `contract-override/`. An empty list refuses, never passes.
 command = """\
 cargo metadata --locked --format-version 1 >/dev/null && \
-for f in crates/lgwks-deps/tests/fixtures/*/Cargo.lock; do if ! cargo metadata --locked --format-version 1 --manifest-path \"${f%.lock}.toml\" >/dev/null; then echo \"stale fixture lockfile $f: run cargo update --workspace --manifest-path ${f%.lock}.toml\" >&2; exit 1; fi; done\
+locks=$(git ls-files '*Cargo.lock') && test -n \"$locks\" && \
+for f in $locks; do if ! cargo metadata --locked --format-version 1 --manifest-path \"${f%.lock}.toml\" >/dev/null; then echo \"stale lockfile $f: run cargo update --workspace --manifest-path ${f%.lock}.toml\" >&2; exit 1; fi; done\
 """
 ci_step = "Verify lockfile is up-to-date"
 
