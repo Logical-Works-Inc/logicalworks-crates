@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::receipt::git;
+use super::test_gated::unwrap_lines;
 use super::toml_subset::{read_tables, text};
 use super::{Context, GateError, Verdict, fail, read};
 
@@ -23,10 +24,6 @@ const FORBIDDEN_PREFIXES: [&str; 5] = [
 
 /// How many lines after a suppression its `reason` may sit within.
 const REASON_WINDOW: usize = 7;
-
-/// A call that must not appear in shipped code, spelled in two pieces so this
-/// file does not contain the text its own scan looks for.
-const FORBIDDEN_CALL: &str = concat!(".unw", "rap()");
 
 /// The text of `text` from byte `from`, or empty when that is not a boundary.
 pub(super) fn tail(text: &str, from: usize) -> &str {
@@ -140,25 +137,18 @@ pub(super) fn refuse(detail: String) -> Verdict {
     Verdict { code: 1, detail }
 }
 
-/// Ban the forbidden call in `crates/*/src` outside each file's `mod tests`.
+/// Ban the forbidden call in `crates/*/src` outside the items a file gates on
+/// `cfg(test)` (`test_gated`).
 pub(super) fn unwrap_scan(context: &Context<'_>) -> Result<Verdict, GateError> {
     let mut hits = Vec::new();
     for directory in crate_directories(context.root) {
         for path in rust_files_under(&directory.join("src"), &[])? {
             let source = read(&path)?;
-            let lines: Vec<&str> = source.lines().collect();
-            let tests_at = lines
-                .iter()
-                .position(|line| line.contains("mod tests"))
-                .map(|index| index.saturating_add(1));
-            for (index, line) in lines.iter().enumerate() {
-                let number = index.saturating_add(1);
-                if line.contains(FORBIDDEN_CALL) && !tests_at.is_some_and(|start| number >= start) {
-                    hits.push(format!(
-                        "unwrap outside tests: {}:{number}",
-                        relative(context.root, &path)
-                    ));
-                }
+            for number in unwrap_lines(&source) {
+                hits.push(format!(
+                    "unwrap outside tests: {}:{number}",
+                    relative(context.root, &path)
+                ));
             }
         }
     }

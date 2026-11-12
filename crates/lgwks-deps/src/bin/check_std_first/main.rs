@@ -29,6 +29,8 @@ mod files;
 mod lexer;
 mod manifest;
 mod ratchet;
+#[path = "../shared/rust_code.rs"]
+mod rust_code;
 mod scans;
 mod surface;
 #[path = "../shared/toml_subset.rs"]
