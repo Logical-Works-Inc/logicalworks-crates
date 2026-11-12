@@ -134,6 +134,91 @@ fn a_seeded_bitmap_round_trips_every_compression() {
     }
 }
 
+/// Draws a page row by row as runs, the way fax pages are made: white and
+/// black runs alternating from white, each up to 3,000 pixels so make-up
+/// chains past the 2,560 extended code appear, ending wherever the width
+/// does, so runs straddle byte edges at every offset.
+fn draw_run_page(state: &mut Seeded, width: usize, height: usize) -> Vec<u8> {
+    let row_bytes = width.div_ceil(8);
+    let mut out = vec![0_u8; height.saturating_mul(row_bytes)];
+    for row in out.chunks_mut(row_bytes.max(1)) {
+        let mut x: usize = 0;
+        let mut black = false;
+        while x < width {
+            let long = below(state, 8) == 0;
+            let run = if long {
+                below(state, 3000)
+            } else {
+                below(state, 24)
+            }
+            .saturating_add(1);
+            let end = x.saturating_add(run).min(width);
+            if black {
+                for pixel in x..end {
+                    let [shift, ..] = pixel.rem_euclid(8).to_le_bytes();
+                    if let Some(byte) = row.get_mut(pixel.saturating_div(8)) {
+                        *byte |= 0x80_u8.wrapping_shr(u32::from(shift));
+                    }
+                }
+            }
+            x = end;
+            black = !black;
+        }
+    }
+    out
+}
+
+#[test]
+/// Wide pages drawn as runs survive raw, G3 and G4 bit for bit, two pages to
+/// a file, and a second decode of the same bytes returns the same pages
+/// (ITU-T T.4 §4.1.1 make-up chains, T.6 §2.2 pass, vertical and
+/// horizontal modes, TIFF 6.0 multi-page files). The width is drawn up to
+/// 5,000 pixels, rarely a multiple of eight, so the byte-wide paint and
+/// change scans meet every edge offset.
+fn sim_wide_pages_with_long_runs_round_trip_every_compression() {
+    for seed in SWEEP_SEEDS {
+        let mut state = seeded_stream(seed);
+        for _ in 0..6 {
+            let width = below(&mut state, 5000).saturating_add(1);
+            let mut pages = Vec::new();
+            for _ in 0..2 {
+                let height = below(&mut state, 6).saturating_add(1);
+                let bitmap = draw_run_page(&mut state, width, height);
+                let (Ok(wide), Ok(tall)) = (u32::try_from(width), u32::try_from(height)) else {
+                    continue;
+                };
+                let page = TiffImage::from_bitmap(wide, tall, &bitmap);
+                assert!(
+                    page.is_ok(),
+                    "seed {seed}: a drawn {width}x{height} page must build"
+                );
+                if let Ok(page) = page {
+                    pages.push(page);
+                }
+            }
+            for compression in [Compression::Raw, Compression::G3, Compression::G4] {
+                let coded = encode_tiff(&pages, compression, &BOUNDS);
+                assert!(
+                    coded.is_ok(),
+                    "seed {seed}: {compression:?} must encode: {coded:?}"
+                );
+                let Ok(coded) = coded else { continue };
+                let first = decode_tiff(&coded, &BOUNDS);
+                assert_eq!(
+                    first.as_ref(),
+                    Ok(&pages),
+                    "seed {seed}: two {width}-pixel {compression:?} pages must return bit for bit"
+                );
+                assert_eq!(
+                    decode_tiff(&coded, &BOUNDS),
+                    first,
+                    "seed {seed}: a second decode of the same {compression:?} bytes must agree"
+                );
+            }
+        }
+    }
+}
+
 #[test]
 /// Hostile strips never panic: flips and cuts answer typed errors or
 /// still-valid images, and a zeroed file is refused.

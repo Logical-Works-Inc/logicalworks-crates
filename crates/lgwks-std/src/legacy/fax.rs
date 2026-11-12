@@ -169,16 +169,95 @@ fn pixel_at(x: usize) -> (usize, u8) {
 /// the row counting as white. Even indices turn black, odd indices white.
 pub(crate) fn row_changes(row: &[u8], width: usize) -> Vec<usize> {
     let mut changes: Vec<usize> = Vec::new();
+    row_changes_into(row, width, &mut changes);
+    changes
+}
+
+/// [`row_changes`] into a reused buffer, a byte at a time: the pixels from
+/// `x` to its byte's end are flipped to the current colour's sense, so the
+/// leading zeros of what is left are the run that colour still holds, and
+/// a byte of one colour is passed over whole.
+pub(crate) fn row_changes_into(row: &[u8], width: usize, changes: &mut Vec<usize>) {
+    changes.clear();
     let mut black = false;
-    for x in 0..width {
-        let (at, mask) = pixel_at(x);
-        let mark = row.get(at).is_some_and(|byte| byte & mask != 0);
-        if mark != black {
-            changes.push(x);
-            black = mark;
+    let mut x: usize = 0;
+    while x < width {
+        let byte = match row.get(x.saturating_div(8)) {
+            Some(&value) => value,
+            None => 0,
+        };
+        let [used, ..] = x.rem_euclid(8).to_le_bytes();
+        let differing = if black { !byte } else { byte };
+        let ahead = differing.wrapping_shl(u32::from(used));
+        let span = usize::from(8_u8.saturating_sub(used));
+        let [zeros, ..] = ahead.leading_zeros().to_le_bytes();
+        let run = usize::from(zeros).min(span);
+        let next = x.saturating_add(run);
+        if run < span {
+            if next >= width {
+                break;
+            }
+            changes.push(next);
+            black = !black;
+        }
+        x = next;
+    }
+}
+
+/// Sets every byte of `bytes` to `0xff`. Most fax runs cover a few bytes,
+/// where a call into libc's memset costs more than the fill (it was the
+/// G4 decode's largest sample), so a short span is two overlapping
+/// fixed-size stores, the first and last `k` bytes for the largest `k` of
+/// 8, 4, 2 or 1 that fits; a long span still takes memset.
+fn fill_ones(bytes: &mut [u8]) {
+    /// Writes ones over the first and last `K` bytes, which cover a span
+    /// of `K..=2K` bytes.
+    fn ends<const K: usize>(bytes: &mut [u8]) {
+        let len = bytes.len();
+        if let Some(head) = bytes.get_mut(..K) {
+            head.copy_from_slice(&[0xff; K]);
+        }
+        if let Some(tail) = bytes.get_mut(len.saturating_sub(K)..) {
+            tail.copy_from_slice(&[0xff; K]);
         }
     }
-    changes
+    match bytes.len() {
+        0 => {}
+        1 => ends::<1>(bytes),
+        2..=3 => ends::<2>(bytes),
+        4..=7 => ends::<4>(bytes),
+        8..=16 => ends::<8>(bytes),
+        _ => bytes.fill(0xff),
+    }
+}
+
+/// Sets bits `from..to` of a packed row: a partial first byte, whole bytes
+/// filled at once, then a partial last byte.
+fn set_span(window: &mut [u8], from: usize, to: usize) {
+    if from >= to {
+        return;
+    }
+    let first = from.saturating_div(8);
+    let last = to.saturating_sub(1).saturating_div(8);
+    let [head_skip, ..] = from.rem_euclid(8).to_le_bytes();
+    let [tail_keep, ..] = to.saturating_sub(1).rem_euclid(8).to_le_bytes();
+    let head = 0xff_u8.wrapping_shr(u32::from(head_skip));
+    let tail = 0xff_u8.wrapping_shl(u32::from(7_u8.saturating_sub(tail_keep)));
+    if first == last {
+        if let Some(byte) = window.get_mut(first) {
+            *byte |= head & tail;
+        }
+        return;
+    }
+    if let Some(byte) = window.get_mut(first) {
+        *byte |= head;
+    }
+    if let Some(middle) = window.get_mut(first.saturating_add(1)..last) {
+        fill_ones(middle);
+    }
+    if let Some(byte) = window.get_mut(last) {
+        *byte |= tail;
+    }
 }
 
 /// The page rows one strip decodes into: the bitmap, its geometry, and the
@@ -251,22 +330,8 @@ impl<'page> Strip<'page> {
         let Some(window) = self.bitmap.get_mut(at..at.saturating_add(self.row_bytes)) else {
             return crate::legacy::refuse(self.corrupt(row));
         };
-        for x in from..to {
-            let (byte_at, mask) = pixel_at(x);
-            if let Some(byte) = window.get_mut(byte_at) {
-                *byte |= mask;
-            }
-        }
+        set_span(window, from, to);
         Ok(())
-    }
-
-    /// The changing elements of a decoded row: the next row's reference.
-    pub(crate) fn changes(&self, row: usize) -> Vec<usize> {
-        let at = row.saturating_mul(self.row_bytes);
-        match self.bitmap.get(at..at.saturating_add(self.row_bytes)) {
-            Some(window) => row_changes(window, self.width),
-            None => Vec::new(),
-        }
     }
 }
 
@@ -373,122 +438,14 @@ pub fn encode_tiff(
     container::encode_tiff(images, compression, limits)
 }
 
-/// A bit reader over strip bytes, MSB first, with one code of pushback.
-pub(crate) struct BitReader<'a> {
-    /// The strip bytes.
-    bytes: &'a [u8],
-    /// The byte cursor.
-    cursor: usize,
-    /// Bits left in the current byte.
-    left: u8,
-    /// The current byte.
-    current: u8,
-    /// Pushed-back bits, read first.
-    pushed: Vec<bool>,
-}
-
-impl<'a> BitReader<'a> {
-    /// Reads strip bytes MSB first.
-    pub(crate) fn new(bytes: &'a [u8]) -> Self {
-        Self {
-            bytes,
-            cursor: 0,
-            left: 0,
-            current: 0,
-            pushed: Vec::new(),
-        }
-    }
-
-    /// The next bit, or `None` past the end.
-    pub(crate) fn next_bit(&mut self) -> Option<bool> {
-        if let Some(bit) = self.pushed.pop() {
-            return Some(bit);
-        }
-        if self.left == 0 {
-            let &byte = self.bytes.get(self.cursor)?;
-            self.cursor = self.cursor.saturating_add(1);
-            self.current = byte;
-            self.left = 8;
-        }
-        let (_, mask) = pixel_at(usize::from(8_u8.saturating_sub(self.left)));
-        self.left = self.left.saturating_sub(1);
-        Some(self.current & mask != 0)
-    }
-
-    /// Pushes `count` bits back, the last read first in the list, so the
-    /// next reads return them in their original order.
-    pub(crate) fn unread(&mut self, bits: &[bool]) {
-        for bit in bits.iter().rev() {
-            self.pushed.push(*bit);
-        }
-    }
-}
-
-/// A bit writer for strip bytes, MSB first.
-pub(crate) struct BitWriter {
-    /// The finished bytes.
-    out: Vec<u8>,
-    /// The open byte.
-    current: u8,
-    /// Bits filled in the open byte.
-    filled: u8,
-}
-
-impl BitWriter {
-    /// An empty writer.
-    pub(crate) fn new() -> Self {
-        Self {
-            out: Vec::new(),
-            current: 0,
-            filled: 0,
-        }
-    }
-
-    /// Pushes one bit.
-    fn push_bit(&mut self, bit: bool) {
-        if bit {
-            let (_, mask) = pixel_at(usize::from(self.filled));
-            self.current |= mask;
-        }
-        self.filled = self.filled.saturating_add(1);
-        if self.filled >= 8 {
-            self.out.push(self.current);
-            self.current = 0;
-            self.filled = 0;
-        }
-    }
-
-    /// Pushes one `(bits, length)` code, most significant bit first.
-    pub(crate) fn push_code(&mut self, code: (u16, u8)) {
-        let (bits, len) = code;
-        let mut remaining = u32::from(len);
-        while remaining > 0 {
-            remaining = remaining.saturating_sub(1);
-            let bit = bits
-                .checked_shr(remaining)
-                .is_some_and(|moved| moved & 1 == 1);
-            self.push_bit(bit);
-        }
-    }
-
-    /// The finished bytes with the open byte padded by zeros.
-    pub(crate) fn finish(mut self) -> Vec<u8> {
-        if self.filled > 0 {
-            self.out.push(self.current);
-        }
-        self.out
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use super::t4::BitWriter;
     use super::tables::{
         BLACK_MAKEUP, BLACK_TERM, EOL_BITS, EOL_LEN, EXTENDED_MAKEUP, MODE_HORIZ, MODE_PASS,
         MODE_VERTICAL, WHITE_MAKEUP, WHITE_TERM,
     };
-    use super::{
-        BitWriter, Compression, Strip, TiffError, TiffImage, decode_tiff, encode_tiff, t4, t6,
-    };
+    use super::{Compression, Strip, TiffError, TiffImage, decode_tiff, encode_tiff, t4, t6};
     use crate::legacy::limits::Limits;
 
     /// The bounds the unit tests run under.

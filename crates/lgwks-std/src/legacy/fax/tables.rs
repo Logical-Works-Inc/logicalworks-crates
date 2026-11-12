@@ -6,6 +6,13 @@
 //! extended make-up codes both colours share), and ITU-T T.6 Table 1 (mode
 //! codes). The `fax` unit tests prove each colour's code set prefix-free and
 //! decode known-answer streams worked by hand from those tables.
+//!
+//! The decoders read through lookups built once from these same entries:
+//! one slot per value of the next 13 bits for each colour's runs and per
+//! value of the next 7 bits for the modes, so a code resolves in one index
+//! instead of a scan per bit, and the tables stay the one source.
+
+use std::sync::LazyLock;
 
 /// The T.4 end-of-line code: eleven zeros and a one (ITU-T T.4 §4.1.2).
 pub(crate) const EOL_BITS: u16 = 0x0001;
@@ -257,11 +264,226 @@ pub(crate) const MAX_CODE_LEN: u8 = 13;
 /// One code table: `(bits, length, run)` entries.
 pub(crate) type CodeTable = &'static [(u16, u8, u16)];
 
+/// Bits one run lookup reads: the longest run code, so every code of a
+/// colour resolves in one index.
+pub(crate) const RUN_LOOKUP_BITS: u8 = MAX_CODE_LEN;
+
+/// Slots in one run lookup: `2^RUN_LOOKUP_BITS`.
+const RUN_LOOKUP_SLOTS: usize = 8192;
+
+/// Bits one mode lookup reads: the longest T.6 mode code.
+pub(crate) const MODE_LOOKUP_BITS: u8 = 7;
+
+/// Slots in the mode lookup: `2^MODE_LOOKUP_BITS`.
+const MODE_LOOKUP_SLOTS: usize = 128;
+
+/// One lookup slot, packed in a `u16`: the code length in bits 0-3 (zero
+/// for no code), a make-up flag in bit 4, and the value from bit 5: a
+/// terminating run, a make-up run in units of 64, or a mode number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Slot(u16);
+
+impl Slot {
+    /// Packs a code of `len` bits standing for `value`.
+    fn new(len: u8, makeup: bool, value: u16) -> Self {
+        Self(u16::from(len) | if makeup { 0x10 } else { 0 } | value.saturating_mul(32))
+    }
+
+    /// The code length in bits, or zero when no code starts with the bits
+    /// that indexed this slot.
+    pub(crate) const fn len(self) -> u8 {
+        let [low, _] = self.0.to_le_bytes();
+        low & 0x0f
+    }
+
+    /// Whether the code is a make-up code, whose run a terminating code
+    /// must follow.
+    pub(crate) const fn is_makeup(self) -> bool {
+        self.0 & 0x10 != 0
+    }
+
+    /// The value: a run in pixels for a run code, or a mode number.
+    pub(crate) fn value(self) -> usize {
+        let raw = usize::from(self.0.saturating_div(32));
+        if self.is_makeup() {
+            raw.saturating_mul(64)
+        } else {
+            raw
+        }
+    }
+}
+
+/// Writes `slot` into every lookup index whose leading `len` bits are
+/// `bits`: the code's prefix, then every tail the spare bits can hold.
+fn fill(table: &mut [Slot], lookup_bits: u8, code: (u16, u8), slot: Slot) {
+    let (bits, len) = code;
+    let Some(spare) = lookup_bits.checked_sub(len) else {
+        return;
+    };
+    let first = usize::from(bits).checked_shl(u32::from(spare));
+    let count = 1_usize.checked_shl(u32::from(spare));
+    if let (Some(first), Some(count)) = (first, count)
+        && let Some(slots) = table.get_mut(first..first.saturating_add(count))
+    {
+        slots.fill(slot);
+    }
+}
+
+/// One colour's run lookup: its terminating and make-up codes and the
+/// shared extended make-ups, each colour's set being prefix-free.
+fn run_lookup(terms: CodeTable, makeup: CodeTable) -> Vec<Slot> {
+    let mut table = vec![Slot(0); RUN_LOOKUP_SLOTS];
+    for &(bits, len, run) in terms {
+        fill(
+            &mut table,
+            RUN_LOOKUP_BITS,
+            (bits, len),
+            Slot::new(len, false, run),
+        );
+    }
+    for &(bits, len, run) in makeup.iter().chain(EXTENDED_MAKEUP.iter()) {
+        let units = run.saturating_div(64);
+        fill(
+            &mut table,
+            RUN_LOOKUP_BITS,
+            (bits, len),
+            Slot::new(len, true, units),
+        );
+    }
+    table
+}
+
+/// The white run lookup, built once from the T.4 white tables.
+static WHITE_LOOKUP: LazyLock<Vec<Slot>> = LazyLock::new(|| run_lookup(&WHITE_TERM, &WHITE_MAKEUP));
+
+/// The black run lookup, built once from the T.4 black tables.
+static BLACK_LOOKUP: LazyLock<Vec<Slot>> = LazyLock::new(|| run_lookup(&BLACK_TERM, &BLACK_MAKEUP));
+
+/// The mode number of pass mode in [`mode_lookup`].
+pub(crate) const MODE_NUMBER_PASS: usize = 1;
+
+/// The mode number of horizontal mode in [`mode_lookup`].
+pub(crate) const MODE_NUMBER_HORIZ: usize = 2;
+
+/// The mode number of `VL3`; the vertical modes follow in `MODE_VERTICAL`
+/// order.
+pub(crate) const MODE_VERTICAL_BASE: usize = 3;
+
+/// The T.6 mode lookup, built once from the mode codes.
+static MODE_LOOKUP: LazyLock<Vec<Slot>> = LazyLock::new(|| {
+    let mut table = vec![Slot(0); MODE_LOOKUP_SLOTS];
+    fill(
+        &mut table,
+        MODE_LOOKUP_BITS,
+        MODE_PASS,
+        Slot::new(MODE_PASS.1, false, 1),
+    );
+    fill(
+        &mut table,
+        MODE_LOOKUP_BITS,
+        MODE_HORIZ,
+        Slot::new(MODE_HORIZ.1, false, 2),
+    );
+    for (number, &code) in (3_u16..).zip(MODE_VERTICAL.iter()) {
+        fill(
+            &mut table,
+            MODE_LOOKUP_BITS,
+            code,
+            Slot::new(code.1, false, number),
+        );
+    }
+    table
+});
+
+/// The run lookup of one colour, indexed by the next
+/// [`RUN_LOOKUP_BITS`] bits of a strip.
+pub(crate) fn run_lookup_for(white: bool) -> &'static [Slot] {
+    if white { &WHITE_LOOKUP } else { &BLACK_LOOKUP }
+}
+
+/// The mode lookup, indexed by the next [`MODE_LOOKUP_BITS`] bits.
+pub(crate) fn mode_lookup() -> &'static [Slot] {
+    &MODE_LOOKUP
+}
+
 /// The terminating and make-up tables of one colour.
 pub(crate) const fn colour_tables(white: bool) -> (CodeTable, CodeTable) {
     if white {
         (&WHITE_TERM, &WHITE_MAKEUP)
     } else {
         (&BLACK_TERM, &BLACK_MAKEUP)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        EXTENDED_MAKEUP, MODE_HORIZ, MODE_LOOKUP_BITS, MODE_PASS, MODE_VERTICAL, RUN_LOOKUP_BITS,
+        Slot, colour_tables, mode_lookup, run_lookup_for,
+    };
+
+    /// The slot a code indexes when the spare bits after it are all zeros
+    /// or all ones.
+    fn slot_at(table: &[Slot], code: (u16, u8), width: u8, tail_ones: bool) -> Option<Slot> {
+        let (bits, len) = code;
+        let spare = u32::from(width.saturating_sub(len));
+        let filler = if tail_ones {
+            1_usize.checked_shl(spare).map(|top| top.saturating_sub(1))
+        } else {
+            Some(0)
+        };
+        usize::from(bits)
+            .checked_shl(spare)
+            .zip(filler)
+            .and_then(|(head, rest)| table.get(head | rest).copied())
+    }
+
+    /// Every transcribed code, each colour's runs and every mode, resolves
+    /// through its lookup to its own length and value whatever bits follow
+    /// it, so the lookups and the T.4/T.6 tables cannot drift apart.
+    #[test]
+    fn every_table_code_decodes_through_its_lookup() {
+        for white in [true, false] {
+            let (terms, makeup) = colour_tables(white);
+            let codes = terms.iter().map(|entry| (entry, false)).chain(
+                makeup
+                    .iter()
+                    .chain(EXTENDED_MAKEUP.iter())
+                    .map(|entry| (entry, true)),
+            );
+            for (&(bits, len, run), makes_up) in codes {
+                for tail_ones in [false, true] {
+                    let slot = slot_at(
+                        run_lookup_for(white),
+                        (bits, len),
+                        RUN_LOOKUP_BITS,
+                        tail_ones,
+                    );
+                    assert_eq!(
+                        slot.map(|found| (found.len(), found.is_makeup(), found.value())),
+                        Some((len, makes_up, usize::from(run))),
+                        "white={white} code {bits:#x}/{len} for run {run}, tail ones={tail_ones}"
+                    );
+                }
+            }
+        }
+        let modes = [(MODE_PASS, 1_usize), (MODE_HORIZ, 2)]
+            .into_iter()
+            .chain(MODE_VERTICAL.iter().copied().zip(3_usize..));
+        for (code, number) in modes {
+            for tail_ones in [false, true] {
+                let slot = slot_at(mode_lookup(), code, MODE_LOOKUP_BITS, tail_ones);
+                assert_eq!(
+                    slot.map(|found| (found.len(), found.value())),
+                    Some((code.1, number)),
+                    "mode code {code:?} must resolve to mode {number}, tail ones={tail_ones}"
+                );
+            }
+        }
+        assert_eq!(
+            mode_lookup().first().map(|slot| slot.len()),
+            Some(0),
+            "seven zeros start no mode"
+        );
     }
 }
