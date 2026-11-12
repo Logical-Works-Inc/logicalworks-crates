@@ -208,6 +208,50 @@ fn the_clean_consumer_gate_journey_runs_on_an_apps_row() -> TestResult {
     Ok(())
 }
 
+/// Catches the `lockfile` lane going back to a path glob.
+///
+/// Source: main at fa726e2a, where `fixtures/*/Cargo.lock` matched 9 of the 16
+/// tracked lockfiles and left the four bench roots and the three under
+/// `contract-override/` unchecked. The lane and the workflow step both list
+/// what git tracks, refuse an empty list, and check each root `--locked`
+/// against the manifest beside it.
+#[test]
+fn the_lockfile_lane_reads_every_tracked_lockfile() -> TestResult {
+    let manifest = read_repo(MANIFEST_REL)?;
+    let workflow = read_repo(WORKFLOW_REL)?;
+    let lanes = read_manifest(&manifest).lanes;
+    let lane = lanes
+        .iter()
+        .find(|lane| lane.id == "lockfile")
+        .ok_or(SimError::Shape("the lane table holds no lockfile lane"))?;
+    let command = lane
+        .command
+        .as_deref()
+        .ok_or(SimError::Shape("the lockfile lane carries no command"))?;
+    let step = workflow
+        .lines()
+        .find(|line| line.contains("for f in $locks"))
+        .ok_or(SimError::Shape("the workflow has no lockfile loop"))?;
+    for (name, text) in [("lane", command), ("workflow", workflow.as_str())] {
+        assert!(
+            text.contains("locks=$(git ls-files '*Cargo.lock') && test -n \"$locks\""),
+            "the {name} lists tracked lockfiles and refuses an empty list"
+        );
+    }
+    for (name, text) in [("lane", command), ("workflow", step)] {
+        assert!(
+            text.contains("cargo metadata --locked")
+                && text.contains("--manifest-path \"${f%.lock}.toml\""),
+            "the {name} checks each root --locked against its own manifest"
+        );
+        assert!(
+            !text.contains("fixtures/") && !text.contains("bench/"),
+            "the {name} names no directory a lockfile must sit in"
+        );
+    }
+    Ok(())
+}
+
 /// Catches a verdict that depends on anything but the seed.
 #[test]
 fn sim_the_same_seed_replays_the_same_split_verdict() -> TestResult {
