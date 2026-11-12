@@ -418,7 +418,7 @@ platforms = ["darwin"]
 # with IT_FILTER naming the T-row modules. Unset, it is the whole `it` binary
 # and the library's unit tests under `full`. Without these jobs the receipt
 # reported 283 named tests not passing (run 41784471298).
-command = "cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E \"${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}\""
+command = "cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --test it --lib --locked --features full} --profile ci -E \"${IT_FILTER:-binary(it) | binary_id(lgwks_bot)}\" ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run lgwks-bot Darwin T-row tests"
 
 [[lane]]
