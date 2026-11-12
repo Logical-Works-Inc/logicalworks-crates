@@ -402,11 +402,15 @@ mod tests {
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     fn register() -> Result<Contract, Box<dyn std::error::Error>> {
+        register_at("^0.8")
+    }
+
+    /// The one-edge register with `requirement` as its approved version.
+    fn register_at(requirement: &str) -> Result<Contract, Box<dyn std::error::Error>> {
+        let head = format!(
+            "[[approved]]\ncrate = \"axum\"\ntier = \"boundary\"\nversion = \"{requirement}\"\n"
+        );
         let text = concat!(
-            "[[approved]]\n",
-            "crate = \"axum\"\n",
-            "tier = \"boundary\"\n",
-            "version = \"^0.8\"\n",
             "owner = \"lgwks_deps\"\n",
             "capability = \"http.server\"\n",
             "license = \"MIT\"\n",
@@ -418,7 +422,70 @@ mod tests {
             "approved_on = \"2026-10-26\"\n",
             "review = \"https://github.com/Logical-Works-Inc/logicalworks-crates/issues/721\"\n",
         );
-        Ok(Contract::parse(text)?)
+        Ok(Contract::parse(&format!("{head}{text}"))?)
+    }
+
+    /// One supply-chain ledger row of `kind` for axum, with the fields that
+    /// kind requires.
+    fn ledger_row(kind: &str) -> Result<Ledger, Box<dyn std::error::Error>> {
+        let fields = if kind == "upstream-pin" {
+            concat!(
+                "version = \"0.8.9\"\n",
+                "upstream_issue = \"https://example.invalid/upstream/issues/1\"\n",
+                "upstream_pr = \"https://example.invalid/upstream/pull/2\"\n",
+                "patch_digest = \"sha256:0000000000000000000000000000000000000000000000000000000000000000\"\n",
+            )
+        } else {
+            concat!(
+                "blast_radius = \"The storefront's serve feature only, and no other edge.\"\n",
+                "removal_trigger = \"The next release resolves without the excused crate.\"\n",
+            )
+        };
+        let text = format!(
+            concat!(
+                "[[patch]]\n",
+                "crate = \"axum\"\n",
+                "kind = \"{}\"\n",
+                "owner = \"lgwks_deps\"\n",
+                "reason = \"The newest release fails to build, so the edge holds one release.\"\n",
+                "review = \"https://example.invalid/upstream/issues/1\"\n",
+                "recorded_on = \"2026-11-12\"\n",
+                "expires_on = \"2027-02-12\"\n",
+                "{}",
+            ),
+            kind, fields
+        );
+        Ok(Ledger::parse(&text)?)
+    }
+
+    /// The registry approvals that hold one exact release (`=x.y.z`) with no
+    /// upstream pin in the supply-chain ledger to excuse them, by crate name.
+    ///
+    /// The gate holds each manifest requirement equal to its approval
+    /// (`RequirementDrift`), so reading the register reads every manifest.
+    fn unexcused_exact_pins<'a>(register: &'a Contract, pins: &Ledger) -> Vec<&'a str> {
+        let mut offenders: Vec<&str> = register
+            .approvals()
+            .filter(|entry| entry.source == "registry" && entry.version.trim().starts_with('='))
+            .map(crate::contract::Entry::krate)
+            .filter(|krate| {
+                !pins.entries().iter().any(|pin| {
+                    pin.kind() == crate::patches::PinKind::UpstreamPin && pin.krate() == *krate
+                })
+            })
+            .collect();
+        offenders.sort_unstable();
+        offenders.dedup();
+        offenders
+    }
+
+    /// Reads one committed register file from the repository's `contract/`.
+    fn committed(name: &str) -> Result<String, Box<dyn std::error::Error>> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../contract")
+            .join(name);
+        Ok(std::fs::read_to_string(&path)
+            .map_err(|cause| format!("cannot read {}: {cause}", path.display()))?)
     }
 
     fn lifecycle() -> Result<crate::lifecycle::Lifecycle, Box<dyn std::error::Error>> {
@@ -487,16 +554,42 @@ mod tests {
     }
 
     #[test]
+    fn an_exact_pin_is_named_unless_an_upstream_pin_excuses_it() -> TestResult {
+        let none = Ledger::parse("")?;
+        let exact = register_at("=0.8.9")?;
+        assert_eq!(unexcused_exact_pins(&exact, &none), ["axum"]);
+        assert_eq!(
+            unexcused_exact_pins(&exact, &ledger_row("provider-exception")?),
+            ["axum"],
+            "a provider exception excuses a provider, never a pin"
+        );
+        assert!(unexcused_exact_pins(&exact, &ledger_row("upstream-pin")?).is_empty());
+        for open in ["^0.8.9", "0.8", "~0.8.9", ">=0.8, <0.9"] {
+            assert!(
+                unexcused_exact_pins(&register_at(open)?, &none).is_empty(),
+                "{open} admits more than one release, so it is no pin"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn the_committed_register_pins_no_registry_edge_exactly() -> TestResult {
+        let register = Contract::parse(&committed("APPROVED.toml")?)?;
+        let pins = Ledger::parse(&committed("PATCHES.toml")?)?;
+        let offenders = unexcused_exact_pins(&register, &pins);
+        assert!(
+            offenders.is_empty(),
+            "an exact requirement turns every release into a manifest and register edit \
+             (ADR 0031): write a caret requirement, or record an expiring upstream-pin row in \
+             contract/PATCHES.toml, for {offenders:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn the_committed_register_names_no_product_owner() -> TestResult {
-        let path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/APPROVED.toml");
-        let text = std::fs::read_to_string(&path).map_err(|cause| {
-            format!(
-                "cannot read the committed register at {}: {cause}",
-                path.display()
-            )
-        })?;
-        let register = Contract::parse(&text)?;
+        let register = Contract::parse(&committed("APPROVED.toml")?)?;
         let mut offenders: Vec<&str> = register
             .approvals()
             .map(|entry| entry.owner())

@@ -137,7 +137,7 @@ tempfile = "3.20"
 # (pure Rust), rand_core is the RNG trait between the estate's seeded stream
 # and rsa key generation.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
-rsa = { version = "0.10.0-rc.19", default-features = false, features = ["std", "encoding"] }
+rsa = { version = "0.10", default-features = false, features = ["std", "encoding"] }
 rand_core = { version = "0.10", default-features = false }
 # Loopback TLS server for the mTLS end-to-end proof (#714): the shipped
 # client needs a private-CA peer that requires client certificates, and no
