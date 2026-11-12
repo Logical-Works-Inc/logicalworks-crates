@@ -213,11 +213,13 @@ name = "legacy"
 required-features = ["legacy"]
 
 # The parse-budget measurement (`scripts/measure-ast-budget.sh`, built with
-# `full`) walks `Language::ALL`, so it needs the parser and nothing more: with no
-# grammar compiled it measures nothing, rather than failing to build.
+# `full`) walks `Language::ALL` and hands each grammar to ast-grep by value. With
+# no grammar compiled that value has no variant since ast-grep-language 0.51.2,
+# and a build that denies warnings refuses the calls as unreachable, so it asks
+# for one grammar, as `parse` above does.
 [[example]]
 name = "parse_budget"
-required-features = ["parser"]
+required-features = ["lang-rust"]
 
 # The Rust readers over one corpus (#387, #408): the checked parse and the scan
 # built on it, with latency and, one reader per process, peak RSS, for
