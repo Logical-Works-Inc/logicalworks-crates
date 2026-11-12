@@ -717,6 +717,13 @@ mod record_projection_cli;
 mod sim_record_projection;
 
 #[cfg(all(
+    feature = "ecs",
+    feature = "wire",
+    any(not(lwc_it_group), lwc_it_group = "g3")
+))]
+mod sim_projection_admit;
+
+#[cfg(all(
     feature = "script",
     feature = "wire",
     any(not(lwc_it_group), lwc_it_group = "g3")

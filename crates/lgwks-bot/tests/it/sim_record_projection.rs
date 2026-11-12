@@ -20,7 +20,7 @@ type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 /// A tenant's row: the sequences it saw, so the order is part of the answer.
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-struct Seen(Vec<u64>);
+pub(crate) struct Seen(pub(crate) Vec<u64>);
 
 /// A record's tenant, which is its high half, and zero names no tenant.
 const fn tenant_of(record: u64) -> u64 {
@@ -81,12 +81,14 @@ impl RecordFold<u64> for Count {
 }
 
 /// A record for `tenant` carrying `value`.
-const fn record(tenant: u64, value: u64) -> u64 {
+pub(crate) const fn record(tenant: u64, value: u64) -> u64 {
     (tenant << 32) | value
 }
 
 /// A view's rows as plain values, for comparing.
-fn rows_of(view: &RecordProjection<u64, Tenants>) -> Vec<(u64, Seen)> {
+pub(crate) fn rows_of<F: RecordFold<u64, Key = u64, Row = Seen>>(
+    view: &RecordProjection<u64, F>,
+) -> Vec<(u64, Seen)> {
     view.rows().map(|(key, row)| (*key, row.clone())).collect()
 }
 
@@ -243,7 +245,14 @@ fn sim_record_projection_neighbour_a_thousand_tenants_keep_their_own_rows() -> O
 }
 
 /// A view of `records`, each fed at the sequence it would have.
-fn fed(records: &[u64], fold: Tenants, limit: usize) -> Outcome<RecordProjection<u64, Tenants>> {
+pub(crate) fn fed<F: RecordFold<u64>>(
+    records: &[u64],
+    fold: F,
+    limit: usize,
+) -> Outcome<RecordProjection<u64, F>>
+where
+    F::Error: std::fmt::Display,
+{
     let mut view = RecordProjection::empty(fold, limit);
     let mut sequence = 0_u64;
     for value in records {

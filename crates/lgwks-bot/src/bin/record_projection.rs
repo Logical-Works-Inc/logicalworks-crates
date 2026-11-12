@@ -19,7 +19,9 @@ reads one command per line and prints one JSON line for each:
   fill <tenant> <count>   append count values for a tenant, durably
   poison <tenant>         append a record the fold refuses
   stage <tenant> <count>  fold count values into the view ahead of the journal
-  sync                    append what is staged, durably
+  stage-poison <tenant>   stage a record the fold refuses; nothing is staged
+                          and the view keeps answering
+  sync                   append what is staged, durably
   catch-up                fold what the journal gained
   show                    print the rows and their digest
   rebuild                 discard the view and anything staged, and fold the journal again";
@@ -66,20 +68,26 @@ impl RecordFold<u64> for Tally {
         (tenant != 0).then_some(tenant)
     }
 
+    fn check(&self, record: &u64, _row: Option<&Row>) -> Result<(), Refused> {
+        if *record & POISON == POISON {
+            let refusal = Err(Refused(*record));
+            lgwks_std::trace::debug!(record, "record-projection: the tally refuses this value");
+            return refusal;
+        }
+        Ok(())
+    }
+
+    /// Runs only after [`check`](RecordFold::check) took the record, so it adds.
     fn apply(&mut self, entry: &RecordEntry<u64>, row: Option<&mut Row>) -> Result<(), Refused> {
         let value = *entry.record() & POISON;
         match row {
-            _ if value == POISON => Err(Refused(*entry.record())),
             Some(held) => {
                 held.count = held.count.saturating_add(1);
                 held.sum = held.sum.saturating_add(value);
-                Ok(())
             }
-            None => {
-                self.unrouted = self.unrouted.saturating_add(1);
-                Ok(())
-            }
+            None => self.unrouted = self.unrouted.saturating_add(1),
         }
+        Ok(())
     }
 }
 
@@ -144,6 +152,13 @@ impl Session {
     /// Fold `count` records into the view ahead of the journal, numbered after
     /// whatever the view and the file already hold.
     fn stage(&mut self, tenant: u64, count: u64) -> String {
+        self.stage_records(count, |value| (tenant << 32) | (value & 0xFFFF))
+    }
+
+    /// Fold `count` records ahead of the journal, the `n`th being `record_at(n)`.
+    /// Every record is asked about first, so a batch the view would refuse stages
+    /// none of itself and leaves the view answering.
+    fn stage_records(&mut self, count: u64, record_at: impl Fn(u64) -> u64) -> String {
         let room = MAX_STAGED.saturating_sub(self.staged.len());
         let fits = match usize::try_from(count) {
             Ok(wanted) => wanted <= room,
@@ -166,8 +181,13 @@ impl Session {
         if let Some(last) = view.applied() {
             sequence = last;
         }
-        for value in 0..count {
-            let record = (tenant << 32) | (value & 0xFFFF);
+        for index in 0..count {
+            if let Err(cause) = view.admit(&record_at(index)) {
+                return refused(&cause);
+            }
+        }
+        for index in 0..count {
+            let record = record_at(index);
             sequence = sequence.saturating_add(1);
             if let Err(cause) = view.fold_one(&RecordEntry::staged(sequence, record)) {
                 return refused(&cause);
@@ -249,6 +269,9 @@ impl Session {
         }
         Ok(match (command, first, second) {
             (Some("stage"), Some(tenant), Some(count)) => self.stage(tenant, count),
+            (Some("stage-poison"), Some(tenant), None) => {
+                self.stage_records(1, |_| (tenant << 32) | POISON)
+            }
             (Some("sync"), None, None) => self.sync()?,
             (Some("fill"), Some(tenant), Some(count)) => {
                 let batch: Vec<u64> = (0..count)
