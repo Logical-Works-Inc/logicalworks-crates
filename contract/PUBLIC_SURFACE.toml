@@ -107,7 +107,7 @@
 "crates/lgwks-bot/src/journal/records.rs" = 6
 "crates/lgwks-bot/src/journal/records/read.rs" = 8
 "crates/lgwks-bot/src/journal/records/replay.rs" = 6
-"crates/lgwks-bot/src/journal/records/write.rs" = 5
+"crates/lgwks-bot/src/journal/records/write.rs" = 6
 "crates/lgwks-bot/src/journal/recover.rs" = 22
 "crates/lgwks-bot/src/journal/seam.rs" = 1
 "crates/lgwks-bot/src/journal/wire_form.rs" = 2
@@ -362,7 +362,7 @@
 "crates/lgwks-bot/src/journal/records.rs" = 5
 "crates/lgwks-bot/src/journal/records/read.rs" = 8
 "crates/lgwks-bot/src/journal/records/replay.rs" = 6
-"crates/lgwks-bot/src/journal/records/write.rs" = 5
+"crates/lgwks-bot/src/journal/records/write.rs" = 6
 "crates/lgwks-bot/src/journal/seam.rs" = 1
 "crates/lgwks-bot/src/script/journaled_cancel.rs" = 11
 "crates/lgwks-bot/src/script/run_store/step.rs" = 1
