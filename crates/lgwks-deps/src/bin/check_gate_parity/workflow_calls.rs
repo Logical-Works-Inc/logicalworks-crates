@@ -130,22 +130,22 @@ mod tests {
                     .to_owned(),
             );
         }
-        // Cold, the lane's compile outlasted it at 397.8 s while its tests
-        // take 1.6 s (run 43278464658), so the same command builds first.
-        let build = workflow
-            .find("run: cargo nextest run --locked -E 'test(/property/)' --no-tests fail --no-run");
-        if !matches!((build, engine_step(workflow)), (Some(build), Some(engine)) if build < engine)
-        {
+        // `nextest --no-run` compiles every test binary whatever the filter:
+        // the prebuild built all 51 and outlasted the job's 10 minutes (run
+        // 43282569391), where v0.4.2's lane builds the 5 holding a property.
+        if workflow.lines().any(|line| {
+            line.trim_start()
+                .strip_prefix("run:")
+                .is_some_and(|command| command.contains("--no-run"))
+        }) {
             problems.push(
-                "logical_ci.yml leaves the property lane's build to the engine's lane".to_owned(),
+                "logical_ci.yml prebuilds every test binary the engine's property lane skips"
+                    .to_owned(),
             );
         }
-        // ADR 0029 states the prebuild and the hosted run that proved it
-        // (GO in 50.2 s after a 234 s cold build, run 43280694006).
-        if !adr.contains("builds the lane's test targets with the same command first")
-            || !adr.contains("run\n  43280694006")
-        {
-            problems.push("ADR 0029 does not record the property lane's prebuild".to_owned());
+        // ADR 0029 states why the prebuild went and the run it outlasted.
+        if !adr.contains("so the job runs no\n  prebuild") || !adr.contains("(run 43282569391)") {
+            problems.push("ADR 0029 does not record why the job runs no prebuild".to_owned());
         }
         // The engine compiles this repository, whose `.cargo/config.toml`
         // links macOS with ld64.lld; a bare runner failed every compile in
@@ -240,21 +240,31 @@ mod tests {
             ],
             "a copy whose engine builds outside the cached target is named"
         );
-        let unbuilt = gate.replacen(" --no-tests fail --no-run", " --no-tests fail", 1);
-        assert_eq!(
-            inline_gate_problems(&unbuilt, &adr),
-            vec!["logical_ci.yml leaves the property lane's build to the engine's lane".to_owned()],
-            "a copy that leaves the cold build inside the lane is named"
+        let prebuilt = gate.replacen(
+            "      - name: Run ci and keep the sealed record",
+            "      - name: Build the property lane's test targets\n        \
+             run: cargo nextest run --locked -E 'test(/property/)' --no-tests fail --no-run\n      \
+             - name: Run ci and keep the sealed record",
+            1,
         );
-        let unrecorded = adr.replacen("run\n  43280694006", "run", 1);
+        assert_ne!(prebuilt, gate, "the step the control precedes must exist");
+        assert_eq!(
+            inline_gate_problems(&prebuilt, &adr),
+            vec![
+                "logical_ci.yml prebuilds every test binary the engine's property lane skips"
+                    .to_owned()
+            ],
+            "a copy that brings back the 51-binary prebuild is named"
+        );
+        let unrecorded = adr.replacen("(run 43282569391)", "", 1);
         assert_ne!(
             unrecorded, adr,
             "the ADR text the control mutates must exist"
         );
         assert_eq!(
             inline_gate_problems(&gate, &unrecorded),
-            vec!["ADR 0029 does not record the property lane's prebuild".to_owned()],
-            "an ADR that drops the run proving the prebuild is named"
+            vec!["ADR 0029 does not record why the job runs no prebuild".to_owned()],
+            "an ADR that drops the run the prebuild outlasted is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
         assert_eq!(

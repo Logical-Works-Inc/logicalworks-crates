@@ -5,9 +5,9 @@ name: logical_ci
 # 0 s on every run. The job below is logical_ci's own gate.yml at
 # Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
 # step for step on its macos-arm64 asset, re-pinned to
-# pin the signed v0.4.1 release: its ci/property-and-loom builds only the packages that model
-# loom, where v0.3.0 built every member in release and ran A02 out of its
-# 397.9 s lane (run 43244596498).
+# pin the signed v0.4.2 release: its ci/property-and-loom builds only the targets that hold a
+# property test (5 of this workspace's 51 test binaries) and the packages that model loom,
+# where a whole-workspace build ran A02 out of its 397.9 s lane (runs 43244596498, 43278464658).
 on:
   pull_request:
   push:
@@ -26,7 +26,7 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.4.1 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
+    # mac-specific: logical_ci v0.4.2 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
     runs-on: macos-latest
     timeout-minutes: 10
     env:
@@ -34,7 +34,7 @@ jobs:
       LCI_TENANT: crates
       LCI_HARDNESS: C
       LCI_GATES: ''
-      LCI_RELEASE: v0.4.1
+      LCI_RELEASE: v0.4.2
       # The engine built every lane's Rust into its own cache directory, which
       # no rust-cache entry holds, so A02 compiled the workspace cold on every
       # run and its lane ended at 397.1 s (run 43273499037). Building into the
@@ -44,7 +44,7 @@ jobs:
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: 'baf32cc4756aa143746bdc788f885f75837a522757b97bbc15927af5250db02d'
+      LCI_VERIFIER_SHA256: '08a5e50a4ed6d432cceb60c3673f5d72455af3d56c32f4ab903611fab33e9ead'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -115,15 +115,10 @@ jobs:
         run: test -f .logical_ci/plan.json || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" plan --new
       - name: Init tenant policy (idempotent by policy version)
         run: '"$RUNNER_TEMP/lci/logical_ci-macos-arm64" init --tenant "$LCI_TENANT" --gates "$LCI_GATES" --hardness "$LCI_HARDNESS"'
-      # A02's lane compiles every workspace test target before it runs the
-      # 26 property tests, which take 1.6 s. On a cold runner the compile
-      # alone outlasted the lane: `cargo nextest run` was killed at 397.8 s
-      # (run 43278464658), where a built target ran it in 43.4 s. The same
-      # command builds here first, into the same target under the same
-      # environment, so the lane reuses those fingerprints, this step's time
-      # is the cold build on its own line, and the post-job save carries it.
-      - name: Build the property lane's test targets
-        run: cargo nextest run --locked -E 'test(/property/)' --no-tests fail --no-run
+      # No prebuild: `nextest --no-run` compiles every test binary whatever
+      # the filter, so the step that warmed A02 built all 51 and outlasted
+      # the job's 10 minutes (run 43282569391). v0.4.2's lane builds only
+      # the targets that hold a property test.
       - name: Run ci and keep the sealed record
         id: ci
         continue-on-error: true
