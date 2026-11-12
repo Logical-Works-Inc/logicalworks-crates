@@ -724,6 +724,29 @@ cost = { cold_build_s = 2.78, crates = 13, binary_bytes = 30318320, measured = "
 review = "2027-02-01"
 
 [[approved]]
+crate = "loom"
+tier = "boundary"
+version = "^0.7"
+license = "MIT"
+owner = "lgwks_std"
+capability = "test.concurrency-permutation"
+source = "registry"
+# Test-only and built only under `--cfg loom`: lgwks_std declares it in
+# `[target.'cfg(loom)'.dev-dependencies]`, so no default build, test or shipped
+# artifact compiles it. logical_ci's `ci/property-and-loom` sets the cfg.
+allowed_consumers = "lgwks_std"
+allowed_kinds = "dev"
+reason = "Exploring every interleaving of threads around a lock has no standard-library or workspace equivalent; lgwks_std::seeded draws inputs but cannot enumerate scheduler orders (ADR 0030)."
+approved_by = "srinji"
+approved_on = "2026-11-12"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/924"
+[approved.retire]
+replacement = "lgwks_std::seeded"
+blocker = "Enumerating thread interleavings needs an estate model checker the seeded module does not own."
+cost = { cold_build_s = 5.11, crates = 21, binary_bytes = 41572760, measured = "2026-11-12", command = "cargo generate-lockfile --offline --manifest-path /Volumes/lgwks-test-tmp/tmp/probe-loom/Cargo.toml (39 packages locked); cargo tree --locked --offline -e normal --prefix none (21 distinct incl. probe); cargo build --locked --offline (5.11s); rlib bytes summed under target/debug/deps (41572760 bytes)" }
+review = "2027-02-01"
+
+[[approved]]
 crate = "jiff"
 tier = "boundary"
 version = "^0.2"

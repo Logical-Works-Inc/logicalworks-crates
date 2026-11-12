@@ -14,6 +14,8 @@ use crate::random::{self, EntropyError};
 mod tuple;
 mod v7;
 
+#[cfg(all(test, loom))]
+mod loom_v7_tests;
 #[cfg(test)]
 mod sim_tuple;
 #[cfg(test)]

@@ -54,7 +54,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | Module | Owns | Invariant |
 |---|---|---|
 | `id` | `Uuid`: parse, display, bytes, versions 4 and 7 | INV-ID-1 |
-| `id::v7` | the process-wide RFC 9562 method 1 generator; `new_v7` refuses, `now_v7` clamps | INV-ID-2, INV-ID-4 |
+| `id::v7`, `id::loom_v7_tests` | the process-wide RFC 9562 method 1 generator; `new_v7` refuses, `now_v7` clamps; loom proves the lock order is the issue order (ADR 0030) | INV-ID-2, INV-ID-4 |
 | `id::tuple` | the FoundationDB tuple layer: all 12 typecodes (`Element`, `pack_element`, `pack_elements`, `unpack_element`, `unpack_elements`), `0x30` and 16 network-order bytes; `TupleError` | INV-ID-5 |
 | `math` | deterministic pure-Rust IEEE 754 `f64` and `f32` elementary functions (`sqrt`, `cbrt`, `exp`, `ln`, `pow`, `sin`, `cos`, `atan2`) | INV-STD-LOCALE-1 |
 

@@ -231,6 +231,13 @@ last_reviewed = "2026-10-26"
 review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/273"
 
 [[lifecycle]]
+crate = "loom"
+replacement = "An estate model checker that enumerates thread interleavings with no loom edge."
+removal_trigger = "lgwks_std's lock protocols are explored without loom and no consumer remains."
+last_reviewed = "2026-11-12"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/924"
+
+[[lifecycle]]
 crate = "jiff"
 replacement = "ELIMINATE lands zoned time in lgwks_std::time with no third-party edge."
 removal_trigger = "Zoned arithmetic proves without jiff and the storefront has no consumer."

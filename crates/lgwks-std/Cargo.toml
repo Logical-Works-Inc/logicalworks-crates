@@ -145,6 +145,12 @@ rand_core = { version = "0.10", default-features = false }
 # artifact. Unifies with the rustls ureq already carries.
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
 
+# The loom model of the process-wide v7 generator (`src/id/loom_v7_tests.rs`), built
+# only under `RUSTFLAGS="--cfg loom"`, which logical_ci's `ci/property-and-loom`
+# sets (ADR 0030). Test-only; never links into a shipped artifact.
+[target.'cfg(loom)'.dev-dependencies]
+loom = "0.7"
+
 # The latency gate's statistics have tests, and cargo builds an example without
 # running its tests unless the target says so (rust-lang/cargo#6831).
 [[example]]
@@ -175,7 +181,7 @@ unused_must_use = "forbid"
 improper_ctypes = "forbid"
 improper_ctypes_definitions = "forbid"
 # The workspace's `lwc_it_group` declaration, copied with the rest (lgwks_bot's `it` groups).
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(lwc_it_group, values(none(), "scale", "surface", "refusals", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(lwc_it_group, values(none(), "scale", "surface", "refusals", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8"))', 'cfg(loom)'] }
 
 [lints.clippy]
 allow_attributes = "forbid"
