@@ -50,6 +50,11 @@ mod tests {
             .map(|value| value.trim().trim_matches('\''))
     }
 
+    /// Where the step that runs the engine starts in `workflow`.
+    fn engine_step(workflow: &str) -> Option<usize> {
+        workflow.find("name: Run ci and keep the sealed record")
+    }
+
     /// The inline gate names one release everywhere (ADR 0029: a re-pin
     /// moves `LCI_RELEASE` and both pins in one commit). The header, the
     /// runner comment and the ADR name the tag `LCI_RELEASE` downloads, and
@@ -125,12 +130,22 @@ mod tests {
                     .to_owned(),
             );
         }
+        // Cold, the lane's compile outlasted it at 397.8 s while its tests
+        // take 1.6 s (run 43278464658), so the same command builds first.
+        let build = workflow
+            .find("run: cargo nextest run --locked -E 'test(/property/)' --no-tests fail --no-run");
+        if !matches!((build, engine_step(workflow)), (Some(build), Some(engine)) if build < engine)
+        {
+            problems.push(
+                "logical_ci.yml leaves the property lane's build to the engine's lane".to_owned(),
+            );
+        }
         // The engine compiles this repository, whose `.cargo/config.toml`
         // links macOS with ld64.lld; a bare runner failed every compile in
         // 30 s (run 43242590489), so the repository's own setup runs first.
         let setup = workflow.find("uses: ./.github/actions/hosted-rust");
-        let engine = workflow.find("name: Run ci and keep the sealed record");
-        if !matches!((setup, engine), (Some(setup), Some(engine)) if setup < engine) {
+        if !matches!((setup, engine_step(workflow)), (Some(setup), Some(engine)) if setup < engine)
+        {
             problems.push(
                 "logical_ci.yml runs the engine before this repository's hosted-rust setup"
                     .to_owned(),
@@ -217,6 +232,12 @@ mod tests {
                     .to_owned()
             ],
             "a copy whose engine builds outside the cached target is named"
+        );
+        let unbuilt = gate.replacen(" --no-tests fail --no-run", " --no-tests fail", 1);
+        assert_eq!(
+            inline_gate_problems(&unbuilt, &adr),
+            vec!["logical_ci.yml leaves the property lane's build to the engine's lane".to_owned()],
+            "a copy that leaves the cold build inside the lane is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
         assert_eq!(

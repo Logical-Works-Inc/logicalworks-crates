@@ -115,6 +115,15 @@ jobs:
         run: test -f .logical_ci/plan.json || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" plan --new
       - name: Init tenant policy (idempotent by policy version)
         run: '"$RUNNER_TEMP/lci/logical_ci-macos-arm64" init --tenant "$LCI_TENANT" --gates "$LCI_GATES" --hardness "$LCI_HARDNESS"'
+      # A02's lane compiles every workspace test target before it runs the
+      # 26 property tests, which take 1.6 s. On a cold runner the compile
+      # alone outlasted the lane: `cargo nextest run` was killed at 397.8 s
+      # (run 43278464658), where a built target ran it in 43.4 s. The same
+      # command builds here first, into the same target under the same
+      # environment, so the lane reuses those fingerprints, this step's time
+      # is the cold build on its own line, and the post-job save carries it.
+      - name: Build the property lane's test targets
+        run: cargo nextest run --locked -E 'test(/property/)' --no-tests fail --no-run
       - name: Run ci and keep the sealed record
         id: ci
         continue-on-error: true

@@ -50,6 +50,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - With v0.4.1 the lane still ended at 397.1 s (run 43273499037): the engine compiled into its
   own cache directory, which no rust-cache entry holds. `LOGICAL_CI_TARGET_DIR` puts its builds
   in the workspace target that hosted-rust restores, and `show` prints each lane's output.
+- `show` named the cost: cold, `cargo nextest run` was killed at 397.8 s (run 43278464658),
+  while the 26 property tests take 1.6 s and a built target runs the lane in 43.4 s. The job
+  builds the lane's test targets with the same command first, so the lane runs on them.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:
