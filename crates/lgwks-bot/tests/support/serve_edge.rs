@@ -365,6 +365,22 @@ impl ChildGuard {
     }
 }
 
+/// Send SIGTERM to `child`, or the refusal naming why it was not sent.
+#[cfg(unix)]
+fn send_term(child: &Child) -> Result<(), String> {
+    let refusal = match std::process::Command::new("kill")
+        .arg("-TERM")
+        .arg(child.id().to_string())
+        .status()
+    {
+        Ok(status) if status.success() => return Ok(()),
+        Ok(status) => format!("kill -TERM answered {status}"),
+        Err(error) => format!("kill -TERM did not run: {error}"),
+    };
+    lgwks_std::trace::debug!(error = refusal.as_str(), "serve-test: SIGTERM was not sent");
+    Err(refusal)
+}
+
 impl ChildGuard {
     /// Send SIGTERM, wait for the exit, and answer its status and stdout.
     #[cfg(unix)]
@@ -373,18 +389,9 @@ impl ChildGuard {
             lgwks_std::trace::debug!("serve-test: SIGTERM asked of a stopped child");
             return Err(String::from("the child was already stopped"));
         };
-        let refusal = match std::process::Command::new("kill")
-            .arg("-TERM")
-            .arg(child.id().to_string())
-            .status()
-        {
-            Ok(status) if status.success() => None,
-            Ok(status) => Some(format!("kill -TERM answered {status}")),
-            Err(error) => Some(format!("kill -TERM did not run: {error}")),
-        };
-        if let Some(refusal) = refusal {
-            lgwks_std::trace::debug!(error = refusal.as_str(), "serve-test: SIGTERM was not sent");
+        if let Err(refusal) = send_term(&child) {
             self.child = Some(child);
+            lgwks_std::trace::debug!(error = refusal.as_str(), "serve-test: terminate refused");
             return Err(refusal);
         }
         let output = child
@@ -394,6 +401,47 @@ impl ChildGuard {
             output.status,
             String::from_utf8_lossy(&output.stdout).into_owned(),
         ))
+    }
+
+    /// Read stdout up to the `serving` line, send SIGTERM that instant, and
+    /// answer the exit status and everything the child printed.
+    ///
+    /// The earliest stop a supervisor can give a server it just saw start.
+    #[cfg(unix)]
+    pub fn terminate_at_ready(&mut self) -> Result<(std::process::ExitStatus, String), String> {
+        use std::io::{BufRead as _, Read as _};
+        let Some(mut child) = self.child.take() else {
+            lgwks_std::trace::debug!("serve-test: SIGTERM asked of a stopped child");
+            return Err(String::from("the child was already stopped"));
+        };
+        let Some(stdout) = child.stdout.take() else {
+            self.child = Some(child);
+            lgwks_std::trace::debug!("serve-test: the child's stdout is not piped");
+            return Err(String::from("the child's stdout is not piped"));
+        };
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut printed = String::new();
+        let read = reader.read_line(&mut printed);
+        if !matches!(read, Ok(count) if count > 0) || !printed.starts_with("serving ") {
+            self.child = Some(child);
+            lgwks_std::trace::debug!(line = printed.as_str(), "serve-test: no ready line");
+            return Err(format!("estate serve printed no ready line: {printed:?}"));
+        }
+        if let Err(refusal) = send_term(&child) {
+            self.child = Some(child);
+            lgwks_std::trace::debug!(
+                error = refusal.as_str(),
+                "serve-test: terminate at ready refused"
+            );
+            return Err(refusal);
+        }
+        if let Err(error) = reader.read_to_string(&mut printed) {
+            lgwks_std::trace::debug!(error = ?error, "serve-test: the rest of stdout is unreadable");
+        }
+        let status = child
+            .wait()
+            .map_err(|error| format!("the child did not exit: {error}"))?;
+        Ok((status, printed))
     }
 }
 
