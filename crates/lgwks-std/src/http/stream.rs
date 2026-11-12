@@ -38,6 +38,9 @@ use std::io::Read;
 
 use super::{BodyPolicy, Error, FailureKind, FailureStage, Options};
 
+mod sse_decode;
+use sse_decode::SseDecoder;
+
 // ── Streamed response ───────────────────────────────────────────────────────
 
 /// A completed exchange head with its body still on the wire.
@@ -295,7 +298,8 @@ fn io_error_of(typed: &Error) -> std::io::Error {
 /// `event` defaults to `"message"` when the event carried data but no event
 /// field, per the SSE specification. `data` joins multiple `data:` lines
 /// with `\n` and carries no trailing newline. `retry` is the reconnection
-/// time this event carried, if any; it does not persist onto later events.
+/// time this event carried, or one a data-less block before it carried; it
+/// does not persist onto later events.
 ///
 /// The fields are read through accessors: an event is what the stream
 /// dispatched, and a caller holding one reads it rather than edits it.
@@ -345,26 +349,18 @@ impl SseEvent {
 /// starting with `:` are comments. The `event`, `data`, `id` and `retry`
 /// fields behave per the SSE specification, unknown fields are ignored, and
 /// the last-seen ID persists across events the way reconnection needs it to.
-/// A leading UTF-8 BOM is stripped once, at the start of the stream.
+/// A leading UTF-8 BOM is stripped once, at the start of the stream, even
+/// when its three bytes arrive in separate reads.
+///
+/// Framing does not depend on how the network splits the bytes: a `\r\n`
+/// whose two bytes arrive in two reads ends one line, not two. A block with
+/// no `data` field dispatches nothing (an `id` it names still becomes the
+/// last-seen ID, and a `retry` it names rides on the next event dispatched).
 pub struct SseStream {
     /// The body still arriving.
     body: StreamedBody,
-    /// Bytes accumulated but not yet formed into a line.
-    pending: Vec<u8>,
-    /// Whether the BOM strip and the first read have happened.
-    started: bool,
-    /// The per-line ceiling: the exchange's `max_body_bytes`.
-    line_cap: usize,
-    /// The event type being accumulated, if named.
-    event: Option<String>,
-    /// The data lines accumulated for the pending event.
-    data: Vec<String>,
-    /// The ID being accumulated, or the last dispatched one.
-    id: Option<String>,
-    /// The reconnection time carried by the pending event, if any.
-    retry: Option<u64>,
-    /// Whether any field of the pending event has been seen.
-    dirty: bool,
+    /// The bytes-in, events-out decoder the body feeds.
+    decoder: SseDecoder,
 }
 
 impl SseStream {
@@ -375,14 +371,7 @@ impl SseStream {
         let body = response.into_body();
         Self {
             body,
-            pending: Vec::new(),
-            started: false,
-            line_cap,
-            event: None,
-            data: Vec::new(),
-            id: None,
-            retry: None,
-            dirty: false,
+            decoder: SseDecoder::new(line_cap),
         }
     }
 
@@ -402,19 +391,11 @@ impl SseStream {
     pub fn next_event(&mut self) -> Result<Option<SseEvent>, Error> {
         let mut chunk = [0_u8; 8_192];
         loop {
-            if let Some(line) = self.take_line()? {
-                if let Some(event) = self.feed_line(&line)? {
-                    return Ok(Some(event));
-                }
-                continue;
+            if let Some(event) = self.decoder.next_event()? {
+                return Ok(Some(event));
             }
             match self.body.read_chunk(&mut chunk)? {
-                None => {
-                    if self.dirty {
-                        return Ok(Some(self.dispatch()));
-                    }
-                    return Ok(None);
-                }
+                None => return Ok(self.decoder.finish()),
                 Some(0) => continue,
                 Some(read) => {
                     let bytes = chunk.get(..read).ok_or(Error::Failure {
@@ -422,151 +403,10 @@ impl SseStream {
                         kind: FailureKind::Transport,
                         cause: None,
                     })?;
-                    if !self.started {
-                        self.started = true;
-                        let unmarked = match bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
-                            Some(stripped) => stripped,
-                            None => bytes,
-                        };
-                        self.pending.extend_from_slice(unmarked);
-                    } else {
-                        self.pending.extend_from_slice(bytes);
-                    }
+                    self.decoder.push(bytes);
                 }
             }
         }
-    }
-
-    /// Split one line off the pending bytes, if a terminator has arrived.
-    ///
-    /// A line longer than the line cap is refused outright: a line is only
-    /// deliverable whole, so previewing it would hand the caller a fragment
-    /// shaped like an event.
-    fn take_line(&mut self) -> Result<Option<Vec<u8>>, Error> {
-        let end = self
-            .pending
-            .iter()
-            .position(|byte| *byte == b'\n' || *byte == b'\r');
-        let Some(end) = end else {
-            if self.pending.len() > self.line_cap {
-                let refusal = Err(Error::BodyTooLarge {
-                    limit: self.line_cap,
-                });
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(
-                    error = ?refusal.as_ref().err(),
-                    "take_line: a buffered line passed its ceiling"
-                );
-                return refusal;
-            }
-            return Ok(None);
-        };
-        let mut stop = end.saturating_add(1);
-        if self.pending[end] == b'\r' && self.pending.get(stop) == Some(&b'\n') {
-            stop = stop.saturating_add(1);
-        }
-        let mut line: Vec<u8> = self.pending.drain(..stop).collect();
-        while line
-            .last()
-            .is_some_and(|byte| *byte == b'\n' || *byte == b'\r')
-        {
-            line.pop();
-        }
-        if line.len() > self.line_cap {
-            let refusal = Err(Error::BodyTooLarge {
-                limit: self.line_cap,
-            });
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(
-                error = ?refusal.as_ref().err(),
-                "take_line: a split line passed its ceiling"
-            );
-            return refusal;
-        }
-        Ok(Some(line))
-    }
-
-    /// Feed one line into the pending event, dispatching on a blank line.
-    fn feed_line(&mut self, line: &[u8]) -> Result<Option<SseEvent>, Error> {
-        if line.is_empty() {
-            if self.dirty {
-                return Ok(Some(self.dispatch()));
-            }
-            return Ok(None);
-        }
-        if line.starts_with(b":") {
-            return Ok(None);
-        }
-        let text = match std::str::from_utf8(line) {
-            Ok(text) => text,
-            Err(utf8_error) => {
-                let refusal = Err(Error::Failure {
-                    stage: FailureStage::TextDecode,
-                    kind: FailureKind::InvalidUtf8,
-                    cause: Some(super::FailureCause::sanitized(format!(
-                        "valid UTF-8 ends at byte {}",
-                        utf8_error.valid_up_to()
-                    ))),
-                });
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(
-                    error = ?refusal.as_ref().err(),
-                    "feed_line: an event line is not UTF-8"
-                );
-                return refusal;
-            }
-        };
-        let (field, value) = match text.split_once(':') {
-            Some((field, rest)) => match rest.strip_prefix(' ') {
-                Some(value) => (field, value),
-                None => (field, rest),
-            },
-            None => (text, ""),
-        };
-        match field {
-            "event" => {
-                self.event = Some(value.to_owned());
-                self.dirty = true;
-            }
-            "data" => {
-                self.data.push(value.to_owned());
-                self.dirty = true;
-            }
-            "id" => {
-                if !value.contains('\0') {
-                    self.id = Some(value.to_owned());
-                    self.dirty = true;
-                }
-            }
-            "retry" => {
-                if let Ok(millis) = value.parse::<u64>() {
-                    self.retry = Some(millis);
-                    self.dirty = true;
-                }
-            }
-            _ => {}
-        }
-        Ok(None)
-    }
-
-    /// Dispatch the pending event and clear the accumulator.
-    ///
-    /// An event with no data dispatches nothing: per the specification, only
-    /// data (or an explicit reminder to reconnect, which this typed shape
-    /// has no room for) fires an event.
-    fn dispatch(&mut self) -> SseEvent {
-        let event = SseEvent {
-            event: match self.event.take() {
-                Some(event) => event,
-                None => "message".to_owned(),
-            },
-            data: self.data.join("\n"),
-            id: self.id.clone(),
-            retry: self.retry.take(),
-        };
-        self.data.clear();
-        self.dirty = false;
-        event
     }
 }
 

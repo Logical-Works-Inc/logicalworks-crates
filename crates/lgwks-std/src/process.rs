@@ -94,20 +94,69 @@ pub fn kill_process_group(pgid: i32) -> io::Result<()> {
 /// Stop the process `pgid` and every process descended from it.
 ///
 /// Windows has no process groups, so the group is the tree: the descendants the
-/// process table names under `pgid` are terminated, then `pgid` itself. A tree
-/// that left through a parent that had already exited is not reachable from the
-/// root; [`ProcessJob`] is the owner that reaches it. An id no process holds is
-/// an error (`ERROR_INVALID_PARAMETER`, the Windows form of `ESRCH`).
+/// process table names under `pgid` are captured, `pgid` itself is terminated
+/// first (a dead root spawns nothing more), then every descendant. A refusal
+/// never ends the sweep: every descendant is tried, and the first refusal is
+/// returned after the last (#913 item 1). A capture that failed still stops the
+/// root and is then reported. A tree that left through a parent that had already
+/// exited is not reachable from the root; [`ProcessJob`] is the owner that
+/// reaches it. An id no process holds is an error (`ERROR_INVALID_PARAMETER`,
+/// the Windows form of `ESRCH`).
 #[cfg(all(windows, feature = "process"))]
 pub fn kill_process_group(pgid: i32) -> io::Result<()> {
     let root = windows::pid_u32(pgid)?;
-    for pid in capture_descendants(pgid)?.pids() {
-        match windows::terminate(&windows::NATIVE, windows::pid_u32(*pid)?) {
-            Err(error) if error.raw_os_error() == Some(windows::ERROR_INVALID_PARAMETER) => {}
-            other => other?,
+    let captured = capture_descendants(pgid);
+    let root_stopped = windows::terminate(&windows::NATIVE, root);
+    let descendants = match captured.as_ref() {
+        Ok(set) => set.pids(),
+        Err(_) => &[],
+    };
+    let swept = signal_every(descendants.iter().copied(), |pid| match windows::terminate(
+        &windows::NATIVE,
+        windows::pid_u32(pid)?,
+    ) {
+        Err(error) if error.raw_os_error() == Some(windows::ERROR_INVALID_PARAMETER) => Ok(()),
+        other => other,
+    });
+    root_stopped?;
+    captured?;
+    swept
+}
+
+/// Signal every target in order, past any refusal, and answer the first
+/// refusal once the last target has been tried.
+///
+/// A tree stop that returns at its first refusal leaves every later target
+/// running, which is the containment failure #913 item 1 names: a refusal is a
+/// fact to report, never a reason to stop signalling. `signal` answers `Ok`
+/// for a target that had already stopped; every other error counts.
+#[cfg(all(any(unix, windows), feature = "process"))]
+fn signal_every<Target: Copy + std::fmt::Debug>(
+    targets: impl IntoIterator<Item = Target>,
+    mut signal: impl FnMut(Target) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut first_refusal: Option<io::Error> = None;
+    let mut refusals = 0_usize;
+    for target in targets {
+        if let Err(error) = signal(target) {
+            refusals = refusals.saturating_add(1);
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(?target, %error, "signal_every: a target refused; the sweep goes on");
+            if first_refusal.is_none() {
+                first_refusal = Some(error);
+            }
         }
     }
-    windows::terminate(&windows::NATIVE, root)
+    match first_refusal {
+        Some(error) => {
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(refusals, %error, "signal_every: returning the first refusal after the sweep");
+            #[cfg(not(feature = "trace"))]
+            let _counted = refusals;
+            Err(error)
+        }
+        None => Ok(()),
+    }
 }
 
 /// Send SIGKILL to every process in group `pgid`.
@@ -348,6 +397,9 @@ fn unsupported(message: &'static str) -> io::Error {
 /// Seeded simulation tests for batch descendant capture (`capture_descendants_many`).
 #[cfg(test)]
 mod sim_capture_many;
+/// Seeded simulation tests for the sweep that never stops at a refusal (#913).
+#[cfg(test)]
+mod sim_signal_every;
 /// The module's unit tests, kept at `lgwks_std::process::tests`.
 #[cfg(test)]
 mod tests;
