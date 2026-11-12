@@ -266,3 +266,46 @@ fn estate_serve_drains_and_reports_on_sigterm() -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Requirement: the shipped binary drains a SIGTERM from the moment it says it serves.
+///
+/// Source: run 43219123584, where `estate serve` printed its ready line and
+/// answered a request before its SIGTERM handler was installed on the watcher
+/// thread, so the signal took the default action (exit by signal 15) instead
+/// of draining. Proves INV-BOT-185 at the earliest instant a supervisor can
+/// stop it: eight servers each get SIGTERM the moment their ready line is
+/// read, and each exits 0 with its stop report and a closed port.
+#[cfg(unix)]
+#[test]
+fn serve_ref_drains_a_sigterm_sent_at_its_ready_line() -> Result<(), String> {
+    for round in 0..8_u8 {
+        let store = Scratch::new("serve-term-ready").map_err(|error| error.to_string())?;
+        let port = free_port()?;
+        let mut server = spawn_estate_serve(
+            store.path(),
+            port,
+            &["--drain-grace-ms", "2000"],
+            std::process::Stdio::piped(),
+        )?;
+        let (exit, stdout) = server.terminate_at_ready()?;
+        if !exit.success() {
+            return Err(format!(
+                "round {round}: estate serve exited {exit} on a SIGTERM at its ready line; stdout: {stdout:?}"
+            ));
+        }
+        let wanted = format!("stopped drafts on 127.0.0.1:{port}: drained=");
+        if !stdout
+            .lines()
+            .any(|line| line.starts_with(wanted.as_str()) && line.ends_with("cancelled=0"))
+        {
+            return Err(format!("round {round}: no stop report: {stdout:?}"));
+        }
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        if std::net::TcpStream::connect(addr).is_ok() {
+            return Err(format!(
+                "round {round}: the port still accepts after the stop"
+            ));
+        }
+    }
+    Ok(())
+}
