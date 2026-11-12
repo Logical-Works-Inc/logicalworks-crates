@@ -175,6 +175,48 @@ fn a_scaffolded_app_builds_under_the_workspace_dev_profile() -> TestResult {
     Ok(())
 }
 
+/// The `[package] version` the manifest of the workspace crate in `directory` holds.
+fn workspace_version(directory: &str) -> Result<String, Box<dyn Error>> {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join(directory)
+        .join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&path)
+        .map_err(|error| format!("{} could not be read: {error}", path.display()))?;
+    let version = manifest
+        .lines()
+        .find_map(|line| line.strip_prefix("version = \""))
+        .and_then(|rest| rest.strip_suffix('"'));
+    match version {
+        Some(version) => Ok(version.to_owned()),
+        None => refuse(format!("{} holds no package version", path.display())),
+    }
+}
+
+/// A release that moves `lgwks_bot` or `lgwks_std` without the scaffold's
+/// constants hands every new app an exact pin on the previous release, so
+/// `lgwks new` scaffolds against a version the tree no longer builds
+/// (`docs/releasing.md` §3). The scaffold pins each at the workspace's version.
+#[test]
+fn the_scaffold_pins_the_workspace_releases() -> TestResult {
+    let scratch = Scratch::fresh("pins").map_err(|error| format!("no scratch: {error}"))?;
+    let name = app_name()?;
+    reference_app(scratch.dir(), name.as_str())?;
+    let path = scratch.dir().join(&name).join("Cargo.toml");
+    let manifest = std::fs::read_to_string(&path)
+        .map_err(|error| format!("the scaffold manifest could not be read: {error}"))?;
+    for (package, directory) in [("lgwks_bot", "lgwks-bot"), ("lgwks_std", "lgwks-std")] {
+        let wanted = format!(
+            "{package} = {{ version = \"={}\"",
+            workspace_version(directory)?
+        );
+        if !manifest.lines().any(|line| line.starts_with(&wanted)) {
+            return refuse(format!("the scaffold does not pin `{wanted}`:\n{manifest}"));
+        }
+    }
+    Ok(())
+}
+
 /// The app directory holds the scaffold's two files and the lock `run`
 /// resolved, nothing else: the build lands in the shared target.
 fn assert_untracked(dir: &Path) -> TestResult {
