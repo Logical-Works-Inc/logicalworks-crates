@@ -168,7 +168,7 @@ mod tests {
     //! source production provisions from, never a literal: a fixed vector is a
     //! key nobody deploys, and the case a test must hold is the one shipped.
 
-    use super::{DataKey, KEY_BYTES, NONCE_BYTES, open, seal};
+    use super::{DataKey, KEY_BYTES, NONCE_BYTES, TAG_BYTES, open, seal};
 
     /// What these tests report when a step refuses.
     type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -183,6 +183,53 @@ mod tests {
         assert_eq!(
             rendered, "DataKey([redacted])",
             "a data key renders as its type, never its bytes"
+        );
+        Ok(())
+    }
+
+    /// The RFC 8439 section 2.8.2 key, nonce and plaintext seal to the bytes
+    /// `chacha20poly1305` 0.10.1 wrote for them, and those bytes open.
+    ///
+    /// A sealed record outlives the cipher release that wrote it, so a new
+    /// release of the cipher must write and read the same bytes. The first 114
+    /// bytes are the RFC's own ciphertext; the last 16 are the tag for an empty
+    /// associated data, which the RFC does not print and the 0.10.1 release
+    /// produced (2026-11-12). This is the one fixed vector in the module: it is
+    /// the published one, a key nobody deploys, and it pins a format rather
+    /// than a secret.
+    #[test]
+    fn a_fixed_vector_seals_to_the_bytes_the_previous_cipher_release_wrote() -> TestResult {
+        let key_bytes: [u8; KEY_BYTES] = lgwks_std::hex::decode(
+            "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
+        )?
+        .try_into()
+        .map_err(|_refused| "the RFC key is 32 bytes")?;
+        let nonce: [u8; NONCE_BYTES] = lgwks_std::hex::decode("070000004041424344454647")?
+            .try_into()
+            .map_err(|_refused| "the RFC nonce is 12 bytes")?;
+        let plaintext: &[u8] = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+        let key = DataKey::from_bytes(key_bytes);
+        let sealed = seal(&key, &nonce, plaintext)?;
+        assert_eq!(
+            sealed.len(),
+            plaintext.len().saturating_add(TAG_BYTES),
+            "a seal is its plaintext's length plus one tag"
+        );
+        assert_eq!(
+            lgwks_std::hex::encode(&sealed),
+            concat!(
+                "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6",
+                "3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36",
+                "92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc",
+                "3ff4def08e4b7a9de576d26586cec64b6116",
+                "6a23a4681fd59456aea1d29f82477216",
+            ),
+            "the seal of the RFC vector is the bytes every earlier release wrote"
+        );
+        assert_eq!(
+            open(&key, &nonce, &sealed)?,
+            plaintext,
+            "the bytes an earlier release wrote open under this one"
         );
         Ok(())
     }

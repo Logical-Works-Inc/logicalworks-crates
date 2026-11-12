@@ -52,8 +52,8 @@ cargo update --workspace --manifest-path crates/lgwks-deps/tests/fixtures/storef
 cargo metadata --locked --format-version 1 --manifest-path crates/lgwks-deps/tests/fixtures/storefront-matrix/Cargo.toml >/dev/null
 ./scripts/ci-local.sh --lane lockfile
 ```
-Repeat the first two for each root. The `lockfile` lane names the first stale
-fixture, and the suites that build a root `--locked` name the rest.
+Repeat the first two for each root. The `lockfile` lane checks every lockfile git
+tracks and names the first stale one with the command that re-locks it.
 
 ## 5. When a release is truly broken
 
@@ -68,7 +68,7 @@ exact pin with no row.
 | The check says | Repair |
 |---|---|
 | `RequirementDrift` | The rung and the manifest disagree: step 3.2. |
-| `stale fixture lockfile` or `cannot update the lock file` | Step 4. |
+| `stale lockfile` or `cannot update the lock file` | Step 4. |
 | `use of deprecated` | Upstream moved an item: change the call, keep warnings denied. |
 | `UnusedApproval` | A rung names a requirement no manifest authors: fix the rung. |
 | an advisory id | Update past it, or assess it in `SECURITY.md` with a `reopen if`. |
