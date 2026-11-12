@@ -41,8 +41,8 @@ on one thread. None explores two threads racing for the lock.
   build compiles them unless it sets `--cfg loom`.
 - Under `--cfg loom` both models pass in release: `test result: ok. 2 passed; 0 failed`. That
   line is libtest's stdout. logical_ci v0.2.0's `loom_receipt` reads only the lane's stderr
-  (`src/property.rs:152`), so the local run on c7109c29 was NO-GO in 74.3 s with "the loom run
-  printed no `test result: ok`".
+  (Logical-Works-Inc/logical_ci#207), so the local run on c7109c29 was NO-GO in 74.3 s with
+  "the loom run printed no `test result: ok`".
 
 ## Correspondence
 
