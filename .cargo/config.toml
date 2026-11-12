@@ -11,6 +11,18 @@
 [build]
 rustc-workspace-wrapper = "clippy-driver"
 
+# A cargo config beats the manifest, and a developer's home config may set
+# `[profile.dev] incremental = true` and `debug = 1`. Both would replace the
+# profile Cargo.toml declares, and `test` inherits from `dev`. sccache refuses
+# every incremental compile, so each gate lane, mutation copy and test build
+# compiled the workspace crates again in its own target directory. Measured
+# 2026-11-11: 33,032 of 142,357 calls were "non-cacheable: incremental", a
+# 33.66 % hit rate, and `target/debug/incremental` held 12 GB. This repository's
+# value wins over the home one, so the manifest's profile is what builds.
+[profile.dev]
+incremental = false
+debug = 0
+
 # The candle upstream pin (contract/PATCHES.toml) is a git source. Cargo's
 # built-in fetch ignores `url.*.insteadOf` auth, and a runner whose git config
 # rewrites https://github.com/ to ssh failed with "no authentication methods

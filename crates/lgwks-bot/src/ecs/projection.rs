@@ -76,6 +76,21 @@ pub trait RecordFold<R> {
     /// The row `record` belongs to, or `None` for a record about no row.
     fn route(&self, record: &R) -> Option<Self::Key>;
 
+    /// Whether `record` would fold onto `row`, asked without changing anything.
+    ///
+    /// `row` is the row [`route`](Self::route) named as it stands, a default row
+    /// for a key the view has not seen, and `None` for a record about no row. The
+    /// view runs this before every [`apply`](Self::apply), so the rules here are
+    /// ones `apply` can rely on, and [`RecordProjection::admit`] asks it for a
+    /// record not yet written. The default admits every record.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the consumer says `apply` would refuse.
+    fn check(&self, _record: &R, _row: Option<&Self::Row>) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
     /// Fold one entry, with its row when [`route`](Self::route) named one.
     ///
     /// # Errors
@@ -422,25 +437,48 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
                 return refusal;
             }
         }
-        let row = match self.fold.route(entry.record()) {
-            Some(key) => Some(self.entity_for(key)?),
-            None => None,
+        let record = entry.record();
+        let Some(key) = self.fold.route(record) else {
+            self.fold
+                .check(record, None)
+                .map_err(ProjectionError::Fold)?;
+            self.fold
+                .apply(entry, None)
+                .map_err(ProjectionError::Fold)?;
+            self.applied = Some(found);
+            return Ok(());
         };
-        let mut held = row.and_then(|entity| self.world.get_mut::<Held<F::Row>>(entity));
-        let folded = match held {
-            Some(ref mut cell) => self.fold.apply(entry, Some(&mut cell.0)),
-            None => self.fold.apply(entry, None),
-        };
-        folded.map_err(ProjectionError::Fold)?;
+        if let Some(entity) = self.entities.get(&key).copied() {
+            let mut held = self.world.get_mut::<Held<F::Row>>(entity);
+            let row = held.as_deref().map(|cell| &cell.0);
+            self.fold
+                .check(record, row)
+                .map_err(ProjectionError::Fold)?;
+            let folded = match held {
+                Some(ref mut cell) => self.fold.apply(entry, Some(&mut cell.0)),
+                None => self.fold.apply(entry, None),
+            };
+            folded.map_err(ProjectionError::Fold)?;
+        } else {
+            // A new key's row is made beside the world and joins it only once the
+            // fold took the record, so a refused first record leaves no row.
+            self.room_for_a_row()?;
+            let mut fresh = F::Row::default();
+            self.fold
+                .check(record, Some(&fresh))
+                .map_err(ProjectionError::Fold)?;
+            self.fold
+                .apply(entry, Some(&mut fresh))
+                .map_err(ProjectionError::Fold)?;
+            let entity = self.world.spawn(Held(fresh)).id();
+            self.entities.insert(key, entity);
+        }
         self.applied = Some(found);
         Ok(())
     }
 
-    /// The entity holding `key`'s row, made on first use up to the limit.
-    fn entity_for(&mut self, key: F::Key) -> Result<Entity, ProjectionError<F::Error>> {
-        if let Some(found) = self.entities.get(&key) {
-            return Ok(*found);
-        }
+    /// Whether the view may make one more row.
+    fn room_for_a_row(&self) -> Result<(), ProjectionError<F::Error>> {
         if self.entities.len() >= self.max_rows {
             let refusal = Err(ProjectionError::RowLimit {
                 limit: self.max_rows,
@@ -448,9 +486,83 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
             lgwks_std::trace::debug!(limit = self.max_rows, "RecordProjection: the view is full");
             return refusal;
         }
-        let entity = self.world.spawn(Held(F::Row::default())).id();
-        self.entities.insert(key, entity);
-        Ok(entity)
+        Ok(())
+    }
+
+    /// Whether [`fold_one`](Self::fold_one) would take `record`, asked without
+    /// changing the view.
+    ///
+    /// A consumer that stages records for one sync asks this before it writes a
+    /// record, so a record the view would refuse never reaches the journal. It
+    /// runs what a fold runs before it changes anything: the poison, the row limit
+    /// for a key the view has not seen, and the fold's own
+    /// [`check`](RecordFold::check) against the row as it stands. A refusal here
+    /// does not poison the view. The sequence is not checked, because a record not
+    /// yet written has none.
+    ///
+    /// # Errors
+    ///
+    /// [`ProjectionError::Poisoned`], [`ProjectionError::RowLimit`] for a new key
+    /// on a full view, and [`ProjectionError::Fold`] from the fold's check.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// use lgwks_bot::journal::RecordEntry;
+    /// use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
+    ///
+    /// /// Counts each key's records, and refuses the value zero.
+    /// struct NoZero;
+    ///
+    /// impl RecordFold<u64> for NoZero {
+    ///     type Key = u64;
+    ///     type Row = u64;
+    ///     type Error = &'static str;
+    ///
+    ///     fn route(&self, record: &u64) -> Option<u64> {
+    ///         Some(*record >> 32)
+    ///     }
+    ///
+    ///     fn check(&self, record: &u64, _: Option<&u64>) -> Result<(), &'static str> {
+    ///         if *record & 0xffff_ffff == 0 { Err("zero") } else { Ok(()) }
+    ///     }
+    ///
+    ///     fn apply(&mut self, _: &RecordEntry<u64>, row: Option<&mut u64>) -> Result<(), &'static str> {
+    ///         if let Some(count) = row {
+    ///             *count = count.saturating_add(1);
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// let mut view = RecordProjection::empty(NoZero, 1);
+    /// assert!(matches!(view.admit(&(1 << 32)), Err(ProjectionError::Fold("zero"))));
+    /// view.admit(&((1 << 32) | 7))?;
+    /// view.fold_one(&RecordEntry::staged(1, (1 << 32) | 7))?;
+    /// assert!(matches!(view.admit(&((2 << 32) | 7)), Err(ProjectionError::RowLimit { limit: 1 })));
+    /// assert_eq!(view.rows().count(), 1);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn admit(&self, record: &R) -> Result<(), ProjectionError<F::Error>> {
+        if self.poisoned {
+            let refusal = Err(ProjectionError::Poisoned);
+            lgwks_std::trace::debug!(applied = ?self.applied, "RecordProjection::admit: this view must be rebuilt");
+            return refusal;
+        }
+        let Some(key) = self.fold.route(record) else {
+            return self.fold.check(record, None).map_err(ProjectionError::Fold);
+        };
+        if let Some(entity) = self.entities.get(&key) {
+            let row = self.world.get::<Held<F::Row>>(*entity).map(|cell| &cell.0);
+            return self.fold.check(record, row).map_err(ProjectionError::Fold);
+        }
+        self.room_for_a_row()?;
+        let fresh = F::Row::default();
+        self.fold
+            .check(record, Some(&fresh))
+            .map_err(ProjectionError::Fold)
     }
 }
 

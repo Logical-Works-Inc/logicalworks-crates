@@ -157,6 +157,30 @@ fn a_seal_stopped_at_each_boundary_leaves_one_writable_journal() -> Outcome {
     Ok(())
 }
 
+/// Requirement (#906): a group commit asks before its one flush, so a batch holding a
+/// record past the 64 KiB frame ceiling names that record and writes none of the
+/// batch, and the next batch on the same file still lands.
+#[test]
+fn a_batch_with_a_record_over_the_frame_names_it_and_writes_nothing() -> Outcome {
+    let scratch = Scratch::new("admits")?;
+    let path = scratch.journal();
+    let text = path.to_str().ok_or("path")?;
+    let refused = run(&["append-batch", text, "3", "131072"])?;
+    assert_eq!(refused.status.code(), Some(2));
+    let said = String::from_utf8(refused.stderr)?;
+    assert!(said.contains("record 0 of the batch"), "{said}");
+    assert!(
+        refused.stdout.is_empty(),
+        "an ack was printed for a refused batch"
+    );
+    let body = String::from_utf8(run(&["verify", text])?.stdout)?;
+    assert_eq!(field(&body, "committed"), Some("0"));
+    assert!(run(&["append-batch", text, "3", "32"])?.status.success());
+    let body = String::from_utf8(run(&["verify", text])?.stdout)?;
+    assert_eq!(field(&body, "committed"), Some("3"));
+    Ok(())
+}
+
 /// Requirement: a first-timer who types nothing, or something wrong, is told what
 /// the tool takes and nothing is created.
 #[test]

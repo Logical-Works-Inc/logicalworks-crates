@@ -120,6 +120,38 @@ fn staged_records_land_first_and_stop_at_their_limit() -> Outcome {
     Ok(())
 }
 
+/// Catches a staged record the fold refuses poisoning the view or leaving a row, and
+/// a full view taking a new tenant (#905): each is refused before anything is staged.
+#[test]
+fn a_refused_stage_stages_nothing_and_the_view_keeps_answering() -> Outcome {
+    let scratch = ScratchFile::new("projection-cli-admit")?;
+    let answers = session(
+        &binary(),
+        &[scratch.path().as_os_str(), "2".as_ref()],
+        "fill 1 2\nstage-poison 1\nstage-poison 5\nstage 1 2\nstage 2 1\nstage 3 1\nshow\nsync\nrebuild\nshow\n",
+    )?;
+    let expected: [&str; 10] = [
+        "\"filled\":2",
+        "\"refused\":\"fold\"",
+        "\"refused\":\"fold\"",
+        "\"staged\":2",
+        "\"staged\":1",
+        "\"refused\":\"row_limit\"",
+        "\"rows\":2",
+        "\"synced\":3",
+        "\"applied\":5",
+        "\"rows\":2",
+    ];
+    says_each(&answers, &expected);
+    assert!(answers[6].contains("\"applied\":5"), "{}", answers[6]);
+    assert_eq!(
+        answers[6].trim(),
+        answers[9].trim(),
+        "the rebuilt view is the one that refused"
+    );
+    Ok(())
+}
+
 /// Catches a bad command line starting anything.
 #[test]
 fn a_missing_limit_is_a_usage_error() -> Outcome {
