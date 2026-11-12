@@ -20,7 +20,8 @@ A test reads this page and every skill against the tree, so a path, lane, binary
 | Add or change a public item, module, binary, feature or test | `skills/lgwks-change-a-crate/SKILL.md` |
 | Write code that uses these crates, here or in another repository | `skills/lgwks-use-the-crates/SKILL.md` |
 | The task suggests `tokio`, `regex`, `uuid`, `serde_json` or another familiar crate | `skills/lgwks-std-first/SKILL.md` |
-| Add, upgrade or audit a third-party dependency | `skills/lgwks-dependency-admission/SKILL.md` |
+| Add or audit a third-party dependency | `skills/lgwks-dependency-admission/SKILL.md` |
+| Land a Dependabot pull request, a stale lockfile or a new major | `skills/lgwks-dependency-update/SKILL.md` |
 | A gate lane or a CI row is red | `skills/lgwks-red-gate/SKILL.md` |
 | Cut, publish or verify a release | `skills/lgwks-release/SKILL.md` |
 

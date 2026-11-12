@@ -78,6 +78,22 @@ macro_rules! define_languages {
                     )+
                 }
             }
+
+            /// The same grammar, lent for the length of the program.
+            ///
+            /// The crate's own parses borrow this instead of calling
+            /// [`Language::support_lang`]. A build with no grammar compiled
+            /// leaves `SupportLang` without a variant, and a call that returns
+            /// such a type makes the compiler mark its caller unreachable. A
+            /// reference is never that, so those callers stay ordinary code.
+            pub(super) fn grammar(self) -> &'static SupportLang {
+                match self {
+                    $(
+                        #[cfg(feature = $feature)]
+                        Language::$variant => &SupportLang::$support,
+                    )+
+                }
+            }
         }
     };
 }

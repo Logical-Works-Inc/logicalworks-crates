@@ -114,12 +114,15 @@ id = "lockfile"
 surfaces = "local ci"
 required = true
 fast = true
-# The storefront fixtures are separate workspaces with their own lockfiles, and
-# every version bump of a workspace crate makes them stale (#175 failed CI on
-# exactly that). Checking them here makes the release cut impossible to forget.
+# The storefront fixtures and the bench rigs are separate workspaces with their
+# own lockfiles, and every version bump of a workspace crate makes them stale
+# (#175 failed CI on exactly that). The loop reads every lockfile git tracks,
+# at any depth: a path glob checked 9 of the 16 and missed the bench roots and
+# the ones under `contract-override/`. An empty list refuses, never passes.
 command = """\
 cargo metadata --locked --format-version 1 >/dev/null && \
-for f in crates/lgwks-deps/tests/fixtures/*/Cargo.lock; do if ! cargo metadata --locked --format-version 1 --manifest-path \"${f%.lock}.toml\" >/dev/null; then echo \"stale fixture lockfile $f: run cargo update --workspace --manifest-path ${f%.lock}.toml\" >&2; exit 1; fi; done\
+locks=$(git ls-files '*Cargo.lock') && test -n \"$locks\" && \
+for f in $locks; do if ! cargo metadata --locked --format-version 1 --manifest-path \"${f%.lock}.toml\" >/dev/null; then echo \"stale lockfile $f: run cargo update --workspace --manifest-path ${f%.lock}.toml\" >&2; exit 1; fi; done\
 """
 ci_step = "Verify lockfile is up-to-date"
 
@@ -201,7 +204,7 @@ required = true
 # The scaffolded-app journeys are the `app-builds` lane: each is a nested cargo
 # build of a new app's whole dependency tree, and in a shard the two families
 # held one target lock and the step for 100 s (run 43144663118).
-command = "cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy)))' ${PARTITION:+--partition $PARTITION}"
+command = "cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}"
 ci_step = "Run all workspace tests"
 
 [[lane]]
@@ -212,7 +215,7 @@ required = true
 # `lgwks run` and the expansion's clippy check each compile a scaffolded app,
 # and the two share no artifacts, so CI runs each family on its own runner
 # (APPS_FILTER); unset, both run here in one process.
-command = '''cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy))}"'''
+command = '''cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy) | test(=gate_consumer::sim_a_clean_consumer_passes_the_gate))}"'''
 ci_step = "Run the scaffolded app tests"
 
 [[lane]]

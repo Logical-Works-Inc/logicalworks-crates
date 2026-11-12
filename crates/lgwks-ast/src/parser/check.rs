@@ -218,7 +218,7 @@ pub fn try_parse_within(
 ) -> Result<Parsed, ParseError> {
     parse_bounded(
         code,
-        &language.support_lang(),
+        language.grammar(),
         language.name(),
         Bounds {
             source_bytes: MAX_SOURCE_BYTES,
@@ -501,7 +501,7 @@ pub(super) fn run_parser(
 /// ```
 #[must_use]
 pub fn parse(code: &str, language: Language) -> Parsed {
-    parse_with(code, &language.support_lang())
+    parse_with(code, language.grammar())
 }
 
 /// Unchecked parse of a caller-registered grammar. Production call sites use

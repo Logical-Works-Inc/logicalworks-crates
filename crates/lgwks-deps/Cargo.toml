@@ -212,7 +212,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tower-http = { version = "0.7", default-features = false, features = ["cors", "trace", "compression-gzip", "compression-deflate"], optional = true }
 llm-guard = { version = "0.2", default-features = false, features = ["fuzzy"], optional = true }
 gpui = { version = "0.2", optional = true }
-appcui = { version = "=0.5.5", default-features = false, optional = true }
+appcui = { version = "0.5.7", default-features = false, optional = true }
 # Bevy's ECS and the three crates that make it a runtime. `default-features =
 # false` throughout, and two omissions are deliberate: `bevy_reflect` stays off
 # (it is the expensive half of `bevy_ecs`'s default set and this workspace does not
@@ -248,42 +248,43 @@ tokenizers = { version = "0.23", optional = true }
 # default features so the no-flag build stays portable. Consumers opt in via
 # --features time-jiff and reach it only through lgwks_deps::storefront::jiff.
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo", "tzdb-concatenated"], optional = true }
-# Durable state: the one SQLite every estate service opens. Pinned exactly
-# (estate issues #696, #700), bundled so no system library is needed, and no
-# default features so the no-flag build stays portable: the engine is
-# selected, never the crate.
-rusqlite = { version = "=0.41.0", default-features = false, features = ["bundled"], optional = true }
-# Sealed records: the one AEAD every sealed estate record seals under.
-# Pinned exactly (estate issue #785). ChaCha20-Poly1305 is pure Rust with no
-# C toolchain, so the no-flag build stays portable: the engine is selected,
-# never the crate.
-chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"], optional = true }
+# Durable state: the one SQLite every estate service opens (estate issues
+# #696, #700): one requirement here, the exact release in `Cargo.lock` (ADR
+# 0031). Bundled so no system library is needed, and no default features so
+# the no-flag build stays portable: the engine is selected, never the crate.
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled"], optional = true }
+# Sealed records: the one AEAD every sealed estate record seals under (estate
+# issue #785): one requirement here, the exact release in `Cargo.lock` (ADR
+# 0031). ChaCha20-Poly1305 is pure Rust with no C toolchain, so the no-flag
+# build stays portable: the engine is selected, never the crate.
+chacha20poly1305 = { version = "0.10.1", default-features = false, features = ["alloc"], optional = true }
 # Formatted-Rust printing for `lgwks expand` (#787): the minimal syn parser and
 # the minimal pretty printer. Both are pure Rust with no C toolchain, so the
 # no-flag build stays portable: the engines are selected, never the crates.
-prettyplease = { version = "=0.2.37", default-features = false, optional = true }
-syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "printing"], optional = true }
+prettyplease = { version = "0.2.37", default-features = false, optional = true }
+syn = { version = "2.0.119", default-features = false, features = ["full", "parsing", "printing"], optional = true }
 # The one script reader and emitter (#787): `lgwks_ast` with the `emit`,
 # `legacy` and `hunks` features. A workspace member, so it needs no register
 # entry; default features off so no tree-sitter grammar rides along, only the
 # token reader, the one emitter, the COBOL and JCL reader, and the diff reader
 # `check-docs --base` judges a change's added lines with.
 lgwks_ast = { workspace = true, default-features = false, features = ["emit", "legacy", "hunks"], optional = true }
-# Agent standards (ADR 0015). Every edge pinned exactly, default features off,
-# and one TLS provider for the lot: rustls on ring with `rustls-no-provider`
-# reqwest, so no aws-lc-sys, cmake or OpenSSL enters the tree.
-rustls = { version = "=0.23.46", default-features = false, features = ["std", "tls12", "ring"], optional = true }
-reqwest = { version = "=0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
-rmcp = { version = "=3.9.0", default-features = false, features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"], optional = true }
-genai = { version = "=0.7.3", default-features = false, optional = true }
-jsonschema = { version = "=0.60.2", default-features = false, optional = true }
-oauth2 = { version = "=5.0.0", default-features = false, optional = true }
-coset = { version = "=0.4.2", default-features = false, optional = true }
-ct-merkle = { version = "=0.3.0", default-features = false, optional = true }
-opentelemetry = { version = "=0.33.1", default-features = false, features = ["trace", "metrics", "logs"], optional = true }
-opentelemetry_sdk = { version = "=0.33.1", default-features = false, features = ["trace", "metrics", "logs", "rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "=0.33.1", default-features = false, features = ["http-proto", "trace", "metrics", "logs", "reqwest-client"], optional = true }
-tracing-opentelemetry = { version = "=0.34.0", default-features = false, optional = true }
+# Agent standards (ADR 0015). Default features off, the exact releases in
+# `Cargo.lock` (ADR 0031), and one TLS provider for the lot: rustls on ring
+# with `rustls-no-provider` reqwest, so no aws-lc-sys, cmake or OpenSSL enters
+# the tree.
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12", "ring"], optional = true }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
+rmcp = { version = "3.9.0", default-features = false, features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"], optional = true }
+genai = { version = "0.7.4", default-features = false, optional = true }
+jsonschema = { version = "0.60.2", default-features = false, optional = true }
+oauth2 = { version = "5.0.0", default-features = false, optional = true }
+coset = { version = "0.4.2", default-features = false, optional = true }
+ct-merkle = { version = "0.3.0", default-features = false, optional = true }
+opentelemetry = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "logs"], optional = true }
+opentelemetry_sdk = { version = "0.33.1", default-features = false, features = ["trace", "metrics", "logs", "rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.33.1", default-features = false, features = ["http-proto", "trace", "metrics", "logs", "reqwest-client"], optional = true }
+tracing-opentelemetry = { version = "0.34.0", default-features = false, optional = true }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "std"], optional = true }
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]

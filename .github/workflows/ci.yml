@@ -310,6 +310,12 @@ jobs:
           # artifacts, run on runners of their own.
           - { suite: apps, archive: apps, tier: "apps run", partition: "", build: "-p lgwks_deps --test it --locked --cargo-profile ci-it", apps_filter: "binary(it) & test(/^(lgwks_e2e|lgwks_json)::/)" }
           - { suite: apps, archive: apps, tier: "apps clippy", partition: "", build: "-p lgwks_deps --test it --locked --cargo-profile ci-it", apps_filter: "binary(it) & test(=sim_lgwks_expand::expanded_app_passes_clippy)" }
+          # The clean-consumer gate journey is the same family: one nested
+          # cargo build of a consumer, 42.7 s. In workspace slice 10/10 it sat
+          # behind a cold 165 s build, the slice ended 294 s in and the run's
+          # wall read 309 s against 300 with every job green (run 43203981708,
+          # #927). A count slice cannot split one test, so it has its own row.
+          - { suite: apps, archive: apps, tier: "apps gate", partition: "", build: "-p lgwks_deps --test it --locked --cargo-profile ci-it", apps_filter: "binary(it) & test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)" }
     env:
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
@@ -355,12 +361,12 @@ jobs:
           retention-days: 1
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
-        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy)))' ${PARTITION:+--partition $PARTITION}
+        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}
       - name: Run the scaffolded app tests
         if: matrix.suite == 'apps'
         env:
           APPS_FILTER: ${{ matrix.apps_filter }}
-        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy))}"
+        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy) | test(=gate_consumer::sim_a_clean_consumer_passes_the_gate))}"
       - name: Run lgwks-bot async runner tests
         if: matrix.suite == 'bot-full'
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
@@ -482,7 +488,7 @@ jobs:
           sccache: "false"
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
-        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy)))' ${PARTITION:+--partition $PARTITION}
+        run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}
       - name: Run lgwks-bot async runner tests
         if: matrix.suite == 'bot-full'
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
@@ -617,7 +623,8 @@ jobs:
         run: >
           cargo metadata --locked --format-version 1 >/dev/null ||
           { echo 'Lockfile out of date: run cargo update --workspace and commit Cargo.lock' >&2; exit 1; } &&
-          for f in crates/lgwks-deps/tests/fixtures/*/Cargo.lock; do if ! cargo metadata --locked --format-version 1 --manifest-path "${f%.lock}.toml" >/dev/null; then echo "stale fixture lockfile $f: run cargo update --workspace --manifest-path ${f%.lock}.toml" >&2; exit 1; fi; done
+          locks=$(git ls-files '*Cargo.lock') && test -n "$locks" &&
+          for f in $locks; do if ! cargo metadata --locked --format-version 1 --manifest-path "${f%.lock}.toml" >/dev/null; then echo "stale lockfile $f: run cargo update --workspace --manifest-path ${f%.lock}.toml" >&2; exit 1; fi; done
       - name: Check formatting
         run: cargo fmt --all -- --check && cargo fmt --manifest-path bench/async/Cargo.toml --all -- --check
       - name: Enforce dependency edge ownership

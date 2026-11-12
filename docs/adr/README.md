@@ -66,5 +66,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0028](0028-a-cold-run-fits-the-budget.md) | A cold run fits the budget |
 | [0029](0029-the-logical-ci-verdict-runs-in-this-repository.md) | The logical_ci verdict runs in this repository |
 | [0030](0030-a-loom-model-of-the-v7-generator.md) | A loom model of the v7 generator |
+| [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
 
 New records go at the bottom of that table.

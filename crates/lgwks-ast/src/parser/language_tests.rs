@@ -25,6 +25,26 @@ fn every_declared_extension_resolves_to_its_own_language() {
 }
 
 #[test]
+fn every_language_lends_the_grammar_its_row_names() {
+    // The by-value column is read inside a closure. With no grammar compiled
+    // its type has no variant, and a call returning it in the loop body would
+    // make the compiler mark the rest of that body unreachable.
+    let named: Vec<_> = Language::ALL
+        .iter()
+        .map(|&language| language.support_lang())
+        .collect();
+    assert_eq!(named.len(), Language::ALL.len());
+    for (&language, by_value) in Language::ALL.iter().zip(named) {
+        assert_eq!(
+            *language.grammar(),
+            by_value,
+            "{}: the lent grammar must be the one its row names",
+            language.name()
+        );
+    }
+}
+
+#[test]
 fn no_two_enabled_languages_claim_one_extension() {
     let mut claimed: Vec<(&str, &str)> = Vec::new();
     for &language in Language::ALL {
