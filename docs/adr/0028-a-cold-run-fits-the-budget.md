@@ -36,6 +36,12 @@ behind one cargo lock. Main's warm run spent 115 s in the slice holding them.
 2. **The scaffolded-app journeys run on their own rows.** The workspace lane excludes them. The
    `app-builds` lane runs them, and CI runs it as two `tests_linux` rows, `apps run` and `apps
    clippy`, each building lgwks_deps' `it` binary alone.
+3. **The cold floor is the longest shard, so the long ones are cut.** Run 43158681921
+   passed every test and walled at 312 s. The storefront consumers, a nested build
+   per test behind one lock, go from three shards to six. `lgwks_ast`'s markdown
+   guard launched its 1,050 child processes one after another (57.8 s on CI). It
+   now runs them in waves of one per core, at most 8, and waits on each child's
+   pipe closing instead of a timed park: 16.5 s to 2.3 s locally.
 
 ## Alternatives rejected
 

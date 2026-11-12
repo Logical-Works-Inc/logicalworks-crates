@@ -95,7 +95,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `script::tree::map` | `MapStep` and `write_map`, the one map rendering (#384) | SL-2 |
 | `script::tree::shape` | `FlowShape`, `StepShape` and `Passthrough`, the map's entries | SL-2 |
 | `script::emit::admit` | the domain and outside admissions a flow runs first, and the map entries it emits | SL-2 |
-| `diagnostic::tests`, `diagnostic::line_index_tests` | the located-diagnostic and line-index tests | INV-AST-2 |
+| `diagnostic::tests`, `diagnostic::line_index_tests`; `it::hostile::markdown` | the located-diagnostic and line-index tests; the markdown guard proved from child processes | INV-AST-2 |
 | `error_derive` | zero-`syn` `#[derive(Error)]` token-stream state machine and `define_error!` macro, replacing `thiserror` (#842) | INV-DEP-20 |
 
 ### `lgwks_deps` capability modules
