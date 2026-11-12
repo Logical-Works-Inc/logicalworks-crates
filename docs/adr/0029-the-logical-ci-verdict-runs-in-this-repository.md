@@ -53,6 +53,8 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - `show` named the cost: cold, `cargo nextest run` was killed at 397.8 s (run 43278464658),
   while the 26 property tests take 1.6 s and a built target runs the lane in 43.4 s. The job
   builds the lane's test targets with the same command first, so the lane runs on them.
+  On the hosted Mac that build took 234 s cold and A02 sealed GO in 50.2 s of 420 s (run
+  43280694006); the job took 308 s in all until main's post-job save warms the build.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:

@@ -140,6 +140,13 @@ mod tests {
                 "logical_ci.yml leaves the property lane's build to the engine's lane".to_owned(),
             );
         }
+        // ADR 0029 states the prebuild and the hosted run that proved it
+        // (GO in 50.2 s after a 234 s cold build, run 43280694006).
+        if !adr.contains("builds the lane's test targets with the same command first")
+            || !adr.contains("run\n  43280694006")
+        {
+            problems.push("ADR 0029 does not record the property lane's prebuild".to_owned());
+        }
         // The engine compiles this repository, whose `.cargo/config.toml`
         // links macOS with ld64.lld; a bare runner failed every compile in
         // 30 s (run 43242590489), so the repository's own setup runs first.
@@ -238,6 +245,16 @@ mod tests {
             inline_gate_problems(&unbuilt, &adr),
             vec!["logical_ci.yml leaves the property lane's build to the engine's lane".to_owned()],
             "a copy that leaves the cold build inside the lane is named"
+        );
+        let unrecorded = adr.replacen("run\n  43280694006", "run", 1);
+        assert_ne!(
+            unrecorded, adr,
+            "the ADR text the control mutates must exist"
+        );
+        assert_eq!(
+            inline_gate_problems(&gate, &unrecorded),
+            vec!["ADR 0029 does not record the property lane's prebuild".to_owned()],
+            "an ADR that drops the run proving the prebuild is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
         assert_eq!(
