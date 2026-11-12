@@ -20,13 +20,17 @@
 //!      text of the check exists once.
 //!   4. Toolchain agreement. The manifest's `toolchain.rust` is the version
 //!      every `toolchain:` pin in `ci.yml` and in `pages.yml` installs.
-//!   5. Hosted runners only. No `runs-on:` of `ci.yml` or `pages.yml` names
+//!   5. Hosted runners only. No `runs-on:` of any workflow names
 //!      `self-hosted`: the repository is public, so a self-hosted runner would
 //!      execute a fork's pull request on the machine that hosts it (province#9,
 //!      INV-CI-RUNNER-CLASS-1).
 //!   6. One home per moved test. Every `test(...)` selector of the `app-builds`
 //!      lane is excluded by the `tests` lane and run by an `apps` row of ci.yml,
 //!      so a test the split moved runs once, neither twice nor never (ADR 0028).
+//!   7. No other repository's reusable workflow. No job of any workflow `uses:`
+//!      a `.github/workflows/` file of another repository: GitHub refuses a
+//!      public repository's call to a private one before any job starts, which
+//!      failed `logical_ci.yml` in 0 s on every run (ADR 0029).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
@@ -36,6 +40,7 @@ mod reader;
 mod sim_lane_split;
 #[cfg(test)]
 mod sim_pins;
+mod workflow_calls;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -46,6 +51,7 @@ use std::process::ExitCode;
 
 use lane_split::split_problems;
 use reader::{Step, read_manifest, read_workflow};
+use workflow_calls::foreign_workflow_problems;
 
 /// The lane table, relative to the repository root.
 const MANIFEST_REL: &str = "scripts/gate-lanes.toml";
@@ -56,6 +62,13 @@ const WORKFLOW_REL: &str = ".github/workflows/ci.yml";
 /// The Pages workflow, relative to the repository root. It installs its toolchain
 /// through the same action as `ci.yml`, so its pin is held to the manifest too.
 const PAGES_REL: &str = ".github/workflows/pages.yml";
+
+/// The workflows only rules 5 and 7 read: the logical_ci verdict (ADR 0029) and
+/// the consumer gate other repositories call.
+const OTHER_WORKFLOWS_REL: [&str; 2] = [
+    ".github/workflows/logical_ci.yml",
+    ".github/workflows/consumer-gate.yml",
+];
 
 /// Step-name prefixes that are setup, not gate.
 const SKIP_STEP_PREFIXES: [&str; 7] = [
@@ -323,6 +336,7 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
         problems.extend(pin_problems(&manifest.rust, "ci.yml", workflow_text));
     }
     problems.extend(self_hosted_problems("ci.yml", workflow_text));
+    problems.extend(foreign_workflow_problems("ci.yml", workflow_text));
     problems.extend(split_problems(manifest_text, workflow_text));
     problems
 }
@@ -342,6 +356,12 @@ fn execute(
         problems.extend(pin_problems(&manifest.rust, "pages.yml", &pages_text));
     }
     problems.extend(self_hosted_problems("pages.yml", &pages_text));
+    problems.extend(foreign_workflow_problems("pages.yml", &pages_text));
+    for rel in OTHER_WORKFLOWS_REL {
+        let text = read(&root.join(rel))?;
+        problems.extend(self_hosted_problems(rel, &text));
+        problems.extend(foreign_workflow_problems(rel, &text));
+    }
     if !problems.is_empty() {
         writeln!(err, "gate parity refused: {} problem(s)", problems.len())?;
         for problem in &problems {
