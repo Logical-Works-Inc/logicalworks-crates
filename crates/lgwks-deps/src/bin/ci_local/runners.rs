@@ -379,69 +379,79 @@ fn listed_counts(payload: &Value) -> (usize, usize) {
     (total, simulated)
 }
 
-/// Test archives the simulation listing reads in place of a build: CI names
-/// the ones its archive jobs already compiled, space-separated (province#9),
-/// so the lane lists them in seconds rather than compiling the workspace again.
-const SIMULATION_ARCHIVES_ENV: &str = "SIMULATION_ARCHIVES";
+/// Nextest listings the simulation lane counts in place of a build: CI names
+/// the JSON listings the first shard of each suite wrote, space-separated
+/// (province#9, ADR 0032), so the lane reads them with nothing to compile,
+/// extract or upload but kilobytes.
+const SIMULATION_LISTINGS_ENV: &str = "SIMULATION_LISTINGS";
 
-/// The nextest listings the simulation lane reads: one per named archive, or
-/// the workspace built from source when none is named.
-fn simulation_listings(context: &Context<'_>) -> Vec<Vec<String>> {
-    let archives: Vec<&str> = match context.env.get(SIMULATION_ARCHIVES_ENV) {
-        Some(named) => named.split_whitespace().collect(),
+/// Where one nextest listing comes from.
+#[derive(Debug, PartialEq, Eq)]
+enum Listing<'run> {
+    /// A JSON listing a CI shard wrote, by its path from the root.
+    File(&'run str),
+    /// A listing this lane runs: the workspace built from source.
+    Run(Vec<String>),
+}
+
+/// The listings the simulation lane counts: each file `named` holds, or the
+/// workspace listed from source when it names none.
+fn simulation_listings(named: Option<&str>) -> Vec<Listing<'_>> {
+    let files: Vec<Listing<'_>> = match named {
+        Some(names) => names.split_whitespace().map(Listing::File).collect(),
         None => Vec::new(),
     };
-    if archives.is_empty() {
-        return vec![argv(&[
-            "cargo",
-            "nextest",
-            "list",
-            "--workspace",
-            "--locked",
-            "--message-format",
-            "json",
-            "--cargo-quiet",
-        ])];
+    if !files.is_empty() {
+        return files;
     }
-    archives
-        .into_iter()
-        .map(|archive| {
-            argv(&[
-                "cargo",
-                "nextest",
-                "list",
-                "--archive-file",
-                archive,
-                "--workspace-remap",
-                ".",
-                "--extract-to",
-                ".",
-                "--extract-overwrite",
-                "--message-format",
-                "json",
-            ])
-        })
-        .collect()
+    vec![Listing::Run(argv(&[
+        "cargo",
+        "nextest",
+        "list",
+        "--workspace",
+        "--locked",
+        "--message-format",
+        "json",
+        "--cargo-quiet",
+    ]))]
+}
+
+/// Why a listing run failed, or `None` when it exited 0.
+fn listing_failure(code: i32, stdout: &str, stderr: &str) -> Option<String> {
+    if code == 0 {
+        return None;
+    }
+    Some(format!(
+        "nextest listing failed: exit={code} stdout={:?} stderr={:?}",
+        clip(stdout, 400),
+        clip(stderr, 400)
+    ))
 }
 
 /// Prove deterministic simulation coverage by executable and source views.
 pub(super) fn simulation_evidence(context: &Context<'_>) -> Result<Verdict, GateError> {
     let (mut total, mut simulated) = (0_usize, 0_usize);
-    for command in simulation_listings(context) {
-        let listed = context
-            .children
-            .capture(&launch(&command, context.root, context.env));
-        if listed.code != 0 {
-            return Ok(refuse(format!(
-                "nextest listing failed: exit={} stdout={:?} stderr={:?}",
-                listed.code,
-                clip(&listed.stdout, 400),
-                clip(&listed.stderr, 400)
-            )));
-        }
-        let payload: Value = match json::from_str(&listed.stdout) {
+    let named = context.env.get(SIMULATION_LISTINGS_ENV).map(String::as_str);
+    for listing in simulation_listings(named) {
+        let (source, text) = match listing {
+            Listing::File(file) => (file.to_owned(), read(&context.root.join(file))?),
+            Listing::Run(command) => {
+                let listed = context
+                    .children
+                    .capture(&launch(&command, context.root, context.env));
+                if let Some(detail) = listing_failure(listed.code, &listed.stdout, &listed.stderr) {
+                    return Ok(refuse(detail));
+                }
+                (String::from("the workspace listing"), listed.stdout)
+            }
+        };
+        let payload: Value = match json::from_str(&text) {
             Ok(payload) => payload,
-            Err(error) => return Ok(refuse(format!("nextest listing was not JSON: {error}"))),
+            Err(error) => {
+                return Ok(refuse(format!(
+                    "nextest listing {source} was not JSON: {error}"
+                )));
+            }
         };
         let (listed_total, listed_simulated) = listed_counts(&payload);
         total = total.saturating_add(listed_total);
@@ -476,8 +486,56 @@ pub(super) fn simulation_evidence(context: &Context<'_>) -> Result<Verdict, Gate
 
 #[cfg(test)]
 mod tests {
-    use super::{is_test_attribute, listed_counts, percent};
+    use super::{
+        Listing, is_test_attribute, listed_counts, listing_failure, percent, simulation_listings,
+    };
+
+    /// A listing run that exits non-zero is refused with its exit code and
+    /// output; only exit 0 is a listing to count. Source: cargo exits 101 when
+    /// a test target does not compile, and its stdout is then no listing.
+    #[test]
+    fn only_an_exit_0_listing_run_is_counted() {
+        assert_eq!(listing_failure(0, "{}", ""), None, "exit 0 is a listing");
+        for code in [1, 101, -1] {
+            let detail = listing_failure(code, "partial", "error[E0425]");
+            assert!(
+                detail.as_deref().is_some_and(|detail| detail
+                    .starts_with(&format!("nextest listing failed: exit={code} "))
+                    && detail.contains("error[E0425]")),
+                "exit {code} is refused with its output: {detail:?}"
+            );
+        }
+    }
     use lgwks_std::json::{self, Value};
+
+    /// Source: run 43228739672, where uploading compiled test archives
+    /// cancelled bot-it-g5 at its cap (ADR 0032). Each named listing is read as
+    /// a file in order, blanks between names are not files, and only an unset
+    /// or empty list falls back to listing the workspace from source.
+    #[test]
+    fn named_listings_are_read_as_files_and_only_none_lists_the_workspace() {
+        assert_eq!(
+            simulation_listings(Some(" a/listing.json  b/listing.json\n")),
+            vec![
+                Listing::File("a/listing.json"),
+                Listing::File("b/listing.json")
+            ],
+            "every named file, in order"
+        );
+        for unnamed in [None, Some(""), Some(" \t ")] {
+            let listings = simulation_listings(unnamed);
+            assert_eq!(listings.len(), 1, "{unnamed:?} lists once: {listings:?}");
+            let command = match listings.into_iter().next() {
+                Some(Listing::Run(command)) => command.join(" "),
+                Some(Listing::File(_)) | None => String::new(),
+            };
+            assert!(
+                command.starts_with("cargo nextest list --workspace")
+                    && command.contains("--message-format json"),
+                "{unnamed:?} lists the workspace as JSON: {command:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_percentage_has_four_digits_and_rounds_half_up() {
