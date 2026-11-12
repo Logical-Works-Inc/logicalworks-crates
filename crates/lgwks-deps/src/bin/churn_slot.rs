@@ -21,10 +21,24 @@
 //! and says so on standard error: a test that does not run is a test that silently
 //! passes.
 //!
+//! A test whose `TMPDIR` is the macOS default (`/var/folders/...`, or none at all)
+//! runs on one shared RAM volume instead, made once per boot under a lock and kept,
+//! and the slots then default to the host's cores. The default directory is on the
+//! physical disk, where each `sync_all` is an `F_FULLFSYNC` that queues behind every
+//! other: the full `lgwks_bot` suite took 671 s there on 2026-11-11 against 144 s
+//! with its files on a RAM disk at six slots. Off that queue the six slots only
+//! idle the cores. A caller that names its own `TMPDIR` (each CI job names a RAM
+//! disk of its own) keeps it and keeps the six slots, and `LWC_CHURN_TMP=inherit`
+//! keeps the default directory.
+//!
 //! Usage: `churn-slot <program> [argument...]`. The exit status is the program's;
 //! a program ended by a signal exits `128 + signal`.
 
-use std::ffi::OsString;
+#[cfg(target_os = "macos")]
+#[path = "shared/ram_disk.rs"]
+mod ram_disk;
+
+use std::ffi::{OsStr, OsString};
 use std::fmt;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Write};
@@ -53,6 +67,48 @@ const SLOTS_VAR: &str = "LWC_CHURN_SLOTS";
 /// The variable naming the directory that holds the slot files.
 const DIR_VAR: &str = "LWC_CHURN_DIR";
 
+/// The variable that keeps a test on the default temporary directory when it is
+/// `inherit`.
+const TMP_VAR: &str = "LWC_CHURN_TMP";
+
+/// The prefix of the per-user temporary directory macOS hands a process that
+/// names none: on the physical disk.
+const DEFAULT_TMP_PREFIX: &str = "/var/folders/";
+
+/// The shared volume's name under `/Volumes`.
+#[cfg(target_os = "macos")]
+const SHARED_VOLUME: &str = "lgwks-test-tmp";
+
+/// The shared volume's ceiling: 2 GiB of 512-byte sectors, taken only as written.
+/// A full `lgwks_bot` suite leaves about 5 MiB behind.
+#[cfg(target_os = "macos")]
+const SHARED_SECTORS: u64 = 4_194_304;
+
+/// Where a test's temporary files go.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Temp {
+    /// The caller's own `TMPDIR`, untouched.
+    Inherited,
+    /// The shared RAM volume.
+    Shared,
+}
+
+impl Temp {
+    /// The choice a caller's environment makes: the shared volume exactly when
+    /// `TMPDIR` is unset, empty or the macOS default, and the caller did not ask
+    /// to inherit it.
+    fn from_env(tmpdir: Option<&OsStr>, choice: Option<&OsStr>) -> Self {
+        if choice.is_some_and(|said| said == "inherit") {
+            return Self::Inherited;
+        }
+        match tmpdir.map(|dir| dir.to_string_lossy()) {
+            None => Self::Shared,
+            Some(dir) if dir.is_empty() || dir.starts_with(DEFAULT_TMP_PREFIX) => Self::Shared,
+            Some(_) => Self::Inherited,
+        }
+    }
+}
+
 /// The exit status of a program that could not be started, as a shell reports one.
 const UNRUNNABLE: u8 = 127;
 
@@ -76,6 +132,13 @@ enum SlotError {
         /// What the operating system said.
         cause: io::Error,
     },
+    /// The shared RAM volume could not be attached or given its directory.
+    Volume {
+        /// The volume or the directory on it.
+        path: PathBuf,
+        /// What the operating system said.
+        cause: io::Error,
+    },
 }
 
 impl fmt::Display for SlotError {
@@ -89,6 +152,10 @@ impl fmt::Display for SlotError {
                 ref path,
                 ref cause,
             } => write!(formatter, "cannot lock {}: {cause}", path.display()),
+            Self::Volume {
+                ref path,
+                ref cause,
+            } => write!(formatter, "no shared volume at {}: {cause}", path.display()),
         }
     }
 }
@@ -117,11 +184,34 @@ struct Held {
     file: File,
 }
 
+/// The slot directory a caller's environment names: the default when it is unset
+/// or empty.
+fn dir_from_env(dir: Option<OsString>) -> PathBuf {
+    match dir {
+        Some(text) if !text.is_empty() => PathBuf::from(text),
+        _ => PathBuf::from(DEFAULT_DIR),
+    }
+}
+
+/// The slots a test on the shared RAM volume defaults to: one per core the host
+/// offers, at most [`MAX_SLOTS`].
+fn cores() -> NonZeroUsize {
+    match std::thread::available_parallelism() {
+        Ok(found) => match NonZeroUsize::new(found.get().min(MAX_SLOTS)) {
+            Some(count) => count,
+            None => DEFAULT_SLOTS,
+        },
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "cores: the host names no parallelism");
+            DEFAULT_SLOTS
+        }
+    }
+}
+
 impl Slots {
     /// The slots a caller's environment names. A count that is unset, not a
-    /// number, zero or past [`MAX_SLOTS`] is the default, and so is a directory
-    /// that is unset or empty.
-    fn from_env(slots: Option<OsString>, dir: Option<OsString>) -> Self {
+    /// number, zero or past [`MAX_SLOTS`] is `fallback`.
+    fn from_env(slots: Option<OsString>, dir: PathBuf, fallback: NonZeroUsize) -> Self {
         let named = slots
             .as_deref()
             .and_then(|text| text.to_str())
@@ -129,13 +219,9 @@ impl Slots {
         let count = match named {
             Some(Ok(number)) if number <= MAX_SLOTS => match NonZeroUsize::new(number) {
                 Some(count) => count,
-                None => DEFAULT_SLOTS,
+                None => fallback,
             },
-            _ => DEFAULT_SLOTS,
-        };
-        let dir = match dir {
-            Some(text) if !text.is_empty() => PathBuf::from(text),
-            _ => PathBuf::from(DEFAULT_DIR),
+            _ => fallback,
         };
         Self { dir, count }
     }
@@ -280,8 +366,98 @@ fn start_slot() -> usize {
     }
 }
 
-/// Runs `program` under a slot and returns its exit status.
-fn run(slots: &Slots, program: &OsString, arguments: &[OsString]) -> ExitCode {
+/// Makes sure `root` holds a `tmp` directory and returns it, calling `attach` to
+/// make `root` when it is absent. The check repeats under an exclusive lock on
+/// `lock`, so the tests of a run that start at once attach one volume between them.
+fn ensure_temp(
+    root: &Path,
+    lock: &Path,
+    attach: impl FnOnce() -> io::Result<()>,
+) -> Result<PathBuf, SlotError> {
+    let temp = root.join("tmp");
+    if temp.is_dir() {
+        return Ok(temp);
+    }
+    if let Some(parent) = lock.parent()
+        && let Err(cause) = fs::create_dir_all(parent)
+    {
+        let path = parent.to_path_buf();
+        return fail(SlotError::Directory { path, cause }, "ensure_temp");
+    }
+    let guard = match OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(lock)
+    {
+        Ok(file) => file,
+        Err(cause) => {
+            let path = lock.to_path_buf();
+            return fail(SlotError::Slot { path, cause }, "ensure_temp");
+        }
+    };
+    if let Err(cause) = guard.lock() {
+        let path = lock.to_path_buf();
+        return fail(SlotError::Slot { path, cause }, "ensure_temp");
+    }
+    if !root.is_dir()
+        && let Err(cause) = attach()
+    {
+        let path = root.to_path_buf();
+        return fail(SlotError::Volume { path, cause }, "ensure_temp");
+    }
+    if let Err(cause) = fs::create_dir_all(&temp) {
+        return fail(SlotError::Volume { path: temp, cause }, "ensure_temp");
+    }
+    drop(Held { file: guard });
+    Ok(temp)
+}
+
+/// The shared RAM volume's temporary directory, made when it is absent.
+#[cfg(target_os = "macos")]
+fn shared_temp(dir: &Path) -> Result<PathBuf, SlotError> {
+    let root = Path::new("/Volumes").join(SHARED_VOLUME);
+    ensure_temp(&root, &dir.join("volume.lock"), || {
+        ram_disk::attach(SHARED_VOLUME, SHARED_SECTORS).map(drop)
+    })
+}
+
+/// No shared volume off macOS: the wrapper runs there only through a caller's
+/// own configuration, which keeps its `TMPDIR`. The same `ensure_temp` path
+/// answers, with an attach that refuses, so every target takes one lock and
+/// returns one volume error rather than a second hand-written refusal.
+#[cfg(not(target_os = "macos"))]
+fn shared_temp(dir: &Path) -> Result<PathBuf, SlotError> {
+    ensure_temp(
+        &dir.join("no-shared-volume"),
+        &dir.join("volume.lock"),
+        || {
+            Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "a RAM volume is made on macOS only",
+            ))
+        },
+    )
+}
+
+/// The temporary directory a test runs with when the shared volume is wanted, or
+/// `None` to keep the caller's.
+fn temp_for(choice: Temp, dir: &Path) -> Option<PathBuf> {
+    match choice {
+        Temp::Inherited => None,
+        Temp::Shared => match shared_temp(dir) {
+            Ok(temp) => Some(temp),
+            Err(error) => {
+                say(&format!("keeping TMPDIR: {error}"));
+                None
+            }
+        },
+    }
+}
+
+/// Runs `program` under a slot, with `temp` as its `TMPDIR` when one is named, and
+/// returns its exit status.
+fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsString]) -> ExitCode {
     let held = match slots.take(start_slot()) {
         Ok(held) => Some(held),
         Err(error) => {
@@ -289,7 +465,15 @@ fn run(slots: &Slots, program: &OsString, arguments: &[OsString]) -> ExitCode {
             None
         }
     };
-    let status = Command::new(program).args(arguments).status();
+    let mut command = Command::new(program);
+    command.args(arguments);
+    if let Some(dir) = temp {
+        // A trailing separator, as the macOS default carries one.
+        let mut named = dir.as_os_str().to_os_string();
+        named.push("/");
+        command.env("TMPDIR", named);
+    }
+    let status = command.status();
     drop(held);
     match status {
         Ok(status) => ExitCode::from(exit_status_of(status)),
@@ -310,150 +494,25 @@ fn main() -> ExitCode {
         return ExitCode::from(USAGE);
     };
     let rest: Vec<OsString> = arguments.collect();
-    let slots = Slots::from_env(std::env::var_os(SLOTS_VAR), std::env::var_os(DIR_VAR));
-    run(&slots, &program, &rest)
+    let dir = dir_from_env(std::env::var_os(DIR_VAR));
+    let choice = if cfg!(target_os = "macos") {
+        Temp::from_env(
+            std::env::var_os("TMPDIR").as_deref(),
+            std::env::var_os(TMP_VAR).as_deref(),
+        )
+    } else {
+        Temp::Inherited
+    };
+    let temp = temp_for(choice, &dir);
+    let fallback = if temp.is_some() {
+        cores()
+    } else {
+        DEFAULT_SLOTS
+    };
+    let slots = Slots::from_env(std::env::var_os(SLOTS_VAR), dir, fallback);
+    run(&slots, temp.as_deref(), &program, &rest)
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]
-mod tests {
-    use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    /// A directory name of this test's own under the system temporary directory,
-    /// distinguished by a random draw so two runs on one machine never share one.
-    fn scratch(name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let distinguisher = u64::from_le_bytes(lgwks_std::random::bytes::<8>()?);
-        Ok(std::env::temp_dir().join(format!("churn-slot-{name}-{distinguisher:016x}")))
-    }
-
-    /// Removes what a test made; a directory that is already gone is fine.
-    fn clear(dir: &Path) {
-        match fs::remove_dir_all(dir) {
-            Ok(()) | Err(_) => {}
-        }
-    }
-
-    fn slots_in(dir: &Path, count: usize) -> Result<Slots, Box<dyn std::error::Error>> {
-        let count = NonZeroUsize::new(count).ok_or("a slot count of zero")?;
-        Ok(Slots {
-            dir: dir.to_path_buf(),
-            count,
-        })
-    }
-
-    #[test]
-    fn the_environment_names_the_slots_and_a_bad_value_is_the_default() {
-        let named = Slots::from_env(Some("3".into()), Some("/somewhere".into()));
-        assert_eq!(named.count.get(), 3);
-        assert_eq!(named.dir, PathBuf::from("/somewhere"));
-        for bad in ["0", "65", "-1", "many", "", "  "] {
-            let fallback = Slots::from_env(Some(bad.into()), Some("".into()));
-            assert_eq!(fallback.count, DEFAULT_SLOTS, "{bad:?} is not a slot count");
-            assert_eq!(fallback.dir, PathBuf::from(DEFAULT_DIR));
-        }
-        assert_eq!(Slots::from_env(None, None).count, DEFAULT_SLOTS);
-        assert_eq!(Slots::from_env(Some(" 4 ".into()), None).count.get(), 4);
-        assert_eq!(
-            Slots::from_env(Some(MAX_SLOTS.to_string().into()), None)
-                .count
-                .get(),
-            MAX_SLOTS
-        );
-    }
-
-    #[test]
-    fn every_slot_is_held_once_and_a_further_try_finds_none()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir = scratch("full")?;
-        let slots = slots_in(&dir, 3)?;
-        fs::create_dir_all(&dir)?;
-        let mut held = Vec::new();
-        for _ in 0..3 {
-            held.push(slots.try_take(0)?.ok_or("a slot was free")?);
-        }
-        assert!(
-            slots.try_take(0)?.is_none(),
-            "a fourth taker must find every slot held"
-        );
-        assert!(held.iter().all(|slot| slot.file().metadata().is_ok()));
-        clear(&dir);
-        Ok(())
-    }
-
-    #[test]
-    fn a_dropped_slot_is_free_for_the_next_taker() -> Result<(), Box<dyn std::error::Error>> {
-        let dir = scratch("drop")?;
-        let slots = slots_in(&dir, 1)?;
-        fs::create_dir_all(&dir)?;
-        let first = slots.try_take(0)?.ok_or("the only slot was free")?;
-        assert!(slots.try_take(0)?.is_none());
-        drop(first);
-        assert!(
-            slots.try_take(0)?.is_some(),
-            "releasing the slot must free it"
-        );
-        clear(&dir);
-        Ok(())
-    }
-
-    #[test]
-    fn takers_on_threads_never_exceed_the_slots() -> Result<(), Box<dyn std::error::Error>> {
-        const SLOTS: usize = 3;
-        const TAKERS: usize = 16;
-        let dir = scratch("threads")?;
-        let slots = slots_in(&dir, SLOTS)?;
-        let inside = AtomicUsize::new(0);
-        let widest = AtomicUsize::new(0);
-        let failures = AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for taker in 0..TAKERS {
-                let (slots, inside, widest, failures) = (&slots, &inside, &widest, &failures);
-                scope.spawn(move || match slots.take(taker) {
-                    Ok(held) => {
-                        let now = inside.fetch_add(1, Ordering::SeqCst).saturating_add(1);
-                        widest.fetch_max(now, Ordering::SeqCst);
-                        for _ in 0..50 {
-                            std::thread::yield_now();
-                        }
-                        inside.fetch_sub(1, Ordering::SeqCst);
-                        drop(held);
-                    }
-                    Err(_) => {
-                        failures.fetch_add(1, Ordering::SeqCst);
-                    }
-                });
-            }
-        });
-        assert_eq!(failures.load(Ordering::SeqCst), 0);
-        let widest = widest.load(Ordering::SeqCst);
-        assert!(
-            (1..=SLOTS).contains(&widest),
-            "{widest} takers held a slot at once, with {SLOTS} slots"
-        );
-        clear(&dir);
-        Ok(())
-    }
-
-    #[test]
-    fn a_directory_that_is_a_file_is_an_error_the_wrapper_survives()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let dir = scratch("blocked")?;
-        fs::write(&dir, b"not a directory")?;
-        let slots = slots_in(&dir, 2)?;
-        assert!(matches!(slots.take(0), Err(SlotError::Directory { .. })));
-        fs::remove_file(&dir)?;
-        Ok(())
-    }
-
-    #[test]
-    fn a_program_that_exits_reports_its_own_status() -> Result<(), Box<dyn std::error::Error>> {
-        for code in [0_i32, 1, 7, 101] {
-            let status = Command::new("/bin/sh")
-                .arg("-c")
-                .arg(format!("exit {code}"))
-                .status()?;
-            assert_eq!(i32::from(exit_status_of(status)), code);
-        }
-        Ok(())
-    }
-}
+#[path = "churn_slot/slot_tests.rs"]
+mod slot_tests;

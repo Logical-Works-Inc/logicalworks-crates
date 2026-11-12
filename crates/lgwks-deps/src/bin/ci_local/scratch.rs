@@ -22,8 +22,9 @@
 
 use std::fs::{self, File, TryLockError};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use super::ram_disk::{self, run_quietly};
 
 #[cfg(not(target_family = "wasm"))]
 use lgwks_std::id::Uuid;
@@ -33,7 +34,7 @@ const PREFIX: &str = "lgwks-gate-";
 
 /// 4 GiB of 512-byte sectors. A RAM disk takes memory only as it is written; the
 /// simulation suites leave ~400 KB behind and peak far below this.
-const RAM_DISK_SECTORS: &str = "8388608";
+const RAM_DISK_SECTORS: u64 = 8_388_608;
 
 /// A lease younger than this is never reclaimed: its owner may not have taken
 /// the lock yet.
@@ -215,47 +216,15 @@ fn release_lease(lease: (File, PathBuf)) {
     }
 }
 
-/// Runs a program for its effect, logging a failure.
-fn run_quietly(program: &str, args: &[&str]) {
-    let outcome = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    match outcome {
-        Ok(status) if status.success() => {}
-        Ok(status) => {
-            lgwks_std::trace::debug!(program, ?status, "a scratch command did not succeed")
-        }
-        Err(error) => lgwks_std::trace::debug!(%error, program, "a scratch command could not run"),
-    }
-}
-
 /// A macOS APFS volume on a RAM disk, and the device to detach it by.
 fn make_ram_disk(name: &str) -> Option<(PathBuf, Detach)> {
-    let attached = Command::new("hdiutil")
-        .args(["attach", "-nomount", &format!("ram://{RAM_DISK_SECTORS}")])
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&attached.stdout).into_owned();
-    let device = text
-        .split_whitespace()
-        .find(|word| word.starts_with("/dev/disk"))?
-        .to_owned();
-    let erased = Command::new("diskutil")
-        .args(["erasevolume", "APFS", name, &device])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    let volume = Path::new("/Volumes").join(name);
-    if matches!(erased, Ok(status) if status.success()) && volume.is_dir() {
-        return Some((volume, Detach::Device(device)));
+    match ram_disk::attach(name, RAM_DISK_SECTORS) {
+        Ok((volume, device)) => Some((volume, Detach::Device(device))),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, name, "no ram disk for this run's scratch");
+            None
+        }
     }
-    run_quietly("hdiutil", &["detach", &device, "-force"]);
-    None
 }
 
 /// A directory under `/dev/shm` on Linux.
