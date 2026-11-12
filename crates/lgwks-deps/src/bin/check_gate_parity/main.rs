@@ -24,10 +24,16 @@
 //!      `self-hosted`: the repository is public, so a self-hosted runner would
 //!      execute a fork's pull request on the machine that hosts it (province#9,
 //!      INV-CI-RUNNER-CLASS-1).
+//!   6. One home per moved test. Every `test(...)` selector of the `app-builds`
+//!      lane is excluded by the `tests` lane and run by an `apps` row of ci.yml,
+//!      so a test the split moved runs once, neither twice nor never (ADR 0028).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
+mod lane_split;
 mod reader;
+#[cfg(test)]
+mod sim_lane_split;
 #[cfg(test)]
 mod sim_pins;
 
@@ -38,6 +44,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use lane_split::split_problems;
 use reader::{Step, read_manifest, read_workflow};
 
 /// The lane table, relative to the repository root.
@@ -316,6 +323,7 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
         problems.extend(pin_problems(&manifest.rust, "ci.yml", workflow_text));
     }
     problems.extend(self_hosted_problems("ci.yml", workflow_text));
+    problems.extend(split_problems(manifest_text, workflow_text));
     problems
 }
 

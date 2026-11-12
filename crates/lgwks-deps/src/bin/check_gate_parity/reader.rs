@@ -311,12 +311,30 @@ fn closing_triple(text: &str) -> Option<usize> {
     None
 }
 
-/// The strings a multi-line basic string holds, starting after its opening `"""`.
-fn read_multiline(lines: &[&str], cursor: &mut usize, after: &str) -> Vec<String> {
+/// The byte index of the closing `'''` of a literal string, which has no escapes.
+fn closing_literal(text: &str) -> Option<usize> {
+    text.find("'''")
+}
+
+/// The kind of multi-line string being read.
+#[derive(Clone, Copy)]
+enum Multiline {
+    /// `"""`: escapes apply.
+    Basic,
+    /// `'''`: the text is taken as written.
+    Literal,
+}
+
+/// The strings a multi-line string holds, starting after its opening quotes.
+fn read_multiline(lines: &[&str], cursor: &mut usize, after: &str, kind: Multiline) -> Vec<String> {
+    let close = match kind {
+        Multiline::Basic => closing_triple,
+        Multiline::Literal => closing_literal,
+    };
     let mut body = String::new();
     let mut current = after;
     loop {
-        if let Some(end) = closing_triple(current) {
+        if let Some(end) = close(current) {
             if let Some(piece) = current.get(..end) {
                 body.push_str(piece);
             }
@@ -334,7 +352,10 @@ fn read_multiline(lines: &[&str], cursor: &mut usize, after: &str) -> Vec<String
         Some(rest) => rest,
         None => &body,
     };
-    vec![unescape(trimmed, true)]
+    match kind {
+        Multiline::Basic => vec![unescape(trimmed, true)],
+        Multiline::Literal => vec![trimmed.to_owned()],
+    }
 }
 
 /// The strings of an array that starts at `first`, which may continue over lines.
@@ -372,7 +393,16 @@ fn read_array(lines: &[&str], cursor: &mut usize, first: &str) -> Vec<String> {
 fn read_value(lines: &[&str], cursor: &mut usize, first: &str) -> Vec<String> {
     let first = first.trim_start();
     if let Some(after) = first.strip_prefix("\"\"\"") {
-        return read_multiline(lines, cursor, after);
+        return read_multiline(lines, cursor, after, Multiline::Basic);
+    }
+    if let Some(after) = first.strip_prefix("'''") {
+        return read_multiline(lines, cursor, after, Multiline::Literal);
+    }
+    if let Some(after) = first.strip_prefix('\'') {
+        return match after.find('\'').and_then(|end| after.get(..end)) {
+            Some(text) => vec![text.to_owned()],
+            None => Vec::new(),
+        };
     }
     if let Some(after) = first.strip_prefix('"') {
         return match basic_string(after) {

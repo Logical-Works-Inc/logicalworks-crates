@@ -39,6 +39,8 @@
 //! alone, and always in a container, on any host.
 //! Exit status is the first failing command's, or 2 when the leg could not run.
 
+#[cfg(test)]
+mod lane_tests;
 mod plan;
 #[cfg(test)]
 mod tests;

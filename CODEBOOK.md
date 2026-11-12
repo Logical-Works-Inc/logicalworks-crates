@@ -49,7 +49,7 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 ### `lgwks_std::id`
 
 The estate identity type, replacing the `uuid` crate for stored identities
-(ADR 0010).
+(ADR 0010). `Uuid` implements no serde trait (ADR 0010 decision 3).
 
 | Module | Owns | Invariant |
 |---|---|---|
@@ -58,7 +58,6 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `id::tuple` | the FoundationDB tuple layer: all 12 typecodes (`Element`, `pack_element`, `pack_elements`, `unpack_element`, `unpack_elements`), `0x30` and 16 network-order bytes; `TupleError` | INV-ID-5 |
 | `math` | deterministic pure-Rust IEEE 754 `f64` and `f32` elementary functions (`sqrt`, `cbrt`, `exp`, `ln`, `pow`, `sin`, `cos`, `atan2`) | INV-STD-LOCALE-1 |
 
-`Uuid` implements no serde trait (ADR 0010 decision 3).
 ### `lgwks` (the `lgwks_deps` binary)
 
 | Module | Command |
@@ -69,12 +68,13 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `tls` | `lgwks tls`: installs rustls on ring, the agent clients' one TLS provider (`tls-ring`, ADR 0015) |
 | `common` | `Refusal`, its kinds, and the shared human and `--json` reporting |
 
-### `check-docs` (a `lgwks_deps` gate binary)
+### `check-docs` and `check-gate-parity` (`lgwks_deps` gate binaries)
 
 | Module | Owns | Invariant |
 |---|---|---|
 | `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV`, read through `lgwks_ast::hunks` | INV-DOC-3 |
 | `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs | INV-DOC-5 |
+| `check_gate_parity::lane_split`, `sim_lane_split`; `linux_container_tests::lane_tests` | rule 6: a test moved to `app-builds` runs once, never twice or never; the Linux leg's suites are the lanes' commands (ADR 0028) | INV-CI-RUNNER-CLASS-1 |
 
 ### `lgwks_ast::scan` and `lgwks_ast::hunks`
 
@@ -95,7 +95,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `script::tree::map` | `MapStep` and `write_map`, the one map rendering (#384) | SL-2 |
 | `script::tree::shape` | `FlowShape`, `StepShape` and `Passthrough`, the map's entries | SL-2 |
 | `script::emit::admit` | the domain and outside admissions a flow runs first, and the map entries it emits | SL-2 |
-| `diagnostic::tests`, `diagnostic::line_index_tests` | the located-diagnostic and line-index tests | INV-AST-2 |
+| `diagnostic::tests`, `diagnostic::line_index_tests`; `it::hostile::markdown` | the located-diagnostic and line-index tests; the markdown guard proved from child processes | INV-AST-2 |
 | `error_derive` | zero-`syn` `#[derive(Error)]` token-stream state machine and `define_error!` macro, replacing `thiserror` (#842) | INV-DEP-20 |
 
 ### `lgwks_deps` capability modules
