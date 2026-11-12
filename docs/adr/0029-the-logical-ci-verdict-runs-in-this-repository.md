@@ -58,7 +58,12 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - That prebuild was `nextest --no-run`, which compiles all 51 test binaries whatever the
   filter. On the next run it outlasted the job's 10 minutes (run 43282569391). v0.4.2's
   lane builds only the targets that hold a property test, 5 of the 51, so the job runs no
-  prebuild. On this tree that gate holds in 52.3 s from an empty target with 3 jobs.
+  prebuild. Cold on a 3-core hosted Mac it was still killed at 394 s (run 43300556873).
+- The job compiles the lane at `ci-it`'s levels: `CARGO_PROFILE_TEST_OPT_LEVEL=0` and a
+  `$CARGO_HOME/config.toml` with dependencies and lgwks_bot at 1. The test profile builds
+  dependencies at 3. Cold with sccache off and 3 jobs, the gate fell from 264.8 s wall and
+  664 s CPU to 167.5 s and 425 s. The job sets `RUSTC_WORKSPACE_WRAPPER` empty too, as every
+  ci.yml test job does, so clippy-driver lints nothing in the lane.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:

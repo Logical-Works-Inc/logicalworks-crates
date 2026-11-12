@@ -136,6 +136,17 @@ mod tests {
         if env_value(workflow, "RUSTC_WORKSPACE_WRAPPER") != Some("\"\"") {
             problems.push("logical_ci.yml lints every crate the engine compiles".to_owned());
         }
+        // The test profile builds dependencies at opt-level 3, and A02 was
+        // killed cold at 394 s (run 43300556873); ci-it's levels took the
+        // cold gate from 264.8 s to 167.5 s.
+        if env_value(workflow, "CARGO_PROFILE_TEST_OPT_LEVEL") != Some("\"0\"")
+            || !workflow.contains("[profile.test.package.\"*\"]\\nopt-level = 1")
+        {
+            problems.push(
+                "logical_ci.yml builds the property lane at the test profile's opt-levels"
+                    .to_owned(),
+            );
+        }
         // `nextest --no-run` compiles every test binary whatever the filter:
         // the prebuild built all 51 and outlasted the job's 10 minutes (run
         // 43282569391), where v0.4.2's lane builds the 5 holding a property.
@@ -286,6 +297,16 @@ mod tests {
             inline_gate_problems(&linting, &adr),
             vec!["logical_ci.yml lints every crate the engine compiles".to_owned()],
             "a copy that lets clippy-driver wrap the property build is named"
+        );
+        let optimised = gate.replacen("      CARGO_PROFILE_TEST_OPT_LEVEL: \"0\"\n", "", 1);
+        assert_ne!(optimised, gate, "the line the control removes must exist");
+        assert_eq!(
+            inline_gate_problems(&optimised, &adr),
+            vec![
+                "logical_ci.yml builds the property lane at the test profile's opt-levels"
+                    .to_owned()
+            ],
+            "a copy that builds the lane at opt-level 3 is named"
         );
         let unrecorded = adr.replacen("(run 43282569391)", "", 1);
         assert_ne!(

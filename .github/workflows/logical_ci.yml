@@ -47,6 +47,12 @@ jobs:
       # 43300556873). Lints run once, in ci.yml's Clippy jobs, as every
       # ci.yml test job sets; an empty value drops the config's wrapper.
       RUSTC_WORKSPACE_WRAPPER: ""
+      # The lane builds the test profile, which compiles dependencies at
+      # opt-level 3: cold on a 3-core hosted Mac A02 was killed at 394 s
+      # (run 43300556873). These are ci-it's levels, the profile ci.yml's
+      # test jobs build for the same 5-minute cold limit; the step after
+      # hosted-rust sets the dependency levels a variable cannot name.
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
@@ -67,6 +73,11 @@ jobs:
           toolchain: "1.99.1"
           cache-key: logical-ci
           nextest: "true"
+      # ci-it's dependency levels for the test profile: `package."*"` has no
+      # environment spelling, so it is written where cargo reads the user's
+      # config. Cold, the gate fell from 264.8 s to 167.5 s wall (ADR 0029).
+      - name: Build the lane at ci-it's opt-levels
+        run: printf '[profile.test.package."*"]\nopt-level = 1\n\n[profile.test.package.lgwks_bot]\nopt-level = 1\n' >> "$CARGO_HOME/config.toml"
       # ci/property-and-loom selects the subject's property tests with
       # nextest's filterset and probes `cargo nextest --version` first, so a
       # runner without it seals A02 UNMEASURED in 142 ms on every run
