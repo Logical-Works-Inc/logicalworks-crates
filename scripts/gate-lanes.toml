@@ -240,7 +240,7 @@ required = true
 # (SIMULATION_LISTINGS) instead of compiling every workspace test again. The
 # compiled archives this replaced took up to 177 s to upload (run
 # 43228739672, ADR 0032).
-command = "mkdir -p nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > nextest-listing/listing.json"
+command = "mkdir -p /tmp/nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > /tmp/nextest-listing/listing.json"
 ci_step = "List the suite for the simulation lane"
 
 [[lane]]

@@ -348,16 +348,18 @@ jobs:
         run: cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null
       # The simulation lane's input: the listing of the binaries this build
       # already made, once per suite. The lane only counts tests, so a JSON
-      # listing replaces the compiled archive (ADR 0032).
+      # listing replaces the compiled archive (ADR 0032). It is written outside
+      # the checkout: the authority-claims guard reads every file there, and
+      # the listing's test names mention revocation (run 43234727204).
       - name: List the suite for the simulation lane
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
-        run: mkdir -p nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > nextest-listing/listing.json
+        run: mkdir -p /tmp/nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > /tmp/nextest-listing/listing.json
       - name: Upload the suite listing
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         uses: actions/upload-artifact@v7
         with:
           name: nextest-listing-${{ matrix.archive }}-Linux
-          path: nextest-listing/listing.json
+          path: /tmp/nextest-listing/listing.json
           if-no-files-found: error
           retention-days: 1
       - name: Run all workspace tests

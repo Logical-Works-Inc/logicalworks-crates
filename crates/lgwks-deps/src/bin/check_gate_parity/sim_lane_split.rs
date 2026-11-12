@@ -294,8 +294,8 @@ fn the_simulation_lane_reads_listings_not_archives() -> TestResult {
         ))?;
     assert!(
         command.contains("cargo nextest list ${NEXTEST_BUILD} --message-format json")
-            && command.ends_with("> nextest-listing/listing.json"),
-        "the lane lists the suite it built as JSON: {command}"
+            && command.ends_with("> /tmp/nextest-listing/listing.json"),
+        "the lane lists the suite it built as JSON, outside the checkout: {command}"
     );
     assert!(
         workflow

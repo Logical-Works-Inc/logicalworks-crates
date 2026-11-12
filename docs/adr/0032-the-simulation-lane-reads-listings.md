@@ -25,7 +25,7 @@ In run 43228739672 (#931) every bot-it shard uploaded its archive before its tes
 ## Decision
 
 The first shard of each suite writes `cargo nextest list --message-format json` of the build it
-already made to `nextest-listing/listing.json` and uploads only that, as
+already made to `/tmp/nextest-listing/listing.json` and uploads only that, as
 `nextest-listing-<archive>-Linux`, kept one day. `SIMULATION_LISTINGS` names the downloaded files
 and the lane reads them as JSON. With nothing named it lists the workspace from source, as before.
 
@@ -39,7 +39,10 @@ and the lane reads them as JSON. With nothing named it lists the workspace from 
 ## Consequences
 
 - The lane counts exactly what it counted before, from the same listing JSON, and extracts nothing.
-- A shard's upload is one JSON file, so its tests start once its build ends.
+- A shard's upload is one JSON file, so its tests start once its build ends: 1 s to list and
+  1 s to upload on run 43234727204.
+- The listing is written outside the checkout. In the checkout, the authority-claims guard read
+  its test names as revocation claims and failed bot-it-g3 (run 43234727204).
 - An unreadable listing is the lane's I/O error naming the file; a listing that is not JSON is a
   refusal naming it.
 
