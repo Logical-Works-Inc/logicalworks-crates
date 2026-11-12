@@ -130,6 +130,12 @@ mod tests {
                     .to_owned(),
             );
         }
+        // clippy-driver, the config's workspace wrapper, linted every crate
+        // the property build compiled; A02 was killed at 394 s (run
+        // 43300556873). Lints run once, in ci.yml's Clippy jobs.
+        if env_value(workflow, "RUSTC_WORKSPACE_WRAPPER") != Some("\"\"") {
+            problems.push("logical_ci.yml lints every crate the engine compiles".to_owned());
+        }
         // `nextest --no-run` compiles every test binary whatever the filter:
         // the prebuild built all 51 and outlasted the job's 10 minutes (run
         // 43282569391), where v0.4.2's lane builds the 5 holding a property.
@@ -273,6 +279,13 @@ mod tests {
             inline_gate_problems(&unguarded, &adr),
             vec!["logical_ci.yml shows lane output without checking a record exists".to_owned()],
             "a show step that fails on a missing record is named"
+        );
+        let linting = gate.replacen("      RUSTC_WORKSPACE_WRAPPER: \"\"\n", "", 1);
+        assert_ne!(linting, gate, "the line the control removes must exist");
+        assert_eq!(
+            inline_gate_problems(&linting, &adr),
+            vec!["logical_ci.yml lints every crate the engine compiles".to_owned()],
+            "a copy that lets clippy-driver wrap the property build is named"
         );
         let unrecorded = adr.replacen("(run 43282569391)", "", 1);
         assert_ne!(

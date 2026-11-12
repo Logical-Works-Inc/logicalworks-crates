@@ -41,6 +41,12 @@ jobs:
       # workspace target lets the hosted-rust step below restore main's
       # dependency build into the same directory the lanes compile in.
       LOGICAL_CI_TARGET_DIR: ${{ github.workspace }}/target
+      # `.cargo/config.toml` makes clippy-driver every build's workspace
+      # wrapper, so the engine's property build linted every crate it
+      # compiled, and A02 was killed at 394 s still compiling (run
+      # 43300556873). Lints run once, in ci.yml's Clippy jobs, as every
+      # ci.yml test job sets; an empty value drops the config's wrapper.
+      RUSTC_WORKSPACE_WRAPPER: ""
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
