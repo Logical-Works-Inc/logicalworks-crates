@@ -67,5 +67,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
 | [0032](0032-the-simulation-lane-reads-listings.md) | The simulation lane reads listings, not archives |
 | [0033](0033-the-bot-shards-hash-optimized.md) | The bot shards hash optimized |
+| [0034](0034-a-stream-a-key-and-a-tree-stop-read-whole.md) | A stream, a key and a tree stop read whole |
 
 New records go at the bottom of that table.
