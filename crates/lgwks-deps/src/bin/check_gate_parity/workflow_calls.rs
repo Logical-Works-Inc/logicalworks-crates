@@ -108,6 +108,15 @@ mod tests {
                 ));
             }
         }
+        // The seal names every platform's binaries; lci-verify exited 2 on
+        // v0.4.1 with the macOS pair alone, so every binary is downloaded.
+        for needle in ["--pattern \"logical_ci-*\"", "--pattern \"lci-verify-*\""] {
+            if !workflow.contains(needle) {
+                problems.push(format!(
+                    "logical_ci.yml downloads less than the seal names: no `{needle}`"
+                ));
+            }
+        }
         // The engine compiles this repository, whose `.cargo/config.toml`
         // links macOS with ld64.lld; a bare runner failed every compile in
         // 30 s (run 43242590489), so the repository's own setup runs first.
@@ -174,6 +183,19 @@ mod tests {
                     .to_owned()
             ],
             "a copy that runs the engine on a bare runner is named"
+        );
+        let partial = gate.replacen(
+            "--pattern \"lci-verify-*\"",
+            "--pattern \"lci-verify-macos-arm64\"",
+            1,
+        );
+        assert_eq!(
+            inline_gate_problems(&partial, &adr),
+            vec![
+                "logical_ci.yml downloads less than the seal names: no `--pattern \"lci-verify-*\"`"
+                    .to_owned()
+            ],
+            "a copy that downloads one platform's verifier alone is named"
         );
         let clobbering = gate.replacen("if: steps.tools.outputs.nextest != 'held'", "", 1);
         assert_eq!(

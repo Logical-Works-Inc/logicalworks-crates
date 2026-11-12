@@ -3,9 +3,11 @@ name: logical_ci
 # This repository is public and logical_ci is private, and GitHub never lets a
 # public repository call a private reusable workflow: the `uses:` call failed in
 # 0 s on every run. The job below is logical_ci's own gate.yml at
-# Logical-Works-Inc/logical_ci@05cc968962397ca7c89095fcae8c0719400eafb9 (#213,
-# over "gate: pin the signed v0.3.0 release"), step for step, with its pins
-# unchanged.
+# Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
+# step for step on its macos-arm64 asset, re-pinned to
+# pin the signed v0.4.1 release: its ci/property-and-loom builds only the packages that model
+# loom, where v0.3.0 built every member in release and ran A02 out of its
+# 397.9 s lane (run 43244596498).
 on:
   pull_request:
   push:
@@ -24,7 +26,7 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.3.0 publishes only a macos-arm64 binary and verifier, and the pins are of those bytes.
+    # mac-specific: logical_ci v0.4.1 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
     runs-on: macos-latest
     timeout-minutes: 10
     env:
@@ -32,11 +34,11 @@ jobs:
       LCI_TENANT: crates
       LCI_HARDNESS: C
       LCI_GATES: ''
-      LCI_RELEASE: v0.3.0
+      LCI_RELEASE: v0.4.1
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: 'd3a298375601d011f391798208c6b4eee63e70ce02ea772dd14eaa92ce807ad9'
+      LCI_VERIFIER_SHA256: 'baf32cc4756aa143746bdc788f885f75837a522757b97bbc15927af5250db02d'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -87,7 +89,10 @@ jobs:
           test -n "$GH_TOKEN" || { echo "LOGICAL_CI_TOKEN is not set on this repository"; exit 1; }
           LCI_DIST="$RUNNER_TEMP/lci"
           mkdir -p "$LCI_DIST"
-          gh release download "$LCI_RELEASE" --repo Logical-Works-Inc/logical_ci --pattern "logical_ci-macos-arm64" --pattern "lci-verify-macos-arm64" --pattern "release.blake3" --pattern "release.sig" --clobber --dir "$LCI_DIST"
+          # The seal digests every platform's binaries, and lci-verify exits 2
+          # when one it names is absent (v0.4.1 with the macOS pair alone), so
+          # every binary the release holds is downloaded.
+          gh release download "$LCI_RELEASE" --repo Logical-Works-Inc/logical_ci --pattern "logical_ci-*" --pattern "lci-verify-*" --pattern "release.blake3" --pattern "release.sig" --clobber --dir "$LCI_DIST"
           chmod +x "$LCI_DIST/logical_ci-macos-arm64" "$LCI_DIST/lci-verify-macos-arm64"
       - name: Pin the verifier
         run: echo "$LCI_VERIFIER_SHA256  $RUNNER_TEMP/lci/lci-verify-macos-arm64" | shasum -a 256 -c -
