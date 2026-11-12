@@ -65,5 +65,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0027](0027-the-repository-profile-wins-over-the-home-one.md) | The repository's dev profile wins over the home one, scratch apps included |
 | [0028](0028-a-cold-run-fits-the-budget.md) | A cold run fits the budget |
 | [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
+| [0032](0032-the-simulation-lane-reads-listings.md) | The simulation lane reads listings, not archives |
 
 New records go at the bottom of that table.

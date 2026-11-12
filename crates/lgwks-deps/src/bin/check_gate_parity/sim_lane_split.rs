@@ -285,6 +285,101 @@ fn the_update_skill_names_what_the_lockfile_lane_prints() -> TestResult {
     Ok(())
 }
 
+/// Catches the simulation lane going back to compiled test archives.
+///
+/// Source: run 43228739672 (#931). Every bot-it shard uploaded its compiled
+/// suite for the lane, 2 to 177 s each, and bot-it-g5 was cancelled at its
+/// 5-minute cap at test 303 of 325 with every test passing (ADR 0032). The lane
+/// only counts tests, so each suite's first shard uploads its JSON listing,
+/// and every suite the waiter names is one listing the lane reads.
+#[test]
+fn the_simulation_lane_reads_listings_not_archives() -> TestResult {
+    let manifest = read_repo(MANIFEST_REL)?;
+    let workflow = read_repo(WORKFLOW_REL)?;
+    for (name, text) in [
+        ("lane table", manifest.as_str()),
+        ("workflow", workflow.as_str()),
+    ] {
+        let commands = text
+            .lines()
+            .filter(|line| !line.trim_start().starts_with('#'));
+        for line in commands {
+            for archive in [
+                "cargo nextest archive",
+                "--archive-file",
+                "nextest-archive",
+                "SIMULATION_ARCHIVES",
+            ] {
+                assert!(
+                    !line.contains(archive),
+                    "the {name} still runs {archive}: {line}"
+                );
+            }
+        }
+    }
+    let lanes = read_manifest(&manifest).lanes;
+    let command = lanes
+        .iter()
+        .find(|lane| lane.id == "simulation-listing")
+        .and_then(|lane| lane.command.as_deref())
+        .ok_or(SimError::Shape(
+            "the lane table holds no simulation-listing command",
+        ))?;
+    assert!(
+        command.contains("cargo nextest list ${NEXTEST_BUILD} --message-format json")
+            && command.ends_with("> /tmp/nextest-listing/listing.json"),
+        "the lane lists the suite it built as JSON, outside the checkout: {command}"
+    );
+    assert!(
+        workflow
+            .lines()
+            .any(|line| line.trim() == format!("run: {command}")),
+        "the workflow runs the lane's listing command"
+    );
+    let named = workflow
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("SIMULATION_LISTINGS: "))
+        .ok_or(SimError::Shape("the workflow names no SIMULATION_LISTINGS"))?;
+    let waited = workflow
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("for suite in "))
+        .and_then(|rest| rest.strip_suffix("; do"))
+        .ok_or(SimError::Shape("the workflow has no listing waiter"))?;
+    let suites: Vec<&str> = waited.split_whitespace().collect();
+    let files: Vec<&str> = named.split_whitespace().collect();
+    let wanted: Vec<String> = suites
+        .iter()
+        .map(|suite| format!("nextest-listing/nextest-listing-{suite}-Linux/listing.json"))
+        .collect();
+    assert_eq!(
+        files, wanted,
+        "the lane reads one listing per waited suite, in order"
+    );
+    let mut distinct = suites.clone();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert_eq!(
+        distinct.len(),
+        suites.len(),
+        "no two suites share a listing"
+    );
+    let upload: Vec<&str> = workflow
+        .lines()
+        .skip_while(|line| !line.contains("name: Upload the suite listing"))
+        .take(8)
+        .collect();
+    for wanted in [
+        "name: nextest-listing-${{ matrix.archive }}-Linux",
+        "retention-days: 1",
+    ] {
+        assert!(
+            upload.iter().any(|line| line.trim() == wanted),
+            "the listing upload keeps {wanted}: {upload:?}"
+        );
+    }
+    Ok(())
+}
+
 /// Catches a verdict that depends on anything but the seed.
 #[test]
 fn sim_the_same_seed_replays_the_same_split_verdict() -> TestResult {
