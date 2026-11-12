@@ -148,6 +148,43 @@ impl<R: Durable> RecordJournal<R> {
         Ok(acks)
     }
 
+    /// Whether the next append would take `record`, asked without writing it.
+    ///
+    /// A consumer that stages records and syncs them as a group asks this before
+    /// it folds a record into its view, so a record the file would refuse never
+    /// reaches the view. It runs the append's own checks, on the same path: the
+    /// seal, the stale-handle fence, the event and byte ceilings, and the frame
+    /// ceiling on the archived record. Nothing is written and
+    /// [`RecordJournal::committed`] does not move.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+    /// use lgwks_bot::journal::{JournalError, RecordJournal};
+    ///
+    /// let path = std::env::temp_dir().join(format!("record-doc-admits-{}", std::process::id()));
+    /// # drop(std::fs::remove_file(&path));
+    /// let journal = RecordJournal::<Vec<u8>>::open(&path)?;
+    /// journal.admits(&vec![7; 16])?;
+    /// let refused = journal.admits(&vec![7; 128 * 1024]);
+    /// assert!(matches!(refused, Err(JournalError::CapacityExceeded { .. })));
+    /// assert_eq!(journal.committed(), 0);
+    /// # drop(journal);
+    /// # drop(std::fs::remove_file(&path));
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// What [`RecordJournal::compare_and_append`] would report before writing:
+    /// [`JournalError::Superseded`], [`JournalError::CapacityExceeded`],
+    /// [`JournalError::Encoding`], and [`JournalError::Storage`] for a stale handle.
+    pub fn admits(&self, record: &R) -> Result<(), JournalError> {
+        self.prepare(self.position, record).map(|_| ())
+    }
+
     /// Everything one append checks and frames before the disk is touched.
     fn prepare(
         &self,
