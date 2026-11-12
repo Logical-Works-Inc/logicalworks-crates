@@ -33,6 +33,8 @@ opt-level 0, so the shards' build cost is unchanged apart from that one crate.
 
 - Measured locally under `--cargo-profile ci-bot`: the noise test 18.704 s before, 1.024 s after;
   the rebuild compiled blake3 and relinked.
+- Measured on CI, Linux bot-rest slice 2: the noise test 40.8 s on run 43237164800, 2.151 s on run
+  43243826845; the slice's nextest summary 19.042 s for 400 tests, against a 52.8 s step before.
 - The profile tables are part of the shards' cache key (ADR 0028), so the first run after this
   lands builds the bot shards cold, once.
 
