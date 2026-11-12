@@ -68,5 +68,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0030](0030-a-loom-model-of-the-v7-generator.md) | A loom model of the v7 generator |
 | [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
 | [0032](0032-the-simulation-lane-reads-listings.md) | The simulation lane reads listings, not archives |
+| [0033](0033-the-bot-shards-hash-optimized.md) | The bot shards hash optimized |
 
 New records go at the bottom of that table.

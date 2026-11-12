@@ -247,26 +247,56 @@ fn check_store_gate(store_dir: &std::path::Path) -> Result<(), ServeRefError> {
     Ok(())
 }
 
-/// Block until SIGINT, SIGTERM or `done`, then give `stop`.
+/// Arm SIGINT and SIGTERM, say so on `armed`, then block until one arrives or
+/// `done`, and give `stop`.
+///
+/// The handlers are installed before `armed` is sent, and `run` prints its
+/// ready line and serves only after it receives that, so a signal from the
+/// ready line on drains instead of taking the default action. Run 43219123584
+/// lost that race: the old watcher armed after the server already answered.
 async fn watch_stop(
     stop: lgwks_bot::rt::edge::EdgeStop,
     done: lgwks_bot::rt::sync::CancellationToken,
+    armed: std::sync::mpsc::SyncSender<()>,
 ) -> Result<(), ServeRefError> {
     #[cfg(unix)]
-    let mut terminate =
-        lgwks_bot::rt::signal::unix::signal(lgwks_bot::rt::signal::unix::SignalKind::terminate())
-            .map_err(ServeRefError::Signal)?;
+    let (mut terminate, mut interrupt) = {
+        use lgwks_bot::rt::signal::unix::{SignalKind, signal};
+        let terminate = signal(SignalKind::terminate()).map_err(ServeRefError::Signal)?;
+        let interrupt = signal(SignalKind::interrupt()).map_err(ServeRefError::Signal)?;
+        (terminate, interrupt)
+    };
+    if let Err(error) = armed.send(()) {
+        lgwks_std::trace::debug!(error = ?error, "estate-serve: nobody waits for the stop signals to arm");
+    }
     #[cfg(unix)]
-    let terminated = terminate.recv();
+    lgwks_deps::tokio::select! {
+        _ = terminate.recv() => {}
+        _ = interrupt.recv() => {}
+        () = done.cancelled() => {}
+    }
     #[cfg(not(unix))]
-    let terminated = std::future::pending::<Option<()>>();
     lgwks_deps::tokio::select! {
         interrupted = lgwks_bot::rt::signal::ctrl_c() => interrupted.map_err(ServeRefError::Signal)?,
-        _ = terminated => {}
         () = done.cancelled() => {}
     }
     stop.stop();
     Ok(())
+}
+
+/// How long `run` waits for the stop signals to arm before it refuses to serve.
+const ARM_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The watcher's own refusal once it ended before arming, or one naming that.
+fn unarmed(watcher: std::thread::ScopedJoinHandle<'_, Result<(), ServeRefError>>) -> ServeRefError {
+    let error = match watcher.join() {
+        Ok(Err(error)) => error,
+        Ok(Ok(())) | Err(_) => ServeRefError::Signal(std::io::Error::other(
+            "the stop watcher ended before it armed its signals",
+        )),
+    };
+    lgwks_std::trace::debug!(error = ?error, "estate-serve: the stop signals never armed");
+    error
 }
 
 /// Map a registry refusal into the serve error, logged as every refusal is.
@@ -367,11 +397,20 @@ pub fn run(args: &[String]) -> Result<(), ServeRefError> {
     let routes = std::vec![drafts, openapi];
     let listener =
         std::net::TcpListener::bind(format!("127.0.0.1:{port}")).map_err(ServeRefError::Bind)?;
-    say(&format!("serving drafts on 127.0.0.1:{port} store={store}"));
     let stop = lgwks_bot::rt::edge::EdgeStop::new();
     let done = lgwks_bot::rt::sync::CancellationToken::new();
-    let report: lgwks_bot::rt::serve::ServeReport = std::thread::scope(|scope| {
-        let watcher = scope.spawn(|| lgwks_bot::block_on(watch_stop(stop.clone(), done.clone())));
+    let (armed, armed_seen) = std::sync::mpsc::sync_channel::<()>(1);
+    let report = std::thread::scope(|scope| {
+        let (watched, watch_done) = (stop.clone(), done.clone());
+        let watcher =
+            scope.spawn(move || lgwks_bot::block_on(watch_stop(watched, watch_done, armed)));
+        if armed_seen.recv_timeout(ARM_DEADLINE).is_err() {
+            done.cancel();
+            let error = unarmed(watcher);
+            lgwks_std::trace::debug!(error = ?error, "estate-serve: the stop watcher hung up before arming");
+            return Err(error);
+        }
+        say(&format!("serving drafts on 127.0.0.1:{port} store={store}"));
         let served = lgwks_bot::rt::serve::serve(&options, routes, listener, &stop);
         done.cancel();
         match watcher.join() {
@@ -381,9 +420,8 @@ pub fn run(args: &[String]) -> Result<(), ServeRefError> {
             }
             Err(_) => lgwks_std::trace::debug!("estate-serve: the stop watcher panicked"),
         }
-        served
-    })
-    .map_err(ServeRefError::Serve)?;
+        served.map_err(ServeRefError::Serve)
+    })?;
     let drained = report.drained();
     let cancelled = report.cancelled();
     let served_port = report.port();

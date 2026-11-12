@@ -242,3 +242,9 @@ opt-level = 0
 
 [profile.ci-bot.package.lgwks_bot]
 opt-level = 1
+
+# blake3 is the one dependency the bot suites spend their time in: the journal
+# frame search hashes about 2 GiB for its noise case, 40.8 s of a 52.8 s
+# bot-rest shard at opt-level 0, which put run 43237164800 at 330 s (ADR 0033).
+[profile.ci-bot.package.blake3]
+opt-level = 3
