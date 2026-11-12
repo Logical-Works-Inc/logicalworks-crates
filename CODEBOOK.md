@@ -54,7 +54,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | Module | Owns | Invariant |
 |---|---|---|
 | `id` | `Uuid`: parse, display, bytes, versions 4 and 7 | INV-ID-1 |
-| `id::v7` | the process-wide RFC 9562 method 1 generator; `new_v7` refuses, `now_v7` clamps | INV-ID-2, INV-ID-4 |
+| `id::v7`, `id::loom_v7_tests` | the process-wide RFC 9562 method 1 generator; `new_v7` refuses, `now_v7` clamps; loom proves the lock order is the issue order (ADR 0030) | INV-ID-2, INV-ID-4 |
 | `id::tuple` | the FoundationDB tuple layer: all 12 typecodes (`Element`, `pack_element`, `pack_elements`, `unpack_element`, `unpack_elements`), `0x30` and 16 network-order bytes; `TupleError` | INV-ID-5 |
 | `math` | deterministic pure-Rust IEEE 754 `f64` and `f32` elementary functions (`sqrt`, `cbrt`, `exp`, `ln`, `pow`, `sin`, `cos`, `atan2`) | INV-STD-LOCALE-1 |
 
@@ -74,7 +74,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 |---|---|---|
 | `check_docs` | ADR fields (ISO/IEC/IEEE 42010) and PRD attributes (29148); `--base REV`, read through `lgwks_ast::hunks` | INV-DOC-3 |
 | `check_docs::prose` | the reader rules: title, opening sentence, fence language, heading levels, live links, 45-word sentences, 8-sentence paragraphs | INV-DOC-5 |
-| `check_gate_parity::lane_split`, `sim_lane_split`, `neuter`; `linux_container_tests::lane_tests` | rule 6: a test moved to `app-builds` runs once, never twice or never; the Linux leg's suites are the lanes' commands (ADR 0028); rule 7, `neuter`: no gate step swallows its failure and no job or step is `if: false` or `continue-on-error: true` (ADR 0035) | INV-CI-RUNNER-CLASS-1, INV-CI-NEUTER-1 |
+| `check_gate_parity::lane_split`, `sim_lane_split`, `neuter`, `workflow_calls`, `partitions`, `sim_partitions`; `linux_container_tests::lane_tests` | rule 6: a test moved to `app-builds` runs once, never twice or never; the Linux leg's suites are the lanes' commands (ADR 0028); rule 7, `neuter`: no gate step swallows its failure and no job or step is `if: false` or `continue-on-error: true` (ADR 0035); rule 8: no workflow calls another repository's (ADR 0029); rule 9: a sliced row's step passes `--partition` (#923) | INV-CI-RUNNER-CLASS-1, INV-CI-NEUTER-1 |
 
 ### `lgwks_ast::scan` and `lgwks_ast::hunks`
 

@@ -1,11 +1,176 @@
 name: logical_ci
+# The logical_ci verdict for tenant `crates` at hardness C (ADR 0029).
+# This repository is public and logical_ci is private, and GitHub never lets a
+# public repository call a private reusable workflow: the `uses:` call failed in
+# 0 s on every run. The job below is logical_ci's own gate.yml at
+# Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
+# step for step on its macos-arm64 asset, re-pinned to
+# pin the signed v0.4.3 release: its ci/property-and-loom builds only the targets that hold a
+# property test (5 of this workspace's 51 test binaries) and the packages that model loom,
+# where a whole-workspace build ran A02 out of its 397.9 s lane (runs 43244596498, 43278464658).
 on:
   pull_request:
   push:
     branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: logical-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   gate:
-    uses: Logical-Works-Inc/logical_ci/.github/workflows/gate.yml@v0.1.0
-    with:
-      tenant: crates
-      hardness: C
+    name: logical_ci
+    # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
+    # fail at the download; it skips instead of reporting a false NO-GO.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # mac-specific: logical_ci v0.4.3 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      CARGO_TERM_COLOR: never
+      LCI_TENANT: crates
+      LCI_HARDNESS: C
+      LCI_GATES: ''
+      LCI_RELEASE: v0.4.3
+      # The engine built every lane's Rust into its own cache directory, which
+      # no rust-cache entry holds, so A02 compiled the workspace cold on every
+      # run and its lane ended at 397.1 s (run 43273499037). Building into the
+      # workspace target lets the hosted-rust step below restore main's
+      # dependency build into the same directory the lanes compile in.
+      LOGICAL_CI_TARGET_DIR: ${{ github.workspace }}/target
+      # `.cargo/config.toml` makes clippy-driver every build's workspace
+      # wrapper, so the engine's property build linted every crate it
+      # compiled, and A02 was killed at 394 s still compiling (run
+      # 43300556873). Lints run once, in ci.yml's Clippy jobs, as every
+      # ci.yml test job sets; an empty value drops the config's wrapper.
+      RUSTC_WORKSPACE_WRAPPER: ""
+      # The lane builds the test profile, which compiles dependencies at
+      # opt-level 3: cold on a 3-core hosted Mac A02 was killed at 394 s
+      # (run 43300556873). These are ci-it's levels, the profile ci.yml's
+      # test jobs build for the same 5-minute cold limit; the step after
+      # hosted-rust sets the dependency levels a variable cannot name.
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
+      # The release ed25519 public key and the verifier's sha256, pinned by
+      # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
+      LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
+      LCI_VERIFIER_SHA256: '2a8ad3bb200aed08ef0227f286c617f38a70d51103aab1aa156be1549f7207f0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      # The subject's own build environment, as every ci.yml job prepares it.
+      # `.cargo/config.toml` links macOS builds with /opt/homebrew/bin/ld64.lld,
+      # which a bare runner lacks, so every compile the engine started failed
+      # within 30 s and A02 sealed NO-GO (run 43242590489). This step is the
+      # repository's, not gate.yml's: it pins 1.99.1, links the toolchain's
+      # rust-lld there, and restores main's dependency build.
+      - name: Prepare this repository's Rust
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "1.99.1"
+          cache-key: logical-ci
+          nextest: "true"
+      # ci-it's dependency levels for the test profile: `package."*"` has no
+      # environment spelling, so it is written where cargo reads the user's
+      # config. Cold, the gate fell from 264.8 s to 167.5 s wall (ADR 0029).
+      # The hosted Mac's $CARGO_HOME may not exist yet: the append alone
+      # failed with "No such file or directory" (run 43310559327).
+      - name: Build the lane at ci-it's opt-levels
+        run: |
+          mkdir -p "$CARGO_HOME"
+          printf '[profile.test.package."*"]\nopt-level = 1\n\n[profile.test.package.lgwks_bot]\nopt-level = 1\n' >> "$CARGO_HOME/config.toml"
+      # ci/property-and-loom selects the subject's property tests with
+      # nextest's filterset and probes `cargo nextest --version` first, so a
+      # runner without it seals A02 UNMEASURED in 142 ms on every run
+      # (#923, run 43232168262). A runner that already holds that nextest
+      # keeps it: writing over a binary its other jobs run failed with curl 56
+      # (logical_ci#213 selftest).
+      - name: Find the tools the runner already holds
+        id: tools
+        run: |
+          case "$(cargo nextest --version 2>/dev/null)" in
+            "cargo-nextest 0.9.149"*) echo "nextest=held" >> "$GITHUB_OUTPUT" ;;
+            *) echo "nextest=absent" >> "$GITHUB_OUTPUT" ;;
+          esac
+      - name: Install the tools the engine's lanes probe
+        if: steps.tools.outputs.nextest != 'held'
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: nextest@0.9.149
+      - name: Refuse an unpinned gate
+        run: |
+          for pin in "$LCI_RELEASE_PUBKEY" "$LCI_VERIFIER_SHA256"; do
+            case "$pin" in
+              ''|*[!0-9a-f]*) echo "logical_ci.yml is not pinned to a release"; exit 1;;
+            esac
+            test "${#pin}" = "64" || { echo "logical_ci.yml is not pinned to a release"; exit 1; }
+            test "$pin" != "0000000000000000000000000000000000000000000000000000000000000000" || { echo "logical_ci.yml is not pinned to a release"; exit 1; }
+          done
+      - name: Download pinned release
+        env:
+          GH_TOKEN: ${{ secrets.LOGICAL_CI_TOKEN }}
+        run: |
+          test -n "$GH_TOKEN" || { echo "LOGICAL_CI_TOKEN is not set on this repository"; exit 1; }
+          LCI_DIST="$RUNNER_TEMP/lci"
+          mkdir -p "$LCI_DIST"
+          # The seal digests every platform's binaries, and lci-verify exits 2
+          # when one it names is absent (v0.4.1 with the macOS pair alone), so
+          # every binary the release holds is downloaded.
+          gh release download "$LCI_RELEASE" --repo Logical-Works-Inc/logical_ci --pattern "logical_ci-*" --pattern "lci-verify-*" --pattern "release.blake3" --pattern "release.sig" --clobber --dir "$LCI_DIST"
+          chmod +x "$LCI_DIST/logical_ci-macos-arm64" "$LCI_DIST/lci-verify-macos-arm64"
+      - name: Pin the verifier
+        run: echo "$LCI_VERIFIER_SHA256  $RUNNER_TEMP/lci/lci-verify-macos-arm64" | shasum -a 256 -c -
+      - name: Verify release plan and seal
+        env:
+          LCI_VERIFY_OP: verify
+          LCI_VERIFY_PLAN: release.blake3
+          LCI_VERIFY_SIG: release.sig
+          LCI_VERIFY_PUBKEY: ${{ env.LCI_RELEASE_PUBKEY }}
+        run: |
+          export LCI_VERIFY_DIR="$RUNNER_TEMP/lci"
+          "$LCI_VERIFY_DIR/lci-verify-macos-arm64"
+      - name: Write subject plan when absent
+        run: test -f .logical_ci/plan.json || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" plan --new
+      - name: Init tenant policy (idempotent by policy version)
+        run: '"$RUNNER_TEMP/lci/logical_ci-macos-arm64" init --tenant "$LCI_TENANT" --gates "$LCI_GATES" --hardness "$LCI_HARDNESS"'
+      # The lane's own targets, built before the engine runs. Cold on a 3-slot
+      # hosted Mac, v0.4.3's narrowed lane was still compiling when its 392.8 s
+      # cap killed it (run 43315235672). A `--no-run` naming no target compiled
+      # all 51 test binaries and outlasted the job (run 43282569391); this one
+      # names the 5 targets the engine's log printed, so the compile spends
+      # the job's 10 minutes and the lane runs on built targets.
+      - name: Build the property lane's targets
+        run: cargo nextest run --locked -p lgwks_ast -p lgwks_bot -p lgwks_deps -p lgwks_std --bin lgwks-deps --lib --test it --no-run
+      - name: Run ci and keep the sealed record
+        id: ci
+        continue-on-error: true
+        run: |
+          LCI_RECORD="$RUNNER_TEMP/logical_ci-record.json"
+          set +e; "$RUNNER_TEMP/lci/logical_ci-macos-arm64" ci --tenant "$LCI_TENANT" --json > "$LCI_RECORD"; code=$?; set -e
+          echo "exit=$code" | tee -a "$GITHUB_OUTPUT"; cat "$LCI_RECORD"
+      # The sealed record keeps each lane's output by digest alone, so a lane
+      # that ran out of time named no step (run 43273499037). `show` prints
+      # each lane's redacted output tail from the run the record names. A job
+      # that failed before the engine ran has no record, and jq's exit 2 on
+      # the missing file failed this step too (run 43296258554); that job's
+      # failure is the earlier step's own.
+      - name: Show each lane's output
+        if: always()
+        run: |
+          test -f "$RUNNER_TEMP/logical_ci-record.json" || exit 0
+          run_id="$(jq -r '.run_id // empty' "$RUNNER_TEMP/logical_ci-record.json")"
+          test -z "$run_id" || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" show "$run_id" --tenant "$LCI_TENANT"
+      - name: Upload sealed record
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: logical_ci-record
+          path: ${{ runner.temp }}/logical_ci-record.json
+          if-no-files-found: error
+      - name: Enforce GO
+        env:
+          CI_EXIT: ${{ steps.ci.outputs.exit }}
+        run: |
+          case "$CI_EXIT" in 0) echo "logical_ci GO";; 1) echo "logical_ci NO-GO"; exit 1;; *) echo "logical_ci UNMEASURED (exit $CI_EXIT)"; exit 1;; esac

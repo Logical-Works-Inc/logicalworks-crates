@@ -78,7 +78,10 @@ One owner per layer, both in `hosted-rust`:
   and pull requests evicted main's entries and compiled cold. The key's hash
   is the action's own, over what the dependency build is compiled from (ADR
   0028), because rust-cache's hash moved on any manifest or config edit, and a
-  miss deleted every restored artifact older than a week.
+  miss deleted every restored artifact older than a week. A pull request that
+  moves a registry package misses that key, so a read-only restore then lays
+  main's newest entry for the group under it, and cargo rebuilds only what
+  moved (ADR 0036).
 
 The scaffolded-app journeys (lane `app-builds`) run on two `tests_linux` rows of
 their own, `apps run` and `apps clippy`. Each nests a cargo build of a new app's

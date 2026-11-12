@@ -94,8 +94,9 @@ runs:
     # registry and git packages of Cargo.lock, the members' dependency lists
     # with their own versions dropped (a release changes none), the root
     # profiles and the build environment. With rust-cache's hashes off, its key
-    # and restore key are this one string, so a restore is exact or nothing,
-    # and nothing it restored is deleted.
+    # and restore key are this one string, so its restore is exact or nothing,
+    # and nothing it restored is deleted; on a pull request's miss the step
+    # after it lays main's newest entry for the group underneath (ADR 0036).
     - name: Key the dependency build by what it is compiled from
       if: inputs.caches == 'true'
       id: deps-key
@@ -115,6 +116,7 @@ runs:
         echo "hash=${hash}" >> "${GITHUB_OUTPUT}"
     - name: Cache the registry and the dependency build
       if: inputs.caches == 'true'
+      id: rust-cache
       uses: Swatinem/rust-cache@v2
       with:
         shared-key: ${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}
@@ -127,6 +129,38 @@ runs:
         # cold, so a second run's cache hit proves nothing.
         save-if: ${{ github.ref == 'refs/heads/main' }}
         cache-on-failure: "true"
+    # A pull request that moves a registry package misses the exact key, and
+    # every shard compiled cold: #923 added loom to Cargo.lock, slice 6 built
+    # for 2 m 34 s against main's 44 s, and the run walled at 312 s (run
+    # 43311128730). rust-cache's pre-clean has run on that miss, so laying
+    # main's newest entry for this group under it afterwards deletes nothing:
+    # cargo's fingerprints rebuild only what the lockfile moved. These are the
+    # paths rust-cache saves, in its order, so the entry's version matches; a
+    # read here never saves, and rust-cache stays the one owner that writes.
+    - name: Name the paths of main's dependency build
+      if: inputs.caches == 'true' && github.ref != 'refs/heads/main' && steps.rust-cache.outputs.cache-hit != 'true'
+      id: base-paths
+      shell: bash
+      run: |
+        set -euo pipefail
+        home="${CARGO_HOME:-$HOME/.cargo}"
+        {
+          echo "paths<<LGWKS_PATHS"
+          printf '%s\n' "${home}/bin" "${home}/.crates.toml" "${home}/.crates2.json" "${home}/registry" "${home}/git" "${GITHUB_WORKSPACE}/target"
+          echo "LGWKS_PATHS"
+        } >> "${GITHUB_OUTPUT}"
+    - name: Restore main's nearest dependency build under a moved lockfile
+      if: steps.base-paths.outcome == 'success'
+      id: base-build
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.base-paths.outputs.paths }}
+        key: v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}-base
+        restore-keys: v0-rust-${{ inputs.cache-key }}-
+    - name: Report the base build
+      if: steps.base-paths.outcome == 'success'
+      shell: bash
+      run: echo "base build ${{ steps.base-build.outputs.cache-matched-key || 'none' }}"
     - name: Install sccache
       if: inputs.caches == 'true' && inputs.sccache == 'true'
       continue-on-error: true

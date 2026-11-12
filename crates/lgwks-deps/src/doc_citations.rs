@@ -419,4 +419,49 @@ mod tests {
         );
         Ok(())
     }
+
+    /// Run 43191943628: ADR 0030 cited `src/property.rs:152`, a file only
+    /// logical_ci has. A citation into another repository resolves nowhere
+    /// here, so it is refused by name and the lock is left alone, while a
+    /// citation of this repository's own file beside it still resolves.
+    #[test]
+    fn a_citation_of_a_file_only_another_repository_has_is_refused() -> TestResult {
+        // A process id is reused by the OS; the estate's entropy names the tree.
+        let nonce = lgwks_std::hex::encode(lgwks_std::random::bytes::<8>()?);
+        let root = std::env::temp_dir().join(format!("lgwks-doc-cite-{nonce}"));
+        std::fs::create_dir_all(root.join("docs/adr"))?;
+        std::fs::create_dir_all(root.join("crates/lgwks-std/src"))?;
+        // The std inventory compares these two; empty, they agree on nothing.
+        std::fs::write(root.join("crates/lgwks-std/src/lib.rs"), "")?;
+        std::fs::write(root.join("docs/std-ast-deps-closure-matrix-std.md"), "")?;
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"subject\"\n")?;
+        std::fs::write(
+            root.join("docs/adr/0001-foreign.md"),
+            "The name is `Cargo.toml:2`; the receipt reader is `src/property.rs:152`.\n",
+        )?;
+        let options = Options {
+            root: root.clone(),
+            update: true,
+            limit: 40,
+        };
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = execute(&options, &mut out, &mut err)?;
+        let printed = String::from_utf8_lossy(&err).into_owned();
+        let lock_written = root.join(super::LOCK_NAME).exists();
+        std::fs::remove_dir_all(&root)?;
+        assert_eq!(code, 1, "a foreign citation fails the check: {printed}");
+        assert!(
+            printed.contains("1 unresolvable citation(s):"),
+            "only the foreign citation fails, the local one resolves: {printed}"
+        );
+        assert!(
+            printed.contains("docs/adr/0001-foreign.md: src/property.rs:152 — no such file"),
+            "the refusal names the page and the citation: {printed}"
+        );
+        assert!(
+            !lock_written,
+            "--update never pins a citation that does not resolve"
+        );
+        Ok(())
+    }
 }

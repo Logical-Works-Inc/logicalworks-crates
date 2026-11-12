@@ -64,10 +64,13 @@ Prose review does not catch a missing field; a refusal does.
 | [0026](0026-tests-run-on-a-shared-ram-volume.md) | A macOS test on the default directory runs on one shared RAM volume at one slot per core |
 | [0027](0027-the-repository-profile-wins-over-the-home-one.md) | The repository's dev profile wins over the home one, scratch apps included |
 | [0028](0028-a-cold-run-fits-the-budget.md) | A cold run fits the budget |
+| [0029](0029-the-logical-ci-verdict-runs-in-this-repository.md) | The logical_ci verdict runs in this repository |
+| [0030](0030-a-loom-model-of-the-v7-generator.md) | A loom model of the v7 generator |
 | [0031](0031-a-requirement-is-a-caret-and-the-lock-holds-the-release.md) | A requirement is a caret, and the lock holds the release |
 | [0032](0032-the-simulation-lane-reads-listings.md) | The simulation lane reads listings, not archives |
 | [0033](0033-the-bot-shards-hash-optimized.md) | The bot shards hash optimized |
 | [0034](0034-a-stream-a-key-and-a-tree-stop-read-whole.md) | A stream, a key and a tree stop read whole |
 | [0035](0035-a-gate-reads-what-ships.md) | A gate reads what ships |
+| [0036](0036-a-moved-lockfile-builds-on-mains-nearest-entry.md) | A moved lockfile builds on main's nearest entry |
 
 New records go at the bottom of that table.
