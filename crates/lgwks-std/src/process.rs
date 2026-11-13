@@ -359,6 +359,131 @@ pub fn set_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<()> {
     }
 }
 
+/// The directories `ps` is looked up in: the system's own, never the caller's.
+///
+/// `ps` output names the pids a supervisor signals and the start tokens it
+/// trusts, so a `ps` found through an inherited `PATH`, or run with an
+/// inherited `LD_PRELOAD` or `DYLD_INSERT_LIBRARIES`, could steer a kill (#913
+/// item 9, CWE-426). Every unix this crate builds for keeps `ps` in one of
+/// these two directories.
+#[cfg(all(unix, feature = "process"))]
+const PS_SEARCH_PATH: &str = "/bin:/usr/bin";
+
+/// Run `ps` with `arguments`, in UTC under the C locale, and return what it printed.
+///
+/// The one place this crate starts `ps`, shared by the table readings and the
+/// start token. The child gets a cleared environment holding only
+/// [`PS_SEARCH_PATH`], `TZ` and `LC_ALL`: nothing the caller inherited picks
+/// the binary or loads into it, and a date column reads the same in every
+/// caller's time zone and language, which a start token compared across two
+/// processes depends on. `caller` names the reading in the refusal, and the
+/// error's kind is kept so a missing `ps` stays distinguishable from a refused
+/// one.
+#[cfg(all(unix, feature = "process"))]
+fn run_ps(arguments: &[&str], caller: &'static str) -> io::Result<std::process::Output> {
+    run_ps_in(std::ffi::OsStr::new(PS_SEARCH_PATH), arguments, caller)
+}
+
+/// [`run_ps`] with `ps` looked up in `search_path`, so a test can show the
+/// lookup follows the given path and nothing else.
+#[cfg(all(unix, feature = "process"))]
+fn run_ps_in(
+    search_path: &std::ffi::OsStr,
+    arguments: &[&str],
+    caller: &'static str,
+) -> io::Result<std::process::Output> {
+    // `Command` searches the child's `PATH` when one is set on it, so the
+    // fixed path, not the parent's, picks the binary.
+    let spawned = std::process::Command::new("ps")
+        .args(arguments)
+        .env_clear()
+        .env("PATH", search_path)
+        .env("TZ", "UTC0")
+        .env("LC_ALL", "C")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match spawned {
+        Ok(output) => Ok(output),
+        Err(error) => {
+            let refusal = Err(io::Error::new(
+                error.kind(),
+                format!("lgwks_std::process ({caller}): `ps` could not be run: {error}"),
+            ));
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?refusal.as_ref().err(), "run_ps: returning an error to the caller");
+            refusal
+        }
+    }
+}
+
+#[cfg(all(test, unix, feature = "process"))]
+mod ps_path_tests {
+    //! `ps` runs from the fixed system path with a cleared environment, so a
+    //! caller's `PATH` or preload cannot pick what drives a kill (#913 item 9).
+
+    use std::collections::BTreeSet;
+    use std::io;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    use super::{run_ps, run_ps_in};
+
+    /// The variables the child may hold: the three `run_ps_in` sets, and the
+    /// ones a POSIX shell adds for itself.
+    const ALLOWED: [&str; 7] = ["PATH", "TZ", "LC_ALL", "PWD", "OLDPWD", "SHLVL", "_"];
+
+    /// A directory holding a planted `ps` that runs `body` under `/bin/sh`.
+    fn planted_ps(body: &str) -> io::Result<tempfile::TempDir> {
+        let dir = tempfile::tempdir()?;
+        let path = dir.path().join("ps");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n"))?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))?;
+        Ok(dir)
+    }
+
+    #[test]
+    /// The bug this catches: `ps` looked up through the parent's `PATH`, so
+    /// the planted binary is ignored here and a hostile one wins in the field.
+    fn the_lookup_follows_the_given_path_and_nothing_else() -> io::Result<()> {
+        let planted = planted_ps("echo planted")?;
+        let output = run_ps_in(planted.path().as_os_str(), &[], "test")?;
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "planted");
+        Ok(())
+    }
+
+    #[test]
+    /// The bug this catches: an inherited environment, where `LD_PRELOAD` or
+    /// `DYLD_INSERT_LIBRARIES` loads code into the `ps` that names the pids.
+    fn the_child_inherits_no_variable_from_the_caller() -> io::Result<()> {
+        let planted = planted_ps("/usr/bin/env")?;
+        let output = run_ps_in(planted.path().as_os_str(), &[], "test")?;
+        let text = String::from_utf8_lossy(&output.stdout);
+        let held: BTreeSet<&str> = text
+            .lines()
+            .filter_map(|line| line.split_once('=').map(|(name, _)| name))
+            .collect();
+        for name in ["PATH", "TZ", "LC_ALL"] {
+            assert!(held.contains(name), "{name} is set for the child: {text}");
+        }
+        let leaked: Vec<&str> = held
+            .iter()
+            .copied()
+            .filter(|name| !ALLOWED.contains(name))
+            .collect();
+        assert!(leaked.is_empty(), "the child inherited {leaked:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn the_system_path_finds_the_real_ps() -> io::Result<()> {
+        let own = std::process::id().to_string();
+        let output = run_ps(&["-o", "pid=", "-p", &own], "test")?;
+        assert!(output.status.success(), "the system `ps` ran");
+        assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), own);
+        Ok(())
+    }
+}
+
 #[cfg(all(unix, feature = "process"))]
 /// Convert a rustix errno into the std error surface.
 fn errno_to_io(errno: rustix::io::Errno) -> io::Error {

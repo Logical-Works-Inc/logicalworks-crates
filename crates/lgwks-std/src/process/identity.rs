@@ -593,7 +593,7 @@ fn kinfo_start(pid: i32) -> io::Result<Option<String>> {
 #[cfg(all(unix, feature = "process"))]
 fn ps_start(pid: i32) -> io::Result<Option<String>> {
     let pid_text = pid.to_string();
-    let output = super::capture::run_ps(&["-o", "lstart=", "-p", &pid_text], "ps_start")?;
+    let output = super::run_ps(&["-o", "lstart=", "-p", &pid_text], "ps_start")?;
     let text = String::from_utf8_lossy(&output.stdout);
     let words: Vec<&str> = text.split_ascii_whitespace().collect();
     if words.is_empty() {
