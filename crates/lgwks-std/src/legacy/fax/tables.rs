@@ -395,15 +395,40 @@ static MODE_LOOKUP: LazyLock<Vec<Slot>> = LazyLock::new(|| {
     table
 });
 
-/// The run lookup of one colour, indexed by the next
-/// [`RUN_LOOKUP_BITS`] bits of a strip.
-pub(crate) fn run_lookup_for(white: bool) -> &'static [Slot] {
-    if white { &WHITE_LOOKUP } else { &BLACK_LOOKUP }
+/// The three lookups a strip decodes through, fetched once per strip: a
+/// code then costs one index, not a lazy-initialisation check per code.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Lookups {
+    /// The white run lookup.
+    white: &'static [Slot],
+    /// The black run lookup.
+    black: &'static [Slot],
+    /// The T.6 mode lookup.
+    mode: &'static [Slot],
 }
 
-/// The mode lookup, indexed by the next [`MODE_LOOKUP_BITS`] bits.
-pub(crate) fn mode_lookup() -> &'static [Slot] {
-    &MODE_LOOKUP
+impl Lookups {
+    /// The lookups, built on first use.
+    pub(crate) fn new() -> Self {
+        Self {
+            white: WHITE_LOOKUP.as_slice(),
+            black: BLACK_LOOKUP.as_slice(),
+            mode: MODE_LOOKUP.as_slice(),
+        }
+    }
+
+    /// The run lookup of one colour, indexed by the next
+    /// [`RUN_LOOKUP_BITS`] bits of a strip.
+    #[inline]
+    pub(crate) const fn run_slots(self, white: bool) -> &'static [Slot] {
+        if white { self.white } else { self.black }
+    }
+
+    /// The mode lookup, indexed by the next [`MODE_LOOKUP_BITS`] bits.
+    #[inline]
+    pub(crate) const fn mode_slots(self) -> &'static [Slot] {
+        self.mode
+    }
 }
 
 /// The terminating and make-up tables of one colour.
@@ -418,8 +443,8 @@ pub(crate) const fn colour_tables(white: bool) -> (CodeTable, CodeTable) {
 #[cfg(test)]
 mod tests {
     use super::{
-        EXTENDED_MAKEUP, MODE_HORIZ, MODE_LOOKUP_BITS, MODE_PASS, MODE_VERTICAL, RUN_LOOKUP_BITS,
-        Slot, colour_tables, mode_lookup, run_lookup_for,
+        EXTENDED_MAKEUP, Lookups, MODE_HORIZ, MODE_LOOKUP_BITS, MODE_PASS, MODE_VERTICAL,
+        RUN_LOOKUP_BITS, Slot, colour_tables,
     };
 
     /// The slot a code indexes when the spare bits after it are all zeros
@@ -443,6 +468,7 @@ mod tests {
     /// it, so the lookups and the T.4/T.6 tables cannot drift apart.
     #[test]
     fn every_table_code_decodes_through_its_lookup() {
+        let lookups = Lookups::new();
         for white in [true, false] {
             let (terms, makeup) = colour_tables(white);
             let codes = terms.iter().map(|entry| (entry, false)).chain(
@@ -453,12 +479,8 @@ mod tests {
             );
             for (&(bits, len, run), makes_up) in codes {
                 for tail_ones in [false, true] {
-                    let slot = slot_at(
-                        run_lookup_for(white),
-                        (bits, len),
-                        RUN_LOOKUP_BITS,
-                        tail_ones,
-                    );
+                    let table = lookups.run_slots(white);
+                    let slot = slot_at(table, (bits, len), RUN_LOOKUP_BITS, tail_ones);
                     assert_eq!(
                         slot.map(|found| (found.len(), found.is_makeup(), found.value())),
                         Some((len, makes_up, usize::from(run))),
@@ -472,7 +494,7 @@ mod tests {
             .chain(MODE_VERTICAL.iter().copied().zip(3_usize..));
         for (code, number) in modes {
             for tail_ones in [false, true] {
-                let slot = slot_at(mode_lookup(), code, MODE_LOOKUP_BITS, tail_ones);
+                let slot = slot_at(lookups.mode_slots(), code, MODE_LOOKUP_BITS, tail_ones);
                 assert_eq!(
                     slot.map(|found| (found.len(), found.value())),
                     Some((code.1, number)),
@@ -481,7 +503,7 @@ mod tests {
             }
         }
         assert_eq!(
-            mode_lookup().first().map(|slot| slot.len()),
+            lookups.mode_slots().first().map(|slot| slot.len()),
             Some(0),
             "seven zeros start no mode"
         );

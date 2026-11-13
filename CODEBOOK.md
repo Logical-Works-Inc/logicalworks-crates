@@ -46,10 +46,9 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 | `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026); `src/bin/shared/rust_code.rs` is the one lexer `check-std-first` and the `ci_local::test_gated` unwrap lane share (ADR 0035) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1, INV-SCAN-GATED-1 |
 | `drishti` | `crates/drishti` | frontend orchestration: design publication and a deterministic reference core | the `drishti` rows of `INVARIANTS.md` |
 
-### `lgwks_std::id`
+### `lgwks_std::id`, `math` and `legacy::fax`
 
-The estate identity type, replacing the `uuid` crate for stored identities
-(ADR 0010). `Uuid` implements no serde trait (ADR 0010 decision 3).
+The estate identity type, replacing the `uuid` crate for stored identities (ADR 0010). `Uuid` implements no serde trait (ADR 0010 decision 3).
 
 | Module | Owns | Invariant |
 |---|---|---|
@@ -57,6 +56,7 @@ The estate identity type, replacing the `uuid` crate for stored identities
 | `id::v7`, `id::loom_v7_tests` | the process-wide RFC 9562 method 1 generator; `new_v7` refuses, `now_v7` clamps; loom proves the lock order is the issue order (ADR 0030) | INV-ID-2, INV-ID-4 |
 | `id::tuple` | the FoundationDB tuple layer: all 12 typecodes (`Element`, `pack_element`, `pack_elements`, `unpack_element`, `unpack_elements`), `0x30` and 16 network-order bytes; `TupleError` | INV-ID-5 |
 | `math` | deterministic pure-Rust IEEE 754 `f64` and `f32` elementary functions (`sqrt`, `cbrt`, `exp`, `ln`, `pow`, `sin`, `cos`, `atan2`) | INV-STD-LOCALE-1 |
+| `legacy::fax`, `fax::bitmap`, `fax::t4`, `fax::t6`, `fax::tiff` | CCITT G3/G4 TIFF decode and encode: `decode_tiff`, `encode_tiff`, `TiffImage`; `bitmap` owns pixel masks, span fills, a strip's row windows and the `Corrupt` marker a row names as `CorruptStrip` | tests `sim_legacy_fax`, `sim_legacy_edges` |
 
 ### `lgwks` (the `lgwks_deps` binary)
 

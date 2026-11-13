@@ -16,8 +16,11 @@
 //! make-up codes.
 //!
 //! Layout: `tables` holds the T.4/T.6 code tables, `tiff` the TIFF container,
-//! `t4` the G3 coder, `t6` the 2D coder G4 and G3 2D rows share.
+//! `t4` the G3 coder, `t6` the 2D coder G4 and G3 2D rows share, `bitmap`
+//! the packed page rows they read and paint.
 
+/// The packed page bitmap: pixels, changing elements, span fills, strips.
+mod bitmap;
 /// T.4 1D run coding (G3).
 mod t4;
 /// T.6 2D reference coding (G4).
@@ -31,6 +34,7 @@ use std::fmt;
 
 use super::limits::LimitError;
 
+use self::bitmap::{Corrupt, RowAt, Strip, cut, pixel_at, row_changes, set_span};
 use self::tiff as container;
 
 /// The compression a page carries.
@@ -153,188 +157,6 @@ impl TiffImage {
     }
 }
 
-/// The mask of each pixel within its byte, most significant first.
-const PIXEL_MASK: [u8; 8] = [0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01];
-
-/// The byte and mask of pixel `x` in a packed row.
-fn pixel_at(x: usize) -> (usize, u8) {
-    match PIXEL_MASK.get(x.rem_euclid(8)) {
-        Some(&mask) => (x.saturating_div(8), mask),
-        None => (x.saturating_div(8), 0),
-    }
-}
-
-/// The changing elements of a packed row (ITU-T T.4 §4.2.1.3.1): every
-/// position whose colour differs from the pixel before it, the pixel before
-/// the row counting as white. Even indices turn black, odd indices white.
-pub(crate) fn row_changes(row: &[u8], width: usize) -> Vec<usize> {
-    let mut changes: Vec<usize> = Vec::new();
-    row_changes_into(row, width, &mut changes);
-    changes
-}
-
-/// [`row_changes`] into a reused buffer, a byte at a time: the pixels from
-/// `x` to its byte's end are flipped to the current colour's sense, so the
-/// leading zeros of what is left are the run that colour still holds, and
-/// a byte of one colour is passed over whole.
-pub(crate) fn row_changes_into(row: &[u8], width: usize, changes: &mut Vec<usize>) {
-    changes.clear();
-    let mut black = false;
-    let mut x: usize = 0;
-    while x < width {
-        let byte = match row.get(x.saturating_div(8)) {
-            Some(&value) => value,
-            None => 0,
-        };
-        let [used, ..] = x.rem_euclid(8).to_le_bytes();
-        let differing = if black { !byte } else { byte };
-        let ahead = differing.wrapping_shl(u32::from(used));
-        let span = usize::from(8_u8.saturating_sub(used));
-        let [zeros, ..] = ahead.leading_zeros().to_le_bytes();
-        let run = usize::from(zeros).min(span);
-        let next = x.saturating_add(run);
-        if run < span {
-            if next >= width {
-                break;
-            }
-            changes.push(next);
-            black = !black;
-        }
-        x = next;
-    }
-}
-
-/// Sets every byte of `bytes` to `0xff`. Most fax runs cover a few bytes,
-/// where a call into libc's memset costs more than the fill (it was the
-/// G4 decode's largest sample), so a short span is two overlapping
-/// fixed-size stores, the first and last `k` bytes for the largest `k` of
-/// 8, 4, 2 or 1 that fits; a long span still takes memset.
-fn fill_ones(bytes: &mut [u8]) {
-    /// Writes ones over the first and last `K` bytes, which cover a span
-    /// of `K..=2K` bytes.
-    fn ends<const K: usize>(bytes: &mut [u8]) {
-        let len = bytes.len();
-        if let Some(head) = bytes.get_mut(..K) {
-            head.copy_from_slice(&[0xff; K]);
-        }
-        if let Some(tail) = bytes.get_mut(len.saturating_sub(K)..) {
-            tail.copy_from_slice(&[0xff; K]);
-        }
-    }
-    match bytes.len() {
-        0 => {}
-        1 => ends::<1>(bytes),
-        2..=3 => ends::<2>(bytes),
-        4..=7 => ends::<4>(bytes),
-        8..=16 => ends::<8>(bytes),
-        _ => bytes.fill(0xff),
-    }
-}
-
-/// Sets bits `from..to` of a packed row: a partial first byte, whole bytes
-/// filled at once, then a partial last byte.
-fn set_span(window: &mut [u8], from: usize, to: usize) {
-    if from >= to {
-        return;
-    }
-    let first = from.saturating_div(8);
-    let last = to.saturating_sub(1).saturating_div(8);
-    let [head_skip, ..] = from.rem_euclid(8).to_le_bytes();
-    let [tail_keep, ..] = to.saturating_sub(1).rem_euclid(8).to_le_bytes();
-    let head = 0xff_u8.wrapping_shr(u32::from(head_skip));
-    let tail = 0xff_u8.wrapping_shl(u32::from(7_u8.saturating_sub(tail_keep)));
-    if first == last {
-        if let Some(byte) = window.get_mut(first) {
-            *byte |= head & tail;
-        }
-        return;
-    }
-    if let Some(byte) = window.get_mut(first) {
-        *byte |= head;
-    }
-    if let Some(middle) = window.get_mut(first.saturating_add(1)..last) {
-        fill_ones(middle);
-    }
-    if let Some(byte) = window.get_mut(last) {
-        *byte |= tail;
-    }
-}
-
-/// The page rows one strip decodes into: the bitmap, its geometry, and the
-/// span of rows the strip covers.
-pub(crate) struct Strip<'page> {
-    /// The whole page bitmap, row after row.
-    bitmap: &'page mut [u8],
-    /// Bytes of one packed row.
-    row_bytes: usize,
-    /// Pixels in one row.
-    width: usize,
-    /// The page rows this strip covers.
-    span: core::ops::Range<usize>,
-    /// Zero-based page index, for errors.
-    page: usize,
-}
-
-impl<'page> Strip<'page> {
-    /// The strip covering the `span` rows of a page bitmap.
-    pub(crate) const fn new(
-        bitmap: &'page mut [u8],
-        geometry: (usize, usize),
-        span: core::ops::Range<usize>,
-        page: usize,
-    ) -> Self {
-        let (row_bytes, width) = geometry;
-        Self {
-            bitmap,
-            row_bytes,
-            width,
-            span,
-            page,
-        }
-    }
-
-    /// Pixels in one row.
-    pub(crate) const fn width(&self) -> usize {
-        self.width
-    }
-
-    /// The page rows this strip covers.
-    pub(crate) fn rows(&self) -> core::ops::Range<usize> {
-        self.span.clone()
-    }
-
-    /// The typed refusal for a strip that fails at `row`.
-    pub(crate) const fn corrupt(&self, row: usize) -> TiffError {
-        TiffError::CorruptStrip {
-            page: self.page,
-            row,
-        }
-    }
-
-    /// Paints `from..to` of `row` in one colour: black sets bits, white
-    /// leaves the zeroed bitmap alone. Refuses a span past the row.
-    pub(crate) fn paint(
-        &mut self,
-        row: usize,
-        from: usize,
-        to: usize,
-        white: bool,
-    ) -> Result<(), TiffError> {
-        if from > to || to > self.width {
-            return crate::legacy::refuse(self.corrupt(row));
-        }
-        if white {
-            return Ok(());
-        }
-        let at = row.saturating_mul(self.row_bytes);
-        let Some(window) = self.bitmap.get_mut(at..at.saturating_add(self.row_bytes)) else {
-            return crate::legacy::refuse(self.corrupt(row));
-        };
-        set_span(window, from, to);
-        Ok(())
-    }
-}
-
 /// Why a TIFF image could not be decoded or encoded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -445,7 +267,9 @@ mod tests {
         BLACK_MAKEUP, BLACK_TERM, EOL_BITS, EOL_LEN, EXTENDED_MAKEUP, MODE_HORIZ, MODE_PASS,
         MODE_VERTICAL, WHITE_MAKEUP, WHITE_TERM,
     };
-    use super::{Compression, Strip, TiffError, TiffImage, decode_tiff, encode_tiff, t4, t6};
+    use super::{
+        Compression, Strip, TiffError, TiffImage, decode_tiff, encode_tiff, set_span, t4, t6,
+    };
     use crate::legacy::limits::Limits;
 
     /// The bounds the unit tests run under.
@@ -473,12 +297,12 @@ mod tests {
     fn decode_strip(
         width: usize,
         rows: usize,
-        decode: impl FnOnce(&mut Strip<'_>) -> UnitResult,
+        decode: impl FnOnce(&mut Strip<'_>, &mut t6::Reference) -> UnitResult,
     ) -> Result<Vec<u8>, TiffError> {
         let row_bytes = width.div_ceil(8);
         let mut bitmap = vec![0_u8; row_bytes.saturating_mul(rows)];
         let mut strip = Strip::new(&mut bitmap, (row_bytes, width), 0..rows, 0);
-        decode(&mut strip)?;
+        decode(&mut strip, &mut t6::Reference::new(width.saturating_add(1)))?;
         Ok(bitmap)
     }
 
@@ -498,11 +322,12 @@ mod tests {
         let (width, height) = (3000_usize, 5_usize);
         let row_bytes = width.div_ceil(8);
         let mut bitmap = vec![0_u8; row_bytes.saturating_mul(height)];
-        let mut strip = Strip::new(&mut bitmap, (row_bytes, width), 0..height, 0);
-        strip.paint(1, 0, 2700, false)?;
-        strip.paint(2, 1, 2699, false)?;
-        strip.paint(3, 1795, 1800, false)?;
-        strip.paint(3, 2990, 3000, false)?;
+        for (row, from, to) in [(1, 0, 2700), (2, 1, 2699), (3, 1795, 1800), (3, 2990, 3000)] {
+            let at = row_bytes.saturating_mul(row);
+            if let Some(window) = bitmap.get_mut(at..at.saturating_add(row_bytes)) {
+                set_span(window, from, to);
+            }
+        }
         let image = TiffImage::from_bitmap(3000, 5, &bitmap)?;
         for compression in [Compression::Raw, Compression::G3, Compression::G4] {
             round_trips(&image, compression)?;
@@ -516,7 +341,9 @@ mod tests {
     #[test]
     fn g4_known_answers_decode_and_encode() -> UnitResult {
         let stream = [0x2f, 0xc2, 0x04, 0x30, 0x01, 0x00, 0x10];
-        let bitmap = decode_strip(8, 2, |strip| t6::decode_g4_strip(&stream, strip, &BOUNDS))?;
+        let bitmap = decode_strip(8, 2, |strip, reference| {
+            t6::decode_g4_strip(&stream, strip, reference, &BOUNDS)
+        })?;
         assert_eq!(
             bitmap,
             vec![0x30, 0x80],
@@ -529,8 +356,8 @@ mod tests {
             "the encoder must choose the same modes"
         );
         let pass_stream = [0x37, 0xf8, 0xc0, 0x04, 0x00, 0x40];
-        let bitmap = decode_strip(8, 3, |strip| {
-            t6::decode_g4_strip(&pass_stream, strip, &BOUNDS)
+        let bitmap = decode_strip(8, 3, |strip, reference| {
+            t6::decode_g4_strip(&pass_stream, strip, reference, &BOUNDS)
         })?;
         assert_eq!(
             bitmap,
@@ -550,16 +377,17 @@ mod tests {
     /// blank 1728-pixel row, and EOL W0 B8 for one black byte.
     #[test]
     fn g3_known_answers_decode() -> UnitResult {
-        let blank = decode_strip(1728, 1, |strip| {
-            t4::decode_g3_strip(&[0x00, 0x14, 0xd9, 0xa8, 0x00, 0x80], strip, false, &BOUNDS)
+        let blank = decode_strip(1728, 1, |strip, reference| {
+            let stream = [0x00, 0x14, 0xd9, 0xa8, 0x00, 0x80];
+            t4::decode_g3_strip(&stream, strip, reference, false, &BOUNDS)
         })?;
         assert_eq!(
             blank,
             vec![0_u8; 216],
             "W1728 W0 must decode to a blank row"
         );
-        let black = decode_strip(8, 1, |strip| {
-            t4::decode_g3_strip(&[0x00, 0x13, 0x51, 0x40], strip, false, &BOUNDS)
+        let black = decode_strip(8, 1, |strip, reference| {
+            t4::decode_g3_strip(&[0x00, 0x13, 0x51, 0x40], strip, reference, false, &BOUNDS)
         })?;
         assert_eq!(black, vec![0xff], "W0 B8 must decode to one black byte");
         let rows: [&[u8]; 1] = [&[0_u8; 216]];
@@ -592,8 +420,8 @@ mod tests {
             writer.push_code(code);
         }
         let stream = writer.finish();
-        let bitmap = decode_strip(8, 2, |strip| {
-            t4::decode_g3_strip(&stream, strip, true, &BOUNDS)
+        let bitmap = decode_strip(8, 2, |strip, reference| {
+            t4::decode_g3_strip(&stream, strip, reference, true, &BOUNDS)
         })?;
         assert_eq!(bitmap, vec![0x30, 0x80], "the 1D then 2D rows must decode");
         Ok(())
@@ -601,8 +429,8 @@ mod tests {
 
     #[test]
     fn a_corrupt_strip_names_its_page_and_row() {
-        let refused = decode_strip(8, 2, |strip| {
-            t6::decode_g4_strip(&[0x00, 0x00, 0x00], strip, &BOUNDS)
+        let refused = decode_strip(8, 2, |strip, reference| {
+            t6::decode_g4_strip(&[0x00, 0x00, 0x00], strip, reference, &BOUNDS)
         });
         assert_eq!(
             refused,
@@ -714,6 +542,52 @@ mod tests {
                 Err(TiffError::Unsupported { page: 0, .. })
             ),
             "T4Options uncompressed mode must be refused by name"
+        );
+        Ok(())
+    }
+
+    /// TIFF 6.0 Section 3 strips, each a G4 stream coded from a white row
+    /// (ITU-T T.6 §2.2.1): one reference serves the page's two strips, and
+    /// the second strip's first row must be read against white, not
+    /// against the first strip's last row, which it was never coded from.
+    #[test]
+    fn each_strip_starts_from_a_white_reference_row() -> UnitResult {
+        let rows: [[u8; 2]; 4] = [[0xff, 0x00], [0xff, 0x00], [0x0f, 0xf0], [0x0f, 0xf0]];
+        let first = t6::encode_g4(&[&rows[0], &rows[1]], 16, 0)?;
+        let second = t6::encode_g4(&[&rows[2], &rows[3]], 16, 0)?;
+        // Eight IFD entries put the tail at 14 + 8 * 12 = 110: the offset
+        // array there, the count array at 118, then the strips from 126.
+        let (Ok(first_len), Ok(second_len)) =
+            (u32::try_from(first.len()), u32::try_from(second.len()))
+        else {
+            return crate::legacy::refuse(TiffError::BadHeader);
+        };
+        let entries = [
+            (256, 3, 1, 16),
+            (257, 3, 1, 4),
+            (258, 3, 1, 1),
+            (259, 3, 1, 4),
+            (262, 3, 1, 0),
+            (273, 4, 2, 0),
+            (278, 3, 1, 2),
+            (279, 4, 2, 118),
+        ];
+        let mut tail: Vec<u8> = Vec::new();
+        for word in [
+            126,
+            126_u32.saturating_add(first_len),
+            first_len,
+            second_len,
+        ] {
+            tail.extend_from_slice(&word.to_le_bytes());
+        }
+        tail.extend_from_slice(&first);
+        tail.extend_from_slice(&second);
+        let page: Vec<u8> = rows.iter().flatten().copied().collect();
+        assert_eq!(
+            decode_tiff(&hand_tiff(&entries, &tail)?, &BOUNDS)?,
+            vec![TiffImage::from_bitmap(16, 4, &page)?],
+            "both strips must decode, the second from a white row"
         );
         Ok(())
     }

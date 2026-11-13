@@ -12,9 +12,9 @@
 use super::super::limits::Limits;
 use super::t6;
 use super::tables::{
-    EOL_BITS, EOL_LEN, EXTENDED_MAKEUP, MAX_MAKEUP, RUN_LOOKUP_BITS, colour_tables, run_lookup_for,
+    EOL_BITS, EOL_LEN, EXTENDED_MAKEUP, Lookups, MAX_MAKEUP, RUN_LOOKUP_BITS, Slot, colour_tables,
 };
-use super::{Strip, TiffError, pixel_at, row_changes};
+use super::{Corrupt, Strip, TiffError, cut, pixel_at, row_changes};
 
 /// A bit reader over strip bytes, MSB first, holding only a bit position:
 /// a code is peeked through a lookup and then skipped, and a reader that
@@ -22,6 +22,8 @@ use super::{Strip, TiffError, pixel_at, row_changes};
 pub(crate) struct BitReader<'a> {
     /// The strip bytes.
     bytes: &'a [u8],
+    /// The strip's length in bits, so a peek's held count is one subtraction.
+    bits: usize,
     /// The next bit to read, counted from the strip's first bit.
     position: usize,
 }
@@ -29,15 +31,17 @@ pub(crate) struct BitReader<'a> {
 impl<'a> BitReader<'a> {
     /// Reads strip bytes MSB first.
     pub(crate) const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+        Self {
+            bytes,
+            bits: bytes.len().saturating_mul(8),
+            position: 0,
+        }
     }
 
     /// The bits not yet read.
-    fn left(&self) -> usize {
-        self.bytes
-            .len()
-            .saturating_mul(8)
-            .saturating_sub(self.position)
+    #[inline]
+    const fn left(&self) -> usize {
+        self.bits.saturating_sub(self.position)
     }
 
     /// The next bit, or `None` past the end.
@@ -56,36 +60,58 @@ impl<'a> BitReader<'a> {
     /// Away from the strip's end one big-endian load of eight bytes holds
     /// every bit a peek can want; only the last bytes take the byte-wise
     /// path that reads zeros past the end.
+    #[inline]
     pub(crate) fn peek(&self, count: u8) -> (u32, usize) {
         let at = self.position.saturating_div(8);
-        let window = match self
-            .bytes
-            .get(at..at.saturating_add(8))
-            .and_then(|eight| <[u8; 8]>::try_from(eight).ok())
-        {
-            Some(eight) => u64::from_be_bytes(eight),
+        let rest = self.bytes.get(at..);
+        let window = match rest.and_then(<[u8]>::first_chunk::<8>) {
+            Some(&eight) => u64::from_be_bytes(eight),
             None => {
                 let mut eight = [0_u8; 8];
-                if let Some(tail) = self.bytes.get(at..) {
-                    for (slot, &byte) in eight.iter_mut().zip(tail) {
-                        *slot = byte;
-                    }
+                for (slot, &byte) in eight.iter_mut().zip(rest.into_iter().flatten()) {
+                    *slot = byte;
                 }
                 u64::from_be_bytes(eight)
             }
         };
         let [used, ..] = self.position.rem_euclid(8).to_le_bytes();
-        let wanted = u32::from(count.min(16));
-        let aligned = window.wrapping_shl(u32::from(used));
-        let [.., high, low] = aligned.wrapping_shr(48).to_be_bytes();
-        let top = u32::from(u16::from_be_bytes([high, low]));
-        let bits = top.wrapping_shr(16_u32.saturating_sub(wanted)) & !u32::MAX.wrapping_shl(wanted);
+        let wanted = u32::from(count.clamp(1, 16));
+        // The `wanted` bits at the position, right-aligned: one shift left
+        // past the bits already read, one shift right of the rest away.
+        let top = window
+            .wrapping_shl(u32::from(used))
+            .wrapping_shr(64_u32.saturating_sub(wanted));
+        let [.., high, low] = top.to_be_bytes();
+        let bits = u32::from(u16::from_be_bytes([high, low]));
         (bits, self.left().min(usize::from(count)))
     }
 
     /// Consumes `count` bits a peek has judged.
+    #[inline]
     pub(crate) fn skip(&mut self, count: u8) {
         self.position = self.position.saturating_add(usize::from(count));
+    }
+
+    /// Reads one code through `table`, indexed by the next `lookup_bits`
+    /// bits, and consumes it. The codes of one table are prefix-free, so the
+    /// slot names the one code those bits start with. No code there is
+    /// corrupt, and so is a code longer than the bits the strip still holds:
+    /// the peek reads zeros past the end, which must never complete a code.
+    #[inline]
+    pub(crate) fn read_slot(&mut self, table: &[Slot], lookup_bits: u8) -> Result<Slot, Corrupt> {
+        let (bits, held) = self.peek(lookup_bits);
+        let slot = usize::try_from(bits)
+            .ok()
+            .and_then(|index| table.get(index).copied());
+        let Some(slot) = slot else {
+            return cut();
+        };
+        let len = slot.len();
+        if len == 0 || usize::from(len) > held {
+            return cut();
+        }
+        self.skip(len);
+        Ok(slot)
     }
 
     /// The position a later [`Self::rewind`] returns to.
@@ -170,34 +196,44 @@ fn code_for(table: &[(u16, u8, u16)], run: usize) -> Option<(u16, u8)> {
 /// so is a code longer than the bits the strip still holds (the peek reads
 /// zeros past the end, which must never complete a code) and a run past
 /// the row.
+#[inline]
 pub(crate) fn decode_run(
     reader: &mut BitReader<'_>,
-    white: bool,
-    strip: &Strip<'_>,
-    row: usize,
-) -> Result<usize, TiffError> {
-    let table = run_lookup_for(white);
+    table: &[Slot],
+    width: usize,
+) -> Result<usize, Corrupt> {
     let mut run: usize = 0;
     loop {
-        let (bits, held) = reader.peek(RUN_LOOKUP_BITS);
-        let slot = usize::try_from(bits)
-            .ok()
-            .and_then(|index| table.get(index).copied());
-        let Some(slot) = slot else {
-            return crate::legacy::refuse(strip.corrupt(row));
-        };
-        let len = slot.len();
-        if len == 0 || usize::from(len) > held {
-            return crate::legacy::refuse(strip.corrupt(row));
-        }
-        reader.skip(len);
+        let slot = reader.read_slot(table, RUN_LOOKUP_BITS)?;
         run = run.saturating_add(slot.value());
         if !slot.is_makeup() {
             return Ok(run);
         }
-        if run > strip.width() {
-            return crate::legacy::refuse(strip.corrupt(row));
+        if run > width {
+            return cut();
         }
+    }
+}
+
+/// Counts the zeros from the reader's position up to the next one bit,
+/// consuming them and that one, and whether a one ended them: when the
+/// strip ends first, every zero to its end is consumed. Sixteen bits are
+/// judged per peek, where a bit at a time cost an EOL twelve reads.
+fn zeros_to_one(reader: &mut BitReader<'_>) -> (usize, bool) {
+    let mut zeros: usize = 0;
+    loop {
+        let (bits, held) = reader.peek(16);
+        let [lead, ..] = bits.leading_zeros().saturating_sub(16).to_le_bytes();
+        if usize::from(lead) < held {
+            reader.skip(lead.saturating_add(1));
+            return (zeros.saturating_add(usize::from(lead)), true);
+        }
+        if held == 0 {
+            return (zeros, false);
+        }
+        let [step, ..] = held.to_le_bytes();
+        reader.skip(step);
+        zeros = zeros.saturating_add(held);
     }
 }
 
@@ -208,18 +244,12 @@ pub(crate) fn skip_eols(reader: &mut BitReader<'_>) -> usize {
     let mut skipped: usize = 0;
     loop {
         let mark = reader.mark();
-        let mut zeros: usize = 0;
-        loop {
-            match reader.next_bit() {
-                Some(false) => zeros = zeros.saturating_add(1),
-                Some(true) => break,
-                None => {
-                    if zeros < usize::from(EOL_LEN) {
-                        reader.rewind(mark);
-                    }
-                    return skipped;
-                }
+        let (zeros, ended_on_one) = zeros_to_one(reader);
+        if !ended_on_one {
+            if zeros < usize::from(EOL_LEN) {
+                reader.rewind(mark);
             }
+            return skipped;
         }
         if zeros >= usize::from(EOL_LEN.saturating_sub(1)) {
             skipped = skipped.saturating_add(1);
@@ -234,16 +264,16 @@ pub(crate) fn skip_eols(reader: &mut BitReader<'_>) -> usize {
 /// recording the row's changing elements into `changes`.
 fn decode_1d_row(
     reader: &mut BitReader<'_>,
-    strip: &mut Strip<'_>,
-    row: usize,
+    lookups: Lookups,
     changes: &mut t6::RowChanges<'_>,
-) -> Result<(), TiffError> {
+) -> Result<(), Corrupt> {
+    let width = changes.at().width();
     let mut x: usize = 0;
     let mut white = true;
-    while x < strip.width() {
-        let run = decode_run(reader, white, strip, row)?;
+    while x < width {
+        let run = decode_run(reader, lookups.run_slots(white), width)?;
         let end = x.saturating_add(run);
-        changes.paint(strip, row, (x, end), white)?;
+        changes.paint((x, end), white)?;
         x = end;
         white = !white;
     }
@@ -256,11 +286,13 @@ fn decode_1d_row(
 pub(crate) fn decode_g3_strip(
     data: &[u8],
     strip: &mut Strip<'_>,
+    reference: &mut t6::Reference,
     two_d: bool,
     limits: &Limits,
 ) -> Result<(), TiffError> {
     let mut reader = BitReader::new(data);
-    let mut reference = t6::Reference::new();
+    let lookups = Lookups::new();
+    reference.restart();
     for row in strip.rows() {
         limits.check_records(row.saturating_add(1))?;
         skip_eols(&mut reader);
@@ -272,13 +304,15 @@ pub(crate) fn decode_g3_strip(
         } else {
             false
         };
-        let (above, mut changes) = reference.begin_row();
-        if coded_2d {
-            t6::decode_2d_row(&mut reader, strip, row, above, &mut changes)?;
+        let (above, mut changes) = reference.begin_row(strip, row)?;
+        let decoded = if coded_2d {
+            t6::decode_2d_row(&mut reader, lookups, above, &mut changes)
         } else {
-            decode_1d_row(&mut reader, strip, row, &mut changes)?;
-        }
-        reference.roll();
+            decode_1d_row(&mut reader, lookups, &mut changes)
+        };
+        let count = changes.recorded();
+        changes.at().as_row_refusal(decoded)?;
+        reference.roll(count);
     }
     Ok(())
 }
@@ -330,4 +364,47 @@ pub(crate) fn emit_run(
     }
     writer.push_code(code_for(terms, tail).ok_or_else(missing)?);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BitReader, skip_eols};
+
+    /// ITU-T T.4 §4.1.2: an EOL is eleven zeros and a one, and fill zeros of
+    /// any length may precede it (TIFF 6.0 Section 10, `T4Options` bit 2).
+    /// Each layout puts the EOL's one, or the strip's end, at a peek edge.
+    #[test]
+    fn eol_fill_is_read_past_a_peek_and_zeros_to_the_end_are_no_eol() {
+        // Twenty fill zeros, then the one: one EOL, read across two peeks.
+        let mut reader = BitReader::new(&[0x00, 0x00, 0x08]);
+        assert_eq!(
+            skip_eols(&mut reader),
+            1,
+            "twenty zeros and a one is an EOL"
+        );
+        assert_eq!(reader.mark(), 21, "consumed through the EOL's one");
+        // Sixteen zeros to the end: a full peek with no one is no EOL, and the
+        // trailing fill is consumed.
+        let mut reader = BitReader::new(&[0x00, 0x00]);
+        assert_eq!(skip_eols(&mut reader), 0, "zeros to the end are no EOL");
+        assert_eq!(reader.mark(), 16, "trailing fill as long as a peek");
+        // Four data bits, then exactly an EOL's twelve bits of zeros to the
+        // end: consumed as fill, not rewound as row data.
+        let mut reader = BitReader::new(&[0xf0, 0x00]);
+        reader.skip(4);
+        assert_eq!(skip_eols(&mut reader), 0, "twelve zeros to the end");
+        assert_eq!(reader.mark(), 16, "twelve trailing zeros are fill");
+        // Four data bits, then eleven zeros and a one on the strip's last bit:
+        // an EOL, consumed through that one.
+        let mut reader = BitReader::new(&[0xf0, 0x01]);
+        reader.skip(4);
+        assert_eq!(skip_eols(&mut reader), 1, "eleven zeros and a one");
+        assert_eq!(reader.mark(), 16, "consumed through that one");
+        // Four data bits, then seven zeros and a one: row data, so the reader
+        // rewinds to before the zeros.
+        let mut reader = BitReader::new(&[0xf0, 0x10]);
+        reader.skip(4);
+        assert_eq!(skip_eols(&mut reader), 0, "seven zeros and a one is data");
+        assert_eq!(reader.mark(), 4, "rewound to the row data");
+    }
 }
