@@ -152,10 +152,6 @@ const LOCK_FILE: &str = "tenant.lock";
 /// accounts for, so an open drains only what was appended after it.
 const SNAPSHOT_FILE: &str = "tenant.snapshot";
 
-/// The temporary name a snapshot is written under before it is renamed: a
-/// crash leaves the previous snapshot or none, never a torn one.
-const SNAPSHOT_TMP: &str = "tenant.snapshot.tmp";
-
 /// The snapshot format this build writes and reads.
 const SNAPSHOT_FORMAT: u8 = 2;
 

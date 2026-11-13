@@ -10,7 +10,7 @@ is [`INVARIANTS-2.md`](INVARIANTS-2.md), part 3 is [`INVARIANTS-3.md`](INVARIANT
 - **INV-BOT-4** A known effect outcome is kept even when its record fails to land. · why: bb3e152e (#111)
 - **INV-BOT-5** Observation fingerprints commit only with their values. · why: 78fa72d8 (#110)
 - **INV-BOT-6** Stale effect controllers are fenced by generation and lease. · why: d0610245 (#137)
-- **INV-BOT-7** A journal read failure is an error, never `NoSuchWork`. · why: 7f3dd387 (#139)
+- **INV-BOT-7** A journal read failure is an error, never `NoSuchWork`, and an unreadable successor is never an absent one. · why: 7f3dd387 (#139), #910 · enforced by: `journal::sim_successor_fault`
 - **INV-BOT-8** A state watch that returns to a value it landed before fires again (edge, not level). · why: 3291773c (#138)
 - **INV-BOT-9** Process ownership covers descendants, cleanup reaps the tree, and a deadline counts from enable time. · why: bd9a372b, 2f88bad5 (#132)
 - **INV-BOT-10** External handoffs are admitted on the real dispatch path, and locator-ladder eligibility is enforced. · why: fff9d335, da0a3471 (#116)

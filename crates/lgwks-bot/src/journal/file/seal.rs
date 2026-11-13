@@ -71,66 +71,77 @@ pub(super) fn ladder_hold(
 /// torn first frame reads as *not complete* rather than as a decode failure: this
 /// question is "did the continuation commit?", and a half-written file is the
 /// answer "no", not an error.
+///
+/// # Errors
+///
+/// The device's own error for anything but a successor that is not there or
+/// ends early. An open or a read the device refused is not evidence the
+/// continuation never committed (INV-BOT-7, #910 defect 2): answering "absent"
+/// would hand the authority back to a sealed predecessor whose acknowledged
+/// successor is still on the disk, and the next append would fork the history.
 #[cfg(feature = "wire")]
-pub(super) fn successor_is_complete(successor: &Path, seal: &Continuation) -> bool {
-    let Ok(mut file) = OpenOptions::new().read(true).open(successor) else {
-        return false;
+pub(super) fn successor_is_complete(
+    successor: &Path,
+    seal: &Continuation,
+) -> std::io::Result<bool> {
+    use super::super::frame::{
+        Piece, declared_length, is_possible_length, read_piece, read_prefix,
+    };
+    let mut file = match OpenOptions::new().read(true).open(successor) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            let refusal = Err(error);
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "successor_is_complete: the successor exists and cannot be read");
+            return refusal;
+        }
     };
     let mut prefix = [0u8; LENGTH_BYTES];
-    let Ok(Prefix::Full) = super::super::frame::read_prefix(&mut file, &mut prefix) else {
-        return false;
-    };
-    let declared = super::super::frame::declared_length(&prefix);
-    if !super::super::frame::is_possible_length(declared, MAX_FRAME_BYTES) {
-        return false;
+    if read_prefix(&mut file, &mut prefix)? != Prefix::Full {
+        return Ok(false);
+    }
+    let declared = declared_length(&prefix);
+    if !is_possible_length(declared, MAX_FRAME_BYTES) {
+        return Ok(false);
     }
     let mut payload = vec![0u8; declared];
     let mut head = [0u8; HEAD_BYTES];
-    if super::super::frame::read_piece(&mut file, &mut payload).is_err()
-        || super::super::frame::read_piece(&mut file, &mut head).is_err()
+    if read_piece(&mut file, &mut payload)? == Piece::Interrupted
+        || read_piece(&mut file, &mut head)? == Piece::Interrupted
     {
-        return false;
+        return Ok(false);
     }
-    match Continuation::from_payload(&payload) {
+    Ok(match Continuation::from_payload(&payload) {
         Some(Ok(carried)) => {
             carried.predecessor() == seal.predecessor()
                 && super::super::chain_over_bytes(&seal.predecessor().head(), &payload)
                     == lgwks_std::hash::Digest::from_bytes(head)
         }
         Some(Err(_)) | None => false,
-    }
+    })
 }
 
 /// Make the successor's name itself durable, where the platform has such a call.
 ///
 /// A directory entry that has not reached the disk is a successor that a power
 /// loss would not find, and the whole authority rule asks whether that file is
-/// there. `#[cfg(unix)]` rather than best-effort: on a platform with no directory
-/// sync the call cannot be made at all, and a swallowed error would be a bound
-/// nothing observes. What the journal promises is process-crash survival, which
-/// does not depend on this call — the name is in the running system's page cache
-/// across any process death — so its absence costs power-loss durability the
-/// journal never claimed.
-#[cfg(unix)]
+/// there. The platform rule is `durable::sync_directory`'s, the one directory
+/// sync the crate makes. What the journal promises is process-crash survival,
+/// which does not depend on this call, so where the platform has no directory
+/// sync its absence costs power-loss durability the journal never claimed.
 fn sync_directory(path: &Path, created_here: bool) -> std::io::Result<()> {
     let Some(parent) = path.parent() else {
         return Ok(());
     };
-    File::open(parent)?.sync_all()?;
+    crate::durable::sync_directory(parent)?;
     // Only a directory this seal *created* still has an unflushed name of its own.
     // Every later generation writes into a directory that already exists, and a
     // directory fsync is the most expensive call this seal makes, so paying for the
     // grandparent on every continuation would cost a long run far more than the
     // durability it buys.
     if created_here && let Some(grandparent) = parent.parent() {
-        File::open(grandparent)?.sync_all()?;
+        crate::durable::sync_directory(grandparent)?;
     }
-    Ok(())
-}
-
-/// [`sync_directory`] where the platform has no directory sync to make.
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path, _created_here: bool) -> std::io::Result<()> {
     Ok(())
 }
 

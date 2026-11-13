@@ -9,14 +9,13 @@
 
 use std::collections::BTreeMap;
 use std::fs::OpenOptions;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::Path;
 
 use lgwks_std::json::{Deserialize, Serialize};
 
 use super::{
-    HEADER_LEN, Index, RunEntry, SNAPSHOT_FILE, SNAPSHOT_FORMAT, SNAPSHOT_TMP, StoredPolicy,
-    TenantStoreError,
+    HEADER_LEN, Index, RunEntry, SNAPSHOT_FILE, SNAPSHOT_FORMAT, StoredPolicy, TenantStoreError,
 };
 use crate::journal::frame::SaturatingFrom;
 
@@ -169,22 +168,6 @@ pub(super) fn write(dir: &Path, index: &Index) -> Result<(), TenantStoreError> {
         );
         TenantStoreError::storage(std::io::Error::other(cause))
     })?;
-    let path = dir.join(SNAPSHOT_FILE);
-    let tmp = dir.join(SNAPSHOT_TMP);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&tmp)
-        .map_err(TenantStoreError::storage)?;
-    file.write_all(&bytes).map_err(TenantStoreError::storage)?;
-    file.sync_all().map_err(TenantStoreError::storage)?;
-    drop(file);
-    std::fs::rename(&tmp, &path).map_err(TenantStoreError::storage)?;
-    let dir_file = OpenOptions::new()
-        .read(true)
-        .open(dir)
-        .map_err(TenantStoreError::storage)?;
-    dir_file.sync_all().map_err(TenantStoreError::storage)?;
-    Ok(())
+    crate::durable::replace_durably(&dir.join(SNAPSHOT_FILE), &bytes)
+        .map_err(TenantStoreError::storage)
 }

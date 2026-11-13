@@ -15,7 +15,9 @@
 //!   however many times each was delivered;
 //! - the client observes the upstream's answer, not the proxy's duplication;
 //! - an upstream credential refusal on this path is the typed repair, not a
-//!   generic failure.
+//!   generic failure;
+//! - every other answer settles only what it proves, and a redirect is never
+//!   followed to an origin that would receive the effect without its key.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -330,5 +332,101 @@ fn an_upstream_401_on_the_proxy_path_is_a_typed_repair() -> TestResult {
     assert_eq!(status, 401, "the refusal names the upstream status");
     assert!(!needs.is_empty(), "the refusal carries what to re-grant");
     join(server, "401 fixture")?;
+    Ok(())
+}
+
+/// What the ledger may write for one exchange (#910 defect 3).
+#[derive(Debug, PartialEq, Eq)]
+enum Settled {
+    /// The effect ran.
+    Applied,
+    /// The effect did not run, with the certainty the error carries.
+    NotApplied(lgwks_bot::error::DispatchCertainty),
+    /// Nothing: the effect may have run.
+    Unsettled,
+}
+
+/// Read one request, write `reply` (nothing at all when empty), close.
+fn answer_once(
+    listener: TcpListener,
+    reply: Vec<u8>,
+) -> std::io::Result<JoinHandle<Result<(), String>>> {
+    std::thread::Builder::new()
+        .name("retry-proxy-answer".to_owned())
+        .spawn(move || {
+            let (mut stream, _) = listener.accept().map_err(|error| error.to_string())?;
+            read_request(&mut stream)?;
+            stream.write_all(&reply).map_err(|error| error.to_string())
+        })
+}
+
+/// POST one keyed effect to `port` and read what the ledger may write.
+fn settle(port: u16) -> Result<Settled, Box<dyn Error>> {
+    let auth: lgwks_bot::cap::Auth = GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])?;
+    let input = PostInput::new(
+        format!("http://127.0.0.1:{port}/effect"),
+        "op-settle",
+        "application/json",
+        b"{}".to_vec(),
+    )?;
+    match lgwks_std::task::block_on(IdempotentPost::new().execute_action((auth, &input))) {
+        Ok(_) => Ok(Settled::Applied),
+        Err(BotError::DomainError { certainty, .. }) => Ok(Settled::NotApplied(certainty)),
+        Err(BotError::EffectIndeterminate { .. }) => Ok(Settled::Unsettled),
+        Err(other) => refuse(format!("an exchange became {other}")),
+    }
+}
+
+/// Every upstream answer through the real exchange: only a 2xx is applied,
+/// a 5xx, a hang-up after the request and an unfollowed redirect stay
+/// unsettled, and a redirect's target on another origin is never dialled, so
+/// the effect is never delivered without its key.
+#[test]
+fn an_upstream_answer_settles_only_what_it_proves() -> TestResult {
+    use lgwks_bot::error::DispatchCertainty::{NotDelivered, Refused};
+    let elsewhere = TcpListener::bind("127.0.0.1:0")?;
+    elsewhere.set_nonblocking(true)?;
+    let moved = format!(
+        "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://localhost:{}/effect\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        elsewhere.local_addr()?.port()
+    );
+    let status_line =
+        |line: &str| format!("HTTP/1.1 {line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    let cases = [
+        (status_line("201 Created"), Settled::Applied),
+        (status_line("503 Service Unavailable"), Settled::Unsettled),
+        (status_line("409 Conflict"), Settled::Unsettled),
+        (
+            status_line("422 Unprocessable Content"),
+            Settled::NotApplied(Refused),
+        ),
+        (
+            status_line("429 Too Many Requests"),
+            Settled::NotApplied(NotDelivered),
+        ),
+        (String::new(), Settled::Unsettled),
+        (moved, Settled::Unsettled),
+    ];
+    for (reply, expected) in cases {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let server = answer_once(listener, reply.clone().into_bytes())?;
+        let held = settle(port)?;
+        join(server, "answer fixture")?;
+        assert_eq!(held, expected, "the upstream answered {reply:?}");
+    }
+    let dialled = elsewhere.accept();
+    assert!(
+        dialled.as_ref().err().map(std::io::Error::kind) == Some(std::io::ErrorKind::WouldBlock),
+        "the redirect target was dialled: {dialled:?}"
+    );
+    let closed = TcpListener::bind("127.0.0.1:0")?;
+    let port = closed.local_addr()?.port();
+    drop(closed);
+    assert_eq!(
+        settle(port)?,
+        Settled::NotApplied(NotDelivered),
+        "nothing listened"
+    );
     Ok(())
 }

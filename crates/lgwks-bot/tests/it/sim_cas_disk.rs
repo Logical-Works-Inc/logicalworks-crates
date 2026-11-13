@@ -291,12 +291,23 @@ fn the_next_write_replaces_a_torn_temp_file() -> TestResult {
         tear(&mut rng, &path, trace)?;
         let store = RecordStore::open(&path)?;
         step(&mut rng, &store, &mut model, records, 1000, trace)?;
-        if path.with_extension("tmp").exists() {
+        if scratch_of(&path)
+            .ok_or("a store path names a file")?
+            .exists()
+        {
             return refuse("the write after a torn temp file left it in place");
         }
         drop(store);
         agrees(&RecordStore::open(&path)?.state(), &model)
     })
+}
+
+/// The scratch a persist of `path` writes before it renames: the full name
+/// plus `.lgwks-scratch`, so `x.json` and `x.db` never share one (#910).
+fn scratch_of(path: &Path) -> Option<std::path::PathBuf> {
+    let mut scratch = path.file_name()?.to_os_string();
+    scratch.push(".lgwks-scratch");
+    Some(path.with_file_name(scratch))
 }
 
 /// Leave a torn temp file beside `path`: a seeded prefix of the store's own
@@ -307,7 +318,7 @@ fn tear(rng: &mut Rng, path: &Path, trace: &mut Trace) -> TestResult {
     let torn = whole
         .get(..cut)
         .ok_or("a cut below the length is in range")?;
-    std::fs::write(path.with_extension("tmp"), torn)?;
+    std::fs::write(scratch_of(path).ok_or("a store path names a file")?, torn)?;
     trace.record_number("torn at", cut);
     Ok(())
 }

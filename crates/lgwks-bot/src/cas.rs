@@ -619,13 +619,14 @@ fn decode(text: &str) -> Result<StoreState, CasError> {
     })
 }
 
-/// Persist `state` atomically: write the temp file beside the store, and
-/// rename it into place.
+/// Persist `state` durably before the write is acknowledged.
 ///
-/// The atomic-rename protocol [`crate::stability`] recognises: a reader either
-/// sees the previous complete state or the next one, never a prefix of a
-/// write. A rename that fails leaves the previous state in place, and the
-/// error reports the failure rather than an outcome the store never recorded.
+/// The atomic-rename protocol [`crate::stability`] recognises, with the bytes
+/// and the directory synced around the rename (`durable::replace_durably`): a
+/// reader either sees the previous complete state or the next one, a power loss
+/// cannot keep the rename and lose the bytes, and a failure leaves the previous
+/// state in place with the error reported rather than an outcome the store
+/// never recorded (#910 defect 8).
 fn persist(path: &Path, state: &StoreState) -> Result<(), CasError> {
     let mut records = lgwks_std::json::Map::new();
     // Sorted, so the persisted file is stable for the same state: iterating
@@ -661,14 +662,9 @@ fn persist(path: &Path, state: &StoreState) -> Result<(), CasError> {
     let text = lgwks_std::json::to_string_pretty(&document).map_err(|error| CasError::Io {
         cause: format!("encoding {}: {error}", path.display()),
     })?;
-    let scratch = path.with_extension("tmp");
-    std::fs::write(&scratch, text).map_err(|error| CasError::Io {
-        cause: format!("writing {}: {error}", scratch.display()),
-    })?;
-    std::fs::rename(&scratch, path).map_err(|error| CasError::Io {
-        cause: format!("renaming {} into place: {error}", scratch.display()),
-    })?;
-    Ok(())
+    crate::durable::replace_durably(path, text.as_bytes()).map_err(|error| CasError::Io {
+        cause: format!("persisting {}: {error}", path.display()),
+    })
 }
 
 #[cfg(test)]

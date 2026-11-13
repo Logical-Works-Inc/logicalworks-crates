@@ -30,6 +30,8 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 2 is [`INVARIANTS-2.md`](INVARIANTS-2.
 - **INV-BOT-189** A dead durable sink refuses the start before anything is served. · why: #820 · enforced by: `tests/it/start_gate.rs`
 - **INV-BOT-190** The OpenAPI 3.1 document is emitted from the serve route registry. · why: #830 · enforced by: `tests/it/serve_openapi.rs`
 - **INV-BOT-191** Capability tokens verify offline and attenuate only narrower. · why: #779 · enforced by: `tests/it/cap_tokens.rs`
+- **INV-BOT-192** `IdempotentPost` is applied only on a 2xx, never follows a redirect, and leaves a 5xx or a failure after sending unsettled. · why: #910 · enforced by: `idempotent::sim_answer`, `tests/it/retry_proxy.rs`
+- **INV-BOT-193** A whole-document store replace syncs the file before its rename and the directory after it. · why: #910 · enforced by: `durable::sim_durable`, `tests/it/sim_cas_disk.rs`
 - **INV-BOT-JOURNAL-LOCK** A second `FileJournal::open` of a held file is `JournalError::Locked` before a byte is read. · why: #641 · enforced by: `journal::file::tests::refusals`
 - **INV-KERNEL-1** `lgwks_bot::kernel` is the supported path to the runtime modules, and a removal there is a major release. · why: #845 · enforced by: `tests/it/kernel_surface.rs`
 - **INV-EPOCH-1** A `RecordedInstant` archives as eight little-endian bytes, and a seeded `EpochClock` reads no real clock. · why: #845 · enforced by: `tests/it/sim_recorded_instant.rs`
