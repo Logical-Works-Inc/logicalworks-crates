@@ -1,17 +1,20 @@
-//! `advisories`: a `Cargo.lock` against a local RustSec advisory database (#799).
+//! `advisories`: `Cargo.lock` files against a local RustSec advisory database
+//! (#799, #942), through the same `lgwks_deps::advisories` entry logical_ci's
+//! advisory gate calls.
 //!
 //! Offline by construction: the database is a directory the operator names, so
-//! the verdict binds to the digest printed with it rather than to whatever a
-//! network answered that day.
+//! the verdict binds to the commit and digest printed with it rather than to
+//! whatever a network answered that day.
 
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use lgwks_deps::advisories::{
+    AdvisoryKind, AdvisoryMatch, AdvisoryReport, DatabaseIdentity, audit_files,
+};
 use lgwks_std::json::Value;
-
-use super::{AdvisoryMatch, AdvisoryReport, audit_lockfile};
 
 /// The exit code of a refusal: bad arguments, or a lock or database unread.
 const EXIT_REFUSED: u8 = 2;
@@ -21,11 +24,25 @@ fn field(text: &str) -> String {
     Value::String(text.to_owned().into()).to_string()
 }
 
+/// A JSON array of strings.
+fn list(items: &[String]) -> String {
+    let fields: Vec<String> = items.iter().map(|item| field(item)).collect();
+    format!("[{}]", fields.join(","))
+}
+
+/// A JSON string, or `null` for none.
+fn optional(text: Option<&str>) -> String {
+    match text {
+        Some(text) => field(text),
+        None => "null".to_owned(),
+    }
+}
+
 /// What `advisories` was asked to audit.
 struct AdvisoriesArgs {
-    /// The lockfile to audit.
-    lock: PathBuf,
-    /// The advisory database directory.
+    /// The lockfiles to audit, in the order given.
+    locks: Vec<PathBuf>,
+    /// The advisory database directory: the last path.
     database: PathBuf,
     /// True when the report is one JSON object on stdout.
     json: bool,
@@ -33,7 +50,7 @@ struct AdvisoriesArgs {
 
 /// What one parse of `advisories`' arguments resolved to.
 enum AdvisoriesRequest {
-    /// Audit a lockfile.
+    /// Audit lockfiles.
     Audit(AdvisoriesArgs),
     /// Print the usage block and exit successfully.
     Help,
@@ -47,7 +64,7 @@ enum AdvisoriesArgError {
         /// The unrecognised token, verbatim.
         flag: String,
     },
-    /// Not exactly a lockfile and a database.
+    /// Fewer than a lockfile and a database.
     WrongPaths {
         /// How many paths were given.
         given: usize,
@@ -62,7 +79,7 @@ impl fmt::Display for AdvisoriesArgError {
             }
             Self::WrongPaths { given } => write!(
                 formatter,
-                "`advisories` takes a lockfile and a database directory, and was given {given} paths"
+                "`advisories` takes one or more lockfiles and a database directory, and was given {given} paths"
             ),
         }
     }
@@ -70,7 +87,7 @@ impl fmt::Display for AdvisoriesArgError {
 
 /// Parses `advisories`' arguments in one consuming pass.
 fn parse_advisories_args(args: &[String]) -> Result<AdvisoriesRequest, AdvisoriesArgError> {
-    let mut paths: Vec<&String> = Vec::new();
+    let mut paths: Vec<PathBuf> = Vec::new();
     let mut json = false;
     for argument in args {
         match argument.as_str() {
@@ -86,29 +103,26 @@ fn parse_advisories_args(args: &[String]) -> Result<AdvisoriesRequest, Advisorie
                 );
                 return refusal;
             }
-            _ => paths.push(argument),
+            _ => paths.push(PathBuf::from(argument)),
         }
     }
-    let &[lock, database] = paths.as_slice() else {
-        let refusal = Err(AdvisoriesArgError::WrongPaths { given: paths.len() });
-        lgwks_std::trace::debug!(given = paths.len(), "advisories: wrong number of paths");
+    let given = paths.len();
+    let (Some(database), false) = (paths.pop(), paths.is_empty()) else {
+        let refusal = Err(AdvisoriesArgError::WrongPaths { given });
+        lgwks_std::trace::debug!(given, "advisories: wrong number of paths");
         return refusal;
     };
     Ok(AdvisoriesRequest::Audit(AdvisoriesArgs {
-        lock: PathBuf::from(lock.as_str()),
-        database: PathBuf::from(database.as_str()),
+        locks: paths,
+        database,
         json,
     }))
 }
 
-/// Whether this match is a vulnerability, which is what fails the audit.
-fn is_vulnerable(found: &AdvisoryMatch) -> bool {
-    found.match_kind().is_vulnerability()
-}
-
 /// The label a match carries: `vulnerability`, or its informational kind.
 fn kind_label(found: &AdvisoryMatch) -> &str {
-    match found.match_kind().informational_name() {
+    let kind: &AdvisoryKind = found.match_kind();
+    match kind.informational_name() {
         Some(name) => name,
         None => "vulnerability",
     }
@@ -120,49 +134,69 @@ fn render_json(report: &AdvisoryReport) -> String {
         .matches()
         .iter()
         .map(|found| {
-            let patched: Vec<String> = found
-                .match_patched()
-                .iter()
-                .map(|item| field(item))
-                .collect();
             format!(
-                "{{\"id\":{},\"package\":{},\"version\":{},\"kind\":{},\"patched\":[{}]}}",
+                "{{\"id\":{},\"package\":{},\"version\":{},\"kind\":{},\"patched\":{},\"os\":{},\"arch\":{},\"lockfile\":{}}}",
                 field(found.advisory_id()),
                 field(found.package()),
                 field(found.installed_version()),
                 field(kind_label(found)),
-                patched.join(","),
+                list(found.match_patched()),
+                list(found.os()),
+                list(found.arch()),
+                field(found.lockfile()),
             )
         })
         .collect();
+    let database: &DatabaseIdentity = report.database();
     format!(
-        "{{\"db_digest\":{},\"advisories_loaded\":{},\"packages_audited\":{},\"matches\":[{}]}}",
-        field(report.db_digest()),
-        report.advisories_loaded(),
+        "{{\"db_digest\":{},\"db_commit\":{},\"db_date\":{},\"advisories_loaded\":{},\"lockfiles\":{},\"packages_audited\":{},\"packages_skipped\":{},\"matches\":[{}]}}",
+        field(database.digest()),
+        optional(database.commit()),
+        optional(database.date()),
+        database.advisories(),
+        report.lockfiles(),
         report.packages_audited(),
+        report.packages_skipped(),
         rows.join(","),
     )
 }
 
-/// One line per match, then the counts and the digest the verdict binds to.
+/// One line per match, then the counts and the database the verdict binds to.
 fn render_text(report: &AdvisoryReport, out: &mut impl io::Write) -> io::Result<()> {
     for found in report.matches() {
+        let platforms = if found.is_restricted() {
+            format!(
+                " (only on {} {})",
+                found.os().join("/"),
+                found.arch().join("/")
+            )
+        } else {
+            String::new()
+        };
         writeln!(
             out,
-            "{} {} {} {}; patched: {}",
+            "{} {} {} {}{platforms}; patched: {}; in {}",
             found.advisory_id(),
             found.package(),
             found.installed_version(),
             kind_label(found),
             found.match_patched().join(" | "),
+            found.lockfile(),
         )?;
     }
+    let database: &DatabaseIdentity = report.database();
+    let checkout = match (database.commit(), database.date()) {
+        (Some(commit), Some(date)) => format!("commit {commit} of {date}"),
+        _ => "not a git checkout".to_owned(),
+    };
     writeln!(
         out,
-        "{} packages audited against {} advisories ({}); {} matched",
+        "{} packages audited in {} lockfiles ({} not from crates.io) against {} advisories ({}, {checkout}); {} matched",
         report.packages_audited(),
-        report.advisories_loaded(),
-        report.db_digest(),
+        report.lockfiles(),
+        report.packages_skipped(),
+        database.advisories(),
+        database.digest(),
         report.matches().len(),
     )
 }
@@ -173,8 +207,7 @@ fn render_text(report: &AdvisoryReport, out: &mut impl io::Write) -> io::Result<
 /// # Errors
 ///
 /// An [`io::Error`] when `out` or `err` refuses a write.
-#[doc(hidden)]
-pub fn run(
+pub(crate) fn run(
     args: &[String],
     usage: &str,
     out: &mut impl io::Write,
@@ -192,7 +225,7 @@ pub fn run(
             return Ok(ExitCode::from(EXIT_REFUSED));
         }
     };
-    let report = match audit_lockfile(&parsed.lock, &parsed.database) {
+    let report = match audit_files(&parsed.locks, &parsed.database) {
         Ok(report) => report,
         Err(error) => {
             writeln!(err, "lgwks-deps: {error}")?;
@@ -204,7 +237,11 @@ pub fn run(
     } else {
         render_text(&report, out)?;
     }
-    if report.matches().iter().any(is_vulnerable) {
+    let vulnerable = report.matches().iter().any(|found| {
+        let kind: &AdvisoryKind = found.match_kind();
+        kind.is_vulnerability()
+    });
+    if vulnerable {
         return Ok(ExitCode::from(1));
     }
     Ok(ExitCode::SUCCESS)

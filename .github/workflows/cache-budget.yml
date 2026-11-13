@@ -1,0 +1,90 @@
+name: cache-budget
+# Holds the repository's Actions cache inside its budget (ADR 0041). GitHub
+# keeps 10 GB per repository and, past it, evicts by last use: with 13.4 GB of
+# current entries every main run evicted one a long job needed, and pull
+# requests compiled it cold (runs 43340940282, 43397802234). Main saves only
+# the builds that set the wall (`save-cache` in hosted-rust); this deletes
+# every entry the latest successful main runs did not touch, so a moved
+# lockfile's old set never sits beside the new one, and it fails, naming the
+# largest entries, when the current set alone passes the budget.
+on:
+  workflow_run:
+    workflows: [ci, logical_ci]
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+concurrency:
+  group: cache-budget
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Prune the cache to its budget
+    # Hosted, as every job of this repository is (province#9).
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # 9 GiB: one GiB under GitHub's cap, so a run's saves never evict.
+      BUDGET_BYTES: "9663676416"
+      # The workflows whose jobs save a dependency build from main.
+      SAVING_WORKFLOWS: ci.yml logical_ci.yml
+    steps:
+      - name: Delete the entries no current main run uses
+        run: |
+          set -euo pipefail
+          api="repos/${GITHUB_REPOSITORY}/actions"
+          # Each saving workflow's latest successful main run. An entry it
+          # restored or saved was touched at or after that run started.
+          cutoff=""
+          shas=""
+          for workflow in ${SAVING_WORKFLOWS}; do
+            run="$(gh api "${api}/workflows/${workflow}/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0] | select(. != null) | "\(.run_started_at) \(.head_sha)"')"
+            if [ -z "${run}" ]; then
+              echo "::notice::${workflow} has no successful main run, so no entry is pruned by use"
+              cutoff=""
+              shas="unknown ${shas}"
+              break
+            fi
+            started="${run% *}"
+            shas="${run#* } ${shas}"
+            if [ -z "${cutoff}" ] || [[ "${started}" < "${cutoff}" ]]; then
+              cutoff="${started}"
+            fi
+          done
+          gh api --paginate "${api}/caches?per_page=100" --jq '.actions_caches[]' | jq -s . > "${RUNNER_TEMP}/caches.json"
+          # A pull request's entry and a main entry no current run touched.
+          jq -r --arg cutoff "${cutoff}" '
+            def stamp: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+            .[] | select(.ref != "refs/heads/main"
+              or ($cutoff != "" and (.last_accessed_at | stamp) < ($cutoff | stamp)))
+            | "\(.id)\t\(.size_in_bytes)\t\(.ref)\t\(.key)"' "${RUNNER_TEMP}/caches.json" > "${RUNNER_TEMP}/prune.tsv"
+          while IFS=$'\t' read -r id size ref key; do
+            if gh api -X DELETE "${api}/caches/${id}" --silent; then
+              echo "deleted ${key} on ${ref} (${size} bytes)"
+            else
+              echo "::warning::${key} on ${ref} was not deleted; GitHub may have evicted it first"
+            fi
+          done < "${RUNNER_TEMP}/prune.tsv"
+          gh api --paginate "${api}/caches?per_page=100" --jq '.actions_caches[]' | jq -s . > "${RUNNER_TEMP}/caches.json"
+          total="$(jq '[.[].size_in_bytes] | add // 0' "${RUNNER_TEMP}/caches.json")"
+          echo "cache: ${total} bytes in $(jq length "${RUNNER_TEMP}/caches.json") entries, budget ${BUDGET_BYTES}"
+          # Until every saving workflow has passed on one commit, the old set
+          # is still the latest some workflow touched, and the next run prunes it.
+          distinct="$(printf '%s\n' ${shas} | sort -u | wc -l)"
+          if [ -z "${cutoff}" ] || [ "${distinct}" -ne 1 ]; then
+            echo "::notice::the saving workflows last passed on different commits; the budget is held on the next run"
+            exit 0
+          fi
+          if [ "${total}" -gt "${BUDGET_BYTES}" ]; then
+            echo "::error::the current set holds ${total} bytes, past the ${BUDGET_BYTES}-byte budget (ADR 0041); the largest entries:"
+            jq -r 'sort_by(-.size_in_bytes) | .[:20][] | "\(.size_in_bytes)\t\(.key)"' "${RUNNER_TEMP}/caches.json"
+            exit 1
+          fi

@@ -231,6 +231,13 @@ last_reviewed = "2026-10-26"
 review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/273"
 
 [[lifecycle]]
+crate = "semver"
+replacement = "The advisory SemVer port held to a reference the estate owns, with no semver edge."
+removal_trigger = "Cargo's version reading is checked without the semver crate and no consumer remains."
+last_reviewed = "2026-11-12"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/942"
+
+[[lifecycle]]
 crate = "loom"
 replacement = "An estate model checker that enumerates thread interleavings with no loom edge."
 removal_trigger = "lgwks_std's lock protocols are explored without loom and no consumer remains."

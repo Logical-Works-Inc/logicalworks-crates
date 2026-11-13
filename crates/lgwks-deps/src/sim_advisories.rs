@@ -491,7 +491,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         vec!["< 1.0.0-alpha.2".to_owned()],
     );
 
-    // Advisory unaffected by < 1.0.0 -> 1.0.0-beta.2 is < 1.0.0, so unaffected!
+    // Unaffected by < 1.0.0 does not hold 1.0.0-beta.2: VersionReq admits a
+    // pre-release only through a comparator naming its own 1.0.0 (#942), so
+    // the beta is neither unaffected nor patched, and matches.
     let adv_beta = Advisory::new(
         "RUSTSEC-2026-P02",
         "pkg_beta",
@@ -520,10 +522,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
     )
     .map_err(|err_val| format!("{err_val}"))?;
 
+    let matched: Vec<&str> = report
+        .matches()
+        .iter()
+        .map(|found| found.advisory_id())
+        .collect();
     check_eq(
-        report.matches().len(),
-        0,
-        "all packages patched or unaffected",
+        matched,
+        vec!["RUSTSEC-2026-P02"],
+        "only the beta, gated out of `< 1.0.0`, is vulnerable",
     )?;
 
     Ok(())
@@ -671,7 +678,7 @@ fn sim_advisories_fuzzy_match_sweep() -> Outcome {
 
             // Verify loaded count and audited packages count
             check_eq(
-                report.advisories_loaded(),
+                report.database().advisories(),
                 advisories.len(),
                 "advisories_loaded count",
             )?;

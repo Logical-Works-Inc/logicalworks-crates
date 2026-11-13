@@ -70,6 +70,7 @@ mod sdk_surface;
 /// The ADR index held to the record directory under seeded faults.
 mod sim_adr_index;
 // The wrapper's journeys run `/bin/sh` and a program that reads a pipe.
+mod sim_advisories_audit;
 mod sim_advisories_cli;
 mod sim_agent_start_page;
 #[cfg(unix)]

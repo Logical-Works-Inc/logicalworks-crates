@@ -34,6 +34,10 @@ mod cgroup;
 mod darwin;
 /// Process identities and orphaned-group reaping.
 mod identity;
+/// What a zero-timeout wait on a Windows process handle answers: pure, so
+/// every host's tests judge it, not only a Windows runner's.
+#[cfg(any(windows, test))]
+mod wait;
 /// Windows process table, identity, termination and job objects (#263).
 #[cfg(windows)]
 mod windows;

@@ -4844,6 +4844,7 @@ dependencies = [
  "rmcp",
  "rusqlite",
  "rustls",
+ "semver",
  "syn 3.0.10",
  "tokenizers",
  "tokio",

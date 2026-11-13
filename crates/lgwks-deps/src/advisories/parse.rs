@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::types::{Advisory, AdvisoryError, AdvisoryKind, err_frontmatter};
+use super::types::{Advisory, AdvisoryError, AdvisoryKind, Affected, err_frontmatter};
 
 #[cfg(test)]
 mod sim_parse;
@@ -107,6 +107,8 @@ enum FrontmatterSection {
     Advisory,
     /// `[versions]` table.
     Versions,
+    /// `[affected]` table; `[affected.functions]` is [`Self::Other`].
+    Affected,
     /// Another uninspected table.
     Other,
 }
@@ -195,6 +197,7 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
     let mut withdrawn_opt: Option<String> = None;
     let mut patched: Vec<String> = Vec::new();
     let mut unaffected: Vec<String> = Vec::new();
+    let mut affected = Affected::default();
 
     for raw_line in frontmatter.lines() {
         let line = strip_comment(raw_line).trim();
@@ -212,6 +215,8 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
                 match target {
                     "patched" => patched.extend(items),
                     "unaffected" => unaffected.extend(items),
+                    "os" => affected.os.extend(items),
+                    "arch" => affected.arch.extend(items),
                     _ => {}
                 }
             } else {
@@ -230,6 +235,7 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
             match header {
                 "advisory" => section = FrontmatterSection::Advisory,
                 "versions" => section = FrontmatterSection::Versions,
+                "affected" => section = FrontmatterSection::Affected,
                 _ => section = FrontmatterSection::Other,
             }
             continue;
@@ -264,7 +270,21 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
                     }
                     _ => {}
                 },
-                _ => {}
+                FrontmatterSection::Affected => match key.as_str() {
+                    "os" => {
+                        if let Some(pending) = process_array_syntax(val, "os", &mut affected.os) {
+                            in_array = Some(pending);
+                        }
+                    }
+                    "arch" => {
+                        if let Some(pending) = process_array_syntax(val, "arch", &mut affected.arch)
+                        {
+                            in_array = Some(pending);
+                        }
+                    }
+                    _ => {}
+                },
+                FrontmatterSection::None | FrontmatterSection::Other => {}
             }
         }
     }
@@ -298,7 +318,8 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
         kind,
         patched,
         unaffected,
-    );
+    )
+    .with_affected(affected);
     if let Some(title_val) = title_str {
         advisory = advisory.with_title(title_val);
     }
