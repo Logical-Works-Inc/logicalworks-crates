@@ -32,9 +32,9 @@ The `lgwks_std` part of the invariant register, one short line per rule: rule ·
 - **INV-PATTERN-SAFE** Checked patterns enforce their ceilings before allocation and never return a partial replacement. · why: #168 · enforced by: `tests/it/sim_pattern.rs`
 - **INV-FS-2** A strict walk that succeeds has no known omissions, a tolerant walk returns them, and an unresolved root is refused. · why: #143 · enforced by: `tests/it/sim_fs_walk.rs`
 - **INV-FS-3** Handle-relative access resolves one component under one admitted descriptor and never follows a symlink implicitly. · why: #174 · enforced by: `lgwks_std::fs::capability::tests`
-- **INV-FS-4** Created names are owner-only, descriptors close on exec, and an inconsistent open request is refused. · why: #185 · enforced by: `lgwks_std::fs::capability::tests`
+- **INV-FS-4** Created names are owner-only, descriptors close on exec, an inconsistent open request is refused, and `open_entry` opens regular files only without ever blocking on a FIFO or device. · why: #185, #913 · enforced by: `lgwks_std::fs::capability::tests`
 - **INV-FS-5** Walk output is rooted at the canonical root; budgets charge before retention and mark prefixes incomplete. · why: #166 · enforced by: `tests/it/sim_fs_walk.rs`
-- **INV-FS-6** A capability listing is bounded by `ListLimits`, returns UTF-8 names only and says when it is incomplete. · why: #192 · enforced by: `lgwks_std::fs::capability::tests`
+- **INV-FS-6** A capability listing is bounded by `ListLimits`, returns UTF-8 names only, says when it is incomplete, and reads through its own descriptor, so listings at once through clones each see every name. · why: #192, #913 · enforced by: `lgwks_std::fs::capability::tests`
 - **INV-FS-7** A predicate walk offers each entry once with its `lstat`; `Skip` withholds an uncharged subtree and `Stop` ends the walk. · why: #343 · enforced by: `tests/it/sim_fs_walk_prune.rs`
 - **INV-FS-8** The streaming walk lists every link as `Symlink`, keeps a followed link's name and still lists a directory a link entered first. · why: #945 · enforced by: `lgwks_std::fs::stream::sim_links`
 - **INV-TASK-POOL-1** The blocking pool's ceiling is fixed once, shutdown closes admission and joins every thread, and finished threads are reaped. · why: #264, #289 · enforced by: `tests/sim_task_pool_public.rs`, `task::tests`

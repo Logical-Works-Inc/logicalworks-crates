@@ -606,6 +606,127 @@ fn a_deleted_entry_is_reported_rather_than_silently_absent() -> io::Result<()> {
     Ok(())
 }
 
+/// Write-only access to an existing name: no create, no truncate.
+fn write_only() -> OpenFlags {
+    OpenFlags {
+        write: true,
+        ..OpenFlags::default()
+    }
+}
+
+/// A FIFO swapped in for a name is refused, not waited on (#913 item 5).
+///
+/// A blocking `openat` on a FIFO with no peer never returns, so before the fix
+/// this test hung until nextest's slow-timeout killed it. Read and write both
+/// return at once: a read open answers `Unsupported` after `fstat`, and a write
+/// open with no reader is `ENXIO` from the kernel itself.
+#[test]
+fn open_entry_refuses_a_fifo_without_blocking() -> io::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let made = std::process::Command::new("mkfifo")
+        .arg(tmp.path().join("pipe"))
+        .status()?;
+    assert!(made.success(), "mkfifo made the FIFO");
+    let dir = Dir::open(tmp.path())?;
+    assert_eq!(dir.kind("pipe")?, FileKind::Fifo, "the name is a FIFO");
+    assert_eq!(
+        kind_of(dir.open_entry("pipe", OpenFlags::read())),
+        io::ErrorKind::Unsupported,
+        "a read open of a FIFO is refused once fstat names it"
+    );
+    assert!(
+        dir.open_entry("pipe", write_only()).is_err(),
+        "a write open of a FIFO with no reader fails at once"
+    );
+    Ok(())
+}
+
+/// A device under the name is refused too, and never becomes a terminal.
+#[test]
+fn open_entry_refuses_a_character_device() -> io::Result<()> {
+    let dev = Dir::open("/dev")?;
+    assert_eq!(
+        dev.kind("null")?,
+        FileKind::CharDevice,
+        "/dev/null is a device"
+    );
+    assert_eq!(
+        kind_of(dev.open_entry("null", OpenFlags::read())),
+        io::ErrorKind::Unsupported,
+        "open_entry opens regular files only"
+    );
+    Ok(())
+}
+
+/// The file `open_entry` hands back does blocking I/O, as a caller expects:
+/// `O_NONBLOCK` guards only the open, and is cleared before the return.
+#[test]
+fn an_opened_regular_file_is_blocking() -> io::Result<()> {
+    let tmp = tempfile::tempdir()?;
+    stdfs::write(tmp.path().join("f.txt"), b"steady")?;
+    let dir = Dir::open(tmp.path())?;
+    for flags in [OpenFlags::read(), write_only()] {
+        let file = dir.open_entry("f.txt", flags)?;
+        let status = rustix::fs::fcntl_getfl(&file).map_err(errno_to_io)?;
+        assert!(
+            !status.contains(rustix::fs::OFlags::NONBLOCK),
+            "{flags:?}: the returned file blocks"
+        );
+    }
+    let mut file = dir.open_entry("f.txt", OpenFlags::read())?;
+    assert_eq!(read_all(&mut file)?, "steady", "the file still reads whole");
+    Ok(())
+}
+
+/// Listings through clones at once each see the whole directory (#913 item 4).
+///
+/// `try_clone` shares one read position, and a listing that rewound and read
+/// through it raced: two threads interleaved `getdents64` calls and each kept
+/// a subset that still reported complete. 400 names are wider than one
+/// 4,096-byte dirent buffer, so a listing takes several reads to finish and an
+/// interleave has room to happen.
+#[test]
+#[cfg(target_os = "linux")]
+fn concurrent_listings_through_clones_each_see_every_name() -> io::Result<()> {
+    const NAMES: usize = 400;
+    const THREADS: usize = 16;
+    const ROUNDS: usize = 32;
+    let tmp = tempfile::tempdir()?;
+    let dir = Dir::open(tmp.path())?;
+    let mut want: Vec<String> = (0..NAMES)
+        .map(|index| format!("entry-{index:04}.txt"))
+        .collect();
+    for name in &want {
+        dir.create_new(name)?;
+    }
+    want.sort_unstable();
+    let clones = (0..THREADS)
+        .map(|_| dir.try_clone())
+        .collect::<io::Result<Vec<Dir>>>()?;
+    std::thread::scope(|scope| {
+        let runs: Vec<_> = clones
+            .iter()
+            .map(|clone| {
+                scope.spawn(|| -> io::Result<()> {
+                    for _ in 0..ROUNDS {
+                        let listing = clone.entry_names(ListLimits::default())?;
+                        assert!(listing.is_complete(), "every listing is whole");
+                        assert_eq!(listing.names(), want.as_slice(), "every name, every time");
+                    }
+                    Ok(())
+                })
+            })
+            .collect();
+        for run in runs {
+            match run.join() {
+                Ok(result) => result?,
+                Err(_) => return Err(io::Error::other("a listing thread panicked")),
+            }
+        }
+        Ok(())
+    })
+}
+
 /// The error kind a fallible operation produced, or `UnexpectedEof` when it
 /// unexpectedly succeeded.
 ///
