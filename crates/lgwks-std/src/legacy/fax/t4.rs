@@ -16,14 +16,21 @@ use super::tables::{
 };
 use super::{Corrupt, Strip, TiffError, cut, pixel_at, row_changes};
 
-/// A bit reader over strip bytes, MSB first, holding only a bit position:
-/// a code is peeked through a lookup and then skipped, and a reader that
-/// looked too far rewinds to a position it saved, with no pushback buffer.
+/// A bit reader over strip bytes, MSB first. The next bits wait in a 64-bit
+/// accumulator, the next bit at the top and zeros below the bits loaded, so
+/// a code is peeked with one shift and skipped with another, and the strip
+/// is loaded eight bytes at a time, not once per code. A reader that looked
+/// too far rewinds to a bit position it saved.
 pub(crate) struct BitReader<'a> {
     /// The strip bytes.
     bytes: &'a [u8],
-    /// The strip's length in bits, so a peek's held count is one subtraction.
-    bits: usize,
+    /// The first byte not yet loaded into `acc`.
+    next: usize,
+    /// The loaded bits not yet read, from the most significant bit down;
+    /// every bit below the `held` top bits is zero.
+    acc: u64,
+    /// How many of `acc`'s top bits are strip bits: at most 64.
+    held: u8,
     /// The next bit to read, counted from the strip's first bit.
     position: usize,
 }
@@ -33,63 +40,82 @@ impl<'a> BitReader<'a> {
     pub(crate) const fn new(bytes: &'a [u8]) -> Self {
         Self {
             bytes,
-            bits: bytes.len().saturating_mul(8),
+            next: 0,
+            acc: 0,
+            held: 0,
             position: 0,
         }
     }
 
-    /// The bits not yet read.
-    #[inline]
-    const fn left(&self) -> usize {
-        self.bits.saturating_sub(self.position)
+    /// Loads the whole bytes that fit behind the held bits. Away from the
+    /// strip's end that is one big-endian load of eight bytes, masked to the
+    /// bytes that fit; the last bytes come one at a time, and nothing past
+    /// the end is loaded, so the bits past it read as zeros.
+    ///
+    /// Kept out of line: it runs about once per 48 bits, and inlined into
+    /// every code read it crowded the 2D row decoder's registers (G4 decode
+    /// measured 5% slower with it inline).
+    #[inline(never)]
+    fn refill(&mut self) {
+        let [room, ..] = 64_u8
+            .saturating_sub(self.held)
+            .saturating_div(8)
+            .to_le_bytes();
+        let rest = self.bytes.get(self.next..);
+        if let Some(&eight) = rest.and_then(<[u8]>::first_chunk::<8>) {
+            let keep = self.held.saturating_add(room.saturating_mul(8));
+            let fits = match u64::MAX.checked_shr(u32::from(keep)) {
+                Some(below) => !below,
+                None => u64::MAX,
+            };
+            let word = u64::from_be_bytes(eight).wrapping_shr(u32::from(self.held));
+            self.acc |= word & fits;
+            self.held = keep;
+            self.next = self.next.saturating_add(usize::from(room));
+            return;
+        }
+        for &byte in rest.into_iter().flatten().take(usize::from(room)) {
+            self.acc |= u64::from(byte).wrapping_shl(u32::from(56_u8.saturating_sub(self.held)));
+            self.held = self.held.saturating_add(8);
+            self.next = self.next.saturating_add(1);
+        }
     }
 
     /// The next bit, or `None` past the end.
     pub(crate) fn next_bit(&mut self) -> Option<bool> {
-        let (at, mask) = pixel_at(self.position);
-        let &byte = self.bytes.get(at)?;
-        self.position = self.position.saturating_add(1);
-        Some(byte & mask != 0)
+        let (bit, held) = self.peek(1);
+        if held == 0 {
+            return None;
+        }
+        self.skip(1);
+        Some(bit == 1)
     }
 
     /// The next `count` bits (at most 16), most significant first, with the
     /// bits past the strip read as zeros, and how many of them the strip
     /// really holds. Nothing is consumed: a caller judges a code by the
     /// held count before it skips the code.
-    ///
-    /// Away from the strip's end one big-endian load of eight bytes holds
-    /// every bit a peek can want; only the last bytes take the byte-wise
-    /// path that reads zeros past the end.
     #[inline]
-    pub(crate) fn peek(&self, count: u8) -> (u32, usize) {
-        let at = self.position.saturating_div(8);
-        let rest = self.bytes.get(at..);
-        let window = match rest.and_then(<[u8]>::first_chunk::<8>) {
-            Some(&eight) => u64::from_be_bytes(eight),
-            None => {
-                let mut eight = [0_u8; 8];
-                for (slot, &byte) in eight.iter_mut().zip(rest.into_iter().flatten()) {
-                    *slot = byte;
-                }
-                u64::from_be_bytes(eight)
-            }
-        };
-        let [used, ..] = self.position.rem_euclid(8).to_le_bytes();
+    pub(crate) fn peek(&mut self, count: u8) -> (u32, usize) {
+        if self.held < 16 {
+            self.refill();
+        }
         let wanted = u32::from(count.clamp(1, 16));
-        // The `wanted` bits at the position, right-aligned: one shift left
-        // past the bits already read, one shift right of the rest away.
-        let top = window
-            .wrapping_shl(u32::from(used))
-            .wrapping_shr(64_u32.saturating_sub(wanted));
+        let top = self.acc.wrapping_shr(64_u32.saturating_sub(wanted));
         let [.., high, low] = top.to_be_bytes();
         let bits = u32::from(u16::from_be_bytes([high, low]));
-        (bits, self.left().min(usize::from(count)))
+        (bits, usize::from(self.held.min(count)))
     }
 
-    /// Consumes `count` bits a peek has judged.
+    /// Consumes `count` bits a peek has judged, never more than that peek
+    /// held: every caller skips a code its peek found whole, and the bits
+    /// past the strip's end are not there to consume.
     #[inline]
     pub(crate) fn skip(&mut self, count: u8) {
-        self.position = self.position.saturating_add(usize::from(count));
+        let taken = count.min(self.held);
+        self.acc = self.acc.wrapping_shl(u32::from(taken));
+        self.held = self.held.saturating_sub(taken);
+        self.position = self.position.saturating_add(usize::from(taken));
     }
 
     /// Reads one code through `table`, indexed by the next `lookup_bits`
@@ -119,9 +145,22 @@ impl<'a> BitReader<'a> {
         self.position
     }
 
-    /// Returns to a position [`Self::mark`] saved.
-    pub(crate) const fn rewind(&mut self, mark: usize) {
+    /// Returns to a position [`Self::mark`] saved: the accumulator is
+    /// emptied and refilled from that bit's byte, its earlier bits dropped.
+    pub(crate) fn rewind(&mut self, mark: usize) {
         self.position = mark;
+        self.next = mark.saturating_div(8);
+        self.acc = 0;
+        self.held = 0;
+        let [used, ..] = mark.rem_euclid(8).to_le_bytes();
+        if used == 0 {
+            return;
+        }
+        self.refill();
+        // A mark past the strip's end loads nothing, and drops nothing.
+        let dropped = used.min(self.held);
+        self.acc = self.acc.wrapping_shl(u32::from(dropped));
+        self.held = self.held.saturating_sub(dropped);
     }
 }
 
@@ -370,6 +409,111 @@ pub(crate) fn emit_run(
 mod tests {
     use super::{BitReader, skip_eols};
 
+    /// The oracle: the `count` bits at bit `at` of `bytes`, MSB first, zeros
+    /// past the end, and how many of them the bytes hold.
+    fn model_peek(bytes: &[u8], at: usize, count: u8) -> (u32, usize) {
+        let mut bits: u32 = 0;
+        let mut held: usize = 0;
+        for offset in 0..usize::from(count) {
+            let bit = at.saturating_add(offset);
+            let set = bytes.get(bit.saturating_div(8)).map(|&byte| {
+                let [shift, ..] = (7_usize.saturating_sub(bit.rem_euclid(8))).to_le_bytes();
+                byte.wrapping_shr(u32::from(shift)) & 1 == 1
+            });
+            if set.is_some() {
+                held = held.saturating_add(1);
+            }
+            bits = bits.wrapping_shl(1) | u32::from(set == Some(true));
+        }
+        (bits, held)
+    }
+
+    /// Seeded strips of 0 to 40 bytes read by random peeks of 1 to 16 bits,
+    /// skips of what a peek held, rewinds to earlier marks and single bits,
+    /// against a bit-by-bit model: every refill path (eight-byte load,
+    /// partial bytes, the strip's last bytes, past the end) answers as the
+    /// model does at every position.
+    #[test]
+    fn sim_the_accumulator_reads_every_bit_the_model_reads() -> Result<(), String> {
+        for seed in 0..512_u64 {
+            let mut stream = crate::seeded::Seeded::from_seed(seed);
+            let mut draw = |below: u64| stream.below(below).map_err(|error| format!("{error}"));
+            let len = usize::try_from(draw(41)?).map_err(|error| error.to_string())?;
+            let mut bytes = Vec::with_capacity(len);
+            for _ in 0..len {
+                bytes.push(u8::try_from(draw(256)?).map_err(|error| error.to_string())?);
+            }
+            let mut reader = BitReader::new(&bytes);
+            let mut marks: Vec<usize> = vec![0];
+            for step in 0..200 {
+                let at = reader.mark();
+                let count =
+                    u8::try_from(draw(16)?.saturating_add(1)).map_err(|error| error.to_string())?;
+                match draw(8)? {
+                    0 => {
+                        let marked =
+                            u64::try_from(marks.len()).map_err(|error| error.to_string())?;
+                        let back =
+                            usize::try_from(draw(marked)?).map_err(|error| error.to_string())?;
+                        let mark = marks.get(back).copied().ok_or("no mark")?;
+                        reader.rewind(mark);
+                        assert_eq!(reader.mark(), mark, "seed {seed} step {step}: rewound");
+                    }
+                    1 => {
+                        let (bit, held) = model_peek(&bytes, at, 1);
+                        let expected = (held == 1).then_some(bit == 1);
+                        assert_eq!(
+                            reader.next_bit(),
+                            expected,
+                            "seed {seed} step {step}: next bit at {at}"
+                        );
+                    }
+                    _ => {
+                        let expected = model_peek(&bytes, at, count);
+                        assert_eq!(
+                            reader.peek(count),
+                            expected,
+                            "seed {seed} step {step}: peek {count} at {at}"
+                        );
+                        // The whole peek is skipped; near the end only the
+                        // bits the strip held are consumed.
+                        reader.skip(count);
+                        assert_eq!(
+                            reader.mark(),
+                            at.saturating_add(expected.1),
+                            "seed {seed} step {step}: skipped {count} of {} held",
+                            expected.1
+                        );
+                        marks.push(reader.mark());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A rewind to a bit inside a byte reads from that bit; the strip's last
+    /// bits come back with zeros, a skip consumes only the bits the strip
+    /// held, and a rewind past the end holds nothing.
+    #[test]
+    fn a_rewind_mid_byte_reads_from_its_bit_and_a_skip_stops_at_the_end() {
+        let mut reader = BitReader::new(&[0b0000_0101, 0b1100_0000]);
+        reader.rewind(5);
+        assert_eq!(reader.peek(4), (0b1011, 4), "bits 5 to 8");
+        reader.skip(4);
+        assert_eq!(
+            reader.peek(16),
+            (0b1000_0000_0000_0000, 7),
+            "the last seven bits, then zeros"
+        );
+        reader.skip(16);
+        assert_eq!(reader.mark(), 16, "only the seven held bits are consumed");
+        assert_eq!(reader.peek(16), (0, 0), "nothing is left");
+        assert_eq!(reader.next_bit(), None, "no bit past the end");
+        reader.rewind(21);
+        assert_eq!(reader.peek(8), (0, 0), "a mark past the end holds nothing");
+    }
+
     /// ITU-T T.4 §4.1.2: an EOL is eleven zeros and a one, and fill zeros of
     /// any length may precede it (TIFF 6.0 Section 10, `T4Options` bit 2).
     /// Each layout puts the EOL's one, or the strip's end, at a peek edge.
@@ -391,19 +535,19 @@ mod tests {
         // Four data bits, then exactly an EOL's twelve bits of zeros to the
         // end: consumed as fill, not rewound as row data.
         let mut reader = BitReader::new(&[0xf0, 0x00]);
-        reader.skip(4);
+        reader.rewind(4);
         assert_eq!(skip_eols(&mut reader), 0, "twelve zeros to the end");
         assert_eq!(reader.mark(), 16, "twelve trailing zeros are fill");
         // Four data bits, then eleven zeros and a one on the strip's last bit:
         // an EOL, consumed through that one.
         let mut reader = BitReader::new(&[0xf0, 0x01]);
-        reader.skip(4);
+        reader.rewind(4);
         assert_eq!(skip_eols(&mut reader), 1, "eleven zeros and a one");
         assert_eq!(reader.mark(), 16, "consumed through that one");
         // Four data bits, then seven zeros and a one: row data, so the reader
         // rewinds to before the zeros.
         let mut reader = BitReader::new(&[0xf0, 0x10]);
-        reader.skip(4);
+        reader.rewind(4);
         assert_eq!(skip_eols(&mut reader), 0, "seven zeros and a one is data");
         assert_eq!(reader.mark(), 4, "rewound to the row data");
     }

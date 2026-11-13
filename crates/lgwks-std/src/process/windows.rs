@@ -9,7 +9,7 @@
 //!
 //! The isolation is this file:
 //!
-//! - one `extern "system"` block naming fourteen `kernel32` functions; nothing
+//! - one `extern "system"` block naming thirteen `kernel32` functions; nothing
 //!   else is foreign;
 //! - every call goes through [`Api`], a table of function pointers, so the
 //!   tests drive these exact `unsafe` call sites against Rust stand-ins under
@@ -28,6 +28,9 @@ use std::ffi::c_void;
 use std::io;
 
 use super::capture::{ContainmentMechanism, DescendantSet};
+use super::wait::exited_from_wait;
+#[cfg(test)]
+use super::wait::{WAIT_OBJECT_0, WAIT_TIMEOUT};
 
 /// A kernel object handle (`HANDLE`).
 type Handle = *mut c_void;
@@ -42,10 +45,6 @@ const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
 const PROCESS_SET_QUOTA: u32 = 0x0100;
 /// `SYNCHRONIZE`.
 const SYNCHRONIZE: u32 = 0x0010_0000;
-/// `STILL_ACTIVE`: the exit code of a process that has not exited.
-const STILL_ACTIVE: u32 = 259;
-/// `WAIT_OBJECT_0`: the waited object is signalled (the process exited).
-const WAIT_OBJECT_0: u32 = 0;
 /// `TH32CS_SNAPPROCESS`.
 const TH32CS_SNAPPROCESS: u32 = 0x0000_0002;
 /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: closing the last job handle kills
@@ -136,8 +135,6 @@ pub(super) struct Api {
     pub(super) close_handle: unsafe extern "system" fn(Handle) -> Bool,
     /// `TerminateProcess(handle, exit_code)`.
     pub(super) terminate_process: unsafe extern "system" fn(Handle, u32) -> Bool,
-    /// `GetExitCodeProcess(handle, out)`.
-    pub(super) exit_code: unsafe extern "system" fn(Handle, *mut u32) -> Bool,
     /// `WaitForSingleObject(handle, milliseconds)`.
     pub(super) wait: unsafe extern "system" fn(Handle, u32) -> u32,
     /// `GetProcessTimes(handle, creation, exit, kernel, user)`.
@@ -180,8 +177,6 @@ unsafe extern "system" {
     fn close_handle(handle: Handle) -> Bool;
     #[link_name = "TerminateProcess"]
     fn terminate_process(handle: Handle, exit_code: u32) -> Bool;
-    #[link_name = "GetExitCodeProcess"]
-    fn get_exit_code_process(handle: Handle, code: *mut u32) -> Bool;
     #[link_name = "WaitForSingleObject"]
     fn wait_for_single_object(handle: Handle, milliseconds: u32) -> u32;
     #[link_name = "GetProcessTimes"]
@@ -221,7 +216,6 @@ pub(super) const NATIVE: Api = Api {
     open_process,
     close_handle,
     terminate_process,
-    exit_code: get_exit_code_process,
     wait: wait_for_single_object,
     times: get_process_times,
     snapshot: create_toolhelp32_snapshot,
@@ -286,15 +280,23 @@ fn open(api: &Api, pid: u32, access: u32) -> io::Result<Option<Owned<'_>>> {
     Err(error)
 }
 
-/// The exit code `GetExitCodeProcess` reports, `STILL_ACTIVE` while running.
-fn exit_code_of(owned: &Owned<'_>) -> io::Result<u32> {
-    let mut code: u32 = 0;
-    // SAFETY: `owned.handle` is open; `code` is a live `u32` the call writes.
-    let read = unsafe { (owned.api.exit_code)(owned.handle, &raw mut code) };
-    if read == 0 {
-        return refused((owned.api.last_error)(), "GetExitCodeProcess");
+/// Whether the process `owned` names has exited: its object is signalled.
+///
+/// Read from a zero-timeout wait, never from the exit code: `STILL_ACTIVE`
+/// (259) is also a code a process may exit with, and `GetExitCodeProcess`
+/// cannot tell that exit from running (Microsoft's own caution on the call).
+///
+/// # Errors
+///
+/// The wait's own error when it neither found the process signalled nor
+/// timed out (`WAIT_FAILED`), never read as either answer.
+fn signalled(owned: &Owned<'_>) -> io::Result<bool> {
+    // SAFETY: `owned.handle` is open with `SYNCHRONIZE`; a zero timeout polls.
+    let waited = unsafe { (owned.api.wait)(owned.handle, 0) };
+    match exited_from_wait(waited) {
+        Some(exited) => Ok(exited),
+        None => refused((owned.api.last_error)(), "WaitForSingleObject"),
     }
-    Ok(code)
 }
 
 /// Whether `pid` names a process now: open, even if it has exited and its
@@ -308,11 +310,12 @@ pub(super) fn exists(api: &Api, pid: u32) -> io::Result<bool> {
     }
 }
 
-/// Whether `pid` is still running: its exit code is `STILL_ACTIVE`. A process
-/// refused to this process is reported running, the answer that claims less.
+/// Whether `pid` is still running: its object is not yet signalled, so a
+/// process that exited with code 259 reads as exited. A process refused to
+/// this process is reported running, the answer that claims less.
 pub(super) fn running(api: &Api, pid: u32) -> io::Result<bool> {
-    match open(api, pid, PROCESS_QUERY_LIMITED_INFORMATION) {
-        Ok(Some(owned)) => Ok(exit_code_of(&owned)? == STILL_ACTIVE),
+    match open(api, pid, SYNCHRONIZE) {
+        Ok(Some(owned)) => Ok(!signalled(&owned)?),
         Ok(None) => Ok(false),
         Err(error) if error.raw_os_error() == Some(ERROR_ACCESS_DENIED) => Ok(true),
         Err(error) => Err(error),
@@ -326,12 +329,7 @@ pub(super) fn running(api: &Api, pid: u32) -> io::Result<bool> {
 /// `ERROR_INVALID_PARAMETER` when no process holds the id — the Windows form of
 /// `ESRCH` — and the terminate's own error for a live process it refused.
 pub(super) fn terminate(api: &Api, pid: u32) -> io::Result<()> {
-    let Some(owned) = open(
-        api,
-        pid,
-        PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
-    )?
-    else {
+    let Some(owned) = open(api, pid, PROCESS_TERMINATE | SYNCHRONIZE)? else {
         return refused(
             io::Error::from_raw_os_error(ERROR_INVALID_PARAMETER),
             "terminate: OpenProcess",
@@ -345,7 +343,7 @@ pub(super) fn terminate(api: &Api, pid: u32) -> io::Result<()> {
     let error = (owned.api.last_error)();
     // A process that already exited refuses termination; its exit is what the
     // signal was for.
-    if exit_code_of(&owned)? != STILL_ACTIVE {
+    if signalled(&owned)? {
         return Ok(());
     }
     Err(error)
@@ -360,9 +358,7 @@ pub(super) fn exited(api: &Api, pid: u32) -> io::Result<bool> {
             "exited: OpenProcess",
         );
     };
-    // SAFETY: `owned.handle` is open with `SYNCHRONIZE`; a zero timeout polls.
-    let waited = unsafe { (owned.api.wait)(owned.handle, 0) };
-    Ok(waited == WAIT_OBJECT_0)
+    signalled(&owned)
 }
 
 /// The creation instant of `pid` in 100 ns intervals since 1601, `None` when
