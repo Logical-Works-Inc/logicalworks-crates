@@ -16,7 +16,7 @@ oracle run their children from outside (T03 `t03_non_yielding`, T14
 the one partial row: that run had no Windows receipt, and no escape from a job
 is driven on Windows. The Windows tests for T19–T21 are named in
 [`acceptance/t-rows-windows.toml`](acceptance/t-rows-windows.toml) and receipted
-as `windows-x86_64` by the Windows job ([#263](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/263), closed).
+as `windows-x86_64` by the Windows job ([#263](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/263), closed). Since ADR 0042 the macOS receipt reads only the row-named tests of [`acceptance/t-rows-darwin.toml`](acceptance/t-rows-darwin.toml), and Linux receipts the whole map.
 The record is that run's `acceptance-receipts` artifact; the table below renders
 the macOS receipt. No row reads `accepted` because the map claims none; only the
 map promotes a row. A passing existing workflow does not execute tests that have

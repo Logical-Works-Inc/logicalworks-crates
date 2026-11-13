@@ -2,10 +2,12 @@
 //! and `tests_linux`, compiled there with `rustc` alone, no dependencies).
 //!
 //! Cargo runs it as `it-group-rustc <rustc> <arguments>` for workspace crates
-//! only. With `LWC_IT_GROUP` set, it adds `--cfg lwc_it_group` and
-//! `--cfg lwc_it_group="<group>"`, the cfg that selects one group of
-//! `lgwks_bot`'s `it` modules. Set in `RUSTFLAGS`, that cfg changed every
-//! dependency's fingerprint per row, so only the row that saved the shared
+//! only. With `LWC_IT_GROUP` set, it adds `--cfg lwc_it_group` and one
+//! `--cfg lwc_it_group="<group>"` for each comma-separated group, the cfg that
+//! selects those groups of `lgwks_bot`'s `it` modules: a macOS row builds two,
+//! since it runs only their row-named tests (ADR 0042). Set in `RUSTFLAGS`,
+//! that cfg changed every dependency's fingerprint per row, so only the row
+//! that saved the shared
 //! rust-cache entry reused it: run 41837734726 compiled 16 crates in g3 and
 //! 202 to 351 in each other row.
 
@@ -32,11 +34,15 @@ fn main() -> ExitCode {
     };
     let mut command = Command::new(&rustc);
     command.args(arguments);
-    if let Some(group) = env::var_os("LWC_IT_GROUP").filter(|group| !group.is_empty()) {
-        let mut value = OsString::from("lwc_it_group=\"");
-        value.push(&group);
-        value.push("\"");
-        command.args(["--cfg", "lwc_it_group", "--cfg"]).arg(value);
+    if let Some(groups) = env::var_os("LWC_IT_GROUP").filter(|groups| !groups.is_empty()) {
+        command.args(["--cfg", "lwc_it_group"]);
+        let groups = groups.to_string_lossy().into_owned();
+        for group in groups.split(',').map(str::trim).filter(|group| !group.is_empty()) {
+            let mut value = OsString::from("lwc_it_group=\"");
+            value.push(group);
+            value.push("\"");
+            command.arg("--cfg").arg(value);
+        }
     }
     let status = match command.status() {
         Ok(status) => status,

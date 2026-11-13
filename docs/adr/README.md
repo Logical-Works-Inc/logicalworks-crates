@@ -77,5 +77,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0039](0039-the-streaming-walk-lists-every-link.md) | The streaming walk lists every link |
 | [0040](0040-the-register-keeps-to-the-law-at-120-columns.md) | The register keeps to the law at 120 columns |
 | [0041](0041-the-cache-keeps-the-builds-that-set-the-wall.md) | The cache keeps the builds that set the wall |
+| [0042](0042-macos-and-windows-run-only-the-platform-gates.md) | macOS and Windows run only the platform gates |
 
 New records go at the bottom of that table.
