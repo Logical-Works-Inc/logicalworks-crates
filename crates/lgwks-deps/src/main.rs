@@ -127,7 +127,7 @@ USAGE
   version, offers a pre-release only to a lock already on one, and names the
   direct dependency each package comes through (`via`). It refuses an unknown
   --flag, a repeated --jobs or --index, and a second PATH, exiting 2.
-   lgwks-deps advisories <LOCK> <DB>    audit a Cargo.lock against a local RustSec
+   lgwks-deps advisories <LOCK>... <DB> audit Cargo.lock files against a local RustSec
               [--json]                  advisory database; exit 1 names a vulnerable
                                         package, exit 2 is a refusal
    lgwks-deps vendor check [PATH]       prove every locked package resolves
@@ -288,7 +288,7 @@ fn dispatch(
 ) -> io::Result<ExitCode> {
     match command {
         Some("check") => handle_check(&args[1..], out, err),
-        Some("advisories") => lgwks_deps::advisories::run(&args[1..], USAGE, out, err),
+        Some("advisories") => advisories_cmd::run(&args[1..], USAGE, out, err),
         Some("retire") => handle_retire(&args[1..], out, err),
         Some("invariants") => handle_invariants(&args[1..], out, err),
         Some("catalog") => handle_catalog(&args[1..], out, err),
@@ -521,6 +521,8 @@ macro_rules! unwrap_or_refuse {
     };
 }
 
+#[path = "bin/deps_cmd/advisories.rs"]
+mod advisories_cmd;
 mod catalog_cmd;
 mod check_args;
 mod check_report;

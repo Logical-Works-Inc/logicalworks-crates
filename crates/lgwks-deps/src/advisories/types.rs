@@ -1,4 +1,4 @@
-//! Domain types and refusals for RustSec advisory evaluation (#799).
+//! Domain types and refusals for RustSec advisory evaluation (#799, #942).
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,8 @@ use crate::lock::LockError;
 /// The kind of an advisory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub(crate) enum AdvisoryKind {
+#[doc(hidden)]
+pub enum AdvisoryKind {
     /// A security vulnerability with potential exploitation impact.
     Vulnerability,
     /// An informational advisory (e.g. unmaintained, unsound, or notice).
@@ -18,7 +19,8 @@ pub(crate) enum AdvisoryKind {
 impl AdvisoryKind {
     /// Returns the informational label if informational, or `None` if a vulnerability.
     #[must_use]
-    pub(crate) fn informational_name(&self) -> Option<&str> {
+    #[doc(hidden)]
+    pub fn informational_name(&self) -> Option<&str> {
         match *self {
             Self::Vulnerability => None,
             Self::Informational(ref name_str) => Some(name_str.as_str()),
@@ -27,9 +29,20 @@ impl AdvisoryKind {
 
     /// Whether this advisory represents an active vulnerability.
     #[must_use]
-    pub(crate) const fn is_vulnerability(&self) -> bool {
+    #[doc(hidden)]
+    pub const fn is_vulnerability(&self) -> bool {
         matches!(*self, Self::Vulnerability)
     }
+}
+
+/// The platforms an advisory's `[affected]` table restricts it to; empty
+/// lists mean every platform.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Affected {
+    /// `[affected] os`.
+    pub(crate) os: Vec<String>,
+    /// `[affected] arch`.
+    pub(crate) arch: Vec<String>,
 }
 
 /// A parsed RustSec security advisory.
@@ -52,6 +65,8 @@ pub(crate) struct Advisory {
     patched: Vec<String>,
     /// Unaffected version requirements.
     unaffected: Vec<String>,
+    /// The `[affected]` platform restriction.
+    affected: Affected,
 }
 
 impl Advisory {
@@ -75,6 +90,7 @@ impl Advisory {
             kind: advisory_kind,
             patched: patched_reqs,
             unaffected: unaffected_reqs,
+            affected: Affected::default(),
         }
     }
 
@@ -82,6 +98,13 @@ impl Advisory {
     #[must_use]
     pub(crate) fn with_title(mut self, title_val: impl Into<String>) -> Self {
         self.title = Some(title_val.into());
+        self
+    }
+
+    /// Attaches the `[affected]` platform restriction.
+    #[must_use]
+    pub(crate) fn with_affected(mut self, affected: Affected) -> Self {
+        self.affected = affected;
         self
     }
 
@@ -132,138 +155,260 @@ impl Advisory {
     pub(crate) fn unaffected(&self) -> &[String] {
         &self.unaffected
     }
+
+    /// The `[affected]` platform restriction.
+    #[must_use]
+    pub(crate) fn affected(&self) -> &Affected {
+        &self.affected
+    }
 }
 
-/// A recorded vulnerability match between a resolved package and an advisory.
+/// One lockfile to audit: the label a match names it by, and its text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub struct Lockfile<'text> {
+    /// What a match calls this lockfile, e.g. its path under the subject.
+    label: &'text str,
+    /// The `Cargo.lock` text.
+    text: &'text str,
+}
+
+impl<'text> Lockfile<'text> {
+    /// A lockfile named `label` holding `text`.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn new(label: &'text str, text: &'text str) -> Self {
+        Self { label, text }
+    }
+
+    /// The label a match names this lockfile by.
+    #[must_use]
+    pub(crate) const fn label(&self) -> &'text str {
+        self.label
+    }
+
+    /// The `Cargo.lock` text.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn text(&self) -> &'text str {
+        self.text
+    }
+}
+
+/// A resolved crates.io package an advisory applies to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub(crate) struct AdvisoryMatch {
+#[doc(hidden)]
+pub struct AdvisoryMatch {
     /// Advisory identifier that matched.
     advisory_id: String,
     /// Package name.
     package: String,
-    /// Version resolved in `Cargo.lock`.
+    /// Version resolved in the lockfile.
     installed_version: String,
     /// Classification of the matched advisory.
     kind: AdvisoryKind,
     /// Patched version requirements from the advisory.
     patched: Vec<String>,
+    /// The advisory's `[affected]` platform restriction.
+    affected: Affected,
+    /// The label of the lockfile that pins the package.
+    lockfile: String,
 }
 
 impl AdvisoryMatch {
-    /// Constructs a new advisory match.
+    /// Constructs a new advisory match of `advisory` against one pin.
     #[must_use]
     pub(crate) fn new(
-        advisory_id: impl Into<String>,
-        package_name: impl Into<String>,
+        advisory: &Advisory,
         installed_version: impl Into<String>,
-        advisory_kind: AdvisoryKind,
-        patched_reqs: Vec<String>,
+        lockfile: impl Into<String>,
     ) -> Self {
         Self {
-            advisory_id: advisory_id.into(),
-            package: package_name.into(),
+            advisory_id: advisory.id().to_owned(),
+            package: advisory.package().to_owned(),
             installed_version: installed_version.into(),
-            kind: advisory_kind,
-            patched: patched_reqs,
+            kind: advisory.kind().clone(),
+            patched: advisory.patched().to_vec(),
+            affected: advisory.affected().clone(),
+            lockfile: lockfile.into(),
         }
     }
 
-    /// Returns the security bulletin reference (e.g. `RUSTSEC-YYYY-NNNN`).
+    /// The advisory identifier, e.g. `RUSTSEC-2026-0001`.
     #[must_use]
-    pub(crate) fn advisory_id(&self) -> &str {
+    #[doc(hidden)]
+    pub fn advisory_id(&self) -> &str {
         &self.advisory_id
     }
 
-    /// Returns the crate identifier affected by the security bulletin.
+    /// The package the advisory names.
     #[must_use]
-    pub(crate) fn package(&self) -> &str {
+    #[doc(hidden)]
+    pub fn package(&self) -> &str {
         &self.package
     }
 
-    /// The installed package version from `Cargo.lock`.
+    /// The version the lockfile resolved.
     #[must_use]
-    pub(crate) fn installed_version(&self) -> &str {
+    #[doc(hidden)]
+    pub fn installed_version(&self) -> &str {
         &self.installed_version
     }
 
     /// Whether this match is a vulnerability or an informational notice: only a
     /// vulnerability fails `lgwks-deps advisories`.
-    #[inline]
     #[must_use]
-    pub(crate) fn match_kind(&self) -> &AdvisoryKind {
+    #[doc(hidden)]
+    pub fn match_kind(&self) -> &AdvisoryKind {
         &self.kind
     }
 
-    /// Returns the patched version specifications.
-    #[inline]
+    /// The patched version requirements, as the advisory writes them.
     #[must_use]
-    pub(crate) fn match_patched(&self) -> &[String] {
+    #[doc(hidden)]
+    pub fn match_patched(&self) -> &[String] {
         self.patched.as_slice()
+    }
+
+    /// The operating systems `[affected] os` restricts the advisory to.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn os(&self) -> &[String] {
+        &self.affected.os
+    }
+
+    /// The architectures `[affected] arch` restricts the advisory to.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn arch(&self) -> &[String] {
+        &self.affected.arch
+    }
+
+    /// Whether the advisory names an os or arch restriction. A restricted
+    /// advisory still matches: the consumer decides what its targets are.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn is_restricted(&self) -> bool {
+        !self.affected.os.is_empty() || !self.affected.arch.is_empty()
+    }
+
+    /// The label of the lockfile that pins the package.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn lockfile(&self) -> &str {
+        &self.lockfile
     }
 }
 
-/// The report produced by auditing a lockfile against an advisory database.
+/// What the advisory database was when it was read: its git `HEAD`, when it is
+/// a checkout, the advisories loaded and a digest over the files read.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub(crate) struct AdvisoryReport {
-    /// Deterministic FNV-1a digest of the advisory database: it names a checkout
-    /// for a report, and is not a tamper seal.
-    db_digest: String,
-    /// Total number of advisory files loaded.
-    advisories_loaded: usize,
-    /// Total number of non-local packages audited.
-    packages_audited: usize,
-    /// Vulnerability matches detected.
-    matches: Vec<AdvisoryMatch>,
+#[doc(hidden)]
+pub struct DatabaseIdentity {
+    /// FNV-1a digest of the advisory files read: it names a checkout for a
+    /// report, and is not a tamper seal.
+    pub(crate) digest: String,
+    /// The `HEAD` commit hash, when the database is a git checkout.
+    pub(crate) commit: Option<String>,
+    /// The `HEAD` committer date (`YYYY-MM-DD`), when it is a checkout.
+    pub(crate) date: Option<String>,
+    /// How many advisory files were loaded.
+    pub(crate) advisories: usize,
+}
+
+impl DatabaseIdentity {
+    /// The digest over every advisory file read, path and content.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+
+    /// The `HEAD` commit, `None` when the database is not a git checkout.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn commit(&self) -> Option<&str> {
+        self.commit.as_deref()
+    }
+
+    /// The `HEAD` committer date, `None` when not a checkout: a consumer applies
+    /// its own staleness rule to it.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn date(&self) -> Option<&str> {
+        self.date.as_deref()
+    }
+
+    /// How many advisory files were loaded.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn advisories(&self) -> usize {
+        self.advisories
+    }
+}
+
+/// What one audit decided, over every lockfile it was given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+#[doc(hidden)]
+pub struct AdvisoryReport {
+    /// The database the verdict binds to.
+    pub(crate) database: DatabaseIdentity,
+    /// How many lockfiles were read.
+    pub(crate) lockfiles: usize,
+    /// Pins from a crates.io index, the only ones matched.
+    pub(crate) packages_audited: usize,
+    /// Pins from anywhere else: workspace members, path, git and other
+    /// registries, which no RustSec advisory names.
+    pub(crate) packages_skipped: usize,
+    /// Every match, vulnerability and informational, sorted.
+    pub(crate) matches: Vec<AdvisoryMatch>,
 }
 
 impl AdvisoryReport {
-    /// Constructs a new advisory report.
+    /// The database the verdict binds to.
     #[must_use]
-    pub(crate) fn new(
-        db_digest: String,
-        advisories_loaded: usize,
-        packages_audited: usize,
-        matches: Vec<AdvisoryMatch>,
-    ) -> Self {
-        Self {
-            db_digest,
-            advisories_loaded,
-            packages_audited,
-            matches,
-        }
+    #[doc(hidden)]
+    pub const fn database(&self) -> &DatabaseIdentity {
+        &self.database
     }
 
-    /// Deterministic FNV-1a digest of the advisory database.
+    /// How many lockfiles were read.
     #[must_use]
-    pub(crate) fn db_digest(&self) -> &str {
-        &self.db_digest
+    #[doc(hidden)]
+    pub const fn lockfiles(&self) -> usize {
+        self.lockfiles
     }
 
-    /// Number of advisory files loaded from the database.
+    /// How many crates.io pins were judged.
     #[must_use]
-    pub(crate) fn advisories_loaded(&self) -> usize {
-        self.advisories_loaded
-    }
-
-    /// Number of non-local packages evaluated against the database.
-    #[must_use]
-    pub(crate) fn packages_audited(&self) -> usize {
+    #[doc(hidden)]
+    pub const fn packages_audited(&self) -> usize {
         self.packages_audited
     }
 
-    /// Every matched advisory vulnerability.
+    /// How many pins were skipped because no crates.io index is their source.
     #[must_use]
-    pub(crate) fn matches(&self) -> &[AdvisoryMatch] {
+    #[doc(hidden)]
+    pub const fn packages_skipped(&self) -> usize {
+        self.packages_skipped
+    }
+
+    /// Every match, sorted by advisory, package, version and lockfile.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn matches(&self) -> &[AdvisoryMatch] {
         &self.matches
     }
 }
 
-/// Errors that can occur during advisory parsing or lockfile auditing.
+/// Why an audit refused to report: never a clean report it could not make.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub(crate) enum AdvisoryError {
+#[doc(hidden)]
+pub enum AdvisoryError {
     /// An I/O error occurred while reading from `path`.
     Io {
         /// Path where the I/O failure occurred.
@@ -283,6 +428,40 @@ pub(crate) enum AdvisoryError {
         /// The invalid text.
         text: String,
     },
+    /// An advisory requirement Cargo reads but RustSec does not load.
+    UnsupportedRequirement {
+        /// The advisory file.
+        path: PathBuf,
+        /// The requirement as written.
+        text: String,
+        /// The rule it breaks.
+        reason: &'static str,
+    },
+    /// A database entry whose name is not UTF-8, so it can be neither matched
+    /// nor digested.
+    NotUtf8 {
+        /// The entry, shown lossily.
+        path: PathBuf,
+    },
+    /// A database with no advisory file under `crates` (or `rust`).
+    EmptyDatabase {
+        /// The database root.
+        path: PathBuf,
+    },
+    /// An input past a bound the audit holds.
+    Bound {
+        /// What was counted.
+        what: &'static str,
+        /// The most allowed.
+        limit: usize,
+    },
+    /// A git checkout whose `HEAD` could not be read.
+    DatabaseHead {
+        /// The database root.
+        path: PathBuf,
+        /// What git said.
+        cause: String,
+    },
     /// A lockfile error occurred.
     Lock(LockError),
 }
@@ -293,23 +472,38 @@ impl fmt::Display for AdvisoryError {
             Self::Io {
                 ref path,
                 ref cause,
-            } => {
-                write!(fmt_out, "I/O error at {}: {}", path.display(), cause)
-            }
+            } => write!(fmt_out, "I/O error at {}: {cause}", path.display()),
             Self::MalformedFrontmatter {
                 ref path,
                 ref detail,
-            } => {
-                write!(
-                    fmt_out,
-                    "malformed frontmatter in {}: {}",
-                    path.display(),
-                    detail
-                )
+            } => write!(
+                fmt_out,
+                "malformed frontmatter in {}: {detail}",
+                path.display()
+            ),
+            Self::InvalidSemver { ref text } => write!(fmt_out, "invalid semver string: {text:?}"),
+            Self::UnsupportedRequirement {
+                ref path,
+                ref text,
+                reason,
+            } => write!(fmt_out, "{} writes {text:?}, {reason}", path.display()),
+            Self::NotUtf8 { ref path } => {
+                write!(fmt_out, "{} is not a UTF-8 name", path.display())
             }
-            Self::InvalidSemver { ref text } => {
-                write!(fmt_out, "invalid semver string: {text:?}")
-            }
+            Self::EmptyDatabase { ref path } => write!(
+                fmt_out,
+                "{} holds no advisory files under crates (nor rust)",
+                path.display()
+            ),
+            Self::Bound { what, limit } => write!(fmt_out, "more than {limit} {what}"),
+            Self::DatabaseHead {
+                ref path,
+                ref cause,
+            } => write!(
+                fmt_out,
+                "the HEAD of {} is unreadable: {cause}",
+                path.display()
+            ),
             Self::Lock(ref lock_err) => write!(fmt_out, "lockfile error: {lock_err}"),
         }
     }
@@ -330,17 +524,21 @@ impl From<LockError> for AdvisoryError {
     }
 }
 
+/// Logs and returns `error`.
+pub(super) fn refuse<T>(error: AdvisoryError) -> Result<T, AdvisoryError> {
+    lgwks_std::trace::debug!(error = ?error, "advisories refusal");
+    Err(error)
+}
+
 /// Logs and returns an I/O error.
 pub(super) fn err_io<T>(
     target_path: &Path,
     cause_val: impl fmt::Display,
 ) -> Result<T, AdvisoryError> {
-    let error = AdvisoryError::Io {
+    refuse(AdvisoryError::Io {
         path: target_path.to_path_buf(),
         cause: cause_val.to_string(),
-    };
-    lgwks_std::trace::debug!(error = ?error, "advisories I/O failure");
-    Err(error)
+    })
 }
 
 /// Logs and returns a malformed frontmatter error.
@@ -348,26 +546,20 @@ pub(super) fn err_frontmatter<T>(
     target_path: &Path,
     detail_str: impl Into<String>,
 ) -> Result<T, AdvisoryError> {
-    let error = AdvisoryError::MalformedFrontmatter {
+    refuse(AdvisoryError::MalformedFrontmatter {
         path: target_path.to_path_buf(),
         detail: detail_str.into(),
-    };
-    lgwks_std::trace::debug!(error = ?error, "advisories malformed frontmatter");
-    Err(error)
+    })
 }
 
 /// Logs and returns an invalid SemVer error.
 pub(super) fn err_semver<T>(text_val: impl Into<String>) -> Result<T, AdvisoryError> {
-    let error = AdvisoryError::InvalidSemver {
+    refuse(AdvisoryError::InvalidSemver {
         text: text_val.into(),
-    };
-    lgwks_std::trace::debug!(error = ?error, "advisories invalid semver");
-    Err(error)
+    })
 }
 
-/// Logs and returns a lock error.
-pub(super) fn err_lock<T>(cause_val: LockError) -> Result<T, AdvisoryError> {
-    let error = AdvisoryError::Lock(cause_val);
-    lgwks_std::trace::debug!(error = ?error, "advisories lock failure");
-    Err(error)
+/// Logs and returns a bound error.
+pub(super) fn err_bound<T>(what: &'static str, limit: usize) -> Result<T, AdvisoryError> {
+    refuse(AdvisoryError::Bound { what, limit })
 }
