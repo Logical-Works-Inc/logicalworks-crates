@@ -79,76 +79,21 @@ impl CgroupScope {
     /// is a fact about the host rather than a refusal of this tree. Any other
     /// OS error stands.
     ///
+    /// The creation is exclusive: a scope that already exists is never
+    /// adopted, even when it holds no members. An empty scope can belong to a
+    /// live supervisor that has not attached its child yet, and adopting it
+    /// would let one tree's [`CgroupScope::kill`] reach the other's (#913 item
+    /// 8). The caller picks a name unique among live supervisors.
+    ///
     /// # Errors
     ///
     /// [`std::io::ErrorKind::InvalidInput`] for a name that is empty, too long,
     /// names `.` or `..`, or carries a byte outside the allowed set;
     /// [`std::io::ErrorKind::Unsupported`] when no child cgroup is creatable;
-    /// the creation's own error otherwise.
+    /// [`std::io::ErrorKind::AlreadyExists`] when the name is taken; the
+    /// creation's own error otherwise.
     pub fn create(name: &str) -> io::Result<Self> {
-        validate_scope_name(name)?;
-        let path = std::path::Path::new(CGROUP_V2_MOUNT).join(name);
-        match std::fs::create_dir(&path) {
-            Ok(()) => Ok(Self { path }),
-            Err(error)
-                if error.kind() == io::ErrorKind::NotFound
-                    || error.kind() == io::ErrorKind::PermissionDenied
-                    || error.kind() == io::ErrorKind::ReadOnlyFilesystem =>
-            {
-                let refusal = Err(io::Error::new(
-                    io::ErrorKind::Unsupported,
-                    format!(
-                        "lgwks_std::process (CgroupScope::create): no child cgroup is creatable under {CGROUP_V2_MOUNT} ({}), so this host has no cgroup containment",
-                        error.kind(),
-                    ),
-                ));
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(error = ?refusal.as_ref().err(), "CgroupScope::create: returning an error to the caller");
-                refusal
-            }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                // A scope from a supervisor that died without running its
-                // destructor — or a name colliding with another live tree.
-                // Reused only when it holds no members: a scope that still
-                // holds processes belongs to whoever put them there, and this
-                // tree must not attach to it (its kill would stop them) nor
-                // claim its receipt. An unreadable member list refuses the
-                // same way: what cannot be shown empty is not empty.
-                let scope = Self { path };
-                match scope.members() {
-                    Ok(members) if members.is_empty() => Ok(scope),
-                    Ok(members) => {
-                        let refusal = Err(io::Error::new(
-                            io::ErrorKind::Unsupported,
-                            format!(
-                                "lgwks_std::process (CgroupScope::create): the scope holds {} processes of another tree, so this tree runs without a scope",
-                                members.len(),
-                            ),
-                        ));
-                        #[cfg(feature = "trace")]
-                        crate::trace::debug!(error = ?refusal.as_ref().err(), "CgroupScope::create: returning an error to the caller");
-                        refusal
-                    }
-                    Err(error) => {
-                        let refusal = Err(io::Error::new(
-                            io::ErrorKind::Unsupported,
-                            format!(
-                                "lgwks_std::process (CgroupScope::create): the scope's members are unreadable ({error}), so this tree runs without a scope",
-                            ),
-                        ));
-                        #[cfg(feature = "trace")]
-                        crate::trace::debug!(error = ?refusal.as_ref().err(), "CgroupScope::create: returning an error to the caller");
-                        refusal
-                    }
-                }
-            }
-            Err(error) => {
-                let refusal = Err(error);
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(error = ?refusal.as_ref().err(), "CgroupScope::create: returning an error to the caller");
-                refusal
-            }
-        }
+        create_under(std::path::Path::new(CGROUP_V2_MOUNT), name)
     }
 
     /// The scope directory, for inspection only.
@@ -156,7 +101,27 @@ impl CgroupScope {
     pub fn path(&self) -> &std::path::Path {
         &self.path
     }
+}
 
+/// [`CgroupScope::create`] under `mount`, so a test can stand a directory in
+/// for the cgroup v2 mount.
+#[cfg(all(target_os = "linux", feature = "process"))]
+fn create_under(mount: &std::path::Path, name: &str) -> io::Result<CgroupScope> {
+    validate_scope_name(name)?;
+    let path = mount.join(name);
+    match std::fs::create_dir(&path) {
+        Ok(()) => Ok(CgroupScope { path }),
+        Err(error) => {
+            let refusal = Err(super::scope_create_refusal(mount, error));
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?refusal.as_ref().err(), "CgroupScope::create: returning an error to the caller");
+            refusal
+        }
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "process"))]
+impl CgroupScope {
     /// Attach `pid` to this scope.
     ///
     /// The supervisor calls this with the pid its spawn just returned, before
@@ -437,4 +402,54 @@ pub fn reap_descendants(pids: &[i32]) -> io::Result<Vec<i32>> {
     }
     reaped.sort_unstable();
     Ok(reaped)
+}
+
+#[cfg(all(test, target_os = "linux", feature = "process"))]
+mod tests {
+    //! Scope creation against a directory standing in for the cgroup v2
+    //! mount, so the exclusive-create rule runs on every Linux host, delegated
+    //! or not (#913 item 8).
+
+    use std::io;
+
+    use super::create_under;
+
+    #[test]
+    fn a_fresh_name_is_created_under_the_mount() -> io::Result<()> {
+        let mount = tempfile::tempdir()?;
+        let scope = create_under(mount.path(), "tree-1")?;
+        assert_eq!(scope.path(), mount.path().join("tree-1"));
+        assert!(scope.path().is_dir(), "the scope directory exists");
+        Ok(())
+    }
+
+    #[test]
+    /// A second supervisor that picks a name already taken by an empty scope
+    /// is refused, not handed the first one's scope. The bug this catches: an
+    /// empty scope adopted, so one tree's `kill()` reaches the other's.
+    fn a_taken_name_is_refused_even_when_the_scope_is_empty() -> io::Result<()> {
+        let mount = tempfile::tempdir()?;
+        let first = create_under(mount.path(), "tree-1")?;
+        // An empty member list, as the kernel shows a scope before its attach.
+        std::fs::write(first.path().join("cgroup.procs"), b"")?;
+        let second = create_under(mount.path(), "tree-1");
+        assert_eq!(
+            second.as_ref().err().map(io::Error::kind),
+            Some(io::ErrorKind::AlreadyExists),
+            "an empty scope that already exists is never adopted"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_missing_mount_is_unsupported() -> io::Result<()> {
+        let base = tempfile::tempdir()?;
+        let refused = create_under(&base.path().join("no-mount"), "tree-1");
+        assert_eq!(
+            refused.as_ref().err().map(io::Error::kind),
+            Some(io::ErrorKind::Unsupported),
+            "a host with no mount falls back, it does not fail the start"
+        );
+        Ok(())
+    }
 }

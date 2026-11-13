@@ -389,6 +389,31 @@ fn invalid_pid() -> io::Error {
     )
 }
 
+/// What a failed cgroup scope `mkdir` under `mount` tells the caller.
+///
+/// A missing, unwritable or read-only mount is a fact about the host, so it
+/// becomes [`io::ErrorKind::Unsupported`] and the supervisor falls back to the
+/// capture rounds. `AlreadyExists` stands as itself: the directory belongs to
+/// another tree, live or dead, and is never adopted, empty or not (#913 item
+/// 8). Any other error stands too. It lives here, not in the Linux-only
+/// `cgroup` module, so every unix test host runs its tests.
+#[cfg(all(feature = "process", any(target_os = "linux", all(test, unix))))]
+fn scope_create_refusal(mount: &std::path::Path, error: io::Error) -> io::Error {
+    match error.kind() {
+        io::ErrorKind::NotFound
+        | io::ErrorKind::PermissionDenied
+        | io::ErrorKind::ReadOnlyFilesystem => io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!(
+                "lgwks_std::process (CgroupScope::create): no child cgroup is creatable under {} ({}), so this host has no cgroup containment",
+                mount.display(),
+                error.kind(),
+            ),
+        ),
+        _ => error,
+    }
+}
+
 #[cfg(all(not(unix), feature = "process"))]
 /// Construct the unsupported-operation error for non-Unix targets, Windows
 /// included: the stop observation and the release are Unix-only there too.
@@ -407,3 +432,50 @@ mod sim_signal_every;
 /// The module's unit tests, kept at `lgwks_std::process::tests`.
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, unix, feature = "process"))]
+mod scope_refusal_tests {
+    //! The cgroup scope `mkdir` refusal map, on every unix test host: a host
+    //! fact falls back, a taken name stands (#913 item 8).
+
+    use std::io::{Error, ErrorKind};
+    use std::path::Path;
+
+    use super::scope_create_refusal;
+
+    /// The kind each `mkdir` failure becomes: the three host facts fall back,
+    /// and every other kind, `AlreadyExists` first, reaches the caller as is.
+    const CASES: [(ErrorKind, ErrorKind); 6] = [
+        (ErrorKind::NotFound, ErrorKind::Unsupported),
+        (ErrorKind::PermissionDenied, ErrorKind::Unsupported),
+        (ErrorKind::ReadOnlyFilesystem, ErrorKind::Unsupported),
+        (ErrorKind::AlreadyExists, ErrorKind::AlreadyExists),
+        (ErrorKind::InvalidInput, ErrorKind::InvalidInput),
+        (ErrorKind::Other, ErrorKind::Other),
+    ];
+
+    #[test]
+    fn each_mkdir_failure_maps_to_its_one_answer() {
+        let mount = Path::new("mount");
+        for (raised, expected) in CASES {
+            let answer = scope_create_refusal(mount, Error::from(raised));
+            assert_eq!(
+                answer.kind(),
+                expected,
+                "{raised:?} must become {expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fallback_names_the_mount_it_could_not_use() {
+        let answer = scope_create_refusal(
+            Path::new("stand-in-mount"),
+            Error::from(ErrorKind::NotFound),
+        );
+        assert!(
+            answer.to_string().contains("stand-in-mount"),
+            "the refusal names the mount: {answer}"
+        );
+    }
+}
