@@ -154,6 +154,82 @@ fn sim_advisories_neighbour_a_withdrawn_or_informational_advisory_does_not_fail(
     Ok(())
 }
 
+/// Catches: the text report swapped for JSON when `--json` is absent, or the
+/// matched line losing its advisory, version or lockfile. A person at a terminal
+/// reads this form (#942).
+#[test]
+fn sim_advisories_text_report_names_the_match_and_the_counts() -> Result<(), Failure> {
+    let scratch = Scratch::new("advisories-text")?;
+    let (lock, database) = world(
+        scratch.path(),
+        "vuln",
+        "2.0.0-alpha.1",
+        &advisory_text("vuln", "patched = [\">= 1.2.3\"]"),
+    )?;
+    let run = advisories(&[&lock, &database])?;
+    if run.code != Some(1) {
+        return refuse(format!(
+            "expected exit 1, got {:?}: {}",
+            run.code, run.stderr
+        ));
+    }
+    let text = run.stdout.trim_start();
+    if text.starts_with('{') {
+        return refuse(format!("the text form printed JSON: {}", run.stdout));
+    }
+    let named = text.contains("RUSTSEC-2026-0001 vuln 2.0.0-alpha.1 vulnerability")
+        && text.contains(lock.as_str())
+        && text.contains("packages audited in 1 lockfiles");
+    if !named {
+        return refuse(format!("the text report lost a field: {}", run.stdout));
+    }
+    Ok(())
+}
+
+/// Catches: a second lockfile dropped, or its match credited to the first. The
+/// command takes every path but the last as a lockfile (#942).
+#[test]
+fn sim_advisories_two_lockfiles_each_carry_their_own_match() -> Result<(), Failure> {
+    let scratch = Scratch::new("advisories-two-locks")?;
+    let (clean, database) = world(
+        scratch.path(),
+        "vuln",
+        "9.0.0",
+        &advisory_text("vuln", "patched = [\">= 9.0.0\"]"),
+    )?;
+    let vulnerable = scratch.path().join("Vulnerable.lock");
+    std::fs::write(
+        &vulnerable,
+        render(&[Package::registry("vuln", "2.0.0-alpha.1", &[])])?,
+    )?;
+    let vulnerable = vulnerable.to_string_lossy().into_owned();
+    let run = advisories(&[&clean, &vulnerable, &database, "--json"])?;
+    if run.code != Some(1) {
+        return refuse(format!(
+            "expected exit 1, got {:?}: {}",
+            run.code, run.stderr
+        ));
+    }
+    let parsed: Value = json::from_str(run.stdout.trim())?;
+    if parsed.get("lockfiles").and_then(Value::as_u64) != Some(2) {
+        return refuse(format!("two lockfiles not counted in {}", run.stdout));
+    }
+    let Some(rows) = parsed.get("matches").and_then(Value::as_array) else {
+        return refuse(format!("no matches array in {}", run.stdout));
+    };
+    let labels: Vec<Option<&str>> = rows
+        .iter()
+        .map(|row| row.get("lockfile").and_then(Value::as_str))
+        .collect();
+    if labels != vec![Some(vulnerable.as_str())] {
+        return refuse(format!(
+            "the pre-release match is not the second lock's: {}",
+            run.stdout
+        ));
+    }
+    Ok(())
+}
+
 /// Runs last: the machine's answer is one parseable document naming what the
 /// exit code decided, whatever bytes the advisory's requirement holds. Catches:
 /// JSON broken by a quote, a tab or a comma inside a requirement.
