@@ -289,7 +289,7 @@ fn options(max_depth: usize, follow_symlinks: bool, sort_alphabetically: bool) -
 
 /// The depth every family uses when depth is not what it probes: deeper than
 /// any grown tree.
-fn unbounded() -> WalkOptions {
+fn deep_enough() -> WalkOptions {
     options(32, false, true)
 }
 
@@ -328,7 +328,7 @@ fn sweep(family: u64, mut check: impl FnMut(u64, &mut Rng, &SimTree) -> TestResu
 /// A strict walk with no budget returns exactly the grown tree.
 fn a_strict_walk_returns_exactly_the_grown_tree() -> TestResult {
     sweep(1, |seed, _, tree| {
-        let walked = walk_dir(&tree.root, &unbounded())?;
+        let walked = walk_dir(&tree.root, &deep_enough())?;
         let set: BTreeSet<PathBuf> = walked.iter().cloned().collect();
         assert_eq!(
             set.len(),
@@ -348,7 +348,7 @@ fn a_strict_walk_returns_exactly_the_grown_tree() -> TestResult {
 /// Every returned path is absolute and under the canonical root.
 fn every_path_is_absolute_under_the_canonical_root() -> TestResult {
     sweep(2, |seed, _, tree| {
-        for path in walk_dir(&tree.root, &unbounded())? {
+        for path in walk_dir(&tree.root, &deep_enough())? {
             assert!(
                 path.is_absolute(),
                 "seed {seed:#x}: {} is relative",
@@ -370,7 +370,7 @@ fn every_path_is_absolute_under_the_canonical_root() -> TestResult {
 fn the_sorted_walk_is_name_ordered_depth_first_preorder() -> TestResult {
     sweep(3, |seed, _, tree| {
         assert_eq!(
-            walk_dir(&tree.root, &unbounded())?,
+            walk_dir(&tree.root, &deep_enough())?,
             tree.preorder(32),
             "seed {seed:#x}: the sorted walk is not the model's preorder"
         );
@@ -382,7 +382,7 @@ fn the_sorted_walk_is_name_ordered_depth_first_preorder() -> TestResult {
 /// Turning sorting off changes order at most, never the set of entries.
 fn sorting_off_changes_order_never_coverage() -> TestResult {
     sweep(4, |seed, _, tree| {
-        let sorted: BTreeSet<PathBuf> = walk_dir(&tree.root, &unbounded())?.into_iter().collect();
+        let sorted: BTreeSet<PathBuf> = walk_dir(&tree.root, &deep_enough())?.into_iter().collect();
         let unsorted: BTreeSet<PathBuf> = walk_dir(&tree.root, &options(32, false, false))?
             .into_iter()
             .collect();
@@ -398,7 +398,7 @@ fn sorting_off_changes_order_never_coverage() -> TestResult {
 /// A tolerant walk over a healthy tree is complete and equals the strict walk.
 fn a_healthy_tolerant_walk_is_complete_and_equals_the_strict_walk() -> TestResult {
     sweep(5, |seed, _, tree| {
-        let report = walk_dir_tolerant(&tree.root, &unbounded())?;
+        let report = walk_dir_tolerant(&tree.root, &deep_enough())?;
         assert!(
             report.is_complete(),
             "seed {seed:#x}: a healthy tree reported incomplete"
@@ -413,7 +413,7 @@ fn a_healthy_tolerant_walk_is_complete_and_equals_the_strict_walk() -> TestResul
         );
         assert_eq!(
             report.entries(),
-            walk_dir(&tree.root, &unbounded())?.as_slice(),
+            walk_dir(&tree.root, &deep_enough())?.as_slice(),
             "seed {seed:#x}: tolerant and strict walks disagree on a healthy tree"
         );
         Ok(())
@@ -487,7 +487,7 @@ fn the_entry_budget_refuses_exactly_when_exceeded() -> TestResult {
         let total = tree.expected(32).len();
         let budget = budget_near(rng, total);
         let limits = WalkLimits::new(budget, ROOMY, ROOMY, ROOMY);
-        match walk_dir_bounded(&tree.root, &unbounded(), &limits) {
+        match walk_dir_bounded(&tree.root, &deep_enough(), &limits) {
             Ok(walked) => {
                 assert!(
                     total <= budget,
@@ -522,7 +522,7 @@ fn the_path_byte_budget_refuses_exactly_when_exceeded() -> TestResult {
         let total = tree.path_bytes(32);
         let budget = budget_near(rng, total);
         let limits = WalkLimits::new(ROOMY, ROOMY, budget, ROOMY);
-        let result = walk_dir_bounded(&tree.root, &unbounded(), &limits);
+        let result = walk_dir_bounded(&tree.root, &deep_enough(), &limits);
         assert_eq!(
             result.is_ok(),
             total <= budget,
@@ -539,7 +539,7 @@ fn the_directory_width_budget_refuses_exactly_when_exceeded() -> TestResult {
         let widest = tree.widest(32);
         let budget = budget_near(rng, widest);
         let limits = WalkLimits::new(ROOMY, budget, ROOMY, ROOMY);
-        let result = walk_dir_bounded(&tree.root, &unbounded(), &limits);
+        let result = walk_dir_bounded(&tree.root, &deep_enough(), &limits);
         assert_eq!(
             result.is_ok(),
             widest <= budget,
@@ -589,7 +589,7 @@ fn limits_near(rng: &mut Rng, tree: &SimTree) -> WalkLimits {
 fn a_tolerant_budget_prefix_is_bounded_and_marked() -> TestResult {
     sweep(13, |seed, rng, tree| {
         let limits = limits_near(rng, tree);
-        let report = walk_dir_tolerant_bounded(&tree.root, &unbounded(), &limits)?;
+        let report = walk_dir_tolerant_bounded(&tree.root, &deep_enough(), &limits)?;
         assert_eq!(
             report.budget_exhausted(),
             !fits(tree, &limits),
@@ -627,7 +627,7 @@ fn a_tolerant_budget_prefix_is_bounded_and_marked() -> TestResult {
 fn completeness_does_not_depend_on_sorting() -> TestResult {
     sweep(14, |seed, rng, tree| {
         let limits = limits_near(rng, tree);
-        let sorted = walk_dir_tolerant_bounded(&tree.root, &unbounded(), &limits)?;
+        let sorted = walk_dir_tolerant_bounded(&tree.root, &deep_enough(), &limits)?;
         let unsorted = walk_dir_tolerant_bounded(&tree.root, &options(32, false, false), &limits)?;
         assert_eq!(
             sorted.is_complete(),
@@ -649,8 +649,8 @@ fn a_bounded_walk_with_room_is_the_unbounded_walk() -> TestResult {
             0,
         );
         assert_eq!(
-            walk_dir_bounded(&tree.root, &unbounded(), &limits)?,
-            walk_dir(&tree.root, &unbounded())?,
+            walk_dir_bounded(&tree.root, &deep_enough(), &limits)?,
+            walk_dir(&tree.root, &deep_enough())?,
             "seed {seed:#x}: exact limits changed the output"
         );
         Ok(())
@@ -667,10 +667,10 @@ fn an_unresolvable_root_is_refused_by_every_entry_point() -> TestResult {
         let missing = tree.root.join("never-created");
         let limits = WalkLimits::new(ROOMY, ROOMY, ROOMY, ROOMY);
         let refusals = [
-            walk_dir(&missing, &unbounded()).err(),
-            walk_dir_tolerant(&missing, &unbounded()).err(),
-            walk_dir_bounded(&missing, &unbounded(), &limits).err(),
-            walk_dir_tolerant_bounded(&missing, &unbounded(), &limits).err(),
+            walk_dir(&missing, &deep_enough()).err(),
+            walk_dir_tolerant(&missing, &deep_enough()).err(),
+            walk_dir_bounded(&missing, &deep_enough(), &limits).err(),
+            walk_dir_tolerant_bounded(&missing, &deep_enough(), &limits).err(),
         ];
         for refusal in refusals {
             let error =
@@ -706,7 +706,7 @@ fn a_file_root_is_refused_not_walked_as_empty() -> TestResult {
             return Ok(());
         };
         let path = tree.root.join(&file.rel);
-        let error = walk_dir(&path, &unbounded())
+        let error = walk_dir(&path, &deep_enough())
             .err()
             .ok_or_else(|| format!("seed {seed:#x}: a file was walked as a directory"))?;
         assert_eq!(
@@ -714,7 +714,7 @@ fn a_file_root_is_refused_not_walked_as_empty() -> TestResult {
             Some(OmissionStage::ReadEntries),
             "seed {seed:#x}: {error}"
         );
-        let report = walk_dir_tolerant(&path, &unbounded())?;
+        let report = walk_dir_tolerant(&path, &deep_enough())?;
         assert!(
             !report.is_complete(),
             "seed {seed:#x}: a file root reported a complete walk"

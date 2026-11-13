@@ -1,7 +1,7 @@
 //! The traversal engine behind every walk entry point: the strict and tolerant modes, the
 //! per-entry record, the shared context, and the recursion with its four bounds.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs::{self, DirEntry};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -105,8 +105,9 @@ struct WalkContext<'a, E, P> {
     out: &'a mut Vec<E>,
     /// Omissions recorded so far, in walk order.
     omissions: &'a mut Vec<WalkOmission>,
-    /// Canonical directories already entered, for loop termination.
-    visited: &'a mut HashSet<PathBuf>,
+    /// Canonical directories already entered, for loop termination, each
+    /// with the shallowest depth it was entered at.
+    visited: &'a mut HashMap<PathBuf, Visit>,
     /// Optional producer ceilings; absent only for legacy materializers.
     limits: Option<&'a WalkLimits>,
     /// The caller's per-entry decision.
@@ -145,7 +146,7 @@ where
         )
     })?;
     let mut report = WalkReport::new(options);
-    let mut visited = HashSet::new();
+    let mut visited = HashMap::new();
     let mut ctx = WalkContext {
         canonical_root: &canonical_root,
         root_components: canonical_root.components().count(),
@@ -235,20 +236,52 @@ fn charge_entry<E, P>(
     Ok(true)
 }
 
-/// Records that `dir` has been entered, returning whether it is newly visited.
+/// What the walk knows of one canonical directory it entered.
+#[derive(Debug, Clone, Copy)]
+struct Visit {
+    /// The shallowest depth the directory was entered at.
+    depth: usize,
+    /// Whether `max_depth` cut anything below it on that entry.
+    cut: bool,
+}
+
+/// Whether to enter a directory, from [`track_canonical_visit`].
+enum Admission {
+    /// Walk it. The key, when the path resolved, is the visit to settle.
+    Enter(Option<PathBuf>),
+    /// Already walked at least as deep as this path could reach. The flag is
+    /// whether `max_depth` cut that earlier walk.
+    Skip(bool),
+}
+
+/// Records that `dir` is entered at `depth`, or says why it is not.
 ///
-/// The set holds canonical paths, so the same directory reached through two
+/// The map holds canonical paths, so the same directory reached through two
 /// different symlinks (or through `..`) is recognised as one node and a symlink
-/// loop terminates instead of recursing until the stack is exhausted. A path
-/// that cannot be canonicalised is treated as new rather than skipped; the
-/// caller reports any later failure to resolve or read it.
-fn track_canonical_visit(dir: &Path, visited_canonical: &mut HashSet<PathBuf>) -> bool {
-    if let Ok(canonical) = dir.canonicalize()
-        && !visited_canonical.insert(canonical)
+/// loop terminates instead of recursing until the stack is exhausted. A
+/// directory is entered again only when its earlier entry was cut by
+/// `max_depth` and this path is shallower: the shallower path reaches levels
+/// the deeper one could not (#913 item 7), and depth strictly falls on each
+/// re-entry, so each directory is entered at most `max_depth + 1` times. A
+/// skipped directory that was cut makes the caller's walk cut too, so a later
+/// shallower path to the caller re-enters it. A path that cannot be
+/// canonicalised is treated as new rather than skipped; the caller reports any
+/// later failure to resolve or read it.
+fn track_canonical_visit(
+    dir: &Path,
+    depth: usize,
+    visited: &mut HashMap<PathBuf, Visit>,
+) -> Admission {
+    let Ok(canonical) = dir.canonicalize() else {
+        return Admission::Enter(None);
+    };
+    if let Some(seen) = visited.get(&canonical)
+        && !(seen.cut && depth < seen.depth)
     {
-        return false;
+        return Admission::Skip(seen.cut);
     }
-    true
+    visited.insert(canonical.clone(), Visit { depth, cut: false });
+    Admission::Enter(Some(canonical))
 }
 
 /// Reads a directory into a bounded working set and records item errors.
@@ -346,7 +379,7 @@ fn handle_directory_entry<E, P>(
     logical_path: &Path,
     depth: usize,
     ctx: &mut WalkContext<'_, E, P>,
-) -> io::Result<()>
+) -> io::Result<bool>
 where
     E: Record,
     P: FnMut(&Path, FileKind) -> Descend,
@@ -365,7 +398,7 @@ fn handle_symlink_entry<E, P>(
     logical_path: &Path,
     depth: usize,
     ctx: &mut WalkContext<'_, E, P>,
-) -> io::Result<()>
+) -> io::Result<bool>
 where
     E: Record,
     P: FnMut(&Path, FileKind) -> Descend,
@@ -373,9 +406,9 @@ where
     if ctx.options.follow_symlinks
         && let Some(target_dir) = target_dir
     {
-        walk_recursive(&target_dir, logical_path, depth, ctx)?;
+        return walk_recursive(&target_dir, logical_path, depth, ctx);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Offers one admitted entry to the caller's predicate and records it.
@@ -421,7 +454,7 @@ fn process_entry<E, P>(
     logical_dir: &Path,
     current_depth: usize,
     ctx: &mut WalkContext<'_, E, P>,
-) -> io::Result<()>
+) -> io::Result<bool>
 where
     E: Record,
     P: FnMut(&Path, FileKind) -> Descend,
@@ -431,14 +464,15 @@ where
     let stat = match E::stat(&entry) {
         Ok(stat) => stat,
         Err(error) => {
-            return omit(
+            omit(
                 ctx,
                 WalkOmission {
                     path: logical_path,
                     stage: OmissionStage::EntryType,
                     error,
                 },
-            );
+            )?;
+            return Ok(false);
         }
     };
     let file_type = E::file_type(&stat);
@@ -451,7 +485,7 @@ where
     let next_depth = current_depth.saturating_add(1);
     if file_type.is_dir() {
         if admit(ctx, logical_path.clone(), kind, stat) {
-            handle_directory_entry(&path, &logical_path, next_depth, ctx)?;
+            return handle_directory_entry(&path, &logical_path, next_depth, ctx);
         }
     } else if file_type.is_symlink() {
         let resolution = match resolve_symlink(dir, &path, ctx.canonical_root) {
@@ -465,18 +499,18 @@ where
                         error,
                     },
                 )?;
-                return Ok(());
+                return Ok(false);
             }
         };
         // A link outside the root is a policy exclusion: never listed, never
         // offered to the predicate, and its `directory` is `None`.
         if resolution.within_root && admit(ctx, logical_path.clone(), kind, stat) {
-            handle_symlink_entry(resolution.directory, &logical_path, next_depth, ctx)?;
+            return handle_symlink_entry(resolution.directory, &logical_path, next_depth, ctx);
         }
     } else {
         admit(ctx, logical_path, kind, stat);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Checks that `dir` currently resolves to an in-root directory.
@@ -522,33 +556,60 @@ fn check_directory_path(dir: &Path, canonical_root: &Path) -> io::Result<PathBuf
 /// swap forth and back inside the window, or replacement at the same path,
 /// remains invisible. A handle-relative platform API is required to close
 /// that threat model; the public contract says trusted-tree listing.
+///
+/// Returns whether `max_depth` cut anything at or below `dir`, which is what
+/// lets a later, shallower path re-enter it.
 fn walk_recursive<E, P>(
     dir: &Path,
     logical_dir: &Path,
     current_depth: usize,
     ctx: &mut WalkContext<'_, E, P>,
-) -> io::Result<()>
+) -> io::Result<bool>
 where
     E: Record,
     P: FnMut(&Path, FileKind) -> Descend,
 {
-    if current_depth > ctx.options.max_depth || ctx.budget_exhausted || ctx.stopped {
-        return Ok(());
+    if current_depth > ctx.options.max_depth {
+        return Ok(true);
     }
-    if !track_canonical_visit(dir, ctx.visited) {
-        return Ok(());
+    if ctx.budget_exhausted || ctx.stopped {
+        return Ok(false);
     }
+    let key = match track_canonical_visit(dir, current_depth, ctx.visited) {
+        Admission::Enter(key) => key,
+        Admission::Skip(cut) => return Ok(cut),
+    };
+    let cut = walk_entered(dir, logical_dir, current_depth, ctx)?;
+    if let Some(visit) = key.and_then(|key| ctx.visited.get_mut(&key)) {
+        visit.cut = cut;
+    }
+    Ok(cut)
+}
+
+/// Reads and records one directory [`walk_recursive`] has admitted, and
+/// says whether `max_depth` cut anything below it.
+fn walk_entered<E, P>(
+    dir: &Path,
+    logical_dir: &Path,
+    current_depth: usize,
+    ctx: &mut WalkContext<'_, E, P>,
+) -> io::Result<bool>
+where
+    E: Record,
+    P: FnMut(&Path, FileKind) -> Descend,
+{
     let canonical_path = match check_directory_path(dir, ctx.canonical_root) {
         Ok(canonical_path) => canonical_path,
         Err(error) => {
-            return omit(
+            omit(
                 ctx,
                 WalkOmission {
                     path: logical_dir.to_path_buf(),
                     stage: OmissionStage::DirectoryResolution,
                     error,
                 },
-            );
+            )?;
+            return Ok(false);
         }
     };
     let out_len = ctx.out.len();
@@ -565,22 +626,24 @@ where
                 crate::trace::debug!(error = ?refusal.as_ref().err(), "walk_recursive: returning an error to the caller");
                 return refusal;
             }
-            return omit(
+            omit(
                 ctx,
                 WalkOmission {
                     path: logical_dir.to_path_buf(),
                     stage: OmissionStage::ReadEntries,
                     error,
                 },
-            );
+            )?;
+            return Ok(false);
         }
     };
     let budget_reached_during_listing = ctx.budget_exhausted;
+    let mut cut = false;
     for entry in listed {
         if ctx.stopped || (ctx.budget_exhausted && !budget_reached_during_listing) {
             break;
         }
-        process_entry(entry, dir, logical_dir, current_depth, ctx)?;
+        cut |= process_entry(entry, dir, logical_dir, current_depth, ctx)?;
     }
     // The second canonical-path observation: anything read above is reported
     // only if the path string still resolves the same way. On a
@@ -590,7 +653,7 @@ where
     // outside-content-under-inside-names failure — and the directory itself
     // is recorded as the omission.
     match check_directory_path(dir, ctx.canonical_root) {
-        Ok(again) if again == canonical_path => Ok(()),
+        Ok(again) if again == canonical_path => Ok(cut),
         changed => {
             ctx.out.truncate(out_len);
             ctx.omissions.truncate(omissions_len);
@@ -608,7 +671,8 @@ where
                     stage: OmissionStage::DirectoryResolution,
                     error,
                 },
-            )
+            )?;
+            Ok(cut)
         }
     }
 }
