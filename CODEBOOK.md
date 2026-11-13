@@ -110,7 +110,7 @@ The estate identity type, replacing the `uuid` crate for stored identities (ADR 
 | Module | Owns | Invariant |
 |---|---|---|
 | `kernel`, `clock::epoch` | the supported paths; `EpochClock`, `RecordedInstant`, `recorded-instant` (ADR 0021) | INV-KERNEL-1, INV-EPOCH-1 |
-| `journal::records`, `journal::file::corruption` | `RecordJournal`, the durable log over a consumer's own record (ADR 0016); the typed account of a refused frame | INV-RECORD-1 |
+| `journal::records`, `journal::file::corruption`, `durable` | `RecordJournal`, the durable log over a consumer's own record (ADR 0016); the typed account of a refused frame; the one synced whole-document replace (#910) | INV-RECORD-1, INV-BOT-193 |
 | `broker::fence` | authenticate, withdraw by name, the offline count, adoption over records, `broker-fence` (ADR 0017) | INV-FENCE-1 |
 | `ecs::projection` | `RecordProjection`, a consumer's fold on the ECS world, `record-projection` (ADR 0018) | INV-PROJECTION-1 |
 | `script::journaled_cancel` | a scope's stop in the consumer's journal, `durable-stop` (ADR 0019) | INV-STOP-1 |

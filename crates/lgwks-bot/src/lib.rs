@@ -238,6 +238,10 @@ pub mod clock;
 /// the coordinator that commits every dispatch row before the lane starts.
 #[doc(hidden)]
 pub mod dist_lease;
+/// The one durable whole-document replace: write, sync, rename, sync the
+/// directory. Private: `cas`, the `tenant_store` snapshot and the journal's seal
+/// are its callers, so the order of those calls is decided once (#910).
+mod durable;
 /// The `bevy_ecs` substrate the verbs execute on. Private: it is the
 /// implementation, not a second way to run a bot. Its substrate submodules are
 /// gated behind `ecs` inside, so a process-only consumer never compiles them

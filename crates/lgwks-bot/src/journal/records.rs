@@ -404,9 +404,19 @@ impl<R: Durable> RecordJournal<R> {
 /// The one fact that decides who is authoritative, asked of the bytes. The seal
 /// frame is written identically into both files, so anything short of that frame
 /// at the successor's head is a continuation that never committed.
+///
+/// Only a successor that is not there is absent. Any other open error is the
+/// device's, and reading it as absence would roll back an acknowledged seal and
+/// fork the history at the next append (INV-BOT-7, #910 defect 2).
 fn successor_holds(file: &mut File, seal: &SealAt, next: &Path) -> Result<bool, JournalError> {
-    let Ok(held) = File::open(next) else {
-        return Ok(false);
+    let held = match File::open(next) {
+        Ok(held) => held,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => {
+            let refusal = Err(JournalError::Storage(error));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "RecordJournal: the successor exists and cannot be read");
+            return refusal;
+        }
     };
     let mut frame = vec![0u8; usize::saturating_from(seal.length)];
     file.seek(SeekFrom::Start(seal.offset))

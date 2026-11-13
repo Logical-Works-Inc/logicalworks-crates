@@ -15,16 +15,27 @@
 //! is not made safe here; the adapter sends what it was handed, byte for
 //! byte, on every attempt.
 //!
-//! The failure vocabulary is the credential row's, reused rather than
-//! redeclared: an upstream 401/403/404 is
-//! [`BotError::CredentialRejected`]
-//! carrying its [`NeedSet`](crate::spec::NeedSet) repair (never a generic
-//! failure, never a silent retry — retrying the same credential gives the
-//! same refusal), and any other failure is a [`BotError::DomainError`] that
-//! says what the exchange established. A transport failure or a 5xx is
-//! `NotDelivered` — a retry **is** a retry here, because the key makes it one.
-//! That is the whole safety argument, and it is why the key is required
-//! rather than optional.
+//! The answer is what the exchange established, and nothing more, because the
+//! ledger writes it down as a fact (#910 defect 3):
+//!
+//! - a 2xx is the effect applied;
+//! - a 401/403/404 is [`BotError::CredentialRejected`] carrying its
+//!   [`NeedSet`](crate::spec::NeedSet) repair, the credential row's vocabulary
+//!   reused rather than redeclared;
+//! - a 408, 425 or 429 is the receiver saying it did not process the request:
+//!   `NotDelivered`, so a retry is a retry, and the key makes it a safe one;
+//! - any other 4xx is the receiver refusing the effect: `Refused`;
+//! - a 5xx, a 409 (the key is in use), an unfollowed 3xx, and every transport
+//!   failure after the request may have left are
+//!   [`BotError::EffectIndeterminate`]: the effect may have landed, so the
+//!   ledger records no outcome and holds the key as a barrier;
+//! - a failure to resolve, connect or handshake sent nothing: `NotDelivered`.
+//!
+//! The adapter never follows a redirect. A followed hop to another origin
+//! drops every caller header, the `Idempotency-Key` with them, so following one
+//! would deliver the effect unkeyed — the defect this module exists to prevent —
+//! and it would make a connect failure on the second hop look like nothing was
+//! sent when the first hop was.
 //!
 //! # Bounds
 //!
@@ -36,7 +47,7 @@
 
 use std::time::Duration;
 
-use lgwks_std::http::{self, BodyPolicy, Options};
+use lgwks_std::http::{self, BodyPolicy, FailureStage, Options, RedirectPolicy};
 
 use crate::cap::{Auth, Cap, upstream_credential_rejection};
 use crate::domain::net::BODY_PREVIEW;
@@ -227,6 +238,7 @@ impl verb::Execute for IdempotentPost {
             .deadline(Duration::from_secs(POST_TIMEOUT_SECS))
             .max_body_bytes(BODY_PREVIEW.saturating_mul(4))
             .body_policy(BodyPolicy::Preview)
+            .redirect_policy(RedirectPolicy::NoFollow)
             .idempotency_key(input.key());
         // The bounded form, as in `domain::net`: a burst of concurrent
         // effects waits for, or is refused by, the shared blocking pool
@@ -245,43 +257,40 @@ impl verb::Execute for IdempotentPost {
                         cause: format!("no thread was available for the request: {error}"),
                     }
                 })?;
-        match request.await {
-            Ok(response) => {
-                // The credential row's mapping, reused on this path: a
-                // receiver that refused the credential calls for re-granting,
-                // carried as a `NeedSet` repair — never a generic failure and
-                // never a silent retry.
-                if crate::cap::is_credential_status(response.status) {
-                    lgwks_std::trace::warn!(
-                        "idempotent post: the upstream answered {} to a keyed effect, carrying the credential repair",
-                        response.status
-                    );
-                    return Err(upstream_credential_rejection(
-                        &domain,
-                        response.status,
-                        self.required_caps(),
-                    ));
-                }
-                Ok(PostOutput {
-                    status: response.status,
-                    preview: response
-                        .text_lossy()
-                        .chars()
-                        .take(BODY_PREVIEW)
-                        .collect::<String>(),
-                })
+        let response = request
+            .await
+            .map_err(|error| transport_failure(domain.clone(), &error))?;
+        let preview = response
+            .text_lossy()
+            .chars()
+            .take(BODY_PREVIEW)
+            .collect::<String>();
+        let status = response.status;
+        let refusal = match answer_of(status) {
+            Answer::Applied => return Ok(PostOutput { status, preview }),
+            // The credential row's mapping, reused on this path: a receiver
+            // that refused the credential calls for re-granting, carried as a
+            // `NeedSet` repair, never a generic failure and never a silent retry.
+            Answer::Credential => {
+                upstream_credential_rejection(&domain, status, self.required_caps())
             }
-            Err(http::Error::InvalidUrl) => Err(BotError::DomainError {
-                domain,
-                certainty: DispatchCertainty::Refused,
-                cause: "invalid effect URL (absolute http(s) URI required)".into(),
-            }),
-            Err(error) => Err(BotError::DomainError {
+            Answer::NotProcessed => BotError::DomainError {
                 domain,
                 certainty: DispatchCertainty::NotDelivered,
-                cause: format!("the effect did not reach its upstream: {error}"),
-            }),
-        }
+                cause: format!("the upstream answered {status} without processing the effect"),
+            },
+            Answer::Refused => BotError::DomainError {
+                domain,
+                certainty: DispatchCertainty::Refused,
+                cause: format!("the upstream refused the effect with {status}"),
+            },
+            Answer::Unknown => BotError::EffectIndeterminate {
+                domain,
+                cause: format!("the upstream answered {status}; the effect may have landed"),
+            },
+        };
+        lgwks_std::trace::warn!(status, error = %refusal, "idempotent post: the keyed effect was not applied");
+        Err(refusal)
     }
 
     fn domain_id(&self) -> &str {
@@ -289,9 +298,73 @@ impl verb::Execute for IdempotentPost {
     }
 }
 
+/// What an upstream status establishes about a keyed effect.
+///
+/// One table, so the module doc, the adapter and the simulation that checks
+/// every status against its own reading of the rule cannot drift apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Answer {
+    /// 2xx: the effect applied.
+    Applied,
+    /// 401, 403, 404: the credential row's repair.
+    Credential,
+    /// 408, 425, 429: the receiver says it did not process the request.
+    NotProcessed,
+    /// Any other 4xx: the receiver refused the effect.
+    Refused,
+    /// 1xx, 3xx, 409, 5xx and anything else: the effect may have landed.
+    Unknown,
+}
+
+/// The [`Answer`] `status` gives.
+fn answer_of(status: u16) -> Answer {
+    match status {
+        200..=299 => Answer::Applied,
+        _ if crate::cap::is_credential_status(status) => Answer::Credential,
+        408 | 425 | 429 => Answer::NotProcessed,
+        409 => Answer::Unknown,
+        400..=499 => Answer::Refused,
+        _ => Answer::Unknown,
+    }
+}
+
+/// The error a transport failure is, by what it proves was sent.
+///
+/// With redirects off there is one hop, so a failure to resolve, connect or
+/// handshake sent no byte of the request. Every later stage, the whole-call
+/// deadline and any stage this build does not know may have sent all of it.
+fn transport_failure(domain: String, error: &http::Error) -> BotError {
+    let refusal = match *error {
+        http::Error::InvalidUrl | http::Error::RedirectLimitTooLarge { .. } => {
+            BotError::DomainError {
+                domain,
+                certainty: DispatchCertainty::Refused,
+                cause: format!("the effect was not sent: {error}"),
+            }
+        }
+        http::Error::Failure {
+            stage: FailureStage::Resolve | FailureStage::Connect | FailureStage::Tls,
+            ..
+        } => BotError::DomainError {
+            domain,
+            certainty: DispatchCertainty::NotDelivered,
+            cause: format!("the effect did not reach its upstream: {error}"),
+        },
+        _ => BotError::EffectIndeterminate {
+            domain,
+            cause: format!("the effect may have reached its upstream: {error}"),
+        },
+    };
+    lgwks_std::trace::debug!(error = %refusal, "idempotent post: the exchange failed");
+    refusal
+}
+
 #[cfg(test)]
 #[path = "sim_idempotent.rs"]
 mod sim_idempotent;
+
+#[cfg(test)]
+mod sim_answer;
 
 #[cfg(test)]
 mod tests {

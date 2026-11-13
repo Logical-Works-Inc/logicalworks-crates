@@ -127,6 +127,10 @@ pub use file::{Corruption, CorruptionKind, FileJournal, Replay};
 #[cfg(feature = "wire")]
 mod records;
 
+/// Both journals' authority rule under a successor the device refuses (#910).
+#[cfg(all(test, unix, feature = "wire"))]
+mod sim_successor_fault;
+
 #[cfg(feature = "wire")]
 pub use records::{Durable, RecordEntry, RecordJournal, RecordReplay};
 

@@ -56,6 +56,41 @@ pub(crate) fn fold(digest: u64, bytes: &[u8]) -> u64 {
 /// The FNV-1a 64 offset basis, where every receipt starts.
 pub(crate) const RECEIPT_START: u64 = 0xcbf2_9ce4_8422_2325;
 
+/// A directory of one simulation's own, removed when it drops.
+///
+/// Named by nanos plus a counter, never by a process id: the OS reuses ids, and
+/// a reused one must not make two simulations share a directory.
+pub(crate) struct TempDir(std::path::PathBuf);
+
+impl TempDir {
+    /// A fresh directory whose name starts `lgwks-sim-<name>`.
+    pub(crate) fn new(name: &str) -> std::io::Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static UNIQUE: AtomicU64 = AtomicU64::new(0);
+        let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
+        let nanos = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+            Ok(since) => since.as_nanos(),
+            Err(before) => before.duration().as_nanos(),
+        };
+        let dir = std::env::temp_dir().join(format!("lgwks-sim-{name}-{nanos}-{unique}"));
+        std::fs::create_dir_all(&dir)?;
+        Ok(Self(dir))
+    }
+
+    /// The directory.
+    pub(crate) fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        if let Err(cause) = std::fs::remove_dir_all(&self.0) {
+            lgwks_std::trace::warn!(error = %cause, "sim_stream: a simulation's directory stayed");
+        }
+    }
+}
+
 /// Draws `draws` scenarios under each of `seeds` and checks each one.
 ///
 /// The one sweep loop the in-module families share: a scenario is drawn from

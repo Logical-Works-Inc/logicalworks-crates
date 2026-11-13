@@ -332,7 +332,7 @@ impl FileJournal {
             // path the caller already opened rather than from the checkpoint: that
             // is what lets the seal frame be byte-identical in both files.
             let next = successor_path(&path);
-            if successor_is_complete(&next, checkpoint) {
+            if successor_is_complete(&next, checkpoint).map_err(JournalError::Storage)? {
                 let refusal = Err(JournalError::Superseded {
                     path: next.display().to_string(),
                 });
