@@ -404,6 +404,13 @@ fn decode_page(
         Ok(drawn) => drawn.max(1),
         Err(_) => height,
     };
+    // One reference for the page's strips: a row has at most `width`
+    // changing elements and no more than the file has bits.
+    let room = match compression {
+        Compression::Raw => 0,
+        _ => width.min(bytes.len().saturating_mul(8)).saturating_add(1),
+    };
+    let mut reference = t6::Reference::new(room);
     let mut row: usize = 0;
     for (&offset, &count) in tags.offsets.iter().zip(tags.counts.iter()) {
         let (Ok(start), Ok(len)) = (usize::try_from(offset), usize::try_from(count)) else {
@@ -428,9 +435,10 @@ fn decode_page(
         } else {
             let mut strip = Strip::new(&mut bitmap, (row_bytes, width), span, page);
             if compression == Compression::G3 {
-                t4::decode_g3_strip(data, &mut strip, tags.t4_options & T4_TWO_D != 0, limits)?;
+                let two_d = tags.t4_options & T4_TWO_D != 0;
+                t4::decode_g3_strip(data, &mut strip, &mut reference, two_d, limits)?;
             } else {
-                t6::decode_g4_strip(data, &mut strip, limits)?;
+                t6::decode_g4_strip(data, &mut strip, &mut reference, limits)?;
             }
         }
         row = row.saturating_add(strip_rows);
