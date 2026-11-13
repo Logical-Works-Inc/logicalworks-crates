@@ -1,7 +1,8 @@
 //! Offline RustSec advisory evaluation: lockfiles against a local checkout of
-//! the advisory database (#799, #942). [`audit`] is the library entry and
-//! [`audit_files`], which `lgwks-deps advisories` calls, reads lockfiles from
-//! disk for it.
+//! the advisory database (#799, #942). `audit` is the library entry and
+//! `audit_files`, which `lgwks-deps advisories` calls, reads lockfiles from
+//! disk for it. Both are support code, hidden from the rendered docs, so they
+//! are named here and not linked.
 //!
 //! Matching agrees with Cargo's `VersionReq` on every requirement RustSec
 //! loads, the pre-release gate included, so `patched = [">= 1.2.3"]` never
