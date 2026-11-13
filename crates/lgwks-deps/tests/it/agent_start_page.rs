@@ -15,7 +15,7 @@ use std::process::Command;
 type TestResult = Result<(), Box<dyn Error>>;
 
 /// The crate directories this repository publishes.
-const CRATES: [&str; 6] = [
+pub(super) const CRATES: [&str; 6] = [
     "lgwks-std",
     "lgwks-ast",
     "lgwks-deps",
@@ -53,7 +53,7 @@ fn root() -> PathBuf {
 }
 
 /// A repository file as text.
-fn page(relative: &str) -> Result<String, Box<dyn Error>> {
+pub(super) fn page(relative: &str) -> Result<String, Box<dyn Error>> {
     Ok(fs::read_to_string(root().join(relative))?)
 }
 
@@ -73,7 +73,7 @@ fn manifest(directory: &str) -> Result<String, Box<dyn Error>> {
 }
 
 /// A crate's own `name` and `version`, the first of each its manifest holds.
-fn identity(directory: &str) -> Result<(String, String), Box<dyn Error>> {
+pub(super) fn identity(directory: &str) -> Result<(String, String), Box<dyn Error>> {
     let text = manifest(directory)?;
     let name = quoted_values(&text, "name").into_iter().next();
     let version = quoted_values(&text, "version").into_iter().next();
