@@ -72,5 +72,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0034](0034-a-stream-a-key-and-a-tree-stop-read-whole.md) | A stream, a key and a tree stop read whole |
 | [0035](0035-a-gate-reads-what-ships.md) | A gate reads what ships |
 | [0036](0036-a-moved-lockfile-builds-on-mains-nearest-entry.md) | A moved lockfile builds on main's nearest entry |
+| [0037](0037-the-it-group-rows-share-one-dependency-build.md) | The it group rows share one dependency build |
 
 New records go at the bottom of that table.

@@ -541,4 +541,79 @@ mod tests {
         }
         Ok(())
     }
+
+    /// The `it` group rows share one dependency build (ADR 0037). A group cfg
+    /// in RUSTFLAGS reaches every dependency, and the 11 Linux rows saved 11
+    /// copies of one build: 18.3 GB on main past the 10 GB cap, whose LRU
+    /// eviction dropped logical_ci's entry (run 43340940282).
+    fn group_build_problems(ci: &str) -> Vec<String> {
+        let mut problems = Vec::new();
+        if ci.lines().any(|line| {
+            line.trim_start()
+                .strip_prefix("RUSTFLAGS:")
+                .is_some_and(|flags| flags.contains("lwc_it_group"))
+        }) {
+            problems.push("ci.yml sets the it group cfg in RUSTFLAGS".to_owned());
+        }
+        if !ci.contains("cache-key: ${{ matrix.it_group && 'bot-it' || matrix.archive }}") {
+            problems.push("ci.yml keys each Linux it group to its own entry".to_owned());
+        }
+        let wrapped_runs = ci
+            .matches(
+                "        env:\n          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}\n        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets",
+            )
+            .count();
+        if !ci.contains("RUST_IT_GROUP_RUSTC: ${{ matrix.it_group && '/tmp/it-group-rustc' || '' }}")
+            || !ci.contains(
+                "then rustc --edition 2024 -O -o \"$RUST_IT_GROUP_RUSTC\" scripts/it_group_rustc.rs; fi",
+            )
+            || wrapped_runs != 1
+        {
+            problems.push("ci.yml's Linux it group rows build without the group wrapper".to_owned());
+        }
+        problems
+    }
+
+    /// The committed ci.yml shares the group build, and each way of losing
+    /// it is named.
+    #[test]
+    fn the_it_group_rows_share_one_dependency_build() -> TestResult {
+        let ci = std::fs::read_to_string(root().join(WORKFLOW_REL))?;
+        assert_eq!(group_build_problems(&ci), Vec::<String>::new());
+        let controls = [
+            (
+                "      LWC_IT_GROUP: ${{ matrix.it_group }}\n",
+                "      RUSTFLAGS: ${{ matrix.it_group && format('--cfg lwc_it_group --cfg lwc_it_group=\"{0}\"', matrix.it_group) || '' }}\n",
+                "ci.yml sets the it group cfg in RUSTFLAGS",
+            ),
+            (
+                "cache-key: ${{ matrix.it_group && 'bot-it' || matrix.archive }}",
+                "cache-key: ${{ matrix.archive }}",
+                "ci.yml keys each Linux it group to its own entry",
+            ),
+            (
+                "then rustc --edition 2024 -O -o \"$RUST_IT_GROUP_RUSTC\" scripts/it_group_rustc.rs; fi",
+                "then true; fi",
+                "ci.yml's Linux it group rows build without the group wrapper",
+            ),
+            (
+                "        env:\n          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}\n        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets",
+                "        run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets",
+                "ci.yml's Linux it group rows build without the group wrapper",
+            ),
+        ];
+        for (from, to, named) in controls {
+            let broken = ci.replacen(from, to, 1);
+            assert_ne!(
+                broken, ci,
+                "the text the control mutates must exist: {from}"
+            );
+            assert_eq!(
+                group_build_problems(&broken),
+                vec![named.to_owned()],
+                "{named}"
+            );
+        }
+        Ok(())
+    }
 }

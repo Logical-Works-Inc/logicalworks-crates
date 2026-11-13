@@ -1,5 +1,5 @@
-//! The rustc workspace wrapper of the macOS `it` group rows (`ci.yml`
-//! `tests_macos`, compiled there with `rustc` alone, no dependencies).
+//! The rustc workspace wrapper of the `it` group rows (`ci.yml` `tests_macos`
+//! and `tests_linux`, compiled there with `rustc` alone, no dependencies).
 //!
 //! Cargo runs it as `it-group-rustc <rustc> <arguments>` for workspace crates
 //! only. With `LWC_IT_GROUP` set, it adds `--cfg lwc_it_group` and
