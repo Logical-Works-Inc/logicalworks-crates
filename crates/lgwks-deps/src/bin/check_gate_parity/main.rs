@@ -46,6 +46,8 @@ mod cache_budget;
 mod lane_split;
 mod neuter;
 mod partitions;
+#[cfg(test)]
+mod platform_gates;
 mod reader;
 #[cfg(test)]
 mod sim_lane_split;

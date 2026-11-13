@@ -361,15 +361,15 @@ id = "acceptance-receipts"
 surfaces = "ci"
 required = true
 # The receipt, built from the JUnit reports the lgwks-bot jobs already wrote (the
-# full suite and the saturation legs, one directory each) and the Linux and
-# Windows legs' (`acceptance-junit`, one directory per leg). The
+# macOS rows, one directory each, against `t-rows-darwin.toml`, ADR 0042) and the
+# Linux and Windows legs' (`acceptance-junit`, one directory per leg). The
 # `acceptance-receipts` binary reads the XML and records into SQLite
 # through the sqlite3 program, and does not run the suite a second time. The
 # binary is built by the workspace evidence job, beside the suites, and handed
 # to the required row as an artifact (`receipts-tool/`): that row is the run's
 # last link, and on a fresh hosted runner a `cargo run` there compiles the
 # lgwks_deps library first. An artifact keeps no file mode, hence the `chmod`.
-command = "chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision \"$REVISION\" --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision \"$REVISION\" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision \"$REVISION\" --platform windows-x86_64"
+command = "chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision \"$REVISION\" --map docs/acceptance/t-rows-darwin.toml --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision \"$REVISION\" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision \"$REVISION\" --platform windows-x86_64"
 ci_step = "Record acceptance receipts"
 
 [[lane]]
