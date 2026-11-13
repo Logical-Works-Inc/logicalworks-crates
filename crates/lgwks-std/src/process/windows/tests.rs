@@ -34,6 +34,8 @@ struct Kernel {
     members: BTreeSet<u32>,
     /// Whether the job was armed to kill its members when closed.
     armed: bool,
+    /// The error every wait fails with (`WAIT_FAILED`), when set.
+    wait_fails: Option<i32>,
 }
 
 thread_local! {
@@ -117,25 +119,17 @@ unsafe extern "system" fn stand_terminate(handle: Handle, _code: u32) -> Bool {
     })
 }
 
-unsafe extern "system" fn stand_exit_code(handle: Handle, code: *mut u32) -> Bool {
-    let pid = id_of(handle);
-    let Some(exited) =
-        KERNEL.with_borrow(|kernel| kernel.table.get(&pid).map(|process| process.exited))
-    else {
-        return fail(ERROR_INVALID_PARAMETER);
-    };
-    // SAFETY: the module passes a live `u32` for the code.
-    if let Some(slot) = unsafe { code.as_mut() } {
-        *slot = if exited { 0 } else { STILL_ACTIVE };
-    }
-    1
-}
-
 unsafe extern "system" fn stand_wait(handle: Handle, _milliseconds: u32) -> u32 {
     let pid = id_of(handle);
-    let exited =
-        KERNEL.with_borrow(|kernel| kernel.table.get(&pid).is_some_and(|process| process.exited));
-    if exited { WAIT_OBJECT_0 } else { 258 }
+    let (exited, fails) = KERNEL.with_borrow(|kernel| {
+        let exited = kernel.table.get(&pid).is_some_and(|process| process.exited);
+        (exited, kernel.wait_fails)
+    });
+    if let Some(code) = fails {
+        let _failed = fail(code);
+        return u32::MAX;
+    }
+    if exited { WAIT_OBJECT_0 } else { WAIT_TIMEOUT }
 }
 
 unsafe extern "system" fn stand_times(
@@ -296,7 +290,6 @@ const STAND_IN: Api = Api {
     open_process: stand_open,
     close_handle: stand_close,
     terminate_process: stand_terminate,
-    exit_code: stand_exit_code,
     wait: stand_wait,
     times: stand_times,
     snapshot: stand_snapshot,
@@ -380,6 +373,36 @@ fn a_terminated_process_stops_running_and_reads_as_exited() -> io::Result<()> {
         "an exited, held process still exists, like a zombie"
     );
     terminate(&STAND_IN, 4)?;
+    assert_eq!(leaked(), 0, "every handle opened was closed");
+    Ok(())
+}
+
+/// `WaitForSingleObject` documents `WAIT_FAILED` beside its two answers: a
+/// failed wait is the wait's error from every liveness read, never "running"
+/// or "not exited", and a refused terminate is not excused by it.
+#[test]
+fn a_failed_wait_is_an_error_never_an_answer() -> io::Result<()> {
+    /// `ERROR_INVALID_HANDLE`, the error the failed wait leaves.
+    const ERROR_INVALID_HANDLE: i32 = 6;
+    serve(&[(4, 0, 1), (5, 0, 2)]);
+    terminate(&STAND_IN, 5)?;
+    KERNEL.with_borrow_mut(|kernel| kernel.wait_fails = Some(ERROR_INVALID_HANDLE));
+    let failed: Result<bool, Option<i32>> = Err(Some(ERROR_INVALID_HANDLE));
+    assert_eq!(
+        running(&STAND_IN, 4).map_err(|error| error.raw_os_error()),
+        failed,
+        "a failed wait does not read as running"
+    );
+    assert_eq!(
+        exited(&STAND_IN, 4).map_err(|error| error.raw_os_error()),
+        failed,
+        "a failed wait does not read as not exited"
+    );
+    assert_eq!(
+        terminate(&STAND_IN, 5).map_err(|error| error.raw_os_error()),
+        Err(Some(ERROR_INVALID_HANDLE)),
+        "a refused terminate whose exit cannot be read is not excused"
+    );
     assert_eq!(leaked(), 0, "every handle opened was closed");
     Ok(())
 }
@@ -477,6 +500,27 @@ fn a_live_child_is_terminated_and_observed_exited() -> io::Result<()> {
         "and reads as exited while `child` holds it"
     );
     let _status = child.wait()?;
+    Ok(())
+}
+
+/// #913: a process that exits with 259, the value of `STILL_ACTIVE`, has
+/// exited. An exit-code read calls it running forever; the wait does not.
+/// Not under Miri.
+#[test]
+#[cfg(not(miri))]
+fn a_live_child_that_exits_with_259_reads_as_exited() -> io::Result<()> {
+    let mut child = std::process::Command::new("cmd")
+        .args(["/C", "exit 259"])
+        .stdout(std::process::Stdio::null())
+        .spawn()?;
+    let pid = child.id();
+    let status = child.wait()?;
+    assert_eq!(status.code(), Some(259), "the premise: it exited with 259");
+    assert!(!running(&NATIVE, pid)?, "an exit with 259 is not running");
+    assert!(
+        exited(&NATIVE, pid)?,
+        "and reads as exited while `child` holds it"
+    );
     Ok(())
 }
 
