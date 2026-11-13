@@ -145,9 +145,9 @@ pub(super) fn agent_for(options: &Options, pool: &super::PoolConfig) -> Result<u
 /// Agent-level settings (phase timeouts, TLS identity, pool sizes) are baked
 /// into the agent when it is built, so a per-call value that differs runs
 /// that call on a one-shot agent instead of the pool: still correct, just
-/// unpooled for that call. Request-level settings (headers, body ceiling and
-/// policy, redirect policy, deadline remainder) override per hop and never
-/// affect pooling.
+/// unpooled for that call. Request-level settings (headers, the user agent,
+/// body ceiling and policy, redirect policy, deadline remainder) override per
+/// hop in [`super::walk`] and never affect pooling.
 pub(super) fn agent_settings_differ(base: &Options, options: &Options) -> bool {
     base.timeout != options.timeout || base.tls != options.tls || base.pool != options.pool
 }

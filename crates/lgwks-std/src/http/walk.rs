@@ -256,6 +256,27 @@ fn next_method<'body>(
     }
 }
 
+/// The hop `call` carrying the call's `user_agent` (#913 item 6).
+///
+/// A pooled agent was built with the client's construction value, so a
+/// per-call one has to ride the request. It goes as a `User-Agent` header:
+/// ureq adds its configured agent only to a request that carries none, and a
+/// header keeps the pooled connection. ureq sends a request-level
+/// `user_agent` override on a fresh connection that never enters the pool, so
+/// that path is kept for the one value a header cannot say: empty, which
+/// sends no `User-Agent` at all. `None` means a caller header already carries
+/// one on this hop, and the caller's wins.
+fn with_user_agent<Any>(
+    call: ureq::RequestBuilder<Any>,
+    user_agent: Option<&str>,
+) -> ureq::RequestBuilder<Any> {
+    match user_agent {
+        None => call,
+        Some("") => call.config().user_agent("").build(),
+        Some(value) => call.header("User-Agent", value),
+    }
+}
+
 /// Send one hop of `method` to `target` with the given caller headers.
 ///
 /// `remaining` is what is left of the whole-call deadline, if one was set. It
@@ -266,35 +287,45 @@ fn next_method<'body>(
 /// lookup is a parse that cannot block, and the caller's timeout for a name.
 /// Request-level timeouts do not affect pool sharing, so literals keep the
 /// fast path on a shared agent too.
+///
+/// `user_agent` is the call's own, or `None` when a caller header carries one
+/// on this hop: see [`with_user_agent`].
 fn send_hop<'headers>(
     agent: &ureq::Agent,
     target: &str,
     method: Method<'_>,
     headers: impl Iterator<Item = &'headers (String, String)>,
+    user_agent: Option<&str>,
     remaining: Option<Duration>,
     resolve: Option<Duration>,
 ) -> Result<ureq::http::Response<ureq::Body>, Error> {
     let result = match method {
         Method::Get => headers
             .fold(
-                agent
-                    .get(target)
-                    .config()
-                    .timeout_global(remaining)
-                    .timeout_resolve(resolve)
-                    .build(),
+                with_user_agent(
+                    agent
+                        .get(target)
+                        .config()
+                        .timeout_global(remaining)
+                        .timeout_resolve(resolve)
+                        .build(),
+                    user_agent,
+                ),
                 |call, header| call.header(header.0.as_str(), header.1.as_str()),
             )
             .call(),
         Method::Post { content_type, body } => headers
             .fold(
-                agent
-                    .post(target)
-                    .config()
-                    .timeout_global(remaining)
-                    .timeout_resolve(resolve)
-                    .build()
-                    .header("Content-Type", content_type),
+                with_user_agent(
+                    agent
+                        .post(target)
+                        .config()
+                        .timeout_global(remaining)
+                        .timeout_resolve(resolve)
+                        .build(),
+                    user_agent,
+                )
+                .header("Content-Type", content_type),
                 |call, header| call.header(header.0.as_str(), header.1.as_str()),
             )
             .send(body),
@@ -430,7 +461,13 @@ fn walk_with(
                         .any(|credential| header.0.eq_ignore_ascii_case(credential)))
         });
         let resolve = (!host_is_literal(&target)).then_some(options.timeout);
-        let response = send_hop(agent, &target, method, headers, remaining, resolve)?;
+        let user_agent = (!headers
+            .clone()
+            .any(|header| header.0.eq_ignore_ascii_case("user-agent")))
+        .then_some(options.user_agent.as_str());
+        let response = send_hop(
+            agent, &target, method, headers, user_agent, remaining, resolve,
+        )?;
         // No-follow returns whatever came back, redirect or not, unread.
         if limit == 0 {
             return finish(response, options, chain, stream);
