@@ -276,8 +276,11 @@ impl verb::Execute for Endpoint {
     }
 
     /// POST the body and report the reply's status and preview. A transport
-    /// failure after the request may have left is `Unsettled`: the receiver
-    /// may hold the post, and saying it did not would invite a duplicate.
+    /// failure after a valid URL is [`BotError::EffectIndeterminate`]: the
+    /// receiver may hold the post, and saying it did not would invite a
+    /// duplicate. It is never a `DomainError` carrying `Unsettled`, which
+    /// [`DispatchCertainty`] rules out. Redirects are followed, so even a
+    /// connect failure may be on a later hop, after the post was sent.
     async fn execute_action(&self, call: (Auth, &(String, Vec<u8>))) -> Result<NetState, BotError> {
         call.0.check(verb::Execute::required_caps(self))?;
         let pooled = self.pooled()?;
@@ -293,10 +296,10 @@ impl verb::Execute for Endpoint {
                 preview_text(reply.body()),
             )),
             Err(http::Error::InvalidUrl) => Err(self.invalid_url()),
-            Err(transport) => Err(self.refusal(
-                DispatchCertainty::Unsettled,
-                format!("the post may not have reached the endpoint: {transport}"),
-            )),
+            Err(transport) => Err(BotError::EffectIndeterminate {
+                domain: ENDPOINT.into(),
+                cause: format!("the post may have reached the endpoint: {transport}"),
+            }),
         }
     }
 
@@ -646,6 +649,67 @@ mod tests {
         assert!(
             matches!(error, BotError::DomainError { .. }),
             "a malformed URL must be a typed DomainError, got {error:?}"
+        );
+        Ok(())
+    }
+
+    /// A post the server reads in full and then drops without a reply.
+    ///
+    /// The bug this catches: the receiver holds the post, and the failure is
+    /// reported as a domain error a consumer may read as nothing sent.
+    #[test]
+    fn a_post_dropped_after_it_was_read_is_indeterminate() -> TestResult {
+        use crate::verb::Execute;
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let port = listener.local_addr()?.port();
+        let server = spawn_blocking(move || -> std::io::Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            let mut window = vec![0u8; 1024];
+            let mut head = Vec::new();
+            while !head.windows(4).any(|window| window == b"\r\n\r\n") {
+                let read = stream.read(&mut window)?;
+                if read == 0 {
+                    break;
+                }
+                head.extend_from_slice(&window[..read]);
+            }
+            // The post arrived; the connection closes with no reply.
+            Ok(())
+        });
+        let input = ("text/plain".to_owned(), b"pay".to_vec());
+        let outcome = lgwks_std::task::block_on(
+            Endpoint::new(format!("http://127.0.0.1:{port}/"))
+                .execute_action((net_auth()?, &input)),
+        );
+        lgwks_std::task::block_on(server)?;
+        let Err(error) = outcome else {
+            return Err("a post with no reply must not succeed".into());
+        };
+        assert!(
+            matches!(error, BotError::EffectIndeterminate { ref domain, .. } if domain == ENDPOINT),
+            "a post the receiver may hold is indeterminate, got {error:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_post_to_a_malformed_url_is_refused_before_sending() -> TestResult {
+        use crate::verb::Execute;
+        let input = ("text/plain".to_owned(), b"pay".to_vec());
+        let Err(error) = lgwks_std::task::block_on(
+            Endpoint::new("not a url").execute_action((net_auth()?, &input)),
+        ) else {
+            return Err("a malformed URL must not post".into());
+        };
+        assert!(
+            matches!(
+                error,
+                BotError::DomainError {
+                    certainty: DispatchCertainty::Refused,
+                    ..
+                }
+            ),
+            "nothing was sent, so the post is refused, got {error:?}"
         );
         Ok(())
     }
