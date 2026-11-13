@@ -37,6 +37,8 @@ mod seed_helpers;
 
 /// The pages an agent starts from, held to the tree.
 mod agent_start_page;
+/// `CHANGELOG.md`'s release rows, held to the manifests.
+mod changelog_rows;
 // The runner's journeys need `kill`, `ps` and the process groups its watchdog
 // stops, which every Unix host has and Windows does not.
 #[cfg(unix)]
