@@ -41,6 +41,8 @@
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
+#[cfg(test)]
+mod cache_budget;
 mod lane_split;
 mod neuter;
 mod partitions;
@@ -75,11 +77,12 @@ const WORKFLOW_REL: &str = ".github/workflows/ci.yml";
 /// through the same action as `ci.yml`, so its pin is held to the manifest too.
 const PAGES_REL: &str = ".github/workflows/pages.yml";
 
-/// The workflows only rules 5 and 7 read: the logical_ci verdict (ADR 0029) and
-/// the consumer gate other repositories call.
-const OTHER_WORKFLOWS_REL: [&str; 2] = [
+/// The workflows only rules 5 and 7 read: the logical_ci verdict (ADR 0029),
+/// the consumer gate other repositories call and the cache budget (ADR 0041).
+const OTHER_WORKFLOWS_REL: [&str; 3] = [
     ".github/workflows/logical_ci.yml",
     ".github/workflows/consumer-gate.yml",
+    ".github/workflows/cache-budget.yml",
 ];
 
 /// Step-name prefixes that are setup, not gate.
