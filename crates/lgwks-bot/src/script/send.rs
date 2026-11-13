@@ -188,11 +188,20 @@ fn intent_digest(payload: &[u8]) -> Digest {
 ///         give back outcome
 /// }
 ///
-/// # fn main() -> Result<(), FlowError> {
-/// let scope = lgwks_bot::script::Scope::root(lgwks_bot::script::Tenant::new("acme")?);
-/// let refused = lgwks_bot::block_on(mail(&scope, &StubMailer));
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use lgwks_bot::task::{Host, task};
+/// use lgwks_bot::{Cap, GrantSet};
+///
+/// // A host granting `bot.notify`, built with no run store.
+/// let host = Host::builder("acme")?
+///     .grants(GrantSet::empty().grant(Cap::notify()))
+///     .build()?;
+/// let mailing = task("mail", |scope: lgwks_bot::script::Scope, (): ()| async move {
+///     mail(&scope, &StubMailer).await
+/// })?;
+/// let report = lgwks_bot::block_on(host.run(&mailing, ()));
 /// assert!(
-///     matches!(refused, Err(FlowError::Store { .. })),
+///     matches!(report.error(), Some(FlowError::Store { .. })),
 ///     "a send with nowhere durable to record its intent is refused"
 /// );
 /// # Ok(())

@@ -111,6 +111,50 @@ pub(crate) fn host_on(
         .build()?)
 }
 
+/// Run `body` as the whole of one run, by a host for `tenant` that holds
+/// `grants` and no run store, and hand back what the run returned.
+///
+/// The one door a test uses to call an outside word directly: a scope no host
+/// admitted covers nothing (INV-BOT-194), so the word runs where a flow runs,
+/// checked against a real grant.
+pub(crate) fn hosted<O, F, Fut>(
+    tenant: &str,
+    grants: lgwks_bot::GrantSet,
+    body: F,
+) -> Result<Result<O, lgwks_bot::script::FlowError>, OutsideError>
+where
+    F: Fn(lgwks_bot::script::Scope) -> Fut,
+    Fut: Future<Output = Result<O, lgwks_bot::script::FlowError>>,
+{
+    let host = lgwks_bot::task::Host::builder(tenant)?
+        .grants(grants)
+        .build()?;
+    let run = lgwks_bot::task::task("hosted", move |scope: lgwks_bot::script::Scope, (): ()| {
+        body(scope)
+    })?;
+    Ok(lgwks_bot::block_on(host.run(&run, ())).into_result())
+}
+
+/// One `ask` of `model` at `step`, run by a host for `acme` that grants
+/// `bot.model`.
+pub(crate) fn ask_hosted<T, M>(
+    step: &'static str,
+    model: &M,
+    request: &lgwks_bot::script::AskRequest,
+) -> Result<Result<T, lgwks_bot::script::FlowError>, OutsideError>
+where
+    T: lgwks_bot::script::AskDecode,
+    M: lgwks_bot::script::ModelPort,
+{
+    hosted(
+        "acme",
+        lgwks_bot::GrantSet::empty().grant(lgwks_bot::Cap::new("bot.model")),
+        |scope: lgwks_bot::script::Scope| async move {
+            lgwks_bot::script::ask(&scope, step, model, request).await
+        },
+    )
+}
+
 /// Grants for the three outside capabilities.
 pub(crate) fn outside_grants() -> lgwks_bot::GrantSet {
     use lgwks_bot::Cap;

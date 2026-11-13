@@ -49,7 +49,8 @@ use crate::band_family::band_family;
 use crate::effect_policy::allowing;
 use crate::outside_support::{ARCHITECTURE, calls, get, mail, mail_crash};
 use crate::outside_support::{Behavior, OutsideError, StubMailer, Upstream};
-use crate::outside_support::{fail, host_on, is_applied, is_unknown, outside_grants, run_of};
+use crate::outside_support::{ask_hosted, fail, host_on, is_applied, is_unknown};
+use crate::outside_support::{outside_grants, run_of};
 use crate::scratch::Scratch;
 use crate::sim::{self, Band};
 
@@ -188,7 +189,6 @@ fn fetch_attempts_share_one_budget_and_sizes_refuse_while_streaming(band: Band) 
 fn ask_truncation_refuses_typed_on_every_seed(band: Band) -> TestResult {
     for seed in band.seeds() {
         let mut sim = sim::Sim::new(seed);
-        let scope = Scope::root(lgwks_bot::script::Tenant::new("acme")?);
         let model_seed = sim.rng().below(1_000);
         let model = StubModel::from_seed(u64::from(model_seed));
         let budget = match draw_below(&mut sim, 3)? {
@@ -197,8 +197,7 @@ fn ask_truncation_refuses_typed_on_every_seed(band: Band) -> TestResult {
             _ => u32::MAX,
         };
         let request = AskRequest::default().max_tokens(budget);
-        let refused: Result<String, FlowError> =
-            lgwks_bot::block_on(lgwks_bot::script::ask(&scope, "cut", &model, &request));
+        let refused: Result<String, FlowError> = ask_hosted("cut", &model, &request)?;
         let truncated = model.shape() == Shape::Truncated
             || match u64::try_from(model.output().len()) {
                 Ok(len) => len > u64::from(budget),
@@ -495,11 +494,8 @@ fn sim_fetch_inherits_enclosing_retry_and_within(band: Band) -> TestResult {
 fn sim_ask_decodes_seeded_json(band: Band) -> TestResult {
     for seed in band.seeds() {
         let mut sim = sim::Sim::new(seed);
-        let scope = Scope::root(lgwks_bot::script::Tenant::new("acme")?);
-        let stub = JsonModel;
-        let report: lgwks_bot::script::Json<SimReport> = lgwks_bot::block_on(
-            lgwks_bot::script::ask(&scope, "report", &stub, &AskRequest::default()),
-        )?;
+        let report: lgwks_bot::script::Json<SimReport> =
+            ask_hosted("report", &JsonModel, &AskRequest::default())??;
         if report.value.code != 200 {
             return fail("JSON decodes into the declared report");
         }
@@ -654,7 +650,6 @@ fn replay_outside_seed(sim: &mut sim::Sim) -> Result<(), OutsideError> {
         return fail("the replay fetch answers");
     }
     sim.record("fetch:ok");
-    let scope = Scope::root(lgwks_bot::script::Tenant::new("acme")?);
     let mut model_seed = 0_u64;
     let model = loop {
         let candidate = StubModel::from_seed(model_seed);
@@ -663,12 +658,7 @@ fn replay_outside_seed(sim: &mut sim::Sim) -> Result<(), OutsideError> {
         }
         model_seed = model_seed.saturating_add(1);
     };
-    let text: String = match lgwks_bot::block_on(lgwks_bot::script::ask(
-        &scope,
-        "ask",
-        &model,
-        &AskRequest::default(),
-    )) {
+    let text: String = match ask_hosted("ask", &model, &AskRequest::default())? {
         Ok(text) => text,
         Err(failed) => {
             lgwks_std::trace::debug!(error = ?failed, "replay_outside_seed: the replay ask did not decode");

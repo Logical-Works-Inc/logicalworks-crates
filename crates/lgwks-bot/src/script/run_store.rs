@@ -52,18 +52,16 @@ task_local! {
     /// its own and restores this one on the way out. A clone is one reference
     /// count.
     static DEFINITION: Option<Arc<DefinitionIdentity>>;
-
-    /// The authority a step's `require` is checked against, if any.
-    static AUTHORITY: Option<Authority>;
 }
 
 /// The authority a run's steps are checked against: the host's grant plus the
 /// delta of any repair this run is carrying.
 ///
-/// Object-safe and `Arc`-held for the same reason as [`RunRecords`] — it is
-/// installed as a `dyn` behind a task-local and consulted by borrowed methods, so
-/// a step body can ask what it may do without the host being named in its
-/// signature.
+/// Object-safe and `Arc`-held: the host attaches it to the run's root
+/// [`Scope`](crate::script::Scope) as a `dyn`, and every descended scope shares
+/// it, so a step body can ask what it may do without the host being named in
+/// its signature. On the scope rather than in a task-local because a task-local
+/// does not cross a spawn, and a missing one read as "covered" (#909).
 #[derive(Clone)]
 pub(crate) struct Authority(pub(crate) Arc<dyn AuthorityCheck>);
 
@@ -89,48 +87,15 @@ pub(crate) trait AuthorityCheck: Send + Sync {
 }
 
 impl Authority {
-    /// The shortfall for `required`, or `None` when no authority is installed —
-    /// which is a local run outside any host, where a step reaches nothing and so
-    /// needs nothing.
-    pub(crate) fn shortfall(
-        &self,
-        required: &[crate::cap::Cap],
-    ) -> Option<Vec<crate::cap::Shortage>> {
-        let short = self.0.uncovered(required);
-        (!short.is_empty()).then_some(short)
+    /// Every capability in `required` this authority does not cover.
+    pub(crate) fn uncovered(&self, required: &[crate::cap::Cap]) -> Vec<crate::cap::Shortage> {
+        self.0.uncovered(required)
     }
 
     /// The registry the host installed for this run, if any.
     pub(crate) fn domains(&self) -> Option<&'static crate::registry::DomainRegistry> {
         self.0.domains()
     }
-}
-
-/// The authority installed for the current future, if any.
-pub(crate) fn authority() -> Option<Authority> {
-    // A task-local read that fails means the future was polled outside every scope,
-    // which is a different fact from a scope that installed the absence on purpose.
-    // The access error is recorded rather than dropped, because a caller reading
-    // "no authority" from a future that should have had one is looking at a wiring
-    // defect, and a silently discarded error is how that stays invisible.
-    let installed = AUTHORITY.try_with(Clone::clone);
-    if let Err(ref access) = installed {
-        lgwks_std::trace::debug!(error = ?access, "authority: polled outside every scope, so no authority is installed");
-    }
-    installed.ok().flatten()
-}
-
-/// Install `authority` for the futures polled inside `body`; `None` installs the
-/// absence a run with no authority reports, through the same one composition.
-///
-/// Crate-private for the same reason as [`within`]: the host is the supported way
-/// to make a run checkable, and a caller who installed their own authority would
-/// be granting themselves the capability the step is asking about.
-pub(crate) async fn with_authority<R>(
-    authority: Option<Authority>,
-    body: impl Future<Output = R>,
-) -> R {
-    AUTHORITY.scope(authority, body).await
 }
 
 /// The durable store a run's durable steps consult.

@@ -194,12 +194,19 @@ impl ModelPort for StubModel {
 ///         give back reply
 /// }
 ///
-/// # fn main() -> Result<(), lgwks_bot::script::FlowError> {
-/// let scope = lgwks_bot::script::Scope::root(lgwks_bot::script::Tenant::new("acme")?);
-/// let model = lgwks_bot::proposal::StubModel::from_seed(0);
-/// let refused = lgwks_bot::block_on(draft(&scope, &model));
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use lgwks_bot::task::{Host, task};
+/// use lgwks_bot::{Cap, GrantSet};
+///
+/// let host = Host::builder("acme")?
+///     .grants(GrantSet::empty().grant(Cap::new("bot.model")))
+///     .build()?;
+/// let drafting = task("draft", |scope: lgwks_bot::script::Scope, seed: u64| async move {
+///     draft(&scope, &lgwks_bot::proposal::StubModel::from_seed(seed)).await
+/// })?;
+/// let report = lgwks_bot::block_on(host.run(&drafting, 0));
 /// assert!(
-///     matches!(refused, Err(lgwks_bot::script::FlowError::InvalidBound { .. })),
+///     matches!(report.error(), Some(lgwks_bot::script::FlowError::InvalidBound { .. })),
 ///     "a zero token budget is refused before the model is called"
 /// );
 /// # Ok(())

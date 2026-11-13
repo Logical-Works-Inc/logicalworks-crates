@@ -13,6 +13,7 @@ use crate::task::{InputDigest, MAX_REQUEST_KEY_BYTES};
 use super::approval::{Approved, MAX_PENDING_PER_TENANT};
 use super::justify::Justify;
 use super::policy::Policy;
+use super::run_store::Authority;
 use super::trail::{Mark, Outcome, Site, Trail};
 use super::{DEFAULT_TRAIL_STEPS, FlowError, MAX_DEPTH};
 
@@ -45,6 +46,10 @@ pub struct Scope {
 }
 
 /// The fields behind a [`Scope`].
+///
+/// `Clone` so a child or sibling scope is written as the fields it changes
+/// over a copy of its parent's; every field is a reference count or a scalar.
+#[derive(Clone)]
 struct ScopeInner {
     /// Who the flow runs for.
     tenant: Tenant,
@@ -79,6 +84,13 @@ struct ScopeInner {
     /// `await approval` is admitted against. Inherited by every descended
     /// scope, so one installation governs the whole flow.
     approval_max: usize,
+    /// The authority a [`Scope::require`] is checked against: the host's grant
+    /// plus any repair delta, set once by the host that admitted the run.
+    ///
+    /// Carried by the scope, not read from ambient task state, so a step
+    /// polled on a spawned task holds exactly the authority of the run that
+    /// built it. `None` is a scope no host admitted, and it covers nothing.
+    authority: Option<Authority>,
     /// This step's entry in the trail, which [`Scope::settle`] completes;
     /// `None` at the root, which no step entered.
     mark: Option<Arc<Mark>>,
@@ -189,9 +201,34 @@ impl Scope {
                 justify: None,
                 approved: Arc::new(Mutex::new(Vec::new())),
                 approval_max,
+                authority: None,
                 mark: None,
             }),
         }
+    }
+
+    /// This root scope, checked against `authority` from now on.
+    ///
+    /// Crate-private because the host is the one issuer: a caller that could
+    /// attach its own authority would grant itself what `require` asks about.
+    pub(crate) fn hosted(&self, authority: Authority) -> Self {
+        self.sibling(self.inner.justify.clone(), Some(authority))
+    }
+
+    /// A sibling of this scope that differs only in its rules and authority.
+    fn sibling(&self, justify: Option<Arc<Justify>>, authority: Option<Authority>) -> Self {
+        Self {
+            inner: Arc::new(ScopeInner {
+                justify,
+                authority,
+                ..ScopeInner::clone(&self.inner)
+            }),
+        }
+    }
+
+    /// The authority the host admitted this run under, when one did.
+    pub(crate) fn authority(&self) -> Option<&Authority> {
+        self.inner.authority.as_ref()
     }
 
     /// [`Self::with_token_trail_and_clock`] on a wall clock.
@@ -213,22 +250,7 @@ impl Scope {
     /// answering to the rules.
     #[must_use]
     pub fn with_justification(&self, justify: Justify) -> Self {
-        Self {
-            inner: Arc::new(ScopeInner {
-                tenant: self.inner.tenant.clone(),
-                path: Arc::clone(&self.inner.path),
-                depth: self.inner.depth,
-                token: self.inner.token.clone(),
-                policy: Arc::clone(&self.inner.policy),
-                trail: Arc::clone(&self.inner.trail),
-                clock: self.inner.clock.clone(),
-                run: self.inner.run,
-                justify: Some(Arc::new(justify)),
-                approved: Arc::clone(&self.inner.approved),
-                approval_max: self.inner.approval_max,
-                mark: self.inner.mark.clone(),
-            }),
-        }
+        self.sibling(Some(Arc::new(justify)), self.inner.authority.clone())
     }
 
     /// The justification rules this scope answers to, when the flow named any.
@@ -371,23 +393,17 @@ impl Scope {
         // run a reader most wants to see.
         let depth = self.inner.depth.saturating_add(1);
         let mark = self.inner.trail.record(&path, site, depth);
+        let token = match stop {
+            Stop::Own => self.inner.token.child_token(),
+            Stop::Shared => self.inner.token.clone(),
+        };
         Ok(Self {
             inner: Arc::new(ScopeInner {
-                tenant: self.inner.tenant.clone(),
                 path,
                 depth,
-                token: match stop {
-                    Stop::Own => self.inner.token.child_token(),
-                    Stop::Shared => self.inner.token.clone(),
-                },
-                policy: Arc::clone(&self.inner.policy),
-                trail: Arc::clone(&self.inner.trail),
-                clock: self.inner.clock.clone(),
-                run: self.inner.run,
-                justify: self.inner.justify.clone(),
-                approved: Arc::clone(&self.inner.approved),
-                approval_max: self.inner.approval_max,
+                token,
                 mark: Some(mark),
+                ..ScopeInner::clone(&self.inner)
             }),
         })
     }
@@ -589,10 +605,12 @@ impl Scope {
 
     /// Require `caps` before doing work that reaches them.
     ///
-    /// The step-level half of admission. A [`Scope::root`] built by hand, and any
-    /// run outside a [`Host`](crate::task::Host), has no authority installed and so
-    /// requires nothing — the check is vacuous rather than false, because a step
-    /// outside a host has nothing to reach with either.
+    /// The step-level half of admission, and it fails closed. A [`Scope::root`]
+    /// built by hand was admitted by no [`Host`](crate::task::Host), so its
+    /// authority covers nothing and every capability in `caps` is unmet. "No
+    /// authority" and "authority covers this" are never the same answer (#909).
+    /// The authority rides on the scope, so a step polled on a spawned task is
+    /// checked exactly as it would be on the run's own task.
     ///
     /// Under a host, every capability in `caps` must be covered by the run's
     /// authority: the host's grant plus the delta of any repair this run is
@@ -613,10 +631,9 @@ impl Scope {
     /// if this scope is already stopped.
     pub fn require(&self, caps: &[crate::cap::Cap]) -> Result<(), FlowError> {
         self.checkpoint()?;
-        let Some(shortfall) =
-            super::run_store::authority().and_then(|authority| authority.shortfall(caps))
-        else {
-            return Ok(());
+        let shortfall = match self.inner.authority.as_ref() {
+            Some(authority) => authority.uncovered(caps),
+            None => crate::cap::uncovered(caps, |_unhosted| false, None),
         };
         let Some(deficit) = crate::cap::Deficit::from_shortages(shortfall) else {
             return Ok(());
