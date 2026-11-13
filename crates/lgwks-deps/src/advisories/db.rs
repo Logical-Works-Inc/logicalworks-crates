@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use super::parse::parse_advisory;
 use super::semver::{Requirement, parse_requirement, parse_version};
 use super::types::{
-    Advisory, AdvisoryError, AdvisoryMatch, AdvisoryReport, DatabaseIdentity, Lockfile, err_bound,
-    err_frontmatter, err_io, err_semver, refuse,
+    Advisory, AdvisoryError, AdvisoryMatch, AdvisoryReport, DatabaseIdentity, Lockfile, SkippedPin,
+    err_bound, err_frontmatter, err_io, err_semver, refuse,
 };
 use crate::lock::Resolved;
 
@@ -250,14 +250,20 @@ fn evaluate(
 ) -> Result<AdvisoryReport, AdvisoryError> {
     let by_package = index(advisories)?;
     let mut matches = Vec::new();
-    let (mut audited, mut skipped) = (0_usize, 0_usize);
+    let mut skipped = Vec::new();
+    let mut audited = 0_usize;
     for &(label, ref packages) in lockfiles {
         for pkg in packages {
-            if audited.saturating_add(skipped) >= MAX_PACKAGES {
+            if audited.saturating_add(skipped.len()) >= MAX_PACKAGES {
                 return err_bound("pinned packages in one audit", MAX_PACKAGES);
             }
             if !is_crates_io(pkg.source()) {
-                skipped = skipped.saturating_add(1);
+                skipped.push(SkippedPin {
+                    name: pkg.name().to_owned(),
+                    version: pkg.version().to_owned(),
+                    lockfile: label.to_owned(),
+                    source: pkg.source().map(str::to_owned),
+                });
                 continue;
             }
             audited = audited.saturating_add(1);
@@ -294,11 +300,13 @@ fn evaluate(
             ))
     });
     matches.dedup();
+    skipped.sort();
+    skipped.dedup();
     Ok(AdvisoryReport {
         database,
         lockfiles: lockfiles.len(),
         packages_audited: audited,
-        packages_skipped: skipped,
+        skipped,
         matches,
     })
 }

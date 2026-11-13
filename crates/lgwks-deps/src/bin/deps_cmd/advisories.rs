@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use lgwks_deps::advisories::{
-    AdvisoryKind, AdvisoryMatch, AdvisoryReport, DatabaseIdentity, audit_files,
+    AdvisoryKind, AdvisoryMatch, AdvisoryReport, DatabaseIdentity, SkippedPin, audit_files,
 };
 use lgwks_std::json::Value;
 
@@ -135,9 +135,10 @@ fn render_json(report: &AdvisoryReport) -> String {
         .iter()
         .map(|found| {
             format!(
-                "{{\"id\":{},\"package\":{},\"version\":{},\"kind\":{},\"patched\":{},\"os\":{},\"arch\":{},\"lockfile\":{}}}",
+                "{{\"id\":{},\"package\":{},\"title\":{},\"version\":{},\"kind\":{},\"patched\":{},\"os\":{},\"arch\":{},\"lockfile\":{}}}",
                 field(found.advisory_id()),
                 field(found.package()),
+                optional(found.title()),
                 field(found.installed_version()),
                 field(kind_label(found)),
                 list(found.match_patched()),
@@ -147,9 +148,22 @@ fn render_json(report: &AdvisoryReport) -> String {
             )
         })
         .collect();
+    let skipped: Vec<String> = report
+        .skipped()
+        .iter()
+        .map(|pin: &SkippedPin| {
+            format!(
+                "{{\"name\":{},\"version\":{},\"lockfile\":{},\"source\":{}}}",
+                field(pin.name()),
+                field(pin.version()),
+                field(pin.lockfile()),
+                optional(pin.source()),
+            )
+        })
+        .collect();
     let database: &DatabaseIdentity = report.database();
     format!(
-        "{{\"db_digest\":{},\"db_commit\":{},\"db_date\":{},\"advisories_loaded\":{},\"lockfiles\":{},\"packages_audited\":{},\"packages_skipped\":{},\"matches\":[{}]}}",
+        "{{\"db_digest\":{},\"db_commit\":{},\"db_date\":{},\"advisories_loaded\":{},\"lockfiles\":{},\"packages_audited\":{},\"packages_skipped\":{},\"skipped\":[{}],\"matches\":[{}]}}",
         field(database.digest()),
         optional(database.commit()),
         optional(database.date()),
@@ -157,6 +171,7 @@ fn render_json(report: &AdvisoryReport) -> String {
         report.lockfiles(),
         report.packages_audited(),
         report.packages_skipped(),
+        skipped.join(","),
         rows.join(","),
     )
 }

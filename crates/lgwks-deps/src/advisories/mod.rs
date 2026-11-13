@@ -21,6 +21,7 @@ pub use db::{audit, audit_files};
 #[doc(hidden)]
 pub use types::{
     AdvisoryError, AdvisoryKind, AdvisoryMatch, AdvisoryReport, DatabaseIdentity, Lockfile,
+    SkippedPin,
 };
 
 #[cfg(test)]

@@ -335,8 +335,89 @@ fn sim_advisories_reports_every_row_cargo_audit_reports() -> Result<(), Failure>
         if found.match_kind().is_vulnerability() == informational {
             return refuse(format!("{found:?} has the wrong kind"));
         }
+        let title = format!("A flaw in {}", found.package());
+        if found.title() != Some(title.as_str()) {
+            return refuse(format!("{found:?} lost its title {title:?}"));
+        }
+    }
+    let skipped: Vec<(&str, &str, &str, Option<&str>)> = report
+        .skipped()
+        .iter()
+        .map(|pin| (pin.name(), pin.version(), pin.lockfile(), pin.source()))
+        .collect();
+    let git = "git+https://github.com/example/time.git#0123456789abcdef0123456789abcdef01234567";
+    let lockfile = "subject/Cargo.lock";
+    let expected = [
+        ("narrow", "0.1.0", lockfile, None),
+        ("subject", "0.1.0", lockfile, None),
+        ("time", "0.1.40", lockfile, Some(git)),
+        (
+            "windowed",
+            "0.6.0",
+            lockfile,
+            Some("registry+https://example.invalid/index"),
+        ),
+    ];
+    if skipped != expected {
+        return refuse(format!("skipped {skipped:?}, expected {expected:?}"));
     }
     Ok(())
+}
+
+/// The first lines an advisory body can open with, and the title each gives:
+/// only an `# ` heading with text after it is a title (#955).
+const BODIES: [(&str, Option<&str>); 9] = [
+    ("# A flaw in pkg\n", Some("A flaw in pkg")),
+    ("#   Spaced out   \n", Some("Spaced out")),
+    (
+        "# Ünïcödé — \"quoted\" `code`\n",
+        Some("Ünïcödé — \"quoted\" `code`"),
+    ),
+    ("## A subheading first\n", None),
+    ("#NoSpace\n", None),
+    ("# \n", None),
+    ("Prose before any heading\n\n# Late heading\n", None),
+    ("", None),
+    ("```toml\n[advisory]\n```\n", None),
+];
+
+/// Catches: a title read from a `title` key advisory-db never writes, so every
+/// live match is untitled; a later heading or a subheading taken as the title;
+/// and a CRLF or blank-line opening that hides the heading. A `title` key, which
+/// a hand-written file may carry, wins over the heading.
+#[test]
+fn sim_advisories_title_is_the_first_heading() -> Result<(), Failure> {
+    replay_sweep("advisory-titles", 64, |rng, trace| {
+        let scratch = Scratch::new("advisories-titles")?;
+        let db = scratch.path().join("advisory-db");
+        let &(body, heading) = rng.pick_named("bodies", &BODIES)?;
+        let keyed = rng.between(0, 1) == 1;
+        let blanks: String = (0..rng.between(0, 3)).map(|_| '\n').collect();
+        let key = if keyed { "title = \"Key title\"\n" } else { "" };
+        let mut text = format!(
+            "```toml\n[advisory]\nid = \"RUSTSEC-2099-0001\"\npackage = \"pkg\"\n{key}\n[versions]\npatched = [\">= 9.0.0\"]\n```\n{blanks}{body}"
+        );
+        let crlf = rng.between(0, 1) == 1;
+        if crlf {
+            text = text.replace('\n', "\r\n");
+        }
+        trace.record_number("keyed", u8::from(keyed));
+        trace.record_number("crlf", u8::from(crlf));
+        write_advisory(&db, "pkg", "RUSTSEC-2099-0001", &text)?;
+        let lock = render(&[Package::registry("pkg", "1.0.0", &[])])?;
+        let report = audit(&[Lockfile::new("Cargo.lock", &lock)], &db)?;
+        let expected = keyed.then_some("Key title").or(heading);
+        let [ref found] = *report.matches() else {
+            return refuse(format!("{} matches, expected 1", report.matches().len()));
+        };
+        if found.title() != expected {
+            return refuse(format!(
+                "{body:?} keyed={keyed} crlf={crlf} titled {:?}, expected {expected:?}",
+                found.title()
+            ));
+        }
+        Ok(())
+    })
 }
 
 /// Catches: a second lockfile's pins dropped or merged into the first's, and a
@@ -449,15 +530,76 @@ fn sim_advisories_only_registry_sources_match() -> Result<(), Failure> {
         let lock = render(&packages)?;
         let report = audit(&[Lockfile::new("Cargo.lock", &lock)], &db)?;
         let skipped = packages.len().saturating_sub(matched);
-        if report.matches().len() != matched || report.packages_skipped() != skipped {
+        if report.matches().len() != matched
+            || report.packages_skipped() != skipped
+            || report.skipped().len() != skipped
+        {
             return refuse(format!(
                 "{} matches and {} skipped, expected {matched} and {skipped}",
                 report.matches().len(),
                 report.packages_skipped()
             ));
         }
+        let names: Vec<&str> = report.skipped().iter().map(|pin| pin.name()).collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        if names != sorted
+            || report
+                .matches()
+                .iter()
+                .any(|found| names.contains(&found.package()))
+        {
+            return refuse(format!("skipped {names:?} is unsorted or holds a match"));
+        }
         Ok(())
     })
+}
+
+/// The most pins one audit judges, skipped and audited together, over every
+/// lockfile: `advisories::db::MAX_PACKAGES`.
+const MAX_PINS: usize = 65_536;
+
+/// A lock of `count` workspace pins named from `first` on.
+fn local_lock(first: usize, count: usize) -> Result<String, Failure> {
+    let packages: Vec<Package> = (first..first.saturating_add(count))
+        .map(|index| Package::local(&format!("member{index}"), &[]))
+        .collect();
+    render(&packages)
+}
+
+/// Catches: the package bound off by one, or counted per lockfile, or counting
+/// only the audited pins. Exactly the bound across two lockfiles of skipped
+/// pins is judged and every pin named; one more is the typed bound refusal.
+#[test]
+fn sim_advisories_package_bound_holds_skipped_pins_across_lockfiles() -> Result<(), Failure> {
+    let scratch = Scratch::new("advisories-package-bound")?;
+    let db = scratch.path().join("advisory-db");
+    write_fixture(&db)?;
+    let half = MAX_PINS >> 1_u32;
+    let (first, second) = (local_lock(0, half)?, local_lock(half, half)?);
+    let at_bound = [
+        Lockfile::new("a/Cargo.lock", &first),
+        Lockfile::new("b/Cargo.lock", &second),
+    ];
+    let report = audit(&at_bound, &db)?;
+    if report.skipped().len() != MAX_PINS || report.packages_audited() != 0 {
+        return refuse(format!(
+            "{} skipped and {} audited at the bound",
+            report.skipped().len(),
+            report.packages_audited()
+        ));
+    }
+    let past = local_lock(half, half.saturating_add(1))?;
+    let past_bound = [
+        Lockfile::new("a/Cargo.lock", &first),
+        Lockfile::new("b/Cargo.lock", &past),
+    ];
+    match audit(&past_bound, &db) {
+        Err(AdvisoryError::Bound {
+            limit: MAX_PINS, ..
+        }) => Ok(()),
+        other => refuse(format!("one pin past the bound gave {other:?}")),
+    }
 }
 
 /// Catches: an empty or misnamed database read as a clean audit. A database is
