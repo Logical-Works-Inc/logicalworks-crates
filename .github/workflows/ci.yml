@@ -637,6 +637,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: gate
+          save-cache: "false"
           sccache: "false"
           components: clippy, rustfmt
           nextest: "true"
@@ -803,6 +804,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: bot-nodefault
+          save-cache: "false"
           nextest: "true"
       - name: Run lgwks-bot no-default-feature tests
         run: cargo nextest run -p lgwks_bot --all-targets --locked --no-default-features ${PARTITION:+--partition $PARTITION}
@@ -835,6 +837,9 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: clippy-${{ matrix.part }}
+          # Every part checks within 107 s cold (run 43397802234), so none
+          # sets the wall and none saves (ADR 0041).
+          save-cache: "false"
           # No sccache here: twice the reduced-bot leg sat silent from its
           # last `Checking` line to the 5-minute cancel (runs 41777272472 and
           # 41791513019, both stopped before `rkyv`), where it otherwise ends
@@ -925,6 +930,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: docs
+          save-cache: "false"
           sccache: "false"
           components: clippy
       - name: Doc build with broken-link denial
@@ -973,6 +979,8 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: ${{ matrix.cache }}
+          # The deps part compiles 48 s cold; the others pass 150 s (ADR 0041).
+          save-cache: ${{ matrix.cache != 'storefront-deps' }}
           sccache: "false"
           nextest: ${{ startsWith(matrix.part, 'consumers') && 'true' || 'false' }}
       - name: Check lgwks-deps
@@ -1031,6 +1039,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: targets
+          save-cache: "false"
       - name: Check lgwks-std across the declared target matrix
         # `cargo check --target <t>` for every declared target and crate. The
         # runner installs the target with rustup first, requires the Rust-only
@@ -1063,6 +1072,7 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: timing
+          save-cache: "false"
       - name: Digest constant-time equality (dudect)
         # 250,000 samples per class: t scales with √N, and the early-exit
         # control still reads four orders past the 4.5 threshold.
@@ -1115,6 +1125,9 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: feature-${{ matrix.part }}
+          # lgwks-ast and docs.rs pass 150 s cold; the lgwks-bot parts finish
+          # within 145 s and save nothing (ADR 0041).
+          save-cache: ${{ matrix.part == 'lgwks-ast' || matrix.part == 'docs.rs' }}
           sccache: "false"
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
@@ -1219,6 +1232,8 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: appcui
+          # Windows compiles 275 s cold and saves; Linux, 130 s (ADR 0041).
+          save-cache: ${{ runner.os == 'Windows' }}
           components: clippy
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --lib
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --doc

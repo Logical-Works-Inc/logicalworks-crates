@@ -34,6 +34,8 @@ jobs:
         with:
           toolchain: "1.99.1"
           cache-key: pages
+          # Main-only and off the wall: its build is no pull request's (ADR 0041).
+          save-cache: "false"
       # The deploy is conditional on a site existing. Creating one needs an
       # admin token the workflow cannot hold: the first run on 184d819e0 failed
       # with `Resource not accessible by integration` from the create-site

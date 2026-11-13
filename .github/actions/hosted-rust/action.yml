@@ -35,6 +35,16 @@ inputs:
       so it skips restoring a dependency build it would never read.
     required: false
     default: "true"
+  save-cache:
+    description: >
+      Whether main saves this job's dependency build. GitHub holds 10 GB per
+      repository and, past it, evicts by last use: 44 entries held 13.4 GB, so
+      every main run evicted a current one and the clippy, timing and feature
+      lanes logged "No cache found" three main runs in a row. A job that
+      compiles within 150 s cold, half the 300 s wall, never sets the wall,
+      so it saves nothing and leaves the room to the jobs that do (ADR 0041).
+    required: false
+    default: "true"
   sccache:
     description: >
       Whether the job reads and writes sccache. A job whose rust-cache entry main
@@ -126,8 +136,9 @@ runs:
         # Saved from main alone, the cache is one ref's worth and a pull
         # request restores the last merged build. A pull request never saves
         # to warm its own next run: the budget holds on the run that lands
-        # cold, so a second run's cache hit proves nothing.
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        # cold, so a second run's cache hit proves nothing. A job whose build
+        # does not set the wall saves nothing either (`save-cache`, ADR 0041).
+        save-if: ${{ github.ref == 'refs/heads/main' && inputs.save-cache == 'true' }}
         cache-on-failure: "true"
     # A pull request that moves a registry package misses the exact key, and
     # every shard compiled cold: #923 added loom to Cargo.lock, slice 6 built
