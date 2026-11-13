@@ -81,7 +81,9 @@ One owner per layer, both in `hosted-rust`:
   miss deleted every restored artifact older than a week. A pull request that
   moves a registry package misses that key, so a read-only restore then lays
   main's newest entry for the group under it, and cargo rebuilds only what
-  moved (ADR 0036).
+  moved (ADR 0036). The `it` group rows pass their group cfg through
+  `scripts/it_group_rustc.rs` to workspace crates alone and share one `bot-it`
+  entry: as RUSTFLAGS it put 11 copies of one build past the 10 GB cap (ADR 0037).
 
 The scaffolded-app journeys (lane `app-builds`) run on two `tests_linux` rows of
 their own, `apps run` and `apps clippy`. Each nests a cargo build of a new app's

@@ -28,7 +28,11 @@ jobs:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     # mac-specific: logical_ci v0.4.3 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
     runs-on: macos-latest
-    timeout-minutes: 10
+    # Warm, the job is setup, a prebuild that compiles nothing and a 99 s
+    # lane. Cold (its rust-cache entry evicted) the prebuild took 7 m 46 s on
+    # a slow hosted Mac and 10 minutes cancelled the lane mid-run (run
+    # 43340940282); the cold job needs its compile and its lane both.
+    timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: never
       LCI_TENANT: crates

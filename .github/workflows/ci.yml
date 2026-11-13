@@ -324,10 +324,16 @@ jobs:
       # says how they are grouped). That build leaves some fixtures unused,
       # so its dead-code warnings stay warnings; the clippy legs build every
       # module with warnings denied.
-      # Both spellings: `not(lwc_it_group)` reads the bare name, which the
-      # keyed `lwc_it_group="<group>"` alone does not set (b92496e0e built
-      # every module in every row).
-      RUSTFLAGS: ${{ matrix.it_group && format('--cfg lwc_it_group --cfg lwc_it_group="{0}"', matrix.it_group) || '' }}
+      # The group cfg (both spellings: `not(lwc_it_group)` reads the bare
+      # name) reaches workspace crates alone, through scripts/it_group_rustc.rs
+      # as the macOS rows pass it. In RUSTFLAGS it changed every dependency's
+      # fingerprint per group, so the 11 group rows saved 11 copies of one
+      # dependency build, 5.4 GB of main's 18.3 GB: past the 10 GB cap, LRU
+      # eviction dropped logical_ci's entry and its next PR built cold (run
+      # 43340940282). One wrapper path, in the job env so the deps key hashes
+      # it, keys them all to one `bot-it` entry; the compiling steps run it.
+      LWC_IT_GROUP: ${{ matrix.it_group }}
+      RUST_IT_GROUP_RUSTC: ${{ matrix.it_group && '/tmp/it-group-rustc' || '' }}
       CARGO_BUILD_WARNINGS: ${{ matrix.it_group && 'warn' || 'deny' }}
       # `ci-it` builds workspace crates at opt-level 0, whose deeper frames
       # need the 8 MiB test threads the macOS shards run with.
@@ -340,11 +346,16 @@ jobs:
         uses: ./.github/actions/hosted-rust
         with:
           toolchain: "1.99.1"
-          cache-key: ${{ matrix.archive }}
+          cache-key: ${{ matrix.it_group && 'bot-it' || matrix.archive }}
           nextest: "true"
+      # A group row compiles its workspace wrapper before any cargo call.
       - name: Prepare the checkout
-        run: command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }
+        run: |
+          command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }
+          if [ -n "$RUST_IT_GROUP_RUSTC" ]; then rustc --edition 2024 -O -o "$RUST_IT_GROUP_RUSTC" scripts/it_group_rustc.rs; fi
       - name: Build the suite
+        env:
+          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
         run: cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null
       # The simulation lane's input: the listing of the binaries this build
       # already made, once per suite. The lane only counts tests, so a JSON
@@ -353,6 +364,8 @@ jobs:
       # read the listing's test names as claims (run 43234727204).
       - name: List the suite for the simulation lane
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        env:
+          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
         run: mkdir -p /tmp/nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > /tmp/nextest-listing/listing.json
       - name: Upload the suite listing
         if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
@@ -372,6 +385,8 @@ jobs:
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy) | test(=gate_consumer::sim_a_clean_consumer_passes_the_gate))}"
       - name: Run lgwks-bot async runner tests
         if: matrix.suite == 'bot-full'
+        env:
+          RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
       - name: Run lgwks-bot saturation tiers
         if: matrix.suite == 'saturation'
