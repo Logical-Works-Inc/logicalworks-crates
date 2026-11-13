@@ -4,8 +4,10 @@
 //! beside them. The README table has had a test since the 2026-11-08 audit; the
 //! changelog had none, so a cut that forgot its row, or named a version the
 //! manifest does not carry, still passed the suite (release of 2026-11-13).
+//! The governance ledger's newest part is named the same way, in two indexes.
 
 use std::error::Error;
+use std::fs;
 
 use super::agent_start_page::{CRATES, identity, page};
 
@@ -120,5 +122,62 @@ fn a_release_row_reads_as_its_pairs_and_its_link() -> TestResult {
     let rows =
         release_rows("# Changelog\n\n- not a release\n## Releases, newest first\n\n- a 1 - d\n");
     assert_eq!(rows, ["- a 1 - d"]);
+    Ok(())
+}
+
+/// The newest `docs/governance/ledger-<date>.md` part, by its dated name.
+fn newest_ledger_part() -> Result<String, Box<dyn Error>> {
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/governance");
+    let mut newest: Option<String> = None;
+    for entry in fs::read_dir(directory)? {
+        let raw = entry?.file_name();
+        let name = raw
+            .to_str()
+            .ok_or_else(|| format!("ledger name {raw:?} is not UTF-8"))?
+            .to_owned();
+        let is_part = name.starts_with("ledger-") && name.ends_with(".md");
+        if is_part && newest.as_ref().is_none_or(|held| name > *held) {
+            newest = Some(name);
+        }
+    }
+    newest.ok_or_else(|| "docs/governance holds no ledger part".into())
+}
+
+/// A ledger entry goes at the top of the newest part, so both indexes must name
+/// it first: `GOVERNANCE.md` §5 and the one "newest part" row of `docs/README.md`.
+#[test]
+fn both_indexes_name_the_newest_ledger_part_first() -> TestResult {
+    let newest = newest_ledger_part()?;
+    let link = format!("](docs/governance/{newest})");
+    let governance = page("GOVERNANCE.md")?;
+    let section = governance
+        .lines()
+        .find(|line| line.starts_with("| 5 |"))
+        .ok_or("GOVERNANCE.md has no §5 row")?;
+    let first = section
+        .find("](docs/governance/ledger-")
+        .ok_or("the §5 row links no ledger part")?;
+    assert_eq!(
+        section.get(first..first + link.len()),
+        Some(link.as_str()),
+        "GOVERNANCE.md §5 does not list {newest} first"
+    );
+    let readme = page("docs/README.md")?;
+    let marked: Vec<&str> = readme
+        .lines()
+        .filter(|line| line.contains("the newest part"))
+        .collect();
+    assert_eq!(
+        marked.len(),
+        1,
+        "docs/README.md marks {} newest parts",
+        marked.len()
+    );
+    assert!(
+        marked
+            .iter()
+            .all(|line| line.contains(&format!("(governance/{newest})"))),
+        "docs/README.md marks another part than {newest} as the newest"
+    );
     Ok(())
 }
