@@ -150,6 +150,8 @@ pub mod deferral;
 /// citations still resolve under one rule with one owner.
 #[doc(hidden)]
 pub mod doc_citations;
+/// The one `git` launcher: `invariants` and `advisories` both run git through it.
+mod git;
 /// The optional authored invariant register and its repository-aware validator.
 #[doc(hidden)]
 pub mod invariants;
@@ -373,7 +375,10 @@ pub use llm_guard;
 #[doc(hidden)]
 pub use chacha20poly1305;
 
-/// Offline RustSec advisory evaluation: a lockfile against a local database (#799).
+/// Offline RustSec advisory evaluation: lockfiles against a local database
+/// checkout (#799, #942). `advisories::audit` is the library entry
+/// logical_ci's advisory gate calls; support code, not the supported surface
+/// (INV-SURFACE-1).
 #[doc(hidden)]
 pub mod advisories;
 #[cfg(test)]

@@ -39,11 +39,11 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 
 | Crate | Path | Owns | Invariants |
 |---|---|---|---|
-| `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP (`http::stream::sse_decode`, the I/O-free event decoder; `http::tls::der`, the X.509 and key walk), process control (`process::wait`, the pure reading of a Windows handle wait that decides liveness, #913), trace install; no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20, INV-STD-HTTP-3, INV-TLS-2, INV-STD-PROCESS-2 |
-| `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision, and `interface` element resolution, whose scoring rules and eligibility gates are `interface/scoring.rs` | the `lgwks_bot` rows of `INVARIANTS.md` |
+| `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP (`http::stream::sse_decode`, the I/O-free event decoder; `http::tls::der`, the X.509 and key walk), process control (`process::wait`, the pure reading of a Windows handle wait that decides liveness, #913), trace install, `fs::stream` (the streaming walk, every link listed; `sim_links` checks it against `read_dir`); no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20, INV-STD-HTTP-3, INV-TLS-2, INV-STD-PROCESS-2, INV-FS-8 |
+| `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision, and `interface` element resolution, whose scoring rules and eligibility gates are `interface/scoring.rs` | `crates/lgwks-bot/INVARIANTS.md` and its numbered parts |
 | `lgwks_ast` | `crates/lgwks-ast` | the one parser: language identification, tree-sitter grammars, `script!` reading, `scan` | SL-2 |
 | `lgwks_macros` | `crates/lgwks-macros` | the `script!` compiler | SL-2 |
-| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026); `src/bin/shared/rust_code.rs` is the one lexer `check-std-first` and the `ci_local::test_gated` unwrap lane share (ADR 0035) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1, INV-SCAN-GATED-1 |
+| `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026); `src/bin/shared/rust_code.rs` is the one lexer `check-std-first` and the `ci_local::test_gated` unwrap lane share (ADR 0035); `ci_local::invariants::registers` finds each register part and holds it to 120 lines at 120 columns (ADR 0040) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1, INV-SCAN-GATED-1, INV-DOC-8 |
 | `drishti` | `crates/drishti` | frontend orchestration: design publication and a deterministic reference core | the `drishti` rows of `INVARIANTS.md` |
 
 ### `lgwks_std::id`, `math` and `legacy::fax`
@@ -102,7 +102,7 @@ The estate identity type, replacing the `uuid` crate for stored identities (ADR 
 
 | Module | Owns | Invariant |
 |---|---|---|
-| `advisories` | offline RustSec advisory parser and semver evaluator; `lgwks-deps advisories` (#799) | INV-SEC-AUDIT-1 |
+| `advisories` | offline RustSec audit: `audit` entry, `semver` (Cargo's reader), `db` layout and matching; the binary's `bin/deps_cmd/advisories.rs` renders it; `git` is the crate's one git launcher (#799, #942) | INV-SEC-AUDIT-1, INV-SEC-AUDIT-2 |
 | `sqlite` | the one opener and `migrate`: serialized first open, one transaction per step (#872, #873) | INV-DEP-EDGE-OWNED |
 
 ### `lgwks_bot::rt::serve`, `lgwks_bot::task` and `lgwks_bot::journal`
