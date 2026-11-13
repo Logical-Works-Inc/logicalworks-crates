@@ -26,8 +26,9 @@ struct KeepAlive {
     accepts: Arc<AtomicUsize>,
     /// Requests served so far.
     requests: Arc<AtomicUsize>,
-    /// `x-tenant` values seen, in arrival order.
-    tenants: Arc<std::sync::Mutex<Vec<String>>>,
+    /// Each [`WATCHED`] header seen, as `(lowercase name, value)`, in arrival
+    /// order.
+    seen: Arc<std::sync::Mutex<Vec<(String, String)>>>,
     /// Set to stop the accept loop; the waiter is woken by one connection.
     stop: Arc<AtomicBool>,
     /// The accept thread, joined by `stop`.
@@ -36,11 +37,14 @@ struct KeepAlive {
     handlers: Arc<std::sync::Mutex<Vec<thread::JoinHandle<()>>>>,
 }
 
+/// The request headers the server logs, by lowercase name.
+const WATCHED: [&str; 2] = ["x-tenant", "user-agent"];
+
 /// Serve one connection until the peer goes away, counting requests.
 fn serve_connection(
     mut stream: TcpStream,
     requests: Arc<AtomicUsize>,
-    tenants: Arc<std::sync::Mutex<Vec<String>>>,
+    seen: Arc<std::sync::Mutex<Vec<(String, String)>>>,
 ) {
     loop {
         let head = match read_request_head(&mut stream) {
@@ -51,15 +55,16 @@ fn serve_connection(
             return;
         }
         let text = String::from_utf8_lossy(&head).into_owned();
-        if let Some(tenant) = text
+        let watched = text
             .lines()
             .filter_map(|line| line.split_once(':'))
-            .find(|entry| entry.0.trim().eq_ignore_ascii_case("x-tenant"))
-        {
-            match tenants.lock() {
-                Ok(mut tenants) => tenants.push(tenant.1.trim().to_owned()),
-                Err(_) => return,
+            .map(|entry| (entry.0.trim().to_ascii_lowercase(), entry.1.trim()))
+            .filter(|entry| WATCHED.contains(&entry.0.as_str()));
+        match seen.lock() {
+            Ok(mut seen) => {
+                seen.extend(watched.map(|(name, value)| (name, value.to_owned())));
             }
+            Err(_) => return,
         }
         requests.fetch_add(1, Ordering::SeqCst);
         if stream
@@ -77,13 +82,13 @@ fn serve_keep_alive() -> std::io::Result<KeepAlive> {
     let port = listener.local_addr()?.port();
     let accepts = Arc::new(AtomicUsize::new(0));
     let requests = Arc::new(AtomicUsize::new(0));
-    let tenants = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
     let stop = Arc::new(AtomicBool::new(false));
     let handlers = Arc::new(std::sync::Mutex::new(Vec::new()));
     let server = {
         let accepts = Arc::clone(&accepts);
         let requests = Arc::clone(&requests);
-        let tenants = Arc::clone(&tenants);
+        let seen = Arc::clone(&seen);
         let stop = Arc::clone(&stop);
         let handlers = Arc::clone(&handlers);
         fixture_thread(move || {
@@ -97,9 +102,9 @@ fn serve_keep_alive() -> std::io::Result<KeepAlive> {
                 }
                 accepts.fetch_add(1, Ordering::SeqCst);
                 let requests = Arc::clone(&requests);
-                let tenants = Arc::clone(&tenants);
+                let seen = Arc::clone(&seen);
                 let handler = match fixture_thread(move || {
-                    serve_connection(stream, requests, tenants);
+                    serve_connection(stream, requests, seen);
                 }) {
                     Ok(handler) => handler,
                     Err(_) => return,
@@ -115,7 +120,7 @@ fn serve_keep_alive() -> std::io::Result<KeepAlive> {
         port,
         accepts,
         requests,
-        tenants,
+        seen,
         stop,
         server,
         handlers,
@@ -138,17 +143,21 @@ impl KeepAlive {
         self.accepts.load(Ordering::SeqCst)
     }
 
-    /// `x-tenant` values seen, in arrival order.
-    fn seen_tenants(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        let tenants = match self.tenants.lock() {
-            Ok(tenants) => tenants,
+    /// The values of the `name` header seen, in arrival order.
+    fn seen(&self, name: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let seen = match self.seen.lock() {
+            Ok(seen) => seen,
             Err(_) => {
                 #[cfg(feature = "trace")]
-                crate::trace::error!("the tenant log is poisoned");
-                return Err("the tenant log is poisoned".into());
+                crate::trace::error!("the header log is poisoned");
+                return Err("the header log is poisoned".into());
             }
         };
-        Ok(tenants.clone())
+        Ok(seen
+            .iter()
+            .filter(|entry| entry.0 == name)
+            .map(|entry| entry.1.clone())
+            .collect())
     }
 
     /// Join one fixture thread, naming what it was.
@@ -324,7 +333,7 @@ fn tenant_headers_stay_isolated_through_one_client() -> Result<(), Box<dyn std::
         assert_eq!(response.status, 200, "every tenant reaches the endpoint");
     }
     drop(client);
-    let seen = keeper.seen_tenants()?;
+    let seen = keeper.seen("x-tenant")?;
     let served = keeper.served();
     keeper.stop()?;
     assert_eq!(served, 3, "every exchange reached the server");
@@ -332,6 +341,54 @@ fn tenant_headers_stay_isolated_through_one_client() -> Result<(), Box<dyn std::
         seen,
         vec!["tenant-a", "tenant-b", "tenant-a"],
         "each request carries only its own tenant: {seen:?}"
+    );
+    Ok(())
+}
+
+/// A per-call user agent reaches the wire, and keeps the pooled connection
+/// (#913 item 6). The pooled agent was built with the client's value, so a
+/// path that only compared agent-level settings sent the client's agent for
+/// every call; one that rebuilt an agent for it, or overrode ureq's
+/// request-level `user_agent`, opened a socket per call. The one exception is
+/// the empty agent, which no header can say: ureq sends it on a connection of
+/// its own, so six calls cost two connections.
+#[test]
+fn a_per_call_user_agent_reaches_the_wire_on_the_pooled_connection()
+-> Result<(), Box<dyn std::error::Error>> {
+    let keeper = serve_keep_alive()?;
+    let url = keeper.url();
+    let client = Client::with_pool(quiet().user_agent("base/1"), PoolConfig::default())?;
+    let agents = ["base/1", "tenant-a/2", "", "base/1", "tenant-b/3 (x; y)"];
+    for agent in agents {
+        let options = client.options().clone().user_agent(agent);
+        let response = client.get_with(&url, &options)?;
+        assert_eq!(response.status, 200, "{agent:?}: the call answers");
+    }
+    // A caller's own header wins over the configured agent.
+    let explicit = client.options().clone().header("User-Agent", "explicit/9");
+    assert_eq!(
+        client.get_with(&url, &explicit)?.status,
+        200,
+        "the explicit call answers"
+    );
+    drop(client);
+    let seen = keeper.seen("user-agent")?;
+    let (accepted, served) = (keeper.accepted(), keeper.served());
+    keeper.stop()?;
+    assert_eq!(served, 6, "every exchange reached the server");
+    let mut want: Vec<&str> = agents
+        .iter()
+        .copied()
+        .filter(|agent| !agent.is_empty())
+        .collect();
+    want.push("explicit/9");
+    assert_eq!(
+        seen, want,
+        "each call carries its own agent, an empty one none, and an explicit header once: {seen:?}"
+    );
+    assert_eq!(
+        accepted, 2,
+        "every non-empty per-call agent keeps the pool; only the empty one opens its own, cost {accepted}"
     );
     Ok(())
 }
