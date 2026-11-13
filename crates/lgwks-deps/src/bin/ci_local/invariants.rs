@@ -6,8 +6,10 @@
 //! exactly as authoritative as one pointing at a passing test. The references
 //! are checked here against the module paths and items the sources define.
 
+mod registers;
+
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::builtins::{crate_directories, head, pass, refuse, tail};
 use super::lanes::is_executable_file;
@@ -62,21 +64,6 @@ fn resolution_candidates(modules: &Modules, reference: &str) -> Vec<String> {
         .collect();
     matches.sort_by(|left, right| by_depth(left, right));
     matches
-}
-
-/// The register's files: the root `INVARIANTS.md`, then each crate's own.
-///
-/// One register split by crate under the 120-line `.md` law: a crate file the lane
-/// did not read would be a rule nobody checks.
-fn invariant_registers(root: &Path) -> Vec<PathBuf> {
-    let mut files = vec![root.join("INVARIANTS.md")];
-    files.extend(
-        crate_directories(root)
-            .into_iter()
-            .map(|directory| directory.join("INVARIANTS.md"))
-            .filter(|path| path.is_file()),
-    );
-    files
 }
 
 /// The invariant ids and bodies of `text`: each bullet runs to the next bullet or blank line.
@@ -449,11 +436,20 @@ fn authored_ids(text: &str) -> BTreeSet<String> {
 /// Every `enforced by:` reference resolves to a real test, module, lane or script.
 pub(super) fn invariants(context: &Context<'_>) -> Result<Verdict, GateError> {
     let root = context.root;
-    let mut registers = Vec::new();
-    for path in invariant_registers(root) {
-        registers.push(read(&path)?);
+    let mut texts = Vec::new();
+    let mut oversized = Vec::new();
+    for path in registers::files(root) {
+        let register = read(&path)?;
+        oversized.extend(registers::past_the_law(&path, &register));
+        texts.push(register);
     }
-    let text = registers.join("\n\n");
+    if !oversized.is_empty() {
+        return Ok(refuse(format!(
+            "an invariant register is longer than the size law:\n{}",
+            oversized.join("\n")
+        )));
+    }
+    let text = texts.join("\n\n");
     let modules = collect_module_paths(root)?;
     let lanes = lane_ids(&read(&root.join("scripts/gate-lanes.toml"))?);
     let binaries = declared_binaries(root);
@@ -538,7 +534,11 @@ mod tests {
     }
 
     /// Writes one fixture file, making its directory.
-    fn write_fixture(root: &Path, relative_path: &str, text: &str) -> Result<(), std::io::Error> {
+    pub(super) fn write_fixture(
+        root: &Path,
+        relative_path: &str,
+        text: &str,
+    ) -> Result<(), std::io::Error> {
         let path = root.join(relative_path);
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -547,7 +547,7 @@ mod tests {
     }
 
     /// Runs the invariants lane against `root`.
-    fn lane(root: &Path) -> Result<Verdict, Box<dyn Error>> {
+    pub(super) fn lane(root: &Path) -> Result<Verdict, Box<dyn Error>> {
         let children = Children::new(false);
         let env = BTreeMap::new();
         let context = Context {
@@ -561,7 +561,10 @@ mod tests {
 
     /// A scratch tree with the given root register, empty lane and authored
     /// tables, and the given further files.
-    fn tree_of(register: &str, files: &[(&str, &str)]) -> Result<Fixture, Box<dyn Error>> {
+    pub(super) fn tree_of(
+        register: &str,
+        files: &[(&str, &str)],
+    ) -> Result<Fixture, Box<dyn Error>> {
         let fixture = Fixture::claim(&std::env::temp_dir(), "lgwks-invariants-test")?;
         for entry in [
             ("INVARIANTS.md", register),
