@@ -1,6 +1,6 @@
 # Invariants: the long form
 
-`INVARIANTS.md` and `crates/lgwks-bot/INVARIANTS.md` are the enforced register: one line per rule, with its reason and the tests that enforce it. These pages keep the reasoning, the measurements and the stated limits behind each line, moved here when the register was cut to one line per rule (#381). Where the two disagree, the register's line is the rule and the page is the defect to fix. A Director correction or an incident fix adds or replaces its register line in the same PR, and its reasoning here.
+`INVARIANTS.md` and each crate's `INVARIANTS.md` and numbered parts are the enforced register: one short line per rule, with its reason and the test that enforces it, each part within 120 lines at 120 columns (ADR 0040). These pages keep the reasoning, the measurements and the stated limits behind each line, moved here when the register was cut to one line per rule (#381). Where the two disagree, the register's line is the rule and the page is the defect to fix. A Director correction or an incident fix adds or replaces its register line in the same PR, and its reasoning here.
 
 | Page |
 |---|
