@@ -229,28 +229,69 @@ pub(super) fn capture_proc_children(root: i32) -> Option<DescendantSet> {
 }
 
 /// The child pids `/proc/<pid>/task/<tid>/children` names, across its threads.
+///
+/// # Errors
+///
+/// `NotFound` when the process is gone. Any list this cannot read whole is an
+/// error too, never a short list: a kernel without `CONFIG_PROC_CHILDREN`
+/// (`Unsupported`), an unreadable thread, or more threads than the bound.
 #[cfg(all(target_os = "linux", feature = "process"))]
-pub(in crate::process) fn read_proc_children(pid: i32) -> std::io::Result<Vec<i32>> {
-    let task_dir = std::path::Path::new("/proc")
-        .join(pid.to_string())
-        .join("task");
+pub(in crate::process) fn read_proc_children(pid: i32) -> io::Result<Vec<i32>> {
+    read_children_under(std::path::Path::new("/proc"), pid, MAX_CAPTURED_THREADS)
+}
+
+/// [`read_proc_children`] over the proc tree at `proc_root`, reading at most
+/// `max_threads` threads.
+///
+/// A short list here reads as "no more children", which makes a supervisor
+/// miss a descendant it should stop. So the only list it returns is a whole
+/// one; a thread that exited between the listing and its read is the one
+/// thread it may skip, since its list went with it.
+#[cfg(any(target_os = "linux", all(test, unix)))]
+fn read_children_under(
+    proc_root: &std::path::Path,
+    pid: i32,
+    max_threads: usize,
+) -> io::Result<Vec<i32>> {
+    let task_dir = proc_root.join(pid.to_string()).join("task");
     let mut children = Vec::new();
     let mut threads = 0_usize;
     for entry in std::fs::read_dir(task_dir)? {
         let entry = entry?;
         threads = threads.saturating_add(1);
-        if threads > MAX_CAPTURED_THREADS {
-            // A process with more threads than the bound is a partial read, and
-            // the caller's truncation flag is where that becomes visible.
-            break;
+        if threads > max_threads {
+            let refusal = Err(io::Error::other(format!(
+                "read_proc_children: pid {pid} has more than {max_threads} threads, so its child list would be partial"
+            )));
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?refusal.as_ref().err(), "read_proc_children: returning an error to the caller");
+            return refusal;
         }
-        let Ok(text) = std::fs::read_to_string(entry.path().join("children")) else {
-            continue;
-        };
-        children.extend(
-            text.split_ascii_whitespace()
-                .filter_map(|pid| pid.parse::<i32>().ok()),
-        );
+        let thread = entry.path();
+        match std::fs::read_to_string(thread.join("children")) {
+            Ok(text) => children.extend(
+                text.split_ascii_whitespace()
+                    .filter_map(|pid| pid.parse::<i32>().ok()),
+            ),
+            Err(error) if error.kind() == io::ErrorKind::NotFound && !thread.exists() => {}
+            Err(error) => {
+                // A live thread with no list is a kernel that keeps none, which
+                // must not read as "the process is gone".
+                let kind = match error.kind() {
+                    io::ErrorKind::NotFound => io::ErrorKind::Unsupported,
+                    other => other,
+                };
+                let refusal = Err(io::Error::new(
+                    kind,
+                    format!(
+                        "read_proc_children: pid {pid}'s child list could not be read: {error}"
+                    ),
+                ));
+                #[cfg(feature = "trace")]
+                crate::trace::debug!(error = ?refusal.as_ref().err(), "read_proc_children: returning an error to the caller");
+                return refusal;
+            }
+        }
     }
     Ok(children)
 }
@@ -446,10 +487,67 @@ mod tests {
     //! parsers, the bounded walk and the snapshot fold.
 
     use super::{
-        kill_is_pending, proc_stat_says_running, snapshot_from, status_has_kill_pending,
-        walk_descendants,
+        kill_is_pending, proc_stat_says_running, read_children_under, snapshot_from,
+        status_has_kill_pending, walk_descendants,
     };
     use crate::process::{ContainmentMechanism, DescendantSet};
+    use std::io;
+
+    /// A fake `/proc` with pid 7's threads: each `(tid, Some(list))` holds a
+    /// `children` file, and each `(tid, None)` is a thread with no such file.
+    fn proc_tree(threads: &[(i32, Option<&str>)]) -> io::Result<tempfile::TempDir> {
+        let root = tempfile::tempdir()?;
+        for &(tid, list) in threads {
+            let thread = root.path().join("7/task").join(tid.to_string());
+            std::fs::create_dir_all(&thread)?;
+            if let Some(list) = list {
+                std::fs::write(thread.join("children"), list)?;
+            }
+        }
+        Ok(root)
+    }
+
+    /// The bug this catches (#965 review, finding 5.1): a kernel without
+    /// `CONFIG_PROC_CHILDREN` has a task dir but no `children` file. The old
+    /// reader skipped the thread and returned an empty list, so the probe
+    /// passed and the capture never fell back to the whole table.
+    #[test]
+    fn a_live_thread_with_no_list_is_unsupported_not_empty() -> io::Result<()> {
+        let tree = proc_tree(&[(7, None)])?;
+        let Err(error) = read_children_under(tree.path(), 7, 64) else {
+            return Err(io::Error::other(
+                "a missing list must not read as no children",
+            ));
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Unsupported);
+        Ok(())
+    }
+
+    /// The bug this catches: more threads than the bound broke out of the loop
+    /// and returned the lists read so far as if whole.
+    #[test]
+    fn more_threads_than_the_bound_is_an_error_not_a_prefix() -> io::Result<()> {
+        let tree = proc_tree(&[(7, Some("8")), (9, Some("10")), (11, Some("12"))])?;
+        assert!(
+            read_children_under(tree.path(), 7, 2).is_err(),
+            "three threads over a bound of two is a partial read"
+        );
+        let mut whole = read_children_under(tree.path(), 7, 3)?;
+        whole.sort_unstable();
+        assert_eq!(whole, [8, 10, 12], "at the bound every list is read");
+        Ok(())
+    }
+
+    #[test]
+    fn a_gone_process_is_not_found_and_bad_entries_are_skipped() -> io::Result<()> {
+        let tree = proc_tree(&[(7, Some("8 x -1 9\n"))])?;
+        assert_eq!(read_children_under(tree.path(), 7, 64)?, [8, -1, 9]);
+        let Err(error) = read_children_under(tree.path(), 99, 64) else {
+            return Err(io::Error::other("a pid with no task dir has no list"));
+        };
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        Ok(())
+    }
 
     /// A walk from pid 1 over `tree`, where `None` is a list that could not
     /// be read and a parent with no row has no children.

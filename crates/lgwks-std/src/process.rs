@@ -364,8 +364,10 @@ pub fn set_cloexec(file_des: std::os::fd::BorrowedFd<'_>) -> io::Result<()> {
 /// `ps` output names the pids a supervisor signals and the start tokens it
 /// trusts, so a `ps` found through an inherited `PATH`, or run with an
 /// inherited `LD_PRELOAD` or `DYLD_INSERT_LIBRARIES`, could steer a kill (#913
-/// item 9, CWE-426). Every unix this crate builds for keeps `ps` in one of
-/// these two directories.
+/// item 9, CWE-426). FHS Linux, macOS and the BSDs keep `ps` in one of these
+/// two directories. A host that keeps it elsewhere (NixOS, Guix, Android, a
+/// minimal container) gets `NotFound` from every `ps` reading, which its
+/// callers treat as no reading, never as no process.
 #[cfg(all(unix, feature = "process"))]
 const PS_SEARCH_PATH: &str = "/bin:/usr/bin";
 
@@ -448,6 +450,12 @@ mod ps_path_tests {
         let planted = planted_ps("echo planted")?;
         let output = run_ps_in(planted.path().as_os_str(), &[], "test")?;
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "planted");
+        // A path with no `ps` must not fall back to the caller's own.
+        let empty = tempfile::tempdir()?;
+        let Err(error) = run_ps_in(empty.path().as_os_str(), &[], "test") else {
+            return Err(io::Error::other("a path with no `ps` found one anyway"));
+        };
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
         Ok(())
     }
 

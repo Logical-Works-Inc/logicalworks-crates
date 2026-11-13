@@ -594,18 +594,80 @@ fn kinfo_start(pid: i32) -> io::Result<Option<String>> {
 fn ps_start(pid: i32) -> io::Result<Option<String>> {
     let pid_text = pid.to_string();
     let output = super::run_ps(&["-o", "lstart=", "-p", &pid_text], "ps_start")?;
-    let text = String::from_utf8_lossy(&output.stdout);
+    let refusal = match read_ps_start(output.status.success(), &output.stdout) {
+        PsStart::Token(token) => return Ok(Some(token)),
+        PsStart::Unlisted if !process_exists(pid)? => return Ok(None),
+        PsStart::Unlisted => Err(io::Error::other(format!(
+            "lgwks_std::process (ps_start): `ps` listed no start for live pid {pid}"
+        ))),
+        PsStart::Failed => Err(io::Error::other(format!(
+            "lgwks_std::process (ps_start): `ps` failed for pid {pid} but wrote output, which is no start token"
+        ))),
+    };
+    #[cfg(feature = "trace")]
+    crate::trace::debug!(error = ?refusal.as_ref().err(), "ps_start: returning an error to the caller");
+    refusal
+}
+
+/// What one `ps -o lstart= -p <pid>` run said.
+#[cfg(all(unix, feature = "process"))]
+#[derive(Debug, PartialEq, Eq)]
+enum PsStart {
+    /// A start token, from a run that succeeded.
+    Token(String),
+    /// No output: the pid is not listed, or the read failed.
+    Unlisted,
+    /// Output from a run that failed. A usage line or a cut-off write is not a
+    /// start, and two equal failures across a pid reuse would match as one
+    /// process.
+    Failed,
+}
+
+/// Read one `ps` run's exit and stdout as a [`PsStart`].
+#[cfg(all(unix, feature = "process"))]
+fn read_ps_start(succeeded: bool, stdout: &[u8]) -> PsStart {
+    let text = String::from_utf8_lossy(stdout);
     let words: Vec<&str> = text.split_ascii_whitespace().collect();
     if words.is_empty() {
-        if process_exists(pid)? {
-            let refusal = Err(io::Error::other(format!(
-                "lgwks_std::process (ps_start): `ps` listed no start for live pid {pid}"
-            )));
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(error = ?refusal.as_ref().err(), "ps_start: returning an error to the caller");
-            return refusal;
-        }
-        return Ok(None);
+        // `ps` exits non-zero for a pid it does not list, so the exit alone
+        // does not tell absence from failure; signal zero does.
+        return PsStart::Unlisted;
     }
-    Ok(Some(format!("{PS_SCHEME}{}", words.join("-"))))
+    if !succeeded {
+        return PsStart::Failed;
+    }
+    PsStart::Token(format!("{PS_SCHEME}{}", words.join("-")))
+}
+
+#[cfg(all(test, unix, feature = "process"))]
+mod ps_start_tests {
+    use super::{PS_SCHEME, PsStart, read_ps_start};
+
+    /// The bug this catches (#965 review, finding 5.2): a failed `ps` that
+    /// still wrote to stdout was read as a start token.
+    #[test]
+    fn output_from_a_failed_run_is_no_start_token() {
+        assert_eq!(
+            read_ps_start(false, b"usage: ps [-o fmt]\n"),
+            PsStart::Failed
+        );
+    }
+
+    #[test]
+    fn a_run_reads_as_token_or_unlisted() {
+        assert_eq!(
+            read_ps_start(true, b"Fri Nov 13 18:22:09 2026\n"),
+            PsStart::Token(format!("{PS_SCHEME}Fri-Nov-13-18:22:09-2026"))
+        );
+        assert_eq!(
+            read_ps_start(false, b""),
+            PsStart::Unlisted,
+            "an unlisted pid"
+        );
+        assert_eq!(
+            read_ps_start(true, b"  \n"),
+            PsStart::Unlisted,
+            "blank is no token"
+        );
+    }
 }
