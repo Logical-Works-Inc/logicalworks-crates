@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_deps 7.2.0 - 2026-11-13: [notes](docs/changelog/20-a-match-has-its-title-2026-11-13.md)
 - lgwks_std 4.1.2 / lgwks_ast 6.0.3 / lgwks_deps 7.1.0 - 2026-11-13: [notes](docs/changelog/19-every-link-and-a-requirement-as-cargo-reads-it-2026-11-13.md)
 - lgwks_deps 7.0.0 / lgwks_macros 2.1.2 / lgwks_bot 8.3.1 / drishti 0.1.5 - 2026-11-12: [notes](docs/changelog/18-a-requirement-is-a-caret-2026-11-12.md)
 - lgwks_bot 8.3.0 - 2026-11-09: [notes](docs/changelog/17-a-command-holds-its-request-2026-11-09.md)

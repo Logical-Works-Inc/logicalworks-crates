@@ -181,3 +181,94 @@ fn both_indexes_name_the_newest_ledger_part_first() -> TestResult {
     );
     Ok(())
 }
+
+/// Directories a lock walk never enters: build output and other people's code.
+const NOT_WALKED: [&str; 4] = ["target", ".git", "vendor", "node_modules"];
+
+/// Every committed `Cargo.lock` under `dir`, at most `depth` levels down.
+fn locks_under(
+    dir: &std::path::Path,
+    depth: usize,
+    out: &mut Vec<std::path::PathBuf>,
+) -> TestResult {
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name();
+        if entry.file_type()?.is_dir() {
+            let walked = name
+                .to_str()
+                .is_some_and(|text| !NOT_WALKED.contains(&text));
+            if walked && depth > 0 {
+                locks_under(&path, depth.saturating_sub(1), out)?;
+            }
+        } else if name == "Cargo.lock" {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// The path pins of a lock: each `[[package]]` with no `source`, by name and
+/// version.
+fn path_pins(lock: &str) -> Vec<Release> {
+    lock.split("[[package]]")
+        .skip(1)
+        .filter(|block| !block.contains("\nsource = "))
+        .filter_map(|block| {
+            let field = |key: &str| {
+                block.lines().find_map(|line| {
+                    line.strip_prefix(key)
+                        .and_then(|rest| rest.strip_prefix(" = \""))
+                        .and_then(|rest| rest.strip_suffix('"'))
+                })
+            };
+            Some((field("name")?.to_owned(), field("version")?.to_owned()))
+        })
+        .collect()
+}
+
+/// A release moves every lock that pins a member by path: the bench and
+/// fixture locks are resolved alone, so a cut that missed one still built the
+/// workspace and published, and the stale lock surfaced later (#953 moved nine
+/// by hand, 2026-11-13).
+#[test]
+fn every_lock_pins_each_member_at_its_manifest_version() -> TestResult {
+    let manifests = CRATES
+        .iter()
+        .map(|directory| identity(directory))
+        .collect::<Result<Vec<Release>, _>>()?;
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut locks = Vec::new();
+    locks_under(&root, 6, &mut locks)?;
+    assert!(
+        locks.len() > 1,
+        "found {} locks under the repository",
+        locks.len()
+    );
+    for lock in &locks {
+        for (name, version) in path_pins(&fs::read_to_string(lock)?) {
+            let Some(manifest) = manifests.iter().find(|release| release.0 == name) else {
+                continue;
+            };
+            assert_eq!(
+                version,
+                manifest.1,
+                "{} pins {name} {version}, the manifest is {}",
+                lock.display(),
+                manifest.1
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The pin reader keeps path pins and skips registry ones.
+#[test]
+fn a_path_pin_is_read_and_a_registry_pin_is_not() {
+    let lock = "version = 4\n\n[[package]]\nname = \"lgwks_deps\"\nversion = \"7.2.0\"\n\n[[package]]\nname = \"lgwks_std\"\nversion = \"4.1.2\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+    assert_eq!(
+        path_pins(lock),
+        [("lgwks_deps".to_owned(), "7.2.0".to_owned())]
+    );
+}
