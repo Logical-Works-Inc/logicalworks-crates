@@ -20,7 +20,7 @@ use lgwks_bot::proposal::StubModel;
 use lgwks_bot::rt::runtime::Handle;
 use lgwks_bot::script::{
     AskDecode, AskRequest, EffectDisposition, EffectPolicy, FetchOptions, FetchResponse, FlowError,
-    Json, ModelOutput, ModelPort, OutsideWord, PostBody, Scope, SendOutcome, SendPort, Tenant,
+    Json, ModelOutput, ModelPort, OutsideWord, PostBody, Scope, SendOutcome, SendPort,
     admit_outside, ask, fetch, send, with_effect_policy,
 };
 use lgwks_bot::task::{Host, task};
@@ -372,14 +372,19 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     }
     say("outside: a word GET answers 200")?;
 
-    let scope = Scope::root(Tenant::new("vocab")?);
-    let direct_options: FetchOptions = FetchOptions::default()
-        .max_body_bytes(65_536)
-        .deadline(std::time::Duration::from_secs(10))
-        .attempts(1)
-        .header("accept", "text/plain");
-    let direct: FetchResponse =
-        driver.block_on(fetch(&scope, "outside-direct", &url, &direct_options))?;
+    // A direct call runs inside a host's run too: a scope no host admitted
+    // covers nothing (INV-BOT-194).
+    let direct_fetch = task("outside-direct", |scope: Scope, url: String| async move {
+        let direct_options: FetchOptions = FetchOptions::default()
+            .max_body_bytes(65_536)
+            .deadline(std::time::Duration::from_secs(10))
+            .attempts(1)
+            .header("accept", "text/plain");
+        fetch(&scope, "outside-direct", &url, &direct_options).await
+    })?;
+    let direct: FetchResponse = driver
+        .block_on(host.run(&direct_fetch, url.clone()))
+        .into_result()?;
     if direct.status() != 200 || direct.body() != b"hello" {
         return refuse(Section::Outside, "a direct GET answers the whole body");
     }
@@ -418,8 +423,19 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     }
     say("outside: a word ask decodes the model's bytes")?;
 
-    let request: AskRequest = AskRequest::default();
-    let bytes: Vec<u8> = driver.block_on(ask(&scope, "outside-ask-direct", &model, &request))?;
+    let direct_ask = task(
+        "outside-ask-direct",
+        |scope: Scope, model: StubModel| async move {
+            let request: AskRequest = AskRequest::default();
+            let bytes: Vec<u8> = ask(&scope, "outside-ask-direct", &model, &request).await?;
+            let decoded: Json<Report> =
+                ask(&scope, "outside-ask-json", &JsonModel, &request).await?;
+            Ok::<_, FlowError>((bytes, decoded))
+        },
+    )?;
+    let (bytes, decoded) = driver
+        .block_on(host.run(&direct_ask, model.clone()))
+        .into_result()?;
     if bytes != model.output() {
         return refuse(Section::Outside, "a direct ask decodes whole bytes");
     }
@@ -431,13 +447,6 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     if made.truncated() || made.bytes() != b"hi" {
         return refuse(Section::Outside, "a whole output reports itself whole");
     }
-    let stub = JsonModel;
-    let decoded: Json<Report> = driver.block_on(ask(
-        &scope,
-        "outside-ask-json",
-        &stub,
-        &AskRequest::default(),
-    ))?;
     if decoded.value.code != 200 {
         return refuse(Section::Outside, "JSON decodes into the declared report");
     }

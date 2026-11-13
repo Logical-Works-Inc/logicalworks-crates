@@ -34,13 +34,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lgwks_bot::proposal::{Shape, StubModel};
-use lgwks_bot::script::{AskRequest, FetchOptions, FlowError, Scope, Tenant};
+use lgwks_bot::script::{AskRequest, FetchOptions, FlowError, Scope};
 use lgwks_bot::task::task;
 use lgwks_bot::{Cap, GrantSet};
 
 use crate::effect_policy::allowing;
 use crate::outside_support::{Behavior, OutsideError, StubMailer, Upstream};
-use crate::outside_support::{fail, get, host_on, is_applied, mail, outside_grants, run_of};
+use crate::outside_support::{ask_hosted, fail, get, host_on, hosted, is_applied, mail};
+use crate::outside_support::{outside_grants, run_of};
 use crate::scratch::Scratch;
 use crate::sim;
 
@@ -166,13 +167,13 @@ fn sim_fetch_refuses_a_malformed_url_before_any_socket() -> TestResult {
         let Some(url) = MALFORMED.get(index) else {
             return fail("the draw names a malformed URL");
         };
-        let scope = Scope::root(Tenant::new(tenant(sim))?);
-        let refused = lgwks_bot::block_on(lgwks_bot::script::fetch(
-            &scope,
-            "url",
-            url,
-            &FetchOptions::default(),
-        ));
+        let refused = hosted(
+            tenant(sim),
+            GrantSet::empty().grant(Cap::net()),
+            |scope: Scope| async move {
+                lgwks_bot::script::fetch(&scope, "url", url, &FetchOptions::default()).await
+            },
+        )?;
         if !matches!(refused, Err(FlowError::Failed { .. })) {
             return fail("a malformed URL fails typed");
         }
@@ -320,9 +321,10 @@ fn sim_send_with_nowhere_durable_is_refused_before_dispatch() -> TestResult {
         let size = below(sim, 512)?.saturating_add(1);
         let payload = vec![0x5a_u8; size];
         let mailer = StubMailer::new();
-        let scope = Scope::root(Tenant::new(tenant(sim))?);
-        let refused =
-            lgwks_bot::block_on(lgwks_bot::script::send(&scope, "send", &mailer, &payload));
+        let (mailer_ref, payload_ref) = (&mailer, &payload);
+        let refused = hosted(tenant(sim), outside_grants(), |scope: Scope| async move {
+            lgwks_bot::script::send(&scope, "send", mailer_ref, payload_ref).await
+        })?;
         if !matches!(refused, Err(FlowError::Store { .. })) {
             return fail("a send with no store is refused as a store failure");
         }
@@ -380,10 +382,8 @@ fn sim_ask_refuses_a_zero_budget_and_decodes_whole_bytes_within_one() -> TestRes
             }
             model_seed = model_seed.saturating_add(1);
         };
-        let scope = Scope::root(Tenant::new("acme")?);
         let zero = AskRequest::default().max_tokens(0);
-        let refused: Result<Vec<u8>, FlowError> =
-            lgwks_bot::block_on(lgwks_bot::script::ask(&scope, "zero", &model, &zero));
+        let refused: Result<Vec<u8>, FlowError> = ask_hosted("zero", &model, &zero)?;
         if !matches!(refused, Err(FlowError::InvalidBound { value: 0, .. })) {
             return fail("a zero token budget is refused");
         }
@@ -391,8 +391,7 @@ fn sim_ask_refuses_a_zero_budget_and_decodes_whole_bytes_within_one() -> TestRes
             .map_err(std::io::Error::other)?
             .saturating_add(1);
         let within = AskRequest::default().max_tokens(budget);
-        let whole: Vec<u8> =
-            lgwks_bot::block_on(lgwks_bot::script::ask(&scope, "within", &model, &within))?;
+        let whole: Vec<u8> = ask_hosted("within", &model, &within)??;
         if whole != model.output() {
             return fail("output within its budget decodes whole");
         }

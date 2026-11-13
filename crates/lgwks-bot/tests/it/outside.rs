@@ -47,7 +47,8 @@ use lgwks_bot::{Cap, GrantSet};
 use crate::effect_policy::allowing;
 use crate::outside_support::{ARCHITECTURE, calls, get, mail, mail_crash};
 use crate::outside_support::{Behavior, OutsideError, StubMailer, Upstream};
-use crate::outside_support::{fail, host_on, is_applied, is_unknown, outside_grants, run_of};
+use crate::outside_support::{ask_hosted, fail, host_on, is_applied, is_unknown};
+use crate::outside_support::{outside_grants, run_of};
 use crate::scratch::Scratch;
 
 /// A test's result: an error fails it with the refusal behind it.
@@ -273,12 +274,10 @@ fn fetch_post_runs_under_an_allowing_policy_and_parks_under_the_default() -> Tes
 /// typed, never decoded into a claim about the whole output.
 #[test]
 fn ask_refuses_truncated_model_output() -> TestResult {
-    let scope = Scope::root(lgwks_bot::script::Tenant::new("acme")?);
     let seed = seed_with(Shape::Truncated)?;
     let model = StubModel::from_seed(seed);
     let request = AskRequest::default().max_tokens(u32::MAX);
-    let refused: Result<String, FlowError> =
-        lgwks_bot::block_on(lgwks_bot::script::ask(&scope, "cut", &model, &request));
+    let refused: Result<String, FlowError> = ask_hosted("cut", &model, &request)?;
     if !matches!(refused, Err(FlowError::InvalidBound { .. })) {
         return fail("a truncated shape is refused before decoding");
     }
@@ -289,8 +288,7 @@ fn ask_refuses_truncated_model_output() -> TestResult {
         return fail("the well-formed shape must exceed the small budget");
     }
     let request = AskRequest::default().max_tokens(16);
-    let refused: Result<Vec<u8>, FlowError> =
-        lgwks_bot::block_on(lgwks_bot::script::ask(&scope, "budget", &model, &request));
+    let refused: Result<Vec<u8>, FlowError> = ask_hosted("budget", &model, &request)?;
     if !matches!(refused, Err(FlowError::InvalidBound { .. })) {
         return fail("output cut at the token budget is refused");
     }
@@ -300,12 +298,10 @@ fn ask_refuses_truncated_model_output() -> TestResult {
 /// Output no declared type decodes is refused typed: JSON over prose.
 #[test]
 fn ask_refuses_undecodable_output_for_the_declared_type() -> TestResult {
-    let scope = Scope::root(lgwks_bot::script::Tenant::new("acme")?);
     let seed = seed_with(Shape::WellFormed)?;
     let model = StubModel::from_seed(seed);
-    let refused: Result<lgwks_bot::script::Json<Report>, FlowError> = lgwks_bot::block_on(
-        lgwks_bot::script::ask(&scope, "json", &model, &AskRequest::default()),
-    );
+    let refused: Result<lgwks_bot::script::Json<Report>, FlowError> =
+        ask_hosted("json", &model, &AskRequest::default())?;
     if !matches!(refused, Err(FlowError::Failed { .. })) {
         return fail("prose is not JSON and must fail typed");
     }
@@ -316,34 +312,18 @@ fn ask_refuses_undecodable_output_for_the_declared_type() -> TestResult {
 /// through a stub port that answers JSON.
 #[test]
 fn ask_decodes_the_declared_type() -> TestResult {
-    let scope = Scope::root(lgwks_bot::script::Tenant::new("acme")?);
     let seed = seed_with(Shape::WellFormed)?;
     let model = StubModel::from_seed(seed);
-    let bytes: Vec<u8> = lgwks_bot::block_on(lgwks_bot::script::ask(
-        &scope,
-        "bytes",
-        &model,
-        &AskRequest::default(),
-    ))?;
+    let request = AskRequest::default();
+    let bytes: Vec<u8> = ask_hosted("bytes", &model, &request)??;
     if bytes != model.output() {
         return fail("bytes decode whole");
     }
-    let text: String = lgwks_bot::block_on(lgwks_bot::script::ask(
-        &scope,
-        "text",
-        &model,
-        &AskRequest::default(),
-    ))?;
+    let text: String = ask_hosted("text", &model, &request)??;
     if text.as_bytes() != model.output() {
         return fail("text decodes the same bytes");
     }
-    let stub = JsonModel;
-    let report: lgwks_bot::script::Json<Report> = lgwks_bot::block_on(lgwks_bot::script::ask(
-        &scope,
-        "report",
-        &stub,
-        &AskRequest::default(),
-    ))?;
+    let report: lgwks_bot::script::Json<Report> = ask_hosted("report", &JsonModel, &request)??;
     if report.value.code != 200 {
         return fail("JSON decodes into the declared report");
     }

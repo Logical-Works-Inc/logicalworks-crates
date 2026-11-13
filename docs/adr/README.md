@@ -80,5 +80,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0042](0042-macos-and-windows-run-only-the-platform-gates.md) | macOS and Windows run only the platform gates |
 | [0043](0043-an-advisory-match-carries-its-title-and-a-skipped-pin-its-name.md) | An advisory match carries its title and a skipped pin its name |
 | [0044](0044-a-record-states-only-what-the-device-proved.md) | A record states only what the device proved |
+| [0045](0045-a-run-carries-its-authority-on-its-scope.md) | A run carries its authority on its scope |
 
 New records go at the bottom of that table.

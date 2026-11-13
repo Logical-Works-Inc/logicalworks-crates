@@ -520,6 +520,9 @@ mod sim_repeat_ceiling;
 mod sim_replay_drift;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_request_key;
+#[cfg(all(feature = "script", feature = "rt", feature = "sync"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+mod sim_require_closed;
 #[cfg(feature = "net")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_retry_proxy;

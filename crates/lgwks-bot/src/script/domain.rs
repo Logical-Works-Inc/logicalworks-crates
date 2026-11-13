@@ -127,7 +127,7 @@ impl Acted {
 /// or that no registry was installed; [`BotError::DuplicateDomain`] when the
 /// registry itself declares one identifier twice.
 pub fn admit_domains(scope: &Scope, uses: &[DomainUse]) -> Result<(), FlowError> {
-    let registry = installed();
+    let registry = installed(scope);
     if let Some(registry) = registry {
         registry
             .validate()
@@ -309,9 +309,11 @@ pub(crate) fn gate_approval(
     }
 }
 
-/// The registry this run resolves domains against, when its host has one.
-fn installed() -> Option<&'static DomainRegistry> {
-    super::run_store::authority().and_then(|authority| authority.domains())
+/// The registry `scope`'s run resolves domains against, when its host has one.
+fn installed(scope: &Scope) -> Option<&'static DomainRegistry> {
+    scope
+        .authority()
+        .and_then(super::run_store::Authority::domains)
 }
 
 /// The installed registry when it declares `id` in `role`, or the refusal
@@ -320,7 +322,7 @@ fn installed() -> Option<&'static DomainRegistry> {
 /// Checked again at the step, not trusted from the entry: a step reached by a
 /// flow that was not expanded by `script!` has had no admission.
 fn resolve(scope: &Scope, role: Role, id: &str) -> Result<&'static DomainRegistry, FlowError> {
-    let registry = installed();
+    let registry = installed(scope);
     match registry {
         Some(known) if known.declares(role, id) => Ok(known),
         _ => {

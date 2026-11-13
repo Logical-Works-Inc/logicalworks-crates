@@ -303,7 +303,8 @@ impl Host {
             run,
             Arc::clone(&self.inner.policy),
             self.inner.max_pending,
-        );
+        )
+        .hosted(self.authority(grant_delta));
         let scope = match root.enter(task_name.as_str()) {
             Ok(scope) => scope,
             // The task's own step could not be entered: the name validated at
@@ -365,19 +366,17 @@ impl Host {
         // same host inherits both. With no store the scope is entered with no
         // run at all, which is what makes "no durability" the default rather
         // than a claim.
-        // One composition for all three task-local scopes rather than one per
+        // One composition for both task-local scopes rather than one per
         // combination of "has a store" and "has a repair": two alternative
         // nestings in one future carry both in its frame, which is what pushed a
-        // two-review test past a 2 MiB thread stack, and a third would have
-        // widened the same frame again. Boxed, so a run nested in another run's
-        // body costs the parent a pointer rather than its frame.
-        let outcome = Box::pin(crate::script::run_store::with_authority(
-            Some(self.authority(grant_delta)),
-            crate::script::run_store::within(
-                self.records(run),
-                &recorded_definition,
-                HELD_PERMITS.scope(charged, within(&scope, BODY_STEP, deadline, body)),
-            ),
+        // two-review test past a 2 MiB thread stack. The run's authority is not
+        // one of them: it rides on `scope`, so a step on a spawned task keeps it
+        // (#909). Boxed, so a run nested in another run's body costs the parent a
+        // pointer rather than its frame.
+        let outcome = Box::pin(crate::script::run_store::within(
+            self.records(run),
+            &recorded_definition,
+            HELD_PERMITS.scope(charged, within(&scope, BODY_STEP, deadline, body)),
         ))
         .await;
 
@@ -572,12 +571,10 @@ impl Host {
     /// The authority this run's steps consult: the host's grant plus the delta of
     /// any repair this run carries.
     ///
-    /// Always installed, including for a host that grants nothing. A step outside
-    /// any host has *no* authority and so requires nothing; a step under a host
-    /// that grants nothing has an authority covering nothing and is refused for
-    /// whatever it asked about. That distinction — nobody checked versus checked
-    /// and refused — is the whole reason this is installed unconditionally rather
-    /// than left absent when the grant set is empty.
+    /// Always attached to the run's root scope, including for a host that grants
+    /// nothing. That is what lets the registry be resolved, and a step under a
+    /// host that grants nothing is refused for whatever it asks about, exactly as
+    /// a step under no host is.
     pub(super) fn authority(&self, grant_delta: &GrantSet) -> RecordsAuthority {
         RecordsAuthority(Arc::new(RunAuthority {
             base: self.inner.grants.clone(),
