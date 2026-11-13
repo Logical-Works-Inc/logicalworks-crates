@@ -15,8 +15,14 @@
 //! [`WalkStreamEntry::metadata`] is called, so a kind-only walk stats nothing
 //! but the directories it enters; and loop detection is by device and inode
 //! when [`WalkOptions::follow_symlinks`] is set, never by canonicalizing
-//! every directory. The one `canonicalize` this walk performs is the root's,
-//! before the first entry.
+//! every directory. Beyond the root's, the walk canonicalizes only a link it
+//! may follow.
+//!
+//! Every link is listed as [`FileKind::Symlink`], whatever it names (#945): a
+//! link out of the root or to nothing is an entry of its directory, and only
+//! its descent is withheld. Following adds the inside of in-root directory
+//! links, under the link's own name, and never removes an entry from the
+//! listing: a directory a link entered first is still listed where it lives.
 //!
 //! A skipped subtree is the caller's own filter:
 //! [`WalkIter::skip_children`] withholds the most recently yielded directory
@@ -430,21 +436,19 @@ impl WalkIter {
     ) -> DirDecision {
         let depth = parent_depth.saturating_add(1);
         if file_type.is_symlink() {
-            let target = match entry.path().canonicalize() {
-                Ok(target) => target,
-                Err(error) => {
-                    return DirDecision::from_optional(self.policy.decide(
-                        relative,
-                        OmissionStage::SymlinkTarget,
-                        error,
-                    ));
-                }
-            };
-            if !target.starts_with(&self.canonical_root) {
-                return DirDecision::Skip;
+            // A link is an entry of its directory whatever it names: one
+            // pointing out of the root, or at nothing, is listed as a link and
+            // only never descended (#945). A caller auditing what a tree holds
+            // must see `x -> /etc` and a dangling link, not an absence.
+            if !self.options.follow_symlinks || depth > self.options.max_depth {
+                return DirDecision::Yield(self.record(absolute, file_type));
             }
-            if !(self.options.follow_symlinks && target.is_dir() && depth <= self.options.max_depth)
-            {
+            // A target that does not resolve is not an omission: the link
+            // itself was read, and it is listed, only never followed.
+            let Ok(target) = entry.path().canonicalize() else {
+                return DirDecision::Yield(self.record(absolute, file_type));
+            };
+            if !target.starts_with(&self.canonical_root) || !target.is_dir() {
                 return DirDecision::Yield(self.record(absolute, file_type));
             }
             let identity = match target_dir_id(&target) {
@@ -457,7 +461,10 @@ impl WalkIter {
                     ));
                 }
             };
-            return match self.enter(identity, target, relative, depth, file_type) {
+            // The frame reads through the link's own name, so the link and
+            // everything beneath it keep that name (#945): reporting the
+            // target's path would list the link under its target's name.
+            return match self.enter(identity, absolute.clone(), relative, depth, file_type) {
                 Some(admitted) => DirDecision::Yield(admitted),
                 // A revisited target is still a yielded entry, only never
                 // descended: the link names a directory the walk reports once.
@@ -477,9 +484,12 @@ impl WalkIter {
                 ));
             }
         };
-        match self.enter(identity, absolute, relative, depth, file_type) {
+        // A directory a followed link entered first is still an entry of its
+        // own parent: it is listed, only never descended twice (#945), as the
+        // materializing walk lists it.
+        match self.enter(identity, absolute.clone(), relative, depth, file_type) {
             Some(admitted) => DirDecision::Yield(admitted),
-            None => DirDecision::Skip,
+            None => DirDecision::Yield(self.record(absolute, file_type)),
         }
     }
 
@@ -624,5 +634,7 @@ pub fn walk_dir_iter(
     Ok(walk)
 }
 
+#[cfg(test)]
+mod sim_links;
 #[cfg(test)]
 mod tests;
