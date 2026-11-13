@@ -74,5 +74,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0036](0036-a-moved-lockfile-builds-on-mains-nearest-entry.md) | A moved lockfile builds on main's nearest entry |
 | [0037](0037-the-it-group-rows-share-one-dependency-build.md) | The it group rows share one dependency build |
 | [0038](0038-advisories-match-as-cargo-reads-a-requirement.md) | Advisories match as Cargo reads a requirement |
+| [0039](0039-the-streaming-walk-lists-every-link.md) | The streaming walk lists every link |
 
 New records go at the bottom of that table.
