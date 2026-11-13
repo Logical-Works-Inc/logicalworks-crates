@@ -30,7 +30,7 @@ The `lgwks_std` part of the invariant register, one short line per rule: rule ·
 - **INV-STD-JSON-1** `json::Value` keeps strings of up to 22 bytes inline and reads, writes and converts exactly as serde_json does. · why: #831 · enforced by: `tests/it/sim_json.rs`, the `latency-tails` lane
 - **INV-WIRE-1** `lgwks_std::wire` is an rkyv facade with an observable format descriptor, not a canonical encoding. · why: #167 · enforced by: `tests/it/sim_wire.rs`
 - **INV-PATTERN-SAFE** Checked patterns enforce their ceilings before allocation and never return a partial replacement. · why: #168 · enforced by: `tests/it/sim_pattern.rs`
-- **INV-FS-2** A strict walk that succeeds has no known omissions, a tolerant walk returns them, and an unresolved root is refused. · why: #143 · enforced by: `tests/it/sim_fs_walk.rs`
+- **INV-FS-2** A strict walk that succeeds has no known omissions, a tolerant walk returns them, and an unresolved root is refused; a directory cut by `max_depth` through a deep link is walked again through a shallower path. · why: #143, #913 · enforced by: `tests/it/sim_fs_walk.rs`
 - **INV-FS-3** Handle-relative access resolves one component under one admitted descriptor and never follows a symlink implicitly. · why: #174 · enforced by: `lgwks_std::fs::capability::tests`
 - **INV-FS-4** Created names are owner-only, descriptors close on exec, an inconsistent open request is refused, and `open_entry` opens regular files only without ever blocking on a FIFO or device. · why: #185, #913 · enforced by: `lgwks_std::fs::capability::tests`
 - **INV-FS-5** Walk output is rooted at the canonical root; budgets charge before retention and mark prefixes incomplete. · why: #166 · enforced by: `tests/it/sim_fs_walk.rs`

@@ -106,7 +106,7 @@ fn strict_refuses_the_first_unreadable_directory() -> TestResult {
         let locks = pick_locks(rng, tree);
         let reachable = reachable_locks(tree, &locks);
         let guard = Locked::lock(locks.iter().map(|rel| tree.root.join(rel)).collect())?;
-        let result = walk_dir(&tree.root, &unbounded());
+        let result = walk_dir(&tree.root, &deep_enough());
         if guard.inert() || reachable.is_empty() {
             assert!(
                 result.is_ok(),
@@ -141,7 +141,7 @@ fn tolerant_reports_unreadable_directories_and_keeps_the_rest() -> TestResult {
         let locks = pick_locks(rng, tree);
         let reachable = reachable_locks(tree, &locks);
         let guard = Locked::lock(locks.iter().map(|rel| tree.root.join(rel)).collect())?;
-        let report = walk_dir_tolerant(&tree.root, &unbounded())?;
+        let report = walk_dir_tolerant(&tree.root, &deep_enough())?;
         let reachable = if guard.inert() { Vec::new() } else { reachable };
         let omitted: Vec<PathBuf> = report
             .omissions()
@@ -195,7 +195,7 @@ fn the_omission_cap_bounds_the_report_and_marks_it() -> TestResult {
         }
         let cap = draw(rng, 0, reachable.len());
         let limits = WalkLimits::new(ROOMY, ROOMY, ROOMY, cap);
-        let report = walk_dir_tolerant_bounded(&tree.root, &unbounded(), &limits)?;
+        let report = walk_dir_tolerant_bounded(&tree.root, &deep_enough(), &limits)?;
         assert!(
             report.omissions().len() <= cap,
             "seed {seed:#x}: more omissions than the cap {cap}"
@@ -222,7 +222,7 @@ fn a_dangling_symlink_is_an_omission_not_an_entry() -> TestResult {
         let host = tree.root.join(tree.some_directory(rng));
         let link = host.join("dangling-link");
         std::os::unix::fs::symlink("target-that-does-not-exist", &link)?;
-        let error = walk_dir(&tree.root, &unbounded())
+        let error = walk_dir(&tree.root, &deep_enough())
             .err()
             .ok_or_else(|| format!("seed {seed:#x}: a dangling link passed a strict walk"))?;
         assert_eq!(
@@ -230,7 +230,7 @@ fn a_dangling_symlink_is_an_omission_not_an_entry() -> TestResult {
             Some(OmissionStage::SymlinkTarget),
             "seed {seed:#x}: {error}"
         );
-        let report = walk_dir_tolerant(&tree.root, &unbounded())?;
+        let report = walk_dir_tolerant(&tree.root, &deep_enough())?;
         let omitted: Vec<&Path> = report
             .omissions()
             .iter()
@@ -287,7 +287,7 @@ fn an_in_root_link_is_listed_and_not_followed_by_default() -> TestResult {
         let host = tree.root.join(tree.some_directory(rng));
         let link = host.join("~alias");
         std::os::unix::fs::symlink(&target, &link)?;
-        let walked = walk_dir(&tree.root, &unbounded())?;
+        let walked = walk_dir(&tree.root, &deep_enough())?;
         let mut expected = tree.expected(32);
         expected.insert(link.clone());
         let set: BTreeSet<PathBuf> = walked.iter().cloned().collect();
@@ -349,6 +349,159 @@ fn following_links_visits_each_directory_once_and_terminates() -> TestResult {
     })
 }
 
+#[test]
+#[cfg(unix)]
+/// A directory first reached through a deep link, and cut there by
+/// `max_depth`, is still walked to its own depth through its real, shallower
+/// path (#913 item 7). The bug this catches: the visited set returned at the
+/// real path, and a strict walk reported the cut subtree as complete.
+fn a_deep_link_never_hides_the_shallower_real_subtree() -> TestResult {
+    let mut exercised = 0_usize;
+    sweep(25, |seed, rng, tree| {
+        // A grown directory with a subdirectory, so a cut below it loses one.
+        let parents: Vec<&Node> = tree
+            .directories()
+            .into_iter()
+            .filter(|node| tree.children(&node.rel).iter().any(|child| child.dir))
+            .collect();
+        let Some(target) = parents.get(draw(rng, 0, parents.len().saturating_sub(1))) else {
+            return Ok(());
+        };
+        exercised = exercised.saturating_add(1);
+        // `!` sorts before every grown stem, so the walk takes the deep chain,
+        // and the alias at its foot, before it reaches the real path.
+        let chain = tree.root.join("!deep").join("!1").join("!2");
+        fs::create_dir_all(&chain)?;
+        let link = chain.join("!alias");
+        std::os::unix::fs::symlink(tree.root.join(&target.rel), &link)?;
+        let max_depth = draw(rng, 3, 6);
+        let walked = walk_dir(&tree.root, &options(max_depth, true, true))?;
+        let mut reached = BTreeSet::new();
+        for path in &walked {
+            reached.insert(path.canonicalize()?);
+        }
+        for path in tree.expected(max_depth) {
+            assert!(
+                reached.contains(&path),
+                "seed {seed:#x}: depth {max_depth} lost {} behind the alias",
+                path.display()
+            );
+        }
+        Ok(())
+    })?;
+    assert!(
+        exercised > 0,
+        "no seed grew a directory with a subdirectory"
+    );
+    Ok(())
+}
+
+/// A fresh canonical root in its own scratch, for a fixed-tree case.
+#[cfg(unix)]
+fn scratch_root() -> io::Result<(tempfile::TempDir, PathBuf)> {
+    let temp = tempfile::tempdir()?;
+    let root = temp.path().join("root");
+    fs::create_dir(&root)?;
+    let root = root.canonicalize()?;
+    Ok((temp, root))
+}
+
+#[test]
+#[cfg(unix)]
+/// A cut two levels below the link still re-enters the whole chain: the alias
+/// reaches `t` at depth 4, `max_depth` 5 cuts `t/s/u`, and the real `t` at
+/// depth 1 must reach `t/s/u/f.txt`. The bug this catches: a cut that reaches
+/// `s` but is never passed up to `t`, so the real `t` is skipped.
+fn a_cut_two_levels_down_re_enters_the_whole_chain() -> TestResult {
+    let (_temp, root) = scratch_root()?;
+    fs::create_dir_all(root.join("t/s/u"))?;
+    fs::write(root.join("t/s/u/f.txt"), b"leaf")?;
+    let chain = root.join("!deep/!1/!2");
+    fs::create_dir_all(&chain)?;
+    std::os::unix::fs::symlink(root.join("t"), chain.join("!alias"))?;
+    let walked = walk_dir(&root, &options(5, true, true))?;
+    assert!(
+        walked.contains(&root.join("t/s/u/f.txt")),
+        "the real t lost its leaf behind the alias: {walked:?}"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+/// A loop back to a directory being walked, or a link to a file, does not mark
+/// it cut, so a later, shallower link to it is skipped rather than listed
+/// twice. The bugs this catches: a visit recorded as cut while its own walk is
+/// in progress, and an unfollowed link reported as a cut.
+fn a_loop_to_a_walking_directory_is_not_a_cut() -> TestResult {
+    let (_temp, root) = scratch_root()?;
+    fs::create_dir_all(root.join("a/x"))?;
+    fs::write(root.join("a/x/f"), b"leaf")?;
+    std::os::unix::fs::symlink(root.join("a/x/f"), root.join("a/x/lf"))?;
+    std::os::unix::fs::symlink(root.join("a/x"), root.join("a/x/loop"))?;
+    std::os::unix::fs::symlink(root.join("a/x"), root.join("b"))?;
+    let walked = walk_dir(&root, &options(32, true, true))?;
+    assert_eq!(
+        walked,
+        rooted(&root, &["a", "a/x", "a/x/f", "a/x/lf", "a/x/loop", "b"]),
+        "a walk with no cut listed a directory twice"
+    );
+    Ok(())
+}
+
+/// `rels` joined onto `root`, in order.
+#[cfg(unix)]
+fn rooted(root: &Path, rels: &[&str]) -> Vec<PathBuf> {
+    rels.iter().map(|rel| root.join(rel)).collect()
+}
+
+#[test]
+#[cfg(unix)]
+/// A cut directory reached again at the same depth is not walked again: the
+/// same depth reaches no further. Here the link `!b/l` reaches `z/x` at depth
+/// 2 first, and the real `z/x` is also at depth 2. The bug this catches: a
+/// re-entry at equal depth, which lists `z/x/s` a second time.
+fn a_cut_directory_at_the_same_depth_is_not_walked_again() -> TestResult {
+    let (_temp, root) = scratch_root()?;
+    fs::create_dir_all(root.join("z/x/s"))?;
+    fs::write(root.join("z/x/s/f"), b"leaf")?;
+    fs::create_dir(root.join("!b"))?;
+    std::os::unix::fs::symlink(root.join("z/x"), root.join("!b/l"))?;
+    let walked = walk_dir(&root, &options(2, true, true))?;
+    assert_eq!(
+        walked,
+        rooted(&root, &["!b", "!b/l", "!b/l/s", "z", "z/x"]),
+        "a same-depth path walked a cut directory again"
+    );
+    Ok(())
+}
+
+#[test]
+#[cfg(unix)]
+/// An unreadable directory reached twice is reported once: a failed read is
+/// an omission, not a cut, so a shallower link does not read it again. The
+/// bug this catches: a failed read reported as a cut, which records a second
+/// omission under the link's name.
+fn an_unreadable_directory_reached_twice_is_one_omission() -> TestResult {
+    let (_temp, root) = scratch_root()?;
+    fs::create_dir_all(root.join("a/x"))?;
+    std::os::unix::fs::symlink(root.join("a/x"), root.join("b"))?;
+    let guard = Locked::lock(vec![root.join("a/x")])?;
+    let report = walk_dir_tolerant(&root, &options(32, true, true))?;
+    let omitted: Vec<PathBuf> = report
+        .omissions()
+        .iter()
+        .map(|omission| omission.path.clone())
+        .collect();
+    let want = if guard.inert() {
+        Vec::new()
+    } else {
+        rooted(&root, &["a/x"])
+    };
+    assert_eq!(omitted, want, "one unreadable directory, wrong omissions");
+    Ok(())
+}
+
 // ── Replay ─────────────────────────────────────────────────────────────────
 
 /// One seed's whole scenario: grow, walk under seeded policy and budgets,
@@ -363,7 +516,7 @@ fn scenario(seed: u64) -> Result<Trace, Box<dyn Error>> {
         trace.record(&path);
     }
     let limits = limits_near(&mut rng, &tree);
-    let report: WalkReport = walk_dir_tolerant_bounded(&tree.root, &unbounded(), &limits)?;
+    let report: WalkReport = walk_dir_tolerant_bounded(&tree.root, &deep_enough(), &limits)?;
     trace.record_number("complete", u64::from(report.is_complete()));
     trace.record_number("prefix", report.entries().len());
     Ok(trace)

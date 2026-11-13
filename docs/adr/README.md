@@ -82,5 +82,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0044](0044-a-record-states-only-what-the-device-proved.md) | A record states only what the device proved |
 | [0045](0045-a-run-carries-its-authority-on-its-scope.md) | A run carries its authority on its scope |
 | [0047](0047-a-capability-open-never-blocks-and-a-listing-owns-its-offset.md) | A capability open never blocks, and a listing owns its offset |
+| [0048](0048-a-shallower-path-reenters-a-depth-cut-directory.md) | A shallower path re-enters a depth-cut directory |
 
 New records go at the bottom of that table.
