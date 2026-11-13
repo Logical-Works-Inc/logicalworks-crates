@@ -23,7 +23,7 @@
 use std::collections::BTreeSet;
 use std::io;
 
-use super::capture::read_proc_children;
+use super::capture::table::read_proc_children;
 use super::{errno_to_io, invalid_pid};
 
 /// The cgroup v2 mount this module scopes trees under.
