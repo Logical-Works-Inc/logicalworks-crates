@@ -102,7 +102,7 @@ The estate identity type, replacing the `uuid` crate for stored identities (ADR 
 
 | Module | Owns | Invariant |
 |---|---|---|
-| `advisories` | offline RustSec advisory parser and semver evaluator; `lgwks-deps advisories` (#799) | INV-SEC-AUDIT-1 |
+| `advisories` | offline RustSec audit: `audit` entry, `semver` (Cargo's reader), `db` layout and matching; the binary's `bin/deps_cmd/advisories.rs` renders it; `git` is the crate's one git launcher (#799, #942) | INV-SEC-AUDIT-1, INV-SEC-AUDIT-2 |
 | `sqlite` | the one opener and `migrate`: serialized first open, one transaction per step (#872, #873) | INV-DEP-EDGE-OWNED |
 
 ### `lgwks_bot::rt::serve`, `lgwks_bot::task` and `lgwks_bot::journal`

@@ -724,6 +724,30 @@ cost = { cold_build_s = 2.78, crates = 13, binary_bytes = 30318320, measured = "
 review = "2027-02-01"
 
 [[approved]]
+crate = "semver"
+tier = "boundary"
+version = "^1.0.28"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_deps"
+capability = "test.semver-oracle"
+source = "registry"
+# Test-only: the reference `sim_advisories_semver_agrees_with_version_req`
+# checks the advisory SemVer port against. Already locked through
+# `rustc_version`, so the edge adds no crate.
+uses_default_features = "false"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "dev"
+reason = "policy-only: a dev-only test oracle; the advisory matcher must agree with the parser Cargo and RustSec use; only that parser is a reference the estate's own port can be held to (ADR 0038)."
+approved_by = "srinji"
+approved_on = "2026-11-12"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/942"
+[approved.retire]
+replacement = "lgwks_deps::advisories::semver"
+blocker = "The port is held to Cargo's reading only by comparing it with the parser Cargo uses; a recorded corpus would freeze today's answers."
+cost = { cold_build_s = 0.96, crates = 2, binary_bytes = 385024, measured = "2026-11-12", command = "cargo generate-lockfile --offline in a scratch probe-semver crate (1 package locked); cargo tree --locked --offline -e normal --prefix none (2 distinct incl. probe); cargo build --locked --offline (0.96s); rlib bytes summed under target/debug/deps (385024 bytes)" }
+review = "2027-02-01"
+
+[[approved]]
 crate = "loom"
 tier = "boundary"
 version = "^0.7"

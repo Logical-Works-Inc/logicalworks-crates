@@ -410,6 +410,9 @@ proptest = { version = "1.11", default-features = false, features = ["std"] }
 # The retire simulation hashes its verdicts through the estate primitive
 # (#788): test-only, so the `hash` backend never enters the shipped closure.
 lgwks_std = { workspace = true, default-features = false, features = ["core", "trace", "json", "hash"] }
+# The reference the advisory SemVer port is checked against (#942): test-only,
+# already in the lock through `rustc_version`, so no crate is added.
+semver = { version = "1.0.28", default-features = false } # gap: Logical-Works-Inc/logicalworks-crates#942
 
 [lints]
 workspace = true
