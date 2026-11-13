@@ -76,7 +76,7 @@ net = ["io", "lgwks_deps/tokio-net", "lgwks_std/random", "lgwks_std/http"]
 # group-kill syscall (`contract/APPROVED.toml` records rustix under `lgwks_std`
 # with exactly this reason: killing a shell must reach its grandchildren, which
 # `Child::kill` cannot do); this enables it, and adds no dependency.
-process = ["io", "sync", "time", "lgwks_std/process", "lgwks_deps/tokio-process"]
+process = ["io", "sync", "time", "lgwks_std/process", "lgwks_std/random", "lgwks_deps/tokio-process"]
 fs = ["io", "lgwks_deps/tokio-fs"]
 # `edge`: the driver's HTTP ingress (ADR 0006 R4). axum, registered under
 # `lgwks_deps`, carries the connection and the router; the world's request

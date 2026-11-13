@@ -359,7 +359,18 @@ pub(super) fn scope_tree(pid: i32) -> Option<CgroupScope> {
         return None;
     }
     let id = SCOPE_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let scope = match CgroupScope::create(&format!("lgwks-{pid}-{id}")) {
+    // A fresh random nonce makes the name unique among supervisors: the
+    // child pid and the counter alone repeat across processes once a pid is
+    // reused, and `create` refuses a taken name rather than share a scope
+    // (#913 item 8). No entropy means no scope, never a guessable name.
+    let nonce = match lgwks_std::random::bytes::<8>() {
+        Ok(bytes) => u64::from_le_bytes(bytes),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, pid, "start: no entropy for a scope name; the capture rounds own this tree");
+            return None;
+        }
+    };
+    let scope = match CgroupScope::create(&format!("lgwks-{nonce:016x}-{pid}-{id}")) {
         Ok(scope) => scope,
         Err(error) => {
             lgwks_std::trace::debug!(%error, pid, "start: no cgroup scope; the capture rounds own this tree");
