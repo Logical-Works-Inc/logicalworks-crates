@@ -39,7 +39,7 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 
 | Crate | Path | Owns | Invariants |
 |---|---|---|---|
-| `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP (`http::stream::sse_decode`, the I/O-free event decoder; `http::tls::der`, the X.509 and key walk), trace install; no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20, INV-STD-HTTP-3, INV-TLS-2, INV-STD-PROCESS-2 |
+| `lgwks_std` | `crates/lgwks-std` | the core surface: codecs, time, ids, hashing, regex, JSON/RON/wire, HTTP (`http::stream::sse_decode`, the I/O-free event decoder; `http::tls::der`, the X.509 and key walk), process control (`process::wait`, the pure reading of a Windows handle wait that decides liveness, #913), trace install; no async runtime | INV-RANDOM-*, INV-ID-*, INV-DEP-20, INV-STD-HTTP-3, INV-TLS-2, INV-STD-PROCESS-2 |
 | `lgwks_bot` | `crates/lgwks-bot` | orchestration on one ECS world: `rt`, `script!` flows, journal, supervision, and `interface` element resolution, whose scoring rules and eligibility gates are `interface/scoring.rs` | the `lgwks_bot` rows of `INVARIANTS.md` |
 | `lgwks_ast` | `crates/lgwks-ast` | the one parser: language identification, tree-sitter grammars, `script!` reading, `scan` | SL-2 |
 | `lgwks_macros` | `crates/lgwks-macros` | the `script!` compiler | SL-2 |
