@@ -121,7 +121,7 @@ impl Advisory {
     }
 
     /// The advisory title, when it carries one.
-    #[cfg(test)]
+    #[must_use]
     pub(crate) fn title(&self) -> Option<&str> {
         self.title.as_deref()
     }
@@ -204,6 +204,8 @@ pub struct AdvisoryMatch {
     advisory_id: String,
     /// Package name.
     package: String,
+    /// The advisory's title, its first `# ` heading.
+    title: Option<String>,
     /// Version resolved in the lockfile.
     installed_version: String,
     /// Classification of the matched advisory.
@@ -227,6 +229,7 @@ impl AdvisoryMatch {
         Self {
             advisory_id: advisory.id().to_owned(),
             package: advisory.package().to_owned(),
+            title: advisory.title().map(str::to_owned),
             installed_version: installed_version.into(),
             kind: advisory.kind().clone(),
             patched: advisory.patched().to_vec(),
@@ -247,6 +250,13 @@ impl AdvisoryMatch {
     #[doc(hidden)]
     pub fn package(&self) -> &str {
         &self.package
+    }
+
+    /// The advisory's title, its first `# ` heading; `None` when it has none.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
     }
 
     /// The version the lockfile resolved.
@@ -298,6 +308,52 @@ impl AdvisoryMatch {
     #[doc(hidden)]
     pub fn lockfile(&self) -> &str {
         &self.lockfile
+    }
+}
+
+/// A pin the audit did not judge, because no crates.io index is its source: a
+/// workspace member, a path or git pin, or another registry.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[non_exhaustive]
+#[doc(hidden)]
+pub struct SkippedPin {
+    /// The package name.
+    pub(crate) name: String,
+    /// The version the lockfile pins.
+    pub(crate) version: String,
+    /// The label of the lockfile that pins it.
+    pub(crate) lockfile: String,
+    /// The `source` the lockfile writes, `None` for a workspace or path pin.
+    pub(crate) source: Option<String>,
+}
+
+impl SkippedPin {
+    /// What the lockfile's `[[package]]` block writes as `name`.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The version the lockfile pins.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The label of the lockfile that pins it.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn lockfile(&self) -> &str {
+        &self.lockfile
+    }
+
+    /// The `source` the lockfile writes, `None` for a workspace or path pin.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
     }
 }
 
@@ -361,8 +417,9 @@ pub struct AdvisoryReport {
     /// Pins from a crates.io index, the only ones matched.
     pub(crate) packages_audited: usize,
     /// Pins from anywhere else: workspace members, path, git and other
-    /// registries, which no RustSec advisory names.
-    pub(crate) packages_skipped: usize,
+    /// registries, which no RustSec advisory names. Sorted, each named once
+    /// per lockfile, and bounded with the audited pins by `MAX_PACKAGES`.
+    pub(crate) skipped: Vec<SkippedPin>,
     /// Every match, vulnerability and informational, sorted.
     pub(crate) matches: Vec<AdvisoryMatch>,
 }
@@ -393,7 +450,15 @@ impl AdvisoryReport {
     #[must_use]
     #[doc(hidden)]
     pub const fn packages_skipped(&self) -> usize {
-        self.packages_skipped
+        self.skipped.len()
+    }
+
+    /// Every pin skipped because no crates.io index is its source, sorted by
+    /// name, version, lockfile and source.
+    #[must_use]
+    #[doc(hidden)]
+    pub fn skipped(&self) -> &[SkippedPin] {
+        &self.skipped
     }
 
     /// Every match, sorted by advisory, package, version and lockfile.

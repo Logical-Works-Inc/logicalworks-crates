@@ -98,6 +98,24 @@ fn extract_frontmatter(text: &str) -> Option<&str> {
     }
 }
 
+/// The advisory's title when it has no `title` key: the first line after the
+/// frontmatter, when it is an `# ` heading. advisory-db writes the title there
+/// and no key (format v3), so a reader of the key alone titles every live
+/// advisory `None` (#955).
+fn heading_title(text: &str, frontmatter: &str) -> Option<String> {
+    let start = text.find(frontmatter)?.saturating_add(frontmatter.len());
+    let mut body = text.get(start..)?.lines().map(str::trim);
+    let mut line = body.next()?;
+    if matches!(line, "```" | "---") {
+        line = body.next()?;
+    }
+    while line.is_empty() {
+        line = body.next()?;
+    }
+    let title = line.strip_prefix("# ")?.trim();
+    (!title.is_empty()).then(|| title.to_owned())
+}
+
 /// Current section within frontmatter TOML.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FrontmatterSection {
@@ -308,7 +326,9 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
 
     let withdrawn_date = withdrawn_opt.filter(|w_val| !w_val.trim().is_empty());
     let pub_date = date_opt.filter(|d_val| !d_val.trim().is_empty());
-    let title_str = title_opt.filter(|t_val| !t_val.trim().is_empty());
+    let title_str = title_opt
+        .filter(|t_val| !t_val.trim().is_empty())
+        .or_else(|| heading_title(text, frontmatter));
 
     let mut advisory = Advisory::new(
         advisory_id,

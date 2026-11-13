@@ -29,6 +29,7 @@ The `lgwks_deps` part of the invariant register, one short line per rule: rule �
 - **INV-PATCH-1** An upstream pin expires and never becomes a fork; an expired pin is refused with its upstream. · why: #723 · enforced by: `patches::tests::an_expired_pin_is_refused_with_its_upstream`
 - **INV-TLS-1** Outbound TLS has one provider, rustls on ring behind `tls-ring`, and no C-toolchain provider resolves. · why: #728, #869 · enforced by: `patches::tests::an_uncovered_provider_is_refused_with_its_chain`
 - **INV-SEC-AUDIT-2** `advisories::audit` reads a requirement exactly as Cargo's `VersionReq` does, pre-release gate included. · why: #942 · enforced by: `sim_advisories_semver_agrees_with_version_req`, `sim_advisories_reports_every_row_cargo_audit_reports`
+- **INV-SEC-AUDIT-3** A match carries the advisory's first `# ` heading as its title, and every skipped pin is named. · why: #955, ADR 0043 · enforced by: `sim_advisories_title_is_the_first_heading`, `sim_advisories_reports_every_row_cargo_audit_reports`
 - **INV-LGWKS-NEW-1** `lgwks new` writes exactly `Cargo.toml` and `app.rs` and refuses a non-empty directory. · why: #787 · enforced by: `tests/it/lgwks_e2e.rs`
 - **INV-LGWKS-CHECK-1** `lgwks check` runs the one parser and the plan bounds without building, with located refusals. · why: #787 · enforced by: `tests/it/sim_lgwks_check.rs`
 - **INV-LGWKS-EXPAND-1** `lgwks expand` prints byte for byte what the macro compiles, and the expansion passes clippy. · why: #787 · enforced by: `tests/it/sim_lgwks_expand.rs`
