@@ -72,7 +72,9 @@ fn every_manifest_version_has_a_changelog_row() -> TestResult {
     Ok(())
 }
 
-/// The newest row names only manifest versions and links a page that exists.
+/// The newest row names only manifest versions and links a page that exists,
+/// and `lgwks new` pins the versions the manifests carry: no test read its
+/// two pins, so a cut that missed them scaffolded the last release.
 #[test]
 fn the_newest_changelog_row_is_the_manifests() -> TestResult {
     let changelog = page("CHANGELOG.md")?;
@@ -102,6 +104,19 @@ fn the_newest_changelog_row_is_the_manifests() -> TestResult {
         page(&link).is_ok(),
         "the newest row links {link}, which is missing"
     );
+    let scaffold = page("crates/lgwks-deps/src/bin/lgwks/new.rs")?;
+    for (constant, package) in [("BOT_VERSION", "lgwks_bot"), ("STD_VERSION", "lgwks_std")] {
+        let prefix = format!("const {constant}: &str = \"");
+        let pinned = scaffold
+            .lines()
+            .find_map(|line| line.strip_prefix(prefix.as_str()))
+            .and_then(|rest| rest.strip_suffix("\";"))
+            .ok_or_else(|| format!("lgwks new has no {constant}"))?;
+        assert!(
+            manifests.contains(&(package.to_owned(), pinned.to_owned())),
+            "lgwks new pins {package} {pinned}, which no manifest carries"
+        );
+    }
     Ok(())
 }
 

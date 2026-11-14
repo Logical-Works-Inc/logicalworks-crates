@@ -99,7 +99,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "lgwks_bot"
-version = "8.3.1"
+version = "8.4.0"
 dependencies = [
  "lgwks_deps",
  "lgwks_std",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_std"
-version = "4.1.2"
+version = "4.2.0"
 dependencies = [
  "blake3",
  "getrandom",
