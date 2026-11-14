@@ -518,6 +518,20 @@ mod backpressure {
             Response::new(200, b"released".to_vec())
         }
 
+        /// Block until the gate opens, for a client the edge could not take.
+        fn opened(&self) -> Result<(), JourneyFailed> {
+            let Ok(mut open) = self.open.lock() else {
+                return refused(JourneyFailed::Poisoned);
+            };
+            while !*open {
+                open = match self.bell.wait(open) {
+                    Ok(woke) => woke,
+                    Err(_) => return refused(JourneyFailed::Poisoned),
+                };
+            }
+            Ok(())
+        }
+
         /// Open the gate for every parked handler.
         fn release(&self) -> Result<(), JourneyFailed> {
             match self.open.lock() {
@@ -556,14 +570,28 @@ mod backpressure {
     /// One parked client: retries a reset connection, which is load shedding
     /// one level down, and reports whether its answer was a `503` and whether
     /// that carried `Retry-After`.
+    ///
+    /// A reset before the gate opens means every slot holds a parked handler,
+    /// and none frees until the release, so the client waits for the gate
+    /// instead of spending its attempts. Attempts count only after the
+    /// release: then no handler blocks, a reset means another client holds
+    /// the slot, and `PARKED` attempts outlast every other client. A fixed
+    /// count spent before the release failed the journey under load (one run
+    /// at load 90, 0.1 s) with nothing wrong in the edge.
     fn park_one(
         addr: SocketAddr,
         tenant: usize,
         shed: &SyncSender<bool>,
+        gate: &Gate,
     ) -> Result<(), JourneyFailed> {
         let path = format!("/t/tenant-{tenant}/count");
         let mut last = None;
-        for _ in 0..10_u32 {
+        let mut waited = false;
+        let mut attempts = 0_usize;
+        while attempts < PARKED {
+            if waited {
+                attempts = attempts.saturating_add(1);
+            }
             match call(addr, &path, b"park") {
                 Ok((503, headers, _)) => {
                     let delayed = headers.to_lowercase().contains("retry-after:");
@@ -575,7 +603,13 @@ mod backpressure {
                 }
                 Ok((200, _, _)) => return Ok(()),
                 Ok((status, _, _)) => return refused(JourneyFailed::Status { path, status }),
-                Err(failure) => last = Some(Box::new(failure)),
+                Err(failure) => {
+                    last = Some(Box::new(failure));
+                    if !waited {
+                        gate.opened()?;
+                        waited = true;
+                    }
+                }
             }
         }
         refused(JourneyFailed::NeverConnected { path, last })
@@ -585,7 +619,7 @@ mod backpressure {
     /// serves again once the handler returns. Cites #790: the mailbox is the
     /// bound, and backpressure is an answer, not a queue without end.
     #[test]
-    fn a_full_mailbox_is_answered_503_with_retry_after() -> TestResult {
+    fn a_full_mailbox_is_answered_service_unavailable_with_retry_after() -> TestResult {
         let gate = std::sync::Arc::new(Gate::default());
         let parked = std::sync::Arc::clone(&gate);
         let feed = RequestFeed::with_mailbox_bound(
@@ -610,7 +644,8 @@ mod backpressure {
                     let mut parked = Vec::with_capacity(PARKED);
                     for tenant in 0..PARKED {
                         let shed = shed.clone();
-                        parked.push(clients.spawn(move || park_one(addr, tenant, &shed)));
+                        let gate = &*gate;
+                        parked.push(clients.spawn(move || park_one(addr, tenant, &shed, gate)));
                     }
                     let first = sheds.recv_timeout(FIRST_SHED);
                     gate.release()?;
