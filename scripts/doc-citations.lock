@@ -19,6 +19,8 @@ crates/lgwks-bot/src/cap.rs:205	pub struct Deficit {
 crates/lgwks-bot/src/cap.rs:291	pub fn to_grant_set(&self) -> GrantSet {
 crates/lgwks-bot/src/cap.rs:406	pub(crate) fn new(mut caps: Vec<Cap>) -> Self {
 crates/lgwks-bot/src/cap.rs:526	pub fn check(&self, required: &[Cap]) -> Result<(), BotError> {
+crates/lgwks-bot/src/cell.rs:543	type State: Clone + Default + Send + 'static;
+crates/lgwks-bot/src/cell/host.rs:16	use std::panic::{AssertUnwindSafe, catch_unwind};
 crates/lgwks-bot/src/domain/sys.rs:43	/// rest is drained and counted, never retained.
 crates/lgwks-bot/src/ecs/admit.rs:344	RetryClass::Never => EntryState::Abandoned {
 crates/lgwks-bot/src/ecs/bot.rs:304	pub async fn tick_async(&mut self) -> Result<usize, BotError> {
@@ -26,10 +28,20 @@ crates/lgwks-bot/src/ecs/bot.rs:378	let (fired, failure) = self.run_steps(&steps
 crates/lgwks-bot/src/ecs/bot.rs:487	pub fn tick(&mut self) -> Result<usize, BotError> {
 crates/lgwks-bot/src/ecs/builder.rs:611	let mut shortages: Vec<Shortage> = Vec::new();
 crates/lgwks-bot/src/ecs/builder.rs:634	world.insert_resource(Grants(grants.clone()));
+crates/lgwks-bot/src/ecs/fold.rs:3	use lgwks_deps::bevy_ecs::{
+crates/lgwks-bot/src/ecs/fold.rs:67	pub(super) fn observe_fold(world: &mut World) {
 crates/lgwks-bot/src/ecs/fold.rs:377	pub(super) fn fire_plan(world: &mut World) {
 crates/lgwks-bot/src/ecs/fold.rs:731	*failure = Some(error);
+crates/lgwks-bot/src/ecs/fold.rs:751	schedule.set_executor(SingleThreadedExecutor::default());
+crates/lgwks-bot/src/ecs/fold.rs:758	schedule.add_systems((observe_fold, fire_plan).chain());
 crates/lgwks-bot/src/ecs/ledger.rs:777	/// satisfied, so the entries behind it are unresolved through it.
+crates/lgwks-bot/src/ecs/resources.rs:11	use lgwks_deps::bevy_ecs::{
+crates/lgwks-bot/src/ecs/resources.rs:37	pub(crate) struct SourceId {
+crates/lgwks-bot/src/ecs/resources.rs:38	/// The chain's index in declaration order; the key into `Chains` and
+crates/lgwks-bot/src/ecs/resources.rs:59	pub(crate) struct Revision(pub(super) u64);
 crates/lgwks-bot/src/ecs/resources.rs:79	pub(super) struct TickError(pub(super) Option<BotError>);
+crates/lgwks-bot/src/ecs/resources.rs:172	pub(super) moving: Vec<bool>,
+crates/lgwks-bot/src/ecs/resources.rs:184	pub(super) movers: Option<QueryState<&'static SourceId, Changed<Revision>>>,
 crates/lgwks-bot/src/ecs/watchdog.rs:39	pub(super) const MAX_IN_FLIGHT_POLLS: usize = 32;
 crates/lgwks-bot/src/error.rs:193	/// the calling thread until its verb futures resolve, and the thread it was
 crates/lgwks-bot/src/gate.rs:14	pub struct GrantSet {

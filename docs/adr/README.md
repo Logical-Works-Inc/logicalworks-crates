@@ -41,7 +41,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0003](0003-every-capability-on-by-default.md) | Every capability is on by default |
 | [0004](0004-documentation-governance.md) | ADRs are 42010, PRDs are 29148, both machine-checked |
 | [0005](0005-bot-core-is-an-event-driven-ecs.md) | The bot core is an event-driven ECS; tokio and the executors are drivers below it (superseded by 0006) |
-| [0006](0006-one-ecs-world-one-tokio-axum-driver.md) | One ECS world is the core; one driver on tokio and axum carries events in and effects out |
+| [0006](0006-one-ecs-world-one-tokio-axum-driver.md) | One ECS world is the core; one driver on tokio and axum carries events in and effects out (decision 1 refined by 0053) |
 | [0007](0007-process-only-defaults.md) | Process-only defaults hold without the substrate |
 | [0008](0008-script-is-the-entrypoint.md) | Every capability is an SDK, an entrypoint and a `script!` word, or named here with why not |
 | [0009](0009-human-approval-parks-the-run.md) | A human decision parks the run; `act` is gated by policy |
@@ -88,5 +88,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0050](0050-request-options-debug-names-headers-without-values.md) | Request options Debug names headers without values |
 | [0051](0051-a-cited-invariant-id-is-a-registered-one.md) | A cited invariant id is a registered one |
 | [0052](0052-the-runtime-is-lgwks-runtime-in-seven-crates.md) | The runtime is `lgwks_runtime` in seven crates under one facade |
+| [0053](0053-a-world-per-tenant-on-an-owned-engine.md) | A world per tenant on an owned engine; the cell host is the supervisor |
 
 New records go at the bottom of that table.

@@ -11,6 +11,10 @@
 //!   `error`, `clock`, `spec`) that names tokio, axum, or the crate's `rt`,
 //!   `task`, `script` or `domain` modules.
 //!
+//! It also holds ADR 0053 decision 5, "no `catch_unwind`": the files that still
+//! catch a panic are [`UNWIND_SITES`], a new site is refused, and a listed file
+//! that stops catching must leave the list, so the set only shrinks.
+//!
 //! Comments are not code: a line is read up to its first `//`. Tests are not
 //! the core either: a test drives the core from above, the way the driver
 //! does, so a test file (`tests.rs`, a `tests/` directory, `sim_*`) and the
@@ -34,6 +38,13 @@ const DRIVER: [&str; 6] = [
     "crate::script",
     "crate::domain",
 ];
+
+/// The files that still catch a panic (ADR 0053 decision 5). The list only
+/// shrinks; the cell host's site leaves with the supervisor (W6, #1006).
+const UNWIND_SITES: [&str; 3] = ["app/check.rs", "app/command.rs", "cell/host.rs"];
+
+/// The refusal a new panic catch site gets.
+const UNWIND_REFUSAL: &str = "catches a panic outside UNWIND_SITES (ADR 0053 decision 5)";
 
 /// Whether `relative` (a `/`-separated path below `src/`) is the module `name`
 /// or a file inside it.
@@ -95,8 +106,26 @@ fn edges(relative: &str, text: &str) -> Vec<String> {
                 found.push(format!("{relative}:{number}: core module names {driver}"));
             }
         }
+        if code.contains("catch_unwind") && !UNWIND_SITES.contains(&relative) {
+            found.push(format!("{relative}:{number}: {UNWIND_REFUSAL}"));
+        }
     }
     found
+}
+
+/// Whether the production part of `text`, above any closing test module,
+/// names `catch_unwind` in code.
+fn catches_a_panic(text: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        if opens_test_module(&lines, index) {
+            return false;
+        }
+        if code_of(line).contains("catch_unwind") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Every `.rs` file under `dir`, recursively, in a stable order.
@@ -131,6 +160,13 @@ fn the_core_names_no_driver_and_only_ecs_names_bevy() -> Result<(), Box<dyn Erro
             .join("/");
         found.extend(edges(&relative, &fs::read_to_string(file)?));
     }
+    for site in UNWIND_SITES {
+        if !catches_a_panic(&fs::read_to_string(src.join(site))?) {
+            found.push(format!(
+                "{site}: no longer catches a panic; drop it from UNWIND_SITES"
+            ));
+        }
+    }
     assert!(
         found.is_empty(),
         "ADR 0006 boundary edges:\n{}",
@@ -153,6 +189,37 @@ fn a_planted_driver_import_in_the_core_is_refused() {
     assert_eq!(
         edges("ecs/bot.rs", "use lgwks_deps::axum::Router;").len(),
         1
+    );
+}
+
+#[test]
+/// ADR 0053 decision 5: a planted fourth `catch_unwind` is refused, a listed
+/// site stands until it leaves the list, and comments and tests are not sites.
+fn a_new_catch_unwind_site_is_refused() {
+    assert_eq!(
+        edges("gate.rs", "let caught = std::panic::catch_unwind(work);"),
+        vec![format!("gate.rs:1: {UNWIND_REFUSAL}")],
+    );
+    assert_eq!(
+        edges("cell/worker.rs", "use std::panic::catch_unwind;").len(),
+        1,
+        "a neighbour of a listed site is not listed"
+    );
+    assert!(
+        edges(
+            "cell/host.rs",
+            "use std::panic::{AssertUnwindSafe, catch_unwind};"
+        )
+        .is_empty(),
+        "a listed site stands until W6 removes it"
+    );
+    assert!(edges("rt/supervise.rs", "// never catch_unwind here").is_empty());
+    assert!(edges("app/sim_app.rs", "let _caught = catch_unwind(work);").is_empty());
+    assert!(catches_a_panic("use std::panic::catch_unwind;\n"));
+    let tested = "fn run() {}\n#[cfg(test)]\nmod tests {\n    use std::panic::catch_unwind;\n}\n";
+    assert!(
+        !catches_a_panic(tested),
+        "a catch inside the closing test module is not a site"
     );
 }
 
