@@ -730,7 +730,11 @@ mod sim_tenant_cursor;
 mod edge_load_keyed;
 
 #[cfg(all(feature = "edge", any(not(lwc_it_group), lwc_it_group = "g3")))]
+mod edge_load_rig;
+#[cfg(all(feature = "edge", any(not(lwc_it_group), lwc_it_group = "g3")))]
 mod sim_app_edge;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
+mod sim_rig_percentiles;
 
 #[cfg(all(
     feature = "edge",

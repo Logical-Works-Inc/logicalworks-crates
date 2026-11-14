@@ -1,5 +1,6 @@
-//! The HTTP edge under load (ADR 0006 R4): the world's edge and a plain axum
-//! server answer the same per-tenant counter, and one client drives either.
+//! The HTTP edge under load (ADR 0006 R4): the world's edge, the app SDK,
+//! `rt::serve` and a plain axum server answer the same per-tenant counter, and
+//! one client drives any of them.
 //!
 //! ```text
 //! edge-load world            serve the world's edge until stdin closes
@@ -8,20 +9,22 @@
 //! edge-load app-ask          the app counter with one provider ask per post
 //! edge-load app-keyed        the app counter behind a key per tenant, `key-{tenant}`
 //! edge-load app-command      the app counter whose answer comes from a command
+//! edge-load serve            serve the counter on rt::serve over a scratch run store
+//! edge-load serve-durable DIR  the rt::serve counter over the durable run store in DIR
 //! edge-load plan FILE        serve a model-written plan through App::from_plan
 //! edge-load hit ADDR CONNS REQUESTS TENANTS
 //! edge-load hit-keyed ADDR CONNS REQUESTS TENANTS
+//! edge-load drive ADDR CONNS REQUESTS TENANTS READ_PERMILLE SEED
+//! edge-load --rig [--short] [--db FILE] [--host LABEL] [--commit SHA] [--only SURFACE]
 //! ```
 //!
 //! Every counter answers `POST /t/{tenant}/count` with the tenant's count after
 //! adding one, and `GET` with the count as it stands, so a tenant's answers are
 //! its own sequence whichever server holds them; a plan answers its fixed
-//! status and body. Each prints `listening ADDR` on
-//! its first stdout line. The client opens `CONNS` keep-alive connections, each
-//! sending `REQUESTS` posts round-robin over `TENANTS` tenants, times every
-//! request from its first byte written to its last byte read, and prints one
-//! line: throughput, p50, p95, p99, max and the error rate. Peak RSS is the
-//! server's, read by the caller (`/usr/bin/time -l`).
+//! status and body. Each prints `listening ADDR` on its first stdout line. The
+//! client (`drive`) prints one line: throughput, p50, p95, p99, max and the
+//! error count. `--rig` runs every surface on one workload and stores each
+//! round as a row (`rig`).
 //!
 //! The world's edge is driven as a world (ADR 0006 R5): it samples the settled
 //! count every second and reads the rejections the handler wakes it for, and
@@ -31,20 +34,19 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::{Future, ready};
 use std::io::{BufRead, Write};
-use std::net::{SocketAddr, TcpListener};
+use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use lgwks_bot::app::{
     App, Effect, EffectResult, Method as AppMethod, OnInput, Principal, Provider, ReplyTag,
     RequestHeaders,
 };
 use lgwks_bot::rt::edge::{EdgeError, EdgeStop, MAX_BODY_BYTES, serve};
-use lgwks_bot::rt::io::{AsyncReadExt, AsyncWriteExt};
-use lgwks_bot::rt::net::TcpStream;
+use lgwks_bot::rt::serve::{RouteMethod, ServeOptions, TypedRoute};
 use lgwks_bot::rt::sync::CancellationToken;
-use lgwks_bot::rt::task::JoinSet;
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::{
     Auth, Bot, BotError, Cadence, Cap, GrantSet, Observe, RequestFeed, Response, WakeHandle,
@@ -57,12 +59,21 @@ use lgwks_deps::axum::{
     routing::post,
 };
 
-/// The most bytes one response head may carry before the client calls it
-/// malformed.
-const MAX_HEAD_BYTES: usize = 64 * 1024;
+#[path = "edge_load/drive.rs"]
+mod drive;
+#[path = "../../examples/support/measure.rs"]
+mod measure;
+#[path = "edge_load/rig.rs"]
+mod rig;
+#[path = "edge_load/usage.rs"]
+mod usage;
+
+/// At most this many requests run at once on `rt::serve`; past it the edge
+/// answers `503`. Above the rig's 1,024 connections, so a round measures the
+/// work and not the ceiling.
+const IN_FLIGHT: u64 = 4_096;
 
 /// Why a run of this binary failed.
-#[derive(Debug)]
 enum LoadError {
     /// The arguments did not name a mode this binary has.
     Usage,
@@ -72,8 +83,14 @@ enum LoadError {
     Edge(EdgeError),
     /// The world could not be built.
     World(String),
-    /// The server answered something that is not an HTTP response.
+    /// The server or the driver answered something this binary cannot read.
     Malformed(&'static str),
+    /// The seeded stream refused a draw.
+    Draw(lgwks_std::seeded::DrawError),
+    /// A full rig was asked of a debug build, whose numbers mean nothing.
+    DebugBuild,
+    /// The `sqlite3` program is missing or refused the rows.
+    Store(String),
 }
 
 impl fmt::Display for LoadError {
@@ -81,14 +98,26 @@ impl fmt::Display for LoadError {
         match *self {
             Self::Usage => {
                 f.write_str(
-                    "usage: edge-load world | axum | app | app-ask | app-keyed | app-command | plan FILE | hit ADDR CONNS REQUESTS TENANTS | hit-keyed ADDR CONNS REQUESTS TENANTS",
+                    "usage: edge-load world | axum | app | app-ask | app-keyed | app-command | serve | serve-durable DIR | plan FILE | hit ADDR CONNS REQUESTS TENANTS | hit-keyed ADDR CONNS REQUESTS TENANTS | drive ADDR CONNS REQUESTS TENANTS READ_PERMILLE SEED | --rig [--short] [--db FILE] [--host LABEL] [--commit SHA] [--only SURFACE]",
                 )
             }
             Self::Io(ref cause) => write!(f, "i/o: {cause}"),
             Self::Edge(ref cause) => write!(f, "edge: {cause}"),
             Self::World(ref cause) => write!(f, "world: {cause}"),
-            Self::Malformed(what) => write!(f, "malformed response: {what}"),
+            Self::Malformed(what) => write!(f, "malformed answer: {what}"),
+            Self::Draw(ref cause) => write!(f, "draw: {cause}"),
+            Self::DebugBuild => f.write_str(
+                "a full rig needs a release build: a debug build's numbers are refused; pass --short for a check run",
+            ),
+            Self::Store(ref cause) => write!(f, "store: {cause}"),
         }
+    }
+}
+
+/// `main` prints its error through `Debug`, so the user reads the sentence.
+impl fmt::Debug for LoadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
     }
 }
 
@@ -97,6 +126,12 @@ impl std::error::Error for LoadError {}
 impl From<std::io::Error> for LoadError {
     fn from(cause: std::io::Error) -> Self {
         Self::Io(cause)
+    }
+}
+
+impl From<lgwks_std::seeded::DrawError> for LoadError {
+    fn from(cause: lgwks_std::seeded::DrawError) -> Self {
+        Self::Draw(cause)
     }
 }
 
@@ -116,9 +151,22 @@ fn main() -> Result<(), LoadError> {
         ["app-ask"] => app_ask(),
         ["app-keyed"] => app_keyed(),
         ["app-command"] => app_command(),
+        ["serve"] => serve_counter(None),
+        ["serve-durable", dir] => serve_counter(Some(dir)),
         ["plan", path] => plan(path),
-        ["hit", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants, false),
-        ["hit-keyed", addr, conns, requests, tenants] => hit(addr, conns, requests, tenants, true),
+        ["hit", addr, conns, requests, tenants] => drive::run(
+            addr,
+            drive::Mix::parse([conns, requests, tenants, "0", "0"], false)?,
+        ),
+        ["hit-keyed", addr, conns, requests, tenants] => drive::run(
+            addr,
+            drive::Mix::parse([conns, requests, tenants, "0", "0"], true)?,
+        ),
+        ["drive", addr, conns, requests, tenants, share, seed] => drive::run(
+            addr,
+            drive::Mix::parse([conns, requests, tenants, share, seed], false)?,
+        ),
+        ["--rig", ref rest @ ..] => rig::run(rest),
         _ => refused(LoadError::Usage),
     }
 }
@@ -295,6 +343,39 @@ fn serve_app<S: Clone + Default + Send + 'static>(app: App<S>) -> Result<(), Loa
     )
 }
 
+/// The counter on `rt::serve`: every request runs once through its tenant's
+/// host, under the request's `idempotency-key`, over a scratch run store or,
+/// when `store` names a directory, the durable store there.
+fn serve_counter(store: Option<&str>) -> Result<(), LoadError> {
+    let listener = listen()?;
+    let options = match store {
+        Some(dir) => ServeOptions::new(0, IN_FLIGHT, PathBuf::from(dir)),
+        None => ServeOptions::new_ephemeral(0, IN_FLIGHT),
+    }
+    .map_err(|cause| LoadError::World(cause.to_string()))?;
+    let counts: Counts = Arc::new(Mutex::new(HashMap::new()));
+    let routes = [(RouteMethod::Post, true), (RouteMethod::Get, false)].map(|(method, adds)| {
+        let counts = Arc::clone(&counts);
+        TypedRoute::new(method, "/count", move |tenant: String, body: Vec<u8>| {
+            ready(
+                tally(&counts, tenant, &body, adds)
+                    .map(|count| count.to_string().into_bytes())
+                    .map_err(|why| (400, why.to_owned())),
+            )
+        })
+    });
+    let stop = EdgeStop::new();
+    let watcher = stop.clone();
+    until_stdin_then(
+        move || watcher.stop(),
+        || {
+            lgwks_bot::rt::serve::serve(&options, Vec::from(routes), listener, &stop)
+                .map_err(|cause| LoadError::World(cause.to_string()))?;
+            Ok(())
+        },
+    )
+}
+
 /// Run `serve` on this thread while a scoped thread waits for stdin to close
 /// and then calls `cancel`; what `serve` returned.
 fn until_stdin_then<T>(cancel: impl FnOnce() + Send, serve: impl FnOnce() -> T) -> T {
@@ -452,6 +533,25 @@ fn held(counts: &Counts) -> MutexGuard<'_, HashMap<String, u64>> {
     }
 }
 
+/// The tenant's count after a `POST` (`adds`) or as it stands; a body on
+/// either is refused, as the world edge refuses it.
+fn tally(counts: &Counts, tenant: String, body: &[u8], adds: bool) -> Result<u64, &'static str> {
+    if !body.is_empty() {
+        lgwks_std::trace::debug!(%tenant, bytes = body.len(), "edge-load: a count with a body is refused");
+        return Err("a count takes no body");
+    }
+    let mut held = held(counts);
+    if adds {
+        let count = held.entry(tenant).or_default();
+        *count = count.saturating_add(1);
+        return Ok(*count);
+    }
+    Ok(match held.get(&tenant) {
+        Some(&count) => count,
+        None => 0,
+    })
+}
+
 /// Plain axum: the same counter in a locked map, the way an axum service
 /// keeps shared state, under the world edge's body ceiling and its refusal of
 /// a body on a count, so both servers do the same work per request.
@@ -487,212 +587,8 @@ async fn count(
     Path(tenant): Path<String>,
     body: Bytes,
 ) -> (StatusCode, String) {
-    if !body.is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            String::from("a count takes no body"),
-        );
-    }
-    let mut held = held(&counts);
-    if method == Method::POST {
-        let count = held.entry(tenant).or_default();
-        *count = count.saturating_add(1);
-        return (StatusCode::OK, count.to_string());
-    }
-    let count = match held.get(&tenant) {
-        Some(count) => count.to_string(),
-        None => String::from("0"),
-    };
-    (StatusCode::OK, count)
-}
-
-/// One positive argument.
-fn number(word: &str) -> Result<usize, LoadError> {
-    match word.parse::<usize>() {
-        Ok(value) if value > 0 => Ok(value),
-        _ => refused(LoadError::Usage),
-    }
-}
-
-/// What one or more connections measured.
-#[derive(Default)]
-struct Measured {
-    /// Each answered request's latency, in microseconds.
-    latencies: Vec<u128>,
-    /// Requests answered `200`.
-    ok: u64,
-    /// Requests answered otherwise, or lost with their connection.
-    errors: u64,
-}
-
-/// Drive `addr` and print the line.
-fn hit(
-    addr: &str,
-    conns: &str,
-    requests: &str,
-    tenants: &str,
-    keyed: bool,
-) -> Result<(), LoadError> {
-    let Ok(addr) = addr.parse::<SocketAddr>() else {
-        return refused(LoadError::Usage);
-    };
-    let (conns, requests, tenants) = (number(conns)?, number(requests)?, number(tenants)?);
-    let started = Instant::now();
-    let measured = lgwks_bot::block_on(async move {
-        let mut set = JoinSet::new();
-        for conn in 0..conns {
-            set.spawn(connection(addr, conn, requests, tenants, keyed));
-        }
-        let mut all = Measured::default();
-        while let Some(joined) = set.join_next().await {
-            match joined {
-                Ok(Ok(one)) => {
-                    all.latencies.extend(one.latencies);
-                    all.ok = all.ok.saturating_add(one.ok);
-                    all.errors = all.errors.saturating_add(one.errors);
-                }
-                Ok(Err(error)) => {
-                    lgwks_std::trace::warn!(%error, "edge-load: a connection failed");
-                    all.errors = all.errors.saturating_add(1);
-                }
-                Err(_panicked) => all.errors = all.errors.saturating_add(1),
-            }
-        }
-        all
-    });
-    report(measured, started.elapsed(), conns.saturating_mul(requests))
-}
-
-/// The latency at `per_mille` of the sorted `latencies`.
-fn at(latencies: &[u128], per_mille: usize) -> u128 {
-    let index = latencies
-        .len()
-        .saturating_sub(1)
-        .saturating_mul(per_mille)
-        .div_euclid(1000);
-    match latencies.get(index) {
-        Some(&micros) => micros,
-        None => 0,
-    }
-}
-
-/// Print throughput, the percentiles and the error count.
-fn report(mut measured: Measured, wall: Duration, sent: usize) -> Result<(), LoadError> {
-    measured.latencies.sort_unstable();
-    let latencies = measured.latencies.as_slice();
-    let rps = u128::from(measured.ok)
-        .saturating_mul(1_000_000)
-        .div_euclid(wall.as_micros().max(1));
-    let mut out = std::io::stdout().lock();
-    writeln!(
-        out,
-        "sent={sent} ok={} errors={} rps={rps} p50={}us p95={}us p99={}us max={}us wall={}ms",
-        measured.ok,
-        measured.errors,
-        at(latencies, 500),
-        at(latencies, 950),
-        at(latencies, 990),
-        at(latencies, 1000),
-        wall.as_millis(),
-    )?;
-    Ok(())
-}
-
-/// One keep-alive connection sending `requests` posts round-robin over
-/// `tenants` tenants, starting at tenant `first`.
-async fn connection(
-    addr: SocketAddr,
-    first: usize,
-    requests: usize,
-    tenants: usize,
-    keyed: bool,
-) -> Result<Measured, LoadError> {
-    let mut stream = TcpStream::connect(addr).await?;
-    stream.set_nodelay(true)?;
-    let mut measured = Measured {
-        latencies: Vec::with_capacity(requests),
-        ..Measured::default()
-    };
-    let mut buffer = Vec::with_capacity(1024);
-    for sent in 0..requests {
-        let tenant = first.saturating_add(sent).rem_euclid(tenants);
-        let key = if keyed {
-            format!("authorization: Bearer key-tenant-{tenant}\r\n")
-        } else {
-            String::new()
-        };
-        let request = format!(
-            "POST /t/tenant-{tenant}/count HTTP/1.1\r\nhost: {addr}\r\n{key}content-length: 0\r\n\r\n"
-        );
-        let started = Instant::now();
-        stream.write_all(request.as_bytes()).await?;
-        let status = read_response(&mut stream, &mut buffer).await?;
-        measured.latencies.push(started.elapsed().as_micros());
-        if status == 200 {
-            measured.ok = measured.ok.saturating_add(1);
-        } else {
-            measured.errors = measured.errors.saturating_add(1);
-        }
-    }
-    Ok(measured)
-}
-
-/// Read more bytes off `stream` into `buffer`.
-async fn fill(stream: &mut TcpStream, buffer: &mut Vec<u8>) -> Result<(), LoadError> {
-    let mut chunk = [0_u8; 4096];
-    let read = stream.read(&mut chunk).await?;
-    match chunk.get(..read) {
-        Some(bytes) if !bytes.is_empty() => {
-            buffer.extend_from_slice(bytes);
-            Ok(())
-        }
-        _ => refused(LoadError::Malformed("the server closed mid-response")),
-    }
-}
-
-/// The status and content length of a response head.
-fn parse_head(head: &[u8]) -> Result<(u16, usize), LoadError> {
-    let Ok(head) = std::str::from_utf8(head) else {
-        return refused(LoadError::Malformed("head is not UTF-8"));
-    };
-    let status = head
-        .split(' ')
-        .nth(1)
-        .and_then(|code| code.parse::<u16>().ok())
-        .ok_or(LoadError::Malformed("no status"))?;
-    let length = head
-        .lines()
-        .find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            if name.eq_ignore_ascii_case("content-length") {
-                value.trim().parse::<usize>().ok()
-            } else {
-                None
-            }
-        })
-        .ok_or(LoadError::Malformed("no content-length"))?;
-    Ok((status, length))
-}
-
-/// Read one response off `stream`; its status. `buffer` carries bytes past
-/// the response into the next read.
-async fn read_response(stream: &mut TcpStream, buffer: &mut Vec<u8>) -> Result<u16, LoadError> {
-    loop {
-        if let Some(end) = buffer.windows(4).position(|window| window == b"\r\n\r\n") {
-            let Some(head) = buffer.get(..end) else {
-                return refused(LoadError::Malformed("head out of range"));
-            };
-            let (status, length) = parse_head(head)?;
-            let total = end.saturating_add(4).saturating_add(length);
-            while buffer.len() < total {
-                fill(stream, buffer).await?;
-            }
-            buffer.drain(..total);
-            return Ok(status);
-        }
-        if buffer.len() > MAX_HEAD_BYTES {
-            return refused(LoadError::Malformed("head over the ceiling"));
-        }
-        fill(stream, buffer).await?;
+    match tally(&counts, tenant, &body, method == Method::POST) {
+        Ok(count) => (StatusCode::OK, count.to_string()),
+        Err(why) => (StatusCode::BAD_REQUEST, String::from(why)),
     }
 }
