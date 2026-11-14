@@ -574,6 +574,9 @@ mod sim_sealed_shred;
 #[cfg(feature = "edge")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_serve;
+#[cfg(feature = "edge")]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+mod sim_serve_hop;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod sim_session_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
