@@ -361,7 +361,10 @@ impl RunStore {
         };
         #[cfg(not(feature = "sealed"))]
         let index = {
-            let _ = sealed.as_ref();
+            debug_assert!(
+                sealed.is_none(),
+                "a sealed open is built only with the sealed feature"
+            );
             replay(&mut file)?
         };
         // Trim the incomplete tail rather than appending after it: a write past
@@ -716,13 +719,20 @@ impl RunStore {
         &'a self,
         staged: Staged,
     ) -> crate::BoxFuture<'a, Result<Appended, StoreError>> {
-        Box::pin(async move {
-            self.inner
-                .owner
-                .submit_async(move |file, index| append_on_owner(file, index, &staged))
-                .await
-                .map_err(StoreError::from)
-        })
+        Box::pin(self.commit_send(staged))
+    }
+
+    /// The same awaited append, with a future that is `Send`.
+    ///
+    /// The host's request-key door takes this one: its future runs on the
+    /// driver's workers, and awaits the owner through the concrete
+    /// `Awaiting` rather than the boxed erasure `submit_async` returns.
+    async fn commit_send(&self, staged: Staged) -> Result<Appended, StoreError> {
+        self.inner
+            .owner
+            .enqueue_awaiting(move |file, index| append_on_owner(file, index, &staged))
+            .await
+            .map_err(StoreError::from)
     }
 
     // Sealed appends live in `sealed_impl`: `append_with_expiry` seals

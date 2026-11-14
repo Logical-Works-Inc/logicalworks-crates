@@ -254,6 +254,15 @@ impl RunRecords for RunStore {
         Box::pin(async move { self.commit_async(staged).await.map_err(FlowError::from) })
     }
 
+    /// The awaited door for a caller whose own future must be `Send`.
+    fn append_send<'a>(
+        &'a self,
+        record: StagedRecord<'a>,
+    ) -> crate::script::run_store::SendFuture<'a, Result<Appended, FlowError>> {
+        let staged = self.owned(record);
+        Box::pin(async move { self.commit_send(staged).await.map_err(FlowError::from) })
+    }
+
     /// A record this store acknowledged was written and `sync_all`ed on the
     /// storage owner's thread before the answer was sent, so it survives the
     /// writer dying and, to the extent the device honours its flush, power loss.

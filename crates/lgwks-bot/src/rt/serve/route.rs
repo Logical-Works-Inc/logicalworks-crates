@@ -42,6 +42,10 @@ impl TypedRoute {
     /// body bytes, and answers the response bytes (a JSON document) or the
     /// status and message to answer (a `400` for a malformed body, `500` for
     /// a failed handler).
+    ///
+    /// The handler's future runs on one of the driver's worker threads, beside
+    /// the connections. It must not block the thread: wait with `.await`, and
+    /// put CPU or file work that takes long into a task of its own.
     pub fn new<F, Fut>(method: RouteMethod, path: &str, handler: F) -> Self
     where
         F: Fn(String, Vec<u8>) -> Fut + Send + Sync + 'static,

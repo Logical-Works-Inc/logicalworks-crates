@@ -42,6 +42,10 @@ const RETRY_AFTER_SECS: u64 = 1;
 /// How long a graceful drain waits for in-flight runs before cancelling.
 const DEFAULT_DRAIN_GRACE: Duration = Duration::from_secs(30);
 
+/// How long a drain waits, after it cancelled the hosts at the deadline, for
+/// their runs to answer the cancel before it aborts them.
+const CANCELLED_JOIN_GRACE: Duration = Duration::from_secs(1);
+
 /// Why a `serve` could not be built or run.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -312,16 +316,21 @@ pub mod openapi;
 mod ingress;
 use ingress::ingress;
 
+/// The owner of every admitted run's task.
+mod runs;
+
 /// Shared serve state behind every request.
 pub(crate) struct Shared {
     /// The routes in registration order.
     pub(crate) routes: Vec<TypedRoute>,
     /// At most `max_in_flight` permits; past it the edge answers `503`.
-    pub(crate) room: lgwks_deps::tokio::sync::Semaphore,
+    pub(crate) room: Arc<lgwks_deps::tokio::sync::Semaphore>,
     /// Cancelled on graceful stop; in-flight runs observe it.
     pub(crate) token: CancellationToken,
     /// One host per tenant, each over the same run store dir.
     pub(crate) hosts: std::sync::Mutex<HashMap<String, Host>>,
+    /// The tasks of admitted runs; a drain joins them (see `runs`).
+    runs: runs::Runs,
     /// Where every host's run store lives.
     pub(crate) store_dir: PathBuf,
     /// A per-serve scratch removed on drain, when the store is ephemeral.
@@ -370,15 +379,28 @@ pub fn serve(
     ))
 }
 
-/// The start gate over the durable sink: refuse before the listener converts.
+/// Make the store directory and run the start gate over the durable sink:
+/// refuse before the listener converts.
 ///
-/// The store directory exists by now ([`std::fs::create_dir_all`] above), so a
-/// refusal means it cannot persist — read-only remount, replaced data
-/// directory, a squatter on the probe path — and serving would fail one
-/// request at a time instead of refusing to start.
-fn check_serve_store(dir: &Path) -> Result<(), crate::task::SinkRefusal> {
+/// Blocking file work, so the caller runs it on the blocking pool. Once the
+/// directory exists, a refusal means it cannot persist — read-only remount,
+/// replaced data directory, a squatter on the probe path — and serving would
+/// fail one request at a time instead of refusing to start.
+fn prepare_store(dir: &Path) -> Result<(), ServeError> {
+    if let Err(error) = std::fs::create_dir_all(dir) {
+        let refusal = ServeError::Io(error);
+        lgwks_std::trace::debug!(error = ?refusal, "serve: the run store dir is refused");
+        return Err(refusal);
+    }
     let child: Arc<dyn crate::task::DurableSink> = Arc::new(crate::task::StoreSink::for_dir(dir));
-    crate::task::CompositeSink::new("durable-sink", [child]).readiness()
+    if let Err(refusal) = crate::task::CompositeSink::new("durable-sink", [child]).readiness() {
+        lgwks_std::trace::debug!(error = ?refusal, "serve: the durable sink gate refused the start");
+        return Err(ServeError::StartGate {
+            sink: refusal.sink().to_owned(),
+            reason: refusal.reason().to_owned(),
+        });
+    }
+    Ok(())
 }
 
 /// Serve until `stop` is cancelled: accept, drain, cancel, report.
@@ -396,18 +418,16 @@ pub(crate) async fn serve_async(
         lgwks_std::trace::debug!(error = ?refusal, "serve: the listener is refused");
         return Err(refusal);
     }
-    if let Err(error) = std::fs::create_dir_all(options.store_dir.as_path()) {
-        let refusal = ServeError::Io(error);
-        lgwks_std::trace::debug!(error = ?refusal, "serve: the run store dir is refused");
-        return Err(refusal);
-    }
-    if let Err(refusal) = check_serve_store(options.store_dir.as_path()) {
-        lgwks_std::trace::debug!(error = ?refusal, "serve: the durable sink gate refused the start");
-        return Err(ServeError::StartGate {
-            sink: refusal.sink().to_owned(),
-            reason: refusal.reason().to_owned(),
-        });
-    }
+    let dir = options.store_dir.clone();
+    let prepared = match lgwks_std::task::try_spawn_blocking(move || prepare_store(dir.as_path())) {
+        Ok(handle) => handle.await,
+        Err(cause) => {
+            let refusal = ServeError::Io(std::io::Error::other(format!("{cause:?}")));
+            lgwks_std::trace::debug!(error = ?refusal, "serve: the store prepare is refused");
+            return Err(refusal);
+        }
+    };
+    prepared?;
     let bound_listener =
         lgwks_deps::tokio::net::TcpListener::from_std(listener).map_err(|cause| {
             let refusal = ServeError::Io(cause);
@@ -416,9 +436,12 @@ pub(crate) async fn serve_async(
         })?;
     let shared = Arc::new(Shared {
         routes,
-        room: lgwks_deps::tokio::sync::Semaphore::new(options.max_in_flight),
+        room: Arc::new(lgwks_deps::tokio::sync::Semaphore::new(
+            options.max_in_flight,
+        )),
         token: stop.clone(),
         hosts: std::sync::Mutex::new(HashMap::new()),
+        runs: runs::Runs::new(),
         store_dir: options.store_dir.clone(),
         ephemeral_store: if options.ephemeral {
             Some(options.store_dir.clone())
@@ -468,8 +491,10 @@ async fn drain_owned(
         }
     })
     .await;
+    let mut cancelled = 0;
     if waited.is_err() {
         lgwks_std::trace::debug!("serve: the drain deadline passed; cancelling the rest");
+        cancelled = shared.live.load(Ordering::SeqCst);
         shared.token.cancel();
         match shared.hosts.lock() {
             Ok(hosts) => {
@@ -487,7 +512,14 @@ async fn drain_owned(
         }
         owned.abort_all();
     }
+    // The server task is done or aborted, so no run is spawned any more. Join
+    // the runs it admitted; a client that left does not stop its run, so this
+    // is where a drain waits for them, and past the bound it aborts them.
+    let join_grace = match waited {
+        Ok(()) => grace,
+        Err(_) => CANCELLED_JOIN_GRACE,
+    };
+    let aborted = runs::join_or_abort(shared.runs.take(), join_grace).await;
     let drained = shared.drained.load(Ordering::SeqCst);
-    let cancelled = shared.live.load(Ordering::SeqCst);
-    (drained, cancelled)
+    (drained, cancelled.max(aborted))
 }

@@ -145,6 +145,27 @@ pub trait RunRecords: Send + Sync {
         &'a self,
         record: StagedRecord<'a>,
     ) -> crate::BoxFuture<'a, Result<Appended, FlowError>> {
+        self.append_send(record)
+    }
+
+    /// [`RunRecords::append_async`] for a caller whose own future must be `Send`.
+    ///
+    /// The host's request-key door awaits its receipt and its verdict through
+    /// this one, because that door runs on the driver's worker threads and a
+    /// boxed non-`Send` future cannot cross them. A store that overrides
+    /// [`RunRecords::append_async`] to hand its write to a thread of its own
+    /// overrides this too, with the same hand-off; the default calls
+    /// [`RunRecords::append`] on the awaiting thread, which is correct and
+    /// blocks it for the length of the write.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`RunRecords::append`] reports.
+    #[doc(hidden)]
+    fn append_send<'a>(
+        &'a self,
+        record: StagedRecord<'a>,
+    ) -> SendFuture<'a, Result<Appended, FlowError>> {
         Box::pin(async move {
             let (tenant, run, key, path, definition) = (
                 record.tenant(),
@@ -449,9 +470,31 @@ pub enum Appended {
     Conflicting,
 }
 
+/// A boxed future that is `Send`, for the host's request-key door: it runs on
+/// the driver's worker threads, which a non-`Send` [`crate::BoxFuture`] cannot
+/// cross.
+pub(crate) type SendFuture<'a, T> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
 /// The erased store handle a run installs.
 #[derive(Clone)]
 pub(crate) struct Records(pub(crate) Arc<dyn RunRecords>);
+
+/// An append's answer as a durable step reads it: a conflict is an error.
+fn recorded(appended: Result<Appended, FlowError>, path: &str) -> Result<(), FlowError> {
+    let conflict: Arc<str> = Arc::from(path);
+    match appended {
+        Ok(Appended::Recorded) | Ok(Appended::AlreadyRecorded) => Ok(()),
+        Ok(Appended::Conflicting) => Err(FlowError::Failed {
+            at: conflict,
+            reason: format!(
+                "a different value is already recorded for step {path:?} under this run; \
+                 refusing to overwrite a committed record"
+            ),
+        }),
+        Err(error) => Err(error.located_at(&conflict)),
+    }
+}
 
 impl Records {
     /// The typed lookup this module performs, or `None` when no store is
@@ -524,24 +567,35 @@ impl Records {
         definition: &'a DefinitionIdentity,
         bytes: Vec<u8>,
     ) -> crate::BoxFuture<'a, Result<(), FlowError>> {
-        let conflict = std::sync::Arc::from(path);
         Box::pin(async move {
-            match self
+            let appended = self
                 .0
                 .append_async(self.0.stage(tenant, run, key, path, definition, bytes))
-                .await
-            {
-                Ok(Appended::Recorded) | Ok(Appended::AlreadyRecorded) => Ok(()),
-                Ok(Appended::Conflicting) => Err(FlowError::Failed {
-                    at: conflict,
-                    reason: format!(
-                        "a different value is already recorded for step {path:?} under this run; \
-                         refusing to overwrite a committed record"
-                    ),
-                }),
-                Err(error) => Err(error.located_at(&conflict)),
-            }
+                .await;
+            recorded(appended, path)
         })
+    }
+
+    /// [`Records::record`] with a future that is `Send`, for the host's
+    /// request-key door.
+    ///
+    /// # Errors
+    ///
+    /// [`FlowError`] on a refusal or on a conflict.
+    pub(crate) async fn record_send(
+        &self,
+        tenant: &str,
+        run: RunId,
+        key: StepKey,
+        path: &str,
+        definition: &DefinitionIdentity,
+        bytes: Vec<u8>,
+    ) -> Result<(), FlowError> {
+        let appended = self
+            .0
+            .append_send(self.0.stage(tenant, run, key, path, definition, bytes))
+            .await;
+        recorded(appended, path)
     }
 
     /// The durable append, reporting which [`Appended`] arm it landed on.
@@ -565,7 +619,7 @@ impl Records {
         bytes: Vec<u8>,
     ) -> Result<Appended, FlowError> {
         self.0
-            .append_async(self.0.stage(tenant, run, key, path, definition, bytes))
+            .append_send(self.0.stage(tenant, run, key, path, definition, bytes))
             .await
     }
 

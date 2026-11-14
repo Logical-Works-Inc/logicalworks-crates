@@ -171,7 +171,7 @@ impl Host {
         // submission of the same key needs in order to be able to run it.
         if let Some(terminal) = terminal_for(&report)? {
             records
-                .record(
+                .record_send(
                     tenant,
                     run,
                     reserved_step_key(tenant, TERMINAL_STEP),
