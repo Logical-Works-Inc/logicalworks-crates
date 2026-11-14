@@ -87,6 +87,19 @@ fn without_qualifiers(line: &str) -> &str {
     rest
 }
 
+/// Whether an attribute line keeps the item under it from running as a test:
+/// `#[ignore]` skips it and `#[cfg(any())]` compiles it out. Before this, a
+/// name certified an invariant however its test was disabled (#911 item 3).
+fn disables_item(line: &str) -> bool {
+    let compact: String = line.chars().filter(|ch| !ch.is_whitespace()).collect();
+    compact.starts_with("#[ignore") || compact.starts_with("#[cfg(any())]")
+}
+
+/// Whether `line` is an attribute, which leaves the item under it pending.
+fn is_attribute(line: &str) -> bool {
+    line.starts_with("#[")
+}
+
 /// A `fn name` item: the name.
 fn function_item(line: &str) -> Option<String> {
     identifier(after_word(without_qualifiers(line), "fn")?).map(|found| found.0)
@@ -232,6 +245,7 @@ pub(super) fn inline_module_items(source: &str) -> BTreeMap<Vec<String>, BTreeSe
     let mut depth = 0_i64;
     let mut index = 0_usize;
     let mut at_line_start = true;
+    let mut disabled = false;
     while index < length {
         let ch = chars[index];
         if ch == '/' && chars.get(index.saturating_add(1)) == Some(&'/') {
@@ -286,6 +300,8 @@ pub(super) fn inline_module_items(source: &str) -> BTreeMap<Vec<String>, BTreeSe
                 .skip(index)
                 .take_while(|next| **next != '\n')
                 .collect();
+            let pending = disabled;
+            disabled = is_attribute(&line) && (pending || disables_item(&line));
             if let Some((name, brace_at)) = module_opener(&line) {
                 stack.push((name, depth));
                 found
@@ -296,6 +312,7 @@ pub(super) fn inline_module_items(source: &str) -> BTreeMap<Vec<String>, BTreeSe
             }
             if let Some(name) = inline_item(&line)
                 && !stack.is_empty()
+                && !pending
             {
                 found
                     .entry(stack.iter().map(|entry| entry.0.clone()).collect())
@@ -356,12 +373,20 @@ pub(super) fn collect_module_paths(root: &Path) -> Result<Modules, GateError> {
         let module_path = prefix.join("::");
         let mut items = BTreeSet::new();
         let mut has_inline_tests = false;
+        let mut disabled = false;
         for line in source.lines().map(str::trim_start) {
+            if line.is_empty() || line.starts_with("//") {
+                continue;
+            }
+            let pending = disabled;
+            disabled = is_attribute(line) && (pending || disables_item(line));
             if let Some((name, brace)) = module_declaration(line) {
                 has_inline_tests = has_inline_tests || (brace && name == "tests");
                 items.insert(name);
             }
-            if let Some(name) = function_item(line) {
+            if let Some(name) = function_item(line)
+                && !pending
+            {
                 items.insert(name);
             }
         }
@@ -406,8 +431,63 @@ pub(super) fn collect_module_paths(root: &Path) -> Result<Modules, GateError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{function_item, inline_module_items, module_declaration, module_prefix};
+    use super::{
+        collect_module_paths, function_item, inline_module_items, module_declaration, module_prefix,
+    };
+    use crate::fixture::Fixture;
+    use std::error::Error;
+    use std::fs;
     use std::path::Path;
+
+    /// The names `source`, as `crates/demo/src/lib.rs`, gives its module and
+    /// its inline `mod tests`.
+    fn indexed(source: &str) -> Result<Vec<String>, Box<dyn Error>> {
+        let fixture = Fixture::claim(&std::env::temp_dir(), "lgwks-modules-test")?;
+        let lib = fixture.path().join("crates/demo/src");
+        fs::create_dir_all(&lib)?;
+        fs::write(lib.join("lib.rs"), source)?;
+        let modules = collect_module_paths(fixture.path())?;
+        Ok(["demo", "demo::tests"]
+            .iter()
+            .filter_map(|path| modules.get(*path))
+            .flatten()
+            .cloned()
+            .collect())
+    }
+
+    /// #911 item 3: the lane indexed any `fn` name, so ignoring the enforcing
+    /// test or compiling it out kept an invariant green. Neither is indexed now,
+    /// so a reference to it is refused as unresolved.
+    #[test]
+    fn an_ignored_or_compiled_out_test_is_not_indexed() -> Result<(), Box<dyn Error>> {
+        let disabled = [
+            "#[test]\n#[ignore = \"slow\"]\nfn guarded_case() {}\n",
+            "#[ignore]\n#[test]\nfn guarded_case() {}\n",
+            "#[cfg(any())]\n#[test]\nfn guarded_case() {}\n",
+            "#[cfg(test)]\nmod tests {\n    #[test]\n    #[ignore]\n    fn guarded_case() {}\n}\n",
+            "#[cfg(test)]\nmod tests {\n    #[cfg( any() )]\n    // compiled out\n    #[test]\n    fn guarded_case() {}\n}\n",
+        ];
+        for source in disabled {
+            let names = indexed(source)?;
+            assert!(
+                !names.contains(&"guarded_case".to_owned()),
+                "{source}: {names:?}"
+            );
+        }
+        let enabled = [
+            "#[test]\nfn guarded_case() {}\n",
+            "#[cfg(test)]\nmod tests {\n    #[test]\n    fn guarded_case() {}\n}\n",
+            "#[ignore]\nfn other_case() {}\n\n#[test]\nfn guarded_case() {}\n",
+        ];
+        for source in enabled {
+            let names = indexed(source)?;
+            assert!(
+                names.contains(&"guarded_case".to_owned()),
+                "{source}: {names:?}"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn items_are_found_with_their_visibility_and_qualifiers() {
