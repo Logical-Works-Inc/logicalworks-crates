@@ -337,6 +337,26 @@ fn drive_hit_and_hit_keyed_meet_a_keyed_tenant() -> Outcome {
     Ok(())
 }
 
+/// Catches a storage owner that holds a blocking-pool thread for its store's
+/// life (#1041). `rt::serve` opens one store per tenant and hops every request
+/// to that pool, whose ceiling is 512, so 600 tenants left every pool thread an
+/// owner and the next request queued for ever. Source: the 600-tenant drive in
+/// #1041, which answered nothing in 25 s.
+#[test]
+fn one_store_per_tenant_past_the_pool_ceiling_still_answers_each_batch() -> Outcome {
+    let (mut server, _lines, addr) = serving("serve")?;
+    let driven = client("drive", &addr, &["1", "600", "600", "0", "7"]);
+    drop(server.stdin.take());
+    server.wait()?;
+    let driven = driven?;
+    assert_eq!(
+        (at(&driven, "ok")?, at(&driven, "errors")?),
+        (600, 0),
+        "every one of 600 tenants answered its first write"
+    );
+    Ok(())
+}
+
 /// Catches a counter that counts a read or drops a write, on `rt::serve` and
 /// on axum: three posts and two reads leave the count at three.
 #[test]
