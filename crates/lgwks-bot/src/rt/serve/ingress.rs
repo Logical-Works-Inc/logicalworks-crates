@@ -1,6 +1,5 @@
 //! The HTTP request ingress, idempotency key generation, and submission driver.
 
-use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -14,6 +13,9 @@ use lgwks_deps::axum::{
 use lgwks_std::hash::Hasher;
 use lgwks_std::wire::{Archive, Deserialize, Serialize};
 
+use lgwks_deps::tokio::sync::OwnedSemaphorePermit;
+
+use super::route::RouteHandler;
 use super::{MAX_RUNS_IN_FLIGHT_U64, RETRY_AFTER_SECS, ServeError, Shared, invalid_bound};
 use crate::effect::InputIdentity;
 use crate::rt::edge::{answer, read_body, tenant_of};
@@ -176,34 +178,102 @@ fn host_for(shared: &Arc<Shared>, tenant: &str) -> Result<Host, ServeError> {
     Ok(stored)
 }
 
-std::thread_local! {
-    static SUBMIT_RUNTIME: std::cell::RefCell<Option<lgwks_deps::tokio::runtime::Runtime>> =
-        const { std::cell::RefCell::new(None) };
+/// One admitted request, detached from its connection so a client that
+/// hangs up cannot drop the run half way (see `runs`).
+struct Admitted {
+    /// The serve's shared state, read for the stop token.
+    shared: Arc<Shared>,
+    /// The tenant's host.
+    host: Host,
+    /// The route's handler.
+    handler: Arc<RouteHandler>,
+    /// The tenant the path named.
+    tenant: String,
+    /// The request's `Content-Type`, when it sent one.
+    content_type: Option<String>,
+    /// The idempotency key.
+    key: RequestKey,
+    /// The request body.
+    body: Vec<u8>,
+    /// The in-flight permit, released when the run ends.
+    permit: OwnedSemaphorePermit,
+    /// The live count, released when the run ends.
+    live: LiveGuard,
 }
 
-/// Drive `future` — one `Host::submit` — to completion on this thread's
-/// private runtime.
-fn block_on_submit<Fut>(future: Fut) -> Result<Fut::Output, std::io::Error>
-where
-    Fut: Future,
-{
-    SUBMIT_RUNTIME.with(|slot| {
-        let mut slot = slot.borrow_mut();
-        if slot.is_none() {
-            let built = lgwks_deps::tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-            *slot = Some(built);
+impl Admitted {
+    /// Run the request once through the tenant's host, on the caller's task.
+    async fn drive(self) -> SubmitOutcome {
+        let Self {
+            shared,
+            host,
+            handler,
+            tenant,
+            content_type,
+            key,
+            body,
+            permit,
+            live,
+        } = self;
+        let _held = (permit, live);
+        if shared.token.is_cancelled() {
+            return SubmitOutcome::Stopping;
         }
-        let Some(runtime) = slot.as_ref() else {
-            let refusal = Err(std::io::Error::other(
-                "the submit runtime slot is empty after building it",
-            ));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "serve: the submit runtime is refused");
-            return refusal;
+        let run_task = match task("serve-route", move |_scope: Scope, input: ServeInput| {
+            let handler = Arc::clone(&handler);
+            let tenant = tenant.clone();
+            let content = content_type.clone();
+            async move {
+                match handler(tenant, content, input.body).await {
+                    Ok(bytes) => Ok(ServeOutput {
+                        status: 200,
+                        body: bytes,
+                    }),
+                    Err((status, message)) => Ok(ServeOutput {
+                        status,
+                        body: message.into_bytes(),
+                    }),
+                }
+            }
+        }) {
+            Ok(run_task) => run_task,
+            Err(cause) => {
+                return SubmitOutcome::Refused {
+                    message: format!("the route task is refused: {cause}"),
+                };
+            }
         };
-        Ok(runtime.block_on(future))
-    })
+        outcome_of(host.submit(&key, &run_task, ServeInput { body }).await)
+    }
+}
+
+/// What a finished submission concluded, in owned bytes.
+fn outcome_of(submitted: Result<Submission<ServeOutput>, RequestError>) -> SubmitOutcome {
+    match submitted {
+        Ok(Submission::Executed(report)) | Ok(Submission::Reattached(report)) => {
+            match report.output() {
+                Some(answered) => SubmitOutcome::Answered {
+                    status: answered.status,
+                    body: answered.body.clone(),
+                },
+                None => match report.error() {
+                    Some(cause) => SubmitOutcome::Refused {
+                        message: format!("the route run failed: {cause}"),
+                    },
+                    None => SubmitOutcome::Refused {
+                        message: String::from("the route run reported nothing"),
+                    },
+                },
+            }
+        }
+        Ok(Submission::InFlight(_)) => SubmitOutcome::InFlight,
+        Err(RequestError::Conflict(conflict)) => SubmitOutcome::Conflict {
+            message: conflict.to_string(),
+        },
+        Err(cause) => SubmitOutcome::Refused {
+            message: format!("the submission is refused: {cause}"),
+        },
+    }
 }
 
 /// One request: tenant from the path, one run through the tenant's host.
@@ -232,7 +302,7 @@ pub(crate) async fn ingress(
             return answer(400, b"the idempotency key is not a valid name".to_vec());
         }
     };
-    let Ok(_permit) = shared.room.try_acquire() else {
+    let Ok(permit) = Arc::clone(&shared.room).try_acquire_owned() else {
         lgwks_std::trace::debug!("serve: past the in-flight ceiling; answering 503");
         return answer_retry(503, b"the serve is past its in-flight ceiling".to_vec());
     };
@@ -258,86 +328,38 @@ pub(crate) async fn ingress(
             return answer(500, b"the tenant host is refused".to_vec());
         }
     };
-    let _live = LiveGuard::enter(&shared);
     let content_type = parts
         .headers
         .get(lgwks_deps::axum::http::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::trim)
         .map(str::to_owned);
-    let handler = Arc::clone(&route.handler);
-    let tenant_owned = tenant.to_owned();
-    let body_vec = body.to_vec();
-    let stopping = Arc::clone(&shared);
-    let driven = lgwks_std::task::try_spawn_blocking(move || {
-        if stopping.token.is_cancelled() {
-            return SubmitOutcome::Stopping;
-        }
-        let inner_tenant = tenant_owned.clone();
-        let run_task = match task("serve-route", move |_scope: Scope, input: ServeInput| {
-            let handler = Arc::clone(&handler);
-            let tenant_owned = inner_tenant.clone();
-            let content = content_type.clone();
-            async move {
-                match handler(tenant_owned, content, input.body).await {
-                    Ok(bytes) => Ok(ServeOutput {
-                        status: 200,
-                        body: bytes,
-                    }),
-                    Err((status, message)) => Ok(ServeOutput {
-                        status,
-                        body: message.into_bytes(),
-                    }),
-                }
-            }
-        }) {
-            Ok(run_task) => run_task,
-            Err(cause) => {
-                return SubmitOutcome::Refused {
-                    message: format!("the route task is refused: {cause}"),
-                };
-            }
-        };
-        let submitted =
-            match block_on_submit(host.submit(&key, &run_task, ServeInput { body: body_vec })) {
-                Ok(submitted) => submitted,
-                Err(cause) => {
-                    return SubmitOutcome::Refused {
-                        message: format!("the submit runtime is refused: {cause}"),
-                    };
-                }
-            };
-        match submitted {
-            Ok(Submission::Executed(report)) | Ok(Submission::Reattached(report)) => {
-                match report.output() {
-                    Some(answered) => SubmitOutcome::Answered {
-                        status: answered.status,
-                        body: answered.body.clone(),
-                    },
-                    None => match report.error() {
-                        Some(cause) => SubmitOutcome::Refused {
-                            message: format!("the route run failed: {cause}"),
-                        },
-                        None => SubmitOutcome::Refused {
-                            message: String::from("the route run reported nothing"),
-                        },
-                    },
-                }
-            }
-            Ok(Submission::InFlight(_)) => SubmitOutcome::InFlight,
-            Err(RequestError::Conflict(conflict)) => SubmitOutcome::Conflict {
-                message: conflict.to_string(),
-            },
-            Err(cause) => SubmitOutcome::Refused {
-                message: format!("the submission is refused: {cause}"),
-            },
+    let (reply, answered) = lgwks_deps::tokio::sync::oneshot::channel();
+    let admitted = Admitted {
+        host,
+        handler: Arc::clone(&route.handler),
+        tenant: tenant.to_owned(),
+        content_type,
+        key,
+        body: body.to_vec(),
+        permit,
+        live: LiveGuard::enter(&shared),
+        shared: Arc::clone(&shared),
+    };
+    shared.runs.spawn(async move {
+        let outcome = admitted.drive().await;
+        if let Err(unsent) = reply.send(outcome) {
+            drop(unsent);
+            lgwks_std::trace::debug!("serve: the client left before its run answered");
         }
     });
-    let outcome = match driven {
-        Ok(driven) => driven.await,
+    let outcome = match answered.await {
+        Ok(outcome) => outcome,
         Err(cause) => {
-            lgwks_std::trace::debug!(error = ?cause, "serve: the blocking pool is full");
-            return answer_retry(503, b"the serve is past its in-flight ceiling".to_vec());
+            lgwks_std::trace::debug!(error = ?cause, "serve: the run ended without an answer");
+            SubmitOutcome::Refused {
+                message: String::from("the run ended without an answer"),
+            }
         }
     };
     match outcome {
