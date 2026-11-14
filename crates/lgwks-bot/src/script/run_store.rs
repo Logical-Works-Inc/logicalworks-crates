@@ -1,4 +1,4 @@
-//! The durable-step contract a [`Scope`](crate::script::Scope) reaches without naming a host.
+//! The durable-step contract a [`Scope`] reaches without naming a host.
 //!
 //! # Why the store rides on the scope rather than a task-local
 //!
