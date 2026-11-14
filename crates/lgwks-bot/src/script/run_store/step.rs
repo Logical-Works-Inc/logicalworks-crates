@@ -16,7 +16,7 @@ use super::{Durable, StoredValue, installed, installed_definition};
 /// writes and a value [`remember`] writes cannot disagree about the definition
 /// their run is using.
 pub(crate) fn step_definition(scope: &Scope, step: &str) -> Arc<DefinitionIdentity> {
-    match installed_definition() {
+    match installed_definition(scope) {
         Some(installed) => installed,
         None => Arc::new(definition_of(scope, step)),
     }
@@ -152,7 +152,7 @@ where
     T: lgwks_std::wire::Archive + Durable,
     Fut: Future<Output = Result<T, FlowError>>,
 {
-    let Some(records) = installed() else {
+    let Some(records) = installed(scope) else {
         return body().await;
     };
     let Some(run) = run else {

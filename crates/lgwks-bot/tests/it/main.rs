@@ -541,6 +541,8 @@ mod sim_run_events;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "scale"))]
 mod sim_scale;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
+mod sim_scope_run_state;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]

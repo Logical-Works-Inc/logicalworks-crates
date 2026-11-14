@@ -33,6 +33,7 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 2 is [`INVARIANTS-2.md`](INVARIANTS-2.
 - **INV-BOT-192** `IdempotentPost` is applied only on a 2xx, never follows a redirect, and leaves a 5xx or a failure after sending unsettled. · why: #910 · enforced by: `idempotent::sim_answer`, `tests/it/retry_proxy.rs`
 - **INV-BOT-193** A whole-document store replace syncs the file before its rename and the directory after it. · why: #910 · enforced by: `durable::sim_durable`, `tests/it/sim_cas_disk.rs`
 - **INV-BOT-194** `Scope::require` fails closed: a scope no host admitted covers nothing, and a spawned step keeps its run's authority. · why: #909 · enforced by: `tests/it/sim_require_closed.rs`
+- **INV-BOT-195** A step on a spawned task keeps its run's store, definition and effect policy, so it records, replays and gates as the body does. · why: #909 · enforced by: `tests/it/sim_scope_run_state.rs`
 - **INV-BOT-JOURNAL-LOCK** A second `FileJournal::open` of a held file is `JournalError::Locked` before a byte is read. · why: #641 · enforced by: `journal::file::tests::refusals`
 - **INV-KERNEL-1** `lgwks_bot::kernel` is the supported path to the runtime modules, and a removal there is a major release. · why: #845 · enforced by: `tests/it/kernel_surface.rs`
 - **INV-EPOCH-1** A `RecordedInstant` archives as eight little-endian bytes, and a seeded `EpochClock` reads no real clock. · why: #845 · enforced by: `tests/it/sim_recorded_instant.rs`

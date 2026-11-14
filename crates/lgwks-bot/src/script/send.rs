@@ -259,7 +259,7 @@ where
         Box::pin(scope.justified(0)).await?;
     }
     scope.require(&[Cap::notify()])?;
-    let Some(records) = installed() else {
+    let Some(records) = installed(scope) else {
         let refusal = Err(promise_refusal());
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "send_in: returning an error to the caller");
         return refusal;

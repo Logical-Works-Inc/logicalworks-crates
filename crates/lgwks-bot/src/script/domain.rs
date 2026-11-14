@@ -241,7 +241,7 @@ pub async fn act<V: 'static>(
     // survive its writer dying: over an ephemeral one a crash would leave an empty
     // run rather than an uncertain one, and a resume would send the effect blind.
     // A run with no store claims nothing durable and is not refused.
-    if let Some(records) = super::run_store::installed() {
+    if let Some(records) = super::run_store::installed(scope) {
         records
             .admit_external_handoff()
             .map_err(|refused| refused.located(scope))?;
@@ -282,7 +282,14 @@ pub(crate) fn gate_approval(
     lifetime: EffectLifetime,
     archived: Option<Vec<u8>>,
 ) -> Result<(), FlowError> {
-    match installed_policy().disposition(lifetime) {
+    // The policy the scope carries first, so a step polled on a spawned task
+    // keeps the policy its run was started under. The task-local covers a scope
+    // built outside that scope; the default is the last resort.
+    let disposition = match scope.effect_policy() {
+        Some(policy) => policy.disposition(lifetime),
+        None => installed_policy().disposition(lifetime),
+    };
+    match disposition {
         EffectDisposition::Reversible => Ok(()),
         EffectDisposition::NeedsConfirmation | EffectDisposition::Terminal => {
             let Some(bytes) = archived else {

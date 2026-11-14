@@ -352,7 +352,7 @@ async fn record_refusal(
     source: Source,
     refusal: &Refusal,
 ) -> Result<(), FlowError> {
-    if super::run_store::installed().is_none() || scope.run().is_none() {
+    if super::run_store::installed(scope).is_none() || scope.run().is_none() {
         return Ok(());
     }
     let record = refusal_record(scope.path(), refusal, payload, source);

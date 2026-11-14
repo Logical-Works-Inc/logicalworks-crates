@@ -1,15 +1,15 @@
 //! The durable-step contract a [`Scope`](crate::script::Scope) reaches without naming a host.
 //!
-//! # Why a trait and a task-local rather than a field on a scope
+//! # Why the store rides on the scope rather than a task-local
 //!
-//! A scope is a cheap, cloneable handle built by hand by every caller in the
-//! crate and by every consumer. Adding a store field would make every
-//! `Scope::root` construct a store, and would make a plain local flow carry a
-//! file path it never uses. Instead the host *installs* the store for the
-//! futures it runs, through the same task-local mechanism
-//! [`Host::run`](crate::task::Host) already uses for the held-permit set: the
-//! body of a run sees exactly the store that host installed, a step outside a
-//! run sees none, and nothing carries a `Store` a caller could not see.
+//! A task-local does not cross a spawn, and
+//! [`join_all_bounded`](crate::rt::task::join_all_bounded) spawns every input, so
+//! a spawned step read no store and no definition and ran its body unrecorded
+//! (#909). The host attaches the store and the definition to the run's root
+//! scope, beside the authority; every descended scope shares them by clone, so a
+//! step polled on a spawned task records against the same run and replays under
+//! the same definition as the body. A scope no host admitted carries none, and a
+//! local flow keeps claiming no durability.
 //!
 //! The trait is what [`remember`] calls, so the script module has no
 //! dependency on [`lgwks_bot::task`](crate::task) and the task module supplies
@@ -21,16 +21,14 @@
 //! durable, and both bind the caller's tenant. The `conformance` module (feature
 //! `testing`) checks them.
 
-use std::future::Future;
 use std::sync::Arc;
 
 use crate::effect::RunId;
 use crate::journal::DurabilityPromise;
 pub use crate::journal::Durable;
-use crate::rt::task_local;
 use crate::task::{DefinitionIdentity, Drift, StoreError};
 
-use super::{FlowError, StepKey};
+use super::{FlowError, Scope, StepKey};
 
 #[cfg(feature = "testing")]
 pub mod conformance;
@@ -40,19 +38,6 @@ mod step;
 pub(crate) use step::definition_of;
 pub use step::{remember, remembered_at};
 pub(crate) use step::{remember_at, step_definition};
-
-task_local! {
-    /// The durable record store for the run this future belongs to, if any.
-    static RECORDS: Option<Records>;
-
-    /// The definition identity the run above records its values under.
-    ///
-    /// Shared rather than borrowed for the same reason [`RECORDS`] is: the value
-    /// has to outlive the frame that installed it, because a nested run installs
-    /// its own and restores this one on the way out. A clone is one reference
-    /// count.
-    static DEFINITION: Option<Arc<DefinitionIdentity>>;
-}
 
 /// The authority a run's steps are checked against: the host's grant plus the
 /// delta of any repair this run is carrying.
@@ -662,50 +647,19 @@ impl std::fmt::Debug for Records {
     }
 }
 
-/// Install `records` and `definition` for the futures polled inside `body`;
-/// `None` installs the absence a storeless run reports, through the same one
-/// composition.
-///
-/// Crate-private: the host is the supported way to make a run durable (DX-10),
-/// and a caller who installed their own store would be reaching past the one
-/// path that also mints the run id the record is keyed by.
-pub(crate) async fn within<R>(
-    records: Option<Records>,
-    definition: &DefinitionIdentity,
-    body: impl Future<Output = R>,
-) -> R {
-    RECORDS
-        .scope(
-            records,
-            DEFINITION.scope(Some(Arc::new(definition.clone())), body),
-        )
-        .await
-}
-
-/// The definition the current run records under, when one was installed.
+/// The definition `scope`'s run records under, when the host that admitted it
+/// attached one.
 ///
 /// `None` for a step outside a run, which is what a hand-built [`Scope`] with no
 /// host above it is. The caller then derives its own, so the two doors — a
-/// host-installed identity and a bare scope — cannot disagree about whether a run
+/// host-attached identity and a bare scope — cannot disagree about whether a run
 /// declared one.
-pub(crate) fn installed_definition() -> Option<Arc<DefinitionIdentity>> {
-    // Recorded, then dropped: a scope that installed no identity is the ordinary
-    // case, a failed access is a wiring defect, and only one of the two should read
-    // as absence.
-    let installed = DEFINITION.try_with(Clone::clone);
-    if let Err(ref access) = installed {
-        lgwks_std::trace::debug!(error = ?access, "installed_definition: polled outside every scope, so no identity is installed");
-    }
-    installed.ok().flatten()
+pub(crate) fn installed_definition(scope: &Scope) -> Option<Arc<DefinitionIdentity>> {
+    scope.definition().cloned()
 }
 
-/// The store installed for the current future, if any.
-pub(crate) fn installed() -> Option<Records> {
-    // As `installed_definition`: a scope that installed no store is ordinary, and a
-    // failed access is recorded so it cannot be read as one.
-    let installed = RECORDS.try_with(Clone::clone);
-    if let Err(ref access) = installed {
-        lgwks_std::trace::debug!(error = ?access, "installed: polled outside every scope, so no store is installed");
-    }
-    installed.ok().flatten()
+/// The store `scope`'s run records through, when the host that admitted it
+/// attached one.
+pub(crate) fn installed(scope: &Scope) -> Option<Records> {
+    scope.records().cloned()
 }
