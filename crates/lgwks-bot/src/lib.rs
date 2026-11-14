@@ -441,6 +441,10 @@ mod sim_semantic;
 /// The seeded draw stream the in-module simulations share.
 #[cfg(test)]
 mod sim_stream;
+/// The owned world's simulations and properties (ADR 0055, #1002), declared here because `world` is
+/// compiled into the `world-bench` bin by path and a test module inside it would be compiled there too.
+#[cfg(all(test, feature = "wire"))]
+mod sim_world;
 /// Cross-host time: monotonic deadlines, wall timestamps, and the skew bound.
 ///
 /// [`SkewBound`](crate::skew::SkewBound) is how far two honest clocks may disagree;
@@ -510,6 +514,14 @@ pub mod tenant_store;
 /// The four verbs: Observe, Evaluate, Execute, Query. No fifth verb exists.
 #[doc(hidden)]
 pub mod verb;
+/// The owned world: one tenant's columns, change ticks, transactions and snapshots (ADR 0055, #1002).
+///
+/// Private and compiled under test only. Until the cell holds a world (#1004) nothing in the shipped
+/// library calls it, and a private module nothing calls is dead code. The `world-bench` bin includes the
+/// same files by path and calls every item, and the simulations in `sim_world` call them under test.
+/// #1004 removes the `cfg` and the include together.
+#[cfg(all(test, feature = "wire"))]
+mod world;
 
 #[doc(hidden)]
 pub use cap::{Auth, Cap, Deficit, Demand, Shortage};
