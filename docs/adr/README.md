@@ -86,5 +86,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0048](0048-a-shallower-path-reenters-a-depth-cut-directory.md) | A shallower path re-enters a depth-cut directory |
 | [0049](0049-a-run-carries-its-store-definition-and-effect-policy-on-its-scope.md) | A run carries its store, definition and effect policy on its scope |
 | [0050](0050-request-options-debug-names-headers-without-values.md) | Request options Debug names headers without values |
+| [0051](0051-a-cited-invariant-id-is-a-registered-one.md) | A cited invariant id is a registered one |
 
 New records go at the bottom of that table.

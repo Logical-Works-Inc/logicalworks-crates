@@ -33,7 +33,7 @@ const WHY_SPAWN: &str = "an untracked thread; `lgwks_std::task` and the bot's `J
                          spawn is owned, see the `task` row of docs/catalog.md";
 
 /// Why entropy from outside `lgwks_std::random` is a finding.
-const WHY_ENTROPY: &str = "entropy from outside `lgwks_std::random`; INV-RANDOM-ONE-SOURCE admits one \
+const WHY_ENTROPY: &str = "entropy from outside `lgwks_std::random`; INV-RANDOM-1 admits one \
                            CSPRNG backend and `lgwks_std` owns it, see the `random` row of docs/catalog.md";
 
 /// The base64 alphabet, as it would be written out.

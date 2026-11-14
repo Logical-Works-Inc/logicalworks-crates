@@ -290,7 +290,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["r
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"], optional = true }
 # Capture-file distinguishers need OS entropy, and the estate has exactly one
-# source: `lgwks_std::random` (INV-RANDOM-ONE-SOURCE). That module refuses wasm
+# source: `lgwks_std::random` (INV-RANDOM-1). That module refuses wasm
 # with a `compile_error!`, and the WASI boundary job builds this crate for
 # `wasm32-wasip1`, so the feature rides the same host-only target gate as
 # tokio above rather than the unconditional edge: the wasm build names its

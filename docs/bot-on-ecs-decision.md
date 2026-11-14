@@ -44,7 +44,7 @@ which §12 names as a failure mode. It is taken deliberately, not overlooked, an
 the recorder is what will exercise it.
 
 One consequence to settle while building it: a seeded scheduler needs a userspace
-deterministic PRNG, and `lgwks_std::random` enforces INV-RANDOM-ONE-SOURCE —
+deterministic PRNG, and `lgwks_std::random` enforces INV-RANDOM-1 —
 "never a silent fallback to a clock, a counter, or userspace PRNG". The carve-out
 is that a replay device is not an entropy source, and it has to be argued in the
 module rather than assumed at the call site. `lgwks_std::seeded` (#344,

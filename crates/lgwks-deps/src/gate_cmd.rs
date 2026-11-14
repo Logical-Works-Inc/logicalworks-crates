@@ -414,7 +414,7 @@ fn leg_clippy(children: &Children, env: &BTreeMap<String, String>, root: &Path) 
 }
 
 /// 64 bits from the one entropy source, `lgwks_std::random`. This crate takes
-/// `random` off wasm (INV-RANDOM-ONE-SOURCE), where no gate child can spawn
+/// `random` off wasm (INV-RANDOM-1), where no gate child can spawn
 /// either, so there it is `None` and each caller skips with its reason.
 #[cfg(not(target_family = "wasm"))]
 fn gate_bits() -> Option<[u8; 8]> {

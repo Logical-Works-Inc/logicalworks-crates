@@ -147,10 +147,10 @@ mod sim {
 
     /// Renders a draw's refusal, or an empty string where there was none.
     fn refusal_text(outcome: &Result<Vec<u8>, EntropyError>) -> String {
-        outcome
-            .as_ref()
-            .err()
-            .map_or_else(String::new, ToString::to_string)
+        match *outcome {
+            Ok(_) => String::new(),
+            Err(ref error) => error.to_string(),
+        }
     }
 
     /// Records one draw's outcomes and folds its length into the running trace.
@@ -369,8 +369,12 @@ mod sim {
                 ..SweepTrace::default()
             };
             let outcome = draw(&mut trace, length);
+            let drawn = match outcome {
+                Ok(ref bytes) => bytes.len(),
+                Err(_) => 0,
+            };
             assert_eq!(
-                outcome.as_ref().map_or(0, Vec::len),
+                drawn,
                 length,
                 "a {length}-byte draw must hand back {length} bytes; refusal: {}",
                 refusal_text(&outcome)
@@ -431,9 +435,8 @@ mod sim {
             .find(|outcome| outcome.requested == REQUIRED_TIER);
         assert!(
             required.is_some_and(|outcome| outcome.reached == REQUIRED_TIER),
-            "the {REQUIRED_TIER}-caller tier is required; reached {:?} with {} spawn refusals",
-            required.map(|outcome| outcome.reached),
-            required.map_or(0, |outcome| outcome.spawn_refusals.len())
+            "the {REQUIRED_TIER}-caller tier is required; (reached, spawn refusals) was {:?}",
+            required.map(|outcome| (outcome.reached, outcome.spawn_refusals.len()))
         );
         for outcome in &outcomes {
             let reached = outcome.reached;
@@ -519,7 +522,7 @@ mod sim {
 
     #[test]
     fn no_seeded_generator_predicts_a_draw() -> Result<(), EntropyError> {
-        // INV-RANDOM-ONE-SOURCE, observed from outside: a build whose entropy
+        // INV-RANDOM-1, observed from outside: a build whose entropy
         // had been replaced by a seeded userspace generator would let the
         // test's own generator predict it, so the generator fills each
         // sixteen-byte draw from two whole words, the way such a substitute

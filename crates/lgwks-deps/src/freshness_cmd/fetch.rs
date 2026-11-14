@@ -1,7 +1,7 @@
 //! One HTTP GET through `curl`, answered as a body or as a typed reason.
 //!
 //! `curl` stays the one transport: the crate's manifest keeps the admission
-//! gate free of a TLS stack (INV-GATE-ZERO-DEPS), and the command already
+//! gate free of a TLS stack, and the command already
 //! required `curl`. The status code travels on the last line of the output,
 //! after the body, so a 404 is told apart from a refused connection without a
 //! second request and without a temporary file.

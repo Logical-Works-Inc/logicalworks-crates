@@ -23,7 +23,7 @@
 ///
 /// Seeded and reproducible on purpose: a confidence interval that moves between
 /// runs of the same data is a second source of noise in a document about noise.
-/// A statistical RNG is exactly the case `INV-RANDOM-ONE-SOURCE` carves out --
+/// A statistical RNG is exactly the case `INV-RANDOM-1` carves out --
 /// this is not a security primitive, it decides which rounds a resample draws,
 /// and the seed is printed alongside every interval it produces.
 pub struct Rng(u64);

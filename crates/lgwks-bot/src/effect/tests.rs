@@ -1,4 +1,5 @@
 use super::*;
+use core::num::NonZeroU128;
 
 const RUN: &str = "0102030405060708090a0b0c0d0e0f10";
 const ACTION: &str = "1112131415161718191a1b1c1d1e1f20";
