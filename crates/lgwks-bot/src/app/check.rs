@@ -115,6 +115,11 @@ where
         {
             return refused(AppError::NoAuthenticator { route });
         }
+        if let Some((ref limits, _)) = self.budget
+            && !limits.usable()
+        {
+            return refused(AppError::BadBudget);
+        }
         let who = Principal::probe();
         let mut missing = Missing::default();
         for (index, route) in self.routes.iter().enumerate() {
@@ -197,6 +202,7 @@ where
             approvals: None,
             authenticator: None,
             commands: super::CommandLimits::default(),
+            budget: None,
             routes,
             ons: Vec::new(),
         };

@@ -52,6 +52,9 @@ pub enum AppError {
         /// The route, by index.
         route: usize,
     },
+    /// The budget has a zero window or tracks zero tenants, so it could admit
+    /// nothing or never reset.
+    BadBudget,
     /// A cell worker could not start.
     Spawn {
         /// The operating system's refusal.
@@ -90,6 +93,9 @@ impl fmt::Display for AppError {
                     f,
                     "route {route} needs a principal and no authenticator is set"
                 )
+            }
+            Self::BadBudget => {
+                f.write_str("the budget needs a nonzero window and at least one tenant")
             }
             Self::Spawn { ref cause } => write!(f, "an app cell worker could not start: {cause}"),
             Self::ServeIo { ref cause } => write!(f, "the app listener failed: {cause}"),

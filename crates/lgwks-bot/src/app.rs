@@ -28,6 +28,10 @@
 //! [`Effect::Command`] hands a tenant's command to a durable service the host
 //! owns, through [`Provider::command`] on a bounded pool of its own, and the
 //! request stays open until an `on` handler answers it (ADR 0025).
+//!
+//! [`App::budget`] gives every tenant a unit allowance per window, spent by each
+//! effect the dispatcher serves; one past it is answered
+//! [`EffectResult::Refused`] and never served.
 
 use core::fmt;
 use std::net::TcpListener;
@@ -35,17 +39,21 @@ use std::sync::{Arc, OnceLock};
 
 use crate::cap::Cap;
 use crate::cell::{COMMAND_CAP, CellError, CellHost, DEFAULT_MAILBOX_BOUND, EffectRunner};
+use crate::clock::Clock;
 use crate::gate::GrantSet;
 use crate::rt::edge::EdgeStop;
 use crate::task::RunStore;
 
 mod auth;
+mod budget;
 mod check;
 mod command;
 mod error;
 mod serve;
 #[cfg(test)]
 mod sim_app;
+#[cfg(test)]
+mod sim_budget;
 #[cfg(test)]
 mod sim_command;
 #[cfg(test)]
@@ -54,10 +62,12 @@ mod transition;
 
 pub use crate::cell::{Effect, EffectResult, OnInput, ReplyTag};
 pub use auth::{Principal, RequestHeaders};
+pub use budget::BudgetLimits;
 pub use command::CommandLimits;
 pub use error::AppError;
 
 use auth::Authenticate;
+use budget::Ledger;
 use error::refused;
 use transition::{Answers, AppCell, AppRunner, OnEntry, RouteEntry};
 
@@ -186,6 +196,8 @@ pub struct App<S = ()> {
     authenticator: Option<Authenticate>,
     /// The bounds commands run under.
     commands: CommandLimits,
+    /// The per-tenant budget and the clock it is read on, when the app has one.
+    budget: Option<(BudgetLimits, Clock)>,
     /// Routes in registration order.
     routes: Vec<RouteEntry<S>>,
     /// `on` handlers in registration order.
@@ -203,6 +215,7 @@ impl App<()> {
             approvals: None,
             authenticator: None,
             commands: CommandLimits::default(),
+            budget: None,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -219,6 +232,7 @@ impl App<()> {
             approvals: self.approvals,
             authenticator: self.authenticator,
             commands: self.commands,
+            budget: self.budget,
             routes: Vec::new(),
             ons: Vec::new(),
         }
@@ -363,6 +377,35 @@ where
         self
     }
 
+    /// Give every tenant `limits` of effects to spend, windowed on `clock`.
+    ///
+    /// Each effect the dispatcher serves spends one unit of its tenant's budget,
+    /// whether or not the provider answers. One past the budget is answered
+    /// [`EffectResult::Refused`] naming `app.budget` and never reaches the
+    /// provider. A tenant never spends another's budget. [`App::check`] refuses
+    /// limits with a zero window or zero tenants.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use lgwks_bot::app::{App, BudgetLimits};
+    /// use lgwks_bot::clock::Clock;
+    ///
+    /// let clock = Clock::virtual_at(Duration::ZERO);
+    /// let limits = BudgetLimits::new(10, Duration::from_secs(1), 64);
+    /// assert!(App::new("metered").budget(limits, clock).check().is_ok());
+    ///
+    /// let none = BudgetLimits::new(10, Duration::ZERO, 64);
+    /// assert!(App::new("metered").budget(none, Clock::wall()).check().is_err());
+    /// ```
+    #[must_use]
+    pub fn budget(mut self, limits: BudgetLimits, clock: Clock) -> Self {
+        self.budget = Some((limits, clock));
+        self
+    }
+
     /// Check the app, then serve `listener` until `stop`, answering every
     /// tenant from its own state.
     ///
@@ -401,7 +444,11 @@ where
         } else {
             None
         };
+        let ledger = self
+            .budget
+            .map(|(limits, clock)| Arc::new(Ledger::new(limits, clock)));
         let runner = Arc::new(AppRunner::new(
+            ledger,
             self.grants,
             self.provider,
             self.approvals,

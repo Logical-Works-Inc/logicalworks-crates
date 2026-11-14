@@ -4,6 +4,7 @@
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
+use super::budget::{BUDGET_CAP, Charge, Ledger};
 use super::command::{CommandPool, CommandRequest, Feedback};
 use super::{HostSlot, MAX_EFFECTS_PER_APPLY, Method, Principal, Provider};
 use crate::cap::Cap;
@@ -362,6 +363,8 @@ pub(super) struct AppRunner<S: Clone + Default + Send + 'static> {
     answers: Arc<Answers<S>>,
     /// The pool commands run on, when the app was granted `app.command`.
     commands: Option<CommandPool>,
+    /// What each tenant may still have served, when the app was given a budget.
+    budget: Option<Arc<Ledger>>,
 }
 
 impl<S> AppRunner<S>
@@ -370,6 +373,7 @@ where
 {
     /// A runner over `grants` and `provider`, bound to its host later.
     pub(super) fn new(
+        budget: Option<Arc<Ledger>>,
         grants: GrantSet,
         provider: Arc<dyn Provider>,
         store: Option<RunStore>,
@@ -382,7 +386,31 @@ where
             store,
             answers,
             commands,
+            budget,
         }
+    }
+
+    /// Spend a unit of `tenant`'s budget; the refusal to answer with when it
+    /// cannot be spent, `None` when the effect may run or the app has no budget.
+    ///
+    /// The refusal names the budget cap, as an ungranted effect names its own, so
+    /// an `on` handler reads one kind of answer for both.
+    fn overspent(&self, tenant: &str) -> Option<EffectResult> {
+        let ledger = self.budget.as_ref()?;
+        let charge = ledger.charge(tenant);
+        match charge {
+            Charge::Granted => return None,
+            Charge::Spent | Charge::BadTenant => {
+                lgwks_std::trace::debug!(tenant, ?charge, "app: an effect was refused its budget");
+            }
+            Charge::TableFull => {
+                lgwks_std::trace::warn!(
+                    tenant,
+                    "app: the budget ledger is full; refusing a new tenant"
+                );
+            }
+        }
+        Some(EffectResult::Refused(Cap::new(BUDGET_CAP)))
     }
 
     /// Feed answers back through `host`. Weak, so the runner the host owns
@@ -403,12 +431,15 @@ where
                 lgwks_std::trace::debug!(%needed, tenant, "app: an effect was denied its cap");
                 EffectResult::Refused(needed)
             }
-            _ => match self.provider.dispatch(tenant, effect) {
-                Some(bytes) => EffectResult::Value(bytes.into_boxed_slice()),
-                None => {
-                    self.park_approval(tenant, effect);
-                    EffectResult::Unavailable
-                }
+            _ => match self.overspent(tenant) {
+                Some(refusal) => refusal,
+                None => match self.provider.dispatch(tenant, effect) {
+                    Some(bytes) => EffectResult::Value(bytes.into_boxed_slice()),
+                    None => {
+                        self.park_approval(tenant, effect);
+                        EffectResult::Unavailable
+                    }
+                },
             },
         };
         self.answers
@@ -443,6 +474,11 @@ where
                 .feed(tenant, asker.cloned(), reply_to, answer, slot);
             return;
         };
+        if let Some(refusal) = self.overspent(tenant) {
+            self.answers
+                .feed(tenant, asker.cloned(), reply_to, refusal, slot);
+            return;
+        }
         let request = CommandRequest {
             tenant,
             asker: asker.cloned(),

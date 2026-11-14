@@ -38,8 +38,9 @@
 "crates/lgwks-ast/src/script/tree/serve.rs" = 15
 "crates/lgwks-ast/src/script/tree/shape.rs" = 15
 "crates/lgwks-ast/src/script/tree/vocab.rs" = 28
-"crates/lgwks-bot/src/app.rs" = 18
+"crates/lgwks-bot/src/app.rs" = 20
 "crates/lgwks-bot/src/app/auth.rs" = 6
+"crates/lgwks-bot/src/app/budget.rs" = 2
 "crates/lgwks-bot/src/app/check.rs" = 2
 "crates/lgwks-bot/src/app/command.rs" = 3
 "crates/lgwks-bot/src/app/error.rs" = 1
@@ -352,8 +353,9 @@
 "crates/lgwks-ast/src/script/tree/serve.rs" = 15
 "crates/lgwks-ast/src/script/tree/shape.rs" = 15
 "crates/lgwks-ast/src/script/tree/vocab.rs" = 28
-"crates/lgwks-bot/src/app.rs" = 4
+"crates/lgwks-bot/src/app.rs" = 5
 "crates/lgwks-bot/src/app/auth.rs" = 6
+"crates/lgwks-bot/src/app/budget.rs" = 2
 "crates/lgwks-bot/src/app/command.rs" = 3
 "crates/lgwks-bot/src/broker.rs" = 1
 "crates/lgwks-bot/src/broker/fence.rs" = 8

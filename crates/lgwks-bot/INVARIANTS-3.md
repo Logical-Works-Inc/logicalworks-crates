@@ -43,3 +43,4 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 2 is [`INVARIANTS-2.md`](INVARIANTS-2.
 - **INV-STOP-1** A journaled stop moves forward only and survives a kill. · why: #878 · enforced by: `tests/it/sim_journaled_cancel.rs`
 - **INV-EDGE-1** Both edges answer `/healthz` themselves, and authentication runs before the verb. · why: #879 · enforced by: `tests/it/sim_app_edge.rs`
 - **INV-COMMAND-1** A request held across a command is answered on every path, and a rebuild never reruns it. · why: #898 · enforced by: `app::sim_command`
+- **INV-BUDGET-1** An effect past its tenant's budget is refused `app.budget` and never served; no tenant spends another's. · why: #1042 · enforced by: `app::sim_budget`
