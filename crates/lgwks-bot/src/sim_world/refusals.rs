@@ -8,7 +8,7 @@ use crate::world::MAX_TX_OPS;
 use crate::world::codec::{ChangeSet, Op, Snapshot};
 use crate::world::component::{Ceilings, WorldBuilder};
 use crate::world::digest::change_digest;
-use crate::world::error::{Defect, WorldError};
+use crate::world::error::{Broken, Defect, WorldError};
 
 /// A snapshot defect to plant, and the refusal it must meet.
 struct Case {
@@ -448,5 +448,73 @@ fn replay_meets_each_defect_with_its_variant() -> Result<(), Failure> {
         "bytes that are no archive"
     );
     assert_eq!(target.live(), 0, "no refusal moved the world");
+    Ok(())
+}
+
+/// Catches an arm of `advance` that changes state before it has checked (the pulled plug inside the world): a
+/// spawn of a live id, a despawn and a write to an id that is not alive, and a write to a column that does not
+/// exist each answer with their own named variant and leave the hash and the tick as they were. Then two new
+/// spawns prove the tables did not move: the first takes the one freed slot and the second opens slot two, so a
+/// refusal that took the free slot or grew the table is caught by index. `Tx` never lets these writes reach
+/// `advance`, so the sim drives it directly. It lives here, not in `world/`, because the `world-bench` bin
+/// compiles `world/` by path and a test there ran under two binaries with one name (#1002).
+#[test]
+fn sim_world_refused_arm_of_advance_leaves_the_world_as_it_was() -> Result<(), Failure> {
+    let mut bare = WorldBuilder::new("acme", Ceilings::new(1, 8, 1 << 10)?)?.build();
+    let (live, gone, absent) = ([7_u8; 16], [8_u8; 16], [9_u8; 16]);
+    bare.advance(&[Op::Spawn { id: live }, Op::Spawn { id: gone }], [1; 32])?;
+    bare.advance(&[Op::Despawn { id: gone }], [2; 32])?;
+    let (before, tick) = (bare.hash()?, bare.tick());
+    let cases = [
+        (Op::Spawn { id: live }, Broken::SpawnOfLiveId),
+        (Op::Despawn { id: absent }, Broken::DespawnOfAbsentId),
+        (
+            Op::Set {
+                column: 0,
+                id: absent,
+                value: vec![1],
+            },
+            Broken::WriteToAbsentId,
+        ),
+        (
+            Op::Remove {
+                column: 0,
+                id: absent,
+            },
+            Broken::WriteToAbsentId,
+        ),
+        (
+            Op::Set {
+                column: 0,
+                id: live,
+                value: vec![1],
+            },
+            Broken::ColumnMissing,
+        ),
+    ];
+    for (op, broken) in cases {
+        let outcome = bare.advance(std::slice::from_ref(&op), [3; 32]);
+        assert!(
+            matches!(outcome, Err(WorldError::Inconsistent(found)) if found == broken),
+            "{op:?} met {outcome:?}, not {broken:?}"
+        );
+        assert_eq!(bare.hash()?, before, "{op:?} moved the world");
+        assert_eq!(bare.tick(), tick, "{op:?} moved the tick");
+        assert_eq!(
+            bare.entity(&Uuid::from(live)).map(|held| held.index),
+            Some(0),
+            "{op:?} moved the live entity"
+        );
+    }
+    assert_eq!(
+        bare.changed_since(0).count(),
+        2,
+        "a refusal grew the slot table"
+    );
+    let (reuse, fresh) = ([10_u8; 16], [11_u8; 16]);
+    bare.advance(&[Op::Spawn { id: reuse }, Op::Spawn { id: fresh }], [4; 32])?;
+    let index = |id: [u8; 16]| bare.entity(&Uuid::from(id)).map(|held| held.index);
+    assert_eq!(index(reuse), Some(1), "a refusal took the free slot");
+    assert_eq!(index(fresh), Some(2), "a refusal grew the slot table");
     Ok(())
 }

@@ -293,7 +293,7 @@ impl World {
     ///
     /// An empty change set moves nothing, not even the tick or the link. Otherwise the tick rises by one and the
     /// link becomes `link`, the digest of the change set.
-    pub(super) fn advance(&mut self, ops: &[Op], link: [u8; 32]) -> Result<(), WorldError> {
+    pub(crate) fn advance(&mut self, ops: &[Op], link: [u8; 32]) -> Result<(), WorldError> {
         if ops.is_empty() {
             return Ok(());
         }
@@ -433,78 +433,6 @@ impl World {
         cell.tick = tick;
         slot.tick = tick;
         *bytes = bytes.saturating_sub(value.len());
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Ceilings, Op, Uuid, World, WorldError};
-    use crate::world::error::Broken;
-
-    /// A world with no columns, which `Tx` never lets a hostile write reach: the tests drive `advance` directly.
-    fn bare() -> Result<World, WorldError> {
-        Ok(World::new(
-            "acme".to_owned(),
-            Ceilings::new(1, 8, 1 << 10)?,
-            Vec::new(),
-            [0; 32],
-        ))
-    }
-
-    /// Catches an arm of `advance` that changes state before it has checked (the dropped plug inside the world):
-    /// a spawn of a live id, a despawn and a write to an id that is not alive, and a write to a column that does
-    /// not exist each answer with their own named variant and leave the hash, the slot table and the free list
-    /// exactly as they were, with a free slot waiting to be taken (#1002).
-    #[test]
-    fn sim_world_refused_arm_of_advance_leaves_the_world_as_it_was() -> Result<(), WorldError> {
-        let mut world = bare()?;
-        let (live, gone, absent) = ([7_u8; 16], [8_u8; 16], [9_u8; 16]);
-        world.advance(&[Op::Spawn { id: live }, Op::Spawn { id: gone }], [1; 32])?;
-        world.advance(&[Op::Despawn { id: gone }], [2; 32])?;
-        let before = world.hash()?;
-        let (slots, free) = (world.slots.len(), world.free.clone());
-        let cases = [
-            (Op::Spawn { id: live }, Broken::SpawnOfLiveId),
-            (Op::Despawn { id: absent }, Broken::DespawnOfAbsentId),
-            (
-                Op::Set {
-                    column: 0,
-                    id: absent,
-                    value: vec![1],
-                },
-                Broken::WriteToAbsentId,
-            ),
-            (
-                Op::Remove {
-                    column: 0,
-                    id: absent,
-                },
-                Broken::WriteToAbsentId,
-            ),
-            (
-                Op::Set {
-                    column: 0,
-                    id: live,
-                    value: vec![1],
-                },
-                Broken::ColumnMissing,
-            ),
-        ];
-        for (op, broken) in cases {
-            let outcome = world.advance(std::slice::from_ref(&op), [3; 32]);
-            assert!(
-                matches!(outcome, Err(WorldError::Inconsistent(found)) if found == broken),
-                "{op:?} met {outcome:?}, not {broken:?}"
-            );
-            assert_eq!(world.hash()?, before, "{op:?} moved the world");
-            assert_eq!(world.slots.len(), slots, "{op:?} grew the slot table");
-            assert_eq!(world.free, free, "{op:?} took a free slot");
-            assert_eq!(
-                world.entity(&Uuid::from(live)).map(|held| held.index),
-                Some(0)
-            );
-        }
         Ok(())
     }
 }
