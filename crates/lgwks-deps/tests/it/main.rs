@@ -77,6 +77,8 @@ mod sim_adr_index;
 mod sim_advisories_audit;
 mod sim_advisories_cli;
 mod sim_agent_start_page;
+/// The runtime census held to its own totals and to the source tree.
+mod sim_census_runtime;
 #[cfg(unix)]
 mod sim_churn_slot;
 mod sim_dependency_policy;

@@ -79,6 +79,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/estate-asset-inventory.md`](estate-asset-inventory.md) | The adjacent repositories searched before any of it was written, what was taken, and what was deliberately left behind. |
 | [`docs/frontier.md`](frontier.md) | The state of the art across the nine areas this bot competes in, with measured anchors and the design decision each forces. |
 | [`docs/framework-comparison.md`](framework-comparison.md) | Why the field looks the same, the four axes it differs on, and the axis nobody occupies. |
+| [`docs/census-runtime.md`](census-runtime.md) | The runtime crate per module: lines, public items with no outside caller, imports, features and lanes, repeats, and the delete, merge and move lists. |
 | [`docs/production-readiness.md`](production-readiness.md) | Nine-axis production readiness of `lgwks_bot`, the case that it replaces non-AI automation and RPA, and the rows that currently fail their own gate. |
 | [`docs/std-ast-deps-closure-matrix.md`](std-ast-deps-closure-matrix.md) | All twenty-four `lgwks_std` modules, `lgwks_ast` and `lgwks_deps`: each with its feature, its evidence state, the test that exists on the named revision, and its owning issue. |
 | [`docs/std-deps-capability-gaps.spec.md`](std-deps-capability-gaps.spec.md) | First-party (`ELIMINATE`) and storefront (`BOUNDARY`) specifications for open `lgwks_std` and `lgwks_deps` capability gaps (`#794`..`#854`), linking part two. |
@@ -114,6 +115,5 @@ the rest of this table is design history and contributor policy.
 | [`REQUIREMENTS.md`](../REQUIREMENTS.md) | The immutable product requirements, linking their six pages under `docs/requirements/`. |
 
 Each crate also carries its own README: [`lgwks_std`](../crates/lgwks-std/README.md),
-[`lgwks_bot`](../crates/lgwks-bot/README.md),
-[`lgwks_ast`](../crates/lgwks-ast/README.md), [`lgwks_macros`](../crates/lgwks-macros/README.md),
+[`lgwks_bot`](../crates/lgwks-bot/README.md), [`lgwks_ast`](../crates/lgwks-ast/README.md), [`lgwks_macros`](../crates/lgwks-macros/README.md),
 [`lgwks_deps`](../crates/lgwks-deps/README.md), [`drishti`](../crates/drishti/README.md).
