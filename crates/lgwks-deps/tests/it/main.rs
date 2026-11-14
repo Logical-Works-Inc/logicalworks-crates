@@ -96,6 +96,8 @@ mod sim_lock_spellings;
 mod sim_lockfile;
 mod sim_metadata_dimensions;
 mod sim_origin;
+/// The crates ADR 0052 plans, held to CODEBOOK.md and the workspace members.
+mod sim_planned_crates;
 mod sim_policy_properties;
 mod sim_register_policy;
 mod sim_requirements_pages;
