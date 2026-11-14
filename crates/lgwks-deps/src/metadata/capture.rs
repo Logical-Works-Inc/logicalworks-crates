@@ -394,7 +394,7 @@ pub(super) fn run_bounded(
     }
 
     /// Names one capture file: 128 bits of OS entropy (`lgwks_std::random`,
-    /// the one source INV-RANDOM-ONE-SOURCE allows). A process id or a clock
+    /// the one source INV-RANDOM-1 allows). A process id or a clock
     /// would be reused by the OS and could name another call's file. An
     /// entropy refusal names no file and starts no child; the call ends here.
     #[cfg(not(target_family = "wasm"))]

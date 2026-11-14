@@ -6,7 +6,7 @@
 //! the stream is predictable to anyone who knows the seed. That is the point for
 //! a simulation and the opposite of what a key, a token or an id needs, which is
 //! why this is a module of its own rather than part of `random`: `random` holds
-//! INV-RANDOM-ONE-SOURCE, and a seeded stream is a second source by design. A
+//! INV-RANDOM-1, and a seeded stream is a second source by design. A
 //! caller that needs unpredictability reads `lgwks_std::random` (feature
 //! `random`); a caller that needs replay reads this, which is in `core` and has
 //! no dependency.

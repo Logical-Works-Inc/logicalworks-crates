@@ -198,7 +198,7 @@ pub fn encode_u64(mut integer: u64, out: &mut Vec<u8>) {
 /// The tenth group (`shift == 63`) has only one usable bit, so its payload must
 /// be 0 or 1 *and* it must terminate the sequence; anything wider is the
 /// overflow this decoder exists to refuse. `shift > 63` catches a sequence
-/// longer than ten bytes, which INV-LEB128-MINIMAL rejects as malleable.
+/// longer than ten bytes, which INV-LEB128-1 rejects as malleable.
 fn check_overflow_u64(shift: usize, chunk: u64, byte: u8, index: usize) -> Result<(), DecodeError> {
     if (shift == 63 && (chunk > 1 || (byte & 0x80) != 0)) || shift > 63 {
         Err(DecodeError::Overflow { at: index })

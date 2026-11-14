@@ -105,7 +105,7 @@ inspect = ["dep:lgwks_ast", "lgwks_ast/parser", "lgwks_ast/full"]
 # one: `lgwks_std::random`, whose `random` feature is `getrandom` under
 # `lgwks_std`'s ownership. This crate authors no edge of its own — it turns on a
 # feature of a dependency it already has — which is what keeps the tree at one
-# entropy source rather than two. `lgwks_std`'s INV-RANDOM-ONE-SOURCE is the
+# entropy source rather than two. `lgwks_std`'s INV-RANDOM-1 is the
 # reason there is no cheaper fallback here: a run id derived from a clock or a
 # counter is the shortcut that invariant exists to refuse.
 #

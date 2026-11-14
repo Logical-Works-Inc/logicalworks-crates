@@ -531,7 +531,7 @@ impl Host {
     /// which is the estate's one entropy source. Without a store there is
     /// nothing to key a record by, so a minted id would be an identity nothing
     /// is stored under; without `ephemeral` there is no source to mint from, and
-    /// INV-RANDOM-ONE-SOURCE refuses a cheaper substitute. Without a store the
+    /// INV-RANDOM-1 refuses a cheaper substitute. Without a store the
     /// run proceeds with no run id; with a store and no identity, `execute`
     /// refuses rather than run steps the store promised to keep.
     pub(super) fn adopt_run(&self, resume: Option<RunId>) -> Option<RunId> {

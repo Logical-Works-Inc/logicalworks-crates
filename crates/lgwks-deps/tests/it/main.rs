@@ -39,6 +39,8 @@ mod seed_helpers;
 mod agent_start_page;
 /// `CHANGELOG.md`'s release rows, held to the manifests.
 mod changelog_rows;
+/// Every invariant id the tree cites, held to the registers that define it.
+mod invariant_citations;
 // The runner's journeys need `kill`, `ps` and the process groups its watchdog
 // stops, which every Unix host has and Windows does not.
 #[cfg(unix)]

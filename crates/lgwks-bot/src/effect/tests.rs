@@ -1,4 +1,5 @@
 use super::*;
+use core::num::NonZeroU128;
 
 const RUN: &str = "0102030405060708090a0b0c0d0e0f10";
 const ACTION: &str = "1112131415161718191a1b1c1d1e1f20";
@@ -76,6 +77,15 @@ fn id_rejects_the_all_zero_value() {
         Id128::from_hex("00000000000000000000000000000000"),
         Err(IdError::Zero)
     );
+}
+
+/// The offset a refusal names is the byte that broke the parse, the same one
+/// the `from_hex` doctest shows: in `..090A..` the `0` is valid and the `A`
+/// at 19 is not. One off is the bug a reader would chase to the wrong byte.
+#[test]
+fn id_names_the_offset_of_the_first_byte_that_is_not_lowercase_hex() {
+    let text = "0102030405060708090A0b0c0d0e0f10";
+    assert_eq!(Id128::from_hex(text), Err(IdError::NotHex { at: 19 }));
 }
 
 #[test]

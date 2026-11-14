@@ -46,3 +46,4 @@ is [`INVARIANTS-2.md`](INVARIANTS-2.md), part 3 is [`INVARIANTS-3.md`](INVARIANT
 - **INV-BOT-59** A run-store read failure reaches the caller as `FlowError::Store`, never as a drift. · why: T15 · enforced by: `tests/it/store_read_failure.rs`
 - **INV-BOT-60** A readiness is a typed, generation-bound fact released without sleeping or polling. · why: #87 T18 · enforced by: `tests/it/sim_ready.rs`
 - **INV-BOT-61** Service readiness is read from the child's own stdout in the read that captures it, with no timer. · why: #87 T18 · enforced by: `tests/it/ready.rs`
+- **INV-RT-BOUNDED** No channel is unbounded: `clippy.toml` disallows tokio's `unbounded_channel` and `std::sync::mpsc`, and `rt::sync::mpsc::channel` replaces them. · why: RUST-AP-022, #911 · enforced by: the `clippy-feature-bot` lane
