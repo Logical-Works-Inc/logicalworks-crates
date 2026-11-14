@@ -79,6 +79,15 @@ fn id_rejects_the_all_zero_value() {
     );
 }
 
+/// The offset a refusal names is the byte that broke the parse, the same one
+/// the `from_hex` doctest shows: in `..090A..` the `0` is valid and the `A`
+/// at 19 is not. One off is the bug a reader would chase to the wrong byte.
+#[test]
+fn id_names_the_offset_of_the_first_byte_that_is_not_lowercase_hex() {
+    let text = "0102030405060708090A0b0c0d0e0f10";
+    assert_eq!(Id128::from_hex(text), Err(IdError::NotHex { at: 19 }));
+}
+
 #[test]
 fn id_rejects_uppercase_rather_than_folding_it() -> TestResult {
     let upper = RUN.to_uppercase();

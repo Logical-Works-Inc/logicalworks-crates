@@ -166,7 +166,7 @@ impl Id128 {
     /// assert!(Id128::from_hex("0102030405060708090a0b0c0d0e0f10").is_ok());
     /// assert_eq!(
     ///     Id128::from_hex("0102030405060708090A0B0C0D0E0F10"),
-    ///     Err(IdError::NotHex { at: 18 })
+    ///     Err(IdError::NotHex { at: 19 })
     /// );
     /// ```
     pub fn from_hex(text: &str) -> Result<Self, IdError> {
