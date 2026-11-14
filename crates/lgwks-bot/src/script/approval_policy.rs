@@ -92,14 +92,24 @@ where
     EFFECT_POLICY.scope(Some(Arc::new(policy)), body).await
 }
 
+/// The policy installed for the futures polled inside [`with_effect_policy`],
+/// when one is.
+///
+/// The task-local value itself, with the absence kept distinct from a fault: a
+/// run root built inside the scope captures it onto the scope, so a step polled
+/// on a spawned task keeps the policy its run was started under (#909).
+pub(crate) fn installed_policy_override() -> Option<Arc<dyn EffectPolicy>> {
+    let installed = EFFECT_POLICY.try_with(Clone::clone);
+    if let Err(ref access) = installed {
+        lgwks_std::trace::debug!(error = ?access, "installed_policy_override: polled outside every scope, so no policy is installed");
+    }
+    installed.ok().flatten()
+}
+
 /// The policy this run's `act` steps answer to: the installed one, or the
 /// default that gates every external action.
 pub(crate) fn installed_policy() -> Arc<dyn EffectPolicy> {
-    let installed = EFFECT_POLICY.try_with(Clone::clone);
-    if let Err(ref access) = installed {
-        lgwks_std::trace::debug!(error = ?access, "installed_policy: polled outside every scope, so the default policy governs");
-    }
-    match installed.ok().flatten() {
+    match installed_policy_override() {
         Some(policy) => policy,
         None => Arc::new(DefaultPolicy),
     }

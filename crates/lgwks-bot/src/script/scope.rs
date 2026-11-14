@@ -8,16 +8,18 @@ use lgwks_std::hash::{Digest, Hasher};
 use crate::effect::{InputIdentity, RunId};
 use crate::rt::clock::Clock;
 use crate::rt::sync::CancellationToken;
-use crate::task::{InputDigest, MAX_REQUEST_KEY_BYTES};
+use crate::task::{DefinitionIdentity, InputDigest, MAX_REQUEST_KEY_BYTES};
 
 use super::approval::{Approved, MAX_PENDING_PER_TENANT};
+use super::approval_policy::{EffectPolicy, installed_policy_override};
 use super::justify::Justify;
 use super::policy::Policy;
-use super::run_store::Authority;
+use super::run_store::{Authority, Records};
 use super::trail::{Mark, Outcome, Site, Trail};
 use super::{DEFAULT_TRAIL_STEPS, FlowError, MAX_DEPTH};
 
 mod identity;
+mod run_state;
 
 use identity::BUSINESS_KEY_DOMAIN;
 #[cfg(test)]
@@ -91,6 +93,30 @@ struct ScopeInner {
     /// polled on a spawned task holds exactly the authority of the run that
     /// built it. `None` is a scope no host admitted, and it covers nothing.
     authority: Option<Authority>,
+    /// The durable store this run's steps record through, when a host attached
+    /// one.
+    ///
+    /// Carried beside the authority for the same reason: a task-local does not
+    /// cross a spawn, so a spawned step would otherwise run its body
+    /// unrecorded (#909). `None` is a scope no host admitted, and a durable
+    /// step under it claims nothing.
+    records: Option<Records>,
+    /// The definition identity this run records its values under, when a host
+    /// attached one.
+    ///
+    /// Shared by clone for the same reason the store is: every descended scope
+    /// reads the one identity, so a spawned step replays under the definition
+    /// the run was admitted with.
+    definition: Option<Arc<DefinitionIdentity>>,
+    /// The effect policy this run's `act` steps answer to, captured from
+    /// [`with_effect_policy`](super::approval::with_effect_policy) when the root
+    /// was built inside it.
+    ///
+    /// Carried on the scope because a task-local does not cross a spawn: a
+    /// spawned `act` would otherwise fall back to
+    /// [`DefaultPolicy`](super::approval::DefaultPolicy), and a stricter policy
+    /// would stop applying exactly where it matters.
+    effect_policy: Option<Arc<dyn EffectPolicy>>,
     /// This step's entry in the trail, which [`Scope::settle`] completes;
     /// `None` at the root, which no step entered.
     mark: Option<Arc<Mark>>,
@@ -202,33 +228,14 @@ impl Scope {
                 approved: Arc::new(Mutex::new(Vec::new())),
                 approval_max,
                 authority: None,
+                records: None,
+                definition: None,
+                // Captured here rather than read at the step, so a step polled
+                // on a spawned task keeps the policy this root was built under.
+                effect_policy: installed_policy_override(),
                 mark: None,
             }),
         }
-    }
-
-    /// This root scope, checked against `authority` from now on.
-    ///
-    /// Crate-private because the host is the one issuer: a caller that could
-    /// attach its own authority would grant itself what `require` asks about.
-    pub(crate) fn hosted(&self, authority: Authority) -> Self {
-        self.sibling(self.inner.justify.clone(), Some(authority))
-    }
-
-    /// A sibling of this scope that differs only in its rules and authority.
-    fn sibling(&self, justify: Option<Arc<Justify>>, authority: Option<Authority>) -> Self {
-        Self {
-            inner: Arc::new(ScopeInner {
-                justify,
-                authority,
-                ..ScopeInner::clone(&self.inner)
-            }),
-        }
-    }
-
-    /// The authority the host admitted this run under, when one did.
-    pub(crate) fn authority(&self) -> Option<&Authority> {
-        self.inner.authority.as_ref()
     }
 
     /// [`Self::with_token_trail_and_clock`] on a wall clock.
@@ -250,7 +257,12 @@ impl Scope {
     /// answering to the rules.
     #[must_use]
     pub fn with_justification(&self, justify: Justify) -> Self {
-        self.sibling(Some(Arc::new(justify)), self.inner.authority.clone())
+        Self {
+            inner: Arc::new(ScopeInner {
+                justify: Some(Arc::new(justify)),
+                ..ScopeInner::clone(&self.inner)
+            }),
+        }
     }
 
     /// The justification rules this scope answers to, when the flow named any.

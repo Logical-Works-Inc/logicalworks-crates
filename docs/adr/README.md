@@ -84,5 +84,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0046](0046-a-per-call-user-agent-is-request-level.md) | A per-call user agent is request level |
 | [0047](0047-a-capability-open-never-blocks-and-a-listing-owns-its-offset.md) | A capability open never blocks, and a listing owns its offset |
 | [0048](0048-a-shallower-path-reenters-a-depth-cut-directory.md) | A shallower path re-enters a depth-cut directory |
+| [0049](0049-a-run-carries-its-store-definition-and-effect-policy-on-its-scope.md) | A run carries its store, definition and effect policy on its scope |
 
 New records go at the bottom of that table.

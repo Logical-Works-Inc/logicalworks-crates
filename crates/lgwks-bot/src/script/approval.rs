@@ -254,7 +254,7 @@ where
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "approval_in: returning an error to the caller");
         return refusal;
     }
-    let Some(records) = installed() else {
+    let Some(records) = installed(scope) else {
         let refusal = Err(promise_refusal());
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "approval_in: returning an error to the caller");
         return refusal;

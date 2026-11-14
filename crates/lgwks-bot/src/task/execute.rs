@@ -304,7 +304,11 @@ impl Host {
             Arc::clone(&self.inner.policy),
             self.inner.max_pending,
         )
-        .hosted(self.authority(grant_delta));
+        .hosted(
+            self.authority(grant_delta),
+            self.records(run),
+            Arc::new(recorded_definition.clone()),
+        );
         let scope = match root.enter(task_name.as_str()) {
             Ok(scope) => scope,
             // The task's own step could not be entered: the name validated at
@@ -361,24 +365,15 @@ impl Host {
         // inline makes each level's frame large enough that the default test
         // thread's stack overflows at the depths the invariant names. One
         // pointer per level is the difference between that and not.
-        // The store is installed for exactly this future and its descendants, so
-        // a durable step records against *this* run and a nested run under the
-        // same host inherits both. With no store the scope is entered with no
-        // run at all, which is what makes "no durability" the default rather
-        // than a claim.
-        // One composition for both task-local scopes rather than one per
-        // combination of "has a store" and "has a repair": two alternative
-        // nestings in one future carry both in its frame, which is what pushed a
-        // two-review test past a 2 MiB thread stack. The run's authority is not
-        // one of them: it rides on `scope`, so a step on a spawned task keeps it
-        // (#909). Boxed, so a run nested in another run's body costs the parent a
-        // pointer rather than its frame.
-        let outcome = Box::pin(crate::script::run_store::within(
-            self.records(run),
-            &recorded_definition,
-            HELD_PERMITS.scope(charged, within(&scope, BODY_STEP, deadline, body)),
-        ))
-        .await;
+        // The run's store, definition and authority all ride on `scope`, so a
+        // durable step records against *this* run and a step on a spawned task
+        // keeps all three (#909). With no store the scope carries none, which is
+        // what makes "no durability" the default rather than a claim. The
+        // held-permit set is the one task-local left: it is read at admission,
+        // not at a step, and it is boxed so a run nested in another run's body
+        // costs the parent a pointer rather than its frame.
+        let outcome =
+            Box::pin(HELD_PERMITS.scope(charged, within(&scope, BODY_STEP, deadline, body))).await;
 
         // The task's own step settles before the ring is read, so the trail's
         // first entry says how the run ended as every later entry does.
