@@ -197,6 +197,30 @@ fn both_indexes_name_the_newest_ledger_part_first() -> TestResult {
     Ok(())
 }
 
+/// A release is recorded in governance: the newest ledger part names every
+/// crate and version of the newest changelog row. A cut with no ledger entry
+/// still passed the suite (Director 2026-11-14: "DOCS, GOVERNANCE AND RELEASE
+/// ISNT UPDATED").
+#[test]
+fn the_newest_ledger_part_names_the_newest_release() -> TestResult {
+    let changelog = page("CHANGELOG.md")?;
+    let newest = release_rows(&changelog)
+        .first()
+        .copied()
+        .ok_or("CHANGELOG.md has no release row")?;
+    let row = release_row(newest).ok_or("the newest row is not a release row")?;
+    let part = newest_ledger_part()?;
+    let ledger = page(&format!("docs/governance/{part}"))?;
+    for release in &row.released {
+        let named = format!("{} {}", release.0, release.1);
+        assert!(
+            ledger.contains(&named),
+            "docs/governance/{part} has no entry naming {named}"
+        );
+    }
+    Ok(())
+}
+
 /// Directories a lock walk never enters: build output and other people's code.
 const NOT_WALKED: [&str; 4] = ["target", ".git", "vendor", "node_modules"];
 
