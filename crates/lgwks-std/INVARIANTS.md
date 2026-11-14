@@ -24,6 +24,7 @@ The `lgwks_std` part of the invariant register, one short line per rule: rule ·
 - **INV-STD-HTTP-2** The body ceiling holds one fixed read window per call, so peak heap is independent of the body size. · why: #163 · enforced by: `tests/it/sim_http.rs`, `tests/http_alloc.rs`
 - **INV-STD-HTTP-3** An event stream decodes the same however the network splits it. · why: #913 · enforced by: `http::stream::sse_decode::sim_sse`
 - **INV-STD-HTTP-4** A per-call user agent is sent on every hop at request level, so it reaches the wire and keeps the pooled connection. · why: #913 · enforced by: `http::tests::pool::a_per_call_user_agent_reaches_the_wire_on_the_pooled_connection`
+- **INV-STD-HTTP-5** A `Debug` of `Options` or `Client` names each extra header and never renders its value. · why: #913 · enforced by: `tests/it/sim_http.rs`
 - **INV-STD-ONLINE-1** Reachability candidates share one monotonic budget over at most 64 addresses; the result is a TCP heuristic. · why: #163 · enforced by: `online::tests::a_whole_probe_fits_one_budget`
 - **INV-GLOB-1** Glob matching is anchored, Unicode-scalar and case-sensitive with segment-bound `*`, and a compiled pattern is shareable. · enforced by: `tests/it/glob_public.rs`
 - **INV-STD-SHARED-POLICY** One matcher, evidence policy and retry policy serve 10,000 callers bit-identical to the serial run, in flat memory. · why: #154 · enforced by: `tests/it/sim_shared_policy_tiers.rs`
