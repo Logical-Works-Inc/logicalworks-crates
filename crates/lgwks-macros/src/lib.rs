@@ -117,9 +117,9 @@ use lgwks_deps::proc_macro2::TokenStream;
 ///
 /// ```text
 /// lgwks_bot::script! {
-///     /// Double every number, at most two at once.
+///     /// Double every number, as many at once as the host allows.
 ///     pub flow double(numbers: Vec<u32>) -> Vec<u32>:
-///         let doubled = each n in numbers, at most (2) at once:
+///         let doubled = each n in numbers:
 ///             within 1s:
 ///                 n.saturating_mul(2)
 ///         give back doubled

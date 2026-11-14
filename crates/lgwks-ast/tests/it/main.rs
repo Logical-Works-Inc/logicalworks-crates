@@ -19,6 +19,7 @@ mod scan_cases;
 mod scan_evidence;
 mod scan_unlogged_evidence;
 mod scan_verdicts;
+mod script_dodges;
 mod script_read;
 mod script_tool;
 mod sim_diagnostics;

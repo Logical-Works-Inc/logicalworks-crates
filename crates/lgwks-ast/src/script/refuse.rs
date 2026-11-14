@@ -47,7 +47,7 @@ const PANICKING_METHODS: [&str; 4] = ["unwrap", "expect", "unwrap_err", "expect_
 
 /// Names a `use` inside a flow may not bring in: each would let a refused call
 /// be written under a spelling the refusals do not see.
-const REFUSED_IMPORTS: [&str; 11] = [
+const REFUSED_IMPORTS: [&str; 20] = [
     "thread",
     "sleep",
     "process",
@@ -59,7 +59,33 @@ const REFUSED_IMPORTS: [&str; 11] = [
     "unwrap",
     "expect",
     "unbounded_channel",
+    "fs",
+    "net",
+    "os",
+    "Command",
+    "Child",
+    "Stdio",
+    "TcpStream",
+    "TcpListener",
+    "UdpSocket",
 ];
+
+/// The name an identifier spells, without the `r#` a raw identifier carries.
+///
+/// `r#unwrap` and `unwrap` are one name to the compiler (#908), so a refusal
+/// that compared the written text missed every raw spelling.
+fn bare(ident: &proc_macro2::Ident) -> String {
+    let written = ident.to_string();
+    match written.strip_prefix("r#") {
+        Some(name) => name.to_owned(),
+        None => written,
+    }
+}
+
+/// Whether `token` is the identifier `name`, raw or not.
+fn is_word(token: &TokenTree, name: &str) -> bool {
+    matches!(*token, TokenTree::Ident(ref ident) if bare(ident) == name)
+}
 
 /// Rust keywords that may stand directly before a `[`, where the bracket opens
 /// an array, slice pattern or type rather than indexing a value.
@@ -105,6 +131,12 @@ pub(crate) fn check(tokens: &[TokenTree]) -> Result<()> {
     for (index, token) in tokens.iter().enumerate() {
         let back = |distance: usize| index.checked_sub(distance).and_then(|at| tokens.get(at));
         let next = index.checked_add(1).and_then(|at| tokens.get(at));
+        let after = index.checked_add(2).and_then(|at| tokens.get(at));
+        if let Some(message) = open_range(token, back(1), next, after) {
+            let refusal = Err(Refusal::new(token.span(), message.to_owned()));
+            tracing::debug!(error = ?refusal.as_ref().err(), "check: returning an error to the caller");
+            return refusal;
+        }
         if let Some(message) = refusal(token, back(1), back(3), next) {
             let refusal = Err(Refusal::new(token.span(), message));
             tracing::debug!(error = ?refusal.as_ref().err(), "check: returning an error to the caller");
@@ -116,6 +148,29 @@ pub(crate) fn check(tokens: &[TokenTree]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The refusal for a range with no end that a loop body follows.
+///
+/// `for _ in 0u64.. { }` runs forever exactly as `loop { }` does (#908); only
+/// the spelling differs. The first `.` of `start.. {` is the token judged. A
+/// range in call arguments (`xs.get(1..)`) is bounded by its receiver and has
+/// no body after it, so it stands.
+fn open_range(
+    token: &TokenTree,
+    previous: Option<&TokenTree>,
+    next: Option<&TokenTree>,
+    after: Option<&TokenTree>,
+) -> Option<&'static str> {
+    let starts = matches!(previous, Some(TokenTree::Literal(_) | TokenTree::Ident(_)))
+        || matches!(previous, Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Parenthesis);
+    let dots = is_punct(token, '.') && next.is_some_and(|second| is_punct(second, '.'));
+    let body =
+        matches!(after, Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace);
+    (starts && dots && body).then_some(
+        "a range with no end runs its loop forever; use `for x in xs:` over a bounded collection, \
+         or `retry up to N times:` to repeat until success",
+    )
 }
 
 /// Refuse a whole stream; used where the tokens are not already a slice.
@@ -142,7 +197,7 @@ fn refusal(
     let after_path = previous.is_some_and(|prior| is_punct(prior, ':'));
     match *token {
         TokenTree::Ident(ref ident) => {
-            let word = ident.to_string();
+            let word = bare(ident);
             if (after_dot || after_path) && PANICKING_METHODS.contains(&word.as_str()) {
                 return Some(format!(
                     "`.{word}()` ends the program on failure; a flow returns its failure instead: \
@@ -207,8 +262,15 @@ fn refused_import(tokens: &[TokenTree]) -> Option<TokenTree> {
     /// Search `tokens` and every group inside them.
     fn find(tokens: impl IntoIterator<Item = TokenTree>) -> Option<TokenTree> {
         tokens.into_iter().find_map(|token| match token {
-            TokenTree::Ident(ref name) if REFUSED_IMPORTS.contains(&name.to_string().as_str()) => {
+            TokenTree::Ident(ref name)
+                if REFUSED_IMPORTS.contains(&bare(name).as_str())
+                    || bare(name).starts_with("spawn_") =>
+            {
                 Some(TokenTree::Ident(name.clone()))
+            }
+            // A glob brings in names no refusal here can see.
+            TokenTree::Punct(ref star) if star.as_char() == '*' => {
+                Some(TokenTree::Punct(star.clone()))
             }
             TokenTree::Group(ref group) => find(group.stream()),
             TokenTree::Ident(_) | TokenTree::Punct(_) | TokenTree::Literal(_) => None,
@@ -266,7 +328,9 @@ fn refusal_for_word(
             "a loop with no bound can run forever; use `retry up to N times:` to repeat \
              until success, `for x in xs:` or `each x in xs, at most N at once:` to visit items"
         }
-        "spawn" => {
+        // Every `spawn_*` (`spawn_blocking`, `spawn_local`) detaches the same
+        // way a bare `spawn` does (#908).
+        word if word == "spawn" || word.starts_with("spawn_") => {
             "a spawned task has no owner in this flow and outlives its failure; \
              use `each x in xs, at most N at once:` or `together:`, which own their work"
         }
@@ -278,17 +342,17 @@ fn refusal_for_word(
              flow or `.await` the future"
         }
         "unsafe" => "a script never needs `unsafe`; put it behind a safe function in Rust",
-        "sleep" if after_path && path_head.is_some_and(|path| is_ident(path, "thread")) => {
+        "sleep" if after_path && path_head.is_some_and(|path| is_word(path, "thread")) => {
             "`thread::sleep` stalls every sibling on this thread; use `within D:` for a \
              deadline or `retry .., waiting D:` for a pause between attempts"
         }
         "exit" | "abort"
-            if after_path && path_head.is_some_and(|path| is_ident(path, "process")) =>
+            if after_path && path_head.is_some_and(|path| is_word(path, "process")) =>
         {
             "ending the process from a flow skips every caller's cleanup and leaves no \
              record of why; `fail with \"reason\"` and let the caller decide"
         }
-        "forget" if after_path && path_head.is_some_and(|path| is_ident(path, "mem")) => {
+        "forget" if after_path && path_head.is_some_and(|path| is_word(path, "mem")) => {
             "`mem::forget` leaks what the value owns (a permit, a process group, a lock); \
              let it drop, or hand it to the owner that must outlive the flow"
         }

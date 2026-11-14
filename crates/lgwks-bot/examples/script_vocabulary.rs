@@ -185,7 +185,7 @@ lgwks_bot::script! {
 
     /// Run the lanes as a dependency graph: fetch twice, merge, publish.
     flow lanes() -> GraphReport<u64>:
-        let report = graph, at most (2) at once:
+        let report = graph:
             node fetch_a:
                 1_u64
             node fetch_b:

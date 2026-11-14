@@ -406,15 +406,38 @@ pub(super) fn expect_words<'line>(
 /// else running, which the author cannot see; a typed `16` is right on one
 /// host and wrong on the next. `1` (one at a time) is a statement about the
 /// work, not the machine, so it stands.
+///
+/// The test is structural (#908): a bound that names nothing is a typed
+/// number, however it is wrapped. `(16)`, `((16))` and `(8 * 2)` are refused
+/// with `16`; `(upstream.limit)` names its source and stands.
 pub(super) fn refuse_typed_concurrency(tokens: &[TokenTree]) -> Result<()> {
-    if let [TokenTree::Literal(ref literal)] = *tokens
-        && literal
-            .to_string()
-            .chars()
-            .filter(char::is_ascii_digit)
-            .collect::<String>()
-            != "1"
-    {
+    /// Every literal under `tokens`, and whether any name stands among them.
+    fn constants(tokens: &[TokenTree], found: &mut Vec<proc_macro2::Literal>) -> bool {
+        tokens.iter().any(|token| match *token {
+            TokenTree::Ident(_) => true,
+            TokenTree::Group(ref inner) => {
+                let nested: Vec<TokenTree> = inner.stream().into_iter().collect();
+                constants(&nested, found)
+            }
+            TokenTree::Literal(ref literal) => {
+                found.push(literal.clone());
+                false
+            }
+            TokenTree::Punct(_) => false,
+        })
+    }
+    let mut literals = Vec::new();
+    let named = constants(tokens, &mut literals);
+    let one_at_a_time = literals.len() == 1
+        && literals.iter().all(|literal| {
+            literal
+                .to_string()
+                .chars()
+                .filter(char::is_ascii_digit)
+                .collect::<String>()
+                == "1"
+        });
+    if let (false, Some(literal)) = (named || one_at_a_time, literals.first()) {
         let refusal = Err(Refusal::new(
             literal.span(),
             "a typed concurrency number is right on one machine and wrong on the next: drop \
