@@ -244,7 +244,10 @@ impl std::error::Error for FailureCause {}
 
 /// Request options. Start from [`Options::default`]
 /// (30s timeout, 8 MiB body ceiling).
-#[derive(Debug, Clone)]
+///
+/// Its `Debug` names each extra header but never renders a value, because a
+/// value such as `Authorization` carries a credential.
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct Options {
     /// Maximum time allowed for each transport phase. Body reads and redirect
@@ -297,6 +300,31 @@ impl Default for Options {
             pool: PoolConfig::default(),
             tls: TlsOptions::default(),
         }
+    }
+}
+
+impl fmt::Debug for Options {
+    /// Renders every field, but each extra header by its name alone: a value
+    /// such as `Authorization` or `Cookie` is a credential, so a `debug!` of
+    /// these options, or of a [`Client`] built from them, never logs it (#913).
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let header_names: Vec<&str> = self
+            .headers
+            .iter()
+            .map(|header| header.0.as_str())
+            .collect();
+        formatter
+            .debug_struct("Options")
+            .field("timeout", &self.timeout)
+            .field("deadline", &self.deadline)
+            .field("user_agent", &self.user_agent)
+            .field("headers", &header_names)
+            .field("max_body_bytes", &self.max_body_bytes)
+            .field("body_policy", &self.body_policy)
+            .field("redirect_policy", &self.redirect_policy)
+            .field("pool", &self.pool)
+            .field("tls", &self.tls)
+            .finish()
     }
 }
 

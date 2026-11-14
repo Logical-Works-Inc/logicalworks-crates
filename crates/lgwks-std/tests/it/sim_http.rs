@@ -68,6 +68,11 @@ mod sim {
         reply
     }
 
+    /// The root URL of a loopback server listening on `port`.
+    fn loopback_root(port: u16) -> String {
+        format!("http://127.0.0.1:{port}/")
+    }
+
     /// One seeded script for the ceiling family.
     struct CeilingScript {
         /// The declared body ceiling.
@@ -106,14 +111,15 @@ mod sim {
             let port = listener.local_addr()?.port();
             let body = vec![b'x'; script.body_len];
             let reply = response(script.body_len, &body);
-            let url = format!("http://127.0.0.1:{port}/");
+            let url = loopback_root(port);
+            let policy = if script.preview {
+                BodyPolicy::Preview
+            } else {
+                BodyPolicy::Whole
+            };
             let options = Options::default()
                 .max_body_bytes(script.ceiling)
-                .body_policy(if script.preview {
-                    BodyPolicy::Preview
-                } else {
-                    BodyPolicy::Whole
-                });
+                .body_policy(policy);
             let result = std::thread::scope(|scope| {
                 scope.spawn(|| serve_once(&listener, &reply));
                 http::get_with(&url, &options)
@@ -244,7 +250,7 @@ mod sim {
             let script = torn_script(seed);
             let listener = TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
-            let url = format!("http://127.0.0.1:{port}/");
+            let url = loopback_root(port);
             let options = Options::default().max_body_bytes(script.content_length);
             let result = std::thread::scope(|scope| {
                 scope.spawn(|| serve_torn(&listener, &script));
@@ -329,7 +335,7 @@ mod sim {
             let listener = TcpListener::bind("127.0.0.1:0")?;
             let port = listener.local_addr()?.port();
             let reply = response(2, b"ok");
-            let url = format!("http://127.0.0.1:{port}/");
+            let url = loopback_root(port);
             let (left_status, right_status, heads) =
                 std::thread::scope(|scope| -> Result<_, Box<dyn std::error::Error>> {
                     let server = scope.spawn(|| serve_many(&listener, &reply, 2));
@@ -371,6 +377,64 @@ mod sim {
                 seen, expected,
                 "seed {seed}: each tenant's request carries only its own value"
             );
+        }
+        Ok(())
+    }
+
+    /// The header names a credential rides on, plus one a caller invented.
+    const SECRET_HEADERS: [&str; 5] = [
+        "Authorization",
+        "Cookie",
+        "Proxy-Authorization",
+        "X-Api-Key",
+        "X-Custom-Token",
+    ];
+
+    /// A `Debug` of options, or of a client built from them, names every
+    /// header and renders no header value.
+    ///
+    /// Source: CWE-532 (sensitive information in a log file). The bug it
+    /// catches: `Options` derived `Debug` over its header pairs, so a
+    /// `debug!(?options)` line wrote a bearer token into the log (#913). Each
+    /// seed draws the casing, the count and the secret, and checks both the
+    /// compact and the pretty form, so a redaction keyed on one spelling
+    /// fails.
+    #[test]
+    fn debug_names_every_header_and_renders_no_value() -> Result<(), Box<dyn std::error::Error>> {
+        for seed in 0..SEEDS {
+            let mut rng = Rng::new(seed ^ 0xdeb0_0000);
+            let mut options = Options::default();
+            let mut sent = Vec::new();
+            for _ in 0..=rng.below(SECRET_HEADERS.len()) {
+                let name = SECRET_HEADERS[rng.below(SECRET_HEADERS.len())];
+                let name = if rng.below(2) == 0 {
+                    name.to_ascii_lowercase()
+                } else {
+                    name.to_owned()
+                };
+                let secret = format!("s3cr3t-{:016x}", rng.next());
+                options = options.header(name.clone(), secret.clone());
+                sent.push((name, secret));
+            }
+            let client = http::Client::new(options.clone())?;
+            for rendered in [
+                format!("{options:?}"),
+                format!("{options:#?}"),
+                format!("{client:?}"),
+                format!("{client:#?}"),
+            ] {
+                for header in &sent {
+                    let (name, secret) = (&header.0, &header.1);
+                    assert!(
+                        !rendered.contains(secret.as_str()),
+                        "seed {seed}: the value of {name} reached a Debug line: {rendered}"
+                    );
+                    assert!(
+                        rendered.contains(name.as_str()),
+                        "seed {seed}: the header {name} is missing from a Debug line: {rendered}"
+                    );
+                }
+            }
         }
         Ok(())
     }
