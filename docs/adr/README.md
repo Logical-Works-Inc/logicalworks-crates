@@ -90,6 +90,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0052](0052-the-runtime-is-lgwks-runtime-in-seven-crates.md) | The runtime is `lgwks_runtime` in seven crates under one facade |
 | [0053](0053-a-world-per-tenant-on-an-owned-engine.md) | A world per tenant on an owned engine; the cell host is the supervisor |
 | [0054](0054-each-tenant-spends-its-own-effect-budget.md) | Each tenant spends its own effect budget |
+| [0055](0055-the-owned-world-is-columns-ticks-and-one-hash.md) | The owned world is columns, ticks and one hash (refines 0053) |
 | [0056](0056-a-served-run-is-owned-by-the-serve-not-the-connection.md) | A served run is owned by the serve, not the connection |
 
 New records go at the bottom of that table.

@@ -408,3 +408,11 @@ required-features = ["ecs", "wire"]
 name = "command-journal"
 path = "src/bin/command_journal.rs"
 required-features = ["edge", "ephemeral"]
+
+# The owned world's matched-workload measurement (ADR 0055, #1002). It compiles `src/world` in by path
+# because the module stays private to the crate until the cell uses it (#1004), which removes this bin's
+# include and the `cfg(test)` on the module together.
+[[bin]]
+name = "world-bench"
+path = "src/bin/world_bench.rs"
+required-features = ["wire"]

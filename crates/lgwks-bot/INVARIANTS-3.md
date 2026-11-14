@@ -45,3 +45,4 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 2 is [`INVARIANTS-2.md`](INVARIANTS-2.
 - **INV-COMMAND-1** A request held across a command is answered on every path, and a rebuild never reruns it. · why: #898 · enforced by: `app::sim_command`
 - **INV-BUDGET-1** An effect past its tenant's budget is refused `app.budget` and never served; no tenant spends another's. · why: #1042 · enforced by: `app::sim_budget`
 - **INV-SERVE-1** A served run belongs to the serve, so a client that hangs up never abandons it, and a drain joins or aborts every one. · why: #1008 · enforced by: `tests/it/sim_serve_hop.rs`, `rt::serve::runs`
+- **INV-WORLD-1** A dropped transaction leaves the world hash unchanged, and a log replayed on a fresh world gives the live hash. · why: #1002 · enforced by: `sim_world::dropped`, `sim_world::replay`

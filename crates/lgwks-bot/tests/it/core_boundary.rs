@@ -8,7 +8,7 @@
 //!
 //! - a file outside `src/ecs.rs` and `src/ecs/` that names `bevy`, and
 //! - a core module (`ecs`, `verb`, `cap`, `gate`, `effect`, `journal`,
-//!   `error`, `clock`, `spec`) that names tokio, axum, or the crate's `rt`,
+//!   `error`, `clock`, `spec`, `world`) that names tokio, axum, or the crate's `rt`,
 //!   `task`, `script` or `domain` modules.
 //!
 //! It also holds ADR 0053 decision 5, "no `catch_unwind`": the files that still
@@ -25,8 +25,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// The modules ADR 0006 names as the core.
-const CORE: [&str; 9] = [
-    "ecs", "verb", "cap", "gate", "effect", "journal", "error", "clock", "spec",
+const CORE: [&str; 10] = [
+    "ecs", "verb", "cap", "gate", "effect", "journal", "error", "clock", "spec", "world",
 ];
 
 /// What a core module may not name: the driver and the stacks that sit on it.
@@ -189,6 +189,13 @@ fn a_planted_driver_import_in_the_core_is_refused() {
     assert_eq!(
         edges("ecs/bot.rs", "use lgwks_deps::axum::Router;").len(),
         1
+    );
+    assert_eq!(
+        edges("world/state.rs", "use crate::rt::runtime::Runtime;"),
+        vec![String::from(
+            "world/state.rs:1: core module names crate::rt"
+        )],
+        "the owned world (ADR 0055) is a core module"
     );
 }
 
