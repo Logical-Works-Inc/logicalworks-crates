@@ -115,6 +115,6 @@ The estate identity type, replacing the `uuid` crate for stored identities (ADR 
 | `ecs::projection` | `RecordProjection`, a consumer's fold on the ECS world, `record-projection` (ADR 0018) | INV-PROJECTION-1 |
 | `script::journaled_cancel` | a scope's stop in the consumer's journal, `durable-stop` (ADR 0019) | INV-STOP-1 |
 | `ecs::effects::outcomes`, `journal::seam`, `effect::id` | settling what an attempt became; the `EffectJournal` trait; the never-zero role ids an `EffectKey` names | INV-BOT-14, INV-RANDOM-1 |
-| `app::auth`, `app::command` | `Principal`, `RequestHeaders`: who a request is, at the edge (ADR 0020); `CommandLimits` and the pool a held command runs on, `command-journal` (ADR 0025) | INV-EDGE-1, INV-COMMAND-1 |
+| `app::auth`, `app::command`, `app::budget` | `Principal`, `RequestHeaders`: who a request is, at the edge (ADR 0020); `CommandLimits` and the pool a held command runs on, `command-journal` (ADR 0025); `BudgetLimits`, each tenant's effect allowance per window (ADR 0054) | INV-EDGE-1, INV-COMMAND-1, INV-BUDGET-1 |
 | `script::run_store::step`, `script::scope::run_state`, `task::disposition` | the durable step; the run state a scope carries; task disposition and fault attribution | INV-BOT-14, INV-BOT-195 |
 | `rt::serve::ingress`, `task::store::append`, `journal::owner::store::batch` | request ingress and retry answering; ordered append on the storage owner thread; that thread's group-commit loop, on its own thread and asleep until signalled (#1041) | INV-BOT-50 |

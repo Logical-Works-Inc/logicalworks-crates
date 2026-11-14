@@ -106,7 +106,7 @@ Each item has no graph edge, no other tracked `.rs` file names it, and its own f
 ## Merge: same job twice
 - `genesis_head`, one signature, three copies: `crates/lgwks-bot/src/task/ledger.rs:85`,
   `crates/lgwks-bot/src/task/store.rs:143`, `crates/lgwks-bot/src/tenant_store/record.rs:30`.
-- `auto_workers`, one signature: `crates/lgwks-bot/src/app.rs:430` and `crates/lgwks-bot/src/ecs/requests.rs:290`.
+- `auto_workers`, one signature: `crates/lgwks-bot/src/app.rs:477` and `crates/lgwks-bot/src/ecs/requests.rs:290`.
 - The two repeated blocks above, and the `serve` and `estate` test pairs.
 
 ## Move: wrong layer
