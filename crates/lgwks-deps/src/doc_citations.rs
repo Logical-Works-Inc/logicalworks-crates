@@ -420,33 +420,127 @@ mod tests {
         Ok(())
     }
 
+    /// A scratch repository the checker accepts: its own temp tree, an empty
+    /// std inventory on both sides, and a `Cargo.toml` to cite.
+    fn scratch_root() -> Result<PathBuf, Box<dyn Error>> {
+        // A process id is reused by the OS; the estate's entropy names the tree.
+        let nonce = lgwks_std::hex::encode(lgwks_std::random::bytes::<8>()?);
+        let root = std::env::temp_dir().join(format!("lgwks-doc-cite-{nonce}"));
+        std::fs::create_dir_all(root.join("docs/adr"))?;
+        std::fs::create_dir_all(root.join("scripts"))?;
+        std::fs::create_dir_all(root.join("crates/lgwks-std/src"))?;
+        // The std inventory compares these two; empty, they agree on nothing.
+        std::fs::write(root.join("crates/lgwks-std/src/lib.rs"), "")?;
+        std::fs::write(root.join("docs/std-ast-deps-closure-matrix-std.md"), "")?;
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"subject\"\n")?;
+        Ok(root)
+    }
+
+    /// Runs the checker on `root`, returning its code and both handles.
+    fn run_on(
+        root: &std::path::Path,
+        update: bool,
+    ) -> Result<(u8, String, String), Box<dyn Error>> {
+        let options = Options {
+            root: root.to_path_buf(),
+            update,
+            limit: 40,
+        };
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = execute(&options, &mut out, &mut err)?;
+        Ok((
+            code,
+            String::from_utf8_lossy(&out).into_owned(),
+            String::from_utf8_lossy(&err).into_owned(),
+        ))
+    }
+
+    /// Run 43622999959 (PR #1046): the budget lines grew `app.rs` and moved
+    /// `auto_workers` from line 430 to 477 under the census's citation. The
+    /// number still resolves, so only the pinned text catches it: the check
+    /// names the page and both texts, then a re-anchor and `--update` verify.
+    #[test]
+    fn a_citation_moved_under_a_grown_file_fails_until_re_anchored() -> TestResult {
+        let body = "fn auto_workers() -> usize {\n    1\n}\n";
+        for grown in [1_usize, 3, 47] {
+            let root = scratch_root()?;
+            std::fs::create_dir_all(root.join("crates/demo/src"))?;
+            let source = root.join("crates/demo/src/lib.rs");
+            let page = root.join("docs/census.md");
+            std::fs::write(&source, format!("//! demo\n{body}"))?;
+            std::fs::write(&page, "One copy is `crates/demo/src/lib.rs:2`.\n")?;
+            let pinned = run_on(&root, true)?;
+            std::fs::write(
+                &source,
+                format!("//! demo\n{}{body}", "fn budget() {}\n".repeat(grown)),
+            )?;
+            let moved = run_on(&root, false)?;
+            let line = 2 + grown;
+            std::fs::write(
+                &page,
+                format!("One copy is `crates/demo/src/lib.rs:{line}`.\n"),
+            )?;
+            let anchored = run_on(&root, true)?;
+            let verified = run_on(&root, false)?;
+            std::fs::remove_dir_all(&root)?;
+            assert_eq!(pinned.0, 0, "the first pin is written: {}", pinned.2);
+            assert_eq!(
+                moved.0, 1,
+                "a grown file fails the check by {grown}: {}",
+                moved.2
+            );
+            assert!(
+                moved
+                    .2
+                    .contains("1 cited line(s) no longer hold the text they were pinned to"),
+                "the moved pin is counted: {}",
+                moved.2
+            );
+            assert!(
+                moved
+                    .2
+                    .contains("crates/demo/src/lib.rs:2  (cited by docs/census.md)"),
+                "the refusal names the line and the page: {}",
+                moved.2
+            );
+            assert!(
+                moved.2.contains("pinned: fn auto_workers() -> usize {")
+                    && moved.2.contains("found:  fn budget() {}"),
+                "both texts are printed: {}",
+                moved.2
+            );
+            assert_eq!(anchored.0, 0, "the re-anchor is recorded: {}", anchored.2);
+            assert!(
+                anchored.2.contains("1 entry(ies) are no longer cited:"),
+                "the old pin is dropped: {}",
+                anchored.2
+            );
+            assert_eq!(
+                verified.0, 0,
+                "the re-anchored lock verifies: {}",
+                verified.2
+            );
+            assert!(
+                verified.1.contains("doc citations resolve:"),
+                "the check says so: {}",
+                verified.1
+            );
+        }
+        Ok(())
+    }
+
     /// Run 43191943628: ADR 0030 cited `src/property.rs:152`, a file only
     /// logical_ci has. A citation into another repository resolves nowhere
     /// here, so it is refused by name and the lock is left alone, while a
     /// citation of this repository's own file beside it still resolves.
     #[test]
     fn a_citation_of_a_file_only_another_repository_has_is_refused() -> TestResult {
-        // A process id is reused by the OS; the estate's entropy names the tree.
-        let nonce = lgwks_std::hex::encode(lgwks_std::random::bytes::<8>()?);
-        let root = std::env::temp_dir().join(format!("lgwks-doc-cite-{nonce}"));
-        std::fs::create_dir_all(root.join("docs/adr"))?;
-        std::fs::create_dir_all(root.join("crates/lgwks-std/src"))?;
-        // The std inventory compares these two; empty, they agree on nothing.
-        std::fs::write(root.join("crates/lgwks-std/src/lib.rs"), "")?;
-        std::fs::write(root.join("docs/std-ast-deps-closure-matrix-std.md"), "")?;
-        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"subject\"\n")?;
+        let root = scratch_root()?;
         std::fs::write(
             root.join("docs/adr/0001-foreign.md"),
             "The name is `Cargo.toml:2`; the receipt reader is `src/property.rs:152`.\n",
         )?;
-        let options = Options {
-            root: root.clone(),
-            update: true,
-            limit: 40,
-        };
-        let (mut out, mut err) = (Vec::new(), Vec::new());
-        let code = execute(&options, &mut out, &mut err)?;
-        let printed = String::from_utf8_lossy(&err).into_owned();
+        let (code, _, printed) = run_on(&root, true)?;
         let lock_written = root.join(super::LOCK_NAME).exists();
         std::fs::remove_dir_all(&root)?;
         assert_eq!(code, 1, "a foreign citation fails the check: {printed}");
