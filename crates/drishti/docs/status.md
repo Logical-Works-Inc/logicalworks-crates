@@ -1,6 +1,6 @@
 # Status and evidence boundary
 
-Version: 0.1.3. Last audited: 2026-11-08. Product stage: **design publication plus a deterministic reference core**.
+Version: 0.2.0. Last audited: 2026-11-14. Product stage: **design publication plus deterministic reference cores**.
 
 ## Present
 
@@ -9,14 +9,16 @@ Version: 0.1.3. Last audited: 2026-11-08. Product stage: **design publication pl
 - The first realized presentation seats (Director instruction, 2026-09-30): Logical Works brand tokens (`src/design.rs`), the eleven-effect ink lab (`src/ink_lab.rs`), and the GPU residency model (`src/runtime.rs`). These are deterministic reference cores with unit tests; they emit frame geometry and receipts and do not claim a device.
 - A native host (`src/native.rs`, feature `ui`) that presents ink frames in a GPUI window, and the `drishti` command (`src/bin/drishti`, default feature `cli`).
 - Finalized product contract with 40 initial answers, 14 follow-up answers, subsequent corrections, derived constraints and explicit remaining proof obligations.
-- A Cargo package with Rustdoc modules and document-bundle integrity tests. The library reaches `lgwks_std`, `cli` adds `lgwks_bot`, and `ui` adds GPUI through `lgwks_deps`.
+- A Cargo package with Rustdoc modules and document-bundle integrity tests. The library reaches `lgwks_std`, `lgwks_ast`, `lgwks_macros` and `lgwks_deps` (SQLite, P-256, libm), `cli` adds `lgwks_bot`, `ui` adds GPUI and `desktop` adds the preview window, each through `lgwks_deps`.
+- Absorbed Logic OS Canvas mechanisms as tested Rust (kernel#850 row 15, D17): protocol wire vocabulary with schema lock, workspace layout validation with byte-identical web projection, deterministic motion core with frame budget, bounded native scene with a 34-case presentation contract, headless trace host with an analytic checker, and the native-host contract (broker, stores, telemetry, command bar, attestation) with ported Abuse, Fuzz, Conformance, Drift, Persistence and Integration behaviors plus seeded simulations. These are mechanism tests, not product journeys.
+- Broker (D18): inspectors read through one session-plus-tenant filter; cross-tenant reads need an injected `CrossTenantInspect` grant; the command bar needs an injected `intent.emit` grant; every decision reaches a required audit sink as a typed event; registries are bounded with a typed refusal. Tested by the seeded `sim_broker_*` suites in `tests/sim/broker_scope.rs`, `broker_bounds.rs` and `broker_abuse.rs` (neighbour, saboteur, double-clicker, giant-and-empty, weird-bytes, clock-fool and monkey fools). The tap is scoped to its owner's session, so a telemetry tap hears only that session. Durable audit storage and sink backpressure are not implemented.
 - Source-grounded blockers for browser hosting, GPUI integration, script selection/confinement, estate consumer support, resource calibration, and strict Keel admission.
 
 ## Absent / unverified
 
 No qualified GPU backend, browser host, interpreter integration, sandbox, host authority adapter, shared compute/render residency, or performance result is implemented. The native host has run on macOS only; Windows and Linux compile through the same feature and have not been run. The ink lab and residency model are deterministic reference cores, not a qualified renderer; `BYTES_PER_SHAPE` transfers are modelled, not captured. All product journeys — including J31–J33 — remain `unmeasured`. Keel is not wired. No executable gate claims runtime acceptance.
 
-The planned runtime tree is only partly realized: the on-disk seats are `src/design.rs`, `src/ink_lab.rs`, `src/runtime.rs`, `src/native.rs` and `src/bin/drishti`. Documentation modules remain a publishing mechanism, not placeholder runtime implementations. This package cannot be used to build a frontend today.
+The planned runtime tree is only partly realized: the on-disk seats are `src/design.rs`, `src/ink_lab.rs`, `src/runtime.rs`, `src/native.rs` and `src/bin/drishti`, plus the Canvas modules `canvas_protocol`, `motion`, `canvas_scene`, `preview` and `native_host`. Documentation modules remain a publishing mechanism, not placeholder runtime implementations. This package cannot be used to build a frontend today.
 
 ## Original publication verification record
 

@@ -1,0 +1,1 @@
+{ "have": [], "need": "signal.emit", "expected": "err" }

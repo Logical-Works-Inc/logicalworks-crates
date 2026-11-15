@@ -1,0 +1,11 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.kernel_ready",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5f40",
+  "sequence_number": 0,
+  "emitted_at": "2026-05-28T12:00:00.000Z",
+  "payload": {
+    "tier_active": "A",
+    "abi_version": 1
+  }
+}

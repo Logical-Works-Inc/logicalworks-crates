@@ -1,0 +1,4 @@
+{
+  "input": "not-an-object",
+  "expected_error": "envelope must be an object"
+}

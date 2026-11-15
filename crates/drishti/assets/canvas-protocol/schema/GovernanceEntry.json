@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "Attribution": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "type": "number"
+        },
+        "kind": {
+          "$ref": "#/definitions/AttributionKind"
+        },
+        "model_version": {
+          "type": "string"
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source_id"
+      ],
+      "type": "object"
+    },
+    "AttributionKind": {
+      "enum": [
+        "user",
+        "widget",
+        "ml",
+        "system"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "attribution": {
+      "$ref": "#/definitions/Attribution"
+    },
+    "description": {
+      "type": "string"
+    },
+    "entry_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "recorded_at": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "signal_id": {
+      "type": "string"
+    },
+    "work_object_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "entry_id",
+    "session_id",
+    "work_object_id",
+    "signal_id",
+    "event_type",
+    "description",
+    "attribution",
+    "recorded_at"
+  ],
+  "type": "object"
+}

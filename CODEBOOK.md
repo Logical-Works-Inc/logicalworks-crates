@@ -44,7 +44,7 @@ graph is §10; dependency ownership is `AGENTS.md` and `contract/APPROVED.toml`.
 | `lgwks_ast` | `crates/lgwks-ast` | the one parser: language identification, tree-sitter grammars, `script!` reading, `scan` | SL-2 |
 | `lgwks_macros` | `crates/lgwks-macros` | the `script!` compiler | SL-2 |
 | `lgwks_deps` | `crates/lgwks-deps` | the storefront: dependency admission, the gate binaries, the `catalog` command, `ci-local`, the `lgwks` CLI, and `churn-slot`, which shares `src/bin/shared/ram_disk.rs` with `ci-local` and keeps its unit tests in `src/bin/churn_slot/slot_tests.rs` (ADR 0026); `src/bin/shared/rust_code.rs` is the one lexer `check-std-first` and the `ci_local::test_gated` unwrap lane share (ADR 0035); `ci_local::invariants::registers` finds each register part and holds it to 120 lines at 120 columns (ADR 0040) | INV-DEP-EDGE-OWNED, INV-CI-SLOT-1, INV-SCAN-GATED-1, INV-DOC-8 |
-| `drishti` | `crates/drishti` | frontend orchestration: design publication and a deterministic reference core | the `drishti` rows of `INVARIANTS.md` |
+| `drishti` | `crates/drishti` | the frontend framework and the one home of Canvas (ADR 0058): `canvas_protocol`, `canvas_scene`, `motion`, `preview`, and `native_host`, whose tenant-keyed broker, audit sink, governance store and attestation evidence take `lgwks_deps` features `p256`, `libm` and `desktop-preview` | the `drishti` rows of `INVARIANTS.md` |
 
 ### `lgwks_std::id`, `math` and `legacy::fax`
 

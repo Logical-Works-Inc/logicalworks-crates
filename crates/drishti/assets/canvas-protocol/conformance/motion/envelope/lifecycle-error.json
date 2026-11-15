@@ -1,0 +1,14 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.error",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5ef0",
+  "sequence_number": 4,
+  "emitted_at": "2026-05-28T12:00:09.100Z",
+  "payload": {
+    "type": "https://logicalworks.ca/errors/motion/capability-denied",
+    "title": "Capability Denied",
+    "status": 403,
+    "detail": "Source does not hold motion.schedule",
+    "error_code": "CAPABILITY_DENIED"
+  }
+}

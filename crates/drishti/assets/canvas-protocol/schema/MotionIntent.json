@@ -1,0 +1,141 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionIntent",
+  "title": "MotionIntent",
+  "description": "Motion intent envelope. Requires motion.schedule capability (D-09, ADR-057). motion_intent_id is UUID v4 caller-generated (gap-AI-miss #1). Easing names follow blueprints/canvas-motion/NAMING.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["signal_id","motion_intent_id","span_id","sequence_number","kind","source_kind","source_id","emitted_by_agent_id","session_invariant","emitted_at","payload"],
+  "properties": {
+    "signal_id": { "type": "string", "format": "uuid" },
+    "motion_intent_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "description": "Caller-generated UUID v4 (gap-AI-miss #1 — not auto-incremented)."
+    },
+    "parent_motion_intent_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "description": "Optional DAG causality. Broker does NOT validate parent exists (gap-AI-miss #2)."
+    },
+    "trace_id": { "type": "string", "format": "uuid", "description": "W3C-style flat trace UUID. sweep Q4." },
+    "span_id": { "type": "string", "format": "uuid", "description": "Per-envelope span identifier. sweep Q4." },
+    "sequence_number": { "type": "integer", "minimum": 0 },
+    "kind": { "type": "string", "const": "motion.intent" },
+    "source_kind": { "type": "string", "enum": ["user","widget","ml","system"] },
+    "source_id": { "type": "string", "minLength": 1 },
+    "emitted_by_agent_id": { "type": "string", "minLength": 1, "description": "Broker overwrites from registered agent handle." },
+    "session_invariant": { "$ref": "#/definitions/SessionInvariant" },
+    "emitted_at": { "type": "string", "format": "date-time" },
+    "payload": { "$ref": "#/definitions/MotionIntentPayload" }
+  },
+  "definitions": {
+    "SessionInvariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_object_id","session_id","policy_bundle_id"],
+      "properties": {
+        "work_object_id":   { "type": "string", "format": "uuid" },
+        "session_id":       { "type": "string", "format": "uuid" },
+        "policy_bundle_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "EasingSpec": {
+      "description": "Easing curve. See blueprints/canvas-motion/NAMING.md section 1 for full naming convention. Structure: <curve>.<direction> where direction is in | out | in-out. Standard curve names kept verbatim.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "instant",
+            "linear",
+            "ease",
+            "ease-in",
+            "ease-out",
+            "ease-in-out",
+            "quad.in",    "quad.out",    "quad.in-out",
+            "cubic.in",   "cubic.out",   "cubic.in-out",
+            "quart.in",   "quart.out",   "quart.in-out",
+            "quint.in",   "quint.out",   "quint.in-out",
+            "sine.in",    "sine.out",    "sine.in-out",
+            "expo.in",    "expo.out",    "expo.in-out",
+            "circ.in",    "circ.out",    "circ.in-out",
+            "back.in",    "back.out",    "back.in-out",
+            "elastic.in", "elastic.out", "elastic.in-out",
+            "bounce.in",  "bounce.out",  "bounce.in-out",
+            "step(1)",    "step(2)",     "step(4)",    "step(8)",    "step(16)",
+            "step-start", "step-end"
+          ]
+        },
+        {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Custom cubic-bezier [p1x, p1y, p2x, p2y]. p1x and p2x must be in [0,1].",
+          "items": [
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number" },
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number" }
+          ]
+        }
+      ]
+    },
+    "ScrubSourceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id","kind"],
+      "properties": {
+        "id":   { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["scroll","pointer","audio-clock"] },
+        "unit_handle": { "type": "string", "maxLength": 512, "pattern": "^[a-zA-Z0-9_-]+$" }
+      }
+    },
+    "SVGPathRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["selector"],
+      "properties": {
+        "selector": { "type": "string", "minLength": 1 },
+        "url":      { "type": "string", "format": "uri" }
+      }
+    },
+    "MotionIntentPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor_kind","target_handle","duration_ms","delay_ms","easing","element_count"],
+      "properties": {
+        "descriptor_kind": {
+          "type": "string",
+          "enum": ["tween","timeline","stagger","scroll","morph","flip","exit","ticker"],
+          "description": "Animation pattern. See NAMING.md section 2. 'scroll' replaces 'scrolltrigger' (GSAP plugin name)."
+        },
+        "target_handle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512,
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "description": "Opaque broker-registered handle — not a CSS selector. SEC-001: alphanumeric + hyphen/underscore only."
+        },
+        "duration_ms":   { "type": "number", "minimum": 0 },
+        "delay_ms":      { "type": "number", "minimum": 0 },
+        "easing":        { "$ref": "#/definitions/EasingSpec" },
+        "repeat":        { "oneOf": [{ "type": "number", "minimum": -1 }, { "type": "string", "const": "infinity" }] },
+        "element_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "SEC-003: bounded for cost gate (cost = element_count * duration_ms / 1000)."
+        },
+        "timeline_url":  { "type": "string", "format": "uri" },
+        "timeline_inline": {},
+        "scrub_source":  { "$ref": "#/definitions/ScrubSourceRef", "description": "Required when descriptor_kind == scroll." },
+        "morph_target":  { "$ref": "#/definitions/SVGPathRef",    "description": "Required when descriptor_kind == morph." },
+        "flip_state_id": { "type": "string",                      "description": "Required when descriptor_kind == flip." },
+        "tier_hint":     { "type": "string", "enum": ["S","A","B","C"] },
+        "motion_budget": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}

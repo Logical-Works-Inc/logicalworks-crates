@@ -406,3 +406,40 @@ replacement = "lgwks_std::trace, once it owns what the blocker names."
 removal_trigger = "Bridging tracing spans needs a layer lgwks_std::trace does not own: the edge goes when the estate owns it and the storefront journey passes without it."
 last_reviewed = "2026-11-05"
 review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
+
+# drishti's fold (ADR 0058): one mortgage per storefront edge it brought.
+
+[[lifecycle]]
+crate = "p256"
+replacement = "An lgwks_std::sign module that signs and verifies P-256 once the curve arithmetic is eliminated."
+removal_trigger = "Attestation proofs verify against the vectors without the p256 edge and no consumer remains."
+last_reviewed = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/840"
+
+[[lifecycle]]
+crate = "libm"
+replacement = "An estate maths module, or a std float library that is bit-identical on every declared target."
+removal_trigger = "Colour and motion goldens pass on every declared target without the libm edge and no consumer remains."
+last_reviewed = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/837"
+
+[[lifecycle]]
+crate = "winit"
+replacement = "A native window shell in the drishti native seat covering the preview's window and input needs."
+removal_trigger = "The preview opens and reads input through an estate shell and no consumer of the winit edge remains."
+last_reviewed = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/836"
+
+[[lifecycle]]
+crate = "softbuffer"
+replacement = "A native surface presenter in the drishti native seat covering the preview's frame upload."
+removal_trigger = "The preview presents frames through an estate surface and no consumer of the softbuffer edge remains."
+last_reviewed = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/836"
+
+[[lifecycle]]
+crate = "cosmic-text"
+replacement = "A text shaping module in the drishti native seat covering the preview's glyph layout."
+removal_trigger = "The preview shapes text through an estate engine with equal goldens and no consumer remains."
+last_reviewed = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/836"

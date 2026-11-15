@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "PayloadPredicate": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "eq": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "eq"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "neq": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "neq"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "in": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "in"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "exists": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "exists"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "and": {
+              "items": {
+                "$ref": "#/definitions/PayloadPredicate"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "and"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "or": {
+              "items": {
+                "$ref": "#/definitions/PayloadPredicate"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "or"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "properties": {
+    "kind_glob": {
+      "type": "string"
+    },
+    "payload_predicate": {
+      "$ref": "#/definitions/PayloadPredicate"
+    }
+  },
+  "required": [
+    "kind_glob"
+  ],
+  "type": "object"
+}

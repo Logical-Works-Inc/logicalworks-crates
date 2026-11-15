@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "IntentEnvelope",
+  "title": "IntentEnvelope",
+  "description": "Command-bar emitted user-intent envelope. source_kind is always 'user'. E11 (#233) adds full semantics.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "signal_id":         { "type": "string", "format": "uuid" },
+    "kind":              { "type": "string", "minLength": 1 },
+    "source_kind":       { "type": "string", "const": "user" },
+    "source_id":         { "type": "string", "minLength": 1 },
+    "session_invariant": { "$ref": "#/definitions/SessionInvariant" },
+    "emitted_at":        { "type": "string", "format": "date-time" },
+    "payload":           {},
+    "raw_text":          { "type": "string" },
+    "resolved_kind":     { "type": "string" }
+  },
+  "required": ["signal_id", "kind", "source_kind", "source_id", "session_invariant", "emitted_at", "payload"],
+  "definitions": {
+    "SessionInvariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_object_id":   { "type": "string", "format": "uuid" },
+        "session_id":       { "type": "string", "format": "uuid" },
+        "policy_bundle_id": { "type": "string", "format": "uuid" }
+      },
+      "required": ["work_object_id", "session_id", "policy_bundle_id"]
+    }
+  }
+}

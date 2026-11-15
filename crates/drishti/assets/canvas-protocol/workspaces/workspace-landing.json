@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "layout_id": "workspace.landing",
+  "title": "Workspace",
+  "subtitle": "Landing page",
+  "chrome": {
+    "default_placement": "bottom",
+    "allowed_placements": ["top", "right", "bottom", "left"],
+    "collapsible": true,
+    "default_theme": "calm"
+  },
+  "surfaces": [
+    {
+      "descriptor": {
+        "widget_id": "workspace.activity",
+        "kind": "workspace.activity",
+        "version": "1.0.0",
+        "surface": "both",
+        "emits": [{ "kind_glob": "activity.selection.changed" }],
+        "listens": [{ "kind_glob": "intent.activity.*" }],
+        "capabilities": ["signal.emit", "signal.subscribe"],
+        "self_listen": false,
+        "pinned": false
+      },
+      "presentation": { "title": "Activity", "role": "panel", "slot": "primary", "order": 0 }
+    },
+    {
+      "descriptor": {
+        "widget_id": "workspace.work",
+        "kind": "workspace.work",
+        "version": "1.0.0",
+        "surface": "both",
+        "emits": [{ "kind_glob": "work.selection.changed" }],
+        "listens": [{ "kind_glob": "intent.work.*" }],
+        "capabilities": ["signal.emit", "signal.subscribe"],
+        "self_listen": false,
+        "pinned": false
+      },
+      "presentation": { "title": "Work", "role": "panel", "slot": "secondary", "order": 1 }
+    },
+    {
+      "descriptor": {
+        "widget_id": "workspace.system",
+        "kind": "workspace.system",
+        "version": "1.0.0",
+        "surface": "both",
+        "emits": [{ "kind_glob": "system.selection.changed" }],
+        "listens": [{ "kind_glob": "intent.system.*" }],
+        "capabilities": ["signal.emit", "signal.subscribe"],
+        "self_listen": false,
+        "pinned": false
+      },
+      "presentation": { "title": "System", "role": "panel", "slot": "tertiary", "order": 2 }
+    },
+    {
+      "descriptor": {
+        "widget_id": "workspace.context",
+        "kind": "workspace.context",
+        "version": "1.0.0",
+        "surface": "both",
+        "emits": [{ "kind_glob": "context.action.requested" }],
+        "listens": [{ "kind_glob": "intent.context.*" }],
+        "capabilities": ["signal.emit", "signal.subscribe"],
+        "self_listen": false,
+        "pinned": false
+      },
+      "presentation": { "title": "Action", "role": "context", "slot": "overlay", "order": 3 }
+    }
+  ],
+  "tools": [
+    { "tool_id": "canvas.select", "label": "Select", "icon": "cursor" },
+    { "tool_id": "canvas.compose", "label": "Compose", "icon": "compose" },
+    { "tool_id": "canvas.duplicate", "label": "Duplicate", "icon": "duplicate" },
+    { "tool_id": "canvas.remove", "label": "Remove", "icon": "remove" }
+  ]
+}

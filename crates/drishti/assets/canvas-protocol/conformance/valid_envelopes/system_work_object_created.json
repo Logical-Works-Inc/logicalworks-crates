@@ -1,0 +1,18 @@
+{
+  "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e2b",
+  "kind": "work.object.created",
+  "source_kind": "system",
+  "source_id": "broker.work-registry",
+  "session_invariant": {
+    "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e2c",
+    "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e2d",
+    "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e2e",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "emitted_at": "2026-05-25T08:30:00Z",
+  "payload": {
+    "object_type": "lead",
+    "display_name": "Acme Renewal"
+  }
+}

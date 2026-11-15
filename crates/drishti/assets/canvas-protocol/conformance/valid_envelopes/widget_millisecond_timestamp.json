@@ -1,0 +1,17 @@
+{
+  "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e21",
+  "kind": "timer.tick",
+  "source_kind": "widget",
+  "source_id": "com.logicalworks.widget.timer",
+  "session_invariant": {
+    "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e07",
+    "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e08",
+    "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e09",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "emitted_at": "2026-05-25T12:00:00.123Z",
+  "payload": {
+    "tick": 5
+  }
+}

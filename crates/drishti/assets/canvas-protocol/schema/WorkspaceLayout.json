@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "WorkspaceLayout",
+  "title": "WorkspaceLayout",
+  "description": "Renderer-neutral presentation structure for a Canvas workspace. Broker, authority, and durable Workspace state are explicitly out of scope.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "layout_id", "title", "subtitle", "chrome", "surfaces", "tools"],
+  "properties": {
+    "schema_version": { "const": 1, "type": "integer" },
+    "layout_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$" },
+    "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "subtitle": { "type": "string", "maxLength": 120 },
+    "chrome": { "$ref": "#/definitions/WorkspaceChrome" },
+    "surfaces": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": { "$ref": "#/definitions/WorkspaceSurface" }
+    },
+    "tools": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": { "$ref": "#/definitions/WorkspaceTool" }
+    }
+  },
+  "definitions": {
+    "ChromePlacement": {
+      "type": "string",
+      "enum": ["top", "right", "bottom", "left"]
+    },
+    "WorkspaceChrome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["default_placement", "allowed_placements", "collapsible", "default_theme"],
+      "properties": {
+        "default_placement": { "$ref": "#/definitions/ChromePlacement" },
+        "allowed_placements": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": { "$ref": "#/definitions/ChromePlacement" }
+        },
+        "collapsible": { "type": "boolean" },
+        "default_theme": { "type": "string", "enum": ["calm", "retro"] }
+      }
+    },
+    "WorkspacePresentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "role", "slot", "order"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "role": { "type": "string", "enum": ["panel", "context"] },
+        "slot": { "type": "string", "enum": ["primary", "secondary", "tertiary", "overlay"] },
+        "order": { "type": "integer", "minimum": 0, "maximum": 31 }
+      }
+    },
+    "SignalPattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind_glob"],
+      "properties": {
+        "kind_glob": { "type": "string", "minLength": 1, "maxLength": 160 }
+      }
+    },
+    "WidgetDescriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["widget_id", "kind", "version", "surface", "emits", "listens", "capabilities", "self_listen", "pinned"],
+      "properties": {
+        "widget_id": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)+$" },
+        "kind": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "surface": { "type": "string", "enum": ["web", "native", "both"] },
+        "emits": { "type": "array", "maxItems": 64, "items": { "$ref": "#/definitions/SignalPattern" } },
+        "listens": { "type": "array", "maxItems": 64, "items": { "$ref": "#/definitions/SignalPattern" } },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["signal.emit", "signal.subscribe"] }
+        },
+        "self_listen": { "type": "boolean" },
+        "pinned": { "type": "boolean" }
+      }
+    },
+    "WorkspaceSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["descriptor", "presentation"],
+      "properties": {
+        "descriptor": { "$ref": "#/definitions/WidgetDescriptor" },
+        "presentation": { "$ref": "#/definitions/WorkspacePresentation" }
+      }
+    },
+    "WorkspaceTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool_id", "label", "icon"],
+      "properties": {
+        "tool_id": { "type": "string", "pattern": "^canvas\\.[a-z][a-z0-9-]*$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "icon": { "type": "string", "enum": ["cursor", "compose", "duplicate", "remove"] }
+      }
+    }
+  }
+}

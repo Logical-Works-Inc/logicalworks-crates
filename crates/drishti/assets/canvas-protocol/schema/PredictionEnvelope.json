@@ -1,0 +1,411 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "PayloadPredicate": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "eq": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "eq"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "neq": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "neq"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "in": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "in"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "exists": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "exists"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "and": {
+              "items": {
+                "$ref": "#/definitions/PayloadPredicate"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "and"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "or": {
+              "items": {
+                "$ref": "#/definitions/PayloadPredicate"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "or"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PolicyBundleId": {
+      "type": "string"
+    },
+    "PredictionSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "action_kind": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "payload": {}
+      },
+      "required": [
+        "label",
+        "action_kind"
+      ],
+      "type": "object"
+    },
+    "SessionId": {
+      "type": "string"
+    },
+    "SessionInvariant": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_bundle_id": {
+          "$ref": "#/definitions/PolicyBundleId"
+        },
+        "session_id": {
+          "$ref": "#/definitions/SessionId"
+        },
+        "tenant_id": {
+          "$ref": "#/definitions/TenantId"
+        },
+        "user_sub": {
+          "$ref": "#/definitions/UserSub"
+        },
+        "work_object_id": {
+          "$ref": "#/definitions/WorkObjectId"
+        }
+      },
+      "required": [
+        "work_object_id",
+        "session_id",
+        "policy_bundle_id",
+        "tenant_id",
+        "user_sub"
+      ],
+      "type": "object"
+    },
+    "SignalPattern": {
+      "additionalProperties": false,
+      "properties": {
+        "kind_glob": {
+          "type": "string"
+        },
+        "payload_predicate": {
+          "$ref": "#/definitions/PayloadPredicate"
+        }
+      },
+      "required": [
+        "kind_glob"
+      ],
+      "type": "object"
+    },
+    "TenantId": {
+      "type": "string"
+    },
+    "UserSub": {
+      "type": "string"
+    },
+    "ViewDirective": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "inject",
+              "type": "string"
+            },
+            "target_zone": {
+              "$ref": "#/definitions/ZoneId"
+            },
+            "ttl_ms": {
+              "type": "number"
+            },
+            "widget_descriptor": {
+              "$ref": "#/definitions/WidgetDescriptor"
+            }
+          },
+          "required": [
+            "kind",
+            "target_zone",
+            "widget_descriptor"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "focus",
+              "type": "string"
+            },
+            "section": {
+              "type": "string"
+            },
+            "target_widget_id": {
+              "type": "string"
+            },
+            "ttl_ms": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "target_widget_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "recommend",
+              "type": "string"
+            },
+            "suggestion": {
+              "$ref": "#/definitions/PredictionSuggestion"
+            },
+            "target_zone": {
+              "$ref": "#/definitions/ZoneId"
+            },
+            "ttl_ms": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "target_zone",
+            "suggestion"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "highlight",
+              "type": "string"
+            },
+            "section": {
+              "type": "string"
+            },
+            "target_widget_id": {
+              "type": "string"
+            },
+            "ttl_ms": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "target_widget_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WidgetCapability": {
+      "enum": [
+        "signal.emit",
+        "signal.subscribe",
+        "tape.read",
+        "view.inject"
+      ],
+      "type": "string"
+    },
+    "WidgetDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "items": {
+            "$ref": "#/definitions/WidgetCapability"
+          },
+          "type": "array"
+        },
+        "emits": {
+          "items": {
+            "$ref": "#/definitions/SignalPattern"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "listens": {
+          "items": {
+            "$ref": "#/definitions/SignalPattern"
+          },
+          "type": "array"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "self_listen": {
+          "type": "boolean"
+        },
+        "surface": {
+          "enum": [
+            "web",
+            "native",
+            "both"
+          ],
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "widget_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "widget_id",
+        "kind",
+        "version",
+        "surface",
+        "emits",
+        "listens",
+        "capabilities"
+      ],
+      "type": "object"
+    },
+    "WorkObjectId": {
+      "type": "string"
+    },
+    "ZoneId": {
+      "enum": [
+        "caller",
+        "record",
+        "next-action",
+        "tools",
+        "governance",
+        "overlay"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "confidence": {
+      "type": "number"
+    },
+    "emitted_at": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "model_version": {
+      "type": "string"
+    },
+    "payload": {},
+    "reasoning": {
+      "type": "string"
+    },
+    "session_invariant": {
+      "$ref": "#/definitions/SessionInvariant"
+    },
+    "signal_id": {
+      "type": "string"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "source_kind": {
+      "const": "ml",
+      "type": "string"
+    },
+    "view_directive": {
+      "$ref": "#/definitions/ViewDirective"
+    }
+  },
+  "required": [
+    "confidence",
+    "emitted_at",
+    "kind",
+    "model_version",
+    "payload",
+    "reasoning",
+    "session_invariant",
+    "signal_id",
+    "source_id",
+    "source_kind"
+  ],
+  "type": "object"
+}

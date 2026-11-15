@@ -1,0 +1,192 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "PayloadPredicate": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "eq": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "eq"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "neq": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "neq"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "in": {
+              "items": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {},
+                  "type": "array"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "in"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "exists": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "exists"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "and": {
+              "items": {
+                "$ref": "#/definitions/PayloadPredicate"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "and"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "or": {
+              "items": {
+                "$ref": "#/definitions/PayloadPredicate"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "or"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SignalPattern": {
+      "additionalProperties": false,
+      "properties": {
+        "kind_glob": {
+          "type": "string"
+        },
+        "payload_predicate": {
+          "$ref": "#/definitions/PayloadPredicate"
+        }
+      },
+      "required": [
+        "kind_glob"
+      ],
+      "type": "object"
+    },
+    "WidgetCapability": {
+      "enum": [
+        "signal.emit",
+        "signal.subscribe",
+        "tape.read",
+        "view.inject"
+      ],
+      "type": "string"
+    }
+  },
+  "properties": {
+    "capabilities": {
+      "items": {
+        "$ref": "#/definitions/WidgetCapability"
+      },
+      "type": "array"
+    },
+    "emits": {
+      "items": {
+        "$ref": "#/definitions/SignalPattern"
+      },
+      "type": "array"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "listens": {
+      "items": {
+        "$ref": "#/definitions/SignalPattern"
+      },
+      "type": "array"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "self_listen": {
+      "type": "boolean"
+    },
+    "surface": {
+      "enum": [
+        "web",
+        "native",
+        "both"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "widget_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "widget_id",
+    "kind",
+    "version",
+    "surface",
+    "emits",
+    "listens",
+    "capabilities"
+  ],
+  "type": "object"
+}

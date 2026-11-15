@@ -119,6 +119,9 @@
 //! | `ml-tokenizers` | the Hugging Face subword tokenizer |
 //! | `time-jiff` | interim zoned time until ELIMINATE lands in `lgwks_std::time` |
 //! | `sqlite` | the one durable SQLite, opened with the estate's defaults |
+//! | `p256` | ECDSA over NIST P-256 for attestation evidence (#840) |
+//! | `libm` | portable float maths for colour and motion (#837) |
+//! | `desktop-preview` | `winit`, `softbuffer` and `cosmic-text` for the preview window (#836) |
 //! | `sealed-aead` | the one AEAD the sealed records seal under (#785) |
 //! | `tls-ring` | rustls on ring for in-process TLS, installed by `tls::install_ring` |
 //! | `mcp` | the Model Context Protocol SDK: server, client, stdio, child-process, streamable HTTP, OAuth |
@@ -350,6 +353,39 @@ pub use axum;
 #[cfg(feature = "sqlite")]
 #[doc(hidden)]
 pub use rusqlite;
+
+/// The one authored P-256 ECDSA edge, re-exported for the storefront.
+///
+/// Reached only through the `p256` feature (#840): drishti's attestation
+/// evidence signs and verifies with it, and no crate declares `p256` itself.
+#[cfg(feature = "p256")]
+#[doc(hidden)]
+pub use p256;
+
+/// The one authored float-maths edge, re-exported for the storefront.
+///
+/// Reached only through the `libm` feature (#837): drishti's colour and motion
+/// interpolation call it so a result is bit-identical on every target.
+#[cfg(feature = "libm")]
+#[doc(hidden)]
+pub use libm;
+
+/// The desktop preview's window, reached only through `desktop-preview` (#836).
+#[cfg(feature = "desktop-preview")]
+#[doc(hidden)]
+pub use winit;
+
+/// The desktop preview's software frame buffer, reached only through
+/// `desktop-preview` (#836).
+#[cfg(feature = "desktop-preview")]
+#[doc(hidden)]
+pub use softbuffer;
+
+/// The desktop preview's text shaping, reached only through `desktop-preview`
+/// (#836).
+#[cfg(feature = "desktop-preview")]
+#[doc(hidden)]
+pub use cosmic_text;
 
 /// Day-0 HTTP middleware for the revenue slice (#721): cors, trace and
 /// compression layers. Reached only through the `tower-http` feature.

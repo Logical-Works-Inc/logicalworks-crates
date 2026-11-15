@@ -1,0 +1,285 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionLifecycle",
+  "title": "MotionLifecycle",
+  "description": "Motion lifecycle event discriminated union. Discriminated by 'kind'. Emitted by the broker/kernel to subscribers holding motion.observe capability. sweep Q4: all events carry trace_id and span_id.",
+  "oneOf": [
+    { "$ref": "#/definitions/KernelReadyEvent" },
+    { "$ref": "#/definitions/StartEvent" },
+    { "$ref": "#/definitions/FrameEvent" },
+    { "$ref": "#/definitions/CompleteEvent" },
+    { "$ref": "#/definitions/CancelEvent" },
+    { "$ref": "#/definitions/ErrorEvent" },
+    { "$ref": "#/definitions/ConflictEvent" },
+    { "$ref": "#/definitions/FrameBudgetExceededEvent" },
+    { "$ref": "#/definitions/PluginTimeoutEvent" },
+    { "$ref": "#/definitions/TargetLostEvent" }
+  ],
+  "definitions": {
+    "MotionErrorCode": {
+      "type": "string",
+      "enum": [
+        "INTERPOLATOR_PANIC",
+        "EASING_DOMAIN_ERROR",
+        "PLUGIN_TIMEOUT",
+        "ABI_MISMATCH",
+        "ABI_RANGE",
+        "CAPABILITY_DENIED",
+        "GPU_DEVICE_LOST",
+        "CONCURRENT_PROPERTY_CONFLICT",
+        "BROKER_IDEMPOTENCY_FENCE",
+        "TIER_CAPABILITY_EXCEEDED",
+        "TARGET_LOST",
+        "COST_BUDGET_EXCEEDED",
+        "MOTION_BUDGET_INVALID",
+        "MOTION_PATCH_PATH_IMMUTABLE",
+        "MOTION_PATCH_NODE_NOT_FOUND",
+        "SCHEMA_INVALID"
+      ]
+    },
+    "KernelReadyEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "payload"],
+      "properties": {
+        "kind":            { "type": "string", "const": "motion.lifecycle.kernel_ready" },
+        "trace_id":        { "type": "string", "format": "uuid" },
+        "span_id":         { "type": "string", "format": "uuid" },
+        "sequence_number": { "type": "integer", "minimum": 0 },
+        "emitted_at":      { "type": "string", "format": "date-time" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tier_active", "abi_version"],
+          "properties": {
+            "tier_active":  { "type": "string", "enum": ["S", "A", "B", "C"] },
+            "abi_version":  { "type": "number", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "StartEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "motion_intent_id", "payload"],
+      "properties": {
+        "kind":             { "type": "string", "const": "motion.lifecycle.start" },
+        "trace_id":         { "type": "string", "format": "uuid" },
+        "span_id":          { "type": "string", "format": "uuid" },
+        "sequence_number":  { "type": "integer", "minimum": 0 },
+        "emitted_at":       { "type": "string", "format": "date-time" },
+        "motion_intent_id": { "type": "string", "format": "uuid" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["motion_intent_id", "t_normalized"],
+          "properties": {
+            "motion_intent_id": { "type": "string", "format": "uuid" },
+            "t_normalized":     { "type": "number", "const": 0 }
+          }
+        }
+      }
+    },
+    "FrameEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "motion_intent_id", "payload"],
+      "properties": {
+        "kind":             { "type": "string", "const": "motion.lifecycle.frame" },
+        "trace_id":         { "type": "string", "format": "uuid" },
+        "span_id":          { "type": "string", "format": "uuid" },
+        "sequence_number":  { "type": "integer", "minimum": 0 },
+        "emitted_at":       { "type": "string", "format": "date-time" },
+        "motion_intent_id": { "type": "string", "format": "uuid" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["motion_intent_id", "frame_number", "t_normalized", "wall_clock_ms", "budget_ms_used", "budget_ms_target", "tier"],
+          "properties": {
+            "motion_intent_id": { "type": "string", "format": "uuid" },
+            "frame_number":     { "type": "integer", "minimum": 0 },
+            "t_normalized":     { "type": "number", "minimum": 0, "maximum": 1 },
+            "wall_clock_ms":    { "type": "number", "minimum": 0 },
+            "budget_ms_used":   { "type": "number", "minimum": 0 },
+            "budget_ms_target": { "type": "number", "minimum": 0 },
+            "tier":             { "type": "string", "enum": ["S", "A", "B", "C"] }
+          }
+        }
+      }
+    },
+    "CompleteEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "motion_intent_id", "payload"],
+      "properties": {
+        "kind":             { "type": "string", "const": "motion.lifecycle.complete" },
+        "trace_id":         { "type": "string", "format": "uuid" },
+        "span_id":          { "type": "string", "format": "uuid" },
+        "sequence_number":  { "type": "integer", "minimum": 0 },
+        "emitted_at":       { "type": "string", "format": "date-time" },
+        "motion_intent_id": { "type": "string", "format": "uuid" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["motion_intent_id", "replay"],
+          "properties": {
+            "motion_intent_id": { "type": "string", "format": "uuid" },
+            "replay":           { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "CancelEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "motion_intent_id", "payload"],
+      "properties": {
+        "kind":             { "type": "string", "const": "motion.lifecycle.cancel" },
+        "trace_id":         { "type": "string", "format": "uuid" },
+        "span_id":          { "type": "string", "format": "uuid" },
+        "sequence_number":  { "type": "integer", "minimum": 0 },
+        "emitted_at":       { "type": "string", "format": "date-time" },
+        "motion_intent_id": { "type": "string", "format": "uuid" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["motion_intent_id", "reason"],
+          "properties": {
+            "motion_intent_id": { "type": "string", "format": "uuid" },
+            "reason": {
+              "type": "string",
+              "enum": ["user", "unmount", "superseded", "target_lost"]
+            }
+          }
+        }
+      }
+    },
+    "ErrorEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "payload"],
+      "properties": {
+        "kind":             { "type": "string", "const": "motion.lifecycle.error" },
+        "trace_id":         { "type": "string", "format": "uuid" },
+        "span_id":          { "type": "string", "format": "uuid" },
+        "sequence_number":  { "type": "integer", "minimum": 0 },
+        "emitted_at":       { "type": "string", "format": "date-time" },
+        "motion_intent_id": { "type": "string", "format": "uuid" },
+        "payload": {
+          "type": "object",
+          "description": "RFC 7807 ProblemDetails payload.",
+          "additionalProperties": false,
+          "required": ["type", "title", "status", "detail"],
+          "properties": {
+            "type":             { "type": "string", "format": "uri" },
+            "title":            { "type": "string", "minLength": 1 },
+            "status":           { "type": "integer", "minimum": 400, "maximum": 599 },
+            "detail":           { "type": "string", "minLength": 1 },
+            "motion_intent_id": { "type": "string", "format": "uuid" },
+            "frame_number":     { "type": "integer", "minimum": 0 },
+            "error_code":       { "$ref": "#/definitions/MotionErrorCode" },
+            "instance":         { "type": "string", "format": "uri" }
+          }
+        }
+      }
+    },
+    "ConflictEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "payload"],
+      "properties": {
+        "kind":            { "type": "string", "const": "motion.lifecycle.conflict" },
+        "trace_id":        { "type": "string", "format": "uuid" },
+        "span_id":         { "type": "string", "format": "uuid" },
+        "sequence_number": { "type": "integer", "minimum": 0 },
+        "emitted_at":      { "type": "string", "format": "date-time" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["element_selector", "property", "intent_ids", "resolution"],
+          "properties": {
+            "element_selector": { "type": "string", "minLength": 1 },
+            "property":         { "type": "string", "minLength": 1 },
+            "intent_ids": {
+              "type": "array",
+              "items": { "type": "string", "format": "uuid" },
+              "minItems": 2,
+              "maxItems": 2,
+              "description": "Exactly 2 conflicting intent UUIDs."
+            },
+            "resolution": {
+              "type": "string",
+              "enum": ["last-write", "compose", "reject"]
+            }
+          }
+        }
+      }
+    },
+    "FrameBudgetExceededEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "payload"],
+      "properties": {
+        "kind":            { "type": "string", "const": "motion.lifecycle.frame_budget_exceeded" },
+        "trace_id":        { "type": "string", "format": "uuid" },
+        "span_id":         { "type": "string", "format": "uuid" },
+        "sequence_number": { "type": "integer", "minimum": 0 },
+        "emitted_at":      { "type": "string", "format": "date-time" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["frame_number", "budget_ms_used", "budget_ms_target", "tier"],
+          "properties": {
+            "frame_number":     { "type": "integer", "minimum": 0 },
+            "budget_ms_used":   { "type": "number", "minimum": 0 },
+            "budget_ms_target": { "type": "number", "minimum": 0 },
+            "tier":             { "type": "string", "enum": ["S", "A", "B", "C"] }
+          }
+        }
+      }
+    },
+    "PluginTimeoutEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "payload"],
+      "properties": {
+        "kind":            { "type": "string", "const": "motion.lifecycle.plugin_timeout" },
+        "trace_id":        { "type": "string", "format": "uuid" },
+        "span_id":         { "type": "string", "format": "uuid" },
+        "sequence_number": { "type": "integer", "minimum": 0 },
+        "emitted_at":      { "type": "string", "format": "date-time" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plugin_id", "timeout_ms"],
+          "properties": {
+            "plugin_id":  { "type": "string", "minLength": 1 },
+            "timeout_ms": { "type": "number", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "TargetLostEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "span_id", "sequence_number", "emitted_at", "motion_intent_id", "payload"],
+      "properties": {
+        "kind":             { "type": "string", "const": "motion.lifecycle.target_lost" },
+        "trace_id":         { "type": "string", "format": "uuid" },
+        "span_id":          { "type": "string", "format": "uuid" },
+        "sequence_number":  { "type": "integer", "minimum": 0 },
+        "emitted_at":       { "type": "string", "format": "date-time" },
+        "motion_intent_id": { "type": "string", "format": "uuid" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["motion_intent_id", "element_handle"],
+          "properties": {
+            "motion_intent_id": { "type": "string", "format": "uuid" },
+            "element_handle":   { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

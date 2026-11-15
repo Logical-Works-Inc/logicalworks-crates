@@ -1,0 +1,27 @@
+{
+  "_comment": "Rejected: duration_ms is negative — violates minimum: 0",
+  "_expected_error": "duration_ms",
+  "$schema_ref": "MotionIntent",
+  "signal_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f850",
+  "motion_intent_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f851",
+  "span_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f852",
+  "sequence_number": 0,
+  "kind": "motion.intent",
+  "source_kind": "widget",
+  "source_id": "test",
+  "emitted_by_agent_id": "broker",
+  "session_invariant": {
+    "work_object_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f701",
+    "session_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f702",
+    "policy_bundle_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f703"
+  },
+  "emitted_at": "2026-05-28T12:00:00.000Z",
+  "payload": {
+    "descriptor_kind": "tween",
+    "target_selector": "#hero",
+    "duration_ms": -100,
+    "delay_ms": 0,
+    "easing": "cubic.out",
+    "element_count": 1
+  }
+}

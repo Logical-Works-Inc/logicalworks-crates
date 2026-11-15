@@ -1,0 +1,17 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.frame",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5ec0",
+  "sequence_number": 2,
+  "emitted_at": "2026-05-28T12:00:08.016Z",
+  "motion_intent_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e31",
+  "payload": {
+    "motion_intent_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e31",
+    "frame_number": 1,
+    "t_normalized": 0.02,
+    "wall_clock_ms": 16.67,
+    "budget_ms_used": 1.3,
+    "budget_ms_target": 16.6,
+    "tier": "A"
+  }
+}

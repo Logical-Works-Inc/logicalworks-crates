@@ -1,0 +1,115 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionTimeline",
+  "title": "MotionTimeline",
+  "description": "Declarative timeline document. Easing names follow blueprints/canvas-motion/NAMING.md section 1. Scrub source kinds follow NAMING.md section 2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version","document_id","duration_ms","nodes","conflict_policy"],
+  "properties": {
+    "version":        { "type": "string", "const": "1.0" },
+    "document_id":    { "type": "string", "format": "uuid" },
+    "duration_ms":    { "type": "number", "minimum": 0 },
+    "labels": {
+      "type": "object",
+      "description": "Named time positions in milliseconds.",
+      "additionalProperties": { "type": "number", "minimum": 0 }
+    },
+    "nodes":          { "type": "array", "items": { "$ref": "#/definitions/MotionNode" } },
+    "scrub_sources":  { "type": "array", "items": { "$ref": "#/definitions/ScrubSource" } },
+    "conflict_policy": {
+      "type": "object",
+      "description": "Per-property conflict resolution strategy.",
+      "additionalProperties": { "type": "string", "enum": ["last-write","compose","error"] }
+    }
+  },
+  "definitions": {
+    "TimePosition": {
+      "description": "Time in milliseconds, or a named label reference.",
+      "oneOf": [
+        { "type": "number", "minimum": 0 },
+        { "type": "object", "additionalProperties": false, "required": ["label"], "properties": { "label": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "EasingSpec": {
+      "description": "Easing curve. See blueprints/canvas-motion/NAMING.md section 1. Structure: <curve>.<direction> | CSS standard name | [p1x, p1y, p2x, p2y].",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "instant",
+            "linear",
+            "ease",
+            "ease-in",
+            "ease-out",
+            "ease-in-out",
+            "quad.in",    "quad.out",    "quad.in-out",
+            "cubic.in",   "cubic.out",   "cubic.in-out",
+            "quart.in",   "quart.out",   "quart.in-out",
+            "quint.in",   "quint.out",   "quint.in-out",
+            "sine.in",    "sine.out",    "sine.in-out",
+            "expo.in",    "expo.out",    "expo.in-out",
+            "circ.in",    "circ.out",    "circ.in-out",
+            "back.in",    "back.out",    "back.in-out",
+            "elastic.in", "elastic.out", "elastic.in-out",
+            "bounce.in",  "bounce.out",  "bounce.in-out",
+            "step(1)",    "step(2)",     "step(4)",    "step(8)",    "step(16)",
+            "step-start", "step-end"
+          ]
+        },
+        {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "description": "Custom cubic-bezier [p1x, p1y, p2x, p2y]. p1x and p2x in [0,1].",
+          "items": [
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number" },
+            { "type": "number", "minimum": 0, "maximum": 1 },
+            { "type": "number" }
+          ]
+        }
+      ]
+    },
+    "SpringConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tension","friction","mass"],
+      "properties": {
+        "tension":  { "type": "number", "minimum": 0 },
+        "friction": { "type": "number", "minimum": 0 },
+        "mass":     { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "MotionNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id","kind","target_handle","property","from","to","easing","start_ms","end_ms"],
+      "properties": {
+        "node_id":   { "type": "string", "format": "uuid" },
+        "kind":      { "type": "string", "enum": ["tween","accumulator"] },
+        "target_handle": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "property":  { "type": "string", "minLength": 1 },
+        "from": {},
+        "to": {},
+        "easing":    { "$ref": "#/definitions/EasingSpec" },
+        "start_ms":  { "$ref": "#/definitions/TimePosition" },
+        "end_ms":    { "$ref": "#/definitions/TimePosition" },
+        "accumulator_kind":  { "type": "string", "enum": ["spring","drag","scrub"] },
+        "spring_config":     { "$ref": "#/definitions/SpringConfig" },
+        "scrub_source_id":   { "type": "string", "minLength": 1 },
+        "direction_logical": { "type": "boolean", "description": "Resolve start/end against document dir for RTL. sweep #13." }
+      }
+    },
+    "ScrubSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id","kind"],
+      "properties": {
+        "id":   { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["scroll","pointer","audio-clock"], "description": "'scroll' not 'scrolltrigger'. See NAMING.md section 2." },
+        "unit_handle": { "type": "string", "maxLength": 512, "pattern": "^[a-zA-Z0-9_-]+$" }
+      }
+    }
+  }
+}

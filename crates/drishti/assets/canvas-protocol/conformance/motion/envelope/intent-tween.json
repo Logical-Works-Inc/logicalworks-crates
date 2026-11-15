@@ -1,0 +1,25 @@
+{
+  "$schema_ref": "MotionIntent",
+  "signal_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f730",
+  "motion_intent_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f731",
+  "span_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f732",
+  "sequence_number": 0,
+  "kind": "motion.intent",
+  "source_kind": "widget",
+  "source_id": "hero-widget",
+  "emitted_by_agent_id": "broker",
+  "session_invariant": {
+    "work_object_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f701",
+    "session_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f702",
+    "policy_bundle_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f703"
+  },
+  "emitted_at": "2026-05-28T12:00:00.000Z",
+  "payload": {
+    "descriptor_kind": "tween",
+    "target_selector": "#hero-title",
+    "duration_ms": 800,
+    "delay_ms": 200,
+    "easing": "quart.out",
+    "element_count": 1
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.frame_budget_exceeded",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5f10",
+  "sequence_number": 6,
+  "emitted_at": "2026-05-28T12:00:09.300Z",
+  "payload": {
+    "frame_number": 12,
+    "budget_ms_used": 24.5,
+    "budget_ms_target": 16.6,
+    "tier": "A"
+  }
+}

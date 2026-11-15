@@ -1,0 +1,1 @@
+{ "have": ["tape.read"], "need": "tape.read", "expected": "ok" }

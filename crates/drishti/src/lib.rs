@@ -1,24 +1,39 @@
 //! # Drishti: frontend is orchestration
 //!
-//! **0.0.1 is a documentation-only design publication, not a frontend runtime.**
-//! These modules contain substantive architecture documentation. There are no
-//! renderer, scheduler, sandbox, scripting, or application runtime APIs here.
+//! **0.0.1 was a documentation-only design publication, not a frontend runtime.**
+//! The Rustdoc modules named below contain substantive architecture
+//! documentation. There are no qualified renderer, scheduler, sandbox,
+//! scripting, or application runtime APIs here.
 //!
 //! Start with [vision], then [architecture], [codebase], [decisions], [research],
 //! and [assurance]. [contracts] contains the requirement and journey registries.
 //! [status] separates package evidence from unimplemented product obligations.
 //!
-//! The Rustdoc modules above are the design publication. The first executable
-//! slice of the presentation layer lives in [design] (Logical Works brand
-//! tokens), [ink_lab] (the liquid ink engine) and [runtime] (the GPU residency
-//! model). These are deterministic, dependency-free reference cores with unit
-//! and simulation tests; they are not yet qualified on a real GPU or host, and
-//! no product journey is claimed passed because of them. The `drishti` command
-//! (`src/bin/drishti.rs`) is their consumer: it prints the tokens, the ink
+//! The Rustdoc modules are the design publication. The first executable slice
+//! of the presentation layer lives in [design] (Logical Works brand tokens),
+//! [ink_lab] (the liquid ink engine) and [runtime] (the GPU residency model).
+//! These are deterministic reference cores with unit and simulation tests; they
+//! are not yet qualified on a real GPU or host, and no product journey is
+//! claimed passed because of them. The `drishti` command
+//! (`src/bin/drishti/main.rs`) is their consumer: it prints the tokens, the ink
 //! frames, a residency session and the limits as JSON, and each page below.
+//!
+//! The crate also holds the Logic OS Canvas mechanisms (kernel#850 row 15) as
+//! tested Rust: [canvas_protocol] (wire vocabulary and workspace layout
+//! validation), [motion] (deterministic motion core), [canvas_scene] (bounded
+//! native scene and reducer), [preview] (headless trace host, trace checker,
+//! and the feature-gated desktop window) and [native_host] (signal broker,
+//! stores, telemetry, command bar, and attestation evidence). [cli] is the run
+//! convention of their diagnostic binaries. They make no product claim.
 
+pub mod canvas_protocol;
+pub mod canvas_scene;
+pub mod cli;
 pub mod design;
 pub mod ink_lab;
+pub mod motion;
+pub mod native_host;
+pub mod preview;
 pub mod runtime;
 
 /// The native GPU host (GPUI through `lgwks_deps`), behind the `ui` feature.

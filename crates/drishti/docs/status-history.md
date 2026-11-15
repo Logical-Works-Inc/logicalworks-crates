@@ -90,3 +90,7 @@ session that ran it was locked. It needs a rerun on an unlocked display. The
 goo filter and text turbulence are not painted. J09, J13, J31–J33 remain
 `unmeasured`: this is one native host on one machine, not an independent
 journey oracle, an accessibility observation or a device capture.
+
+## Canvas fold amendment — 2026-11-14
+
+The Director ordered the private repository that held the Logic OS Canvas mechanisms (kernel#850 row 15, D17) folded into this crate, which publishes that code. Added `canvas_protocol`, `canvas_scene`, `motion`, `native_host`, `preview` and `cli`, five diagnostic binaries, `assets/`, the `motion_*`, `native_host_*`, `canvas_*` and preview test suites, and `docs/adr/0001`. Decisions D15 to D17 of the private ledger became D17 to D19 here, because D15 and D16 were already taken. The private repository had merged the absorption in its PR drishti#11 and the broker work (D18, drishti#8 to drishti#10) after it, with `cargo nextest run --locked` green there. This crate has not yet recorded its own run of those suites. The sims share one `tests/sim/rng.rs` that holds both generators, the private xorshift64 `SimRng` and the ink lab's splitmix64 `SplitMix64`, so no seed changed its trace. All product journeys stay `unmeasured`.

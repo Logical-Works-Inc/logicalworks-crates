@@ -20,6 +20,8 @@ pub use crate::bevy_time;
 pub use crate::chacha20poly1305;
 #[cfg(feature = "cose")]
 pub use crate::coset;
+#[cfg(feature = "desktop-preview")]
+pub use crate::cosmic_text;
 #[cfg(feature = "merkle-log")]
 pub use crate::ct_merkle;
 #[cfg(feature = "model")]
@@ -30,14 +32,20 @@ pub use crate::gpui;
 pub use crate::jiff;
 #[cfg(feature = "json-schema")]
 pub use crate::jsonschema;
+#[cfg(feature = "libm")]
+pub use crate::libm;
 #[cfg(feature = "llm-guard")]
 pub use crate::llm_guard;
 #[cfg(feature = "oauth2")]
 pub use crate::oauth2;
+#[cfg(feature = "p256")]
+pub use crate::p256;
 #[cfg(feature = "mcp")]
 pub use crate::rmcp;
 #[cfg(feature = "sqlite")]
 pub use crate::rusqlite;
+#[cfg(feature = "desktop-preview")]
+pub use crate::softbuffer;
 #[cfg(feature = "sqlite")]
 pub use crate::sqlite;
 #[cfg(feature = "tls-ring")]
@@ -48,6 +56,8 @@ pub use crate::tokenizers;
 pub use crate::tokio;
 #[cfg(feature = "tower-http")]
 pub use crate::tower_http;
+#[cfg(feature = "desktop-preview")]
+pub use crate::winit;
 #[cfg(feature = "ml-candle")]
 pub use crate::{candle_core, candle_nn, candle_transformers};
 #[cfg(feature = "otel")]

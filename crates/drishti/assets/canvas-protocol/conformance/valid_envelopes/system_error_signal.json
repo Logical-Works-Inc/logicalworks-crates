@@ -1,0 +1,19 @@
+{
+  "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e22",
+  "kind": "system.error",
+  "source_kind": "system",
+  "source_id": "broker.error-handler",
+  "session_invariant": {
+    "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e01",
+    "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e02",
+    "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e03",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "emitted_at": "2026-05-25T12:10:00Z",
+  "payload": {
+    "code": "WIDGET_TIMEOUT",
+    "widget_id": "com.logicalworks.widget.slow",
+    "retryable": true
+  }
+}
