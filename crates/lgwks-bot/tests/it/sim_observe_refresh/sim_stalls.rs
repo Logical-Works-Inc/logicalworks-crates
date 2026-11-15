@@ -215,7 +215,7 @@ impl Observe for Paced {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         admit_poll(&call.0, Observe::required_caps(self), &self.polls)?;
         if self.pace.get() == WEDGED_PACE {
             // Parks forever without waking. The deadline is the only thing that

@@ -40,6 +40,17 @@ mod clock_wait;
 #[path = "vocabulary/outside.rs"]
 mod outside;
 
+/// A fresh scratch directory named `{prefix}-{random}`, and the guard that
+/// removes it when it drops.
+fn scratch(prefix: &str) -> Result<(std::path::PathBuf, super::Scratch), VocabularyError> {
+    let unique = lgwks_std::random::bytes::<8>().map_err(std::io::Error::other)?;
+    let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
+    let dir = std::env::temp_dir().join(format!("{prefix}-{hex}"));
+    std::fs::create_dir_all(&dir)?;
+    let keep = super::Scratch(dir.clone());
+    Ok((dir, keep))
+}
+
 /// Keep `step` in `log`; a poisoned log keeps what it had.
 fn note(log: &Mutex<Vec<&'static str>>, step: &'static str) {
     if let Ok(mut held) = log.lock() {

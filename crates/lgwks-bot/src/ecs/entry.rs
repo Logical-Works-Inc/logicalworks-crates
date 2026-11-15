@@ -13,9 +13,9 @@ use crate::verb::Observe;
 
 use super::work::AbandonReason;
 use super::work::AdmittedInput;
-use super::work::EffectEvidence;
 use super::work::TransitionHold;
 use super::work::WorkId;
+use crate::journal::EffectEvidence;
 #[cfg(doc)]
 use crate::spec::ObserveAny;
 

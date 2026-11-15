@@ -10,16 +10,12 @@ use super::*;
 /// deadlock cannot happen, so these bodies name the runtime they are about.
 /// The crate's builder keeps current-thread crate-private (`script!` is the one
 /// supported interface, #526), so this reaches the engine through the
-/// `lgwks_deps` facade. Panics, as the free one does, if the OS refuses the
+/// `lgwks_deps` facade. Returns the OS's refusal if it will not build the
 /// runtime.
-fn block_on<F: std::future::Future>(future: F) -> F::Output {
+fn block_on<F: std::future::Future>(future: F) -> std::io::Result<F::Output> {
     let mut builder = lgwks_deps::tokio::runtime::Builder::new_current_thread();
-    match builder.enable_all().build() {
-        Ok(runtime) => runtime.block_on(future),
-        Err(error) => std::panic::resume_unwind(Box::new(format!(
-            "ecs_tick: the OS refused a current-thread runtime: {error}"
-        ))),
-    }
+    let runtime = builder.enable_all().build()?;
+    Ok(runtime.block_on(future))
 }
 
 // ── The guarded bodies ─────────────────────────────────────────────────────
@@ -37,9 +33,9 @@ pub(super) fn refusal_current_thread() -> TestResult {
 
     // A current-thread runtime, built per call by `block_on` above: on it the
     // calling thread is the driver.
-    let refused = block_on(async { bot.tick() });
+    let refused = block_on(async { bot.tick() })?;
     match refused {
-        Err(BotError::TickInsideRuntime) => {}
+        Err(EcsError::TickInsideRuntime) => {}
         other => {
             let refusal = Err(format!(
                 "the synchronous adapter must refuse on a thread the shipped current-thread \
@@ -51,12 +47,12 @@ pub(super) fn refusal_current_thread() -> TestResult {
         }
     }
 
-    let fired = block_on(async { bot.tick_async().await })?;
+    let fired = block_on(async { bot.tick_async().await })??;
     assert_eq!(
         fired, 1,
         "the awaited tick must run the one effect the timer source selects"
     );
-    let again = block_on(async { bot.tick_async().await })?;
+    let again = block_on(async { bot.tick_async().await })??;
     assert_eq!(
         again, 0,
         "the source's value did not move, so change detection must select nothing"
@@ -89,7 +85,7 @@ pub(super) fn refusal_one_worker() -> TestResult {
 
     let refused = runtime.block_on(async { bot.tick() });
     match refused {
-        Err(BotError::TickInsideRuntime) => {}
+        Err(EcsError::TickInsideRuntime) => {}
         other => {
             let refusal = Err(format!(
                 "the synchronous adapter must refuse on a one-worker runtime too; it returned \
@@ -172,7 +168,7 @@ pub(super) fn timer_effects_in_order() -> TestResult {
         .with_effects(test_effects()?)
         .build(&GrantSet::empty())?;
 
-    let ticked = block_on(async { timeout(TICK_BUDGET, bot.tick_async()).await });
+    let ticked = block_on(async { timeout(TICK_BUDGET, bot.tick_async()).await })?;
     match ticked {
         Ok(Ok(fired)) => assert_eq!(fired, 2, "both chains' conditions hold on the first tick"),
         Ok(Err(error)) => {
@@ -236,7 +232,7 @@ pub(super) fn sibling_channel_completion() -> TestResult {
                 "the awaited tick did not finish within {TICK_BUDGET:?}"
             )),
         }
-    })?;
+    })??;
 
     assert_eq!(
         beats.load(SeqCst),
@@ -304,7 +300,7 @@ pub(super) fn a_cancelled_tick_leaves_the_bot_usable() -> TestResult {
                 "the tick after the cancellation did not finish within {TICK_BUDGET:?}"
             )),
         }
-    })?;
+    })??;
 
     let (dropped, resumed) = outcome;
     assert!(
@@ -332,7 +328,7 @@ pub(super) fn immediate_verbs_on_the_shipped_runtime() -> TestResult {
     let log = Rc::new(RefCell::new(Vec::new()));
     let mut bot = immediate_bot("immediate", &log)?;
 
-    let fired = block_on(async { bot.tick_async().await })?;
+    let fired = block_on(async { bot.tick_async().await })??;
     assert_eq!(
         fired, 1,
         "the only chain's condition holds on the first tick"
@@ -398,12 +394,12 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
     /// failed. Naming it is what lets the one arm that is genuinely different --
     /// the write, which fails `Unsettled` because the connection existed -- read
     /// as the exception it is.
-    fn not_delivered(error: std::io::Error) -> BotError {
-        BotError::DomainError {
+    fn not_delivered(error: std::io::Error) -> EcsError {
+        EcsError::Kernel(KernelError::DomainError {
             domain: DOMAIN.to_owned(),
             certainty: DispatchCertainty::NotDelivered,
             cause: error.to_string(),
-        }
+        })
     }
 
     /// Connects to `listener`, writes `7`, and reads the byte back.
@@ -414,15 +410,15 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
     /// `Unsettled`, because by then the connection existed and the byte may
     /// already have reached the peer. Inline, that distinction sat in the middle
     /// of the chain where it was easiest to read as one more of the same.
-    async fn round_trip(listener: &TcpListener) -> Result<u8, BotError> {
+    async fn round_trip(listener: &TcpListener) -> Result<u8, EcsError> {
         let peer = listener.local_addr().map_err(not_delivered)?;
         let mut client = TcpStream::connect(peer).await.map_err(not_delivered)?;
         if let Err(error) = client.write_all(b"7").await {
-            let refusal = Err(BotError::DomainError {
+            let refusal = Err(EcsError::Kernel(KernelError::DomainError {
                 domain: DOMAIN.to_owned(),
                 certainty: DispatchCertainty::Unsettled,
                 cause: error.to_string(),
-            });
+            }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "round_trip: returning an error to the caller");
             return refusal;
         }
@@ -450,7 +446,7 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
             &[]
         }
 
-        async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+        async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
             call.0.check(Observe::required_caps(self))?;
             let byte = round_trip(&self.listener).await?;
             Ok(match byte {
@@ -467,7 +463,7 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
     let log = Rc::new(RefCell::new(Vec::new()));
     let action_log = Rc::clone(&log);
     let outcome: usize = block_on(async move {
-        let listener = TcpListener::bind(("127.0.0.1", 0))
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
             .await
             .map_err(|error| format!("binding loopback failed: {error}"))?;
         // Formatted rather than propagated, because this closure reports
@@ -494,7 +490,7 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
                 "the awaited socket tick did not finish within {TICK_BUDGET:?}"
             )),
         }
-    })?;
+    })??;
     assert_eq!(
         outcome, 1,
         "the socket source's value arrived over loopback and selected the one effect"

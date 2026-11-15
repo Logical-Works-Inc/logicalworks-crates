@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use lgwks_bot::verb::{Execute, Observe};
 use lgwks_bot::{
-    Admission, Auth, Bot, BotError, BotSpec, Cap, DomainRegistry, EffectLifetime, GrantSet,
+    Admission, Auth, Bot, BotSpec, Cap, DomainRegistry, EcsError, EffectLifetime, GrantSet,
 };
 
 use crate::effects::memory_scope;
@@ -44,7 +44,7 @@ impl Observe for QueueDepth {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(self.required_caps())?;
         Ok(self.depth.load(Ordering::SeqCst))
     }
@@ -76,7 +76,7 @@ impl Execute for PageOnCall {
         &[]
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(self.required_caps())?;
         self.pages.fetch_add(1, Ordering::SeqCst);
         Ok(())

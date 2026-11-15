@@ -16,7 +16,7 @@ use crate::verb::EffectLifetime;
 use super::identity::changed_outcome;
 use super::identity::derive_action_digest;
 use super::scope::EffectScope;
-use super::work::EffectEvidence;
+use crate::journal::EffectEvidence;
 
 mod outcomes;
 

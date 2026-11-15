@@ -18,7 +18,7 @@ use std::cell::Cell;
 use std::future::Future;
 use std::io;
 use std::num::NonZeroUsize;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 /// Maximum number of native worker threads accepted by [`Builder`].
@@ -262,39 +262,43 @@ pub(crate) fn built_here() -> usize {
     BUILT.with(Cell::get)
 }
 
-/// The process driver, set once by [`driver`] and never dropped.
-static DRIVER: OnceLock<Runtime> = OnceLock::new();
+/// Why the OS refused the process driver: the kind and the text of the first
+/// build's failure, kept because an [`io::Error`] is not `Clone`.
+#[derive(Debug)]
+struct DriverRefused {
+    /// The kind the OS refused with.
+    kind: io::ErrorKind,
+    /// The refusal's own text.
+    cause: String,
+}
 
-/// Serialises the driver's first build, so two first callers build one runtime.
-static BUILDING: Mutex<()> = Mutex::new(());
+/// The process driver, or why it could not be built, set once by [`driver`] and
+/// never dropped.
+static DRIVER: OnceLock<Result<Runtime, DriverRefused>> = OnceLock::new();
 
 /// The handle of the one process driver, building it on first use.
 ///
 /// Built with [`Builder`]'s defaults: the discovered worker count, named
-/// `lgwks-bot`. Once built, a call is one lock-free read, so every synchronous
-/// door on every thread reads the driver without contending; only the first
-/// build takes [`BUILDING`], and reads the slot again under it. A poisoned lock
-/// is recovered because it guards no state of its own. `OnceLock` rather than
-/// `LazyLock` because the build can fail and must say why.
+/// `lgwks-bot`. `OnceLock::get_or_init` serialises the first build, so two first
+/// callers build one runtime, and once it is set a call is one lock-free read, so
+/// every synchronous door on every thread reads the driver without contending.
 ///
 /// # Errors
 ///
-/// The OS refusing the driver's worker threads or I/O resources. Nothing is
-/// stored then, so the next call tries again.
+/// The OS refusing the driver's worker threads or I/O resources. The refusal is
+/// stored with the slot, so every later call answers it again rather than
+/// building a second driver while the first attempt's resources are in doubt.
 pub(crate) fn driver() -> io::Result<Handle> {
-    if let Some(runtime) = DRIVER.get() {
-        return Ok(runtime.handle());
+    let built = DRIVER.get_or_init(|| {
+        Builder::new().build().map_err(|error| DriverRefused {
+            kind: error.kind(),
+            cause: error.to_string(),
+        })
+    });
+    match *built {
+        Ok(ref runtime) => Ok(runtime.handle()),
+        Err(ref refused) => Err(io::Error::new(refused.kind, refused.cause.clone())),
     }
-    let _building = match BUILDING.lock() {
-        Ok(building) => building,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    if let Some(runtime) = DRIVER.get() {
-        return Ok(runtime.handle());
-    }
-    let built = Builder::new().build()?;
-    // Under `BUILDING` no other caller sets the slot, so `built` is the value stored.
-    Ok(DRIVER.get_or_init(|| built).handle())
 }
 
 /// The native worker count discovered from the OS, or `None` when the platform
@@ -422,21 +426,17 @@ impl crate::ecs::EcsBot {
 /// name; it builds nothing after the driver's first use. The future itself is
 /// polled on the calling thread, so a borrowed or non-`Send` one-off drives;
 /// what it spawns runs on the driver's workers. Panics if called from within an
-/// async context, and panics if the OS refuses the driver's resources, a
-/// condition under which no async work could proceed.
+/// async context. When the OS refuses the driver's resources there is no error
+/// channel in `F::Output`, so the refusal is logged and the future is driven on
+/// the calling thread without a reactor: a future that needs none completes, and
+/// one that does reports the missing reactor itself.
 pub fn block_on<F: Future>(future: F) -> F::Output {
     match driver() {
         Ok(handle) => handle.block_on(future),
-        // The contract is that this reports on the calling thread rather than
-        // returning an error, and there is no error channel in `F::Output` to
-        // report through. `resume_unwind` is the crate's form for a documented,
-        // unavoidable panic (`lgwks_std::task::JoinHandle` uses it for the same
-        // reason): the caller is a synchronous frame with nowhere to propagate
-        // to, and the alternative (hanging on a future no driver can poll) is
-        // strictly worse.
-        Err(error) => std::panic::resume_unwind(Box::new(format!(
-            "lgwks_bot::rt: the OS refused the process driver: {error}"
-        ))),
+        Err(error) => {
+            lgwks_std::trace::warn!(%error, "rt: the OS refused the process driver, so the future is driven on the calling thread without a reactor");
+            lgwks_std::task::block_on(future)
+        }
     }
 }
 
@@ -452,7 +452,7 @@ mod one_driver_tests {
     use crate::rt::estate::Estate;
     use crate::rt::task::yield_now;
     use crate::task::task;
-    use crate::{Auth, Bot, BotError, Cap, EffectLifetime, Execute, GrantSet, Observe};
+    use crate::{Auth, Bot, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -466,7 +466,7 @@ mod one_driver_tests {
             &[]
         }
 
-        async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+        async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
             call.0.check(Observe::required_caps(self))?;
             yield_now().await;
             Ok(1)
@@ -492,7 +492,7 @@ mod one_driver_tests {
             EffectLifetime::Local
         }
 
-        async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+        async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
             call.0.check(Execute::required_caps(self))?;
             self.0.set(*call.1);
             Ok(())

@@ -26,11 +26,11 @@
 use std::error::Error;
 use std::time::Duration;
 
-use lgwks_bot::cap::{Cap, is_credential_status, upstream_credential_rejection};
+use lgwks_bot::cap::{Cap, is_credential_status};
 use lgwks_bot::clock::Clock;
-use lgwks_bot::error::BotError;
-use lgwks_bot::spec::Need;
-use lgwks_bot::{GrantSet, RetryClass};
+use lgwks_bot::error::KernelError;
+use lgwks_bot::spec::{Need, upstream_credential_rejection};
+use lgwks_bot::{EcsError, GrantSet, RetryClass};
 
 use crate::sim::Sim;
 
@@ -166,7 +166,7 @@ fn scenario(sim: &mut Sim) -> Result<(), Box<dyn Error>> {
                 return refuse("a credential past its lifetime must not be admitted");
             }
         }
-        Err(BotError::CredentialExpired {
+        Err(KernelError::CredentialExpired {
             ref capabilities,
             expired_at,
             now,
@@ -212,7 +212,7 @@ fn scenario(sim: &mut Sim) -> Result<(), Box<dyn Error>> {
     }
     sim.record("no-retry");
     match rejection {
-        BotError::CredentialRejected { ref needs, .. } => {
+        EcsError::CredentialRejected { ref needs, .. } => {
             // Exactly one need, re-granting exactly what the call required: an
             // empty need set would pass an `all` check and repair nothing.
             let mut sorted = draw.required.clone();

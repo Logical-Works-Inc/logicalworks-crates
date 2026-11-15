@@ -7,7 +7,7 @@ use crate::ecs::watchdog::bounded_wave;
 fn wave_poll<'wave>(
     watchdog: &'wave PollWatchdog,
     slot: usize,
-    poll: impl Future<Output = Result<Option<Erased>, BotError>> + 'wave,
+    poll: impl Future<Output = Result<Option<Erased>, EcsError>> + 'wave,
 ) -> WavePoll<'wave> {
     WavePoll {
         chain: slot,
@@ -97,7 +97,7 @@ fn a_poll_first_turned_after_expiry_is_cut_off_when_still_pending() -> TestResul
     assert!(
         matches!(
             wedged.turn(&mut cx, &clock, &armed, deadline),
-            Poll::Ready(Err(BotError::PollStalled { chain: 0, .. }))
+            Poll::Ready(Err(EcsError::PollStalled { chain: 0, .. }))
         ),
         "a wedged source first polled after the expiry is cut off on that turn"
     );
@@ -150,7 +150,7 @@ fn a_yielding_source_ahead_of_a_wedge_always_answers_across_real_waves() -> Test
         assert!(
             matches!(
                 results.get(1),
-                Some(Err(BotError::PollStalled { chain: 1, .. }))
+                Some(Err(EcsError::PollStalled { chain: 1, .. }))
             ),
             "wave {wave}: the wedged source was cut off"
         );

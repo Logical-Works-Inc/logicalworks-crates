@@ -31,26 +31,33 @@
 //! The honest comparators are the null hypothesis (a hand-rolled loop doing
 //! exactly the same work, with the work counted) and the cost decomposition
 //! (`poll-only-*` scenarios), and both are present. See `README.md`.
+//!
+//! # Layout
+//!
+//! This file is the measurement and the report. The workload both engines run,
+//! with the builders and tick loops every measurement shares, is `workload`;
+//! the one error every fallible step returns is `error`.
 
+mod error;
 mod fit;
 mod probes;
 mod profile;
 mod scenarios;
 mod stats;
+mod workload;
 
 use std::cell::Cell;
 use std::fmt::Write as _;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::broker::Broker;
-use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
-use lgwks_bot::journal::{MAX_JOURNAL_EVENTS, MemoryJournal};
-use lgwks_bot::spec::{EffectIdentity, EffectScope};
-use lgwks_bot::{Auth, Bot, BotError, Cap, EffectLifetime, Evaluate, Execute, GrantSet, Observe};
+use lgwks_bot::Bot;
+use lgwks_bot::journal::MAX_JOURNAL_EVENTS;
 use lgwks_std::trace::info;
 
+use error::BenchError;
 use scenarios::{SCENARIOS, Scenario};
+use workload::{Clock, build_bot, build_handrolled, run_base_ticks, run_bot_ticks};
 
 // ── The allocation counter ───────────────────────────────────────────────────
 //
@@ -76,286 +83,6 @@ use scenarios::{SCENARIOS, Scenario};
 /// two rigs would be comparing two different measurements under one name.
 #[path = "alloc_count.rs"]
 mod alloc_count;
-
-// ── The workload ─────────────────────────────────────────────────────────────
-
-/// The tick counter every source derives its value from.
-///
-/// Shared rather than owned so all sources advance together: the value a source
-/// reports is `tick / period`, which makes the whole input sequence a pure
-/// function of the tick index.
-#[derive(Clone)]
-struct Clock(Rc<Cell<u64>>);
-
-impl Clock {
-    fn new() -> Self {
-        Self(Rc::new(Cell::new(0)))
-    }
-
-    fn set(&self, tick: u64) {
-        self.0.set(tick);
-    }
-}
-
-/// A source whose value steps once every `period` ticks.
-///
-/// `period == 1` changes every tick (maximum churn); `period == 100` changes one
-/// tick in a hundred (steady state). The change *rate* is therefore a knob on
-/// the scenario rather than a property of a random seed.
-struct Source {
-    clock: Clock,
-    period: u64,
-}
-
-impl Observe for Source {
-    type Output = u64;
-
-    fn required_caps(&self) -> &[Cap] {
-        &[]
-    }
-
-    async fn poll(&self, _call: (Auth, ())) -> Result<u64, BotError> {
-        let period = if self.period == 0 { 1 } else { self.period };
-        Ok(self.clock.0.get() / period)
-    }
-
-    /// The value, as a revision.
-    ///
-    /// This is the change-tick path: the substrate compares this against the
-    /// revision it last committed for the chain and **skips the poll entirely**
-    /// when they match, so an unchanged tick costs one integer comparison per
-    /// source and allocates nothing. A real source would report something its
-    /// world maintains for it — an ETag, an `mtime`, a subscription sequence — and
-    /// this one reports the counter it already holds, which is the same contract
-    /// with a cheaper witness.
-    ///
-    /// Reporting the value is honest here and is not the same as the digest the
-    /// rig used to implement: the deprecated `fingerprint` was read *beside* the
-    /// poll and could describe a value the poll never returned, whereas this is
-    /// read before the poll it may skip, so it can only ever describe the value
-    /// the substrate commits (`docs/bot-on-ecs.md` §4).
-    fn revision(&self) -> Option<u64> {
-        let period = if self.period == 0 { 1 } else { self.period };
-        Some(self.clock.0.get() / period)
-    }
-
-    fn domain_id(&self) -> &'static str {
-        "bench::source"
-    }
-}
-
-/// The effect: record that it happened.
-///
-/// Deliberately trivial. The question this rig asks is what the *schedule* costs,
-/// so the effect must not dominate it. A heavier action would measure the
-/// action, and every engine would converge to that cost.
-struct Tally(Rc<Cell<u64>>);
-
-impl Execute for Tally {
-    type Input = u64;
-    type Output = ();
-
-    fn required_caps(&self) -> &[Cap] {
-        &[]
-    }
-
-    /// Local, and stated here rather than left to the default.
-    ///
-    /// The default is [`EffectLifetime::External`], which the crate answers with a
-    /// durability admission: an external handoff must not leave on a record that
-    /// cannot outlive the process, so it needs a journal that survives the writer.
-    /// This rig's action increments a counter in its own address space, so
-    /// declaring `External` would be a false claim about the work being measured —
-    /// and it would put a durable append inside every timed window, which is a
-    /// different measurement from the one this rig publishes (see the journal
-    /// section of this directory's README).
-    fn effect_lifetime(&self) -> EffectLifetime {
-        EffectLifetime::Local
-    }
-
-    async fn execute_action(&self, call: (Auth, &u64)) -> Result<(), BotError> {
-        let (auth, _value) = call;
-        auth.check(self.required_caps())?;
-        self.0.set(self.0.get().saturating_add(1));
-        Ok(())
-    }
-
-    fn domain_id(&self) -> &'static str {
-        "bench::tally"
-    }
-}
-
-/// The effect scope every bot in this rig dispatches under.
-///
-/// A fixed identity rather than a minted one, so two runs of the same scenario
-/// derive the same action identities and read back the same facts: the rig
-/// measures a repeated workload, and an identity that moved under it would make
-/// two runs incomparable. Nothing here dispatches anything durable — the action
-/// is [`EffectLifetime::Local`] — so what this scope buys is the effect path
-/// itself running: the ledger write, the warrant, and the broker's revalidation.
-fn effects() -> Result<EffectScope, Box<dyn std::error::Error>> {
-    let environment = EnvironmentId::from_hex(&hex_of(&[0x21; 16]))?;
-    let mut broker = Broker::new();
-    broker.register(environment)?;
-    // A fixed 32-byte revision digest, not a computed one: the flow revision is
-    // folded into every action identity, and a revision that moved between runs
-    // would make two runs of one workload incomparable.
-    let flow = FlowRevision::from_tagged("blake3_256", &hex_of(&[0x5a; 32]))?;
-    let identity = EffectIdentity::new(RunId::from_hex(&hex_of(&[0x01; 16]))?, environment, flow);
-    Ok(EffectScope::new(
-        identity,
-        broker,
-        Box::new(MemoryJournal::new()),
-    ))
-}
-
-/// Bytes as lower-case hex, the spelling every identifier in this crate parses.
-///
-/// A helper rather than three pasted literals, because a run id and an
-/// environment that disagree is a bot the broker refuses at its first dispatch,
-/// and a rig that reported a workload it never ran would be worse than one that
-/// failed to build.
-fn hex_of(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
-/// The condition: fire on an even observed value.
-///
-/// Non-constant on purpose: a condition that always returned `true` would make
-/// "fired" identical to "changed" and would not exercise the `Evaluate` verb.
-///
-/// It also counts its own evaluations. That counter is the fairness gate's
-/// second axis, and it is what catches a baseline that reaches the right answer
-/// by a cheaper route.
-struct Even(Rc<Cell<u64>>);
-
-impl Evaluate<u64> for Even {
-    fn check(&self, value: &u64) -> Result<bool, BotError> {
-        self.0.set(self.0.get().saturating_add(1));
-        Ok(value.is_multiple_of(2))
-    }
-
-    fn condition_id(&self) -> &'static str {
-        "bench::even"
-    }
-}
-
-// ── The baseline ─────────────────────────────────────────────────────────────
-
-/// One chain of the hand-rolled equivalent: poll, detect change, evaluate, act.
-///
-/// This is the null hypothesis. It holds no ECS world, no ledger, no `Auth`
-/// proof, and no capability set -- it is what the work costs when nothing is
-/// being guaranteed. Whatever the bot costs above this is the price of the
-/// guarantees, and that price is the interesting number.
-struct HandRolled {
-    period: u64,
-    entries: usize,
-    prior: Option<u64>,
-}
-
-impl HandRolled {
-    fn new(period: u64, entries: usize) -> Self {
-        Self {
-            period,
-            entries,
-            prior: None,
-        }
-    }
-
-    /// One tick, mirroring the bot's semantics exactly: walk the entries only
-    /// when the polled value moved, and evaluate the condition once per entry.
-    ///
-    /// The loop over `entries` is load-bearing, not decoration. Returning
-    /// `self.entries` as a count is arithmetically identical and does none of
-    /// the work; `evals` counts the evaluations so a baseline that cuts that
-    /// corner cannot pass the fairness gate unnoticed.
-    fn tick(&mut self, tick: u64, evals: &Cell<u64>) -> u64 {
-        let period = if self.period == 0 { 1 } else { self.period };
-        let value = tick / period;
-        if self.prior == Some(value) {
-            return 0;
-        }
-        self.prior = Some(value);
-        let mut fired = 0;
-        for _ in 0..self.entries {
-            evals.set(evals.get().saturating_add(1));
-            if value.is_multiple_of(2) {
-                fired += 1;
-            }
-        }
-        fired
-    }
-}
-
-// ── Building both engines ────────────────────────────────────────────────────
-
-fn build_bot(
-    scenario: &Scenario,
-    clock: &Clock,
-    tally: &Rc<Cell<u64>>,
-    evals: &Rc<Cell<u64>>,
-) -> Result<Bot, Box<dyn std::error::Error>> {
-    let mut builder = Bot::builder("bench").observe(Source {
-        clock: clock.clone(),
-        period: scenario.period,
-    });
-    for _ in 0..scenario.entries {
-        builder = builder.on(Even(evals.clone()), Tally(tally.clone()));
-    }
-    for _ in 1..scenario.sources {
-        builder = builder.observe(Source {
-            clock: clock.clone(),
-            period: scenario.period,
-        });
-        for _ in 0..scenario.entries {
-            builder = builder.on(Even(evals.clone()), Tally(tally.clone()));
-        }
-    }
-    Ok(builder.with_effects(effects()?).build(&GrantSet::empty())?)
-}
-
-fn build_handrolled(scenario: &Scenario) -> Vec<HandRolled> {
-    (0..scenario.sources)
-        .map(|_| HandRolled::new(scenario.period, scenario.entries))
-        .collect()
-}
-
-/// Advance the bot `ticks` ticks from `tick`, returning the effects it fired.
-///
-/// One tick loop for the timing rows, the allocation window and the profile,
-/// because three copies of `clock.set` + `bot.tick` + advance is three places a
-/// round's workload could drift apart — and a per-tick cost measured over a
-/// different workload than the one reported is the defect this rig exists to
-/// refuse.
-fn run_bot_ticks(
-    bot: &mut Bot,
-    clock: &Clock,
-    tick: &mut u64,
-    ticks: u64,
-) -> Result<u64, BotError> {
-    let mut fired = 0u64;
-    for _ in 0..ticks {
-        clock.set(*tick);
-        fired = fired.saturating_add(bot.tick()? as u64);
-        *tick = tick.saturating_add(1);
-    }
-    Ok(fired)
-}
-
-/// Advance the hand-rolled chains `ticks` ticks from `tick`, returning their fires.
-fn run_base_ticks(chains: &mut [HandRolled], evals: &Cell<u64>, tick: &mut u64, ticks: u64) -> u64 {
-    let mut fired = 0u64;
-    for _ in 0..ticks {
-        fired = fired.saturating_add(chains.iter_mut().map(|c| c.tick(*tick, evals)).sum::<u64>());
-        *tick = tick.saturating_add(1);
-    }
-    fired
-}
 
 // ── Measurement ──────────────────────────────────────────────────────────────
 
@@ -406,7 +133,7 @@ struct Measurement {
 /// The input window keeps advancing across rounds, because a source's value is a
 /// function of the tick index and a workload that restarted would be measuring a
 /// different one.
-fn measure(scenario: &Scenario) -> Result<Measurement, Box<dyn std::error::Error>> {
+fn measure(scenario: &Scenario) -> Result<Measurement, BenchError> {
     let clock = Clock::new();
     let tally = Rc::new(Cell::new(0u64));
     let evals_bot_cell = Rc::new(Cell::new(0u64));
@@ -510,7 +237,7 @@ fn retained_events(bot: Bot) -> usize {
 const ALLOC_ROUNDS: usize = 8;
 
 /// Count one scenario's steady-state allocations and append its row.
-fn alloc_row(out: &mut String, scenario: &Scenario) -> Result<(), Box<dyn std::error::Error>> {
+fn alloc_row(out: &mut String, scenario: &Scenario) -> Result<(), BenchError> {
     let clock = Clock::new();
     let tally = Rc::new(Cell::new(0u64));
     let evals_bot_cell = Rc::new(Cell::new(0u64));
@@ -525,8 +252,8 @@ fn alloc_row(out: &mut String, scenario: &Scenario) -> Result<(), Box<dyn std::e
     for _ in 0..ALLOC_ROUNDS {
         let mut bot = build_bot(scenario, &clock, &tally, &evals_bot_cell)?;
         let mut chains = build_handrolled(scenario);
-        let _ = run_bot_ticks(&mut bot, &clock, &mut bot_tick, scenario.warmup_ticks)?;
-        let _ = run_base_ticks(
+        run_bot_ticks(&mut bot, &clock, &mut bot_tick, scenario.warmup_ticks)?;
+        run_base_ticks(
             &mut chains,
             &evals_base_cell,
             &mut base_tick,
@@ -535,7 +262,7 @@ fn alloc_row(out: &mut String, scenario: &Scenario) -> Result<(), Box<dyn std::e
 
         alloc_count::reset();
         alloc_count::start();
-        let _ = run_bot_ticks(&mut bot, &clock, &mut bot_tick, scenario.ticks_per_round)?;
+        run_bot_ticks(&mut bot, &clock, &mut bot_tick, scenario.ticks_per_round)?;
         alloc_count::stop();
         let (allocs, bytes) = alloc_count::snapshot();
         bot_allocs = bot_allocs.saturating_add(allocs);
@@ -543,7 +270,7 @@ fn alloc_row(out: &mut String, scenario: &Scenario) -> Result<(), Box<dyn std::e
 
         alloc_count::reset();
         alloc_count::start();
-        let _ = run_base_ticks(
+        run_base_ticks(
             &mut chains,
             &evals_base_cell,
             &mut base_tick,
@@ -574,7 +301,7 @@ fn alloc_row(out: &mut String, scenario: &Scenario) -> Result<(), Box<dyn std::e
 /// through the same window, which is the control: a hand-rolled loop over the
 /// same workload should allocate nothing, and a non-zero count there would mean
 /// the counter is picking up something other than the bot.
-fn alloc_report(only: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
+fn alloc_report(only: Option<&str>) -> Result<String, BenchError> {
     let mut out = String::new();
     writeln!(
         out,
@@ -607,7 +334,7 @@ fn alloc_report(only: Option<&str>) -> Result<String, Box<dyn std::error::Error>
     let mut bot = build_bot(scenario, &clock, &tally, &evals)?;
     for tick in 0..64u64 {
         clock.set(tick);
-        let _ = bot.tick()?;
+        bot.tick()?;
     }
     write!(
         out,
@@ -618,7 +345,7 @@ fn alloc_report(only: Option<&str>) -> Result<String, Box<dyn std::error::Error>
         clock.set(tick);
         alloc_count::reset();
         alloc_count::start();
-        let _ = bot.tick()?;
+        bot.tick()?;
         alloc_count::stop();
         let (tick_allocs, _) = alloc_count::snapshot();
         write!(out, "{tick}:{tick_allocs} ")?;
@@ -635,7 +362,7 @@ fn alloc_report(only: Option<&str>) -> Result<String, Box<dyn std::error::Error>
 /// A name the table does not hold is refused rather than ignored: a mistyped
 /// scenario that silently ran the whole rig would print numbers for a run nobody
 /// asked for, and a mistyped one that ran nothing would report success.
-fn selected(only: Option<&str>) -> Result<Vec<&'static Scenario>, Box<dyn std::error::Error>> {
+fn selected(only: Option<&str>) -> Result<Vec<&'static Scenario>, BenchError> {
     let Some(name) = only else {
         return Ok(SCENARIOS.iter().collect());
     };
@@ -647,10 +374,12 @@ fn selected(only: Option<&str>) -> Result<Vec<&'static Scenario>, Box<dyn std::e
                 .map(|scenario| scenario.name)
                 .collect::<Vec<_>>()
                 .join(", ");
-            let refusal =
-                Err(format!("--scenario={name} names no scenario; the table holds {known}").into());
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "selected: refusing an unknown scenario name");
-            refusal
+            let refusal = BenchError::UnknownScenario {
+                name: name.to_owned(),
+                known,
+            };
+            lgwks_std::trace::debug!(error = ?refusal, "selected: refusing an unknown scenario name");
+            Err(refusal)
         }
     }
 }
@@ -660,7 +389,7 @@ fn scenario_report(
     scenario: &Scenario,
     human: &mut String,
     json: &mut String,
-) -> Result<Measurement, Box<dyn std::error::Error>> {
+) -> Result<Measurement, BenchError> {
     let m = measure(scenario)?;
 
     // THE FAIRNESS GATE, on both axes. A ratio between two engines doing
@@ -669,27 +398,24 @@ fn scenario_report(
     // evaluations catch a baseline that reaches the same results by
     // skipping the work.
     if m.effects_bot != m.effects_base {
-        let refusal = Err(format!(
-            "FAIRNESS CHECK FAILED for '{}': bot fired {} effects, baseline fired {}. \
-         The two engines are not doing the same work, so no timing from this \
-         scenario is reportable.",
-            m.name, m.effects_bot, m.effects_base
-        )
-        .into());
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "main: returning an error to the caller");
-        return refusal;
+        let refusal = BenchError::Unfair {
+            scenario: m.name,
+            what: "effects",
+            bot: m.effects_bot,
+            base: m.effects_base,
+        };
+        lgwks_std::trace::debug!(error = ?refusal, "main: returning an error to the caller");
+        return Err(refusal);
     }
     if m.evals_bot != m.evals_base {
-        let refusal = Err(format!(
-            "FAIRNESS CHECK FAILED for '{}': bot evaluated the condition {} times, \
-         baseline {} times. The effect counts agree, so this is a baseline that \
-         reaches the same answer with less work -- which is exactly the comparison \
-         this gate exists to refuse.",
-            m.name, m.evals_bot, m.evals_base
-        )
-        .into());
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "main: returning an error to the caller");
-        return refusal;
+        let refusal = BenchError::Unfair {
+            scenario: m.name,
+            what: "evaluations",
+            bot: m.evals_bot,
+            base: m.evals_base,
+        };
+        lgwks_std::trace::debug!(error = ?refusal, "main: returning an error to the caller");
+        return Err(refusal);
     }
 
     let mut ratios: Vec<f64> = m
@@ -798,7 +524,7 @@ fn ns_per_tick(m: &Measurement) -> f64 {
 /// line through the medians printed directly above it. A run that measured fewer
 /// than two wide rows has no line to fit and says so rather than printing a
 /// slope from one point.
-fn wide_scaling(rows: &[Measurement], human: &mut String) -> Result<(), std::fmt::Error> {
+fn wide_scaling(rows: &[Measurement], human: &mut String) -> Result<(), BenchError> {
     let points: Vec<(f64, f64)> = rows
         .iter()
         .filter(|row| row.name.starts_with("wide-"))
@@ -830,7 +556,7 @@ fn wide_scaling(rows: &[Measurement], human: &mut String) -> Result<(), std::fmt
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), BenchError> {
     // The report goes through the estate's tracing, not `println!`: levelled,
     // filterable through `LGWKS_LOG`, and never a panic on a closed pipe.
     lgwks_std::trace::install_default("lgwks-bench")?;
@@ -843,10 +569,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(index) => match args.get(index.saturating_add(1)) {
             Some(value) => Some(value.clone()),
             None => {
-                let refusal: Result<(), Box<dyn std::error::Error>> =
-                    Err("--scenario needs a scenario name".into());
-                lgwks_std::trace::warn!(error = ?refusal.as_ref().err(), "main: refusing a filter with no name");
-                return refusal;
+                let refusal = BenchError::MissingArg;
+                lgwks_std::trace::warn!(error = ?refusal, "main: refusing a filter with no name");
+                return Err(refusal);
             }
         },
         None => args
@@ -909,10 +634,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (Some(&(first_caps, first_ns)), Some(&(last_caps, last_ns))) =
         (scaling.first(), scaling.last())
     else {
-        let refusal: Result<(), Box<dyn std::error::Error>> =
-            Err("the capability-scaling run produced no points".into());
-        lgwks_std::trace::warn!(error = ?refusal.as_ref().err(), "capability scaling: no points to report");
-        return refusal;
+        let refusal = BenchError::NoScalingPoints;
+        lgwks_std::trace::warn!(error = ?refusal, "capability scaling: no points to report");
+        return Err(refusal);
     };
     let growth = last_caps as f64 / first_caps as f64;
     writeln!(
@@ -961,7 +685,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(path) = args.iter().find(|a| a.starts_with("--json=")) {
         let path = path.trim_start_matches("--json=");
-        std::fs::write(path, &json)?;
+        std::fs::write(path, &json).map_err(|cause| BenchError::Io {
+            path: std::path::PathBuf::from(path),
+            cause,
+        })?;
         info!("wrote {path}");
     }
 

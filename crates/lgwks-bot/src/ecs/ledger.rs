@@ -9,11 +9,12 @@ use crate::journal::frame::SaturatingFrom;
 
 use crate::broker::Authority;
 use crate::effect::{ActionId, AttemptId, EffectKey};
-use crate::error::BotError;
+use crate::error::KernelError;
 use crate::journal::{EffectJournal, JournalError};
 use crate::spec::Erased;
 use crate::verb::EffectLifetime;
 
+use super::EcsError;
 use super::admit::failure_state;
 use super::effects::Effects;
 use super::entry::EntryState;
@@ -26,10 +27,8 @@ use super::entry::backoff_entropy;
 use super::identity::derive_action_digest;
 use super::identity::derive_input_stamp;
 use super::work::AbandonReason;
-use super::work::EffectEvidence;
-use super::work::PendingWork;
-use super::work::TransitionHold;
 use super::work::WorkId;
+use crate::journal::EffectEvidence;
 
 /// The eligible work of the bot, keyed by chain.
 ///
@@ -213,8 +212,8 @@ impl Ledger {
         id: WorkId,
         lifetime: EffectLifetime,
         retry: &RetryReading,
-    ) -> Result<(EffectKey, Authority), BotError> {
-        let no_such_work = || BotError::NoSuchWork { work: id };
+    ) -> Result<(EffectKey, Authority), EcsError> {
+        let no_such_work = || EcsError::NoSuchWork { work: id };
         let action = self.action_of(id).ok_or_else(no_such_work)?;
         // Refused before anything is written, and refused for the reason
         // recovery exists: an attempt on this action is recorded as dispatched
@@ -222,7 +221,7 @@ impl Ledger {
         // one is the blind resend, and the guard is here rather than at the top
         // of the walk so it cannot be bypassed by a second caller.
         if self.effects.blocks(action) {
-            let refusal = Err(BotError::EffectUnsettled { action });
+            let refusal = Err(EcsError::from(KernelError::EffectUnsettled { action }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "begin_attempt: returning an error to the caller");
             return refusal;
         }
@@ -268,11 +267,11 @@ impl Ledger {
         let attempt = match record.begun {
             Some(previous) => previous
                 .checked_next()
-                .ok_or(BotError::EffectUnsettled { action })?,
+                .ok_or(EcsError::from(KernelError::EffectUnsettled { action }))?,
             None => match self.effects.recorded_attempt(action) {
                 Some(recorded) => recorded
                     .checked_next()
-                    .ok_or(BotError::EffectUnsettled { action })?,
+                    .ok_or(EcsError::from(KernelError::EffectUnsettled { action }))?,
                 None => AttemptId::FIRST,
             },
         };
@@ -285,12 +284,12 @@ impl Ledger {
         let key = self
             .effects
             .key(action, id.chain(), id.entry(), input, attempt)
-            .ok_or(BotError::EffectUnsettled { action })?;
+            .ok_or(EcsError::from(KernelError::EffectUnsettled { action }))?;
         let authority = self
             .effects
             .prepare(key, lifetime)
             .await
-            .map_err(|cause| BotError::EffectRefused { cause })?;
+            .map_err(|cause| EcsError::from(KernelError::EffectRefused { cause }))?;
         let transition = self
             .transitions
             .get_mut(id.chain())
@@ -360,7 +359,7 @@ impl Ledger {
         &mut self,
         id: WorkId,
         evidence: EffectEvidence,
-        error: &BotError,
+        error: &EcsError,
     ) -> bool {
         let Some(state) = self.entry_mut(id) else {
             return false;
@@ -480,7 +479,7 @@ impl Ledger {
     pub(super) fn fail(
         &mut self,
         id: WorkId,
-        error: &BotError,
+        error: &EcsError,
         attempt: AttemptId,
         retry: &RetryReading,
     ) -> bool {
@@ -760,122 +759,7 @@ impl Ledger {
             transition.attempt_of(entry)?,
         )
     }
-
-    /// Every entry that is still unresolved, in `(chain, entry)` order.
-    ///
-    /// One fold, and every report that used to disagree is rendered from it:
-    /// [`Self::first_unresolved`] is the first item, [`Self::pending`] is the
-    /// whole list, and [`Self::unresolved_count`] is its length.
-    ///
-    /// "Unresolved" is open *or* abandoned, and the second half is load-bearing.
-    /// An abandoned entry asks nothing of the substrate — it will not be
-    /// attempted again and no evidence is owed by the tick — so a scan that
-    /// looked only for open entries walked straight past it and reported a clean
-    /// tick. But abandoned work is not handled work: [`Self::pending`] names it,
-    /// and a caller that read `Ok` as "the chain is done" was reading the
-    /// opposite of what the ledger held. It is also a prerequisite that is *not*
-    /// satisfied, so the entries behind it are unresolved through it.
-    ///
-    /// A recovered attempt nothing has settled is reported for its declared
-    /// work whether or not a transition exists: the barrier is durable and does
-    /// not wait for a poll, so a bot assembled against a journal that already
-    /// says the bytes may be live is stuck before its first observation (issue
-    /// #104). It is reported *instead of* the entry's own hold, because two
-    /// reports for one entry would read as two problems — and it is why the
-    /// three reports now agree: a skipped unknown used to produce `Ok` from
-    /// `tick` while `pending` still named it.
-    pub(super) fn unresolved(&self, budget: u32) -> Vec<PendingWork> {
-        let mut unresolved = Vec::new();
-        for chain in 0..self.actions.len().max(self.transitions.len()) {
-            // The declared actions and the live transition can disagree in
-            // width: a world mutated behind the builder's back is a real
-            // state, and a scan that trusted only one of the two walked past
-            // work the other one holds.
-            let declared = match self.actions.get(chain) {
-                Some(actions) => actions.len(),
-                None => 0,
-            };
-            let held = match self.transitions.get(chain).and_then(Option::as_ref) {
-                Some(transition) => transition.entries.len(),
-                None => 0,
-            };
-            for entry in 0..declared.max(held) {
-                let id = WorkId { chain, entry };
-                if let Some(key) = self
-                    .action_of(id)
-                    .and_then(|action| self.effects.unsettled_for(action))
-                {
-                    let action = key.action();
-                    unresolved.push(PendingWork {
-                        id,
-                        key: Some(Box::new(key)),
-                        hold: TransitionHold::UnsettledByRecovery { action },
-                    });
-                    continue;
-                }
-                if let Some(recording) = self
-                    .action_of(id)
-                    .and_then(|action| self.effects.recording_for(action))
-                {
-                    unresolved.push(PendingWork {
-                        id,
-                        key: Some(Box::new(recording.key)),
-                        hold: TransitionHold::RecordingFailed {
-                            evidence: recording.evidence,
-                            cause: recording.cause.to_string(),
-                        },
-                    });
-                    continue;
-                }
-                let Some(transition) = self.transitions.get(chain).and_then(Option::as_ref) else {
-                    continue;
-                };
-                let Some(state) = transition.entries.get(entry) else {
-                    continue;
-                };
-                if !(state.is_open() || state.is_abandoned()) {
-                    continue;
-                }
-                // Unreachable in practice: an open or abandoned state always
-                // renders a hold.
-                let Some(hold) = state.hold(budget) else {
-                    continue;
-                };
-                unresolved.push(PendingWork {
-                    id,
-                    key: self.key_of(chain, entry, transition).map(Box::new),
-                    hold,
-                });
-            }
-        }
-        unresolved
-    }
-
-    /// The first entry that is unresolved, in `(chain, entry)` order: the
-    /// abandonment in front of its successors, the recovered unknown in front
-    /// of a fresh attempt, the open entry itself otherwise. Taking the first
-    /// in declaration order is deliberate: the barrier is the entry that
-    /// explains every successor blocked behind it, so naming it is naming the
-    /// reason.
-    pub(super) fn first_unresolved(&self, budget: u32) -> Option<PendingWork> {
-        self.unresolved(budget).into_iter().next()
-    }
-
-    /// Every entry that is not finished, in `(chain, entry)` order: open,
-    /// given up on and still reported, or held by a recovered unknown.
-    pub(super) fn pending(&self, budget: u32) -> Vec<PendingWork> {
-        self.unresolved(budget)
-    }
-
-    /// How many entries are still unresolved, across every chain.
-    ///
-    /// Counted the same way [`Self::first_unresolved`] scans, because the two
-    /// are rendered together in [`BotError::PendingTransition`]: a count that
-    /// omitted abandoned entries would report a non-zero entry alongside an
-    /// "0 outstanding", which reads as the one thing the pair is there to rule
-    /// out — a chain that is somehow both stuck and finished. A recovered
-    /// unknown is counted for the same reason: it is what is holding the work.
-    pub(super) fn unresolved_count(&self, budget: u32) -> usize {
-        self.unresolved(budget).len()
-    }
 }
+
+// What the ledger still owes, reported: unresolved entries, first, count.
+mod report;

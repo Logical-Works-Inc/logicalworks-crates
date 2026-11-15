@@ -16,7 +16,7 @@
 use lgwks_std::http::{Error, FailureKind, FailureStage};
 
 use super::{Answer, answer_of, transport_failure};
-use crate::error::{BotError, DispatchCertainty};
+use crate::error::{DispatchCertainty, KernelError};
 use crate::sim_stream::{RECEIPT_START, Stream, fold};
 
 /// Every stage this build names.
@@ -86,13 +86,13 @@ fn ledger_of(answer: Answer) -> Ledger {
 
 /// The ledger reading of a transport error the adapter built; `None` for an
 /// error a transport failure must never become.
-fn ledger_of_error(error: &BotError) -> Option<Ledger> {
+fn ledger_of_error(error: &KernelError) -> Option<Ledger> {
     match *error {
-        BotError::DomainError {
+        KernelError::DomainError {
             certainty: DispatchCertainty::Refused | DispatchCertainty::NotDelivered,
             ..
         } => Some(Ledger::NotApplied),
-        BotError::EffectIndeterminate { .. } => Some(Ledger::Unsettled),
+        KernelError::EffectIndeterminate { .. } => Some(Ledger::Unsettled),
         _ => None,
     }
 }
@@ -171,7 +171,7 @@ fn sim_answer_pulled_plug_only_a_failure_before_sending_is_not_delivered() {
         assert!(
             matches!(
                 held,
-                BotError::DomainError {
+                KernelError::DomainError {
                     certainty: DispatchCertainty::Refused,
                     ..
                 }

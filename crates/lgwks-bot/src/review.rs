@@ -406,7 +406,11 @@ impl ReviewOutcome {
 ///    review is pinned to.
 /// 2. **Script** — the caller-supplied analysis over the snapshot, which
 ///    produces the body to publish. Kept separate from the publication so a
-///    script failure cannot leave a half-published review.
+///    script failure cannot leave a half-published review. A script is a plain
+///    closure rather than a trait object, so it keeps its own captured state
+///    without a `Box`, and it fails by returning [`FlowError::failed`]: the
+///    failure is located in the caller's code, repeating the analysis gives the
+///    same answer, and nothing was published to repeat.
 /// 3. **Freshness** — re-reads the head and refuses if it moved. This is what
 ///    makes "the review is about the code that was read" a checked property
 ///    rather than an intention.
@@ -420,7 +424,7 @@ pub async fn review_pr(
     scope: Scope,
     gh: Gh,
     mut request: ReviewRequest,
-    script: impl Fn(&PrSnapshot, &Scope) -> ReviewScript,
+    script: impl Fn(&PrSnapshot, &Scope) -> Result<String, FlowError>,
 ) -> Result<ReviewOutcome, FlowError> {
     let deadline = request.step_deadline;
     // An explicit marker wins; otherwise the run's step key, so two tenants
@@ -508,7 +512,7 @@ pub async fn review_pr(
     // fails here has published nothing, which is the point of running it
     // before the publication stage rather than inside it.
     let step = scope.enter("script")?;
-    let body = script(&snapshot, &step).map_err(FlowError::from);
+    let body = script(&snapshot, &step);
     drop(step);
     let body = body?;
 
@@ -820,10 +824,10 @@ fn may_have_landed(error: &FlowError) -> bool {
         // the one case the whole lost-response path is for.
         FlowError::Bot { ref source, .. } => !matches!(
             **source,
-            crate::error::BotError::DomainError {
+            crate::ecs::EcsError::Kernel(crate::error::KernelError::DomainError {
                 certainty: crate::error::DispatchCertainty::Refused,
                 ..
-            }
+            })
         ),
         // A stop or a deadline during the publish step: the child may have been
         // written and the response dropped, so this is unknown, not "not done".
@@ -832,68 +836,5 @@ fn may_have_landed(error: &FlowError) -> bool {
         // event GitHub does not accept, a malformed event — established that
         // nothing was sent, so a retry is a retry rather than a duplicate.
         _ => false,
-    }
-}
-
-// ── The script type ─────────────────────────────────────────────────────────
-
-/// The caller's analysis stage: turn a pinned snapshot into the body to publish.
-///
-/// A function rather than a trait object so the task stays generic over the
-/// analysis and the caller's closure keeps its own captured state without a
-/// `Box`. It returns the body directly, so a script cannot silently fail to
-/// produce one: the only way to fail is by not running.
-#[cfg(feature = "process")]
-pub type ReviewScript = std::result::Result<String, ScriptFailure>;
-
-/// Why an analysis stage did not produce a review body.
-///
-/// Separate from [`FlowError`] because a script failure is the *script's*
-/// verdict, not an orchestration failure: the run failed for a reason the
-/// caller wrote, located in their code, and a caller that reads it should not
-/// have to distinguish it from a transport failure to know that nothing was
-/// published.
-#[cfg(feature = "process")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct ScriptFailure {
-    /// What the analysis said.
-    reason: String,
-}
-
-#[cfg(feature = "process")]
-impl ScriptFailure {
-    /// Name why the analysis produced no review.
-    #[must_use]
-    pub fn new(reason: impl Into<String>) -> Self {
-        Self {
-            reason: reason.into(),
-        }
-    }
-
-    /// What the analysis said.
-    #[must_use]
-    pub fn reason(&self) -> &str {
-        &self.reason
-    }
-}
-
-#[cfg(feature = "process")]
-impl std::fmt::Display for ScriptFailure {
-    /// The reason as written.
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.reason)
-    }
-}
-
-#[cfg(feature = "process")]
-impl std::error::Error for ScriptFailure {}
-
-#[cfg(feature = "process")]
-impl From<ScriptFailure> for FlowError {
-    /// A script failure is a located permanent failure: repeating the analysis
-    /// gives the same answer, and nothing was published to repeat.
-    fn from(source: ScriptFailure) -> Self {
-        FlowError::failed(source.reason)
     }
 }

@@ -47,14 +47,14 @@ impl Execute for Refuses {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         self.attempts.set(self.attempts.get().saturating_add(1));
-        Err(BotError::DomainError {
+        Err(EcsError::Kernel(KernelError::DomainError {
             domain: self.domain.into(),
             certainty: self.certainty,
             cause: self.cause.into(),
-        })
+        }))
     }
 
     fn domain_id(&self) -> &str {
@@ -71,8 +71,8 @@ impl Execute for Refuses {
 pub(super) struct RefusesToEvaluate;
 
 impl Evaluate<u16> for RefusesToEvaluate {
-    fn check(&self, observed: &u16) -> Result<bool, BotError> {
-        Err(BotError::EvaluateError {
+    fn check(&self, observed: &u16) -> Result<bool, EcsError> {
+        Err(EcsError::EvaluateError {
             cause: format!("this condition cannot decide about {observed}"),
         })
     }
@@ -102,7 +102,7 @@ impl Execute for NeedsCaps {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&self.caps)?;
         Ok(())
     }
@@ -332,9 +332,9 @@ impl EffectJournal for FaultJournal {
 /// count it fired, so every refusal test fails the same way and reads only
 /// the assertions about the error it expected.
 pub(super) fn refused(
-    ticked: Result<usize, BotError>,
+    ticked: Result<usize, EcsError>,
     reported: impl FnOnce(usize) -> String,
-) -> Result<BotError, Box<dyn std::error::Error>> {
+) -> Result<EcsError, Box<dyn std::error::Error>> {
     match ticked {
         Ok(fired) => Err(reported(fired).into()),
         Err(error) => Ok(error),
@@ -461,7 +461,7 @@ impl Execute for CountsU32 {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         self.0.set(self.0.get().saturating_add(1));
         Ok(())
@@ -539,7 +539,7 @@ impl<T> Observe for Unpolled<T> {
         &[]
     }
 
-    async fn poll(&self, _call: (Auth, ())) -> Result<T, BotError> {
+    async fn poll(&self, _call: (Auth, ())) -> Result<T, EcsError> {
         domain_refusal("test::unpolled", "identity fixtures are never polled")
     }
 

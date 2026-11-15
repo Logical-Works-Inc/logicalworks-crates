@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use super::cap::{Auth, Cap, Deficit, Demand, Shortage, uncovered};
 use super::clock::Clock;
-use super::error::BotError;
+use super::error::KernelError;
 
 /// A set of granted capabilities. The bot builder checks every domain's
 /// required capabilities against this set.
@@ -111,11 +111,21 @@ impl GrantSet {
     ///
     /// # Errors
     ///
-    /// [`BotError::CapabilityDenied`] naming **every** ungranted requirement,
+    /// [`KernelError::CapabilityDenied`] naming **every** ungranted requirement,
     /// not the first.
-    pub fn admit(&self, required: &[Cap]) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{Cap, GrantSet};
+    ///
+    /// let grants = GrantSet::empty().grant(Cap::net());
+    /// assert!(grants.admit(&[Cap::net()]).is_ok());
+    /// assert!(grants.admit(&[Cap::net(), Cap::fs()]).is_err());
+    /// ```
+    pub fn admit(&self, required: &[Cap]) -> Result<(), KernelError> {
         match Deficit::from_shortages(uncovered(required, |cap| self.grants(cap), None)) {
-            Some(deficit) => Err(BotError::CapabilityDenied { deficit }),
+            Some(deficit) => Err(KernelError::CapabilityDenied { deficit }),
             None => Ok(()),
         }
     }
@@ -126,9 +136,21 @@ impl GrantSet {
     ///
     /// # Errors
     ///
-    /// [`BotError::CapabilityDenied`] naming every requirement this set does not
+    /// [`KernelError::CapabilityDenied`] naming every requirement this set does not
     /// grant.
-    pub fn issue(&self, required: &[Cap]) -> Result<Auth, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{Cap, GrantSet};
+    ///
+    /// let grants = GrantSet::empty().grant(Cap::fs());
+    /// let auth = grants.issue(&[Cap::fs()])?;
+    /// assert!(auth.covers_cap(&Cap::fs()));
+    /// assert!(grants.issue(&[Cap::net()]).is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn issue(&self, required: &[Cap]) -> Result<Auth, KernelError> {
         self.issue_at(required, &Clock::wall())
     }
 
@@ -143,8 +165,23 @@ impl GrantSet {
     ///
     /// # Errors
     ///
-    /// [`BotError::CapabilityDenied`] naming every ungranted requirement.
-    pub fn issue_at(&self, required: &[Cap], clock: &Clock) -> Result<Auth, BotError> {
+    /// [`KernelError::CapabilityDenied`] naming every ungranted requirement.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use lgwks_bot::clock::Clock;
+    /// use lgwks_bot::{Cap, GrantSet};
+    ///
+    /// let clock = Clock::virtual_at(Duration::ZERO);
+    /// let auth = GrantSet::empty()
+    ///     .grant_expiring(Cap::net(), Duration::from_secs(5))
+    ///     .issue_at(&[Cap::net()], &clock)?;
+    /// assert_eq!(auth.expires_at(), Some(Duration::from_secs(5)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn issue_at(&self, required: &[Cap], clock: &Clock) -> Result<Auth, KernelError> {
         self.admit(required)?;
         let proof = Auth::new(required.to_vec());
         let Some(ttl) = self.shortest_lifetime(required) else {
@@ -166,13 +203,13 @@ impl GrantSet {
     ///
     /// # Errors
     ///
-    /// [`BotError::CapabilityDenied`] naming every ungranted requirement.
+    /// [`KernelError::CapabilityDenied`] naming every ungranted requirement.
     pub fn issue_skewed(
         &self,
         required: &[Cap],
         clock: &Clock,
         max_skew: super::skew::SkewBound,
-    ) -> Result<Auth, BotError> {
+    ) -> Result<Auth, KernelError> {
         self.admit(required)?;
         let proof = Auth::new(required.to_vec());
         let Some(ttl) = self.shortest_lifetime(required) else {
@@ -268,12 +305,12 @@ mod sim_gate;
 #[cfg(test)]
 mod tests {
     use super::GrantSet;
-    use crate::cap::{Cap, Demand};
-    use crate::error::{BotError, DispatchCertainty};
+    use crate::cap::{Cap, Demand, assert_repair_closes};
+    use crate::error::{DispatchCertainty, KernelError};
 
     /// A typed test failure; this workspace forbids `panic!`.
-    fn failed(cause: impl Into<String>) -> BotError {
-        BotError::DomainError {
+    fn failed(cause: impl Into<String>) -> KernelError {
+        KernelError::DomainError {
             domain: "gate::tests".into(),
             certainty: DispatchCertainty::NotDelivered,
             cause: cause.into(),
@@ -293,11 +330,11 @@ mod tests {
     /// was wrong — each named a true fact — but that the repair was serialised
     /// against the check.
     #[test]
-    fn admission_names_every_missing_capability_in_one_pass() -> Result<(), BotError> {
+    fn admission_names_every_missing_capability_in_one_pass() -> Result<(), KernelError> {
         let grants = GrantSet::empty().grant(Cap::net());
 
         match grants.admit(&all_four()) {
-            Err(BotError::CapabilityDenied { deficit }) => {
+            Err(KernelError::CapabilityDenied { deficit }) => {
                 let named: Vec<&str> = deficit
                     .shortages()
                     .map(|shortage| shortage.required().as_str())
@@ -317,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn the_repair_a_denial_derives_closes_the_requirement() -> Result<(), BotError> {
+    fn the_repair_a_denial_derives_closes_the_requirement() -> Result<(), KernelError> {
         let required = all_four();
         // One of the four is held, so the deficit is a strict subset of the
         // requirement — which is what makes "the shortfall, not the
@@ -325,36 +362,8 @@ mod tests {
         let held = GrantSet::empty().grant(Cap::net());
 
         match held.admit(&required) {
-            Err(BotError::CapabilityDenied { deficit }) => {
-                let missing: Vec<Cap> = deficit
-                    .shortages()
-                    .map(|shortage| shortage.required().clone())
-                    .collect();
-                let repair = deficit.to_grant_set();
-
-                // `is_ok` rather than comparing the `Result`: `BotError` is not
-                // `PartialEq` and should not be, since two causes being equal
-                // is not a fact any caller acts on.
-                assert!(
-                    repair.admit(&missing).is_ok(),
-                    "the derived set must admit what the deficit named: {deficit}"
-                );
-                assert!(
-                    !repair.grants(&Cap::net()),
-                    "and only that — `bot.net` was granted, so it is not in the repair: {deficit}"
-                );
-
-                let closed = missing
-                    .iter()
-                    .fold(held.clone(), |set, cap| set.grant(cap.clone()));
-                assert!(
-                    closed.admit(&required).is_ok(),
-                    "the repair folded into the held set must close the requirement"
-                );
-                assert!(
-                    held.admit(&required).is_err(),
-                    "control: the held set alone must not, or this proves nothing"
-                );
+            Err(KernelError::CapabilityDenied { deficit }) => {
+                assert_repair_closes(&deficit, &held, &required);
                 Ok(())
             }
             other => Err(failed(format!("expected a denial of three: {other:?}"))),
@@ -362,7 +371,8 @@ mod tests {
     }
 
     #[test]
-    fn a_granted_requirement_is_admitted_and_reports_nothing_uncovered() -> Result<(), BotError> {
+    fn a_granted_requirement_is_admitted_and_reports_nothing_uncovered() -> Result<(), KernelError>
+    {
         let grants = GrantSet::all_shipped();
         grants.admit(&all_four())?;
         assert!(
@@ -377,12 +387,12 @@ mod tests {
     }
 
     #[test]
-    fn a_capability_outside_the_shipped_four_is_denied_like_any_other() -> Result<(), BotError> {
+    fn a_capability_outside_the_shipped_four_is_denied_like_any_other() -> Result<(), KernelError> {
         // `Cap::new` accepts any dotted name, so nothing is special-cased at
         // check time; `all_shipped` grants four names and this is a fifth.
         let custom = Cap::new("your.domain.cap");
         match GrantSet::all_shipped().admit(std::slice::from_ref(&custom)) {
-            Err(BotError::CapabilityDenied { deficit }) => {
+            Err(KernelError::CapabilityDenied { deficit }) => {
                 assert_eq!(deficit.first().required(), &custom);
                 Ok(())
             }

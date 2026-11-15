@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use lgwks_bot::session::{
     FlowBounds, FlowSpec, MatchTier, NodeKind, Question, Resolution, Session, Terminal, VarType,
 };
-use lgwks_bot::{BotError, CompiledTemplate, Resolver, ResourceAxis, ResourceLimits, VarScope};
+use lgwks_bot::{CompiledTemplate, Resolver, ResourceAxis, ResourceLimits, SessionError, VarScope};
 
 /// What every fallible test here returns.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -22,7 +22,7 @@ fn size_options() -> Vec<String> {
 /// A two-option ask: `size` routes to `small_end` or `large_end`.
 ///
 /// Shared with `sim_session_front_door`, which sweeps answer streams over this one flow.
-pub(crate) fn size_flow() -> Result<FlowSpec, BotError> {
+pub(crate) fn size_flow() -> Result<FlowSpec, SessionError> {
     let vars = BTreeMap::from([("size".to_owned(), VarType::Choice(size_options()))]);
     let routes = BTreeMap::from([
         ("small".to_owned(), "small_end".to_owned()),
@@ -79,7 +79,10 @@ fn a_two_option_flow_routes_an_answer_and_refuses_after_the_end() -> TestResult 
 
     // Answering after termination is a typed error, not a silent no-op.
     assert!(
-        matches!(session.answer("large"), Err(BotError::SessionTerminated)),
+        matches!(
+            session.answer("large"),
+            Err(SessionError::SessionTerminated)
+        ),
         "an answer after the end is refused"
     );
     // The runner's budget bounds charged steps, so a flow that loops cannot run
@@ -135,7 +138,7 @@ fn a_tightened_axis_reads_back_and_one_above_the_ceiling_is_refused() {
     assert!(
         matches!(
             greedy.within_ceiling(),
-            Err(BotError::ResourceLimitAboveCeiling {
+            Err(SessionError::ResourceLimitAboveCeiling {
                 axis: ResourceAxis::Session,
                 ..
             })

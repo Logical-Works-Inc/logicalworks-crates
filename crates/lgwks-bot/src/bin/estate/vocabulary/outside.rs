@@ -1,7 +1,7 @@
 //! The smoke's outside-words section (#783): `fetch`, `ask` and `send`.
 //!
 //! One loopback server answers every `fetch` the smoke dials, [`StubModel`]
-//! answers every `ask`, and a stub [`SendPort`] lands every `send`, all
+//! answers every `ask`, and a test-double [`SendPort`] lands every `send`, all
 //! through the public run path: the `script!` flows below expand to the same
 //! `_at` calls and the same [`admit_outside`] entry a product flow expands
 //! to, and the direct calls beside them name every new `script` item the
@@ -9,7 +9,7 @@
 //! for them.
 
 use std::io::{Read, Write};
-use std::net::TcpListener;
+use std::net::{Ipv4Addr, TcpListener};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +29,7 @@ use lgwks_bot::verb::EffectLifetime;
 use super::super::say;
 use super::{Section, VocabularyError, refuse};
 
-/// A JSON report, as the smoke's model stub answers it.
+/// A JSON report, as the smoke's model double answers it.
 #[derive(Debug, PartialEq, Eq, lgwks_std::json::Serialize, lgwks_std::json::Deserialize)]
 #[serde(crate = "lgwks_std::json::serde")]
 struct Report {
@@ -50,7 +50,7 @@ impl ModelPort for JsonModel {
     }
 }
 
-/// The stub receiver every smoke `send` dispatches through.
+/// The double receiver every smoke `send` dispatches through.
 ///
 /// What landed is kept as an ordered log rather than a map, so a read-back
 /// scans it linearly: the smoke sends a handful of effects in total, and the
@@ -102,7 +102,7 @@ fn landed_under(held: &[(Vec<u8>, EffectEvidence)], key: &[u8]) -> Option<Effect
 }
 
 impl SendPort for Mailer {
-    /// The stub never fails: the smoke draws no faults here.
+    /// The receiver never fails: the smoke draws no faults here.
     type Error = FlowError;
 
     /// What landed under `key`, or nothing.
@@ -121,13 +121,13 @@ impl SendPort for Mailer {
         Ok(EffectEvidence::Applied)
     }
 
-    /// The stub never reports an unknown landing.
+    /// The mailer never reports an unknown landing.
     fn may_have_landed(_error: &FlowError) -> bool {
         false
     }
 }
 
-/// The smoke's explicit policy: the stub mailer and the loopback server are
+/// The smoke's explicit policy: the mailer and the loopback server are
 /// test doubles, so an allow runs them without parking a decision.
 struct AllowOutside;
 
@@ -159,7 +159,7 @@ struct OnceUp {
 impl OnceUp {
     /// Serve `body` on a loopback port for at most `expect` connections.
     fn serve(body: Vec<u8>, expect: usize) -> Result<Self, VocabularyError> {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
         let port = listener.local_addr()?.port();
         let hits = Arc::new(AtomicUsize::new(0));
         let counted = Arc::clone(&hits);
@@ -230,7 +230,8 @@ impl OnceUp {
 
     /// The URL to dial.
     fn url(&self) -> String {
-        format!("http://127.0.0.1:{}/", self.port)
+        let loopback = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, self.port));
+        format!("http://{loopback}/")
     }
 
     /// Connections answered so far.
@@ -256,7 +257,7 @@ impl Drop for OnceUp {
             return;
         }
         self.stop.store(true, Ordering::SeqCst);
-        if let Err(failed) = std::net::TcpStream::connect(("127.0.0.1", self.port)) {
+        if let Err(failed) = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.port)) {
             lgwks_std::trace::debug!(error = ?failed, "smoke server: the wake-up dial failed; the task ended already");
         }
     }
@@ -344,11 +345,7 @@ lgwks_bot::script! {
 ///
 /// The first failed check, or the runtime error the run returned.
 pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
-    let unique = lgwks_std::random::bytes::<8>().map_err(std::io::Error::other)?;
-    let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
-    let dir = std::env::temp_dir().join(format!("lgwks-estate-outside-{hex}"));
-    std::fs::create_dir_all(&dir)?;
-    let _keep = super::super::Scratch(dir.clone());
+    let (dir, _keep) = super::scratch("lgwks-estate-outside")?;
     let grants = GrantSet::empty()
         .grant(Cap::net())
         .grant(Cap::new("bot.model"))

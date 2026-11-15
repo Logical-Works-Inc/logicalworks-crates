@@ -20,7 +20,8 @@ use lgwks_std::http::{self, Paginate};
 use lgwks_std::json;
 
 use crate::cap::{Auth, Cap};
-use crate::error::{BotError, DispatchCertainty};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
 use crate::verb;
 
 /// Characters of body kept for observation.
@@ -144,16 +145,16 @@ impl Endpoint {
     }
 
     /// A refusal of this endpoint's, with `certainty` and `cause`.
-    fn refusal(&self, certainty: DispatchCertainty, cause: String) -> BotError {
-        BotError::DomainError {
+    fn refusal(&self, certainty: DispatchCertainty, cause: String) -> EcsError {
+        EcsError::from(KernelError::DomainError {
             domain: ENDPOINT.into(),
             certainty,
             cause,
-        }
+        })
     }
 
     /// The malformed-URL refusal: a spec bug, and nothing was sent.
-    fn invalid_url(&self) -> BotError {
+    fn invalid_url(&self) -> EcsError {
         self.refusal(
             DispatchCertainty::Refused,
             "invalid endpoint URL (absolute http(s) URI required)".into(),
@@ -161,7 +162,7 @@ impl Endpoint {
     }
 
     /// The pooled client, or the typed reason it could not be built.
-    fn pooled(&self) -> Result<http::Client, BotError> {
+    fn pooled(&self) -> Result<http::Client, EcsError> {
         match self.client {
             Ok(ref pooled) => Ok(pooled.clone()),
             Err(ref setup) => Err(self.refusal(
@@ -179,7 +180,7 @@ impl Endpoint {
     async fn blocking<T: Send + 'static>(
         &self,
         job: impl FnOnce() -> T + Send + 'static,
-    ) -> Result<T, BotError> {
+    ) -> Result<T, EcsError> {
         let request = lgwks_std::task::try_spawn_blocking(job).map_err(|error| {
             lgwks_std::trace::debug!(%error, "net: the blocking pool refused the request");
             self.refusal(
@@ -209,7 +210,7 @@ impl verb::Observe for Endpoint {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<NetState, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<NetState, EcsError> {
         call.0.check(self.required_caps())?;
         let pooled = self.pooled()?;
         let url = self.url.clone();
@@ -242,7 +243,7 @@ impl verb::Query for Endpoint {
     /// Every item of the endpoint's JSON-array listing, across its
     /// `Link: rel="next"` pages, in server order; a walk past its page or item
     /// ceiling is refused whole rather than handed back as a prefix.
-    async fn query(&self, call: (Auth, &())) -> Result<Vec<json::Value>, BotError> {
+    async fn query(&self, call: (Auth, &())) -> Result<Vec<json::Value>, EcsError> {
         call.0.check(verb::Query::required_caps(self))?;
         let pooled = self.pooled()?;
         let url = self.url.clone();
@@ -276,12 +277,12 @@ impl verb::Execute for Endpoint {
     }
 
     /// POST the body and report the reply's status and preview. A transport
-    /// failure after a valid URL is [`BotError::EffectIndeterminate`]: the
+    /// failure after a valid URL is [`KernelError::EffectIndeterminate`]: the
     /// receiver may hold the post, and saying it did not would invite a
     /// duplicate. It is never a `DomainError` carrying `Unsettled`, which
     /// [`DispatchCertainty`] rules out. Redirects are followed, so even a
     /// connect failure may be on a later hop, after the post was sent.
-    async fn execute_action(&self, call: (Auth, &(String, Vec<u8>))) -> Result<NetState, BotError> {
+    async fn execute_action(&self, call: (Auth, &(String, Vec<u8>))) -> Result<NetState, EcsError> {
         call.0.check(verb::Execute::required_caps(self))?;
         let pooled = self.pooled()?;
         let url = self.url.clone();
@@ -296,10 +297,10 @@ impl verb::Execute for Endpoint {
                 preview_text(reply.body()),
             )),
             Err(http::Error::InvalidUrl) => Err(self.invalid_url()),
-            Err(transport) => Err(BotError::EffectIndeterminate {
+            Err(transport) => Err(EcsError::from(KernelError::EffectIndeterminate {
                 domain: ENDPOINT.into(),
                 cause: format!("the post may have reached the endpoint: {transport}"),
-            }),
+            })),
         }
     }
 
@@ -337,7 +338,7 @@ mod tests {
     /// tuple: the error domain is the same one.
     type PollResult = Result<NetState, Box<dyn std::error::Error>>;
 
-    fn net_auth() -> Result<Auth, BotError> {
+    fn net_auth() -> Result<Auth, KernelError> {
         GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])
     }
 
@@ -596,11 +597,11 @@ mod tests {
         let refused = full
             .iter()
             .filter(|outcome| {
-                matches!(outcome, Err(BotError::DomainError {
+                matches!(outcome, Err(EcsError::Kernel(KernelError::DomainError {
                     certainty: DispatchCertainty::Refused,
                     cause,
                     ..
-                }) if cause.starts_with("no thread was available"))
+                })) if cause.starts_with("no thread was available"))
             })
             .count();
         assert_eq!(
@@ -647,7 +648,7 @@ mod tests {
             return Err("a malformed URL is a spec bug and must error".into());
         };
         assert!(
-            matches!(error, BotError::DomainError { .. }),
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
             "a malformed URL must be a typed DomainError, got {error:?}"
         );
         Ok(())
@@ -686,7 +687,7 @@ mod tests {
             return Err("a post with no reply must not succeed".into());
         };
         assert!(
-            matches!(error, BotError::EffectIndeterminate { ref domain, .. } if domain == ENDPOINT),
+            matches!(error, EcsError::Kernel(KernelError::EffectIndeterminate { ref domain, .. }) if domain == ENDPOINT),
             "a post the receiver may hold is indeterminate, got {error:?}"
         );
         Ok(())
@@ -704,10 +705,10 @@ mod tests {
         assert!(
             matches!(
                 error,
-                BotError::DomainError {
+                EcsError::Kernel(KernelError::DomainError {
                     certainty: DispatchCertainty::Refused,
                     ..
-                }
+                })
             ),
             "nothing was sent, so the post is refused, got {error:?}"
         );
@@ -724,7 +725,10 @@ mod tests {
             return Err("a proof covering no capability must not authorize `bot.net`".into());
         };
         assert!(
-            matches!(error, BotError::CapabilityDenied { .. }),
+            matches!(
+                error,
+                EcsError::Kernel(KernelError::CapabilityDenied { .. })
+            ),
             "a capped endpoint must deny a vacuous proof, got {error:?}"
         );
         Ok(())

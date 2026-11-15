@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_bot 9.0.0 - 2026-11-15: [notes](docs/changelog/23-one-typed-error-per-layer-2026-11-15.md)
 - drishti 0.2.0 - 2026-11-14: [notes](docs/changelog/22-drishti-has-one-home-2026-11-14.md)
 - lgwks_std 4.2.0 / lgwks_bot 8.4.0 - 2026-11-13: [notes](docs/changelog/21-fail-closed-and-no-secret-in-a-log-2026-11-13.md)
 - lgwks_deps 7.2.0 - 2026-11-13: [notes](docs/changelog/20-a-match-has-its-title-2026-11-13.md)

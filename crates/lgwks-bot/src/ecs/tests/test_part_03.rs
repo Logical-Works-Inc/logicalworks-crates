@@ -74,7 +74,7 @@ fn the_ledger_refuses_an_attempt_inside_its_backoff() -> TestResult {
             &retry,
         ))?;
         assert!(
-            matches!(inside, Err(BotError::NoSuchWork { .. })),
+            matches!(inside, Err(EcsError::NoSuchWork { .. })),
             "a caller one nanosecond early is refused: {inside:?}"
         );
         assert!(
@@ -152,9 +152,9 @@ fn a_late_retry_past_the_deadline_is_given_up_not_begun() -> TestResult {
     for tick in 1..=4 {
         let error = refused(bot.tick(), |fired| format!("tick {tick} fired {fired}"))?;
         let expected = if tick < 4 {
-            matches!(error, BotError::DomainError { .. })
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. }))
         } else {
-            matches!(error, BotError::PendingTransition { .. })
+            matches!(error, EcsError::PendingTransition { .. })
         };
         assert!(expected, "tick {tick} reported {error:?}");
         clock.advance(Duration::from_secs(1))?;
@@ -186,8 +186,8 @@ fn a_late_retry_past_the_deadline_is_given_up_not_begun() -> TestResult {
 struct CannotDecide(&'static str);
 
 impl Evaluate<u16> for CannotDecide {
-    fn check(&self, _observed: &u16) -> Result<bool, BotError> {
-        Err(BotError::EvaluateError {
+    fn check(&self, _observed: &u16) -> Result<bool, EcsError> {
+        Err(EcsError::EvaluateError {
             cause: self.0.into(),
         })
     }
@@ -228,7 +228,7 @@ fn failures_between_running_chains_are_reported_in_order_and_the_others_run() ->
         format!("two failing conditions fired {fired} and reported nothing")
     })?;
     assert!(
-        matches!(&error, BotError::EvaluateError { cause } if cause == "first"),
+        matches!(&error, EcsError::EvaluateError { cause } if cause == "first"),
         "the first failure in declaration order is the tick's report: {error:?}"
     );
     assert_eq!(
@@ -258,11 +258,11 @@ fn an_empty_chain_runs_nothing_and_reports_only_its_condition_failure() -> TestR
     assert!(failure.is_none(), "and reports nothing: {failure:?}");
 
     let work = WorkId { chain: 0, entry: 0 };
-    let condition = BotError::NoSuchWork { work };
+    let condition = EcsError::NoSuchWork { work };
     let (fired, failure) = settle(bot.run_chain(&[], Some(condition), &retry))?;
     assert_eq!(fired, 0, "a chain stopped by its condition fires nothing");
     assert!(
-        matches!(failure, Some(BotError::NoSuchWork { work: reported }) if reported == work),
+        matches!(failure, Some(EcsError::NoSuchWork { work: reported }) if reported == work),
         "the condition failure is the chain's report: {failure:?}"
     );
     assert_eq!(attempts.get(), 0, "no action ran");

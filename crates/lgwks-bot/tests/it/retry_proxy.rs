@@ -22,12 +22,13 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use lgwks_bot::EcsError;
 use lgwks_bot::cap::Cap;
-use lgwks_bot::error::BotError;
+use lgwks_bot::error::KernelError;
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::idempotent::{IdempotentPost, PostInput};
 use lgwks_bot::verb::Execute;
@@ -35,6 +36,9 @@ use lgwks_bot::verb::Execute;
 use crate::sweep_fixtures::refuse;
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// The address every fixture socket binds and dials.
+const LOCAL: Ipv4Addr = Ipv4Addr::LOCALHOST;
 
 /// How many times the proxy forwards each request it receives.
 const DUPLICATES: usize = 3;
@@ -191,10 +195,10 @@ fn serve_proxy(
                 let (request_line, headers, body) = read_request(&mut client)?;
                 let mut first: Option<Vec<u8>> = None;
                 for _ in 0..DUPLICATES {
-                    let mut upstream = TcpStream::connect(format!("127.0.0.1:{upstream_port}"))
+                    let mut upstream = TcpStream::connect((LOCAL, upstream_port))
                         .map_err(|error| format!("proxy dial: {error}"))?;
                     let mut forwarded = format!(
-                        "{request_line}\r\nHost: 127.0.0.1:{upstream_port}\r\nConnection: close\r\n"
+                        "{request_line}\r\nHost: {LOCAL}:{upstream_port}\r\nConnection: close\r\n"
                     );
                     for pair in &headers {
                         let (name, value) = (&pair.0, &pair.1);
@@ -243,7 +247,7 @@ fn join<T>(handle: JoinHandle<Result<T, String>>, name: &str) -> Result<T, Box<d
     match handle.join() {
         Ok(Ok(value)) => Ok(value),
         Ok(Err(refusal)) => refuse(refusal),
-        Err(_) => refuse(format!("the {name} thread panicked")),
+        Err(_thread_panicked) => refuse(format!("the {name} thread panicked")),
     }
 }
 
@@ -251,9 +255,9 @@ fn join<T>(handle: JoinHandle<Result<T, String>>, name: &str) -> Result<T, Box<d
 /// times: the upstream applies exactly two effects.
 #[test]
 fn a_proxy_that_duplicates_everything_applies_each_key_once() -> TestResult {
-    let upstream_listener = TcpListener::bind("127.0.0.1:0")?;
+    let upstream_listener = TcpListener::bind((LOCAL, 0))?;
     let upstream_port = upstream_listener.local_addr()?.port();
-    let proxy_listener = TcpListener::bind("127.0.0.1:0")?;
+    let proxy_listener = TcpListener::bind((LOCAL, 0))?;
     let proxy_port = proxy_listener.local_addr()?.port();
     // Every client delivery is forwarded DUPLICATES times: the upstream
     // must see OPERATIONS * DUPLICATES deliveries and apply OPERATIONS
@@ -264,7 +268,7 @@ fn a_proxy_that_duplicates_everything_applies_each_key_once() -> TestResult {
     let adapter = IdempotentPost::new();
     for operation in 0..OPERATIONS {
         let input = PostInput::new(
-            format!("http://127.0.0.1:{proxy_port}/effect"),
+            format!("http://{LOCAL}:{proxy_port}/effect"),
             format!("op-{operation}"),
             "application/json",
             format!(r#"{{"charge":{operation}}}"#).into_bytes(),
@@ -302,7 +306,7 @@ fn a_proxy_that_duplicates_everything_applies_each_key_once() -> TestResult {
 /// transport fault.
 #[test]
 fn an_upstream_401_on_the_proxy_path_is_a_typed_repair() -> TestResult {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listener = TcpListener::bind((LOCAL, 0))?;
     let port = listener.local_addr()?.port();
     let server = std::thread::Builder::new()
         .name("retry-proxy-401".to_owned())
@@ -319,12 +323,12 @@ fn an_upstream_401_on_the_proxy_path_is_a_typed_repair() -> TestResult {
     let auth: lgwks_bot::cap::Auth = GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])?;
     let adapter = IdempotentPost::new();
     let input = PostInput::new(
-        format!("http://127.0.0.1:{port}/effect"),
+        format!("http://{LOCAL}:{port}/effect"),
         "op-repair",
         "application/json",
         b"{}".to_vec(),
     )?;
-    let Err(BotError::CredentialRejected { status, needs, .. }) =
+    let Err(EcsError::CredentialRejected { status, needs, .. }) =
         lgwks_std::task::block_on(adapter.execute_action((auth, &input)))
     else {
         return refuse("an upstream 401 must be a typed credential refusal");
@@ -364,15 +368,17 @@ fn answer_once(
 fn settle(port: u16) -> Result<Settled, Box<dyn Error>> {
     let auth: lgwks_bot::cap::Auth = GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])?;
     let input = PostInput::new(
-        format!("http://127.0.0.1:{port}/effect"),
+        format!("http://{LOCAL}:{port}/effect"),
         "op-settle",
         "application/json",
         b"{}".to_vec(),
     )?;
     match lgwks_std::task::block_on(IdempotentPost::new().execute_action((auth, &input))) {
         Ok(_) => Ok(Settled::Applied),
-        Err(BotError::DomainError { certainty, .. }) => Ok(Settled::NotApplied(certainty)),
-        Err(BotError::EffectIndeterminate { .. }) => Ok(Settled::Unsettled),
+        Err(EcsError::Kernel(KernelError::DomainError { certainty, .. })) => {
+            Ok(Settled::NotApplied(certainty))
+        }
+        Err(EcsError::Kernel(KernelError::EffectIndeterminate { .. })) => Ok(Settled::Unsettled),
         Err(other) => refuse(format!("an exchange became {other}")),
     }
 }
@@ -384,7 +390,7 @@ fn settle(port: u16) -> Result<Settled, Box<dyn Error>> {
 #[test]
 fn an_upstream_answer_settles_only_what_it_proves() -> TestResult {
     use lgwks_bot::error::DispatchCertainty::{NotDelivered, Refused};
-    let elsewhere = TcpListener::bind("127.0.0.1:0")?;
+    let elsewhere = TcpListener::bind((LOCAL, 0))?;
     elsewhere.set_nonblocking(true)?;
     let moved = format!(
         "HTTP/1.1 307 Temporary Redirect\r\nLocation: http://localhost:{}/effect\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -408,7 +414,7 @@ fn an_upstream_answer_settles_only_what_it_proves() -> TestResult {
         (moved, Settled::Unsettled),
     ];
     for (reply, expected) in cases {
-        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let listener = TcpListener::bind((LOCAL, 0))?;
         let port = listener.local_addr()?.port();
         let server = answer_once(listener, reply.clone().into_bytes())?;
         let held = settle(port)?;
@@ -420,7 +426,7 @@ fn an_upstream_answer_settles_only_what_it_proves() -> TestResult {
         dialled.as_ref().err().map(std::io::Error::kind) == Some(std::io::ErrorKind::WouldBlock),
         "the redirect target was dialled: {dialled:?}"
     );
-    let closed = TcpListener::bind("127.0.0.1:0")?;
+    let closed = TcpListener::bind((LOCAL, 0))?;
     let port = closed.local_addr()?.port();
     drop(closed);
     assert_eq!(

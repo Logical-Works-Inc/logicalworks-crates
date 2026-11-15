@@ -34,7 +34,7 @@ use std::time::Duration;
 use lgwks_bot::domain::gh::{ISSUE_CREATE, IssueDraft, OpenIssue, OpenedIssue};
 use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{BotError, Cap, GrantSet, domains};
+use lgwks_bot::{Cap, EcsError, GrantSet, KernelError, domains};
 use lgwks_std::json::{self, Serialize};
 
 /// What the command line takes.
@@ -173,8 +173,9 @@ fn classify(failure: &FlowError) -> (&'static str, u8) {
     match *failure {
         FlowError::Blocked { .. } => ("refused", 2),
         FlowError::Bot { ref source, .. } => match **source {
-            BotError::EffectIndeterminate { .. } => ("indeterminate", 3),
-            BotError::DomainError { .. } | BotError::CredentialRejected { .. } => ("failed", 1),
+            EcsError::Kernel(KernelError::EffectIndeterminate { .. }) => ("indeterminate", 3),
+            EcsError::Kernel(KernelError::DomainError { .. })
+            | EcsError::CredentialRejected { .. } => ("failed", 1),
             _ => ("refused", 2),
         },
         _ => ("failed", 1),

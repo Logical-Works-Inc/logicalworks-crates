@@ -20,9 +20,9 @@ use std::time::Duration;
 // `self` is load-bearing: the `Resource` derive expands to `bevy_ecs::…` paths.
 use lgwks_deps::bevy_ecs::{self, prelude::Resource};
 
-use crate::error::BotError;
 use crate::verb::Cadence;
 
+use super::EcsError;
 use super::bot::EcsBot;
 
 /// The driver's half: when the next tick is due, and the future it parks on.
@@ -102,11 +102,11 @@ impl Cadences {
     ///
     /// # Errors
     ///
-    /// [`BotError::IncompleteSpec`] for an `Every` with a zero period, which
+    /// [`EcsError::IncompleteSpec`] for an `Every` with a zero period, which
     /// would make every instant a deadline.
-    pub(super) fn new(kinds: Vec<Cadence>) -> Result<Self, BotError> {
+    pub(super) fn new(kinds: Vec<Cadence>) -> Result<Self, EcsError> {
         if kinds.contains(&Cadence::Every(Duration::ZERO)) {
-            let refusal = Err(BotError::IncompleteSpec {
+            let refusal = Err(EcsError::IncompleteSpec {
                 field: "cadence",
                 cause: String::from("a source declared Every with a zero period"),
             });

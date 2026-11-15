@@ -18,8 +18,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use lgwks_bot::domain::gh::{Gh, PullRequest, Repository};
-use lgwks_bot::review::{ReviewOutcome, ReviewRequest, ScriptFailure};
-use lgwks_bot::script::Scope;
+use lgwks_bot::review::{ReviewOutcome, ReviewRequest};
+use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Host, task};
 
 /// The pull request the measurements review.
@@ -109,20 +109,17 @@ fn note_outcome(
     match report.output() {
         Some(&ReviewOutcome::Published { .. }) => Ok(()),
         Some(other) => writeln!(out, "tier {requested}: outcome {other:?}"),
-        None => writeln!(
-            out,
-            "tier {requested}: run failed: {}",
-            report
-                .error()
-                .map_or_else(|| String::from("no error reported"), ToString::to_string)
-        ),
+        None => match report.error() {
+            Some(error) => writeln!(out, "tier {requested}: run failed: {error}"),
+            None => writeln!(out, "tier {requested}: run failed: no error reported"),
+        },
     }
 }
 
 /// One review, as the measured task body: the same sequence the journey runs.
-async fn one(scope: Scope, gh: Gh) -> Result<ReviewOutcome, lgwks_bot::script::FlowError> {
+async fn one(scope: Scope, gh: Gh) -> Result<ReviewOutcome, FlowError> {
     let pull = PullRequest::new(
-        Repository::new(REPO).map_err(|source| ScriptFailure::new(source.to_string()))?,
+        Repository::new(REPO).map_err(|source| FlowError::failed(source.to_string()))?,
         NUMBER,
     );
     let request = ReviewRequest::new(pull, "COMMENT", BODY).with_marker("bench");

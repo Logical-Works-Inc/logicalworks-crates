@@ -38,11 +38,12 @@ use crate::effect::{
     ActionDigest, ActionId, AttemptId, EffectIdentity, EffectKey, EnvironmentEpoch, EnvironmentId,
     FlowRevision, Id128, RunId,
 };
-use crate::error::BotError;
+use crate::error::KernelError;
 #[cfg(feature = "sync")]
 use crate::journal::EffectEvidence;
 use crate::journal::{EffectEvent, EffectJournal, JournalError, Verification, VerificationResult};
 
+use super::EcsError;
 use super::bot::EcsBot;
 
 /// Rungs one run writes over its whole life: one admitted, three settled, one
@@ -556,7 +557,7 @@ impl EcsBot {
     /// borrow of the world, and put back however the batch ends. A kill between
     /// the firing and the batch refires this tick's runs after the restart:
     /// firing is at least once, and a run whose mark landed never fires again.
-    pub(super) fn fire_settled(&mut self) -> Result<usize, BotError> {
+    pub(super) fn fire_settled(&mut self) -> Result<usize, EcsError> {
         let Some(mut hooks) = self.world.remove_non_send::<RunHooks>() else {
             return Ok(0);
         };
@@ -572,9 +573,9 @@ impl EcsBot {
         self.world.insert_non_send(hooks);
         match marked {
             Ok(()) => Ok(due.len()),
-            Err(cause) => Err(BotError::EffectRefused {
+            Err(cause) => Err(EcsError::from(KernelError::EffectRefused {
                 cause: DispatchError::Journal(cause),
-            }),
+            })),
         }
     }
 }

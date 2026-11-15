@@ -4,11 +4,15 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::ecs::EcsError;
 use crate::effect::RunId;
-use crate::error::{BotError, RetryClass};
+use crate::error::{DispatchCertainty, KernelError, RetryClass};
+use crate::spec::NeedSet;
 use crate::task::StoreError;
 
 use super::Scope;
+
+mod display;
 
 // ── FlowError ───────────────────────────────────────────────────────────────
 
@@ -103,7 +107,22 @@ pub enum FlowError {
         /// Where it failed.
         at: Arc<str>,
         /// The verb's typed error, boxed so every flow `Result` stays small.
-        source: Box<BotError>,
+        source: Box<EcsError>,
+    },
+    /// The flow names domains the host's registry does not declare, so no step
+    /// ran.
+    ///
+    /// Raised at the flow's entry, in one pass, so the refusal names every
+    /// missing identifier at once. A script-layer refusal rather than a world
+    /// one: it is the flow's own declaration that does not match the registry,
+    /// and the world layer never sees the flow. Not retryable: the registry is
+    /// the same on every attempt.
+    UndeclaredDomains {
+        /// Where the refusal was located.
+        at: Arc<str>,
+        /// One [`Need::UnknownDomain`](crate::spec::Need::UnknownDomain) per
+        /// identifier, in source order.
+        needs: NeedSet,
     },
     /// Steps nested past [`MAX_DEPTH`](crate::script::MAX_DEPTH).
     TooDeep {
@@ -348,18 +367,29 @@ impl FlowError {
         }
     }
 
-    /// Whether repeating the step that produced this could succeed.
+    /// The flow names domains the registry does not declare; `needs` is one
+    /// [`Need::UnknownDomain`](crate::spec::Need::UnknownDomain) per identifier.
     ///
-    /// `TimedOut` and `Transient` are; a bot error is when its retry class is
-    /// [`RetryClass::Safe`] (the effect definitely did not happen). A
-    /// cancellation, a permanent failure, an exhausted retry, a refused payload,
-    /// an intervention, and every validation failure are not: repeating them is a
-    /// retry storm.
+    /// Unlocated until [`FlowError::located`] fills the path at the boundary.
     #[must_use]
-    pub fn is_retryable(&self) -> bool {
+    pub(crate) fn undeclared_domains(needs: NeedSet) -> Self {
+        Self::UndeclaredDomains {
+            at: Arc::from(""),
+            needs,
+        }
+    }
+
+    /// What this failure establishes about the effect it was making.
+    ///
+    /// A wrapped verb failure answers what the verb answers. A timeout and a
+    /// transient failure are plain retries, so they answer
+    /// [`DispatchCertainty::NotDelivered`]; every other flow failure is a refusal
+    /// of the step itself and answers [`DispatchCertainty::Refused`].
+    #[must_use]
+    pub(crate) fn dispatch_certainty(&self) -> DispatchCertainty {
         match *self {
-            Self::TimedOut { .. } | Self::Transient { .. } => true,
-            Self::Bot { ref source, .. } => source.retry_class() == RetryClass::Safe,
+            Self::Bot { ref source, .. } => source.dispatch_certainty(),
+            Self::TimedOut { .. } | Self::Transient { .. } => DispatchCertainty::NotDelivered,
             Self::Cancelled { .. }
             | Self::Exhausted { .. }
             | Self::Throttled { .. }
@@ -380,10 +410,52 @@ impl FlowError {
             | Self::ApprovalDenied { .. }
             | Self::ApprovalExpired { .. }
             | Self::NeedsApproval { .. }
+            | Self::UndeclaredDomains { .. }
             | Self::Store { .. }
             | Self::RunInFlight { .. }
-            | Self::ResumesSaturated { .. } => false,
+            | Self::ResumesSaturated { .. } => DispatchCertainty::Refused,
         }
+    }
+
+    /// What this failure permits a caller to do about it.
+    ///
+    /// `TimedOut` and `Transient` are [`RetryClass::Safe`]; a wrapped verb failure
+    /// answers its own class (the effect definitely did not happen only when that
+    /// class is [`RetryClass::Safe`]). A cancellation, a permanent failure, an
+    /// exhausted retry, a refused payload, an intervention, and every validation
+    /// failure are [`RetryClass::Never`]: repeating them is a retry storm.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::RetryClass;
+    /// use lgwks_bot::script::FlowError;
+    ///
+    /// assert_eq!(FlowError::transient("the peer hung up").retry_class(), RetryClass::Safe);
+    /// assert_eq!(FlowError::failed("a bad request").retry_class(), RetryClass::Never);
+    /// ```
+    #[must_use]
+    pub fn retry_class(&self) -> RetryClass {
+        match *self {
+            Self::Bot { ref source, .. } => source.retry_class(),
+            ref other => other.dispatch_certainty().retry_class(),
+        }
+    }
+
+    /// Whether repeating the step that produced this could succeed: its
+    /// [`retry_class`](Self::retry_class) is [`RetryClass::Safe`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::script::FlowError;
+    ///
+    /// assert!(FlowError::transient("the peer hung up").is_retryable());
+    /// assert!(!FlowError::failed("a bad request").is_retryable());
+    /// ```
+    #[must_use]
+    pub fn is_retryable(&self) -> bool {
+        self.retry_class() == RetryClass::Safe
     }
 
     /// Whether this is a stop rather than a failure.
@@ -403,6 +475,7 @@ impl FlowError {
             | Self::Failed { ref at, .. }
             | Self::Transient { ref at, .. }
             | Self::Bot { ref at, .. }
+            | Self::UndeclaredDomains { ref at, .. }
             | Self::Blocked { ref at, .. }
             | Self::Refused { ref at, .. }
             | Self::Intervention { ref at, .. }
@@ -413,8 +486,7 @@ impl FlowError {
             | Self::ApprovalDenied { ref at, .. }
             | Self::ApprovalExpired { ref at, .. }
             | Self::NeedsApproval { ref at, .. } => at,
-            Self::Incompatible { ref at, .. } => at,
-            Self::Store { ref at, .. } => at,
+            Self::Incompatible { ref at, .. } | Self::Store { ref at, .. } => at,
             // Every other variant is unlocated: it is raised before a step exists
             // to name, so there is no path to report.
             _ => "",
@@ -459,6 +531,7 @@ impl FlowError {
             | Self::Failed { ref mut at, .. }
             | Self::Transient { ref mut at, .. }
             | Self::Bot { ref mut at, .. }
+            | Self::UndeclaredDomains { ref mut at, .. }
             | Self::Blocked { ref mut at, .. }
             | Self::Refused { ref mut at, .. }
             | Self::Intervention { ref mut at, .. }
@@ -489,118 +562,6 @@ impl FlowError {
     }
 }
 
-impl fmt::Display for FlowError {
-    /// `<path>: <what happened>`. Step-supplied text is rendered with `{:?}`,
-    /// which escapes control characters, so a reason cannot forge a log line.
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::Cancelled { ref at } => write!(formatter, "{at}: cancelled"),
-            Self::TimedOut { ref at, after } => {
-                write!(formatter, "{at}: timed out after {after:?}")
-            }
-            Self::Exhausted {
-                ref at,
-                attempts,
-                ref last,
-            } => write!(
-                formatter,
-                "{at}: gave up after {attempts} attempts; last: {last}"
-            ),
-            Self::Throttled {
-                ref at,
-                attempts,
-                ref last,
-            } => write!(
-                formatter,
-                "{at}: retry budget spent after {attempts} attempts; last: {last}"
-            ),
-            Self::Failed { ref at, ref reason } => write!(formatter, "{at}: failed: {reason:?}"),
-            Self::Transient { ref at, ref reason } => {
-                write!(formatter, "{at}: failed (transient): {reason:?}")
-            }
-            Self::Bot { ref at, ref source } => write!(formatter, "{at}: {source}"),
-            Self::Blocked {
-                ref at,
-                ref deficit,
-            } => {
-                write!(formatter, "{at}: blocked: {deficit}")
-            }
-            Self::Refused {
-                ref at,
-                ref refusal,
-                ref provenance,
-            } => write!(formatter, "{at}: {refusal} (from {provenance})"),
-            Self::Intervention {
-                ref at,
-                ref intervention,
-            } => write!(formatter, "{at}: {intervention}"),
-            Self::TooDeep { ref at, limit } => {
-                write!(formatter, "{at}: steps nested deeper than {limit}")
-            }
-            Self::Justified {
-                ref at,
-                ref rule,
-                ref reason,
-            } => write!(
-                formatter,
-                "{at}: justification {rule:?} stopped the run: {reason:?}"
-            ),
-            Self::Graph { ref at, ref reason } => {
-                write!(formatter, "{at}: the graph is not runnable: {reason:?}")
-            }
-            Self::Parked {
-                ref at,
-                ref id,
-                ref digest,
-                expires_at,
-            } => write!(
-                formatter,
-                "{at}: parked awaiting approval {id} for digest {digest}, owed by {expires_at}ns on the host clock"
-            ),
-            Self::ApprovalDenied { ref at, ref id } => {
-                write!(formatter, "{at}: approval {id} was denied")
-            }
-            Self::ApprovalExpired { ref at, ref id } => {
-                write!(
-                    formatter,
-                    "{at}: approval {id} lapsed before it was decided"
-                )
-            }
-            Self::NeedsApproval { ref at, ref want } => write!(
-                formatter,
-                "{at}: this action hands an effect out of the process and no approval matches digest {want}; decide one through the host"
-            ),
-            Self::InvalidTenant { reason } => write!(formatter, "invalid tenant: {reason}"),
-            Self::InvalidName { reason } => write!(formatter, "invalid task name: {reason}"),
-            Self::InvalidRequestKey { reason } => {
-                write!(formatter, "invalid request key: {reason}")
-            }
-            Self::InvalidBusinessKey { reason } => {
-                write!(formatter, "invalid business key: {reason}")
-            }
-            Self::InvalidBound { what, value, max } => {
-                write!(formatter, "{what}: {value} is outside 1..={max}")
-            }
-            Self::Incompatible { ref at, ref drift } => write!(
-                formatter,
-                "{at}: refusing to resume under a different definition: {drift}"
-            ),
-            Self::Store { ref at, ref source } => {
-                write!(formatter, "{at}: the run store refused: {source}")
-            }
-            Self::RunInFlight { run } => write!(
-                formatter,
-                "run {} is already being resumed on this host; nothing ran, and a resume after it finishes replays what it recorded",
-                run.id().to_hex()
-            ),
-            Self::ResumesSaturated { ceiling } => write!(
-                formatter,
-                "this host is already resuming {ceiling} runs, the most it takes at once; nothing ran"
-            ),
-        }
-    }
-}
-
 impl std::error::Error for FlowError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
@@ -620,6 +581,7 @@ impl std::error::Error for FlowError {
             | Self::Failed { .. }
             | Self::Transient { .. }
             | Self::Blocked { .. }
+            | Self::UndeclaredDomains { .. }
             | Self::TooDeep { .. }
             | Self::Justified { .. }
             | Self::Graph { .. }
@@ -635,13 +597,21 @@ impl std::error::Error for FlowError {
     }
 }
 
-impl From<BotError> for FlowError {
+impl From<EcsError> for FlowError {
     /// Lets `?` carry a verb's error; the location is filled at the boundary.
-    fn from(source: BotError) -> Self {
+    fn from(source: EcsError) -> Self {
         Self::Bot {
             at: Arc::from(""),
             source: Box::new(source),
         }
+    }
+}
+
+impl From<KernelError> for FlowError {
+    /// Lets `?` carry a kernel failure through the world layer into the flow,
+    /// unchanged; the location is filled at the boundary.
+    fn from(source: KernelError) -> Self {
+        Self::from(EcsError::from(source))
     }
 }
 

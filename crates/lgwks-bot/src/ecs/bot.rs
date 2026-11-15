@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use lgwks_deps::bevy_ecs::{prelude::World, schedule::Schedule};
 
-use crate::error::BotError;
 use crate::gate::{GrantReplacement, GrantSet};
 use crate::journal::EffectJournal;
 use crate::registry::DomainRegistry;
@@ -13,12 +12,13 @@ use crate::spec::{Admission, BotSpec, Need, NeedSet};
 #[cfg(feature = "profile")]
 use super::profile::{self, Charge, TickProfile, TickStage};
 
+use super::EcsError;
 use super::builder::EcsBuilder;
-use super::builder::materialize_chain;
 use super::entry::RetrySchedule;
 use super::fold::put_plan_buffers;
 use super::fold::settle_quiet_tick;
 use super::ledger::Ledger;
+use super::materialize::materialize_chain;
 use super::resources::ChangeTicks;
 use super::resources::EcsChain;
 use super::resources::Fired;
@@ -127,7 +127,7 @@ impl EcsBot {
         // document's.
         registry.validate().map_err(Admission::Refused)?;
         if spec.version != BotSpec::CURRENT_VERSION {
-            let refusal = Err(Admission::Refused(BotError::UnsupportedSpecVersion {
+            let refusal = Err(Admission::Refused(EcsError::UnsupportedSpecVersion {
                 found: spec.version,
                 supported: BotSpec::CURRENT_VERSION,
             }));
@@ -138,7 +138,7 @@ impl EcsBot {
         // truncated document rather than an intentional one; the builder
         // tolerates it, the materializer does not.
         if spec.chains.is_empty() {
-            let refusal = Err(Admission::Refused(BotError::IncompleteSpec {
+            let refusal = Err(Admission::Refused(EcsError::IncompleteSpec {
                 field: "chains",
                 cause: String::from("the document declares no observation chains at all"),
             }));
@@ -300,8 +300,21 @@ impl EcsBot {
     /// # Errors
     ///
     /// The first domain failure of the tick, in the order described above, or
-    /// [`BotError::PendingTransition`] when nothing failed and work is still held.
-    pub async fn tick_async(&mut self) -> Result<usize, BotError> {
+    /// [`EcsError::PendingTransition`] when nothing failed and work is still held.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::spec::EffectScope;
+    /// use lgwks_bot::{Bot, GrantSet};
+    ///
+    /// let mut bot = Bot::builder("idle")
+    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .build(&GrantSet::empty())?;
+    /// assert_eq!(lgwks_bot::block_on(bot.tick_async())?, 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub async fn tick_async(&mut self) -> Result<usize, EcsError> {
         self.begin_tick();
         // Runs settled since the last tick reach the world first (ADR 0006
         // R3): the bound system fires before the sources are polled, so what a
@@ -411,7 +424,7 @@ impl EcsBot {
         // the walk, but it is work nobody resolved.
         let ledger = self.world.non_send::<Ledger>();
         match ledger.first_unresolved(budget) {
-            Some(work) => Err(BotError::PendingTransition {
+            Some(work) => Err(EcsError::PendingTransition {
                 work: Box::new(work),
                 outstanding: ledger.unresolved_count(budget),
             }),
@@ -440,8 +453,22 @@ impl EcsBot {
     /// schedule step wraps the stages inside it, so [`TickStage::Schedule`] is
     /// the *residual* — the dispatch of the two systems plus the commit
     /// bookkeeping inside `observe_fold` that nothing else claims.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::spec::EffectScope;
+    /// use lgwks_bot::{Bot, GrantSet};
+    ///
+    /// let mut bot = Bot::builder("idle")
+    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .build(&GrantSet::empty())?;
+    /// let (outcome, _profile) = lgwks_bot::block_on(bot.tick_profiled());
+    /// assert_eq!(outcome?, 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     #[cfg(feature = "profile")]
-    pub async fn tick_profiled(&mut self) -> (Result<usize, BotError>, TickProfile) {
+    pub async fn tick_profiled(&mut self) -> (Result<usize, EcsError>, TickProfile) {
         profile::begin();
         let outcome = self.tick_async().await;
         (outcome, profile::end())
@@ -466,7 +493,7 @@ impl EcsBot {
     ///
     /// # The refusal
     ///
-    /// [`BotError::TickInsideRuntime`] when an async runtime is already driving
+    /// [`EcsError::TickInsideRuntime`] when an async runtime is already driving
     /// the calling thread. Parking a thread that owns a runtime's driver is not
     /// a slow tick, it is a deadlock — the timer never fires, the socket never
     /// reports ready, and the tick never returns — so the one thing this
@@ -482,11 +509,24 @@ impl EcsBot {
     ///
     /// # Errors
     ///
-    /// [`BotError::TickInsideRuntime`] as above, or the first domain failure of
+    /// [`EcsError::TickInsideRuntime`] as above, or the first domain failure of
     /// the tick.
-    pub fn tick(&mut self) -> Result<usize, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::spec::EffectScope;
+    /// use lgwks_bot::{Bot, GrantSet};
+    ///
+    /// let mut bot = Bot::builder("idle")
+    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .build(&GrantSet::empty())?;
+    /// assert_eq!(bot.tick()?, 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn tick(&mut self) -> Result<usize, EcsError> {
         if Self::driver_on_this_thread() {
-            let refusal = Err(BotError::TickInsideRuntime);
+            let refusal = Err(EcsError::TickInsideRuntime);
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "tick: returning an error to the caller");
             return refusal;
         }

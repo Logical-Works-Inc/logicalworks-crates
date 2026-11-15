@@ -1,6 +1,6 @@
 //! Byte ceilings and the axes they apply to. Split from `session.rs` (#526).
 
-use super::{BotError, Deserialize, Serialize};
+use super::{Deserialize, Serialize, SessionError};
 
 /// Maximum JSON flow size accepted before parsing begins.
 pub const MAX_FLOW_BYTES: usize = 2_097_152;
@@ -42,7 +42,7 @@ pub const MAX_SESSION_BYTES: usize = 8_388_608;
 
 /// The byte axis a [`ResourceLimits`] ceiling applies to.
 ///
-/// Reported by [`BotError::ResourceLimitAboveCeiling`] so a refusal names which
+/// Reported by [`SessionError::ResourceLimitAboveCeiling`] so a refusal names which
 /// limit was raised, and used to tighten one axis without spelling the other
 /// three. A typed axis rather than a flag per axis, because a caller that wants
 /// to raise every ceiling should have to write every axis down.
@@ -93,7 +93,7 @@ impl ResourceAxis {
 /// [`ResourceLimits::shipped`] is the operator's hard ceiling, and it is a
 /// ceiling rather than a default: a shorthand constructor may ask for less on
 /// any axis and never for more. A request above the ceiling is refused with
-/// [`BotError::ResourceLimitAboveCeiling`] where it is made rather than clamped
+/// [`SessionError::ResourceLimitAboveCeiling`] where it is made rather than clamped
 /// quietly, because a bound that is silently ignored is a bound nobody can
 /// reason about.
 ///
@@ -174,9 +174,20 @@ impl ResourceLimits {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::ResourceLimitAboveCeiling`] naming the first axis
+    /// Returns [`SessionError::ResourceLimitAboveCeiling`] naming the first axis
     /// that exceeds its ceiling.
-    pub fn within_ceiling(self) -> Result<Self, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::session::{ResourceAxis, ResourceLimits};
+    ///
+    /// let tight = ResourceLimits::shipped().tighten(ResourceAxis::Record, 4_096);
+    /// assert!(tight.within_ceiling().is_ok());
+    /// let greedy = ResourceLimits::shipped().tighten(ResourceAxis::Session, usize::MAX);
+    /// assert!(greedy.within_ceiling().is_err());
+    /// ```
+    pub fn within_ceiling(self) -> Result<Self, SessionError> {
         let ceiling = Self::shipped();
         for axis in [
             ResourceAxis::Utterance,
@@ -187,7 +198,7 @@ impl ResourceLimits {
             let requested = self.get(axis);
             let allowed = ceiling.get(axis);
             if requested > allowed {
-                let refusal = Err(BotError::ResourceLimitAboveCeiling {
+                let refusal = Err(SessionError::ResourceLimitAboveCeiling {
                     axis,
                     requested,
                     ceiling: allowed,

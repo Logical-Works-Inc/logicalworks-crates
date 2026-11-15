@@ -1,12 +1,13 @@
-//! The error vocabulary's unit tests.
+//! The kernel error vocabulary's unit tests.
 
-use super::{BotError, DispatchCertainty, Escaped, RetryClass, Terminal};
+#[cfg(test)]
+use super::{DispatchCertainty, Escaped, KernelError, RetryClass};
 use crate::cap::{Cap, Deficit, Demand, Shortage};
 
 /// The retry classifier a consumer writes, and the entire reason the two
 /// variants exist: it reads the *variant*, never the cause string.
-fn may_have_taken_effect(error: &BotError) -> bool {
-    matches!(*error, BotError::EffectIndeterminate { .. })
+fn may_have_taken_effect(error: &KernelError) -> bool {
+    matches!(*error, KernelError::EffectIndeterminate { .. })
 }
 
 #[test]
@@ -16,12 +17,12 @@ fn an_indeterminate_effect_is_distinguishable_from_a_domain_error() {
     // had to infer "may have happened" from an untrusted string, so the
     // only safe reading was the pessimistic one, and the pessimistic
     // reading of "did not happen" is a retry that duplicates.
-    let refused = BotError::DomainError {
+    let refused = KernelError::DomainError {
         domain: String::from("gh::merge"),
         certainty: DispatchCertainty::NotDelivered,
         cause: String::from("connection closed"),
     };
-    let unknown = BotError::EffectIndeterminate {
+    let unknown = KernelError::EffectIndeterminate {
         domain: String::from("gh::merge"),
         cause: String::from("connection closed"),
     };
@@ -43,15 +44,14 @@ fn an_indeterminate_effect_is_distinguishable_from_a_domain_error() {
 
 #[test]
 fn the_retry_class_is_total_and_never_reads_a_cause() {
-    // The three arms are ordered by what they permit, and every error maps
-    // into exactly one of them. A wiring defect and a refused binding are
-    // `Never`, a connection that never opened is `Safe`, and only an
-    // unsettled effect is `RequiresEvidence` — which is the same answer the
-    // variant-level classifier above gives, reached without inspecting a
-    // variant.
+    // The arms are ordered by what they permit, and every error maps into
+    // exactly one of them. A wiring defect and a refused binding are `Never`,
+    // a connection that never opened is `Safe`, and only an unsettled effect is
+    // `RequiresEvidence` — which is the same answer the variant-level
+    // classifier above gives, reached without inspecting a variant.
     let cases = [
         (
-            BotError::DomainError {
+            KernelError::DomainError {
                 domain: String::from("test::wiring"),
                 certainty: DispatchCertainty::Refused,
                 cause: String::from("type mismatch in execute input"),
@@ -59,7 +59,7 @@ fn the_retry_class_is_total_and_never_reads_a_cause() {
             RetryClass::Never,
         ),
         (
-            BotError::DomainError {
+            KernelError::DomainError {
                 domain: String::from("test::read"),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: String::from("connection reset before any byte was sent"),
@@ -67,13 +67,21 @@ fn the_retry_class_is_total_and_never_reads_a_cause() {
             RetryClass::Safe,
         ),
         (
-            BotError::EffectIndeterminate {
+            KernelError::EffectIndeterminate {
                 domain: String::from("test::merge"),
                 cause: String::from("the acknowledgment never arrived"),
             },
             RetryClass::RequiresEvidence,
         ),
-        (BotError::TickInsideRuntime, RetryClass::Never),
+        (
+            KernelError::Conflict {
+                domain: String::from("cas::store"),
+                record: String::from("row"),
+                expected: 1,
+                found: 2,
+            },
+            RetryClass::Never,
+        ),
     ];
 
     for (error, expected) in cases {
@@ -96,12 +104,12 @@ fn a_refusal_and_a_wiring_defect_are_both_terminal() {
     // that is not installed, and a chain whose stages do not line up. Both
     // must stop the entry dead rather than spend the budget, because no
     // number of attempts changes either.
-    let binding = BotError::DomainError {
+    let binding = KernelError::DomainError {
         domain: String::from("gh::pr_status"),
         certainty: DispatchCertainty::Refused,
         cause: String::from("binding required"),
     };
-    let wiring = BotError::DomainError {
+    let wiring = KernelError::DomainError {
         domain: String::from("pipeline::step"),
         certainty: DispatchCertainty::Refused,
         cause: String::from("type mismatch in pipeline step input"),
@@ -115,7 +123,7 @@ fn a_refusal_and_a_wiring_defect_are_both_terminal() {
 
 #[test]
 fn an_indeterminate_effect_names_its_domain_and_the_indeterminacy() {
-    let error = BotError::EffectIndeterminate {
+    let error = KernelError::EffectIndeterminate {
         domain: String::from("notify::slack"),
         cause: String::from("request timed out"),
     };
@@ -140,17 +148,17 @@ fn an_indeterminate_effect_names_its_domain_and_the_indeterminacy() {
 /// LF, CR, tab, ESC, a quote, a backslash, and ordinary Unicode.
 const HOSTILE: &str = "a\nb\rc\td\u{1b}[2J e\"f\\g ünïcode 日本";
 
-/// Every variant that interpolates a `String` payload.
+/// Every kernel variant that interpolates a `String` payload.
 ///
 /// One row per arm, so an arm added later without `Escaped` fails here
 /// rather than in whatever log sink first meets a hostile domain name.
-fn hostile_arms() -> Vec<BotError> {
+fn hostile_arms() -> Vec<KernelError> {
     let payload = String::from(HOSTILE);
     vec![
         // One row covers both payloads a deficit can carry: the capability
         // name and the domain that demanded it are both caller-supplied
         // strings, and both reach the rendering site.
-        BotError::CapabilityDenied {
+        KernelError::CapabilityDenied {
             deficit: Deficit::new(
                 Shortage::new(
                     Cap::new(payload.clone()),
@@ -159,101 +167,21 @@ fn hostile_arms() -> Vec<BotError> {
                 Vec::new(),
             ),
         },
-        BotError::MalformedSpec {
-            cause: payload.clone(),
+        KernelError::Conflict {
+            domain: payload.clone(),
+            record: payload.clone(),
+            expected: 1,
+            found: 2,
         },
-        // Both spec-refusal variants grew an untrusted payload since this
-        // list was written, so each gets its own row here: `IncompleteSpec`
-        // names the missing field and records why it was missing, and
-        // `UnknownCondition` names the identifier and records how its
-        // argument refused to parse. Neither may render a live control
-        // character.
-        BotError::IncompleteSpec {
-            field: "target",
-            cause: payload.clone(),
-        },
-        BotError::UnknownCondition {
-            condition: payload.clone(),
-            argument_parse: payload.clone(),
-        },
-        BotError::DomainError {
+        KernelError::DomainError {
             domain: payload.clone(),
             certainty: DispatchCertainty::Refused,
             cause: payload.clone(),
         },
-        BotError::EffectIndeterminate {
+        KernelError::EffectIndeterminate {
             domain: payload.clone(),
-            cause: payload.clone(),
+            cause: payload,
         },
-        BotError::EvaluateError {
-            cause: payload.clone(),
-        },
-        BotError::MalformedFlow {
-            cause: payload.clone(),
-        },
-        BotError::InvalidTransitionTarget {
-            from: payload.clone(),
-            target: payload.clone(),
-        },
-        BotError::MissingAskRoute {
-            node: payload.clone(),
-            option: payload.clone(),
-        },
-        BotError::VariableNeverWritten {
-            name: payload.clone(),
-        },
-        BotError::VariableReadBeforeInit {
-            node: payload.clone(),
-            name: payload.clone(),
-        },
-        BotError::UndeclaredVariable {
-            name: payload.clone(),
-        },
-        BotError::UnreachableNode {
-            node: payload.clone(),
-        },
-        BotError::UnknownNodeKind {
-            node: payload.clone(),
-            kind: payload.clone(),
-        },
-        BotError::MissingTransition {
-            node: payload.clone(),
-        },
-        BotError::MalformedTemplate {
-            node: payload.clone(),
-            field: "label",
-        },
-        BotError::VariableTypeMismatch {
-            name: payload.clone(),
-        },
-        // One row covers both terminal payloads: `HandedOff` carries the
-        // node's target and `Refused` the declared reason, and both reach
-        // the rendering site.
-        BotError::ConflictingTerminalDeclaration {
-            node: payload.clone(),
-            intrinsic: Terminal::HandedOff {
-                target: payload.clone(),
-            },
-            declared: Terminal::Refused {
-                reason: payload.clone(),
-            },
-        },
-        BotError::AskOptionNotAssignable {
-            node: payload.clone(),
-            variable: payload.clone(),
-            option: payload.clone(),
-            expected: "boolean",
-            cause: payload.clone(),
-        },
-        BotError::VariableUnset {
-            name: payload.clone(),
-        },
-        BotError::InvalidVariableValue {
-            variable: payload.clone(),
-            value: payload.clone(),
-            reason: payload.clone(),
-        },
-        BotError::ResolverReturnedInvalidOption { node: payload },
     ]
 }
 
@@ -263,7 +191,7 @@ fn a_rendered_payload_cannot_forge_a_log_record() {
     // implement: it interpolated the payload directly, so a domain name
     // containing a newline produced a second physical log line and an ESC
     // reached whatever terminal later read the file.
-    let error = BotError::EffectIndeterminate {
+    let error = KernelError::EffectIndeterminate {
         domain: String::from(HOSTILE),
         cause: String::from(HOSTILE),
     };
@@ -304,7 +232,7 @@ fn ordinary_diagnostics_keep_their_meaning() {
     // The other half of the contract, and the reason backslash is left
     // alone: escaping must not cost the diagnostic its content. Ordinary
     // Unicode and punctuation pass through byte for byte.
-    let error = BotError::DomainError {
+    let error = KernelError::DomainError {
         domain: String::from("gh::merge"),
         certainty: DispatchCertainty::NotDelivered,
         cause: String::from("PR #7 — \"timeout\" after 30s, ünïcode 日本 ok"),

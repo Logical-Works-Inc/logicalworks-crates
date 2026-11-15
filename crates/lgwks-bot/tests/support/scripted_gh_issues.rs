@@ -1,6 +1,6 @@
-//! A fake `gh` that holds issues, for the `gh::issue` action's tests.
+//! A scripted `gh` that holds issues, for the `gh::issue` action's tests.
 //!
-//! Nothing here mocks a Rust function: the action forks this script through
+//! Nothing here replaces a Rust function: the action forks this script through
 //! the same supervised runner it forks the real client through, stages its
 //! payload as a file, and parses what the script prints. The script records
 //! one argv line per call before it does anything else, so a test counts the
@@ -41,23 +41,84 @@
 //!
 //! Two faults are set up by a test rather than by the name: [`hide`] keeps a
 //! held issue out of the next N listings, and [`land_later`] leaves a create in
-//! flight that lands as the Nth call after it reaches the fake, as a create
+//! flight that lands as the Nth call after it reaches the script, as a create
 //! sent by a run killed before its answer lands while the rerun reads. A number
 //! the store does not hold answers `404`, which is also how GitHub answers a
 //! Discussion's number at an issue's address.
 
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use lgwks_bot::domain::gh::{Gh, IssueDraft, OpenIssue, Repository};
-use lgwks_bot::{Action, BotError};
+use lgwks_bot::{Action, EcsError};
 
-/// The fake's directory, installed once per test process.
+/// Why the script's directory could not be installed, kept as text because the
+/// install runs once and every later caller reads the same answer.
+#[derive(Debug, Clone)]
+pub struct InstallRefused {
+    /// What the platform said.
+    cause: String,
+}
+
+impl fmt::Display for InstallRefused {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(out, "the scripted gh was not installed: {}", self.cause)
+    }
+}
+
+impl std::error::Error for InstallRefused {}
+
+/// Why a call to the scripted `gh`'s store or log failed.
+#[derive(Debug)]
+pub enum ScriptError {
+    /// The script's directory was not installed.
+    Install(InstallRefused),
+    /// Reading or writing the script's files failed.
+    Io(std::io::Error),
+    /// A record could not be encoded.
+    Encode(lgwks_std::json::Error),
+}
+
+impl fmt::Display for ScriptError {
+    fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Install(ref refused) => refused.fmt(out),
+            Self::Io(ref cause) => write!(out, "the scripted gh's files failed: {cause}"),
+            Self::Encode(ref cause) => write!(out, "a record did not encode: {cause}"),
+        }
+    }
+}
+
+impl std::error::Error for ScriptError {}
+
+impl From<InstallRefused> for ScriptError {
+    fn from(refused: InstallRefused) -> Self {
+        Self::Install(refused)
+    }
+}
+
+impl From<std::io::Error> for ScriptError {
+    fn from(cause: std::io::Error) -> Self {
+        Self::Io(cause)
+    }
+}
+
+impl From<lgwks_std::json::Error> for ScriptError {
+    fn from(cause: lgwks_std::json::Error) -> Self {
+        Self::Encode(cause)
+    }
+}
+
+/// The script's directory, installed once per test process.
 ///
 /// Under the target's own temporary directory, so a run leaves nothing
 /// outside `target/`.
-static FAKE: LazyLock<Result<PathBuf, String>> =
-    LazyLock::new(|| install().map_err(|cause| cause.to_string()));
+static SCRIPT_DIR: LazyLock<Result<PathBuf, InstallRefused>> = LazyLock::new(|| {
+    install().map_err(|cause| InstallRefused {
+        cause: cause.to_string(),
+    })
+});
 
 /// Write the script into a fresh directory and make it executable.
 fn install() -> std::io::Result<PathBuf> {
@@ -66,35 +127,38 @@ fn install() -> std::io::Result<PathBuf> {
     let tag = lgwks_std::random::bytes::<8>()
         .map(u64::from_le_bytes)
         .map_err(std::io::Error::other)?;
-    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("fake-gh-issues-{tag:016x}"));
+    let dir =
+        PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("scripted-gh-issues-{tag:016x}"));
     std::fs::create_dir_all(&dir)?;
     std::fs::write(dir.join("argv.log"), b"")?;
     let script = dir.join("gh");
-    std::fs::write(&script, FAKE_GH_ISSUES)?;
+    std::fs::write(&script, SCRIPTED_GH_ISSUES)?;
     let mut permissions = std::fs::metadata(&script)?.permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&script, permissions)?;
     Ok(dir)
 }
 
-/// The fake's directory, or why it could not be installed.
-fn dir() -> Result<&'static PathBuf, String> {
-    match *FAKE {
+/// The script's directory, or why it could not be installed.
+fn dir() -> Result<&'static PathBuf, InstallRefused> {
+    match *SCRIPT_DIR {
         Ok(ref dir) => Ok(dir),
-        Err(ref cause) => Err(cause.clone()),
+        Err(ref refused) => Err(refused.clone()),
     }
 }
 
-/// The registry constructor that binds `gh::issue` to this fake.
-pub fn issue_on_fake(target: &str) -> Result<Action, BotError> {
-    let unusable = |cause: String| BotError::IncompleteSpec {
+/// The registry constructor that binds `gh::issue` to this script.
+pub fn issue_on_scripted(target: &str) -> Result<Action, EcsError> {
+    let unusable = |cause: String| EcsError::IncompleteSpec {
         field: "target",
         cause,
     };
-    let script = dir().map_err(unusable)?.join("gh");
+    let script = dir()
+        .map_err(|refused| unusable(refused.to_string()))?
+        .join("gh");
     let Some(program) = script.to_str() else {
-        lgwks_std::trace::debug!(path = ?script, "fake_gh_issues: the fake's path is not UTF-8");
-        return Err(unusable(String::from("the fake's path is not UTF-8")));
+        lgwks_std::trace::debug!(path = ?script, "scripted_gh_issues: the script's path is not UTF-8");
+        return Err(unusable(String::from("the script's path is not UTF-8")));
     };
     let repository = Repository::new(target).map_err(|refused| unusable(refused.to_string()))?;
     Ok(Action::new(OpenIssue::new(
@@ -102,8 +166,8 @@ pub fn issue_on_fake(target: &str) -> Result<Action, BotError> {
     )))
 }
 
-/// Every call the fake recorded against `owner`, in order, one argv each.
-pub fn calls_on(owner: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
+/// Every call the script recorded against `owner`, in order, one argv each.
+pub fn calls_on(owner: &str) -> Result<Vec<Vec<String>>, ScriptError> {
     let needle = format!("repos/{owner}/");
     let text = std::fs::read_to_string(dir()?.join("argv.log"))?;
     Ok(text
@@ -120,12 +184,7 @@ pub fn calls_on(owner: &str) -> Result<Vec<Vec<String>>, Box<dyn std::error::Err
 
 /// Put `draft` into `owner/repo`'s store as issue `number`, as if an earlier
 /// run had opened it; the store line is the one a create writes.
-pub fn hold(
-    owner: &str,
-    repo: &str,
-    number: u64,
-    draft: &IssueDraft,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn hold(owner: &str, repo: &str, number: u64, draft: &IssueDraft) -> Result<(), ScriptError> {
     use std::io::Write as _;
 
     let record = format!(
@@ -143,12 +202,7 @@ pub fn hold(
 }
 
 /// Hide `owner/repo`'s issue `number` from the next `reads` listings.
-pub fn hide(
-    owner: &str,
-    repo: &str,
-    number: u64,
-    reads: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub fn hide(owner: &str, repo: &str, number: u64, reads: u32) -> Result<(), ScriptError> {
     std::fs::write(
         dir()?.join(format!("lag-{owner}-{repo}-{number}")),
         reads.to_string(),
@@ -157,14 +211,14 @@ pub fn hide(
 }
 
 /// Leave `draft`'s create in flight on `owner/repo`: it lands as the
-/// `calls`th call after this reaches the fake, before that call is answered,
+/// `calls`th call after this reaches the script, before that call is answered,
 /// taking the next number.
 pub fn land_later(
     owner: &str,
     repo: &str,
     draft: &IssueDraft,
     calls: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), ScriptError> {
     let payload = format!(
         "{{\"title\":{},\"body\":{}}}\n",
         lgwks_std::json::to_string(draft.title())?,
@@ -179,19 +233,19 @@ pub fn land_later(
 }
 
 /// How many creates the action issued against `owner`.
-pub fn creates_on(owner: &str) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn creates_on(owner: &str) -> Result<usize, ScriptError> {
     Ok(calls_on(owner)?
         .iter()
         .filter(|argv| argv.iter().any(|arg| arg == "POST"))
         .count())
 }
 
-/// How many issues the fake holds for `owner/repo`, one store line each.
+/// How many issues the script holds for `owner/repo`, one store line each.
 ///
 /// A create's POST count is what a duplicate raises; the store is what a
 /// duplicate *leaves behind*, and the two can differ if a create landed and
 /// was never acknowledged.
-pub fn held_on(owner: &str, repo: &str) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn held_on(owner: &str, repo: &str) -> Result<usize, ScriptError> {
     let path = dir()?.join(format!("issues-{owner}-{repo}.jsonl"));
     match std::fs::read_to_string(&path) {
         Ok(text) => Ok(text.lines().filter(|line| !line.is_empty()).count()),
@@ -200,9 +254,9 @@ pub fn held_on(owner: &str, repo: &str) -> Result<usize, Box<dyn std::error::Err
     }
 }
 
-/// The fake client. Bash where the host has it, as the review fake chooses.
-const FAKE_GH_ISSUES: &str = r#"#!/bin/bash
-# A fake `gh api` holding issues. Records argv, then answers from its store.
+/// The scripted client. Bash where the host has it, as the review script chooses.
+const SCRIPTED_GH_ISSUES: &str = r#"#!/bin/bash
+# A scripted `gh api` holding issues. Records argv, then answers from its store.
 set -u
 case "$0" in
   */*) dir=${0%/*} ;;
@@ -231,7 +285,7 @@ done
 # `--jq` does, so a call without the projection would print bodies past the
 # capture.
 if [ -z "$jq" ]; then
-  printf 'fake gh: every call must pass --jq\n' >&2
+  printf 'scripted gh: every call must pass --jq\n' >&2
   exit 64
 fi
 tail=${jq#*<!-- lgwks-issue:}

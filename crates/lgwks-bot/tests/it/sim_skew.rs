@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::clock::Clock;
-use lgwks_bot::error::BotError;
+use lgwks_bot::error::KernelError;
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::skew::{SkewBound, epoch_holds, lease_holds, warrant_holds};
 
@@ -130,7 +130,7 @@ fn run(scenario: &Scenario, trace: &mut Trace) -> Result<(), Box<dyn Error>> {
     // caller and the judge are one fact read twice.
     match proof.check_remote(&[Cap::net()], &observer) {
         Ok(()) if holds => {}
-        Err(BotError::CredentialExpired {
+        Err(KernelError::CredentialExpired {
             now, expired_at, ..
         }) if !holds => {
             if now != scenario.observer_now || expired_at != expires_at(scenario) {
@@ -139,7 +139,7 @@ fn run(scenario: &Scenario, trace: &mut Trace) -> Result<(), Box<dyn Error>> {
                 ));
             }
         }
-        Err(BotError::CapabilityDenied { .. }) => {
+        Err(KernelError::CapabilityDenied { .. }) => {
             return refuse("a proof covering bot.net must not be denied it");
         }
         unexpected => {

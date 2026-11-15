@@ -34,7 +34,7 @@ fn a_failed_sibling_does_not_publish_the_successful_sources_digest() -> TestResu
         format!("a failing sibling was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the sibling's own error, got {error:?}"
     );
     assert!(
@@ -94,7 +94,7 @@ fn a_committed_source_that_moves_during_a_sibling_failure_is_not_lost() -> TestR
         format!("a failing sibling was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the sibling's own error, got {error:?}"
     );
     assert!(
@@ -257,7 +257,10 @@ fn a_held_transition_keeps_its_input_across_a_sibling_failure() -> TestResult {
         format!("an indeterminate effect was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectIndeterminate { .. }),
+        matches!(
+            error,
+            EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+        ),
         "expected the action's own error, got {error:?}"
     );
     assert_eq!(identities(&bot), vec![(0, 0)], "the held entry is named");
@@ -278,7 +281,7 @@ fn a_held_transition_keeps_its_input_across_a_sibling_failure() -> TestResult {
         format!("a failing sibling was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the sibling's own error, got {error:?}"
     );
     assert_eq!(
@@ -301,7 +304,7 @@ fn a_held_transition_keeps_its_input_across_a_sibling_failure() -> TestResult {
     match bot.tick() {
         Ok(_) => {}
         Err(error) => assert!(
-            matches!(error, BotError::PendingTransition { .. }),
+            matches!(error, EcsError::PendingTransition { .. }),
             "the held entry is still outstanding, got {error:?}"
         ),
     }
@@ -366,7 +369,7 @@ fn a_failure_mid_chain_leaves_the_untouched_entries_pending() -> TestResult {
         format!("a refused action was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the action's own error, got {error:?}"
     );
     assert_eq!(
@@ -457,7 +460,7 @@ fn a_failure_before_the_first_effect_still_runs_it_once() -> TestResult {
             format!("round {round} reported {fired} fired")
         })?;
         assert!(
-            matches!(error, BotError::DomainError { .. }),
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
             "round {round}: expected the action's own error, got {error:?}"
         );
     }
@@ -480,7 +483,7 @@ fn a_failure_before_the_first_effect_still_runs_it_once() -> TestResult {
         format!("a spent budget was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "the abandonment does not replace the error that caused it: {error:?}"
     );
     assert_eq!(attempts.get(), 3, "exactly the declared budget was spent");
@@ -521,7 +524,7 @@ fn a_failure_before_the_first_effect_still_runs_it_once() -> TestResult {
         )
     })?;
     assert!(
-        matches!(error, BotError::PendingTransition { .. }),
+        matches!(error, EcsError::PendingTransition { .. }),
         "expected the unresolved chain to be reported, got {error:?}"
     );
     assert!(
@@ -540,7 +543,7 @@ fn a_failure_before_the_first_effect_still_runs_it_once() -> TestResult {
         )
     })?;
     assert!(
-        matches!(error, BotError::PendingTransition { .. }),
+        matches!(error, EcsError::PendingTransition { .. }),
         "expected the unresolved chain to be reported, got {error:?}"
     );
     assert!(
@@ -572,7 +575,7 @@ fn one_attempt_is_a_policy_a_caller_can_declare() -> TestResult {
         format!("a refusal was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the action's own error, got {error:?}"
     );
     assert_eq!(attempts.get(), 1, "the declared budget is one attempt");
@@ -596,7 +599,7 @@ fn one_attempt_is_a_policy_a_caller_can_declare() -> TestResult {
         )
     })?;
     assert!(
-        matches!(error, BotError::PendingTransition { .. }),
+        matches!(error, EcsError::PendingTransition { .. }),
         "expected the unresolved chain to be reported, got {error:?}"
     );
     assert_eq!(attempts.get(), 1, "the abandoned entry is not retried");
@@ -622,7 +625,7 @@ fn one_attempt_is_a_policy_a_caller_can_declare() -> TestResult {
         format!("a refusal was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the retry's own error, got {error:?}"
     );
     assert_eq!(attempts.get(), 2, "the revived entry attempted again");
@@ -655,7 +658,7 @@ fn a_failure_does_not_stop_a_later_chain() -> TestResult {
         format!("a refused action was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the action's own error, got {error:?}"
     );
     assert_eq!(
@@ -684,7 +687,10 @@ fn an_indeterminate_effect_is_held_until_evidence_says_what_happened() -> TestRe
         format!("an indeterminate effect was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectIndeterminate { .. }),
+        matches!(
+            error,
+            EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+        ),
         "expected the action's own error, got {error:?}"
     );
     assert!(
@@ -697,7 +703,7 @@ fn an_indeterminate_effect_is_held_until_evidence_says_what_happened() -> TestRe
     let error = refused(bot.tick(), |fired| {
         format!("a held effect was reported as {fired} fired")
     })?;
-    let BotError::PendingTransition { work, outstanding } = error else {
+    let EcsError::PendingTransition { work, outstanding } = error else {
         return Err(format!("expected PendingTransition, got {error:?}").into());
     };
     assert_eq!(identity(&work), (0, 0), "the held entry is named");
@@ -754,7 +760,10 @@ fn evidence_that_the_effect_happened_records_it_without_replaying_it() -> TestRe
         format!("an indeterminate effect was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectIndeterminate { .. }),
+        matches!(
+            error,
+            EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+        ),
         "expected the action's own error, got {error:?}"
     );
 
@@ -797,7 +806,7 @@ fn evidence_that_the_effect_happened_records_it_without_replaying_it() -> TestRe
             assert!(
                 matches!(
                     error,
-                    BotError::EvidenceContradicted {
+                    EcsError::EvidenceContradicted {
                         settled: EffectEvidence::Applied,
                         submitted: EffectEvidence::NotApplied,
                         ..

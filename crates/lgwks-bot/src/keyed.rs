@@ -49,7 +49,10 @@ use std::fmt;
 use std::time::Duration;
 
 use crate::clock::Clock;
-use crate::error::BotError;
+#[cfg(feature = "process")]
+use crate::ecs::EcsError;
+#[cfg(feature = "process")]
+use crate::error::KernelError;
 
 /// How many reads the read-back after a lost create answer makes at least.
 const SETTLE_SCANS: u8 = 8;
@@ -159,25 +162,33 @@ impl<E> KeyedError<E> {
     }
 }
 
+/// Its one caller is the `gh` issue adapter, which runs `gh` and so exists with `process`.
+#[cfg(feature = "process")]
 impl<E: fmt::Display> KeyedError<E> {
     /// This failure as the crate error a verb returns, attributed to `domain`.
     ///
     /// An effect that may or may not exist is always
-    /// [`BotError::EffectIndeterminate`], whatever the adapter's own mapping
+    /// [`KernelError::EffectIndeterminate`], whatever the adapter's own mapping
     /// would say, so no adapter can turn a possible duplicate into a retry.
-    pub fn into_bot_error(self, domain: &str, adapter: impl FnOnce(E) -> BotError) -> BotError {
+    pub(crate) fn into_ecs_error(
+        self,
+        domain: &str,
+        adapter: impl FnOnce(E) -> EcsError,
+    ) -> EcsError {
         match self {
             Self::Unread(failure) | Self::Refused(failure) => adapter(failure),
-            Self::Indeterminate { lost, unread } => BotError::EffectIndeterminate {
-                domain: domain.to_owned(),
-                cause: match unread {
-                    None => format!(
-                        "{lost}; the read-back did not find the key, so the effect may or may not \
-                         exist, and a rerun with this key reads before it creates"
-                    ),
-                    Some(unread) => format!("{lost}; a read-back read failed too: {unread}"),
-                },
-            },
+            Self::Indeterminate { lost, unread } => {
+                EcsError::from(KernelError::EffectIndeterminate {
+                    domain: domain.to_owned(),
+                    cause: match unread {
+                        None => format!(
+                            "{lost}; the read-back did not find the key, so the effect may or may \
+                             not exist, and a rerun with this key reads before it creates"
+                        ),
+                        Some(unread) => format!("{lost}; a read-back read failed too: {unread}"),
+                    },
+                })
+            }
         }
     }
 }

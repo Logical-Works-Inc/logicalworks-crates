@@ -47,15 +47,6 @@ use lgwks_std::wire::{AlignedVec, WireError};
 
 use crate::effect::{EffectKey, Id128};
 
-/// The evidence vocabulary is the ledger's, re-exported here rather than
-/// restated.
-///
-/// The journal and the ledger answer the same question, "what does the evidence
-/// say about whether the effect landed", and a second enum with the same two
-/// arms would drift from this one the first time an arm was added. Re-exporting
-/// keeps one definition with two consumers.
-pub use crate::ecs::EffectEvidence;
-
 /// What the shipped adapters share: the event ceiling and the trait methods
 /// both answer the same way. First, so its macros are in scope in every adapter
 /// module declared below.
@@ -70,9 +61,14 @@ mod wire_form;
 
 #[cfg(feature = "wire")]
 pub use wire_form::{ArchivedEffectEvent, ArchivedVerificationResult};
-/// The two journal records whose archived form is an enum, re-exported from the
+/// The journal records whose archived form is an enum, re-exported from the
 /// private `wire_form` module, which records why they are declared there.
-pub use wire_form::{EffectEvent, VerificationResult};
+///
+/// [`EffectEvidence`] is the evidence vocabulary the journal and the ledger
+/// share: "what does the evidence say about whether the effect landed". It is
+/// declared here, below the ledger, so one definition has two consumers and
+/// the journal names nothing above it.
+pub use wire_form::{EffectEvent, EffectEvidence, VerificationResult};
 
 /// The file journal persists every record through the wire encoding, so it
 /// exists only where `wire` is on (#687: a process-only build carries none).

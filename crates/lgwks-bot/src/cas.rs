@@ -4,8 +4,9 @@
 //! never a lost update. Every write names the version it saw
 //! ([`CasInput::expected`](crate::cas::CasInput::expected)); the store applies the write only when that
 //! version is still current, and a write that arrives late is refused as
-//! [`CasError::Conflict`](crate::cas::CasError::Conflict) — through the [`Execute`](crate::verb::Execute)
-//! adapter as [`BotError::Conflict`] —
+//! [`CasError::Conflict`](crate::cas::CasError::Conflict) — through the
+//! [`CasWrite`](crate::domain::cas::CasWrite) adapter as
+//! [`KernelError::Conflict`](crate::error::KernelError::Conflict) —
 //! carrying both versions so the loser can re-read and retry against the new
 //! truth rather than against a guess.
 //!
@@ -43,11 +44,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-use crate::cap::{Auth, Cap};
-use crate::error::{BotError, DispatchCertainty};
 use crate::journal::owner::lock;
 use crate::skew::WallStamp;
-use crate::verb;
 
 /// How many lost-write conflicts the store file retains.
 ///
@@ -425,96 +423,16 @@ impl CasOutput {
     }
 }
 
-/// An [`Execute`](crate::verb::Execute) adapter that writes one versioned
-/// shared record.
-///
-/// The writer of shared records the concurrent-editors row asks for: the
-/// expected-version precondition rides in the input, and a lost write is the
-/// typed [`BotError::Conflict`] outcome —
-/// recorded in the store's conflict log, never retried blindly.
-#[derive(Debug)]
-pub struct CasWrite {
-    /// The store the writes land in, shared so one adapter serves every
-    /// record on one file.
-    store: std::sync::Arc<RecordStore>,
-    /// Forced to `[bot.fs]`: the store is a file, and no constructor omits
-    /// the capability.
-    caps: Vec<Cap>,
-}
-
-impl CasWrite {
-    /// Serve versioned writes against `store`.
+impl CasOutput {
+    /// The outcome of a write that installed `version` on `record`; the adapter
+    /// in [`crate::domain::cas`] reports it, so the store layer stays free of
+    /// the verb that calls it.
     #[must_use]
-    pub fn new(store: std::sync::Arc<RecordStore>) -> Self {
+    pub(crate) fn installed(record: &str, version: u64) -> Self {
         Self {
-            store,
-            caps: vec![Cap::fs()],
+            record: record.to_owned(),
+            version,
         }
-    }
-
-    /// The store the writes land in.
-    #[must_use]
-    pub fn store(&self) -> &std::sync::Arc<RecordStore> {
-        &self.store
-    }
-}
-
-impl verb::Execute for CasWrite {
-    type Input = CasInput;
-    type Output = CasOutput;
-
-    fn required_caps(&self) -> &[Cap] {
-        &self.caps
-    }
-
-    fn effect_lifetime(&self) -> verb::EffectLifetime {
-        verb::EffectLifetime::External
-    }
-
-    async fn execute_action(&self, call: (Auth, &Self::Input)) -> Result<Self::Output, BotError> {
-        call.0.check(self.required_caps())?;
-        let input = call.1;
-        let domain = self.domain_id().to_owned();
-        // Synchronous under the in-process mutex, awaited for nothing: the
-        // critical section holds no `.await`, so there is no lock held across
-        // one by construction.
-        match self
-            .store
-            .write(input.record(), input.expected(), input.value())
-        {
-            Ok(version) => Ok(CasOutput {
-                record: input.record().to_owned(),
-                version,
-            }),
-            Err(CasError::Conflict {
-                record,
-                expected,
-                found,
-            }) => {
-                let refusal = Err(BotError::Conflict {
-                    domain,
-                    record,
-                    expected,
-                    found,
-                });
-                lgwks_std::trace::debug!(
-                    error = ?refusal.as_ref().err(),
-                    "execute_action: returning an error to the caller"
-                );
-                refusal
-            }
-            Err(CasError::Corrupt { cause }) | Err(CasError::Io { cause }) => {
-                Err(BotError::DomainError {
-                    domain,
-                    certainty: DispatchCertainty::Refused,
-                    cause,
-                })
-            }
-        }
-    }
-
-    fn domain_id(&self) -> &str {
-        "cas::store"
     }
 }
 

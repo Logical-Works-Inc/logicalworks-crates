@@ -30,7 +30,7 @@ impl Execute for Grudging {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.seen.borrow_mut().push(*call.1);
         let left = self.refusals.get();
@@ -97,7 +97,7 @@ fn an_open_transition_is_bound_to_the_payload_it_was_opened_under() -> TestResul
     match bot.tick() {
         Ok(fired) => return Err(format!("a refusal was reported as {fired} fired").into()),
         Err(error) => assert!(
-            matches!(error, BotError::DomainError { .. }),
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
             "expected the action's own error, got {error:?}"
         ),
     }
@@ -138,7 +138,10 @@ fn tick_expecting_held(bot: &mut Bot) -> TestResult {
         Ok(fired) => Err(format!("an indeterminate effect was reported as {fired} fired").into()),
         Err(error) => {
             assert!(
-                matches!(error, BotError::EffectIndeterminate { .. }),
+                matches!(
+                    error,
+                    EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+                ),
                 "expected the action's own error, got {error:?}"
             );
             Ok(())
@@ -219,7 +222,7 @@ fn a_settlement_names_the_attempt_it_settles_and_no_other() -> TestResult {
     // The attempt-1 report arrives a second time. It is about work that is
     // over, and accepting it is what makes an attempt eligible to run again.
     match bot.resolve_effect(&first_binding, EffectEvidence::NotApplied) {
-        Err(BotError::EvidenceStaleAttempt {
+        Err(EcsError::EvidenceStaleAttempt {
             reported,
             outstanding,
             ..

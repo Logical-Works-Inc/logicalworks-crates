@@ -15,32 +15,26 @@
 //!
 //! A script word's future is deliberately not `Send` (it carries a non-`Send`
 //! store write), so `join_all_bounded` cannot take one directly. Each spawned
-//! input hands the word to `lgwks_std::task::spawn_blocking`, whose own OS
+//! input hands the word to `lgwks_std::task::try_spawn_blocking`, whose own OS
 //! thread reports through a future: that is a spawn like any other, and no
 //! task-local travels across it either.
 
-#![cfg(all(
-    feature = "script",
-    feature = "rt",
-    feature = "sync",
-    feature = "ephemeral",
-    feature = "testing",
-    feature = "ecs",
-    feature = "wire"
-))]
+#![cfg(all(feature = "ecs", feature = "wire", feature = "script", feature = "rt"))]
+#![cfg(all(feature = "sync", feature = "ephemeral", feature = "testing"))]
 
 use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use lgwks_bot::error::{DispatchCertainty, KernelError};
 use lgwks_bot::rt::task::join_all_bounded;
 use lgwks_bot::script::{
     EffectDisposition, EffectPolicy, FlowError, Scope, act, remember, with_effect_policy,
 };
 use lgwks_bot::task::{Disposition, Host, StoreError, task};
 use lgwks_bot::verb::EffectLifetime;
-use lgwks_bot::{Action, Auth, BotError, Cap, Execute, domains};
-use lgwks_std::task::spawn_blocking;
+use lgwks_bot::{Action, Auth, Cap, EcsError, Execute, domains};
+use lgwks_std::task::try_spawn_blocking;
 
 use crate::memory_records::MemoryRecords;
 use crate::scratch::Scratch;
@@ -66,13 +60,19 @@ const FAN_LIMIT: usize = 4;
 /// `join_all_bounded` spawns only `Send` futures, and a script word's future is
 /// deliberately not `Send`, so the word rides a `spawn_blocking` job instead:
 /// its own OS thread, reporting through a future. No task-local crosses it,
-/// which is the spawn boundary these tests need.
+/// which is the spawn boundary these tests need. A pool that refuses the job
+/// is a refusal before anything ran, not a lost step.
 async fn on_a_spawned_thread<T, F>(step: F) -> Result<T, FlowError>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T, FlowError> + Send + 'static,
 {
-    spawn_blocking(step).await
+    let handle = try_spawn_blocking(step).map_err(|refused| KernelError::DomainError {
+        domain: "test::spawn".to_owned(),
+        certainty: DispatchCertainty::Refused,
+        cause: refused.to_string(),
+    })?;
+    handle.await
 }
 
 /// Drive `width` spawned acts of `action`, each on its own thread, and collect
@@ -230,7 +230,7 @@ struct LocalPage;
 
 impl LocalPage {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, BotError> {
+    fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self))
     }
 }
@@ -257,7 +257,7 @@ impl Execute for LocalPage {
         }
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         Ok(())
     }

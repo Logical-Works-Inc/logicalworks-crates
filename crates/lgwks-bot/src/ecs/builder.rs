@@ -11,13 +11,13 @@ use crate::broker::DispatchError;
 use crate::cap::{Deficit, Demand, Shortage};
 use crate::clock::Clock;
 use crate::effect::ActionId;
-use crate::error::BotError;
+use crate::error::KernelError;
 use crate::gate::GrantSet;
 use crate::journal::{AttemptStatus, DurabilityPromise, JournalError, recover};
-use crate::registry::DomainRegistry;
-use crate::spec::{ActionSpec, ChainEntry, ChainSpec, Need, Witness, typed_entry};
+use crate::spec::{ChainEntry, Witness, typed_entry};
 use crate::verb::{Evaluate, Execute, Observe};
 
+use super::EcsError;
 use super::bot::EcsBot;
 use super::effects::Effects;
 use super::effects::RecordedOutcome;
@@ -54,123 +54,13 @@ use super::watchdog::DEFAULT_POLL_DEADLINE;
 use super::watchdog::MAX_POLL_DEADLINE;
 #[cfg(doc)]
 use super::work::AbandonReason;
-use super::work::EffectEvidence;
 use super::work::identify_output;
 use super::work::same_output;
+use crate::journal::EffectEvidence;
 #[cfg(doc)]
 use crate::journal::EffectJournal;
 #[cfg(doc)]
 use crate::spec::ObserveAny;
-
-/// Resolve one spec chain into an erased chain, or record every need it has.
-///
-/// Returns `None` when the chain contributed any need, so the caller knows not
-/// to build it; the needs are appended to `needs` in declaration order. The
-/// walk is deliberately exhaustive: an unknown source stops the chain (nothing
-/// downstream of a source this binary cannot build is knowable), but a known
-/// source with an unknown action still has its condition and its capability
-/// requirements checked, because those are facts about the document rather than
-/// about the missing action.
-pub(super) fn materialize_chain(
-    chain_index: usize,
-    chain: &ChainSpec,
-    registry: &DomainRegistry,
-    grants: &GrantSet,
-    needs: &mut Vec<Need>,
-) -> Option<EcsChain> {
-    let before = needs.len();
-
-    let Some(source_ctor) = registry.source(&chain.source) else {
-        needs.push(Need::UnknownSource {
-            chain: chain_index,
-            domain: chain.source.clone(),
-        });
-        return None;
-    };
-    let source = match source_ctor(&chain.target) {
-        Ok(source) => source,
-        Err(cause) => {
-            needs.push(Need::SourceTargetRejected {
-                chain: chain_index,
-                domain: chain.source.clone(),
-                cause: cause.to_string(),
-            });
-            return None;
-        }
-    };
-    for shortage in grants.uncovered(source.required_caps(), &Demand::new(chain.source.clone())) {
-        needs.push(Need::MissingCapability {
-            chain: chain_index,
-            action: None,
-            domain: chain.source.clone(),
-            capability: shortage.required().clone(),
-        });
-    }
-
-    let mut entries: Vec<ChainEntry> = Vec::with_capacity(chain.on.len());
-    for (action_index, entry) in chain.on.iter().enumerate() {
-        let condition_id: &String = &entry.0;
-        let action_spec: &ActionSpec = &entry.1;
-        let action = match registry.action(&action_spec.domain) {
-            Some(ctor) => match ctor(&action_spec.target) {
-                Ok(action) => Some(action),
-                Err(cause) => {
-                    needs.push(Need::ActionTargetRejected {
-                        chain: chain_index,
-                        action: action_index,
-                        domain: action_spec.domain.clone(),
-                        cause: cause.to_string(),
-                    });
-                    None
-                }
-            },
-            None => {
-                needs.push(Need::UnknownAction {
-                    chain: chain_index,
-                    action: action_index,
-                    domain: action_spec.domain.clone(),
-                });
-                None
-            }
-        };
-        if let Some(ref action) = action {
-            for shortage in grants.uncovered(
-                action.required_caps(),
-                &Demand::new(action_spec.domain.clone()),
-            ) {
-                needs.push(Need::MissingCapability {
-                    chain: chain_index,
-                    action: Some(action_index),
-                    domain: action_spec.domain.clone(),
-                    capability: shortage.required().clone(),
-                });
-            }
-        }
-        let condition = match source.condition(condition_id) {
-            Ok(condition) => Some(condition),
-            Err(_) => {
-                needs.push(Need::UnknownCondition {
-                    chain: chain_index,
-                    action: action_index,
-                    condition: condition_id.clone(),
-                });
-                None
-            }
-        };
-        if let (Some(action), Some(condition)) = (action, condition) {
-            entries.push(ChainEntry::erased(
-                condition.into_evaluate_any(),
-                action.into_execute_any(),
-            ));
-        }
-    }
-
-    if needs.len() == before {
-        Some(EcsChain::from_registry(source, entries))
-    } else {
-        None
-    }
-}
 
 /// Builder for [`EcsBot`].
 pub struct EcsBuilder {
@@ -209,21 +99,21 @@ impl EcsBuilder {
     /// Bounded at both ends, because both ends are the same fact: a zero budget
     /// cancels every poll before its first poll, and a budget past
     /// [`MAX_POLL_DEADLINE`] is a caller asking for a bot that can still hang.
-    /// Both are [`BotError`]s at [`build`](Self::build), not panics and not
+    /// Both are [`EcsError`]s at [`build`](Self::build), not panics and not
     /// silently clamped values, because a clamp is indistinguishable from the
     /// budget the caller asked for.
     ///
     /// `a_poll_deadline_of_zero_is_refused_at_build` (`tests/it/bot_front_door.rs`) runs the zero
     /// case: a bot built with `Duration::ZERO` is refused at `build` as
-    /// `BotError::PollDeadlineUnbounded`.
+    /// `EcsError::PollDeadlineUnbounded`.
     ///
     /// Defaults to [`DEFAULT_POLL_DEADLINE`] for a caller that never calls this,
     /// which is what makes it a declared policy rather than a hidden constant.
     ///
     /// # Errors
     ///
-    /// [`BotError::PollDeadlineUnbounded`] for [`Duration::ZERO`], and
-    /// [`BotError::PollDeadlineExceeded`] for a budget above
+    /// [`EcsError::PollDeadlineUnbounded`] for [`Duration::ZERO`], and
+    /// [`EcsError::PollDeadlineExceeded`] for a budget above
     /// [`MAX_POLL_DEADLINE`]. Both surface from [`build`](Self::build), so this
     /// call itself cannot fail.
     #[must_use]
@@ -272,7 +162,7 @@ impl EcsBuilder {
     /// goes through.
     ///
     /// Required: [`build`](Self::build) refuses without it, reporting
-    /// [`BotError::IncompleteSpec`] with `field: "effects"`. That is the same
+    /// [`EcsError::IncompleteSpec`] with `field: "effects"`. That is the same
     /// idiom the name check uses, and it is deliberate rather than a typestate —
     /// a bot whose dispatch path is optional is a bot with two dispatch paths,
     /// and the estate does not keep two implementations of one job.
@@ -332,7 +222,20 @@ impl EcsBuilder {
     ///
     /// Whatever [`EcsBuilder::with_poll_deadline`] documents, plus the same
     /// admission refusals every other build of a bot raises.
-    pub fn build(self, grants: &GrantSet) -> Result<EcsBot, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::spec::EffectScope;
+    /// use lgwks_bot::{Bot, GrantSet};
+    ///
+    /// let mut bot = Bot::builder("direct-only")
+    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .build(&GrantSet::empty())?;
+    /// assert_eq!(bot.tick()?, 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn build(self, grants: &GrantSet) -> Result<EcsBot, EcsError> {
         EcsBot::assemble(
             self.name,
             self.chains,
@@ -451,7 +354,39 @@ impl<S: Observe> EcsObserveBuilder<S> {
     /// The erasure boundary for the last chain, for the same reason as
     /// [`observe`](Self::observe), and the one call that turns a declaration into
     /// a running bot.
-    pub fn build(self, grants: &GrantSet) -> Result<EcsBot, BotError>
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::spec::EffectScope;
+    /// use lgwks_bot::{Auth, Bot, Cap, EcsError, GrantSet, Observe};
+    ///
+    /// struct Five;
+    ///
+    /// impl Observe for Five {
+    ///     type Output = u16;
+    ///
+    ///     fn required_caps(&self) -> &[Cap] {
+    ///         &[]
+    ///     }
+    ///
+    ///     async fn poll(&self, _call: (Auth, ())) -> Result<u16, EcsError> {
+    ///         Ok(5)
+    ///     }
+    ///
+    ///     fn domain_id(&self) -> &str {
+    ///         "example::five"
+    ///     }
+    /// }
+    ///
+    /// let mut bot = Bot::builder("watch")
+    ///     .observe(Five)
+    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .build(&GrantSet::empty())?;
+    /// assert_eq!(bot.tick()?, 0);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn build(self, grants: &GrantSet) -> Result<EcsBot, EcsError>
     where
         S: 'static,
         S::Output: PartialEq + InputIdentity + 'static,
@@ -518,9 +453,9 @@ impl EcsBot {
         policy: RetrySchedule,
         effects: Option<EffectScope>,
         poll_deadline: Duration,
-    ) -> Result<Self, BotError> {
+    ) -> Result<Self, EcsError> {
         if name.is_empty() {
-            let refusal = Err(BotError::IncompleteSpec {
+            let refusal = Err(EcsError::IncompleteSpec {
                 field: "name",
                 cause: String::from("the bot was given an empty name"),
             });
@@ -533,14 +468,14 @@ impl EcsBot {
         // as stalled. A refusal here names the number and the repair rather than
         // producing a bot whose every tick is a cancellation.
         if poll_deadline.is_zero() {
-            let refusal = Err(BotError::PollDeadlineUnbounded {
+            let refusal = Err(EcsError::PollDeadlineUnbounded {
                 deadline: poll_deadline,
             });
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
             return refusal;
         }
         if poll_deadline > MAX_POLL_DEADLINE {
-            let refusal = Err(BotError::PollDeadlineExceeded {
+            let refusal = Err(EcsError::PollDeadlineExceeded {
                 deadline: poll_deadline,
                 ceiling: MAX_POLL_DEADLINE,
             });
@@ -551,7 +486,7 @@ impl EcsBot {
         // a dispatch is not a bot that is missing a capability — it is one that
         // was never given a dispatch path, and the repair is different.
         let Some(effects) = effects else {
-            let refusal = Err(BotError::IncompleteSpec {
+            let refusal = Err(EcsError::IncompleteSpec {
                 field: "effects",
                 cause: String::from(
                     "no effect scope was supplied, so a dispatch could not be recorded",
@@ -566,32 +501,31 @@ impl EcsBot {
         // one — and it is refused here rather than ignored, because ignoring it
         // means dispatching an action whose earlier attempt the journal says
         // may be live.
-        let committed = effects
-            .journal()
-            .committed()
-            .map_err(|cause| BotError::EffectRefused {
+        let committed = effects.journal().committed().map_err(|cause| {
+            EcsError::from(KernelError::EffectRefused {
                 cause: DispatchError::Journal(cause),
-            })?;
+            })
+        })?;
         let tail = effects.journal().tail();
         // A committed count that cannot be a sequence number means the journal
         // holds more events than the sequence can name, which is exhaustion.
         let recovered_events = match u64::try_from(committed.len()) {
             Ok(count) => count,
             Err(_too_many_events) => {
-                let refusal = Err(BotError::EffectRefused {
+                let refusal = Err(EcsError::from(KernelError::EffectRefused {
                     cause: DispatchError::Journal(JournalError::Exhausted),
-                });
+                }));
                 lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
                 return refusal;
             }
         };
         if recovered_events != tail.sequence() {
-            let refusal = Err(BotError::EffectRefused {
+            let refusal = Err(EcsError::from(KernelError::EffectRefused {
                 cause: DispatchError::Journal(JournalError::SnapshotStale {
                     recovered_events,
                     committed_events: tail.sequence(),
                 }),
-            });
+            }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
             return refusal;
         }
@@ -622,7 +556,7 @@ impl EcsBot {
             }
         }
         if let Some(deficit) = Deficit::from_shortages(shortages) {
-            let refusal = Err(BotError::CapabilityDenied { deficit });
+            let refusal = Err(EcsError::from(KernelError::CapabilityDenied { deficit }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
             return refusal;
         }
@@ -691,13 +625,13 @@ impl EcsBot {
         //     than dispatching again.
         for attempt in recovered.attempts() {
             let key = attempt.key();
-            let Some(id) = ledger.locate(key.action()) else {
-                let refusal = Err(BotError::ActionNotDeclared {
+            if ledger.locate(key.action()).is_none() {
+                let refusal = Err(EcsError::from(KernelError::ActionNotDeclared {
                     action: key.action(),
-                });
+                }));
                 lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
                 return refusal;
-            };
+            }
             // The journal's key must name this run, this flow, and this
             // environment. A journal that holds keys from any of the others is
             // the foreign-journal case one step finer: the action matches, the
@@ -709,13 +643,12 @@ impl EcsBot {
                 || key.flow() != identity.flow()
                 || key.environment() != identity.environment()
             {
-                let refusal = Err(BotError::ActionNotDeclared {
+                let refusal = Err(EcsError::from(KernelError::ActionNotDeclared {
                     action: key.action(),
-                });
+                }));
                 lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
                 return refusal;
             }
-            let _ = id;
             ledger
                 .effects
                 .note_journal_attempt(key.action(), key.attempt());

@@ -3,8 +3,8 @@
 #[cfg(feature = "ron")]
 use super::parse_ron;
 use super::{
-    BTreeMap, BotError, DeclaredNodes, Deserialize, NodeId, Predicate, ResourceLimits,
-    SHIPPED_LIMITS, Serialize, VarType, check_flow_size, flow, malformed_flow, merge_read_kinds,
+    BTreeMap, DeclaredNodes, Deserialize, NodeId, Predicate, ResourceLimits, SHIPPED_LIMITS,
+    Serialize, SessionError, VarType, check_flow_size, flow, malformed_flow, merge_read_kinds,
     parse_json, reject_unknown_node_kinds,
 };
 
@@ -136,7 +136,7 @@ pub enum Disposition {
 /// Two counts, because they answer different questions and neither can be
 /// inferred from the other. `confirmed` is what the run watched take effect.
 /// `unsettled` is what it attempted and could not settle — the effects a domain
-/// reported as [`BotError::EffectIndeterminate`].
+/// reported as [`SessionError::EffectIndeterminate`].
 ///
 /// A non-zero `unsettled` does **not** imply that anything succeeded. One
 /// attempted effect whose response was lost may have produced zero effects or
@@ -194,7 +194,7 @@ impl EffectLedger {
 /// leaves an effect in doubt is both *refused* and *in need of reconciliation*,
 /// and no single arm can say that: an earlier version of this type returned
 /// `Failure` for every refusal and erased the uncertainty, which is the exact
-/// information [`BotError::EffectIndeterminate`] was introduced to preserve.
+/// information [`SessionError::EffectIndeterminate`] was introduced to preserve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde", deny_unknown_fields)]
 #[non_exhaustive]
@@ -411,7 +411,7 @@ impl FlowSpec {
         edges: Vec<FlowEdge>,
         terminals: BTreeMap<NodeId, Terminal>,
         bounds: FlowBounds,
-    ) -> Result<Self, BotError> {
+    ) -> Result<Self, SessionError> {
         let spec = Self {
             vars,
             entry: entry.into(),
@@ -432,7 +432,7 @@ impl FlowSpec {
         entry: impl Into<String>,
         nodes: BTreeMap<NodeId, NodeKind>,
         bounds: FlowBounds,
-    ) -> Result<Self, BotError> {
+    ) -> Result<Self, SessionError> {
         Self::new(vars, entry, nodes, Vec::new(), BTreeMap::new(), bounds)
     }
 
@@ -453,7 +453,21 @@ impl FlowSpec {
     }
 
     /// Parse and validate a flow using the shared JSON facade.
-    pub fn from_json(source: &str) -> Result<Self, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{FlowBounds, FlowSpec, NodeKind};
+    ///
+    /// let nodes = BTreeMap::from([("end".to_owned(), NodeKind::End)]);
+    /// let flow = FlowSpec::from_nodes(BTreeMap::new(), "end", nodes, FlowBounds::new(4))?;
+    /// let again = FlowSpec::from_json(&flow.to_json()?)?;
+    /// assert_eq!(again.entry(), "end");
+    /// assert!(FlowSpec::from_json("{}").is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn from_json(source: &str) -> Result<Self, SessionError> {
         check_flow_size(source)?;
         reject_unknown_node_kinds(&merge_read_kinds(
             parse_json::<DeclaredNodes<false>>(source),
@@ -487,7 +501,7 @@ impl FlowSpec {
     /// The cost is on the JSON side, where the same variant becomes
     /// `{"end": {}}`, and a unit variant becomes the bare string `"end"`.
     #[cfg(feature = "ron")]
-    pub fn from_ron(source: &str) -> Result<Self, BotError> {
+    pub fn from_ron(source: &str) -> Result<Self, SessionError> {
         check_flow_size(source)?;
         // No node-kind guard here, and the reason is RON's rather than a
         // choice: RON checks a variant name against the list it is handed, so
@@ -503,7 +517,19 @@ impl FlowSpec {
     }
 
     /// Re-run the structural validation for a flow already held in memory.
-    pub fn validate(&self) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{FlowBounds, FlowSpec, NodeKind};
+    ///
+    /// let nodes = BTreeMap::from([("end".to_owned(), NodeKind::End)]);
+    /// let flow = FlowSpec::from_nodes(BTreeMap::new(), "end", nodes, FlowBounds::new(4))?;
+    /// assert!(flow.validate().is_ok());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn validate(&self) -> Result<(), SessionError> {
         flow::validate(self)
     }
 
@@ -562,7 +588,7 @@ impl FlowSpec {
     /// `Refer` node that same authority would silently discard the target the
     /// node was written to hand to, so a declaration that *contradicts* the
     /// node's own outcome is refused at load
-    /// ([`BotError::ConflictingTerminalDeclaration`]) rather than accepted and
+    /// ([`SessionError::ConflictingTerminalDeclaration`]) rather than accepted and
     /// ignored: a document that says a referral is refused is either corrected
     /// or rejected, never run as a permissive referral. A declaration that
     /// repeats the node's own outcome is accepted and is what this method

@@ -13,7 +13,7 @@
 //! receiver's own argv log over both fault spaces, so a journey that grows a call
 //! grows the bound this module demands.
 
-use super::fake_gh::HANG_BOUND;
+use super::scripted_gh::HANG_BOUND;
 use super::subject::run_subject_seed;
 use super::{Run, SEEDS, TestResult, host_named, run_seed};
 

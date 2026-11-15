@@ -15,7 +15,8 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use lgwks_bot::{Auth, BotError, Cap, DispatchCertainty, Observe, RefreshReason};
+use lgwks_bot::error::KernelError;
+use lgwks_bot::{Auth, Cap, DispatchCertainty, EcsError, Observe, RefreshReason};
 
 /// A source whose value is the test's, and whose cache declaration and refusal
 /// are both the test's.
@@ -103,14 +104,14 @@ impl Observe for Declarable {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         crate::poll::admit_poll(&call.0, Observe::required_caps(self), &self.polls)?;
         if self.refusing.get() {
-            Err(BotError::DomainError {
+            Err(EcsError::Kernel(KernelError::DomainError {
                 domain: self.domain.to_owned(),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: "the source refused to read".to_owned(),
-            })
+            }))
         } else {
             Ok(self.value.get())
         }

@@ -32,14 +32,14 @@ impl Observe for PollProbe {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         admit_poll(&call.0, Observe::required_caps(self), &self.polls)?;
         if self.refuse_next.replace(false) {
-            let refusal = Err(BotError::DomainError {
+            let refusal = Err(EcsError::Kernel(KernelError::DomainError {
                 domain: self.domain.to_owned(),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: "one-shot poll refusal".to_owned(),
-            });
+            }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "poll: returning an error to the caller");
             return refusal;
         }
@@ -123,7 +123,10 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
             return Err(format!("an indeterminate effect was reported as {fired} fired").into());
         }
         Err(error) => assert!(
-            matches!(error, BotError::EffectIndeterminate { .. }),
+            matches!(
+                error,
+                EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+            ),
             "expected the action's own error, got {error:?}"
         ),
     }
@@ -163,7 +166,10 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
             return Err(format!("an indeterminate effect was reported as {fired} fired").into());
         }
         Err(error) => assert!(
-            matches!(error, BotError::EffectIndeterminate { .. }),
+            matches!(
+                error,
+                EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+            ),
             "expected the action's own error, got {error:?}"
         ),
     }
@@ -209,7 +215,7 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
                 assert!(
                     matches!(
                         error,
-                        BotError::EvidenceSuperseded { work, named, current }
+                        EcsError::EvidenceSuperseded { work, named, current }
                             if work == second.id()
                                 && named == delayed.digest()
                                 && current == second_binding.digest()
@@ -261,7 +267,7 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
         Err(error) => assert!(
             matches!(
                 error,
-                BotError::EvidenceContradicted {
+                EcsError::EvidenceContradicted {
                     settled: EffectEvidence::Applied,
                     submitted: EffectEvidence::NotApplied,
                     ..
@@ -311,7 +317,7 @@ impl Execute for Refuses {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.attempts.set(self.attempts.get().saturating_add(1));
         if self.refusing.get() {
@@ -342,7 +348,7 @@ impl Execute for Noted {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.0.borrow_mut().push(*call.1);
         Ok(())
@@ -394,7 +400,7 @@ fn a_moved_source_runs_exactly_once_after_a_sibling_recovers() -> TestResult {
     refusing.set(true);
     let aborted = bot.tick();
     assert!(
-        matches!(aborted, Err(BotError::DomainError { ref domain, .. }) if domain == "test::poll_refuses_twice"),
+        matches!(aborted, Err(EcsError::Kernel(KernelError::DomainError { ref domain, .. })) if domain == "test::poll_refuses_twice"),
         "the second refusal is reported exactly, got {aborted:?}"
     );
     assert_eq!(
@@ -451,7 +457,7 @@ fn a_successful_public_poll_is_not_lost_when_a_sibling_refuses() -> TestResult {
 
     let first = bot.tick();
     assert!(
-        matches!(first, Err(BotError::DomainError { ref domain, .. }) if domain == "test::poll_refuses_once"),
+        matches!(first, Err(EcsError::Kernel(KernelError::DomainError { ref domain, .. })) if domain == "test::poll_refuses_once"),
         "the first tick must report the sibling's exact refusal, got {first:?}"
     );
     assert!(
@@ -516,7 +522,7 @@ fn an_abandoned_entry_is_never_a_quiet_tick() -> TestResult {
     match lonely.tick() {
         Ok(fired) => return Err(format!("a definite failure was reported as {fired} fired").into()),
         Err(error) => assert!(
-            matches!(error, BotError::DomainError { .. }),
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
             "expected the action's own error, got {error:?}"
         ),
     }
@@ -549,7 +555,7 @@ fn an_abandoned_entry_is_never_a_quiet_tick() -> TestResult {
         Err(error) => assert!(
             matches!(
                 error,
-                BotError::PendingTransition { ref work, outstanding: 1 }
+                EcsError::PendingTransition { ref work, outstanding: 1 }
                     if (work.id().chain(), work.id().entry()) == (0, 0)
             ),
             "expected the abandoned entry to be the reported work, got {error:?}"
@@ -645,7 +651,7 @@ fn an_abandoned_entry_blocks_its_successors() -> TestResult {
     match chained.tick() {
         Ok(fired) => return Err(format!("a definite failure was reported as {fired} fired").into()),
         Err(error) => assert!(
-            matches!(error, BotError::DomainError { .. }),
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
             "expected the action's own error, got {error:?}"
         ),
     }
@@ -665,7 +671,7 @@ fn an_abandoned_entry_blocks_its_successors() -> TestResult {
             .into());
         }
         Err(error) => assert!(
-            matches!(error, BotError::PendingTransition { .. }),
+            matches!(error, EcsError::PendingTransition { .. }),
             "expected the unresolved chain to be reported, got {error:?}"
         ),
     }

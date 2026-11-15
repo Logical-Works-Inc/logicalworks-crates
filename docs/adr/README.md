@@ -96,5 +96,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0058](0058-drishti-has-one-home.md) | drishti has one home: the Canvas code folds into `crates/drishti` and reaches every third-party crate through the storefront |
 | [0059](0059-the-serve-builds-each-route-task-once-at-start.md) | The serve builds each route's task once, at start |
 | [0060](0060-the-serve-keeps-its-request-hashes-and-pins-their-bytes.md) | The serve keeps its request hashes and pins their bytes |
+| [0061](0061-one-typed-error-per-layer.md) | One typed error per layer; a lower layer never names an upper one |
+| [0062](0062-test-builds-of-workspace-crates-are-incremental.md) | Test builds of workspace crates are incremental |
 
 New records go at the bottom of that table.

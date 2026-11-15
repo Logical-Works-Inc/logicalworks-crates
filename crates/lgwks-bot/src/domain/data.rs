@@ -10,7 +10,7 @@
 //! [`crate::stability::read_stable_file`]: two independent reads must agree on
 //! the file's length, its modification time and the digest of its bytes before
 //! any of it is reported. A file that never settles is
-//! [`BotError::UnstableObservation`] — pending, not a change — so the chain
+//! [`EcsError::UnstableObservation`] — pending, not a change — so the chain
 //! keeps the value it already holds and reads again next tick.
 //!
 //! **Not claimed:** that a settled reading is a *valid* one. Whether the JSON
@@ -18,7 +18,8 @@
 //! malformed is a state a bot may legitimately have to act on.
 
 use crate::cap::{Auth, Cap};
-use crate::error::{BotError, DispatchCertainty};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
 use crate::stability::{ReadFailure, read_stable_file};
 use crate::verb;
 
@@ -103,7 +104,7 @@ impl verb::Observe for JsonStore {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<DataState, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<DataState, EcsError> {
         call.0.check(self.required_caps())?;
         let path = self.path.clone();
         let domain = self.domain_id().to_owned();
@@ -111,16 +112,16 @@ impl verb::Observe for JsonStore {
             .await
             .map_err(|failure| match failure {
                 ReadFailure::Unstable(unstable) => {
-                    BotError::UnstableObservation { domain, unstable }
+                    EcsError::UnstableObservation { domain, unstable }
                 }
-                ReadFailure::Unreadable { cause } => BotError::DomainError {
+                ReadFailure::Unreadable { cause } => EcsError::from(KernelError::DomainError {
                     domain,
                     certainty: DispatchCertainty::NotDelivered,
                     cause: cause.to_string(),
-                },
+                }),
             })?;
         let raw = String::from_utf8(reading.bytes().to_vec()).map_err(|error| {
-            let refusal = BotError::DomainError {
+            let refusal = KernelError::DomainError {
                 domain: self.domain_id().to_owned(),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: error.to_string(),
@@ -147,7 +148,7 @@ impl verb::Query for JsonStore {
         &self.caps
     }
 
-    async fn query(&self, call: (Auth, &())) -> Result<DataState, BotError> {
+    async fn query(&self, call: (Auth, &())) -> Result<DataState, EcsError> {
         let (auth, _) = call;
         verb::Observe::poll(self, (auth, ())).await
     }

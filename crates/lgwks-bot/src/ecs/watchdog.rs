@@ -13,11 +13,11 @@ use lgwks_deps::bevy_ecs::schedule::IntoScheduleConfigs;
 
 use crate::journal::owner::{lock, wait_timeout};
 
-use crate::error::BotError;
 use crate::spec::Erased;
 #[cfg(doc)]
 use crate::verb::Observe;
 
+use super::EcsError;
 #[cfg(doc)]
 use super::builder::EcsBuilder;
 // The one declared clock every deadline in this crate names (INV-BOT-30). Only
@@ -214,7 +214,10 @@ impl PollWatchdog {
             }
             // Not stored, so the next poll that goes Pending tries again rather
             // than concluding from one refusal that the wave is already watched.
-            Err(_) => false,
+            Err(refused) => {
+                lgwks_std::trace::debug!(error = %refused, "watchdog: the host refused the deadline thread");
+                false
+            }
         }
     }
 
@@ -371,7 +374,7 @@ pub(super) struct WavePoll<'wave> {
     /// `'static`, because the chain is erased in place and the poll is not: a
     /// `'static` box would have to own a copy of the source it is reading, and
     /// the substrate's promise is that it polls *the* source the caller declared.
-    pub(super) poll: Pin<Box<dyn Future<Output = Result<Option<Erased>, BotError>> + 'wave>>,
+    pub(super) poll: Pin<Box<dyn Future<Output = Result<Option<Erased>, EcsError>> + 'wave>>,
 }
 
 impl WavePoll<'_> {
@@ -381,8 +384,8 @@ impl WavePoll<'_> {
     /// is a `Poll::Ready` arm of this poll's own turn: a stall is what the
     /// source's slot holds, and a caller that had to wrap it would be the second
     /// place that shape is written.
-    pub(super) fn stalled(&self, deadline: Duration) -> Result<Option<Erased>, BotError> {
-        Err(BotError::PollStalled {
+    pub(super) fn stalled(&self, deadline: Duration) -> Result<Option<Erased>, EcsError> {
+        Err(EcsError::PollStalled {
             chain: self.chain,
             deadline,
         })
@@ -410,7 +413,7 @@ impl WavePoll<'_> {
         clock: &Clock,
         armed: &AtomicBool,
         deadline: Duration,
-    ) -> Poll<Result<Option<Erased>, BotError>> {
+    ) -> Poll<Result<Option<Erased>, EcsError>> {
         // Copied out of `self` so the guard borrows the wave, not this poll,
         // and the poll can still install its own waker under it.
         let watchdog = self.watchdog;
@@ -471,7 +474,7 @@ impl WavePoll<'_> {
         clock: &Clock,
         armed: &AtomicBool,
         deadline: Duration,
-    ) -> Poll<Result<Option<Erased>, BotError>> {
+    ) -> Poll<Result<Option<Erased>, EcsError>> {
         // Registered before the wave is armed, so the reaper's first look at the
         // wave already sees this poll as outstanding.
         self.watchdog.poll_pending(self.slot);
@@ -552,7 +555,7 @@ pub(super) async fn bounded_wave(
     deadline: Duration,
     watchdog: &PollWatchdog,
     polls: impl IntoIterator<Item = WavePoll<'_>>,
-) -> (Vec<Result<Option<Erased>, BotError>>, bool) {
+) -> (Vec<Result<Option<Erased>, EcsError>>, bool) {
     let clock = Clock::wall();
     // The wave-level mirror the report reads, set only on the path that really
     // did start a reaper, so a report beside a zero is an honest statement that

@@ -22,14 +22,21 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::net::Ipv4Addr;
 
-use lgwks_bot::error::{BotError, DispatchCertainty};
+use lgwks_bot::error::{DispatchCertainty, KernelError};
 use lgwks_bot::idempotent::{MAX_POST_BYTES, PostInput};
 
 use crate::sim::{Rng, Trace};
 use crate::sweep_fixtures::{FIRST_SEED, SWEEP_SEEDS, peak_rss_bytes, refuse};
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// The effect URL every attempt targets: a loopback discard port, since the
+/// attempts here are built and compared and never sent.
+fn effect_url() -> String {
+    format!("http://{}:9/effect", Ipv4Addr::LOCALHOST)
+}
 
 /// One operation the proxy delivers many times.
 struct Operation {
@@ -111,7 +118,7 @@ fn run(seed: u64, trace: &mut Trace) -> TestResult {
         let mut attempts = Vec::new();
         for _ in 0..drawn.deliveries {
             attempts.push(PostInput::new(
-                "http://127.0.0.1:9/effect",
+                effect_url(),
                 drawn.key.clone(),
                 "application/json",
                 drawn.payload.clone(),
@@ -209,8 +216,8 @@ fn a_duplicating_proxy_delivers_each_key_exactly_once() -> TestResult {
 /// sent: the adapter never emits the defect the proxy row exists to contain.
 #[test]
 fn unkeyed_and_oversize_operations_are_refused_at_construction() -> TestResult {
-    let Err(BotError::DomainError { cause, .. }) =
-        PostInput::new("http://127.0.0.1:9/effect", "", "application/json", vec![1])
+    let Err(KernelError::DomainError { cause, .. }) =
+        PostInput::new(effect_url(), "", "application/json", vec![1])
     else {
         return refuse("an unkeyed POST must be refused at construction");
     };
@@ -219,15 +226,10 @@ fn unkeyed_and_oversize_operations_are_refused_at_construction() -> TestResult {
         "the refusal names the missing key, got {cause:?}"
     );
     let oversize = vec![0u8; MAX_POST_BYTES.saturating_add(1)];
-    let Err(BotError::DomainError {
+    let Err(KernelError::DomainError {
         certainty: DispatchCertainty::Refused,
         ..
-    }) = PostInput::new(
-        "http://127.0.0.1:9/effect",
-        "op-capped",
-        "application/json",
-        oversize,
-    )
+    }) = PostInput::new(effect_url(), "op-capped", "application/json", oversize)
     else {
         return refuse("an oversize body must be refused at construction");
     };

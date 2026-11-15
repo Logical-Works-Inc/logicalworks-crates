@@ -7,7 +7,7 @@ use lgwks_deps::bevy_ecs::{
     },
 };
 
-use crate::error::{BotError, DispatchCertainty};
+use crate::error::{DispatchCertainty, KernelError};
 use crate::spec::Erased;
 #[cfg(doc)]
 use crate::verb::Observe;
@@ -15,6 +15,7 @@ use crate::verb::Observe;
 #[cfg(feature = "profile")]
 use super::profile::{Charge, TickStage};
 
+use super::EcsError;
 use super::admit::Admit;
 use super::admit::AdmitKind;
 use super::admit::plan_admissions;
@@ -98,7 +99,7 @@ pub(super) fn observe_fold(world: &mut World) {
 
     // Pass one: the first error, in declaration order. The failing slot is
     // replaced with a benign `Ok(None)` and the error moved out, because
-    // `BotError` is the caller's evidence and is deliberately not `Clone` —
+    // `EcsError` is the caller's evidence and is deliberately not `Clone` —
     // copying it to report it would let a caller settle an effect against a
     // duplicate of the failure rather than the failure itself.
     //
@@ -115,7 +116,7 @@ pub(super) fn observe_fold(world: &mut World) {
     let mut first_error = None;
     let mut first_stall = None;
     for (index, result) in polled.iter_mut().enumerate() {
-        let stalled = matches!(result, Err(BotError::PollStalled { .. }));
+        let stalled = matches!(result, Err(EcsError::PollStalled { .. }));
         if stalled {
             first_stall.get_or_insert(index);
             *result = Ok(None);
@@ -132,7 +133,7 @@ pub(super) fn observe_fold(world: &mut World) {
         // the wedged one have real observations, and withholding them is the
         // starvation this deadline exists to prevent.
         (Some(chain), _) => {
-            world.resource_mut::<TickError>().0 = Some(BotError::PollStalled {
+            world.resource_mut::<TickError>().0 = Some(EcsError::PollStalled {
                 chain,
                 deadline: world.resource::<PollBudget>().0,
             });
@@ -168,7 +169,7 @@ pub(super) fn observe_fold(world: &mut World) {
         let mismatch = polled.iter().enumerate().find_map(|(index, result)| {
             let next = result.as_ref().ok()?.as_ref()?;
             let chain = chains.0.get(index)?;
-            (!chain.witness.agrees_with(next.witness)).then_some(BotError::TypeMismatch {
+            (!chain.witness.agrees_with(next.witness)).then_some(EcsError::TypeMismatch {
                 site: "observe_fold rendezvous",
                 chain: Some(index),
                 expected: chain.witness.name(),
@@ -344,7 +345,7 @@ pub(super) fn settle_quiet_tick(world: &mut World) -> bool {
 /// the same allocation back is the point: a staging area rebuilt per tick is an
 /// allocation per tick, and the observation phase is the one phase guaranteed to
 /// run on every tick of every bot.
-pub(super) fn put_polled(world: &mut World, polled: Vec<Result<Option<Erased>, BotError>>) {
+pub(super) fn put_polled(world: &mut World, polled: Vec<Result<Option<Erased>, EcsError>>) {
     world.non_send_mut::<Polled>().0 = polled;
 }
 
@@ -585,7 +586,7 @@ fn no_transition_held(world: &World) -> bool {
 /// while the world is borrowed immutably for the chains and the transition
 /// bindings. Empty `Vec`s are left in their place, so a tick that dies before
 /// putting them back stages nothing.
-pub(super) fn take_plan_buffers(world: &mut World) -> (Vec<Step>, Vec<(usize, BotError)>) {
+pub(super) fn take_plan_buffers(world: &mut World) -> (Vec<Step>, Vec<(usize, EcsError)>) {
     let mut plan = world.non_send_mut::<Plan>();
     (
         std::mem::take(&mut plan.steps),
@@ -602,7 +603,7 @@ pub(super) fn take_plan_buffers(world: &mut World) -> (Vec<Step>, Vec<(usize, Bo
 pub(super) fn put_plan_buffers(
     world: &mut World,
     steps: Vec<Step>,
-    failures: Vec<(usize, BotError)>,
+    failures: Vec<(usize, EcsError)>,
 ) {
     let mut plan = world.non_send_mut::<Plan>();
     plan.steps = steps;
@@ -643,7 +644,7 @@ pub(super) fn plan_chain(
     value: &Erased,
     walk: Walk<'_>,
     steps: &mut Vec<Step>,
-    failure: &mut Option<BotError>,
+    failure: &mut Option<EcsError>,
 ) {
     let Walk {
         index,
@@ -760,13 +761,11 @@ pub(super) fn schedule() -> Schedule {
 }
 
 /// Initialize and validate a schedule, turning a build failure into a
-/// [`BotError`]. Factored out so the refusal is testable without constructing a
-/// bot whose schedule happens to be ambiguous.
-pub(super) fn validate(schedule: &mut Schedule, world: &mut World) -> Result<(), BotError> {
-    schedule
-        .initialize(world)
-        .map(|_| ())
-        .map_err(|error| BotError::DomainError {
+/// a [`KernelError::DomainError`]. Factored out so the refusal is testable
+/// without constructing a bot whose schedule happens to be ambiguous.
+pub(super) fn validate(schedule: &mut Schedule, world: &mut World) -> Result<(), EcsError> {
+    schedule.initialize(world).map(|_| ()).map_err(|error| {
+        EcsError::from(KernelError::DomainError {
             domain: "ecs::schedule".into(),
             certainty: DispatchCertainty::Refused,
             // `ScheduleBuildError` carries an inherent `to_string(&self, graph,
@@ -774,6 +773,7 @@ pub(super) fn validate(schedule: &mut Schedule, world: &mut World) -> Result<(),
             // one that resolves system names against the graph.
             cause: error.to_string(schedule.graph(), world),
         })
+    })
 }
 
 // ── The bot ────────────────────────────────────────────────────────────────

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 
 use lgwks_bot::{Cap, GrantSet};
 
+use crate::error::BenchError;
 use crate::scenarios::Scenario;
 use crate::{Clock, build_bot};
 
@@ -24,7 +25,7 @@ use crate::{Clock, build_bot};
 /// measurement is here to establish where it stops being invisible, because
 /// `Cap::new` accepts any name by convention and a custom domain may require
 /// many.
-pub(super) fn cap_check_scaling() -> Result<Vec<(usize, f64)>, Box<dyn std::error::Error>> {
+pub(super) fn cap_check_scaling() -> Result<Vec<(usize, f64)>, BenchError> {
     let mut out = Vec::new();
     for count in [1usize, 2, 4, 8, 16, 32, 64, 128] {
         let mut grants = GrantSet::empty();
@@ -58,7 +59,7 @@ pub(super) fn cap_check_scaling() -> Result<Vec<(usize, f64)>, Box<dyn std::erro
 /// One admission of `sources` chains, measured once: it is the cost of building
 /// the widget the timing rows then tick, and a row that reported ticks without
 /// it would leave a reader unable to say what a run paid before its first tick.
-pub(super) fn build_cost(sources: usize) -> Result<Duration, Box<dyn std::error::Error>> {
+pub(super) fn build_cost(sources: usize) -> Result<Duration, BenchError> {
     let clock = Clock::new();
     let tally = Rc::new(Cell::new(0u64));
     let evals = Rc::new(Cell::new(0u64));
@@ -86,8 +87,8 @@ pub(super) fn build_cost(sources: usize) -> Result<Duration, Box<dyn std::error:
 pub(super) fn determinism_probe(
     scenario: &Scenario,
     ticks: u64,
-) -> Result<(bool, usize), Box<dyn std::error::Error>> {
-    let run = || -> Result<Vec<u64>, Box<dyn std::error::Error>> {
+) -> Result<(bool, usize), BenchError> {
+    let run = || -> Result<Vec<u64>, BenchError> {
         let clock = Clock::new();
         let tally = Rc::new(Cell::new(0u64));
         let evals = Rc::new(Cell::new(0u64));

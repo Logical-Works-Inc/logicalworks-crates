@@ -1,6 +1,13 @@
 //! T12's counter clause: a checked counter never aliases an identity it issued, and a journal position carries a head so a wrapped sequence is detectable.
 
-use super::*;
+use lgwks_bot::effect::{AttemptId, EnvironmentEpoch};
+use lgwks_bot::journal::{
+    EffectEvent, EffectJournal, JournalError, JournalPosition, MemoryJournal,
+};
+
+use crate::sim;
+
+use super::TestResult;
 
 // ── The counter clause ──────────────────────────────────────────────────────
 
@@ -16,7 +23,7 @@ use super::*;
 #[test]
 fn a_checked_counter_exhaustion_never_aliases_an_issued_identity() -> TestResult {
     let one = std::num::NonZeroU64::new(1).ok_or("one is non-zero")?;
-    let last = std::num::NonZeroU64::new(u64::MAX).ok_or("u64::MAX is non-zero")?;
+    let last = std::num::NonZeroU64::MAX;
 
     let last_attempt = AttemptId::new(last);
     assert!(
@@ -36,7 +43,8 @@ fn a_checked_counter_exhaustion_never_aliases_an_issued_identity() -> TestResult
     );
     // And the value *before* the last still advances normally, which is what
     // makes exhaustion a boundary rather than a wall.
-    let penultimate = AttemptId::new(std::num::NonZeroU64::new(u64::MAX - 1).ok_or("non-zero")?);
+    let penultimate =
+        AttemptId::new(std::num::NonZeroU64::new(last.get().saturating_sub(1)).ok_or("non-zero")?);
     assert_eq!(
         penultimate.checked_next(),
         Some(last_attempt),

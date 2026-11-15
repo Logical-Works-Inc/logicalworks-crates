@@ -33,10 +33,70 @@
 //! they are: a struct's resolver is a struct, which no lint in the contract
 //! refuses, so they do not need the treatment.
 
-use crate::ecs::EffectEvidence;
+use std::fmt;
+
 use crate::effect::EffectKey;
 
 use super::Verification;
+
+/// What a caller knows about an effect the substrate could not settle.
+///
+/// Two arms, because there are two facts a caller can establish, and the
+/// decision that matters — attempt it again or not — follows from which one
+/// they are. "Unknown and staying unknown" is not evidence and has no arm: an
+/// entry in that state stays reported, which is the honest outcome.
+///
+/// It lives with the journal, below the world that reports in it, because the
+/// journal records it in [`EffectEvent::OutcomeObserved`] and a lower layer
+/// never names an upper one (#990). The ledger and the world re-use it.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_bot::journal::EffectEvidence;
+///
+/// assert_eq!(EffectEvidence::Applied.to_string(), "applied");
+/// assert_eq!(EffectEvidence::NotApplied.to_string(), "not applied");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(
+    feature = "wire",
+    derive(
+        lgwks_std::wire::Archive,
+        lgwks_std::wire::Serialize,
+        lgwks_std::wire::Deserialize
+    )
+)]
+#[cfg_attr(
+    feature = "wire",
+    rkyv(attr(non_exhaustive), crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug))
+)]
+#[non_exhaustive]
+pub enum EffectEvidence {
+    /// The effect happened. The entry is acknowledged and never attempted
+    /// again.
+    Applied,
+    /// The effect did not happen. This is the evidence a retry requires: the
+    /// entry becomes eligible for an attempt again, with a fresh budget,
+    /// because a new fact is not a repeat of the attempt that failed.
+    NotApplied,
+}
+
+/// Renders the fact the caller established, not the enum arm, because these
+/// appear in refusal messages a person reads to decide whether their own
+/// observation was wrong: `applied` and `not applied` are what they were asked
+/// for, and `Applied`/`NotApplied` would make them translate.
+impl fmt::Display for EffectEvidence {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Matched through a dereference rather than through the reference: the
+        // type is `Copy`, and `clippy::pattern_type_mismatch` is forbidden in
+        // this workspace.
+        f.write_str(match *self {
+            Self::Applied => "applied",
+            Self::NotApplied => "not applied",
+        })
+    }
+}
 
 /// Whether the named predicate held.
 ///

@@ -2,7 +2,8 @@
 //! `bot.net` (delivery dials out).
 
 use crate::cap::{Auth, Cap};
-use crate::error::{BotError, unbound_domain};
+use crate::ecs::EcsError;
+use crate::error::unbound_domain;
 use crate::verb;
 
 /// A message payload for notification delivery.
@@ -69,7 +70,7 @@ impl verb::Execute for Slack {
         &self.caps
     }
 
-    async fn execute_action(&self, call: (Auth, &Message)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &Message)) -> Result<(), EcsError> {
         unbound_domain(
             &call.0,
             self.required_caps(),

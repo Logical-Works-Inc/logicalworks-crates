@@ -70,6 +70,13 @@ opt-level = 1
 # Nothing in the workspace reads it. CI repeats the value as
 # `CARGO_PROFILE_TEST_DEBUG` so its cache keys on it.
 debug = 0
+# Incremental, for workspace crates only (cargo never applies it to registry
+# ones, so their sccache entries stand). A one-line change to `lgwks_bot` cost a
+# whole opt-level-1 rebuild: 262 s in the commit mutation gate's copy, over its
+# 180 s per-mutant cap, so no mutant there could be judged. Incremental, the
+# same mutant rebuilt and ran its 174 nearest tests in 37 s (ADR 0062). CI keeps
+# it off in `ci-it` below: a cold job has nothing to reuse.
+incremental = true
 
 [profile.test.package."*"]
 opt-level = 3
@@ -85,6 +92,7 @@ opt-level = 3
 [profile.ci-it]
 inherits = "test"
 opt-level = 0
+incremental = false
 
 [profile.ci-it.package."*"]
 opt-level = 1

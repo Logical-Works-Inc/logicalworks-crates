@@ -24,7 +24,7 @@
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::{Auth, Bot, BotError, Cap, EffectLifetime, Execute, GrantSet, Observe};
+use lgwks_bot::{Auth, Bot, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe};
 
 #[path = "support/measure.rs"]
 mod measure;
@@ -69,7 +69,7 @@ impl Observe for Ready {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         if self.wedged {
             std::future::pending::<()>().await;
@@ -98,7 +98,7 @@ impl Execute for Quiet {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         Ok(())
     }

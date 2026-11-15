@@ -9,14 +9,14 @@
 
 use std::future::{Future, ready};
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lgwks_bot::rt::edge::{EdgeStop, serve};
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::{
-    Auth, Bot, BotError, Cadence, Cap, GrantSet, Observe, Request, RequestFeed, Response,
+    Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe, Request, RequestFeed, Response,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -91,7 +91,7 @@ impl Observe for Idle {
         &[]
     }
 
-    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, BotError>> {
+    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, EcsError>> {
         self.polls.fetch_add(1, Ordering::AcqRel);
         ready(Ok(0))
     }
@@ -111,7 +111,7 @@ fn serve_until(
     feed: RequestFeed,
     client: impl FnOnce(SocketAddr) -> Result<(), String> + Send,
 ) -> TestResult {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let addr = listener.local_addr()?;
     let polls = Arc::new(AtomicU64::new(0));
     let mut world = Bot::builder("cell-edge")

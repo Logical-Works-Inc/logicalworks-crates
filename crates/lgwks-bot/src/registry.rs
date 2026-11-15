@@ -60,15 +60,21 @@ use std::any::Any;
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
 use crate::cap::Cap;
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-use crate::ecs::{AdmittedInput, identify_output, same_output};
+use crate::ecs::{AdmittedInput, EcsError, identify_output, same_output};
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
 use crate::effect::InputIdentity;
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-use crate::error::BotError;
+use crate::spec::{ExecuteAny, ObserveAny, TypedExec, Witness};
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-use crate::spec::{EvaluateAny, ExecuteAny, ObserveAny, TypedEval, TypedExec, Witness};
+use crate::verb::{Execute, Observe};
+
+/// The condition vocabulary a spec names, and the erased condition it builds.
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-use crate::verb::{Evaluate, Execute, Observe};
+mod condition;
+#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
+pub use condition::Condition;
+#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
+use condition::{make_condition, make_ordered_condition};
 
 #[cfg(feature = "script")]
 /// The longest identifier [`DomainRegistry::nearest`] compares.
@@ -91,7 +97,7 @@ pub(crate) enum Role {
 
 #[cfg(feature = "script")]
 impl Role {
-    /// The role as a refusal spells it, matching [`BotError::DuplicateDomain`].
+    /// The role as a refusal spells it, matching [`EcsError::DuplicateDomain`].
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Source => "source",
@@ -104,14 +110,32 @@ impl Role {
 ///
 /// A function pointer rather than a closure: the registry is a `static`, and a
 /// capturing closure cannot live in one.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_bot::{EcsError, SourceCtor};
+///
+/// let ctor: SourceCtor = |target| Err(EcsError::UnregisteredDomain { domain: target.to_owned() });
+/// assert!(ctor("ghost").is_err());
+/// ```
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-pub type SourceCtor = fn(&str) -> Result<Source, BotError>;
+pub type SourceCtor = fn(&str) -> Result<Source, EcsError>;
 
 /// Builds one action from the `target` its spec names.
 ///
 /// A function pointer for the same reason as [`SourceCtor`].
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_bot::{ActionCtor, EcsError};
+///
+/// let ctor: ActionCtor = |target| Err(EcsError::UnregisteredDomain { domain: target.to_owned() });
+/// assert!(ctor("ghost").is_err());
+/// ```
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-pub type ActionCtor = fn(&str) -> Result<Action, BotError>;
+pub type ActionCtor = fn(&str) -> Result<Action, EcsError>;
 
 /// A source, erased to the view the runner calls, plus the metadata a chain
 /// needs and the type a condition must be built against.
@@ -151,7 +175,7 @@ pub struct Source {
     witness: Witness,
     /// Builds a condition for this source's own output type from a wire
     /// identifier, so a spec's condition resolves against the type it will see.
-    condition: fn(&str) -> Result<Condition, BotError>,
+    condition: fn(&str) -> Result<Condition, EcsError>,
 }
 
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
@@ -201,7 +225,7 @@ impl Source {
     /// Capture the chain metadata where `O::Output` is still a type
     /// parameter, with the condition vocabulary the caller chose.
     #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-    fn erase<O>(source: O, condition: fn(&str) -> Result<Condition, BotError>) -> Self
+    fn erase<O>(source: O, condition: fn(&str) -> Result<Condition, EcsError>) -> Self
     where
         O: Observe + 'static,
         O::Output: Clone + PartialEq + InputIdentity + 'static,
@@ -233,16 +257,34 @@ impl Source {
     /// `changed` and `always` for every source, plus `threshold::above(<n>)`
     /// and `threshold::below(<n>)` for one built with [`Source::ordered`]. An
     /// identifier outside it is
-    /// [`BotError::UnknownCondition`] — never a silently always-true condition,
+    /// [`EcsError::UnknownCondition`] — never a silently always-true condition,
     /// because an inert gate is how an effect a person expected to guard fires
     /// anyway.
     ///
     /// # Errors
     ///
-    /// [`BotError::UnknownCondition`] when `condition_id` is not in the
+    /// [`EcsError::UnknownCondition`] when `condition_id` is not in the
     /// vocabulary, or when a threshold's argument does not parse as this
     /// source's output type.
-    pub fn condition(&self, condition_id: &str) -> Result<Condition, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{Auth, Cap, EcsError, Observe, Source};
+    ///
+    /// struct Five;
+    /// impl Observe for Five {
+    ///     type Output = u16;
+    ///     fn required_caps(&self) -> &[Cap] { &[] }
+    ///     async fn poll(&self, _: (Auth, ())) -> Result<u16, EcsError> { Ok(5) }
+    ///     fn domain_id(&self) -> &str { "example::five" }
+    /// }
+    ///
+    /// let source = Source::new(Five);
+    /// assert!(source.condition("changed").is_ok());
+    /// assert!(source.condition("sometimes").is_err());
+    /// ```
+    pub fn condition(&self, condition_id: &str) -> Result<Condition, EcsError> {
         (self.condition)(condition_id)
     }
 
@@ -268,95 +310,6 @@ pub(crate) type SourceParts = (
     fn(&dyn Any) -> AdmittedInput,
     Witness,
 );
-
-/// Build the order-free wire condition `condition_id` names, for source `O`.
-///
-/// Monomorphized on `O`, so `O::Output` is the concrete type the condition
-/// evaluates and no schema table has to be matched by hand.
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-fn make_condition<O>(condition_id: &str) -> Result<Condition, BotError>
-where
-    O: Observe + 'static,
-    O::Output: Clone + PartialEq + 'static,
-{
-    let identifier = condition_id.trim();
-    match identifier {
-        "changed" => Ok(Condition::new::<O::Output, _>(
-            crate::domain::eval::Changed::new(),
-        )),
-        "always" => Ok(Condition::new::<O::Output, _>(|_: &O::Output| true)),
-        _ => Err(BotError::UnknownCondition {
-            condition: identifier.to_owned(),
-            argument_parse: String::from("not an identifier this build knows"),
-        }),
-    }
-}
-
-/// Build the wire condition `condition_id` names for an ordered source `O`:
-/// the two thresholds, then the order-free vocabulary of [`make_condition`].
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-fn make_ordered_condition<O>(condition_id: &str) -> Result<Condition, BotError>
-where
-    O: Observe + 'static,
-    O::Output: Clone + PartialEq + PartialOrd + std::str::FromStr + 'static,
-    // Propagated from `parse_bound`, which carries the parse failure into the
-    // error rather than dropping it. An output type whose `FromStr` error cannot
-    // be rendered cannot be used as a threshold bound, because a caller
-    // repairing a bad spec would have nothing to read.
-    <O::Output as std::str::FromStr>::Err: std::fmt::Display,
-{
-    let identifier = condition_id.trim();
-    if let Some(argument) = parenthesized(identifier, "threshold::above") {
-        let bound = parse_bound::<O::Output>(argument, identifier)?;
-        return Ok(Condition::new::<O::Output, _>(
-            crate::domain::eval::Above::new(bound),
-        ));
-    }
-    if let Some(argument) = parenthesized(identifier, "threshold::below") {
-        let bound = parse_bound::<O::Output>(argument, identifier)?;
-        return Ok(Condition::new::<O::Output, _>(
-            crate::domain::eval::Below::new(bound),
-        ));
-    }
-    make_condition::<O>(identifier)
-}
-
-/// The argument inside `prefix(...)`, or `None` when `identifier` is not that.
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-fn parenthesized<'a>(identifier: &'a str, prefix: &str) -> Option<&'a str> {
-    identifier
-        .strip_prefix(prefix)?
-        .strip_prefix('(')?
-        .strip_suffix(')')
-}
-
-/// Parse a threshold argument as `T`, reporting the whole identifier on failure.
-///
-/// The `FromStr` error is carried rather than dropped. `ParseIntError`'s own
-/// text is "invalid digit found in string" or "cannot parse integer from empty
-/// string", which says what the standard library saw and nothing about the
-/// condition the caller has to repair — but it is the part that distinguishes
-/// an empty threshold from a malformed one, so it rides along beside
-/// `identifier`.
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-fn parse_bound<T>(argument: &str, identifier: &str) -> Result<T, BotError>
-where
-    T: std::str::FromStr,
-    // The parse failure is carried into the error, so the error type has to be
-    // renderable. Every std numeric and bool parser meets this; a `FromStr`
-    // whose `Err` cannot print would be refusing in a way this error cannot
-    // report, which is why the bound is here rather than the field being
-    // dropped.
-    T::Err: std::fmt::Display,
-{
-    argument
-        .trim()
-        .parse::<T>()
-        .map_err(|not_this_type| BotError::UnknownCondition {
-            condition: identifier.to_owned(),
-            argument_parse: not_this_type.to_string(),
-        })
-}
 
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
 impl std::fmt::Debug for Source {
@@ -421,68 +374,19 @@ impl std::fmt::Debug for Action {
     }
 }
 
-/// A condition, erased to the view a chain's walk calls.
-///
-/// A spec names a condition as text and [`Source::condition`] builds one for its
-/// own output type; a native chain names one directly through
-/// `ObserveBuilder::on` (feature `ecs`). Both arrive here, so
-/// the two paths share one erasure and one type-mismatch report rather than each
-/// carrying its own.
-///
-/// This is the *only* way a condition is built for a materialized chain. The
-/// constructor is generic over the value it evaluates — as the verb traits are —
-/// and the downcast to that value is checked when the condition runs, so a
-/// condition built for one type and handed a value of another reports
-/// [`BotError::EvaluateError`] rather than
-/// answering a false.
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-pub struct Condition(Box<dyn EvaluateAny>);
-
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-impl Condition {
-    /// Erase a concrete condition, typed against `T`.
-    #[must_use]
-    pub fn new<T, C>(condition: C) -> Self
-    where
-        T: 'static,
-        C: Evaluate<T> + 'static,
-    {
-        Self(Box::new(TypedEval {
-            inner: condition,
-            _marker: std::marker::PhantomData::<T>,
-        }))
-    }
-
-    /// Take the erased condition, for the chain assembler.
-    #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-    pub(crate) fn into_evaluate_any(self) -> Box<dyn EvaluateAny> {
-        self.0
-    }
-}
-
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-impl std::fmt::Debug for Condition {
-    /// Prints `Condition`, because an erased condition carries no identity of
-    /// its own: what it evaluates is the source's output type, which the chain,
-    /// not this handle, is what names.
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("Condition")
-    }
-}
-
 /// Every domain a spec may name, and what each identifier builds.
 ///
 /// Built by [`domains!`](crate::domains), which is the only entry point:
 ///
 /// ```rust
-/// use lgwks_bot::{Auth, BotError, Cap, Observe, Source, domains};
+/// use lgwks_bot::{Auth, EcsError, Cap, Observe, Source, domains};
 ///
 /// /// A source that reports an open pull request count.
 /// struct GithubPrStatus;
 ///
 /// impl GithubPrStatus {
 ///     /// Build one from the `target` its spec names.
-///     fn from_target(target: &str) -> Result<Source, BotError> {
+///     fn from_target(target: &str) -> Result<Source, EcsError> {
 ///         let _ = target;
 ///         Ok(Source::new(Self))
 ///     }
@@ -491,7 +395,7 @@ impl std::fmt::Debug for Condition {
 /// impl Observe for GithubPrStatus {
 ///     type Output = u16;
 ///     fn required_caps(&self) -> &[Cap] { &[] }
-///     async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
+///     async fn poll(&self, call: (Auth, ())) -> Result<u16, EcsError> {
 ///         call.0.check(&[])?;
 ///         Ok(0)
 ///     }
@@ -516,7 +420,7 @@ impl std::fmt::Debug for Condition {
 /// }
 ///
 /// assert!(DOMAINS.source("github::pr_status").is_some());
-/// # Ok::<(), BotError>(())
+/// # Ok::<(), EcsError>(())
 /// ```
 ///
 /// The two lists are separate because a source and an action are constructed
@@ -643,9 +547,24 @@ impl DomainRegistry {
     /// Every build goes through this check, so a broken registry refuses all
     /// construction — the alternative, letting the first declaration win,
     /// would make dispatch depend on declaration order.
-    pub fn validate(&self) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{DomainRegistry, EcsError, Source, SourceCtor};
+    ///
+    /// fn none(_: &str) -> Result<Source, EcsError> {
+    ///     Err(EcsError::UnregisteredDomain { domain: String::new() })
+    /// }
+    ///
+    /// const NONE: SourceCtor = none;
+    /// static TWICE: DomainRegistry = DomainRegistry::new(&[("dup", NONE), ("dup", NONE)], &[]);
+    /// assert!(DomainRegistry::empty().validate().is_ok());
+    /// assert!(TWICE.validate().is_err());
+    /// ```
+    pub fn validate(&self) -> Result<(), EcsError> {
         if let Some((first, second)) = first_duplicate(self.sources) {
-            let refusal = Err(BotError::DuplicateDomain {
+            let refusal = Err(EcsError::DuplicateDomain {
                 domain: self.sources[first].0.to_owned(),
                 role: "source",
                 first,
@@ -655,7 +574,7 @@ impl DomainRegistry {
             return refusal;
         }
         if let Some((first, second)) = first_duplicate(self.actions) {
-            let refusal = Err(BotError::DuplicateDomain {
+            let refusal = Err(EcsError::DuplicateDomain {
                 domain: self.actions[first].0.to_owned(),
                 role: "action",
                 first,
@@ -672,22 +591,40 @@ impl DomainRegistry {
     /// The refusal is typed rather than an `Option` because reaching it means
     /// the spec named a domain this binary cannot run, and a caller that has to
     /// report that should not also have to invent the wording.
-    pub fn build_source(&self, domain_id: &str, target: &str) -> Result<Source, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{DomainRegistry, EcsError};
+    ///
+    /// let refused = DomainRegistry::empty().build_source("ghost", "acme/widgets");
+    /// assert!(matches!(refused, Err(EcsError::UnregisteredDomain { .. })));
+    /// ```
+    pub fn build_source(&self, domain_id: &str, target: &str) -> Result<Source, EcsError> {
         self.validate()?;
         match self.source(domain_id) {
             Some(ctor) => ctor(target),
-            None => Err(BotError::UnregisteredDomain {
+            None => Err(EcsError::UnregisteredDomain {
                 domain: domain_id.to_owned(),
             }),
         }
     }
 
     /// Build the action a spec names, or refuse with the identifier.
-    pub fn build_action(&self, domain_id: &str, target: &str) -> Result<Action, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{DomainRegistry, EcsError};
+    ///
+    /// let refused = DomainRegistry::empty().build_action("ghost", "acme/widgets");
+    /// assert!(matches!(refused, Err(EcsError::UnregisteredDomain { .. })));
+    /// ```
+    pub fn build_action(&self, domain_id: &str, target: &str) -> Result<Action, EcsError> {
         self.validate()?;
         match self.action(domain_id) {
             Some(ctor) => ctor(target),
-            None => Err(BotError::UnregisteredDomain {
+            None => Err(EcsError::UnregisteredDomain {
                 domain: domain_id.to_owned(),
             }),
         }

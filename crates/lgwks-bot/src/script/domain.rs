@@ -35,7 +35,7 @@
 
 use std::any::{Any, type_name};
 
-use crate::error::BotError;
+use crate::ecs::EcsError;
 use crate::gate::GrantSet;
 use crate::registry::{DomainRegistry, Role};
 use crate::spec::{Erased, Need, NeedSet};
@@ -94,14 +94,14 @@ impl Acted {
     ///
     /// # Errors
     ///
-    /// [`FlowError::Bot`] wrapping [`BotError::TypeMismatch`] when the action's
+    /// [`FlowError::Bot`] wrapping [`EcsError::TypeMismatch`] when the action's
     /// output is not a `T`.
     pub fn into_output<T: 'static>(self) -> Result<T, FlowError> {
         let Self { domain, output } = self;
         match output.downcast::<T>() {
             Ok(typed) => Ok(*typed),
             Err(_other_type) => {
-                let refusal = Err(FlowError::from(BotError::TypeMismatch {
+                let refusal = Err(FlowError::from(EcsError::TypeMismatch {
                     site: "script::act",
                     chain: None,
                     expected: type_name::<T>(),
@@ -123,8 +123,8 @@ impl Acted {
 ///
 /// # Errors
 ///
-/// [`BotError::UndeclaredDomains`] naming each identifier the registry lacks,
-/// or that no registry was installed; [`BotError::DuplicateDomain`] when the
+/// [`FlowError::UndeclaredDomains`] naming each identifier the registry lacks,
+/// or that no registry was installed; [`EcsError::DuplicateDomain`] when the
 /// registry itself declares one identifier twice.
 pub fn admit_domains(scope: &Scope, uses: &[DomainUse]) -> Result<(), FlowError> {
     let registry = installed(scope);
@@ -141,10 +141,7 @@ pub fn admit_domains(scope: &Scope, uses: &[DomainUse]) -> Result<(), FlowError>
     if needs.is_empty() {
         return Ok(());
     }
-    let refusal = Err(FlowError::from(BotError::UndeclaredDomains {
-        needs: NeedSet::new(needs),
-    })
-    .located(scope));
+    let refusal = Err(FlowError::undeclared_domains(NeedSet::new(needs)).located(scope));
     lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admit_domains: returning an error to the caller");
     refusal
 }
@@ -155,10 +152,10 @@ pub fn admit_domains(scope: &Scope, uses: &[DomainUse]) -> Result<(), FlowError>
 ///
 /// # Errors
 ///
-/// The identifier undeclared ([`BotError::UndeclaredDomains`]); the
+/// The identifier undeclared ([`FlowError::UndeclaredDomains`]); the
 /// constructor's refusal of `target`; [`FlowError::Blocked`] when the run's
 /// authority does not cover the source's capabilities; the source's own
-/// failure; [`BotError::TypeMismatch`] when its value is not a `T`.
+/// failure; [`EcsError::TypeMismatch`] when its value is not a `T`.
 pub async fn observe<T: 'static>(scope: &Scope, id: &str, target: &str) -> Result<T, FlowError> {
     if scope.justification().is_some() {
         Box::pin(scope.justified(0)).await?;
@@ -178,7 +175,7 @@ pub async fn observe<T: 'static>(scope: &Scope, id: &str, target: &str) -> Resul
     // With no previous value there is nothing for the poll to be equal to, so
     // `None` is a source that broke the erased contract rather than a reading.
     let Some(Erased { value, witness }) = polled else {
-        let refusal = Err(FlowError::from(BotError::TypeMismatch {
+        let refusal = Err(FlowError::from(EcsError::TypeMismatch {
             site: "script::observe",
             chain: None,
             expected: type_name::<T>(),
@@ -191,7 +188,7 @@ pub async fn observe<T: 'static>(scope: &Scope, id: &str, target: &str) -> Resul
     match value.downcast::<T>() {
         Ok(typed) => Ok(*typed),
         Err(_other_type) => {
-            let refusal = Err(FlowError::from(BotError::TypeMismatch {
+            let refusal = Err(FlowError::from(EcsError::TypeMismatch {
                 site: "script::observe",
                 chain: None,
                 expected: type_name::<T>(),
@@ -215,11 +212,11 @@ pub async fn observe<T: 'static>(scope: &Scope, id: &str, target: &str) -> Resul
 ///
 /// # Errors
 ///
-/// The identifier undeclared ([`BotError::UndeclaredDomains`]); the
+/// The identifier undeclared ([`FlowError::UndeclaredDomains`]); the
 /// constructor's refusal of `target`; [`FlowError::Blocked`] when the run's
 /// authority does not cover the action's capabilities, before it runs;
 /// [`FlowError::NeedsApproval`] when the policy gates the action and the run
-/// holds no matching approval; [`BotError::TypeMismatch`] when `value` is not
+/// holds no matching approval; [`EcsError::TypeMismatch`] when `value` is not
 /// the action's input; the action's own failure.
 pub async fn act<V: 'static>(
     scope: &Scope,
@@ -333,9 +330,9 @@ fn resolve(scope: &Scope, role: Role, id: &str) -> Result<&'static DomainRegistr
     match registry {
         Some(known) if known.declares(role, id) => Ok(known),
         _ => {
-            let refusal = Err(FlowError::from(BotError::UndeclaredDomains {
-                needs: NeedSet::new(vec![unknown(registry, role, id)]),
-            })
+            let refusal = Err(FlowError::undeclared_domains(NeedSet::new(vec![unknown(
+                registry, role, id,
+            )]))
             .located(scope));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "resolve: returning an error to the caller");
             refusal

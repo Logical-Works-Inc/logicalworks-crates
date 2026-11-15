@@ -24,9 +24,9 @@ use std::time::Duration;
 
 use crate::cap::{Cap, Demand};
 use crate::clock::Clock;
-use crate::error::BotError;
+use crate::error::KernelError;
 use crate::gate::GrantSet;
-use crate::sim_stream::{RECEIPT_START, Stream, fold};
+use crate::sim_stream::{RECEIPT_START, SimError, Stream, fold};
 
 /// The seeds every family replays.
 const SEEDS: [u64; 4] = [
@@ -125,14 +125,18 @@ fn sweep(check: impl FnMut(u64, &mut Stream, &Scenario) -> Outcome) -> Outcome {
 
 /// The names a denial carries (none for an admission), or an error naming
 /// what came back instead.
-fn denied(outcome: Result<(), BotError>, seed: u64) -> Result<Vec<String>, String> {
+fn denied(outcome: Result<(), KernelError>, seed: u64) -> Result<Vec<String>, SimError> {
     match outcome {
-        Err(BotError::CapabilityDenied { deficit }) => Ok(deficit
+        Err(KernelError::CapabilityDenied { deficit }) => Ok(deficit
             .shortages()
             .map(|shortage| shortage.required().as_str().to_owned())
             .collect()),
         Ok(()) => Ok(Vec::new()),
-        Err(other) => Err(format!("seed {seed:#x}: {other}")),
+        Err(other) => Err(SimError::Unexpected {
+            seed,
+            wanted: "a capability denial or an admission",
+            got: Box::new(other),
+        }),
     }
 }
 
@@ -215,7 +219,8 @@ fn sim_the_total_form_agrees_with_admission() -> Outcome {
 /// set already granted.
 fn sim_the_derived_repair_closes_the_requirement() -> Outcome {
     sweep(|seed, _, scenario| {
-        let Err(BotError::CapabilityDenied { deficit }) = scenario.grants.admit(&scenario.required)
+        let Err(KernelError::CapabilityDenied { deficit }) =
+            scenario.grants.admit(&scenario.required)
         else {
             return Ok(());
         };
@@ -257,7 +262,7 @@ fn sim_a_proof_carries_the_shortest_lifetime() -> Outcome {
                 assert_eq!(proof.remaining(), scenario.lifetime(), "seed {seed:#x}");
                 Ok(())
             }
-            Err(BotError::CapabilityDenied { .. }) => {
+            Err(KernelError::CapabilityDenied { .. }) => {
                 assert!(
                     !scenario.shortfall().is_empty(),
                     "seed {seed:#x}: a full set refused"

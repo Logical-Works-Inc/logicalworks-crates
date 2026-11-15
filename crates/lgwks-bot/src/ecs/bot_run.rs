@@ -5,11 +5,12 @@ use lgwks_deps::bevy_ecs::schedule::IntoScheduleConfigs;
 
 use crate::broker::DispatchError;
 use crate::effect::EffectKey;
-use crate::error::{BotError, DispatchCertainty};
+use crate::error::{DispatchCertainty, KernelError};
 use crate::verb::EffectLifetime;
 #[cfg(doc)]
 use crate::verb::Execute;
 
+use super::EcsError;
 use super::bot::EcsBot;
 use super::entry::RetryReading;
 use super::entry::Settled;
@@ -19,11 +20,11 @@ use super::resources::Decision;
 use super::resources::Grants;
 use super::resources::Policy;
 use super::resources::Step;
-use super::work::EffectEvidence;
 use super::work::PendingWork;
 #[cfg(doc)]
 use super::work::TransitionHold;
 use super::work::WorkId;
+use crate::journal::EffectEvidence;
 
 impl EcsBot {
     /// Run the effects the decision phase selected, in the order it selected
@@ -49,11 +50,11 @@ impl EcsBot {
     pub(super) async fn run_steps(
         &mut self,
         steps: &[Step],
-        failures: &mut Vec<(usize, BotError)>,
+        failures: &mut Vec<(usize, EcsError)>,
         retry: &RetryReading,
-    ) -> (usize, Option<BotError>) {
+    ) -> (usize, Option<EcsError>) {
         let mut fired: usize = 0;
-        let mut failure: Option<BotError> = None;
+        let mut failure: Option<EcsError> = None;
         let mut start = 0;
         // Drained rather than taken, so the buffer keeps its capacity for the next
         // tick that fails. Each row is a chain's condition failure, in chain order.
@@ -117,11 +118,11 @@ impl EcsBot {
     pub(super) async fn run_chain(
         &mut self,
         steps: &[Step],
-        condition_failure: Option<BotError>,
+        condition_failure: Option<EcsError>,
         retry: &RetryReading,
-    ) -> (usize, Option<BotError>) {
+    ) -> (usize, Option<EcsError>) {
         let mut fired: usize = 0;
-        let mut failure: Option<BotError> = None;
+        let mut failure: Option<EcsError> = None;
         for step in steps {
             let work = WorkId {
                 chain: step.chain,
@@ -172,7 +173,7 @@ impl EcsBot {
                         continue;
                     }
                     Err(cause) => {
-                        let error = BotError::EffectUnrecorded {
+                        let error = EcsError::EffectUnrecorded {
                             key: Box::new(key),
                             evidence,
                             cause: Box::new(DispatchError::Journal(cause)),
@@ -281,9 +282,9 @@ impl EcsBot {
                 .broker
                 .spend(&authority)
             {
-                let error = BotError::EffectRefused {
+                let error = EcsError::from(KernelError::EffectRefused {
                     cause: DispatchError::Broker(cause),
-                };
+                });
                 self.world
                     .non_send_mut::<Ledger>()
                     .fail(work, &error, key.attempt(), retry);
@@ -353,7 +354,7 @@ impl EcsBot {
                 // refusal — `EffectRefused` would tell a controller that
                 // nothing left the process and that it may replan, which
                 // duplicates a known outcome.
-                let error = BotError::EffectUnrecorded {
+                let error = EcsError::EffectUnrecorded {
                     key: Box::new(key),
                     evidence,
                     cause: Box::new(DispatchError::Journal(cause)),
@@ -418,24 +419,24 @@ impl EcsBot {
     ///
     /// # Errors
     ///
-    /// [`BotError::NoSuchWork`] when the entry is not held: it ran, its
+    /// [`EcsError::NoSuchWork`] when the entry is not held: it ran, its
     /// condition was false, it has not been reached yet, or its chain holds no
     /// transition at all. Evidence cannot contradict an attempt whose outcome
     /// was recorded, and accepting it silently would let a caller believe an
     /// effect was acknowledged when nothing was.
     ///
-    /// [`BotError::EvidenceSuperseded`] when the chain holds a transition whose
+    /// [`EcsError::EvidenceSuperseded`] when the chain holds a transition whose
     /// revision is not the one the work was read from — the work the caller is
     /// reporting on was superseded, and nothing was changed. Re-read
     /// [`pending`](Self::pending) and report against the generation that is
     /// there now.
     ///
-    /// [`BotError::EvidenceStaleAttempt`] when the generation still holds but
+    /// [`EcsError::EvidenceStaleAttempt`] when the generation still holds but
     /// the entry has moved on to a later attempt since. The report is about an
     /// attempt that is over, so there is nothing for it to decide; re-read
     /// [`pending`](Self::pending) to see the attempt that is outstanding.
     ///
-    /// [`BotError::EvidenceContradicted`] when this generation's entry was
+    /// [`EcsError::EvidenceContradicted`] when this generation's entry was
     /// already settled with the opposite evidence. Nothing was changed:
     /// [`Applied`](EffectEvidence::Applied) does not become
     /// [`NotApplied`](EffectEvidence::NotApplied), or the reverse, after the
@@ -446,7 +447,7 @@ impl EcsBot {
         &mut self,
         key: &EffectKey,
         evidence: EffectEvidence,
-    ) -> Result<(), BotError> {
+    ) -> Result<(), EcsError> {
         // A recovered attempt is settled first, and the order is the whole of
         // deliverable F05's second half: a key the journal records as dispatched
         // with no outcome belongs to no live transition, so the ledger's own
@@ -474,8 +475,10 @@ impl EcsBot {
                 .non_send_mut::<Ledger>()
                 .effects
                 .settle_recovered(*key, evidence)
-                .map_err(|cause| BotError::EffectRefused {
-                    cause: DispatchError::Journal(cause),
+                .map_err(|cause| {
+                    EcsError::from(KernelError::EffectRefused {
+                        cause: DispatchError::Journal(cause),
+                    })
                 });
         }
         let recording = self
@@ -490,7 +493,7 @@ impl EcsBot {
                 .non_send_mut::<Ledger>()
                 .effects
                 .settle_recording(*key, evidence)
-                .map_err(|cause| BotError::EffectUnrecorded {
+                .map_err(|cause| EcsError::EffectUnrecorded {
                     key: Box::new(*key),
                     evidence,
                     cause: Box::new(DispatchError::Journal(cause)),
@@ -505,9 +508,9 @@ impl EcsBot {
             // must not be reported as one. Nothing has been mutated: the call
             // is a classification, and the caller may repeat it once reads
             // come back (issue #123).
-            Err(cause) => Err(BotError::EffectRefused {
+            Err(cause) => Err(EcsError::from(KernelError::EffectRefused {
                 cause: DispatchError::Journal(cause),
-            }),
+            })),
             // Both are success, and deliberately one arm after the journal
             // write: to the caller, a repeat that landed a second time is the
             // same fact as one that landed the first. The append happens
@@ -518,7 +521,7 @@ impl EcsBot {
                     .non_send_mut::<Ledger>()
                     .effects
                     .ensure_outcome(*key, evidence)
-                    .map_err(|cause| BotError::EffectUnrecorded {
+                    .map_err(|cause| EcsError::EffectUnrecorded {
                         key: Box::new(*key),
                         evidence,
                         cause: Box::new(DispatchError::Journal(cause)),
@@ -530,7 +533,7 @@ impl EcsBot {
                 }
                 Ok(())
             }
-            Ok(Settled::Superseded { id, current }) => Err(BotError::EvidenceSuperseded {
+            Ok(Settled::Superseded { id, current }) => Err(EcsError::EvidenceSuperseded {
                 work: id,
                 named: key.digest(),
                 current,
@@ -539,20 +542,22 @@ impl EcsBot {
                 id,
                 reported,
                 outstanding,
-            }) => Err(BotError::EvidenceStaleAttempt {
+            }) => Err(EcsError::EvidenceStaleAttempt {
                 work: id,
                 reported,
                 outstanding,
             }),
-            Ok(Settled::Contradicted { id, settled }) => Err(BotError::EvidenceContradicted {
+            Ok(Settled::Contradicted { id, settled }) => Err(EcsError::EvidenceContradicted {
                 work: id,
                 settled,
                 submitted: evidence,
             }),
-            Ok(Settled::NoSuchWork { id: Some(id) }) => Err(BotError::NoSuchWork { work: id }),
-            Ok(Settled::NoSuchWork { id: None }) => Err(BotError::ActionNotDeclared {
-                action: key.action(),
-            }),
+            Ok(Settled::NoSuchWork { id: Some(id) }) => Err(EcsError::NoSuchWork { work: id }),
+            Ok(Settled::NoSuchWork { id: None }) => {
+                Err(EcsError::from(KernelError::ActionNotDeclared {
+                    action: key.action(),
+                }))
+            }
         }
     }
 }

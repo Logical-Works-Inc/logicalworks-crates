@@ -24,7 +24,7 @@ use lgwks_bot::script::{
 };
 use lgwks_bot::task::{Host, task};
 use lgwks_bot::{
-    Action, Auth, BotError, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
+    Action, Auth, EcsError, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
 };
 
 /// A check that fails the run with a readable reason, never a bare panic.
@@ -55,10 +55,10 @@ struct DemoCounter(u16);
 
 impl DemoCounter {
     /// Build from a target that names a count.
-    fn from_target(target: &str) -> Result<Source, BotError> {
+    fn from_target(target: &str) -> Result<Source, EcsError> {
         match target.parse::<u16>() {
             Ok(count) => Ok(Source::new(Self(count))),
-            Err(_) => Err(BotError::IncompleteSpec {
+            Err(_) => Err(EcsError::IncompleteSpec {
                 field: "target",
                 cause: String::from("a demo count is a number"),
             }),
@@ -73,7 +73,7 @@ impl Observe for DemoCounter {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u16, EcsError> {
         call.0.check(&[])?;
         Ok(self.0)
     }
@@ -88,7 +88,7 @@ struct DemoPage;
 
 impl DemoPage {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, BotError> {
+    fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self))
     }
 }
@@ -101,7 +101,7 @@ impl Execute for DemoPage {
         &[]
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         Ok(())
     }

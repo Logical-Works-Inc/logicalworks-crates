@@ -6,10 +6,10 @@
 //! document naming something outside it is refused with the name it used.
 
 use lgwks_bot::{
-    Action, Auth, BotError, Cap, DomainRegistry, EffectLifetime, Execute, Observe, Source, domains,
+    Action, Auth, Cap, DomainRegistry, EcsError, EffectLifetime, Execute, Observe, Source, domains,
 };
 
-/// A test result that names its own failure: these tests cross `BotError` and the
+/// A test result that names its own failure: these tests cross `EcsError` and the
 /// document parser, and neither converts into the other.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -22,9 +22,9 @@ impl Repository {
     /// The target is validated rather than stored. A source that kept it could
     /// not be asked for it once erased, so the only observable way for a test to
     /// prove the target arrived is a constructor that acts on it.
-    fn from_target(target: &str) -> Result<Source, BotError> {
+    fn from_target(target: &str) -> Result<Source, EcsError> {
         if target.is_empty() {
-            let refusal = Err(BotError::IncompleteSpec {
+            let refusal = Err(EcsError::IncompleteSpec {
                 field: "target",
                 cause: String::from("the spec names no target"),
             });
@@ -42,7 +42,7 @@ impl Observe for Repository {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u16, EcsError> {
         call.0.check(&[])?;
         Ok(0)
     }
@@ -57,9 +57,9 @@ struct SlackNotify;
 
 impl SlackNotify {
     /// Build one from the `target` its spec names.
-    fn from_target(target: &str) -> Result<Action, BotError> {
+    fn from_target(target: &str) -> Result<Action, EcsError> {
         if target.is_empty() {
-            let refusal = Err(BotError::IncompleteSpec {
+            let refusal = Err(EcsError::IncompleteSpec {
                 field: "target",
                 cause: String::from("the spec names no target"),
             });
@@ -82,7 +82,7 @@ impl Execute for SlackNotify {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         Ok(())
     }
@@ -146,7 +146,7 @@ fn building_a_source_reaches_the_domain() -> Result<(), Box<dyn std::error::Erro
     // source is erased.
     let refused = TEST_DOMAINS.build_source("github::repository", "");
     assert!(
-        matches!(refused, Err(BotError::IncompleteSpec { field, .. }) if field == "target"),
+        matches!(refused, Err(EcsError::IncompleteSpec { field, .. }) if field == "target"),
         "the constructor's own refusal did not surface: {refused:?}"
     );
     Ok(())
@@ -159,7 +159,7 @@ fn the_target_reaches_the_constructor() -> Result<(), Box<dyn std::error::Error>
     // too. Reaching the constructor is what this asserts.
     let refused = TEST_DOMAINS.build_action("notify::slack", "");
     assert!(
-        matches!(refused, Err(BotError::IncompleteSpec { field, .. }) if field == "target"),
+        matches!(refused, Err(EcsError::IncompleteSpec { field, .. }) if field == "target"),
         "the constructor's own refusal did not surface: {refused:?}"
     );
     assert!(
@@ -182,7 +182,7 @@ fn an_unregistered_identifier_is_refused_by_name() {
 
     let action = TEST_DOMAINS.build_action("notify::absent", "#deploys");
     assert!(
-        matches!(action, Err(BotError::UnregisteredDomain { .. })),
+        matches!(action, Err(EcsError::UnregisteredDomain { .. })),
         "an undeclared action was built: {action:?}"
     );
 }
@@ -254,7 +254,7 @@ impl RepositoryV2 {
     /// Build one from the `target` its spec names, delegating to keep the
     /// fixture small; the type, not the behavior, is what the duplicate tests
     /// observe.
-    fn from_target(target: &str) -> Result<Source, BotError> {
+    fn from_target(target: &str) -> Result<Source, EcsError> {
         Repository::from_target(target)
     }
 }
@@ -266,7 +266,7 @@ impl Observe for RepositoryV2 {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(&[])?;
         Ok(0)
     }
@@ -330,7 +330,7 @@ fn a_duplicate_source_identifier_is_refused_with_both_positions() {
     assert!(
         matches!(
             refusal,
-            Err(BotError::DuplicateDomain {
+            Err(EcsError::DuplicateDomain {
                 role,
                 first: 0,
                 second: 1,
@@ -352,7 +352,7 @@ fn a_duplicate_action_identifier_is_refused_the_same_way() {
     assert!(
         matches!(
             refusal,
-            Err(BotError::DuplicateDomain {
+            Err(EcsError::DuplicateDomain {
                 role,
                 first: 0,
                 second: 1,
@@ -464,7 +464,7 @@ fn validate_names_the_first_duplicate_pair_and_passes_clean_lists() {
     assert!(
         matches!(
             DUPLICATE_SOURCES.validate(),
-            Err(BotError::DuplicateDomain {
+            Err(EcsError::DuplicateDomain {
                 first: 0,
                 second: 1,
                 ..

@@ -23,7 +23,7 @@ use std::error::Error;
 
 use lgwks_bot::spec::{ActionSpec, Bot, BotSpec, ChainSpec};
 use lgwks_bot::{
-    Action, Admission, Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, Need, domains,
+    Action, Admission, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Need, domains,
 };
 
 use sim::{Band, Sim};
@@ -56,13 +56,13 @@ impl SimPage {
     }
 
     /// Build a cap-free one from the `target` its spec names.
-    fn from_target(target: &str) -> Result<Action, BotError> {
+    fn from_target(target: &str) -> Result<Action, EcsError> {
         parse_count(target)?;
         Ok(Action::new(Self::with_caps(Vec::new())))
     }
 
     /// Build one that requires `bot.net`.
-    fn net_from_target(target: &str) -> Result<Action, BotError> {
+    fn net_from_target(target: &str) -> Result<Action, EcsError> {
         parse_count(target)?;
         Ok(Action::new(Self::with_caps(vec![Cap::net()])))
     }
@@ -80,7 +80,7 @@ impl Execute for SimPage {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&self.caps)?;
         Ok(())
     }
@@ -292,8 +292,9 @@ fn one_seed(sim: &mut Sim) -> Result<(), Box<dyn Error>> {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "one_seed: returning an error to the caller");
             return refusal;
         }
-        Err(_) => {
-            let refusal = Err(format!("seed {}: unexpected admission variant", sim.seed).into());
+        Err(other) => {
+            let refusal =
+                Err(format!("seed {}: unexpected admission variant: {other}", sim.seed).into());
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "one_seed: returning an error to the caller");
             return refusal;
         }
@@ -334,7 +335,7 @@ fn one_seed(sim: &mut Sim) -> Result<(), Box<dyn Error>> {
     assert!(
         matches!(
             BotSpec::from_json(r#"{"version":2,"name":"x","chains":[]}"#),
-            Err(BotError::UnsupportedSpecVersion { found: 2, .. })
+            Err(EcsError::UnsupportedSpecVersion { found: 2, .. })
         ),
         "seed {}: an unsupported version must be refused",
         sim.seed

@@ -1,7 +1,7 @@
 //! The smoke's human-approval section (#784), written as `await approval`: the
 //! first run parks, a decision releases the payload, a denial fails it typed,
 //! and the gated act the default policy guards runs only on a matching
-//! approval — while an explicit policy runs the stub without asking.
+//! approval — while an explicit policy runs the double without asking.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -12,7 +12,7 @@ use lgwks_bot::script::{
     with_effect_policy,
 };
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Action, Auth, BotError, EffectLifetime, Execute};
+use lgwks_bot::{Action, Auth, EcsError, EffectLifetime, Execute};
 
 use super::super::say;
 use super::{Section, VocabularyError, refuse};
@@ -35,7 +35,7 @@ fn decider(approved: &Approved) -> Vec<u8> {
     approved.approved_by().as_bytes().to_vec()
 }
 
-/// A stub action whose effect leaves the process: the smoke's one gated act.
+/// A double action whose effect leaves the process: the smoke's one gated act.
 ///
 /// Its input archives as the payload's wire record, so an approval parked over
 /// the same bytes releases it, and anything else does not.
@@ -43,7 +43,7 @@ struct ShipAction;
 
 impl ShipAction {
     /// Build from any target: the dock is named, not validated.
-    fn from_target(_target: &str) -> Result<Action, BotError> {
+    fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self))
     }
 }
@@ -72,8 +72,8 @@ impl Execute for ShipAction {
         lgwks_bot::script::Durable::to_record(input).ok()
     }
 
-    async fn execute_action(&self, call: (Auth, &Vec<u8>)) -> Result<(), BotError> {
-        call.0.check(&[])?;
+    async fn execute_action(&self, call: (Auth, &Vec<u8>)) -> Result<(), EcsError> {
+        call.0.check(self.required_caps())?;
         SHIPPED.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -83,7 +83,7 @@ impl Execute for ShipAction {
     }
 }
 
-/// The smoke's explicit policy: the stub actions above are test doubles, so
+/// The smoke's explicit policy: the double actions above are test doubles, so
 /// an allow runs them without parking a decision.
 struct AllowVocab;
 
@@ -95,7 +95,7 @@ impl EffectPolicy for AllowVocab {
 }
 
 lgwks_bot::domains! {
-    /// `vocab::ship` bound to the stub the gated act runs.
+    /// `vocab::ship` bound to the double the gated act runs.
     pub(crate) SHIP {
         observe {}
         execute {
@@ -110,11 +110,7 @@ lgwks_bot::domains! {
 ///
 /// The first failed check, or the runtime error the run returned.
 pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
-    let unique = lgwks_std::random::bytes::<8>().map_err(std::io::Error::other)?;
-    let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
-    let dir = std::env::temp_dir().join(format!("lgwks-estate-vocab-{hex}"));
-    std::fs::create_dir_all(&dir)?;
-    let _keep = super::super::Scratch(dir.clone());
+    let (dir, _keep) = super::scratch("lgwks-estate-vocab")?;
     let host = Host::builder("vocab")?
         .run_store(&dir)?
         .domains(&SHIP)
@@ -236,8 +232,8 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
             "the gated action runs exactly once on the approved bytes",
         );
     }
-    // The same run under an explicit policy: the stub is a test double, so no
-    // decision is owed.
+    // The same run under an explicit policy: the ship action is the smoke's
+    // own double, so no decision is owed.
     let parked_open = driver.block_on(host.run(&guarding, b"ship-open".to_vec()));
     let Some(open_error) = parked_open.error() else {
         return refuse(Section::Approval, "an allowed run starts from a park");
@@ -271,7 +267,7 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     {
         return refuse(
             Section::Approval,
-            "an explicit policy runs the stub without asking",
+            "an explicit policy runs the double without asking",
         );
     }
     say(&format!(

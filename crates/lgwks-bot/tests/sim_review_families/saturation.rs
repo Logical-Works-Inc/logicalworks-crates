@@ -11,7 +11,7 @@ use lgwks_bot::domain::gh::Gh;
 use lgwks_bot::review::{ReviewOutcome, ReviewRequest};
 use lgwks_bot::task::Report;
 
-use super::fake_gh::{FakeGh, Scenario};
+use super::scripted_gh::{Scenario, ScriptedGh};
 use super::{
     BODY, CAPTURE, HEAD, TestResult, gh_spawned_directly, host_named, request, review_task_send,
     why_unknown,
@@ -77,14 +77,14 @@ fn shard_sizes(tier: usize) -> Vec<usize> {
 /// zero and the pipeline's bound is reached on a single pull request rather
 /// than approached somewhere across the tier.
 fn saturation_inputs(
-    fakes: &[FakeGh],
+    receivers: &[ScriptedGh],
     sizes: &[usize],
     capture: usize,
 ) -> Result<Vec<(Gh, ReviewRequest)>, Box<dyn std::error::Error>> {
     let mut work = Vec::new();
-    for (fake, shard) in fakes.iter().zip(sizes) {
+    for (scripted, shard) in receivers.iter().zip(sizes) {
         for _ in 0..*shard {
-            work.push((gh_spawned_directly(fake, capture)?, request(7)?));
+            work.push((gh_spawned_directly(scripted, capture)?, request(7)?));
         }
     }
     Ok(work)
@@ -173,7 +173,7 @@ impl ReceiverRecord {
 /// well as checked, so the tier's totals are the sum of exactly the numbers
 /// that were asserted per receiver.
 fn read_receiver(
-    fake: &FakeGh,
+    scripted: &ScriptedGh,
     receiver: usize,
     tier: usize,
     reports: &[Report<ReviewOutcome>],
@@ -191,8 +191,8 @@ fn read_receiver(
             record.failed = record.failed.saturating_add(1);
         }
     }
-    record.creates = fake.creates()?;
-    record.reads = fake.reads_of("/pulls/7/reviews")?;
+    record.creates = scripted.creates()?;
+    record.reads = scripted.reads_of("/pulls/7/reviews")?;
     record.assert_no_fault_receiver(receiver, tier, &first_unknown_reason(reports))?;
     Ok(record)
 }
@@ -245,17 +245,17 @@ pub(super) fn run_saturation_tier(
     // dropped and no receiver carries more than the shard bound.
     let sizes = shard_sizes(concurrency);
     let receivers = sizes.len();
-    let fakes: Vec<FakeGh> = (0..receivers)
+    let installed: Vec<ScriptedGh> = (0..receivers)
         .map(|receiver| {
-            let fake = FakeGh::install(label, HEAD)?;
-            fake.configure(Scenario::new(HEAD).created_body(BODY))?;
+            let scripted = ScriptedGh::install(label, HEAD)?;
+            scripted.configure(Scenario::new(HEAD).created_body(BODY))?;
             lgwks_std::trace::debug!(
                 receiver = receiver,
                 "saturation: receiver installed for this shard"
             );
-            Ok(fake)
+            Ok(scripted)
         })
-        .collect::<Result<Vec<FakeGh>, std::io::Error>>()?;
+        .collect::<Result<Vec<ScriptedGh>, std::io::Error>>()?;
     let host = host_named("reviewer-saturation", concurrency)?;
 
     let started = std::time::Instant::now();
@@ -264,7 +264,7 @@ pub(super) fn run_saturation_tier(
     // building the inputs outside the task also means a setup failure is
     // reported here rather than swallowed as a missing result.
     let job = std::sync::Arc::new(review_task_send()?);
-    let work = saturation_inputs(&fakes, &sizes, CAPTURE)?;
+    let work = saturation_inputs(&installed, &sizes, CAPTURE)?;
     assert_eq!(
         work.len(),
         concurrency,
@@ -331,9 +331,9 @@ pub(super) fn run_saturation_tier(
     // the receiver whose fixture is being read.
     let mut total = ReceiverRecord::default();
     let mut cursor = 0usize;
-    for (receiver, (fake, shard)) in fakes.iter().zip(&sizes).enumerate() {
+    for (receiver, (scripted, shard)) in installed.iter().zip(&sizes).enumerate() {
         let end = cursor.saturating_add(*shard);
-        let record = read_receiver(fake, receiver, concurrency, &reports[cursor..end])?;
+        let record = read_receiver(scripted, receiver, concurrency, &reports[cursor..end])?;
         cursor = end;
         total = record.plus(total);
     }

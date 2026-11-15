@@ -20,9 +20,9 @@
 //! deduplicates on), and Stripe's and Temporal's at-least-once delivery
 //! discipline the module names.
 
-use crate::error::{BotError, DispatchCertainty};
+use crate::error::{DispatchCertainty, KernelError};
 use crate::idempotent::{IdempotentPost, MAX_POST_BYTES, PostInput};
-use crate::sim_stream::{RECEIPT_START, Stream, fold};
+use crate::sim_stream::{DrawError, RECEIPT_START, SimError, Stream, fold};
 use crate::verb::{EffectLifetime, Execute};
 
 /// The seeds every family replays.
@@ -77,7 +77,7 @@ impl Effect {
         };
         let key = (0..key_len)
             .map(|_| stream.choose(b"0123456789abcdef-").map(char::from))
-            .collect::<Result<String, String>>()?;
+            .collect::<Result<String, DrawError>>()?;
         let body_len = if stream.below(4)? == 0 {
             MAX_POST_BYTES
                 .saturating_sub(8)
@@ -95,7 +95,7 @@ impl Effect {
     }
 
     /// Build the effect's input.
-    fn input(&self) -> Result<PostInput, BotError> {
+    fn input(&self) -> Result<PostInput, KernelError> {
         PostInput::new(
             self.url,
             self.key.as_str(),
@@ -118,15 +118,22 @@ fn sweep(mut check: impl FnMut(u64, &Effect) -> Outcome) -> Outcome {
 }
 
 /// The refusal's cause, when the construction was refused as `Refused`.
-fn refused_cause(result: Result<PostInput, BotError>) -> Result<Option<String>, String> {
+fn refused_cause(
+    result: Result<PostInput, KernelError>,
+    seed: u64,
+) -> Result<Option<String>, SimError> {
     match result {
         Ok(_) => Ok(None),
-        Err(BotError::DomainError {
+        Err(KernelError::DomainError {
             domain,
             certainty: DispatchCertainty::Refused,
             cause,
         }) if domain == "idempotent::post" => Ok(Some(cause)),
-        Err(other) => Err(format!("expected a refusal that sent nothing, got {other}")),
+        Err(other) => Err(SimError::Unexpected {
+            seed,
+            wanted: "a refusal that sent nothing",
+            got: Box::new(other),
+        }),
     }
 }
 
@@ -164,7 +171,7 @@ fn sim_an_unkeyed_effect_is_refused_before_anything_else() -> Outcome {
             content_type: effect.content_type,
             body: effect.body.clone(),
         };
-        let cause = refused_cause(unkeyed.input())?
+        let cause = refused_cause(unkeyed.input(), seed)?
             .ok_or_else(|| format!("seed {seed:#x}: an unkeyed effect was admitted"))?;
         assert!(
             cause.contains("idempotency key"),
@@ -178,7 +185,7 @@ fn sim_an_unkeyed_effect_is_refused_before_anything_else() -> Outcome {
 /// The verdict on every draw is the one the two rules give, in their order.
 fn sim_every_verdict_is_the_rules_verdict() -> Outcome {
     sweep(|seed, effect| {
-        let cause = refused_cause(effect.input())?;
+        let cause = refused_cause(effect.input(), seed)?;
         let expected_refusal = effect.key.is_empty() || effect.body.len() > MAX_POST_BYTES;
         assert_eq!(
             cause.is_some(),
@@ -214,7 +221,7 @@ fn sim_the_cap_is_admitted_and_the_excess_named() -> Outcome {
             effect.content_type,
             vec![0; MAX_POST_BYTES.saturating_add(excess)],
         );
-        let cause = refused_cause(past)?
+        let cause = refused_cause(past, seed)?
             .ok_or_else(|| format!("seed {seed:#x}: {excess} bytes past the cap was admitted"))?;
         assert!(
             cause.contains(&format!("body is {excess} bytes past")),
@@ -284,7 +291,7 @@ fn verdict_trace(seed: u64) -> Result<u64, String> {
     let mut trace = RECEIPT_START;
     for _ in 0..DRAWS {
         let effect = Effect::draw(&mut stream)?;
-        let verdict = refused_cause(effect.input())?;
+        let verdict = refused_cause(effect.input(), seed)?;
         trace = fold(
             trace,
             format!("{}:{verdict:?};", effect.body.len()).as_bytes(),

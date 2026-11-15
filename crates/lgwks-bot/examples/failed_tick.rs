@@ -11,8 +11,37 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use lgwks_bot::spec::{AbandonReason, TransitionHold};
 use lgwks_bot::{
-    Auth, Bot, BotError, Cap, DispatchCertainty, EffectLifetime, Execute, GrantSet, Observe,
+    Auth, Bot, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, GrantSet, KernelError,
+    Observe,
 };
+
+/// Why the program failed.
+#[derive(Debug)]
+enum TickFailure {
+    /// The bot refused to build.
+    Build(EcsError),
+    /// The tick that had to fail reported success.
+    Succeeded(usize),
+}
+
+impl std::fmt::Display for TickFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Build(ref cause) => write!(formatter, "the bot did not build: {cause}"),
+            Self::Succeeded(fired) => {
+                write!(formatter, "the second action was reported as {fired} fired")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TickFailure {}
+
+impl From<EcsError> for TickFailure {
+    fn from(cause: EcsError) -> Self {
+        Self::Build(cause)
+    }
+}
 
 /// A source whose value the test drives by hand.
 struct Reading(Arc<AtomicU32>);
@@ -24,7 +53,7 @@ impl Observe for Reading {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(self.required_caps())?;
         Ok(self.0.load(Ordering::SeqCst))
     }
@@ -49,7 +78,7 @@ impl Execute for Count {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(self.required_caps())?;
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -75,13 +104,13 @@ impl Execute for Fail {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(self.required_caps())?;
-        Err(BotError::DomainError {
+        Err(EcsError::Kernel(KernelError::DomainError {
             domain: "test::fail".into(),
             certainty: DispatchCertainty::NotDelivered,
             cause: "the second action refused".into(),
-        })
+        }))
     }
 
     fn domain_id(&self) -> &str {
@@ -89,7 +118,7 @@ impl Execute for Fail {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), TickFailure> {
     let value = Arc::new(AtomicU32::new(0));
     let counted = Arc::new(AtomicU32::new(0));
     let mut bot = Bot::builder("two-actions")
@@ -103,14 +132,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // assertion failing, which is what the arm reports.
     let error = match bot.tick() {
         Ok(fired) => {
-            let refusal = Err(format!("the second action was reported as {fired} fired").into());
+            let refusal = Err(TickFailure::Succeeded(fired));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "main: returning an error to the caller");
             return refusal;
         }
         Err(error) => error,
     };
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "got {error:?}"
     );
     assert_eq!(
@@ -123,7 +152,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the work is recorded, not re-derived from the change filter. The action
     // ahead of it has already succeeded and is not replayed to get there.
     assert!(
-        matches!(bot.tick(), Err(BotError::DomainError { .. })),
+        matches!(
+            bot.tick(),
+            Err(EcsError::Kernel(KernelError::DomainError { .. }))
+        ),
         "a refused action is retried while it has budget"
     );
     assert_eq!(
@@ -135,7 +167,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Third attempt: the budget is spent, and the tick reports the action's own
     // error while `pending` names the entry it gave up on.
     assert!(
-        matches!(bot.tick(), Err(BotError::DomainError { .. })),
+        matches!(
+            bot.tick(),
+            Err(EcsError::Kernel(KernelError::DomainError { .. }))
+        ),
         "the last attempt of the budget still reports the refusal"
     );
     let pending = bot.pending();
@@ -161,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // work that may proceed either. A tick that returned `Ok` here would be
     // reporting a handled transition over a ledger that says otherwise.
     assert!(
-        matches!(bot.tick(), Err(BotError::PendingTransition { .. })),
+        matches!(bot.tick(), Err(EcsError::PendingTransition { .. })),
         "an abandoned entry is never a clean tick"
     );
 
@@ -172,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // though the first entry ran again.
     value.store(1, Ordering::SeqCst);
     assert!(
-        matches!(bot.tick(), Err(BotError::PendingTransition { .. })),
+        matches!(bot.tick(), Err(EcsError::PendingTransition { .. })),
         "the new revision runs its work and still reports the abandonment"
     );
     assert_eq!(

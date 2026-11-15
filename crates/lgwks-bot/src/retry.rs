@@ -2,8 +2,8 @@
 //!
 //! The vocabulary already existed. [`RetryClass`] says what a failure permits
 //! and [`DispatchCertainty`] says what it
-//! established, and `BotError::retry_class` is the total map from one to the
-//! other that never inspects a rendered cause. What did not exist is the
+//! established, and each layer error's `retry_class` is the total map from one
+//! to the other that never inspects a rendered cause. What did not exist is the
 //! decision: a class of `Safe` says the effect did not happen, and it says
 //! nothing about whether the run can still afford an attempt, still holds
 //! authority, still means the same thing, or whether an `Unsettled` failure can
@@ -52,7 +52,7 @@ use core::time::Duration;
 use crate::effect::{ActionDigest, ActionId, EffectKey};
 use crate::error::RetryClass;
 use crate::journal::EffectEvidence;
-use crate::spec::RetryPolicy;
+use lgwks_std::retry::RetryPolicy;
 
 /// Ceiling on a deduplication scope label.
 ///

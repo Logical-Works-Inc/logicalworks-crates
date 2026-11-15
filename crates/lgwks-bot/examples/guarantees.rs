@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use lgwks_bot::script::{Clock, FlowError, Scope, Tenant, remember};
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Action, Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, domains};
+use lgwks_bot::{Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, domains};
 
 /// A stand-in for a record store having a bad minute: the first two reads
 /// answer "busy", later reads succeed. The read count lives on the store,
@@ -57,7 +57,7 @@ struct Publish {
 
 impl Publish {
     /// Build the action the `demo::publish` registry entry resolves to.
-    fn from_target(_target: &str) -> Result<Action, BotError> {
+    fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self {
             needs: vec![Cap::new("demo.publish")],
         }))
@@ -76,7 +76,7 @@ impl Execute for Publish {
         EffectLifetime::External
     }
 
-    async fn execute_action(&self, call: (Auth, &&'static str)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &&'static str)) -> Result<(), EcsError> {
         call.0.check(&self.needs)?;
         Ok(())
     }
