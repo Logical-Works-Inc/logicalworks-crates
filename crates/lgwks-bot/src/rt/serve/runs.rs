@@ -89,6 +89,7 @@ mod tests {
 
     use lgwks_std::seeded::Seeded;
 
+    use super::super::hosts::Hosts;
     use super::super::{CANCELLED_JOIN_GRACE, CancellationToken, Shared, drain_owned};
     use super::{Runs, join_or_abort};
 
@@ -159,7 +160,7 @@ mod tests {
             routes: Vec::new(),
             room: Arc::new(lgwks_deps::tokio::sync::Semaphore::new(1)),
             token: CancellationToken::new(),
-            hosts: std::sync::Mutex::new(std::collections::HashMap::new()),
+            hosts: Hosts::new(2),
             runs: Runs::new(),
             store_dir: std::path::PathBuf::new(),
             ephemeral_store: None,

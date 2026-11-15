@@ -133,23 +133,18 @@ fn idempotency_key(
 
 /// The host for `tenant`, built once over the shared run store dir.
 fn host_for(shared: &Arc<Shared>, tenant: &str) -> Result<Host, ServeError> {
-    let mut hosts = shared.hosts.lock().map_err(|cause| {
-        let refusal = ServeError::Host {
-            reason: format!("the tenant hosts are poisoned: {cause}"),
-        };
-        lgwks_std::trace::debug!(error = ?refusal, "serve: the host lock is refused");
-        refusal
-    })?;
-    if let Some(host) = hosts.get(tenant) {
-        return Ok(host.clone());
-    }
+    shared.hosts.host(tenant, || build_host(shared, tenant))
+}
+
+/// Build `tenant`'s host over the shared run store dir.
+fn build_host(shared: &Arc<Shared>, tenant: &str) -> Result<Host, ServeError> {
     let bound = match std::num::NonZeroUsize::new(shared.max_in_flight) {
         Some(bound) => bound,
         None => {
             return invalid_bound("in-flight ceiling", 0, MAX_RUNS_IN_FLIGHT_U64);
         }
     };
-    let stored = Host::builder(tenant)
+    Host::builder(tenant)
         .map_err(|cause| {
             let refusal = ServeError::Host {
                 reason: format!("the tenant is refused: {cause}"),
@@ -173,9 +168,7 @@ fn host_for(shared: &Arc<Shared>, tenant: &str) -> Result<Host, ServeError> {
             };
             lgwks_std::trace::debug!(error = ?refusal, "serve: the host is refused");
             refusal
-        })?;
-    hosts.insert(tenant.to_owned(), stored.clone());
-    Ok(stored)
+        })
 }
 
 /// One admitted request, detached from its connection so a client that
@@ -323,6 +316,10 @@ pub(crate) async fn ingress(
     }
     let host = match host_for(&shared, tenant) {
         Ok(host) => host,
+        Err(ServeError::TooManyTenants { cap }) => {
+            lgwks_std::trace::debug!(cap, "serve: the tenant table is full; answering 503");
+            return answer_retry(503, b"the serve holds its most tenants".to_vec());
+        }
         Err(cause) => {
             lgwks_std::trace::debug!(error = ?cause, "serve: the tenant host is refused");
             return answer(500, b"the tenant host is refused".to_vec());

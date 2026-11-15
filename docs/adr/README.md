@@ -92,5 +92,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0054](0054-each-tenant-spends-its-own-effect-budget.md) | Each tenant spends its own effect budget |
 | [0055](0055-the-owned-world-is-columns-ticks-and-one-hash.md) | The owned world is columns, ticks and one hash (refines 0053) |
 | [0056](0056-a-served-run-is-owned-by-the-serve-not-the-connection.md) | A served run is owned by the serve, not the connection |
+| [0057](0057-the-serve-shards-its-tenant-hosts-and-caps-them.md) | The serve shards its tenant hosts and caps them |
 
 New records go at the bottom of that table.

@@ -17,7 +17,6 @@
 //! [`CancellationToken`]; every in-flight request holds an RAII guard that
 //! releases its live count in `Drop`.
 
-use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -28,7 +27,6 @@ use lgwks_deps::axum::Router;
 
 use crate::rt::edge::EdgeStop;
 use crate::rt::sync::CancellationToken;
-use crate::task::Host;
 
 /// A route's verb, read by the edge's dispatch: `GET` or `POST`.
 pub use lgwks_ast::script::RouteMethod;
@@ -81,6 +79,11 @@ pub enum ServeError {
         /// What the host refused.
         reason: String,
     },
+    /// The serve already holds the most tenants it admits, and this one is new.
+    TooManyTenants {
+        /// The most tenants one serve holds.
+        cap: usize,
+    },
 }
 
 impl std::fmt::Display for ServeError {
@@ -112,6 +115,10 @@ impl std::fmt::Display for ServeError {
             Self::Host { ref reason } => {
                 write!(formatter, "lgwks_bot: the serve host is refused: {reason}")
             }
+            Self::TooManyTenants { cap } => write!(
+                formatter,
+                "lgwks_bot: the serve holds its most tenants ({cap}); a new one is refused"
+            ),
         }
     }
 }
@@ -119,9 +126,12 @@ impl std::fmt::Display for ServeError {
 impl std::error::Error for ServeError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
-            Self::InvalidBound { .. } | Self::Env { .. } | Self::Host { .. } => None,
+            Self::InvalidBound { .. }
+            | Self::Env { .. }
+            | Self::Host { .. }
+            | Self::TooManyTenants { .. }
+            | Self::StartGate { .. } => None,
             Self::Io(ref cause) => Some(cause),
-            Self::StartGate { .. } => None,
         }
     }
 }
@@ -319,6 +329,9 @@ use ingress::ingress;
 /// The owner of every admitted run's task.
 mod runs;
 
+/// The tenant host table, sharded by tenant.
+mod hosts;
+
 /// Shared serve state behind every request.
 pub(crate) struct Shared {
     /// The routes in registration order.
@@ -327,8 +340,8 @@ pub(crate) struct Shared {
     pub(crate) room: Arc<lgwks_deps::tokio::sync::Semaphore>,
     /// Cancelled on graceful stop; in-flight runs observe it.
     pub(crate) token: CancellationToken,
-    /// One host per tenant, each over the same run store dir.
-    pub(crate) hosts: std::sync::Mutex<HashMap<String, Host>>,
+    /// One host per tenant, each over the same run store dir, sharded by tenant.
+    hosts: hosts::Hosts,
     /// The tasks of admitted runs; a drain joins them (see `runs`).
     runs: runs::Runs,
     /// Where every host's run store lives.
@@ -440,7 +453,7 @@ pub(crate) async fn serve_async(
             options.max_in_flight,
         )),
         token: stop.clone(),
-        hosts: std::sync::Mutex::new(HashMap::new()),
+        hosts: hosts::Hosts::new(hosts::MAX_TENANT_HOSTS),
         runs: runs::Runs::new(),
         store_dir: options.store_dir.clone(),
         ephemeral_store: if options.ephemeral {
@@ -496,19 +509,8 @@ async fn drain_owned(
         lgwks_std::trace::debug!("serve: the drain deadline passed; cancelling the rest");
         cancelled = shared.live.load(Ordering::SeqCst);
         shared.token.cancel();
-        match shared.hosts.lock() {
-            Ok(hosts) => {
-                let mut tenants: Vec<String> = hosts.keys().cloned().collect();
-                tenants.sort();
-                for tenant in tenants {
-                    if let Some(host) = hosts.get(&tenant) {
-                        host.cancel();
-                    }
-                }
-            }
-            Err(error) => {
-                lgwks_std::trace::debug!(?error, "serve: the host lock is poisoned at drain");
-            }
+        for (_tenant, host) in shared.hosts.all() {
+            host.cancel();
         }
         owned.abort_all();
     }
