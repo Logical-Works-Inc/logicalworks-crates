@@ -94,5 +94,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0056](0056-a-served-run-is-owned-by-the-serve-not-the-connection.md) | A served run is owned by the serve, not the connection |
 | [0057](0057-the-serve-shards-its-tenant-hosts-and-caps-them.md) | The serve shards its tenant hosts and caps them |
 | [0059](0059-the-serve-builds-each-route-task-once-at-start.md) | The serve builds each route's task once, at start |
+| [0060](0060-the-serve-keeps-its-request-hashes-and-pins-their-bytes.md) | The serve keeps its request hashes and pins their bytes |
 
 New records go at the bottom of that table.

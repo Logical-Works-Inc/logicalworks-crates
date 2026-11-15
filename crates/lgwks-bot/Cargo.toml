@@ -285,6 +285,11 @@ path = "examples/tail_cost.rs"
 required-features = ["script", "ephemeral"]
 
 [[example]]
+name = "serve_digest"
+path = "examples/serve_digest.rs"
+required-features = ["script"]
+
+[[example]]
 name = "script_tenants"
 path = "examples/script_tenants.rs"
 required-features = ["script"]
