@@ -226,11 +226,24 @@ impl EcsBuilder {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::spec::EffectScope;
     /// use lgwks_bot::{Bot, GrantSet};
+    /// # use lgwks_bot::broker::Broker;
+    /// # use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
+    /// # use lgwks_bot::journal::MemoryJournal;
+    /// # use lgwks_bot::spec::{EffectIdentity, EffectScope};
+    /// # let environment = EnvironmentId::from_hex("2122232425262728292a2b2c2d2e2f30")?;
+    /// # let mut broker = Broker::new();
+    /// # broker.register(environment)?;
+    /// # let run = RunId::from_hex("0102030405060708090a0b0c0d0e0f10")?;
+    /// # let flow = FlowRevision::from_tagged("blake3_256", &"00".repeat(32))?;
+    /// # let scope = EffectScope::new(
+    /// #     EffectIdentity::new(run, environment, flow),
+    /// #     broker,
+    /// #     Box::new(MemoryJournal::new()),
+    /// # );
     ///
     /// let mut bot = Bot::builder("direct-only")
-    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .with_effects(scope)
     ///     .build(&GrantSet::empty())?;
     /// assert_eq!(bot.tick()?, 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -358,8 +371,21 @@ impl<S: Observe> EcsObserveBuilder<S> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::spec::EffectScope;
     /// use lgwks_bot::{Auth, Bot, Cap, EcsError, GrantSet, Observe};
+    /// # use lgwks_bot::broker::Broker;
+    /// # use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
+    /// # use lgwks_bot::journal::MemoryJournal;
+    /// # use lgwks_bot::spec::{EffectIdentity, EffectScope};
+    /// # let environment = EnvironmentId::from_hex("2122232425262728292a2b2c2d2e2f30")?;
+    /// # let mut broker = Broker::new();
+    /// # broker.register(environment)?;
+    /// # let run = RunId::from_hex("0102030405060708090a0b0c0d0e0f10")?;
+    /// # let flow = FlowRevision::from_tagged("blake3_256", &"00".repeat(32))?;
+    /// # let scope = EffectScope::new(
+    /// #     EffectIdentity::new(run, environment, flow),
+    /// #     broker,
+    /// #     Box::new(MemoryJournal::new()),
+    /// # );
     ///
     /// struct Five;
     ///
@@ -381,7 +407,7 @@ impl<S: Observe> EcsObserveBuilder<S> {
     ///
     /// let mut bot = Bot::builder("watch")
     ///     .observe(Five)
-    ///     .with_effects(EffectScope::ephemeral()?)
+    ///     .with_effects(scope)
     ///     .build(&GrantSet::empty())?;
     /// assert_eq!(bot.tick()?, 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())

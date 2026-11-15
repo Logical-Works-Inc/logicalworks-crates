@@ -2,9 +2,9 @@
 
 Pages of this guide: [polls and actions](failures.md) · [worked example](failures-example.md) · [uncertain effects](failures-effects.md) · [reporting order](failures-order.md)
 
-Both entry points return `Result<usize, BotError>`: `Bot::tick` is the
-synchronous adapter (`crates/lgwks-bot/src/ecs/bot.rs:487`) and `Bot::tick_async` is
-the one to `await` from inside a runtime (`crates/lgwks-bot/src/ecs/bot.rs:304`).
+Both entry points return `Result<usize, EcsError>`: `Bot::tick` is the
+synchronous adapter (`crates/lgwks-bot/src/ecs/bot.rs:553`) and `Bot::tick_async` is
+the one to `await` from inside a runtime (`crates/lgwks-bot/src/ecs/bot.rs:330`).
 Four different things can produce an `Err`. Three are failures that mean
 different things for your data — the distinction is the difference between a
 retry and a duplicate — and the fourth is the adapter refusing to run a tick at
@@ -18,7 +18,7 @@ behind an indeterminate effect means.
 ## Case one: a poll failed
 
 Nothing ran. The `observe_fold` system returns before committing anything
-(`crates/lgwks-bot/src/ecs/ledger.rs:777`):
+(`crates/lgwks-bot/src/ecs/fold.rs:141`):
 
 ```rust,ignore
 // Pass one: the first error, in declaration order.
@@ -35,10 +35,9 @@ if let Some(error) = first_error {
     return;
 }
 ```
-
 The first error in declaration order is the one `tick` reports, and it is moved
-out of the slot it was found in rather than copied, because `BotError` is
-deliberately not `Clone` — a copy would let a caller settle an effect against a
+out of the slot it was found in rather than copied, because `EcsError` is
+deliberately not `Clone`. A copy would let a caller settle an effect against a
 duplicate of the failure instead of the failure. The early return happens before
 the observed values are written and before any `Revision` is bumped, so a source
 that held still on the previous tick still holds still, and a source that had
@@ -53,15 +52,14 @@ Actions run in declaration order, but deciding and doing are two systems. The
 `fire_plan` system walks the eligible work — a chain whose `Revision` moved opens
 a transition, and a chain with a transition outstanding is walked whether or not
 it moved — and records one ordered `Step` per condition that held
-(`crates/lgwks-bot/src/ecs/fold.rs:377`); the `run_steps` pass then awaits those steps
+(`crates/lgwks-bot/src/ecs/fold.rs:378`). The `run_steps` pass then awaits those steps
 on the caller's executor in exactly that order
-(`crates/lgwks-bot/src/ecs/bot.rs:378`). It breaks on the first failure and records
+(`crates/lgwks-bot/src/ecs/bot.rs:404`). It breaks on the first failure and records
 it, and there is no rollback:
 
 ```rust,ignore
 match entry.action.run_any(&grants.0, value).await {
 ```
-
 `value` is the payload the transition is bound to — moved into it when it opened
 or resumed, and read from there by every entry of that transition, so a retry
 after a failure runs against the same input the failed attempt did.
@@ -70,9 +68,9 @@ Every action before the failure already ran, and its effect is live. `Err` here
 means "this run did not finish", not "nothing happened".
 
 One consequence is easy to miss, and it is the reason the ledger exists.
-`observe_fold` commits the new values and bumps the revisions *before*
-`fire_plan` decides (`crates/lgwks-bot/src/ecs/fold.rs:377`), so selecting work by
-`Changed<Revision>` alone means the next tick polls an unchanged source, finds
+The `observe_fold` system commits the new values and bumps the revisions
+*before* `fire_plan` decides (`crates/lgwks-bot/src/ecs/fold.rs:378`). So selecting
+work by `Changed<Revision>` alone means the next tick polls an unchanged source, finds
 nothing eligible, and never attempts the actions after the failure again. The
 work is lost, not queued.
 

@@ -23,7 +23,7 @@ refused token this way on its `Observe` verb and in every flow.
 ## The grant set is a snapshot, narrowed only through `replace_grants`
 
 This is the part that surprises people. `EcsBot::assemble` clones the set into
-the world (`crates/lgwks-bot/src/ecs/builder.rs:634`):
+the world (`crates/lgwks-bot/src/ecs/builder.rs:594`):
 
 ```rust
 world.insert_resource(Grants(grants.clone()));
@@ -75,11 +75,11 @@ from there — is **not implemented, and the reason is not effort. An action
 cannot be denied for want of a capability at run time.** Two facts make that so:
 
 - `EcsBot::assemble` admits every declared requirement before the world is built
-  (`crates/lgwks-bot/src/ecs/builder.rs:611`), so a bot whose declared requirements are
+  (`crates/lgwks-bot/src/ecs/builder.rs:571`), so a bot whose declared requirements are
   not granted does not exist to run.
 - Every per-call proof is minted from **the same list**. `run_any` and
   `run_any_on` share `execute_erased`, which calls
-  `grants.issue(self.0.required_caps())` (`crates/lgwks-bot/src/spec.rs:738`),
+  `grants.issue(self.0.required_caps())` (`crates/lgwks-bot/src/spec/erase.rs:351`),
   and the action then checks `call.0.check(self.required_caps())`. The two cannot
   disagree, and the only writer of `Grants` besides `assemble` is
   `EcsBot::replace_grants`, which swaps the whole list rather than holding an
@@ -89,7 +89,7 @@ So a run-time hold has nothing to resume from: `BotError::CapabilityDenied`
 after admission means the retained list itself narrowed — through
 `replace_grants` — and the repair is a wider `replace_grants`, not a held
 entry. The `failure_state` arm that folds a denial into an abandoned entry
-(`crates/lgwks-bot/src/ecs/admit.rs:344`) is the record of exactly that: a
+(`crates/lgwks-bot/src/ecs/admit.rs:345`) is the record of exactly that: a
 denial now reachable at run time, reported rather than resumed.
 
 The consequence worth knowing is the *reverse* of a hold, and it is a real gap:

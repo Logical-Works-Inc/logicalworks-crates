@@ -49,8 +49,8 @@ resolver change fixes an option list that does not contain the answer.
 
 `Degraded` exists so an operator can tell a person who was unclear from a
 dependency that is down. The session records the degraded re-ask under its own
-transcript role (`crates/lgwks-bot/src/session/runner.rs:659`), and a superseded
-binding under a different one (`crates/lgwks-bot/src/session/runner.rs:673`), so the
+transcript role (`crates/lgwks-bot/src/session/runner/record.rs:223`), and a superseded
+binding under a different one (`crates/lgwks-bot/src/session/runner/record.rs:240`), so the
 three do not render identically. If you are building a dashboard, the degraded
 role is the signal to alert on; `Absent` is not. The superseded-binding role is
 neither: it is a prompt for someone to ask the person what they meant, and it

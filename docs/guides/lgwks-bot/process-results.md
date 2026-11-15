@@ -76,10 +76,10 @@ outcome is unknown.
 
 The shipped `domain::sys::Process` is written on this: `Process::new(command)`
 applies a finite default capture ceiling and deadline
-(`crates/lgwks-bot/src/domain/sys.rs:43`), `Execute` runs it through a
-supervisor and folds the `ProcessRun` into a `ProcessState`, and the dispatch
-certainty follows the same split — a pre-fork refusal is `Refused`, a post-start
-failure is `Indeterminate`.
+(`crates/lgwks-bot/src/domain/sys.rs:44`), and `Execute` runs it through a
+supervisor and folds the `ProcessRun` into a `ProcessState`. The dispatch
+certainty follows the same split: a pre-fork refusal is `Refused`, and a
+post-start failure is `Indeterminate`.
 
 ## Confining a child past its group
 

@@ -22,7 +22,7 @@ is refused rather than clobbered.
 ";
 
 /// The `lgwks_bot` release the scaffold pins, kept beside the workspace's.
-const BOT_VERSION: &str = "8.4.0";
+const BOT_VERSION: &str = "9.0.0";
 
 /// The `lgwks_std` release the scaffold pins, kept beside the workspace's.
 const STD_VERSION: &str = "4.2.0";
@@ -145,7 +145,12 @@ pub(crate) fn run(
     if dir.exists() {
         let occupied = match std::fs::read_dir(&dir) {
             Ok(entries) => entries.count() > 0,
-            Err(_) => true,
+            Err(error) => {
+                let why = format!(
+                    "{name} exists and is not a readable directory ({error}); refusing to clobber it"
+                );
+                return common::fail(why, json, out, err);
+            }
         };
         if occupied {
             let why =

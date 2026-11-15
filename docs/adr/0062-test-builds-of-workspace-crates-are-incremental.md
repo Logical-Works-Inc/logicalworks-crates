@@ -27,7 +27,7 @@ In the gate's copy, one `lgwks_bot` mutant rebuilt only `lgwks_bot`, and that to
 
 ## Consequences
 
-- Measured on the #990 tree, same command, same mutant (`record.rs:198`, `>` to `>=`): 281 s before, 37 s after. That is about 12 s to build, 8 s of setup and 17 s for 174 tests.
+- Measured on the #990 tree, same command, same mutant (`crates/lgwks-bot/src/session/runner/record.rs:198`, `>` to `>=`): 281 s before, 37 s after. That is about 12 s to build, 8 s of setup and 17 s for 174 tests.
 - Each test target dir keeps an incremental cache for workspace crates. Its size counts toward the disk budget.
 
 ## Correspondence

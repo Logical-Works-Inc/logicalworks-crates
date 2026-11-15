@@ -6,8 +6,8 @@
 # `--update`, and read the diff. A line whose text changes here is a line under
 # a citation that moved, and re-anchoring is confirming each one still supports
 # its claim rather than rewriting the entry to match.
-Cargo.toml:175	print_stderr = "forbid"
-Cargo.toml:176	print_stdout = "forbid"
+Cargo.toml:183	print_stderr = "forbid"
+Cargo.toml:184	print_stdout = "forbid"
 crates/lgwks-ast/src/parser.md:73	The bounds are not interchangeable. [`MAX_SOURCE_BYTES`] bounds the
 crates/lgwks-ast/src/parser/feature_matrix_tests.rs:172	const DECLARED_GRAMMARS: usize = 28;
 crates/lgwks-ast/src/parser/feature_matrix_tests.rs:329	assert_eq!(
@@ -18,44 +18,44 @@ crates/lgwks-bot/src/cap.rs:56	pub const NET: &str = "bot.net";
 crates/lgwks-bot/src/cap.rs:67	pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
 crates/lgwks-bot/src/cap.rs:205	pub struct Deficit {
 crates/lgwks-bot/src/cap.rs:291	pub fn to_grant_set(&self) -> GrantSet {
-crates/lgwks-bot/src/cap.rs:406	pub(crate) fn new(mut caps: Vec<Cap>) -> Self {
-crates/lgwks-bot/src/cap.rs:526	pub fn check(&self, required: &[Cap]) -> Result<(), BotError> {
-crates/lgwks-bot/src/cas.rs:470	fn effect_lifetime(&self) -> verb::EffectLifetime {
+crates/lgwks-bot/src/cap.rs:451	pub(crate) fn new(mut caps: Vec<Cap>) -> Self {
+crates/lgwks-bot/src/cap.rs:582	pub fn check(&self, required: &[Cap]) -> Result<(), KernelError> {
 crates/lgwks-bot/src/cell.rs:543	type State: Clone + Default + Send + 'static;
 crates/lgwks-bot/src/cell/host.rs:16	use std::panic::{AssertUnwindSafe, catch_unwind};
+crates/lgwks-bot/src/domain/cas.rs:145	fn effect_lifetime(&self) -> verb::EffectLifetime {
 crates/lgwks-bot/src/domain/gh.rs:167	pub fn api_path(&self, suffix: &str) -> String {
-crates/lgwks-bot/src/domain/inspect.rs:96	pub fn with_language(mut self, language: lgwks_ast::Language) -> Self {
-crates/lgwks-bot/src/domain/sys.rs:43	/// rest is drained and counted, never retained.
-crates/lgwks-bot/src/ecs.rs:226	pub(crate) use crate::cell::SubmitRefused;
-crates/lgwks-bot/src/ecs/admit.rs:344	RetryClass::Never => EntryState::Abandoned {
-crates/lgwks-bot/src/ecs/bot.rs:304	pub async fn tick_async(&mut self) -> Result<usize, BotError> {
-crates/lgwks-bot/src/ecs/bot.rs:378	let (fired, failure) = self.run_steps(&steps, &mut failures, &retry).await;
-crates/lgwks-bot/src/ecs/bot.rs:487	pub fn tick(&mut self) -> Result<usize, BotError> {
-crates/lgwks-bot/src/ecs/builder.rs:611	let mut shortages: Vec<Shortage> = Vec::new();
-crates/lgwks-bot/src/ecs/builder.rs:634	world.insert_resource(Grants(grants.clone()));
+crates/lgwks-bot/src/domain/inspect.rs:97	pub fn with_language(mut self, language: lgwks_ast::Language) -> Self {
+crates/lgwks-bot/src/domain/sys.rs:44	/// rest is drained and counted, never retained.
+crates/lgwks-bot/src/ecs.rs:231	pub(crate) use crate::cell::SubmitRefused;
+crates/lgwks-bot/src/ecs/admit.rs:345	RetryClass::Never => EntryState::Abandoned {
+crates/lgwks-bot/src/ecs/bot.rs:330	pub async fn tick_async(&mut self) -> Result<usize, EcsError> {
+crates/lgwks-bot/src/ecs/bot.rs:404	let (fired, failure) = self.run_steps(&steps, &mut failures, &retry).await;
+crates/lgwks-bot/src/ecs/bot.rs:553	pub fn tick(&mut self) -> Result<usize, EcsError> {
+crates/lgwks-bot/src/ecs/builder.rs:571	let mut shortages: Vec<Shortage> = Vec::new();
+crates/lgwks-bot/src/ecs/builder.rs:594	world.insert_resource(Grants(grants.clone()));
+crates/lgwks-bot/src/ecs/error.rs:159	/// the calling thread until its verb futures resolve, and the thread it was
 crates/lgwks-bot/src/ecs/fold.rs:3	use lgwks_deps::bevy_ecs::{
-crates/lgwks-bot/src/ecs/fold.rs:67	pub(super) fn observe_fold(world: &mut World) {
-crates/lgwks-bot/src/ecs/fold.rs:377	pub(super) fn fire_plan(world: &mut World) {
-crates/lgwks-bot/src/ecs/fold.rs:731	*failure = Some(error);
-crates/lgwks-bot/src/ecs/fold.rs:751	schedule.set_executor(SingleThreadedExecutor::default());
-crates/lgwks-bot/src/ecs/fold.rs:758	schedule.add_systems((observe_fold, fire_plan).chain());
-crates/lgwks-bot/src/ecs/ledger.rs:777	/// satisfied, so the entries behind it are unresolved through it.
+crates/lgwks-bot/src/ecs/fold.rs:68	pub(super) fn observe_fold(world: &mut World) {
+crates/lgwks-bot/src/ecs/fold.rs:141	// A domain failure stops the commit, as it always did: the tick's contract
+crates/lgwks-bot/src/ecs/fold.rs:378	pub(super) fn fire_plan(world: &mut World) {
+crates/lgwks-bot/src/ecs/fold.rs:732	*failure = Some(error);
+crates/lgwks-bot/src/ecs/fold.rs:752	schedule.set_executor(SingleThreadedExecutor::default());
+crates/lgwks-bot/src/ecs/fold.rs:759	schedule.add_systems((observe_fold, fire_plan).chain());
 crates/lgwks-bot/src/ecs/requests.rs:290	fn auto_workers() -> usize {
 crates/lgwks-bot/src/ecs/resources.rs:11	use lgwks_deps::bevy_ecs::{
 crates/lgwks-bot/src/ecs/resources.rs:37	pub(crate) struct SourceId {
 crates/lgwks-bot/src/ecs/resources.rs:38	/// The chain's index in declaration order; the key into `Chains` and
 crates/lgwks-bot/src/ecs/resources.rs:59	pub(crate) struct Revision(pub(super) u64);
-crates/lgwks-bot/src/ecs/resources.rs:79	pub(super) struct TickError(pub(super) Option<BotError>);
+crates/lgwks-bot/src/ecs/resources.rs:79	pub(super) struct TickError(pub(super) Option<EcsError>);
 crates/lgwks-bot/src/ecs/resources.rs:172	pub(super) moving: Vec<bool>,
 crates/lgwks-bot/src/ecs/resources.rs:184	pub(super) movers: Option<QueryState<&'static SourceId, Changed<Revision>>>,
 crates/lgwks-bot/src/ecs/watchdog.rs:39	pub(super) const MAX_IN_FLIGHT_POLLS: usize = 32;
-crates/lgwks-bot/src/error.rs:193	/// the calling thread until its verb futures resolve, and the thread it was
 crates/lgwks-bot/src/gate.rs:14	pub struct GrantSet {
 crates/lgwks-bot/src/gate.rs:59	pub fn grant(mut self, cap: Cap) -> Self {
 crates/lgwks-bot/src/gate.rs:106	pub fn uncovered(&self, required: &[Cap], demand: &Demand) -> Vec<Shortage> {
-crates/lgwks-bot/src/gate.rs:116	pub fn admit(&self, required: &[Cap]) -> Result<(), BotError> {
-crates/lgwks-bot/src/gate.rs:131	pub fn issue(&self, required: &[Cap]) -> Result<Auth, BotError> {
-crates/lgwks-bot/src/idempotent.rs:228	fn effect_lifetime(&self) -> verb::EffectLifetime {
+crates/lgwks-bot/src/gate.rs:126	pub fn admit(&self, required: &[Cap]) -> Result<(), KernelError> {
+crates/lgwks-bot/src/gate.rs:153	pub fn issue(&self, required: &[Cap]) -> Result<Auth, KernelError> {
+crates/lgwks-bot/src/idempotent.rs:230	fn effect_lifetime(&self) -> verb::EffectLifetime {
 crates/lgwks-bot/src/journal/continuation.rs:421	pub const fn events_watermark(&self) -> u64 {
 crates/lgwks-bot/src/journal/file/open.rs:222	pub fn own_seal(&self) -> Option<&Continuation> {
 crates/lgwks-bot/src/language.rs:1	//! Language understanding: turning what a person actually typed into a choice.
@@ -115,24 +115,25 @@ crates/lgwks-bot/src/session/graph.rs:455	/// Parse and validate a flow using th
 crates/lgwks-bot/src/session/limits.rs:16	/// one costs memory for nothing.
 crates/lgwks-bot/src/session/receipt.rs:46	pub struct DecisionReceipt {
 crates/lgwks-bot/src/session/receipt.rs:331	pub fn into_records(self) -> Vec<TranscriptEntry> {
+crates/lgwks-bot/src/session/resolve.rs:27	fn resolve(&self, utterance: &str, question: &Question<'_>) -> Verdict;
 crates/lgwks-bot/src/session/resolve.rs:40	/// renderings, so two thresholds differing in the last bit are two versions and
 crates/lgwks-bot/src/session/resolve.rs:226	pub enum MatchTier {
 crates/lgwks-bot/src/session/resolve.rs:245	pub enum DegradedReason {
 crates/lgwks-bot/src/session/resolve.rs:256	/// not folded into it.
 crates/lgwks-bot/src/session/resolve.rs:282	/// journal could not write down.
-crates/lgwks-bot/src/session/runner.rs:199	pub fn current_node(&self) -> Option<&NodeKind> {
-crates/lgwks-bot/src/session/runner.rs:435	return refusal;
-crates/lgwks-bot/src/session/runner.rs:659	NodeKind::Route { dispatch, fallback } => {
-crates/lgwks-bot/src/session/runner.rs:673	/// The one place a session reads a terminal outcome. `drive` reaches this
-crates/lgwks-bot/src/session/scope.rs:294	total = total
-crates/lgwks-bot/src/session/scope.rs:442	pub struct TemplateInterpolator;
-crates/lgwks-bot/src/session/validate.rs:121	for option in options {
-crates/lgwks-bot/src/session/validate.rs:528	return refusal;
+crates/lgwks-bot/src/session/runner.rs:196	pub fn current_node(&self) -> Option<&NodeKind> {
+crates/lgwks-bot/src/session/runner/record.rs:68	return refusal;
+crates/lgwks-bot/src/session/runner/record.rs:198	if bytes > record_bytes {
+crates/lgwks-bot/src/session/runner/record.rs:223	self.record(node_id, "resolver-degraded", &text)
+crates/lgwks-bot/src/session/runner/record.rs:240	self.record(node_id, "resolver-stale-alias", &text)
+crates/lgwks-bot/src/session/scope.rs:453	pub(super) domain: AnswerDomain,
+crates/lgwks-bot/src/session/validate.rs:225	return refusal;
+crates/lgwks-bot/src/session/validate/nodes.rs:112	for option in options {
 crates/lgwks-bot/src/session/value.rs:94	String,
 crates/lgwks-bot/src/session/value.rs:151	pub fn decode_answer(&self, answer: &str) -> Result<Value, AnswerRejection> {
 crates/lgwks-bot/src/session/value.rs:207	pub(crate) fn decode_integer(raw: &str) -> Option<i64> {
-crates/lgwks-bot/src/spec.rs:351	pub use crate::ecs::{
-crates/lgwks-bot/src/spec.rs:738	let auth: Auth = grants.issue(self.0.required_caps())?;
+crates/lgwks-bot/src/spec.rs:343	pub use crate::ecs::{
+crates/lgwks-bot/src/spec/erase.rs:351	let auth: Auth = grants.issue(self.0.required_caps())?;
 crates/lgwks-bot/src/task/admit.rs:43	where
 crates/lgwks-bot/src/task/ledger.rs:85	fn genesis_head() -> Digest {
 crates/lgwks-bot/src/task/store.rs:143	fn genesis_head() -> Digest {

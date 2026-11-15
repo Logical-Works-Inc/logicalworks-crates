@@ -14,9 +14,9 @@ space. They answer different questions and they have different failure modes.
 ## The question goes in, not just its options
 
 `Resolver::resolve(&self, utterance, &Question)` takes the question
-(`crates/lgwks-bot/src/session/scope.rs:442`). A `Question` carries the id the answer
+(`crates/lgwks-bot/src/session/resolve.rs:27`). A `Question` carries the id the answer
 is being given for, the options currently on offer, and the kind of answer the
-variable declares (`crates/lgwks-bot/src/session/scope.rs:294`). Both additions past
+variable declares (`crates/lgwks-bot/src/session/scope.rs:453`). Both additions past
 the option list exist because a resolver that sees only a list of strings cannot
 tell two different questions apart, and cannot tell a number from a label.
 
@@ -34,11 +34,11 @@ lexical reading described below and no caller's meaning changes by surprise.
 
 `Resolver::resolve` returns a `Verdict` — a `Resolution` together with the
 `Provenance` that produced it, in one value — and never an `Option<usize>`
-(`crates/lgwks-bot/src/session/scope.rs:442`). The trait documentation gives the
-reason the verdict is five-valued: a two-way verdict collapses "nothing matched"
-and "several matched equally well" into one `None`, and the second is the
-dangerous one, because the session re-asks the identical list and the identical
-answer resolves the identical way forever.
+(`crates/lgwks-bot/src/session/resolve.rs:27`). The trait documentation gives the
+reason the verdict is five-valued. A two-way verdict collapses "nothing matched"
+and "several matched equally well" into one `None`. The second is the dangerous
+one, because the session re-asks the identical list and the identical answer
+resolves the identical way forever.
 
 The provenance travels in the return value rather than through a second call,
 because *this score came from that model under that rule* is one fact. A caller

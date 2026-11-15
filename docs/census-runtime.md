@@ -84,7 +84,7 @@ Lane ids are from `scripts/gate-lanes.toml`. Full set: `tests-bot-full`, `tests-
 ## Repeated blocks and test pairs
 `lgwks-ast scan` has no repeated-block rule, so this census used its own: 8 code lines in a row, string contents
 emptied, 6 of them at least 12 characters, found in two modules. Two blocks pass. One is the `Verb` impl prologue at
-`crates/lgwks-bot/src/cas.rs:470` and `crates/lgwks-bot/src/idempotent.rs:228`. The other is 9 lines at
+`crates/lgwks-bot/src/domain/cas.rs:145` and `crates/lgwks-bot/src/idempotent.rs:230`. The other is 9 lines at
 `crates/lgwks-bot/src/rt/estate.rs:547` and `crates/lgwks-bot/src/task/admit.rs:43`.
 
 `tests/` holds 34 pairs of `x.rs` and `sim_x.rs`: 19,804 and 16,785 lines. Two pairs assert the same thing:
@@ -95,12 +95,12 @@ The other 32 pairs share only bare `assert!(` openers.
 Each item has no graph edge, no other tracked `.rs` file names it, and its own file names it once.
 
 - `crates/lgwks-bot/src/domain/gh.rs:167` `api_path`.
-- `crates/lgwks-bot/src/domain/inspect.rs:96`, `:103`, `:110`, `:117`: `with_language`, `with_language_version`, `with_rules`, `with_scope`.
+- `crates/lgwks-bot/src/domain/inspect.rs:97`, `:104`, `:111`, `:118`: `with_language`, `with_language_version`, `with_rules`, `with_scope`.
 - `crates/lgwks-bot/src/journal/continuation.rs:421`, `:427`: `events_watermark`, `bytes_watermark`.
 - `crates/lgwks-bot/src/journal/file/open.rs:222` `own_seal`; `crates/lgwks-bot/src/proposal/codec.rs:106` `with_max_field_bytes`.
 - `crates/lgwks-bot/src/proposal/completion.rs:365` `from_outcome`; `crates/lgwks-bot/src/proposal/mod.rs:661` `is_spent`.
 - `crates/lgwks-bot/src/proposal/surface.rs:201` `holding_all_shipped`; `crates/lgwks-bot/src/review.rs:178`, `:361`: `step_budget`, `is_partial`.
-- `crates/lgwks-bot/src/session/graph.rs:371` `with_resources`; `crates/lgwks-bot/src/session/runner.rs:199` `current_node`.
+- `crates/lgwks-bot/src/session/graph.rs:371` `with_resources`; `crates/lgwks-bot/src/session/runner.rs:196` `current_node`.
 - `crates/lgwks-bot/src/session/receipt.rs:331`, `:337`: `into_records`, `into_receipts`.
 
 ## Merge: same job twice
@@ -116,4 +116,4 @@ Each file sits in its ADR 0052 planned crate and imports a crate that one may no
 - `crates/lgwks-bot/src/sealed/runstore.rs:17` (kernel) imports `script::run_store`.
 - `crates/lgwks-bot/src/rt/runtime.rs:452`, `:454` (rt) import `rt::estate` (app) and `task` (script).
 - `crates/lgwks-bot/src/script/serve.rs:8` (script) imports `rt::serve` (app).
-- `crates/lgwks-bot/src/ecs.rs:226`, `:241` (world) re-export `cell` and `ecs::requests` (app).
+- `crates/lgwks-bot/src/ecs.rs:231`, `:246` (world) re-export `cell` and `ecs::requests` (app).

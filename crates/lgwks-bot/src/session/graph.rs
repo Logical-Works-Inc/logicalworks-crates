@@ -136,7 +136,7 @@ pub enum Disposition {
 /// Two counts, because they answer different questions and neither can be
 /// inferred from the other. `confirmed` is what the run watched take effect.
 /// `unsettled` is what it attempted and could not settle — the effects a domain
-/// reported as [`SessionError::EffectIndeterminate`].
+/// reported as [`KernelError::EffectIndeterminate`](crate::error::KernelError::EffectIndeterminate).
 ///
 /// A non-zero `unsettled` does **not** imply that anything succeeded. One
 /// attempted effect whose response was lost may have produced zero effects or
@@ -193,8 +193,8 @@ impl EffectLedger {
 /// Two independent fields rather than arms of one enum. A refused run that also
 /// leaves an effect in doubt is both *refused* and *in need of reconciliation*,
 /// and no single arm can say that: an earlier version of this type returned
-/// `Failure` for every refusal and erased the uncertainty, which is the exact
-/// information [`SessionError::EffectIndeterminate`] was introduced to preserve.
+/// `Failure` for every refusal and erased the uncertainty that
+/// [`KernelError::EffectIndeterminate`](crate::error::KernelError::EffectIndeterminate) keeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde", deny_unknown_fields)]
 #[non_exhaustive]

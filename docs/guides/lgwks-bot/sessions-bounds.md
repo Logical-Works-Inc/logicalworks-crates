@@ -7,7 +7,7 @@ Pages of this guide: [the flow and its pieces](sessions.md) · [bounds and outco
 `FlowBounds::new(budget)` caps runtime steps including answer attempts, and
 `FlowSpec::validate` refuses a node count that exceeds the declared budget
 (`BotError::FlowBudgetExceeded`). The runner charges each step against the same
-budget (`crates/lgwks-bot/src/session/runner.rs:435`) and returns
+budget (`crates/lgwks-bot/src/session/runner/record.rs:68`) and returns
 `BotError::SessionBudgetExceeded`, so a flow whose graph lets the cursor loop
 still terminates.
 
@@ -63,7 +63,7 @@ declared outcome is a genuine override there — that is how a flow refuses
 already names its target, so the only declaration it accepts is the one that
 repeats that outcome; one that contradicts it, whether a different target or a
 refusal, is refused at load with `BotError::ConflictingTerminalDeclaration`
-(`crates/lgwks-bot/src/session/validate.rs:528`). A document that says a handoff is not
+(`crates/lgwks-bot/src/session/validate.rs:225`). A document that says a handoff is not
 authorized therefore never runs as a handoff, which is what a consumer
 dispatching on the returned disposition depends on.
 
