@@ -616,3 +616,86 @@ pub(crate) fn digest_of_record(bytes: &[u8]) -> Result<InputDigest, RequestError
     })?;
     Ok(InputDigest::from_bytes(raw))
 }
+
+#[cfg(test)]
+mod tests {
+    use lgwks_std::hash::Hasher;
+
+    use super::{InputDigest, RequestKey, derive_run};
+    use crate::effect::InputIdentity;
+
+    /// An input shaped like the serve's: a schema id and one framed body.
+    struct Pinned(Vec<u8>);
+
+    impl InputIdentity for Pinned {
+        /// The schema the serve's input binds its digest to.
+        const SCHEMA_ID: &'static [u8] = b"lgwks.bot.schema.v1.serve-body";
+
+        /// The body bytes, framed.
+        fn write_identity(&self, hasher: &mut Hasher) {
+            hasher.write_framed(self.0.as_slice());
+        }
+    }
+
+    /// The run a tenant and key derive, as hex.
+    fn run_hex(tenant: &str, key: &str) -> Result<String, String> {
+        let key = RequestKey::new(key).map_err(|cause| cause.to_string())?;
+        let run = derive_run(tenant, &key).map_err(|cause| cause.to_string())?;
+        Ok(run.id().to_hex())
+    }
+
+    /// Requirement: a request's run id and input digest are pinned bytes (#1008).
+    ///
+    /// A durable receipt is found again after a restart only because the same
+    /// tenant and key derive the same run, and a repeat is told from a conflict
+    /// only because the same body digests the same. A faster hash would orphan
+    /// every stored receipt, so the rig-measured cost of these hashes (0.28% of a
+    /// request, ADR 0060) is not a reason to change them; this fails if they move.
+    #[test]
+    fn a_request_run_and_input_digest_are_pinned_bytes() -> Result<(), String> {
+        let run = run_hex("tenant-17", "3f1-17-4096")?;
+        assert_eq!(
+            run, "00749d649bd4ed7a893de08a2e396557",
+            "the derived run moved"
+        );
+        assert_eq!(
+            InputDigest::of(&Pinned(Vec::new())).to_hex(),
+            "2b1c73eb42308082330947aa8e1350c90103688f68a3077722f1399a453798e1",
+            "the empty-body digest moved"
+        );
+        Ok(())
+    }
+
+    /// Requirement: the run follows the tenant and the key, and the digest the
+    /// body (#1008).
+    ///
+    /// Catches a hash that ignored one of its fields, which would hand one
+    /// tenant's receipt to another or call a changed body the same request.
+    #[test]
+    fn the_run_follows_the_tenant_and_key_and_the_digest_the_body() -> Result<(), String> {
+        let base = run_hex("tenant-17", "key-a")?;
+        assert_ne!(
+            base,
+            run_hex("tenant-18", "key-a")?,
+            "the tenant left the run"
+        );
+        assert_ne!(base, run_hex("tenant-17", "key-b")?, "the key left the run");
+        assert_eq!(
+            base,
+            run_hex("tenant-17", "key-a")?,
+            "one request derived two runs"
+        );
+        let empty = InputDigest::of(&Pinned(Vec::new()));
+        assert_ne!(
+            empty,
+            InputDigest::of(&Pinned(b"x".to_vec())),
+            "the body left the digest"
+        );
+        assert_eq!(
+            empty,
+            InputDigest::of(&Pinned(Vec::new())),
+            "one body digested two ways"
+        );
+        Ok(())
+    }
+}
