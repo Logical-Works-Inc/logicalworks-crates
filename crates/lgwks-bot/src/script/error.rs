@@ -4,6 +4,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::effect::RunId;
 use crate::error::{BotError, RetryClass};
 use crate::task::StoreError;
 
@@ -281,6 +282,23 @@ pub enum FlowError {
         /// The store's own refusal.
         source: Box<StoreError>,
     },
+    /// A resume of a run this host is already resuming.
+    ///
+    /// Refused before admission, with no step run and nothing recorded, because
+    /// two bodies of one step inside one record window would each run it (#1055).
+    /// Not retryable inside a flow: the holder finishes the run, and a resume
+    /// after it replays what it recorded.
+    RunInFlight {
+        /// The run another call on this host holds.
+        run: RunId,
+    },
+    /// A resume refused because this host already holds as many resumed runs
+    /// as it will, whichever run was asked for. Nothing ran and nothing was
+    /// recorded. Not retryable inside a flow: the caller sheds or waits.
+    ResumesSaturated {
+        /// The most runs the host resumes at once.
+        ceiling: usize,
+    },
 }
 
 impl FlowError {
@@ -362,7 +380,9 @@ impl FlowError {
             | Self::ApprovalDenied { .. }
             | Self::ApprovalExpired { .. }
             | Self::NeedsApproval { .. }
-            | Self::Store { .. } => false,
+            | Self::Store { .. }
+            | Self::RunInFlight { .. }
+            | Self::ResumesSaturated { .. } => false,
         }
     }
 
@@ -461,7 +481,9 @@ impl FlowError {
             | Self::InvalidName { .. }
             | Self::InvalidRequestKey { .. }
             | Self::InvalidBusinessKey { .. }
-            | Self::InvalidBound { .. } => {}
+            | Self::InvalidBound { .. }
+            | Self::RunInFlight { .. }
+            | Self::ResumesSaturated { .. } => {}
         }
         self
     }
@@ -566,6 +588,15 @@ impl fmt::Display for FlowError {
             Self::Store { ref at, ref source } => {
                 write!(formatter, "{at}: the run store refused: {source}")
             }
+            Self::RunInFlight { run } => write!(
+                formatter,
+                "run {} is already being resumed on this host; nothing ran, and a resume after it finishes replays what it recorded",
+                run.id().to_hex()
+            ),
+            Self::ResumesSaturated { ceiling } => write!(
+                formatter,
+                "this host is already resuming {ceiling} runs, the most it takes at once; nothing ran"
+            ),
         }
     }
 }
@@ -597,7 +628,9 @@ impl std::error::Error for FlowError {
             | Self::Incompatible { .. }
             | Self::InvalidRequestKey { .. }
             | Self::InvalidBusinessKey { .. }
-            | Self::InvalidBound { .. } => None,
+            | Self::InvalidBound { .. }
+            | Self::RunInFlight { .. }
+            | Self::ResumesSaturated { .. } => None,
         }
     }
 }
