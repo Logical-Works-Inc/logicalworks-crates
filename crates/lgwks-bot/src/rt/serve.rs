@@ -332,10 +332,13 @@ mod runs;
 /// The tenant host table, sharded by tenant.
 mod hosts;
 
+/// The route table: one task per route, built at start.
+mod table;
+
 /// Shared serve state behind every request.
 pub(crate) struct Shared {
-    /// The routes in registration order.
-    pub(crate) routes: Vec<TypedRoute>,
+    /// The routes' tasks by verb and path, built once at start.
+    routes: table::Table,
     /// At most `max_in_flight` permits; past it the edge answers `503`.
     pub(crate) room: Arc<lgwks_deps::tokio::sync::Semaphore>,
     /// Cancelled on graceful stop; in-flight runs observe it.
@@ -441,6 +444,7 @@ pub(crate) async fn serve_async(
         }
     };
     prepared?;
+    let routes = table::Table::build(routes)?;
     let bound_listener =
         lgwks_deps::tokio::net::TcpListener::from_std(listener).map_err(|cause| {
             let refusal = ServeError::Io(cause);

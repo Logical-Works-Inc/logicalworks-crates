@@ -3,7 +3,6 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use lgwks_ast::script::RouteMethod;
 use lgwks_deps::axum::{
     extract::{Request as HttpRequest, State},
     http::HeaderMap,
@@ -15,26 +14,34 @@ use lgwks_std::wire::{Archive, Deserialize, Serialize};
 
 use lgwks_deps::tokio::sync::OwnedSemaphorePermit;
 
-use super::route::RouteHandler;
+use super::table::RouteTask;
 use super::{MAX_RUNS_IN_FLIGHT_U64, RETRY_AFTER_SECS, ServeError, Shared, invalid_bound};
 use crate::effect::InputIdentity;
 use crate::rt::edge::{answer, read_body, tenant_of};
-use crate::script::Scope;
-use crate::task::{Host, RequestError, RequestKey, Submission, task};
+use crate::task::{Host, RequestError, RequestKey, Submission};
 
-/// The request body as the Host request-key path sees it.
+/// The request as the Host request-key path sees it.
+///
+/// One route task serves every tenant, so the tenant and content type ride in
+/// the input rather than in the task's closure. Only the body is the request's
+/// identity: the tenant already keys the run through the host, and the content
+/// type is how the handler reads the body, not a second request.
 #[derive(Debug, Clone, PartialEq, Eq, Archive, Serialize, Deserialize)]
 #[rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug))]
 pub(crate) struct ServeInput {
     /// The raw body bytes the edge read.
     pub(crate) body: Vec<u8>,
+    /// The tenant the path named; not part of the identity.
+    pub(crate) tenant: String,
+    /// The request's `Content-Type`, when it sent one; not part of the identity.
+    pub(crate) content_type: Option<String>,
 }
 
 impl InputIdentity for ServeInput {
     /// The schema binding this digest to serve bodies.
     const SCHEMA_ID: &'static [u8] = b"lgwks.bot.schema.v1.serve-body";
 
-    /// The body bytes, framed.
+    /// The body bytes, framed; the tenant and content type are not identity.
     fn write_identity(&self, hasher: &mut Hasher) {
         hasher.write_framed(self.body.as_slice());
     }
@@ -178,16 +185,12 @@ struct Admitted {
     shared: Arc<Shared>,
     /// The tenant's host.
     host: Host,
-    /// The route's handler.
-    handler: Arc<RouteHandler>,
-    /// The tenant the path named.
-    tenant: String,
-    /// The request's `Content-Type`, when it sent one.
-    content_type: Option<String>,
+    /// The route's task, built once at start.
+    route: Arc<RouteTask>,
     /// The idempotency key.
     key: RequestKey,
-    /// The request body.
-    body: Vec<u8>,
+    /// The tenant, content type and body the route's task is run with.
+    input: ServeInput,
     /// The in-flight permit, released when the run ends.
     permit: OwnedSemaphorePermit,
     /// The live count, released when the run ends.
@@ -200,11 +203,9 @@ impl Admitted {
         let Self {
             shared,
             host,
-            handler,
-            tenant,
-            content_type,
+            route,
             key,
-            body,
+            input,
             permit,
             live,
         } = self;
@@ -212,31 +213,7 @@ impl Admitted {
         if shared.token.is_cancelled() {
             return SubmitOutcome::Stopping;
         }
-        let run_task = match task("serve-route", move |_scope: Scope, input: ServeInput| {
-            let handler = Arc::clone(&handler);
-            let tenant = tenant.clone();
-            let content = content_type.clone();
-            async move {
-                match handler(tenant, content, input.body).await {
-                    Ok(bytes) => Ok(ServeOutput {
-                        status: 200,
-                        body: bytes,
-                    }),
-                    Err((status, message)) => Ok(ServeOutput {
-                        status,
-                        body: message.into_bytes(),
-                    }),
-                }
-            }
-        }) {
-            Ok(run_task) => run_task,
-            Err(cause) => {
-                return SubmitOutcome::Refused {
-                    message: format!("the route task is refused: {cause}"),
-                };
-            }
-        };
-        outcome_of(host.submit(&key, &run_task, ServeInput { body }).await)
+        outcome_of(host.submit(&key, route.as_ref(), input).await)
     }
 }
 
@@ -285,9 +262,8 @@ pub(crate) async fn ingress(
         Ok(body) => body,
         Err(over) => return *over,
     };
-    let verb = parts.method.as_str().to_owned();
-    let path = rest.to_owned();
-    let key = idempotency_key(&parts.headers, tenant, &verb, &path, &body);
+    let verb = parts.method.as_str();
+    let key = idempotency_key(&parts.headers, tenant, verb, rest, &body);
     let key = match RequestKey::new(&key) {
         Ok(key) => key,
         Err(cause) => {
@@ -299,16 +275,7 @@ pub(crate) async fn ingress(
         lgwks_std::trace::debug!("serve: past the in-flight ceiling; answering 503");
         return answer_retry(503, b"the serve is past its in-flight ceiling".to_vec());
     };
-    let method = match verb.as_str() {
-        "GET" => Some(RouteMethod::Get),
-        "POST" => Some(RouteMethod::Post),
-        _ => None,
-    };
-    let Some(route) = shared
-        .routes
-        .iter()
-        .find(|route| Some(route.method) == method && route.path.as_str() == path.as_str())
-    else {
+    let Some(route) = shared.routes.find(verb, rest) else {
         return answer(404, b"no route answers this method and path".to_vec());
     };
     if shared.token.is_cancelled() {
@@ -334,11 +301,13 @@ pub(crate) async fn ingress(
     let (reply, answered) = lgwks_deps::tokio::sync::oneshot::channel();
     let admitted = Admitted {
         host,
-        handler: Arc::clone(&route.handler),
-        tenant: tenant.to_owned(),
-        content_type,
+        route,
         key,
-        body: body.to_vec(),
+        input: ServeInput {
+            body: body.to_vec(),
+            tenant: tenant.to_owned(),
+            content_type,
+        },
         permit,
         live: LiveGuard::enter(&shared),
         shared: Arc::clone(&shared),
@@ -411,4 +380,49 @@ pub(crate) fn answer_retry(status: u16, body: Vec<u8>) -> HttpResponse {
         .headers_mut()
         .insert(lgwks_deps::axum::http::header::RETRY_AFTER, value);
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Hasher, InputIdentity as _, ServeInput};
+
+    /// The identity digest of `input`.
+    fn digest_of(input: &ServeInput) -> Vec<u8> {
+        let mut hasher = Hasher::new();
+        input.write_identity(&mut hasher);
+        hasher.finalize().as_bytes().to_vec()
+    }
+
+    /// Requirement: only the body is the request's identity (#1008).
+    ///
+    /// The tenant and content type ride in the input so one task serves every
+    /// request; a digest that took them in would turn the same key and body from
+    /// another content type into a conflict, which the edge never did.
+    #[test]
+    fn only_the_body_is_the_identity_of_a_serve_input() {
+        let plain = ServeInput {
+            body: b"alpha".to_vec(),
+            tenant: String::from("acme"),
+            content_type: None,
+        };
+        let moved = ServeInput {
+            body: b"alpha".to_vec(),
+            tenant: String::from("other"),
+            content_type: Some(String::from("application/json")),
+        };
+        let changed = ServeInput {
+            body: b"beta".to_vec(),
+            ..plain.clone()
+        };
+        assert_eq!(
+            digest_of(&plain),
+            digest_of(&moved),
+            "tenant or content type entered the digest"
+        );
+        assert_ne!(
+            digest_of(&plain),
+            digest_of(&changed),
+            "the body left the digest"
+        );
+    }
 }

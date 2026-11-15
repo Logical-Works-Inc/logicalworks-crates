@@ -157,7 +157,7 @@ mod tests {
     /// cancels the token, so the run ends exactly then.
     fn drain(stuck: bool, grace: Duration, live: usize) -> (usize, usize) {
         let shared = Arc::new(Shared {
-            routes: Vec::new(),
+            routes: crate::rt::serve::table::Table::default(),
             room: Arc::new(lgwks_deps::tokio::sync::Semaphore::new(1)),
             token: CancellationToken::new(),
             hosts: Hosts::new(2),
