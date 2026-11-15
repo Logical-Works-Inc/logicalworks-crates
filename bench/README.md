@@ -9,6 +9,8 @@ example of `lgwks_ast`.
   [per-stage profile and allocations](bot-profile.md), [method](bot-method.md),
   [analysis](bot-analysis.md), [defects, exclusions and what the multiplier
   buys](bot-defects.md).
+- **`lgwks-bench-durable`** (this directory), the durable workflow engine on a
+  ten-step flow: [method and results](durable-workflow.md).
 - **[`std-measure/`](std-measure/)**, the `lgwks_std` before/after harness for
   issues #153, #154, #160 and #164. It reproduces the #154 G2 table and the
   #164 retry flat-latency rows from raw per-call samples, with its committed
@@ -32,7 +34,7 @@ and it is not published.
 
 | directory | measures | build |
 |---|---|---|
-| `bench/` (this one) | the **synchronous** ECS schedule against a hand-rolled loop | `lgwks_bot` with `rt` withdrawn — no tokio edge compiled at all |
+| `bench/` (this one) | the **synchronous** ECS schedule against a hand-rolled loop | `lgwks_bot` with `script` and `ephemeral` added for the durable bin, so the `rt` edge is compiled here too |
 | `bench/async/` | `lgwks_bot::rt` against **pinned raw Tokio**, matched semantics | `lgwks_bot` with `rt`, plus a raw `tokio` edge the estate never authors |
 
 They are separate roots rather than two binaries here because Cargo features are

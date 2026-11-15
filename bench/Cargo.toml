@@ -21,17 +21,24 @@ publish = false
 [workspace]
 
 [dependencies]
-# No default features: `rt` is withdrawn so no tokio edge is compiled. The bot's
-# `Bot::tick` adapter refuses inside an async runtime by design, and the
-# synchronous adapter is the one this rig measures. Withdrawing `rt` makes the
-# measured path exactly the ECS schedule plus the four verbs.
+# No default features: the tick rig (`lgwks-bench`) measures the synchronous ECS
+# schedule plus the four verbs, and `Bot::tick` refuses inside an async runtime
+# by design.
 # `profile` is the crate's per-stage tick profiler, and this rig is its only
 # caller: the ratio published in this directory's README is only readable once
 # someone says which stage the ratio is made of. It is an instrument rather than
 # a capability, so it is default-off upstream and selected here, by the one
 # measurement rig that needs it.
+# `script` and `ephemeral` belong to `lgwks-bench-durable` alone: `script` gives
+# `task::Host`, the `script` flow words and the run store (and implies `rt`, so
+# the process driver is compiled into every binary of this package), and
+# `ephemeral` mints the run identities the store keys its records by. Cargo
+# features are per package, not per binary, so these two reach the tick rig's
+# build too: its "no tokio edge compiled" note in README.md no longer holds.
 lgwks_bot = { path = "../crates/lgwks-bot", default-features = false, features = [
     "profile",
+    "script",
+    "ephemeral",
 ] }
 # The diagnostics `unlogged-err-return` requires. This rig is its own workspace
 # root, so the facade is a direct edge here rather than reached through the bot.
@@ -45,6 +52,10 @@ path = "src/main.rs"
 [[bin]]
 name = "lgwks-bench-http-pool"
 path = "http-pool/main.rs"
+
+[[bin]]
+name = "lgwks-bench-durable"
+path = "durable/main.rs"
 
 [profile.release]
 opt-level = 3
