@@ -2,7 +2,7 @@
 //!
 //! Every registry a caller can grow has a global bound and, where one tenant
 //! could starve the rest, a per-tenant bound. Past a bound the broker refuses
-//! with [`BrokerError::LimitExceeded`] and leaves state untouched; revoking an
+//! with [`BrokerError::LimitExceeded`] and leaves state untouched; withdrawing an
 //! entry frees its slot again. The audit sink is the broker's only other buffer and
 //! it owns none: events are handed to the injected sink inline. A signal
 //! payload is bounded by its serialized size ([`Limit::PayloadBytes`]).

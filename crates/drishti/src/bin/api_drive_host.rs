@@ -18,8 +18,8 @@ use std::sync::atomic::Ordering;
 
 use drishti::canvas_protocol::{Capability, SessionInvariant};
 use drishti::cli::drive::{
-    POLICY_BUNDLE, SESSION_ID, USER_SUB, WORK_OBJECT, ensure, frozen_broker, must, note, refused,
-    session, uuid, widget_owner,
+    POLICY_BUNDLE, SESSION_ID, USER_SUB, WORK_OBJECT, ensure, forged_nonce, frozen_broker, must,
+    note, refused, session, widget_owner,
 };
 use drishti::cli::{Failure, Streams};
 use drishti::native_host::attest::{
@@ -277,12 +277,10 @@ fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), F
         ),
     )?;
     lifecycle::command_bar(digest, &broker, &events, &open, session)?;
+    let forged_widget = forged_nonce(&handle.nonce());
+    note(digest, "forged-widget", &forged_widget)?;
     let forged = RegisteredHandle::new(
-        uuid(
-            digest,
-            "forged-widget",
-            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1",
-        )?,
+        forged_widget,
         String::from(SESSION_ID),
         String::from("widget.forged"),
         String::from("tenant-drive"),

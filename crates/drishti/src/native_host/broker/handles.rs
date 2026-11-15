@@ -323,8 +323,8 @@ pub struct SubscriptionId(pub(crate) Uuid);
 pub struct TapId(pub(crate) Uuid);
 
 /// Read-only view of one active subscription. It names the subscription and
-/// where it delivers, and carries no handle: revocation acts on the owner's
-/// nonce, so a view that held the handle would let any reader in scope revoke
+/// where it delivers, and carries no handle: withdrawal acts on the owner's
+/// nonce, so a view that held the handle would let any reader in scope withdraw
 /// the owner's widget. Fields are crate-visible so the registry can snapshot
 /// without an extra constructor; external readers go through the accessors.
 /// # Examples

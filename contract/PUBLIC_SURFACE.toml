@@ -17,7 +17,7 @@
 "crates/drishti/src/canvas_scene/model.rs" = 19
 "crates/drishti/src/canvas_scene/scene.rs" = 12
 "crates/drishti/src/canvas_scene/scene/query.rs" = 14
-"crates/drishti/src/cli.rs" = 22
+"crates/drishti/src/cli.rs" = 23
 "crates/drishti/src/design.rs" = 66
 "crates/drishti/src/ink_lab.rs" = 32
 "crates/drishti/src/ink_lab/engine.rs" = 12
@@ -406,7 +406,7 @@
 "crates/drishti/src/canvas_scene/model.rs" = 17
 "crates/drishti/src/canvas_scene/scene.rs" = 11
 "crates/drishti/src/canvas_scene/scene/query.rs" = 14
-"crates/drishti/src/cli.rs" = 21
+"crates/drishti/src/cli.rs" = 22
 "crates/drishti/src/motion/clock.rs" = 4
 "crates/drishti/src/motion/easing.rs" = 5
 "crates/drishti/src/motion/error.rs" = 6

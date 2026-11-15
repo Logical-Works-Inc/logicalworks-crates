@@ -1,11 +1,11 @@
-//! Broker lifecycle of `api-drive-host`: register, subscribe, emit, revoke.
+//! Broker lifecycle of `api-drive-host`: register, subscribe, emit, withdraw.
 //!
 //! Each step below calls one lifecycle operation of the [`Broker`] and prints
 //! the digest lines of its result, then the audited outcome: the newest audit
 //! event the call left, as one `audited.<step>=` JSON line. A user of the
 //! binary reads the whole life of a widget subscription, an ML peer and a
-//! command bar, each from its registration to its revocation, together with
-//! the audited decision of every call. A forged handle after a revocation is a
+//! command bar, each from its registration to its withdrawal, together with
+//! the audited decision of every call. A forged handle after a withdrawal is a
 //! negative control: the broker must refuse it and audit the refusal.
 
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use drishti::canvas_protocol::{Capability, SessionInvariant};
 use drishti::cli::Failure;
-use drishti::cli::drive::{Events, ensure, must, note, refused, uuid};
+use drishti::cli::drive::{Events, ensure, forged_nonce, must, note, refused, uuid};
 use drishti::native_host::broker::{
     Broker, BrokerError, IntentHandle, MlHandle, RegisteredHandle, SignalListener, SignedMlGrant,
     SubscriptionId,
@@ -43,7 +43,7 @@ pub(super) fn subscribe(
     Ok(id)
 }
 
-/// Revoke a subscription and print the audited revocation.
+/// Withdraw a subscription and print the audited withdrawal.
 pub(super) fn unsubscribe(
     digest: &mut String,
     broker: &Broker,
@@ -59,7 +59,7 @@ pub(super) fn unsubscribe(
     outcome(digest, "unsubscribe", events)
 }
 
-/// Revoke a widget and print the audited revocation.
+/// Withdraw a widget and print the audited withdrawal.
 pub(super) fn unregister(
     digest: &mut String,
     broker: &Broker,
@@ -70,7 +70,7 @@ pub(super) fn unregister(
     outcome(digest, "unregister", events)
 }
 
-/// Register an ML peer under a signed grant, emit a prediction, revoke the
+/// Register an ML peer under a signed grant, emit a prediction, withdraw the
 /// peer, then replay a forged peer handle. Each call prints its audited outcome.
 pub(super) fn ml_peer(
     digest: &mut String,
@@ -114,14 +114,9 @@ pub(super) fn ml_peer(
     note(digest, "ml-signal", &prediction.signal_id())?;
     broker.unregister_ml_peer(&ml);
     outcome(digest, "unregister_ml_peer", events)?;
-    let forged_ml = MlHandle::new(
-        uuid(
-            digest,
-            "forged-nonce",
-            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa0",
-        )?,
-        String::from("tenant-drive"),
-    );
+    let forged_peer = forged_nonce(&ml.nonce());
+    note(digest, "forged-nonce", &forged_peer)?;
+    let forged_ml = MlHandle::new(forged_peer, String::from("tenant-drive"));
     refused(
         broker.emit_prediction(&forged_ml, "ml.forged", JsonValue::Null),
         "forged ML handle must fail",
@@ -130,7 +125,7 @@ pub(super) fn ml_peer(
 }
 
 /// Refuse a command bar without its capability, register one once the grant
-/// opens, emit an intent through it, then revoke it. `open` is the grant switch
+/// opens, emit an intent through it, then withdraw it. `open` is the grant switch
 /// of the frozen broker. Each call prints its audited outcome.
 pub(super) fn command_bar(
     digest: &mut String,

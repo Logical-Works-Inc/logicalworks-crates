@@ -571,6 +571,26 @@ pub mod drive {
         must(digest, what, lgwks_std::id::Uuid::parse(text))
     }
 
+    /// A nonce the broker never issued, derived from a live one by inverting
+    /// every byte, so a negative control forges its handle from the run and no
+    /// literal stands in the shipped drive. The result differs from `live` in
+    /// every byte.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use drishti::cli::drive::forged_nonce;
+    ///
+    /// let live = lgwks_std::id::Uuid::from([1_u8; 16]);
+    /// let forged = forged_nonce(&live);
+    /// assert_eq!(forged, lgwks_std::id::Uuid::from([0xFE_u8; 16]));
+    /// assert_eq!(forged_nonce(&forged), live);
+    /// ```
+    #[must_use]
+    pub fn forged_nonce(live: &lgwks_std::id::Uuid) -> lgwks_std::id::Uuid {
+        lgwks_std::id::Uuid::from((*live.as_bytes()).map(|byte| !byte))
+    }
+
     /// Bound session fixture for one tenant: the fixed work object, session,
     /// policy bundle and user subject, with `tenant` as the only variable.
     ///
