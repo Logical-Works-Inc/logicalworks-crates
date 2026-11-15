@@ -119,8 +119,7 @@ mod request_fixtures;
 #[path = "../support/resume.rs"]
 mod resume_fixtures;
 
-#[cfg(feature = "rt")]
-#[cfg(feature = "wire")]
+#[cfg(all(feature = "rt", feature = "wire"))]
 #[path = "../support/liveness.rs"]
 mod liveness_fixtures;
 
@@ -207,8 +206,7 @@ mod credential;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]
 mod dist_lease;
-#[cfg(feature = "net")]
-#[cfg(feature = "wire")]
+#[cfg(all(feature = "net", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod dist_lease_tcp;
 #[cfg(feature = "net")]
@@ -415,6 +413,8 @@ mod sim_clock;
 #[cfg(feature = "wire")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_clock_kill;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
+mod sim_clock_sleep;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_clock_wiring;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
