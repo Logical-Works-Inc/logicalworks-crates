@@ -93,7 +93,7 @@ row = "Saturated task A cannot starve independent B; one slow source does not bl
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 1 of the 7 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::a_held_mass_never_starves_an_independent_chain_t06",
+  "it::sim_t_rows::refresh::a_held_mass_never_starves_an_independent_chain_t06",
 ]
 
 [[row]]
@@ -103,7 +103,7 @@ row = "A succeeds with a new fingerprint, B fails the atomic observation group, 
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 1 of the 5 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::a_failed_group_leaves_its_own_chain_forced_t07",
+  "it::sim_t_rows::refresh::a_failed_group_leaves_its_own_chain_forced_t07",
 ]
 
 [[row]]
@@ -113,7 +113,7 @@ row = "Disconnect, watch overflow, stale remote key and invalidation failure for
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 1 of the 9 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::every_declared_reason_forces_a_refresh_t08",
+  "it::sim_t_rows::refresh::every_declared_reason_forces_a_refresh_t08",
 ]
 
 [[row]]
@@ -123,7 +123,7 @@ row = "Identical event payloads with different event IDs both execute; duplicate
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 1 of the 6 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::observe_refresh::identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does_not_t09",
+  "it::observe_refresh::events::identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does_not_t09",
 ]
 
 [[row]]
@@ -133,8 +133,8 @@ row = "A required predecessor fails, is abandoned, is skipped or becomes Unknown
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 2 of the 7 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::a_required_predecessor_holds_its_dependent_t10",
-  "it::sim_t_rows::every_predecessor_state_decides_its_dependent_t10",
+  "it::sim_t_rows::dependents::a_required_predecessor_holds_its_dependent_t10",
+  "it::sim_t_rows::dependents::every_predecessor_state_decides_its_dependent_t10",
 ]
 
 [[row]]
@@ -144,8 +144,8 @@ row = "A Unknown -> NotApplied -> B Unknown; delayed A NotApplied and A Applied 
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 2 of the 12 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::an_indeterminate_predecessor_is_never_resent_t11",
-  "it::wrong_identity_evidence::late_evidence_for_a_settled_attempt_cannot_alter_its_retry_t11",
+  "it::sim_t_rows::dependents::an_indeterminate_predecessor_is_never_resent_t11",
+  "it::wrong_identity_evidence::late_evidence::late_evidence_for_a_settled_attempt_cannot_alter_its_retry_t11",
 ]
 
 [[row]]
@@ -155,7 +155,7 @@ row = "Wrong tenant/run/action/payload/revision/environment/epoch evidence is re
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 1 of the 8 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::identical_digests_never_cross_tenants_t12",
+  "it::sim_t_rows::dependents::identical_digests_never_cross_tenants_t12",
 ]
 
 [[row]]
@@ -236,7 +236,7 @@ gap = ""
 tests = [
   "process_job::a_zero_exit_with_a_live_descendant_still_settles_the_job_t19",
   "process_job::a_nonzero_exit_is_a_failure_and_still_settles_the_job_t19",
-  "process_job::sim_a_shell_that_exits_alone_leaves_no_descendant_t19",
+  "process_job::sims::sim_a_shell_that_exits_alone_leaves_no_descendant_t19",
 ]
 
 [[row]]
@@ -247,8 +247,8 @@ state = "exercised"
 gap = ""
 tests = [
   "process_job::a_stop_before_the_manager_task_runs_still_stops_the_tree_t20",
-  "process_job::sim_a_stop_before_the_manager_task_runs_leaves_no_descendant_t20",
-  "process_job::sim_trees_stopped_together_each_settle_their_own_job_t20",
+  "process_job::sims::sim_a_stop_before_the_manager_task_runs_leaves_no_descendant_t20",
+  "process_job::sims::sim_trees_stopped_together_each_settle_their_own_job_t20",
   "process_job::a_cancelled_job_holds_a_grandchild_and_settles_empty",
 ]
 
@@ -260,7 +260,7 @@ state = "present"
 gap = "A stop reaches no process outside the job, and a job never reports a tree it did not read empty; no escape from a job is driven, because a child leaves a job only through a breakaway the supervisor's jobs do not grant and attempting one needs unsafe code, which the suite forbids, and a pid is not reissued while the job holds the child's handle, so no reuse case exists to drive."
 tests = [
   "process_job::a_stop_leaves_an_unrelated_process_running_t21",
-  "process_job::sim_a_stop_never_reaches_an_unrelated_tree_or_process_t21",
+  "process_job::sims::sim_a_stop_never_reaches_an_unrelated_tree_or_process_t21",
 ]
 
 [[row]]
@@ -305,7 +305,7 @@ row = "Native task and supported wire form produce the same normalized operation
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 1 of the 6 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::spec_materialize::one_chain_traces_match_t25",
+  "it::spec_materialize::traces::one_chain_traces_match_t25",
 ]
 
 [[row]]
