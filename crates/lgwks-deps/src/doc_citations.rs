@@ -46,13 +46,20 @@ const LOCK_NAME: &str = "scripts/doc-citations.lock";
 const MAX_DEPTH: usize = 32;
 
 /// Why the check could not run.
+#[doc(hidden)]
 #[derive(Debug)]
-enum CiteError {
+#[non_exhaustive]
+pub enum CiteError {
     /// A file or directory could not be read or written.
     Io {
         /// What was being touched.
         path: PathBuf,
         /// What the operating system said.
+        cause: io::Error,
+    },
+    /// The verdict could not be written to the caller's handle.
+    Report {
+        /// What the handle said.
         cause: io::Error,
     },
     /// A lock row's key is not `<path>:<line>`.
@@ -74,6 +81,9 @@ impl fmt::Display for CiteError {
                 ref path,
                 ref cause,
             } => write!(formatter, "{}: {cause}", path.display()),
+            Self::Report { ref cause } => {
+                write!(formatter, "the verdict could not be written: {cause}")
+            }
             Self::BadLockKey { ref key } => {
                 write!(
                     formatter,
@@ -91,7 +101,22 @@ impl fmt::Display for CiteError {
     }
 }
 
-impl std::error::Error for CiteError {}
+impl std::error::Error for CiteError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::Io { ref cause, .. } | Self::Report { ref cause } => Some(cause),
+            Self::BadLockKey { .. } | Self::TooDeep { .. } => None,
+        }
+    }
+}
+
+/// A write to the caller's output handle failed: every `writeln!` in this
+/// module targets one, so the failure is the verdict's, not a file's.
+impl From<io::Error> for CiteError {
+    fn from(cause: io::Error) -> Self {
+        Self::Report { cause }
+    }
+}
 
 /// Logs `error` at the site that produced it, then hands it back as the `Err`.
 fn fail<T>(error: CiteError, site: &'static str) -> Result<T, CiteError> {
@@ -207,7 +232,7 @@ fn update_lock(
     found: &Drift,
     out: &mut impl Write,
     err: &mut impl Write,
-) -> Result<u8, Box<dyn std::error::Error>> {
+) -> Result<u8, CiteError> {
     let lock_path = options.root.join(LOCK_NAME);
     if !found.moved.is_empty() {
         writeln!(err, "{} cited line(s) changed text:", found.moved.len())?;
@@ -320,7 +345,7 @@ pub fn execute(
     options: &Options,
     out: &mut impl Write,
     err: &mut impl Write,
-) -> Result<u8, Box<dyn std::error::Error>> {
+) -> Result<u8, CiteError> {
     let mut collected = collect(&options.root)?;
     collected
         .failures
@@ -526,6 +551,50 @@ mod tests {
                 verified.1
             );
         }
+        Ok(())
+    }
+
+    /// Run 43715176360 (PR #1057): one import line moved `block_on` onto the
+    /// census's pin at `task/admit.rs:42`. `--update` with no doc edit takes
+    /// the move, so it must print the line, the page and both texts: that
+    /// printout is the review AGENTS.md promises, and without it a pin slides
+    /// onto a line its claim never meant.
+    #[test]
+    fn an_update_over_a_moved_pin_prints_both_texts_for_review() -> TestResult {
+        let root = scratch_root()?;
+        std::fs::create_dir_all(root.join("crates/demo/src"))?;
+        let source = root.join("crates/demo/src/lib.rs");
+        std::fs::write(&source, "use a;\npub fn block_on()\nwhere\n")?;
+        std::fs::write(
+            root.join("docs/census.md"),
+            "The block is `crates/demo/src/lib.rs:3`.\n",
+        )?;
+        let pinned = run_on(&root, true)?;
+        std::fs::write(&source, "use a;\nuse b;\npub fn block_on()\nwhere\n")?;
+        let updated = run_on(&root, true)?;
+        let verified = run_on(&root, false)?;
+        std::fs::remove_dir_all(&root)?;
+        assert_eq!(pinned.0, 0, "the first pin is written: {}", pinned.2);
+        assert_eq!(updated.0, 0, "an update takes the move: {}", updated.2);
+        assert!(
+            updated.2.contains("1 cited line(s) changed text:")
+                && updated
+                    .2
+                    .contains("crates/demo/src/lib.rs:3  (cited by docs/census.md)"),
+            "the update names the line and the page: {}",
+            updated.2
+        );
+        assert!(
+            updated.2.contains("was: where") && updated.2.contains("now: pub fn block_on()"),
+            "the update prints both texts for review: {}",
+            updated.2
+        );
+        assert!(
+            updated.1.contains("1 re-anchored"),
+            "the summary counts the move: {}",
+            updated.1
+        );
+        assert_eq!(verified.0, 0, "the updated lock verifies: {}", verified.2);
         Ok(())
     }
 
