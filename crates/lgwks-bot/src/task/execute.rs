@@ -13,7 +13,7 @@ use crate::script::run_store::{Authority as RecordsAuthority, Records};
 use crate::script::trail::Trail;
 use crate::script::{FlowError, Scope, within};
 
-use super::admit::{Declined, RunAuthority, Terminal, TrailSnapshot, disposition_of};
+use super::admit::{ClaimRefused, Declined, RunAuthority, Terminal, TrailSnapshot, disposition_of};
 use super::host::Plan;
 use super::name::TaskName;
 use super::{
@@ -103,6 +103,24 @@ impl Host {
                 Err(unread) => return self.refuse(started, task_name, unread.to_string()),
             }
         }
+        // One resumer per run on this host (#1055). Reading the owner above does
+        // not take the run: every concurrent resume of one decided run found its
+        // steps unrecorded, ran their bodies and only then recorded them. The
+        // claim is taken before admission, so a loser holds no permit and
+        // writes nothing, and it is held to the end of this call, so a future the
+        // caller drops releases it. A fresh run mints its own id and has no
+        // rival, so it takes none.
+        let _claim = match resume {
+            Some(adopted) => match self
+                .inner
+                .in_flight
+                .claim(self.inner.tenant.as_str(), adopted)
+            {
+                Ok(claim) => Some(claim),
+                Err(refusal) => return self.claim_refused(started, task_name, adopted, refusal),
+            },
+            None => None,
+        };
         // What this call's records will be *written* under, decided before
         // admission. The run a call adopts is not always the run it records
         // against — a fresh run mints one of its own below, and it is *that*
@@ -465,6 +483,36 @@ impl Host {
             run,
             needs,
             repair,
+        })
+    }
+
+    /// A resume refused because its run, or the host's table of resumed runs, is
+    /// full: `Refused`, no body, no step, no permit and no trail, carrying the
+    /// run it was asked for so a caller can try it again.
+    fn claim_refused<O>(
+        &self,
+        started: Instant,
+        task: TaskName,
+        run: RunId,
+        refusal: ClaimRefused,
+    ) -> Report<O> {
+        lgwks_std::trace::debug!(
+            run = %run.id().to_hex(),
+            tenant = self.inner.tenant.as_str(),
+            ?refusal,
+            "execute: a resume was refused its claim on the run"
+        );
+        self.inner.refused.fetch_add(1, Ordering::Relaxed);
+        self.report(Terminal {
+            started,
+            task,
+            disposition: Disposition::Refused,
+            output: None,
+            error: Some(refusal.into_error(run)),
+            trail: TrailSnapshot::Empty,
+            run: Some(run),
+            needs: None,
+            repair: None,
         })
     }
 

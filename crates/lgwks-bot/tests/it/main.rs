@@ -523,8 +523,9 @@ mod sim_request_key;
 #[cfg(all(feature = "script", feature = "rt", feature = "sync"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_require_closed;
-#[cfg(feature = "net")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+mod sim_resume_race;
+#[cfg(all(feature = "net", any(not(lwc_it_group), lwc_it_group = "g4")))]
 mod sim_retry_proxy;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_review_pr;
@@ -559,8 +560,7 @@ mod sim_script_steps;
 mod sim_script_vocab;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "refusals"))]
 mod sim_script_words;
-#[cfg(feature = "sealed")]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(all(feature = "sealed", any(not(lwc_it_group), lwc_it_group = "g8")))]
 mod sim_sealed;
 #[cfg(feature = "sealed")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]

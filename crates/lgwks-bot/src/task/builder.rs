@@ -365,7 +365,12 @@ impl HostBuilder {
                     progress: self.progress,
                 },
                 admission: Arc::new(Semaphore::new(self.max_concurrent.get())),
-                in_flight: LiveRuns::default(),
+                // The claim ceiling is the runs a host admits plus the runs it
+                // may hold parked: the most distinct runs a resume can honestly
+                // be waiting on.
+                in_flight: LiveRuns::with_claim_ceiling(
+                    self.max_concurrent.get().saturating_add(self.max_pending),
+                ),
                 peak_in_flight: HighWater::default(),
                 admitted: AtomicU64::new(0),
                 refused: AtomicU64::new(0),

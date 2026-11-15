@@ -1,8 +1,9 @@
 //! Admission: the synchronous entry on the process driver, the budget a run is
 //! charged to, and the values a finished or declined run is assembled from.
 
-use std::sync::Arc;
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Instant;
 
 use crate::cap::{Cap, Deficit, Shortage, uncovered};
@@ -233,13 +234,6 @@ impl Host {
     }
 }
 
-impl Default for LiveRuns {
-    /// A count of zero.
-    fn default() -> Self {
-        Self(AtomicUsize::new(0))
-    }
-}
-
 /// A high-water mark over an atomic counter.
 ///
 /// The two operations a ceiling needs — raise to a new maximum, and lower by
@@ -315,17 +309,44 @@ impl Default for HighWater {
     }
 }
 
-/// The live count of top-level runs holding a permit.
+/// The runs live on one host: the count of top-level runs holding a permit, and
+/// the table of runs a resume holds.
 ///
 /// One type for the raise and the release, because a count that is written in
 /// two places with two orderings is a count whose two paths can disagree — and
-/// the disagreement is invisible until the ceiling stops bounding anything.
-pub(super) struct LiveRuns(AtomicUsize);
+/// the disagreement is invisible until the ceiling stops bounding anything. The
+/// claims ride here because both are the host's record of what is running now,
+/// and a host gains no second field to forget to build.
+pub(super) struct LiveRuns {
+    /// Top-level runs holding a permit.
+    permits: AtomicUsize,
+    /// Runs a resume holds.
+    claims: RunClaims,
+}
 
 impl LiveRuns {
+    /// No runs live, and a claim table of at most `claim_ceiling` runs.
+    pub(super) fn with_claim_ceiling(claim_ceiling: usize) -> Self {
+        Self {
+            permits: AtomicUsize::new(0),
+            claims: RunClaims::with_ceiling(claim_ceiling),
+        }
+    }
+
+    /// Take `run` for `tenant` until the returned guard drops.
+    ///
+    /// # Errors
+    ///
+    /// As [`RunClaims::claim`].
+    pub(super) fn claim(&self, tenant: &str, run: RunId) -> Result<RunClaim<'_>, ClaimRefused> {
+        self.claims.claim(tenant, run)
+    }
+
     /// Record that one more run holds a permit, and return the live count.
     pub(super) fn raise(&self) -> usize {
-        self.0.fetch_add(1, Ordering::Relaxed).saturating_add(1)
+        self.permits
+            .fetch_add(1, Ordering::Relaxed)
+            .saturating_add(1)
     }
 
     /// Record that one fewer run holds a permit.
@@ -336,7 +357,7 @@ impl LiveRuns {
         // an atomic, so the previous value is bound and never read rather than
         // discarded with `let _ =`, the shape `let_underscore_must_use` refuses.
         let _previous = self
-            .0
+            .permits
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |live| {
                 live.checked_sub(1)
             });
@@ -344,7 +365,116 @@ impl LiveRuns {
 
     /// How many runs hold a permit right now.
     pub(super) fn get(&self) -> usize {
-        self.0.load(Ordering::Relaxed)
+        self.permits.load(Ordering::Relaxed)
+    }
+}
+
+/// Why a resume could not take its run.
+///
+/// Two refusals rather than one, because the caller's answer differs: a run
+/// already held is somebody else's to finish and a retry will replay it, while
+/// a full table is load this host sheds whatever run was asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ClaimRefused {
+    /// Another call on this host already holds this tenant's run.
+    InFlight,
+    /// The host already holds as many claimed runs as it will.
+    Full {
+        /// The most runs the host claims at once.
+        ceiling: usize,
+    },
+}
+
+impl ClaimRefused {
+    /// The typed failure a refused resume of `run` reports.
+    pub(super) const fn into_error(self, run: RunId) -> FlowError {
+        match self {
+            Self::InFlight => FlowError::RunInFlight { run },
+            Self::Full { ceiling } => FlowError::ResumesSaturated { ceiling },
+        }
+    }
+}
+
+/// The runs this host is resuming right now, one claim per tenant and run.
+///
+/// Reading the run's owner is not taking it: without a claim, every concurrent
+/// resume of one decided run found the step unrecorded, ran its body and only
+/// then recorded it, so a double click ran each body once per click (#1055).
+/// The claim is taken before admission and held to the end of the call, so the
+/// window between a step's lookup and its record has one occupant per run.
+///
+/// Bounded by `ceiling`, taken from the host's own limits: a claim past it is
+/// refused rather than grown, so a flood of distinct runs cannot grow this
+/// table past what the host would have admitted or parked anyway. The lock
+/// guards one insert, one probe or one remove and is never held across an
+/// await.
+pub(super) struct RunClaims {
+    /// The `(tenant, run)` pairs held now.
+    held: Mutex<HashSet<(Arc<str>, RunId)>>,
+    /// The most pairs held at once.
+    ceiling: usize,
+}
+
+impl RunClaims {
+    /// An empty table that holds at most `ceiling` claims.
+    pub(super) fn with_ceiling(ceiling: usize) -> Self {
+        Self {
+            held: Mutex::new(HashSet::new()),
+            ceiling,
+        }
+    }
+
+    /// Take `run` for `tenant` until the returned guard drops.
+    ///
+    /// The conflict is checked before the ceiling, so a second resume of a held
+    /// run is told it is held even when the table is full.
+    ///
+    /// # Errors
+    ///
+    /// [`ClaimRefused::InFlight`] when the pair is already held, and
+    /// [`ClaimRefused::Full`] when the table is at its ceiling.
+    pub(super) fn claim(&self, tenant: &str, run: RunId) -> Result<RunClaim<'_>, ClaimRefused> {
+        let key: (Arc<str>, RunId) = (Arc::from(tenant), run);
+        let mut held = lock(&self.held);
+        if held.contains(&key) {
+            let refusal = Err(ClaimRefused::InFlight);
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "claim: returning an error to the caller");
+            return refusal;
+        }
+        if held.len() >= self.ceiling {
+            let refusal = Err(ClaimRefused::Full {
+                ceiling: self.ceiling,
+            });
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "claim: returning an error to the caller");
+            return refusal;
+        }
+        held.insert(key.clone());
+        Ok(RunClaim { claims: self, key })
+    }
+}
+
+/// The set behind `held`, recovered if a holder panicked: every critical
+/// section is one set operation, so a poisoned set is still a whole one.
+fn lock(held: &Mutex<HashSet<(Arc<str>, RunId)>>) -> MutexGuard<'_, HashSet<(Arc<str>, RunId)>> {
+    match held.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// One run's claim, released on every exit including a dropped future.
+#[must_use = "a claim that is dropped at once holds nothing"]
+pub(super) struct RunClaim<'claims> {
+    /// The table the claim was taken from.
+    claims: &'claims RunClaims,
+    /// What it holds.
+    key: (Arc<str>, RunId),
+}
+
+impl Drop for RunClaim<'_> {
+    /// Give the run back. Infallible, and never a panic in a destructor.
+    fn drop(&mut self) {
+        lock(&self.claims.held).remove(&self.key);
     }
 }
 
@@ -399,6 +529,7 @@ pub(super) fn disposition_of(error: &FlowError) -> Disposition {
         FlowError::Cancelled { .. } => Disposition::Cancelled,
         FlowError::TimedOut { .. } => Disposition::DeadlineExceeded,
         FlowError::Parked { .. } => Disposition::Parked,
+        FlowError::RunInFlight { .. } | FlowError::ResumesSaturated { .. } => Disposition::Refused,
         _ => Disposition::Failed,
     }
 }
@@ -530,4 +661,94 @@ pub(super) enum Permit {
     Held(OwnedSemaphorePermit),
     /// This run is charged to a permit its future already holds.
     Charged,
+}
+
+#[cfg(test)]
+mod tests {
+    //! The claim table's own rules (#1055), at the edge each one decides.
+
+    use super::{ClaimRefused, Disposition, FlowError, RunClaims, disposition_of};
+    use crate::effect::{Id128, IdError, RunId};
+
+    /// The one failure these tests carry: a run id that did not parse.
+    type TestResult = Result<(), IdError>;
+
+    /// A run id from a small number, for tables that only compare ids.
+    fn run(n: u8) -> Result<RunId, IdError> {
+        Id128::from_hex(&format!("{n:032x}")).map(RunId::new)
+    }
+
+    #[test]
+    fn a_table_refuses_exactly_at_its_ceiling_and_admits_one_below() -> TestResult {
+        let claims = RunClaims::with_ceiling(2);
+        let first = claims.claim("acme", run(1)?);
+        assert!(first.is_ok(), "one below the ceiling is taken");
+        let second = claims.claim("acme", run(2)?);
+        assert!(second.is_ok(), "the ceiling itself is still taken");
+        let third = claims.claim("acme", run(3)?).err();
+        assert_eq!(
+            third,
+            Some(ClaimRefused::Full { ceiling: 2 }),
+            "one past the ceiling is refused"
+        );
+        drop(second);
+        assert!(
+            claims.claim("acme", run(3)?).is_ok(),
+            "a released slot is taken again"
+        );
+        drop(first);
+        Ok(())
+    }
+
+    #[test]
+    fn a_held_run_is_in_flight_for_its_tenant_and_free_for_another() -> TestResult {
+        let claims = RunClaims::with_ceiling(1);
+        let held = claims.claim("acme", run(7)?);
+        assert!(held.is_ok());
+        let again = claims.claim("acme", run(7)?).err();
+        assert_eq!(
+            again,
+            Some(ClaimRefused::InFlight),
+            "the conflict is named before the full table"
+        );
+        let other = claims.claim("globex", run(7)?).err();
+        assert_eq!(
+            other,
+            Some(ClaimRefused::Full { ceiling: 1 }),
+            "another tenant is never in flight on acme's run"
+        );
+        drop(held);
+        assert!(
+            claims.claim("acme", run(7)?).is_ok(),
+            "the guard gave the run back"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_refused_claim_error_is_never_retryable_and_reports_refused() -> TestResult {
+        let id = run(9)?;
+        for refusal in [ClaimRefused::InFlight, ClaimRefused::Full { ceiling: 4 }] {
+            let error = refusal.into_error(id);
+            assert!(
+                !error.is_retryable(),
+                "{error} is not retryable inside a flow"
+            );
+            assert_eq!(
+                disposition_of(&error),
+                Disposition::Refused,
+                "{error} reports Refused"
+            );
+        }
+        let in_flight = ClaimRefused::InFlight.into_error(id).to_string();
+        assert!(
+            in_flight.contains(&id.id().to_hex()),
+            "the refusal names its run: {in_flight}"
+        );
+        assert!(matches!(
+            ClaimRefused::Full { ceiling: 4 }.into_error(id),
+            FlowError::ResumesSaturated { ceiling: 4 }
+        ));
+        Ok(())
+    }
 }
