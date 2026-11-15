@@ -1,0 +1,12 @@
+{
+  "_comment": "Rejected: capabilities_required does not contain motion.plugin.register (SEC-004)",
+  "_expected_error": "capabilities_required",
+  "$schema_ref": "MotionPlugin",
+  "plugin_id": "ca.logicalworks.motion.plugin.custom_easing",
+  "abi_version": 3,
+  "min_kernel_abi": 2,
+  "max_kernel_abi": 4,
+  "capabilities_required": ["motion.schedule"],
+  "wasm_url": "https://cdn.logicalworks.ca/plugins/custom-easing-1.0.0.wasm",
+  "wasm_integrity": "sha256-abc123def456abc123def456abc123def456abc123def456abc123def456ab=="
+}

@@ -1,6 +1,6 @@
 # Commit and Change History for drishti
 
-### Commit [fc7ab11] - 2026-09-12T11:39:18-04:00 by srinji-kaggss
+### Commit [fc7ab11] - 2026-09-12T11:39:18-04:00 by Logical Works Incorporated
 
 **Subject:** docs: formalize Drishti frontend orchestration design
 

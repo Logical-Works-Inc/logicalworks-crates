@@ -711,7 +711,7 @@ source = "registry"
 # out; `std` is what failure persistence and seeded runs need.
 uses_default_features = "false"
 features = "std"
-allowed_consumers = "lgwks_std,lgwks_bot,lgwks_deps,lgwks_ast"
+allowed_consumers = "lgwks_std,lgwks_bot,lgwks_deps,lgwks_ast,drishti"
 allowed_kinds = "dev"
 reason = "Property tests that shrink a failing input to its minimal form and persist the failing seed have no standard-library or workspace equivalent; seeded sweeps find failures but cannot reduce them."
 approved_by = "srinji"
@@ -1389,4 +1389,116 @@ review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/869"
 replacement = "lgwks_std::trace"
 blocker = "Layered subscribers need a registry lgwks_std::trace does not own."
 cost = { cold_build_s = 21.26, crates = 137, binary_bytes = 191824856, measured = "2026-11-05", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features otel --prefix none (159 distinct, 137 over the 22-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-otel cargo build --locked -j 4 -p lgwks_deps --lib --no-default-features --features otel (28.85s vs 7.59s base); rlib bytes summed under /private/tmp/lgwks-retire-otel/debug/deps (241010352 vs 49185496 base)" }
+review = "2027-02-01"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# drishti's fold (2026-11-14, ADR 0058).
+#
+# The Canvas kernel code moved into `crates/drishti` carries edges the private
+# repository declared itself. Each is now an optional, default-off storefront
+# feature of `lgwks_deps`, so drishti declares no third-party crate: `p256`
+# (#840), `libm` (#837) and the desktop preview trio (#836). SQLite (#839)
+# reuses the `sqlite` edge above.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[[approved]]
+crate = "p256"
+tier = "boundary"
+version = "^0.14"
+license = "Apache-2.0 OR MIT"
+owner = "lgwks_deps"
+capability = "crypto.ecdsa-p256"
+source = "registry"
+uses_default_features = "false"
+features = "ecdsa, std"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "Attestation evidence is proof of possession over NIST P-256, the curve Secure Enclave and TrustZone keys use; lgwks_std::sign is ed25519 and cannot verify or produce a P-256 signature, and the standard library has no elliptic-curve arithmetic. Default features are off, so only ECDSA signing, verifying and DER encoding compile."
+approved_by = "Director"
+approved_on = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/840"
+[approved.retire]
+replacement = "lgwks_std::sign"
+blocker = "P-256 signatures need curve arithmetic that lgwks_std::sign does not own, and a hardware key signs only over P-256."
+cost = { cold_build_s = 1.00, crates = 42, binary_bytes = 23002840, measured = "2026-11-14", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features p256 --prefix none (64 distinct, 42 over the 22-crate base); CARGO_TARGET_DIR=<scratch> cargo build --locked -j 4 -p lgwks_deps --lib --no-default-features --features p256 (9s vs 8s base); rlib bytes summed under <scratch>/debug/deps (60272920 vs 37270080 base)" }
+review = "2027-02-01"
+
+[[approved]]
+crate = "libm"
+tier = "boundary"
+version = "^0.2"
+license = "MIT"
+owner = "lgwks_deps"
+capability = "math.portable-float"
+source = "registry"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "Colour and motion interpolation must give the same bits on every target, and the standard library float functions call the platform maths library, whose results differ between hosts; libm is the pure-Rust implementation with one result everywhere."
+approved_by = "Director"
+approved_on = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/837"
+[approved.retire]
+replacement = "core::f64"
+blocker = "The standard library float functions call the platform maths library, so they are not bit-identical across targets, and the estate owns no maths module."
+cost = { cold_build_s = 0.10, crates = 1, binary_bytes = 1666288, measured = "2026-11-14", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features libm --prefix none (23 distinct, 1 over the 22-crate base); CARGO_TARGET_DIR=<scratch> cargo build --locked -j 4 -p lgwks_deps --lib --no-default-features --features libm (7s vs 8s base, inside its noise); rlib bytes summed under <scratch>/debug/deps (38936368 vs 37270080 base)" }
+review = "2027-02-01"
+
+[[approved]]
+crate = "winit"
+tier = "boundary"
+version = "^0.30.12"
+license = "Apache-2.0"
+owner = "lgwks_deps"
+capability = "ui.native-window"
+source = "registry"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "The desktop preview opens a native window and reads its input events, which the standard library cannot do on any platform; the release in Cargo.lock is the one the preview's golden pixel hashes were taken against."
+approved_by = "Director"
+approved_on = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/836"
+[approved.retire]
+replacement = "drishti::native"
+blocker = "A native window and its event loop need a platform shell the estate does not own yet."
+cost = { cold_build_s = 6.00, crates = 65, binary_bytes = 93704256, measured = "2026-11-14", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features desktop-preview --prefix none (87 distinct, 65 over the 22-crate base, shared desktop-preview feature with softbuffer and cosmic-text); CARGO_TARGET_DIR=<scratch> cargo build --locked -j 4 -p lgwks_deps --lib --no-default-features --features desktop-preview (14s vs 8s base); rlib bytes summed under <scratch>/debug/deps (130974336 vs 37270080 base)" }
+review = "2027-02-01"
+
+[[approved]]
+crate = "softbuffer"
+tier = "boundary"
+version = "^0.4.6"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_deps"
+capability = "ui.software-framebuffer"
+source = "registry"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "The desktop preview presents a CPU-rendered frame in a native window, and presenting pixels to a window surface has no standard-library equivalent; the release in Cargo.lock is the one that matches the window crate it draws into."
+approved_by = "Director"
+approved_on = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/836"
+[approved.retire]
+replacement = "drishti::native"
+blocker = "Presenting a pixel buffer to a window surface needs a platform layer the estate does not own yet."
+cost = { cold_build_s = 6.00, crates = 65, binary_bytes = 93704256, measured = "2026-11-14", command = "shared measurement with the winit edge: cargo tree --locked -e normal -p lgwks_deps --no-default-features --features desktop-preview --prefix none (87 distinct, 65 over the 22-crate base); CARGO_TARGET_DIR=<scratch> cargo build --locked -j 4 -p lgwks_deps --lib --no-default-features --features desktop-preview (14s vs 8s base); rlib bytes summed under <scratch>/debug/deps (130974336 vs 37270080 base)" }
+review = "2027-02-01"
+
+[[approved]]
+crate = "cosmic-text"
+tier = "boundary"
+version = "^0.14.2"
+license = "MIT OR Apache-2.0"
+owner = "lgwks_deps"
+capability = "ui.text-shaping"
+source = "registry"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "The desktop preview shapes and rasterizes text with system fonts, which needs font discovery, shaping and glyph layout the standard library does not provide; the release in Cargo.lock is the one the preview's golden pixel hashes were taken against."
+approved_by = "Director"
+approved_on = "2026-11-14"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/836"
+[approved.retire]
+replacement = "drishti::native"
+blocker = "Font discovery, shaping and glyph layout need a text engine the estate does not own yet."
+cost = { cold_build_s = 6.00, crates = 65, binary_bytes = 93704256, measured = "2026-11-14", command = "shared measurement with the winit edge: cargo tree --locked -e normal -p lgwks_deps --no-default-features --features desktop-preview --prefix none (87 distinct, 65 over the 22-crate base); CARGO_TARGET_DIR=<scratch> cargo build --locked -j 4 -p lgwks_deps --lib --no-default-features --features desktop-preview (14s vs 8s base); rlib bytes summed under <scratch>/debug/deps (130974336 vs 37270080 base)" }
 review = "2027-02-01"

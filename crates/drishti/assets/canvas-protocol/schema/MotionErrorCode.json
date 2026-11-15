@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionErrorCode",
+  "title": "MotionErrorCode",
+  "description": "RFC 7807 error code registry for motion engine errors. Each maps to type URI https://logicalworks.ca/errors/motion/<kebab-cased-code>.",
+  "type": "string",
+  "enum": [
+    "INTERPOLATOR_PANIC",
+    "EASING_DOMAIN_ERROR",
+    "PLUGIN_TIMEOUT",
+    "ABI_MISMATCH",
+    "ABI_RANGE",
+    "CAPABILITY_DENIED",
+    "GPU_DEVICE_LOST",
+    "CONCURRENT_PROPERTY_CONFLICT",
+    "BROKER_IDEMPOTENCY_FENCE",
+    "TIER_CAPABILITY_EXCEEDED",
+    "TARGET_LOST",
+    "COST_BUDGET_EXCEEDED",
+    "MOTION_BUDGET_INVALID",
+    "MOTION_PATCH_PATH_IMMUTABLE",
+    "MOTION_PATCH_NODE_NOT_FOUND",
+    "SCHEMA_INVALID"
+  ]
+}

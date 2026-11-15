@@ -1,0 +1,1 @@
+{ "have": ["signal.emit", "signal.subscribe"], "need": "view.inject", "expected": "err" }

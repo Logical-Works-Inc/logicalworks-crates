@@ -1,16 +1,126 @@
-//! Deterministic simulation tests for the ink lab and the residency runtime.
+//! Seeded deterministic simulations for every mechanism in the crate.
 //!
-//! Every test drives the real public API through [`harness::Tenant`], where
-//! one seed controls time, input, faults and randomness. Each test runs many
-//! seeds and checks the invariants after every operation. A failure prints
-//! the seed, and that seed replays the identical trace.
+//! One target so the shared [`rng`] helpers count as used crate-wide. Each
+//! sim drives the real public API from a seed, injects faults, and hashes the
+//! observable trace: the same seed always replays the same hash, and the
+//! tests assert exactly that plus the structural invariants.
+//!
+//! Two families share this target. The ink lab and residency sims drive the
+//! public `Runtime` through [`harness::Tenant`] and the pieces beneath it
+//! ([`units`]); one seed controls time, input, faults and randomness, each
+//! test runs many seeds, and a failure prints the seed that replays the trace.
+//! The Canvas sims drive the broker, motion core, scene reducer and workspace
+//! layout. Both draw from the one [`rng`] module: the ink lab sims from its
+//! `SplitMix64` stream and the Canvas sims from its `SimRng` stream, so no seed
+//! of either family changed its trace when the suites joined.
 
+#[path = "support/broker.rs"]
+mod broker_shared;
+#[path = "support/fixtures.rs"]
+mod fixtures;
+#[path = "sim/rng.rs"]
+mod rng;
+
+#[path = "sim/harness.rs"]
 mod harness;
+#[path = "sim/units.rs"]
 mod units;
+
+#[path = "sim/broker_abuse.rs"]
+mod broker_abuse;
+#[path = "sim/broker_bounds.rs"]
+mod broker_bounds;
+#[path = "sim/broker_fuzz.rs"]
+mod broker_fuzz;
+#[path = "sim/broker_leaks.rs"]
+mod broker_leaks;
+#[path = "sim/broker_scope.rs"]
+mod broker_scope;
+#[path = "sim/canvas_frames.rs"]
+mod canvas_frames;
+#[path = "sim/canvas_journey.rs"]
+mod canvas_journey;
+#[path = "sim/canvas_kit.rs"]
+mod canvas_kit;
+#[path = "sim/canvas_layout.rs"]
+mod canvas_layout;
+#[path = "sim/canvas_layout_faults.rs"]
+mod canvas_layout_faults;
+#[path = "sim/canvas_lease.rs"]
+mod canvas_lease;
+#[path = "sim/canvas_reducer.rs"]
+mod canvas_reducer;
+#[path = "sim/command_bar_storm.rs"]
+mod command_bar_storm;
+#[path = "sim/governance_faults.rs"]
+mod governance_faults;
+#[path = "sim/motion_clock.rs"]
+mod motion_clock;
+#[path = "sim/motion_graph.rs"]
+mod motion_graph;
+#[path = "sim/motion_graph_edits.rs"]
+mod motion_graph_edits;
+#[path = "sim/motion_kit.rs"]
+mod motion_kit;
+#[path = "sim/motion_patch_scrub.rs"]
+mod motion_patch_scrub;
+#[path = "sim/motion_patch_storm.rs"]
+mod motion_patch_storm;
+#[path = "sim/motion_replay.rs"]
+mod motion_replay;
+#[path = "sim/motion_spring.rs"]
+mod motion_spring;
+#[path = "sim/native_attest.rs"]
+mod native_attest;
+#[path = "sim/native_cbor.rs"]
+mod native_cbor;
+#[path = "sim/native_command_bar.rs"]
+mod native_command_bar;
+#[path = "sim/native_governance.rs"]
+mod native_governance;
+#[path = "sim/native_governance_scope.rs"]
+mod native_governance_scope;
+#[path = "sim/native_json.rs"]
+mod native_json;
+#[path = "sim/native_match.rs"]
+mod native_match;
+#[path = "sim/native_policy.rs"]
+mod native_policy;
+#[path = "sim/native_ring.rs"]
+mod native_ring;
+#[path = "sim/native_session.rs"]
+mod native_session;
+#[path = "sim/native_tape_window.rs"]
+mod native_tape_window;
+#[path = "sim/native_time.rs"]
+mod native_time;
+#[path = "sim/native_wire.rs"]
+mod native_wire;
+#[path = "sim/pattern_matcher.rs"]
+mod pattern_matcher;
+#[path = "sim/preview_checker.rs"]
+mod preview_checker;
+#[path = "sim/preview_cli.rs"]
+mod preview_cli;
+#[path = "sim/protocol_envelopes.rs"]
+mod protocol_envelopes;
+#[path = "sim/protocol_vocab.rs"]
+mod protocol_vocab;
+#[path = "sim/ring_governance.rs"]
+mod ring_governance;
+#[path = "sim/tape_tenancy.rs"]
+mod tape_tenancy;
+#[path = "sim/telemetry_faults.rs"]
+mod telemetry_faults;
+#[path = "sim/telemetry_pressure.rs"]
+mod telemetry_pressure;
+#[path = "sim/workspace_mutations.rs"]
+mod workspace_mutations;
 
 use drishti::ink_lab::{Canvas, Effect, HostSpec};
 use drishti::runtime::{Budgets, Runtime, RuntimeError};
-use harness::{Faults, Rng, TRACE_SEED, Tenant, mix, trace_of};
+use harness::{Faults, Tenant, trace_of};
+use rng::{SplitMix64, TRACE_SEED, mix};
 
 /// Operations per seed in the per-effect scenarios.
 const OPERATIONS: u64 = 400;
@@ -45,7 +155,7 @@ fn replay(effects: &[Effect], base: u64, seeds: u64) {
 /// Under reduced motion, every host settles: a second present has no demand.
 fn reduced_motion_settles(effect: Effect, base: u64, seeds: u64) {
     for seed in base..base.saturating_add(seeds) {
-        let mut rng = Rng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         let mut runtime = Runtime::new(seed, Budgets::conservative());
         for _ in 0..rng.below(4).saturating_add(1) {
             let canvas = Canvas::new(rng.range(4.0, 400.0), rng.range(4.0, 300.0));
@@ -145,14 +255,15 @@ fn tenants_are_isolated(tenants: u64, operations: u64, base: u64) {
     let mut live: Vec<Tenant> = (base..base.saturating_add(tenants))
         .map(|seed| Tenant::new(seed, &effects, Faults::ALL))
         .collect();
-    let mut scheduler = Rng::new(base ^ 0x5EED);
+    let mut scheduler = SplitMix64::new(base ^ 0x5EED);
     let length = tenants;
     let total = length.saturating_mul(operations);
     let mut steps = vec![0_u64; live.len()];
     let mut done = 0_u64;
     while done < total {
-        let index = usize::try_from(scheduler.below(length)).ok();
-        let Some(index) = index else { break };
+        let Ok(index) = usize::try_from(scheduler.below(length)) else {
+            break;
+        };
         let (Some(tenant), Some(count)) = (live.get_mut(index), steps.get_mut(index)) else {
             break;
         };
@@ -205,7 +316,7 @@ fn sim_tenants_100_000_live_at_once_stay_isolated() {
 fn sim_5_000_tenant_provisions_respect_their_budgets() {
     let mut runtimes = Vec::with_capacity(5_000);
     for seed in 0_u64..5_000 {
-        let mut rng = Rng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         let mut budgets = Budgets::conservative();
         budgets.max_hosts = rng.below_u32(12).saturating_add(1);
         let mut runtime = Runtime::new(seed, budgets);

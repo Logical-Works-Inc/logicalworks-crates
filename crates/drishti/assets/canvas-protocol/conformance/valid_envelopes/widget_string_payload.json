@@ -1,0 +1,15 @@
+{
+  "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e24",
+  "kind": "note.created",
+  "source_kind": "widget",
+  "source_id": "com.logicalworks.widget.notes",
+  "session_invariant": {
+    "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e07",
+    "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e08",
+    "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e09",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "emitted_at": "2026-05-25T11:30:00Z",
+  "payload": "meeting note content here"
+}

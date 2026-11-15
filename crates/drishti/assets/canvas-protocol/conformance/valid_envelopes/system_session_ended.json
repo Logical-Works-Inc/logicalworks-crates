@@ -1,0 +1,18 @@
+{
+  "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e18",
+  "kind": "session.ended",
+  "source_kind": "system",
+  "source_id": "broker.session-manager",
+  "session_invariant": {
+    "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e01",
+    "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e02",
+    "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e03",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "emitted_at": "2026-05-25T13:00:00Z",
+  "payload": {
+    "duration_ms": 3600000,
+    "reason": "user_ended"
+  }
+}

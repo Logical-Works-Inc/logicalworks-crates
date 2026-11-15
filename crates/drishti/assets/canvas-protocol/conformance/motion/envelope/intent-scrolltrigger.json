@@ -1,0 +1,27 @@
+{
+  "$schema_ref": "MotionIntent",
+  "_note": "Filename kept for historical reference. descriptor_kind is now 'scroll' per NAMING.md.",
+  "signal_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f760",
+  "motion_intent_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f761",
+  "span_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f762",
+  "sequence_number": 3,
+  "kind": "motion.intent",
+  "source_kind": "widget",
+  "source_id": "parallax-section",
+  "emitted_by_agent_id": "broker",
+  "session_invariant": {
+    "work_object_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f701",
+    "session_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f702",
+    "policy_bundle_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f703"
+  },
+  "emitted_at": "2026-05-28T12:00:03.000Z",
+  "payload": {
+    "descriptor_kind": "scroll",
+    "target_selector": "#parallax-bg",
+    "duration_ms": 0,
+    "delay_ms": 0,
+    "easing": "linear",
+    "element_count": 1,
+    "scrub_source": { "id": "main-scroll", "kind": "scroll", "element_selector": "html" }
+  }
+}

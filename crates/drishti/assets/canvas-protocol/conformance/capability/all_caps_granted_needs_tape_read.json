@@ -1,0 +1,1 @@
+{ "have": ["signal.emit", "signal.subscribe", "tape.read", "view.inject"], "need": "tape.read", "expected": "ok" }

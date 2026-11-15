@@ -1,9 +1,9 @@
 [package]
 name = "drishti"
-version = "0.1.5"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.98"
-description = "Rust frontend orchestration framework: design publication plus a deterministic reference core for the Logical Works ink lab and GPU residency model; no qualified GPU backend yet."
+description = "Rust frontend orchestration framework: design publication plus deterministic reference cores for the Logical Works ink lab, the GPU residency model and the Logic OS Canvas protocol, motion, scene and native host broker; no qualified GPU backend yet."
 license = "Apache-2.0"
 repository = "https://github.com/Logical-Works-Inc/logicalworks-crates"
 documentation = "https://docs.rs/drishti"
@@ -18,40 +18,77 @@ include = [
     "AGENTS.md",
     "src/**/*.rs",
     "docs/*.md",
+    "docs/adr/*.md",
     "contract/*.tsv",
     "experience/*.tsv",
-    "tests/bundle.rs",
-    "tests/cli.rs",
-    "tests/sim/*.rs",
+    "assets/**/*.json",
+    "assets/**/*.md",
+    "tests/*.rs",
+    "tests/**/*.rs",
+    "tests/*.proptest-regressions",
     "examples/*.rs",
 ]
 
 [lib]
 path = "src/lib.rs"
 
-# The library reaches `lgwks_std` for hex and for the trace event every refusal
-# emits. `cli` is the `drishti` command, which orchestrates through lgwks_bot's
-# `script!` and prints JSON through `lgwks_std`. `ui` admits GPUI through the
-# estate storefront (`lgwks_deps`), never as a direct edge (docs/codebase.md,
-# "Primary dependency surface").
+# The library reaches `lgwks_std` for JSON, ids, randomness and the trace event
+# every refusal emits, `lgwks_ast` and `lgwks_macros` for the typed-error derive,
+# and `lgwks_deps` for every third-party edge: SQLite (`sqlite`), P-256
+# signatures (`p256`) and float maths (`libm`) are always on; GPUI (`ui`) and
+# the desktop preview window (`desktop`) are optional storefront features, never
+# direct edges (docs/codebase.md, "Primary dependency surface"). `cli` is the
+# `drishti` command, which orchestrates through lgwks_bot's `script!`.
 [features]
 default = ["cli"]
-cli = ["dep:lgwks_bot", "lgwks_bot/script", "lgwks_std/json"]
-ui = ["dep:lgwks_deps", "lgwks_deps/gpui"]
+cli = ["dep:lgwks_bot", "lgwks_bot/script"]
+ui = ["lgwks_deps/gpui"]
+desktop = ["lgwks_deps/desktop-preview"]
 
 [dependencies]
+lgwks_std = { workspace = true, default-features = false, features = ["trace", "json", "random"] }
+lgwks_ast = { workspace = true, default-features = false }
+lgwks_macros = { workspace = true }
 lgwks_bot = { workspace = true, optional = true }
-lgwks_std = { workspace = true, default-features = false, features = ["trace"] }
-lgwks_deps = { workspace = true, optional = true }
+lgwks_deps = { workspace = true, features = ["sqlite", "p256", "libm"] }
+
+# The property tests draw their cases from proptest; the edge is test-only and
+# follows how lgwks_deps takes it.
+[dev-dependencies]
+proptest = { version = "1.11", default-features = false, features = ["std"] } # gap: Logical-Works-Inc/logicalworks-crates#838
 
 [[bin]]
 name = "drishti"
 path = "src/bin/drishti/main.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "canvas_preview"
+path = "src/bin/canvas_preview.rs"
+
+[[bin]]
+name = "trace_check"
+path = "src/bin/trace_check.rs"
+
+[[bin]]
+name = "api_drive_motion"
+path = "src/bin/api_drive_motion.rs"
+
+[[bin]]
+name = "api_drive_scene"
+path = "src/bin/api_drive_scene.rs"
+
+[[bin]]
+name = "api_drive_host"
+path = "src/bin/api_drive_host.rs"
+
 [[test]]
 name = "cli"
 required-features = ["cli"]
+
+[[test]]
+name = "sim"
+path = "tests/sim.rs"
 
 [[example]]
 name = "ink_lab"

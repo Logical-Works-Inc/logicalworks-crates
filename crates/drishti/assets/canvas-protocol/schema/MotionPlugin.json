@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionPlugin",
+  "title": "MotionPlugin",
+  "description": "Motion kernel plugin manifest. min_kernel_abi must be <= max_kernel_abi — enforced at Zod layer (SEC-007). Plugins are Worker-sandboxed with 5ms hard timeout. Registration requires motion.plugin.register capability (ADR-057).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["plugin_id","abi_version","min_kernel_abi","max_kernel_abi","capabilities_required","wasm_url","wasm_integrity"],
+  "properties": {
+    "plugin_id": { "type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$", "description": "Reverse-DNS identifier." },
+    "abi_version": { "type": "number", "minimum": 1 },
+    "min_kernel_abi": { "type": "number", "minimum": 1 },
+    "max_kernel_abi": { "type": "number", "minimum": 1 },
+    "capabilities_required": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["signal.emit","signal.subscribe","tape.read","view.inject","intent.emit","motion.schedule","motion.observe","motion.patch","motion.plugin.register","motion.replay"]
+      },
+      "contains": { "const": "motion.plugin.register" },
+      "minItems": 1,
+      "description": "Must include motion.plugin.register. Items constrained to Capability enum (SEC-004)."
+    },
+    "wasm_url": { "type": "string", "format": "uri", "pattern": "^https?://", "description": "HTTPS only. SEC-008: file:// and data: schemes rejected." },
+    "wasm_integrity": { "type": "string", "pattern": "^sha256-[A-Za-z0-9+/]+=*$" },
+    "signed_manifest": { "type": "string" },
+    "declared_easings": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "declared_interpolators": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

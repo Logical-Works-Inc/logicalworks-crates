@@ -1,0 +1,110 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionPatch",
+  "title": "MotionPatch",
+  "description": "Motion patch envelope (D-15, adjustable graph). Atomically mutates one or more component fields of an in-flight motion node. Requires motion.patch capability (ADR-057). Patches are applied at the next frame boundary.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "signal_id",
+    "motion_intent_id",
+    "patch_id",
+    "kind",
+    "source_kind",
+    "source_id",
+    "session_invariant",
+    "emitted_at",
+    "payload"
+  ],
+  "properties": {
+    "signal_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Broker-stamped envelope ID."
+    },
+    "motion_intent_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "The intent whose graph is being patched."
+    },
+    "patch_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "This patch's own identifier for audit and replay."
+    },
+    "kind": {
+      "type": "string",
+      "const": "motion.patch",
+      "description": "Discriminator. Always 'motion.patch'. Distinct from motion.intent (D-09, anti-pattern: do NOT inherit from motion.intent)."
+    },
+    "source_kind": {
+      "type": "string",
+      "enum": ["user", "widget", "ml", "system"]
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "session_invariant": { "$ref": "#/definitions/SessionInvariant" },
+    "emitted_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": { "$ref": "#/definitions/MotionPatchPayload" }
+  },
+  "definitions": {
+    "SessionInvariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_object_id", "session_id", "policy_bundle_id"],
+      "properties": {
+        "work_object_id":   { "type": "string", "format": "uuid" },
+        "session_id":       { "type": "string", "format": "uuid" },
+        "policy_bundle_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "PatchOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "value"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Dot-notation path to patchable field: 'duration_ms', 'easing', 'to.translateY'. Immutable fields (node_id, kind) rejected with MOTION_PATCH_PATH_IMMUTABLE."
+        },
+        "value": {
+          "description": "New value to set at path. Type checked against the node's component schema."
+        }
+      }
+    },
+    "MotionPatchPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "patches"],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Node within the intent's MotionGraph to patch. Unknown node_id rejected with MOTION_PATCH_NODE_NOT_FOUND."
+        },
+        "patches": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/PatchOperation" },
+          "description": "Ordered patch operations applied atomically. Either all succeed (next frame uses new values) or all are rejected."
+        },
+        "preserve_velocity": {
+          "type": "boolean",
+          "default": true,
+          "description": "For AccumulatorNodes (spring/drag): keep current velocity and position across the patch to maintain physical continuity (D-11)."
+        },
+        "tier_capability_check": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, patch is rejected with TIER_CAPABILITY_EXCEEDED on Tier B (CSS @keyframes cannot patch mid-flight)."
+        }
+      }
+    }
+  }
+}

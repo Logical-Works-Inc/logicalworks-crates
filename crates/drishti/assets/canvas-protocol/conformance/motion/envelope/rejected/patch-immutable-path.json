@@ -1,0 +1,21 @@
+{
+  "_comment": "Rejected: patches[0].path is 'node_id' — immutable field. Kernel rejects with MOTION_PATCH_PATH_IMMUTABLE (SEC-005)",
+  "_expected_error": "patches[0].path",
+  "$schema_ref": "MotionPatch",
+  "signal_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f890",
+  "motion_intent_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f891",
+  "patch_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f892",
+  "kind": "motion.patch",
+  "source_kind": "widget",
+  "source_id": "test",
+  "session_invariant": {
+    "work_object_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f701",
+    "session_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f702",
+    "policy_bundle_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f703"
+  },
+  "emitted_at": "2026-05-28T12:00:00.000Z",
+  "payload": {
+    "node_id": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f8a0",
+    "patches": [{ "path": "node_id", "value": "a3f2c1d4-5e6b-4789-a012-b3c4d5e6f8b0" }]
+  }
+}

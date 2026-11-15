@@ -93,6 +93,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0055](0055-the-owned-world-is-columns-ticks-and-one-hash.md) | The owned world is columns, ticks and one hash (refines 0053) |
 | [0056](0056-a-served-run-is-owned-by-the-serve-not-the-connection.md) | A served run is owned by the serve, not the connection |
 | [0057](0057-the-serve-shards-its-tenant-hosts-and-caps-them.md) | The serve shards its tenant hosts and caps them |
+| [0058](0058-drishti-has-one-home.md) | drishti has one home: the Canvas code folds into `crates/drishti` and reaches every third-party crate through the storefront |
 | [0059](0059-the-serve-builds-each-route-task-once-at-start.md) | The serve builds each route's task once, at start |
 | [0060](0060-the-serve-keeps-its-request-hashes-and-pins-their-bytes.md) | The serve keeps its request hashes and pins their bytes |
 

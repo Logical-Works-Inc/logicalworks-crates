@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "MotionDirective",
+  "title": "MotionDirective",
+  "description": "Motion variant of ViewDirective. Carries a nested MotionIntent, allowing the ML layer to schedule animations via the standard directive fan-out path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "motion_intent", "target_zone"],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "const": "motion",
+      "description": "Discriminator value for the motion variant of ViewDirective."
+    },
+    "motion_intent": {
+      "description": "Full nested MotionIntent envelope. Broker validates and routes as if directly emitted."
+    },
+    "target_zone": {
+      "type": "string",
+      "enum": ["caller", "record", "next-action", "tools", "governance", "overlay"],
+      "description": "Target zone for directive routing. Reuses ZoneId from ViewDirective."
+    },
+    "ttl_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Optional time-to-live in milliseconds. Broker discards if not acted on within TTL."
+    }
+  }
+}

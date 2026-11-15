@@ -1,0 +1,17 @@
+{
+  "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e25",
+  "kind": "tool.opened",
+  "source_kind": "widget",
+  "source_id": "lw-calculator-v2",
+  "session_invariant": {
+    "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e04",
+    "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e05",
+    "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e06",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "emitted_at": "2026-05-25T11:45:00Z",
+  "payload": {
+    "tool": "calculator"
+  }
+}

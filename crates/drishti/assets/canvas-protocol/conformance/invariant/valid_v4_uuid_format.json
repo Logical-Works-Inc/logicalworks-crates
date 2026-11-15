@@ -1,0 +1,10 @@
+{
+  "input": {
+    "work_object_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+    "session_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12",
+    "policy_bundle_id": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a13",
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "expected": "ok"
+}

@@ -144,6 +144,16 @@ time-jiff = ["dep:jiff"]
 # (ADR 0003). Consumers opt in via --features sqlite and declare no SQLite
 # crate of their own (#696, #700).
 sqlite = ["dep:rusqlite"]
+# Canvas signing and float maths (drishti's fold, ADR 0058). `p256` is ECDSA over
+# NIST P-256 for attestation evidence (#840); `libm` is the portable `no_std`
+# float maths the colour and motion interpolation call so a result is the same
+# on every target (#837). Default-off like every storefront group (ADR 0003).
+p256 = ["dep:p256"]
+libm = ["dep:libm"]
+# The desktop preview window (#836): a window (`winit`), a software frame buffer
+# (`softbuffer`) and text shaping (`cosmic-text`). One feature for the three
+# edges, native-only, default-off, selected by drishti's `desktop` feature.
+desktop-preview = ["dep:winit", "dep:softbuffer", "dep:cosmic-text"]
 # Sealed records (AEAD). The one pinned authenticated-encryption engine the
 # sealed journal and run-store records seal under: ChaCha20-Poly1305, pure
 # Rust, no C toolchain, portable to every declared target. Default-off like
@@ -253,6 +263,15 @@ jiff = { version = "0.2", default-features = false, features = ["std", "tz-syste
 # 0031). Bundled so no system library is needed, and no default features so
 # the no-flag build stays portable: the engine is selected, never the crate.
 rusqlite = { version = "0.42.0", default-features = false, features = ["bundled"], optional = true }
+# drishti's fold (ADR 0058). `p256` keeps `ecdsa` (signing, verifying, DER) and
+# `std` only; `libm` is the pure-Rust float library; the three desktop crates take
+# caret requirements and `Cargo.lock` holds the releases the preview's golden
+# pixel hashes were taken against (ADR 0031).
+libm = { version = "0.2", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#837
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"], optional = true } # gap: Logical-Works-Inc/logicalworks-crates#840
+winit = { version = "0.30.12", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
+softbuffer = { version = "0.4.6", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
+cosmic-text = { version = "0.14.2", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
 # Sealed records: the one AEAD every sealed estate record seals under (estate
 # issue #785): one requirement here, the exact release in `Cargo.lock` (ADR
 # 0031). ChaCha20-Poly1305 is pure Rust with no C toolchain, so the no-flag
@@ -262,7 +281,7 @@ chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["
 # the minimal pretty printer. Both are pure Rust with no C toolchain, so the
 # no-flag build stays portable: the engines are selected, never the crates.
 prettyplease = { version = "0.3.0", default-features = false, optional = true }
-syn = { version = "3.0.10", default-features = false, features = ["full", "parsing", "printing"], optional = true }
+syn = { version = "3.0.10", default-features = false, features = ["parsing", "printing"], optional = true }
 # The one script reader and emitter (#787): `lgwks_ast` with the `emit`,
 # `legacy` and `hunks` features. A workspace member, so it needs no register
 # entry; default features off so no tree-sitter grammar rides along, only the

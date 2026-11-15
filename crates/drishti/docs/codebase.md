@@ -17,7 +17,12 @@ src/runtime.rs                 GPU residency: demand, budgets, epochs, transfers
 src/native.rs                  native GPUI host for the ink lab, feature `ui` (R09, R36)
 src/native/lab.rs              the window, its tiles and controls
 src/native/lab/paint.rs        placement and painting of frames
-src/bin/drishti.rs             the CLI: tokens, ink frames, residency and limits as JSON
+src/bin/drishti/main.rs        the CLI: tokens, ink frames, residency and limits as JSON
+src/canvas_protocol/ motion/ canvas_scene/ preview/ native_host/ cli.rs
+                               the absorbed Canvas mechanisms (D17), each with falsifying tests
+src/bin/                       canvas_preview + trace_check diagnostics, three api_drive_* drivers
+assets/                        schemas, conformance fixtures, workspaces, timelines
+docs/adr/                      decision records (0001: the native host broker)
 docs/
   architecture.md (+ -operations) ownership, execution semantics, residency and recovery
   codebase.md (+ planned-tree) this sole structure authority
@@ -31,13 +36,39 @@ contract/requirements.tsv      normative requirement registry
 experience/journeys.tsv        acceptance scenarios, all unexecuted
 tests/bundle.rs                document inventory/reference integrity only
 tests/cli.rs                   the drishti command, through its binary
-tests/sim/                     seeded deterministic simulation of the engine and runtime
+tests/sim.rs + tests/sim/      one target of seeded deterministic simulations: engine, runtime, broker, motion, scene
+tests/*.rs + tests/support/    motion_*, native_host_*, canvas and preview suites with shared fixtures
 examples/ink_preview.rs        writes an animated SVG preview of the mark (public-API consumer)
 examples/ink_lab.rs            opens the ink lab window and prints a measured session report
 ```
 One public `drishti` package is the planned authoring surface. Internal modules are not separate public crates merely because they have different responsibilities. The 0.0.1 release exported only documentation; the working tree now adds the first realized seats as an explicit API transition. These realized seats are deterministic reference cores with unit and simulation tests, not qualified runtime subsystems: `design` and `ink_lab` realize the planned brand/motion seats, `runtime` realizes the planned `presentation/residency.rs` seat, and `native` is the first slice of the planned `presentation/gpui.rs` seat. The rest of the planned tree below remains **planned / absent**.
 
 The planned runtime tree, a plan and not shipped code, is in [planned-tree.md](planned-tree.md).
+
+## Native host broker: module map and invariants
+
+Decisions are D18 and D19 in `docs/decisions.md`; the record is `docs/adr/0001-scope-audit-and-bound-the-broker.md`.
+
+| Module | Owns |
+| --- | --- |
+| `src/native_host/broker.rs` | Registry state, admission, rate buckets, the `BrokerError` enum |
+| `src/native_host/broker/audit.rs` | `Scope`, `Caller`, `Permission`, `Reach`, `AuditEvent`, `Decision`, the `Visibility` filter |
+| `src/native_host/broker/inspect.rs` | Scoped inspectors (`registered_subscriptions`, `tap`) and owner-checked `untap` |
+| `src/native_host/broker/limits.rs` | `Limit` and the numeric bound of each registry |
+| `src/native_host/broker/emit.rs` | Emit, delivery and audit publication |
+| `src/native_host/broker/handles.rs` | Opaque handles, `Subscription`, `TapEvent` |
+| `src/native_host/governance.rs` | SQLite governance log and the capped `recent` read |
+| `src/native_host/attest.rs` | Attestation evidence packages |
+| `src/cli.rs` | Binary run convention and the frozen broker for drivers |
+| `src/bin/api_drive_host.rs` | Host driver: the run path that reaches the broker API |
+| `src/bin/api_drive_host/audit_drive.rs` | Audit JSON lines, own-scope counts, tap events, capped tape read |
+
+- Scope comes from the broker's registration, never from a handle field or request. Enforced by `Visibility` and `sim_broker_neighbour_every_inspector_stays_in_scope`.
+- Both session and tenant must match for a read or a delivery. Enforced by `same_scope` and `sim_broker_neighbour_same_session_never_reads_across_tenants`.
+- Every decision emits one `AuditEvent`, in order, outside the state lock. Enforced by `sim_broker_saboteur_every_decision_audited_once_in_order`.
+- Every registry has a bound and a typed refusal past it. Enforced by `sim_broker_giant_and_empty_every_bound_refuses_at_limit_plus_one`.
+- One governance read returns at most `MAX_RECENT_ROWS` rows. Enforced by `sim_api_drive_host_journey_is_audited_and_replayable`.
+- The driver output is the same on every run of the frozen broker. Enforced by `sim_api_drive_host_journey_is_audited_and_replayable`.
 
 ## Allowed dependency direction
 
@@ -55,7 +86,7 @@ The `lgwks_deps` manifest exposes a `gpui` feature over GPUI 0.2 and a public `p
 
 ## Feature plan, not current Cargo features
 
-Keep the authoring/semantic core independent of presentation and runtime selection. `ui` now exists: it enables `lgwks_deps/gpui` (GPUI 0.2.2 in the lock file) and the `native` module, and nothing else. Remaining candidate features include `compute`, `speculation`, a later justified script adapter, and host-specific bindings. The product default is adaptive bounded speculation when qualified; compile-time packaging and exact default feature sets remain blocked on measured closures and host proof. Do not add empty Cargo feature switches to make this plan appear implemented.
+Keep the authoring/semantic core independent of presentation and runtime selection. `ui` now exists: it enables `lgwks_deps/gpui` (GPUI 0.2.2 in the lock file) and the `native` module, and nothing else. `desktop` enables `lgwks_deps/desktop-preview` (winit, softbuffer, cosmic-text) and the preview window; SQLite, P-256 and libm are always on through the same storefront. Remaining candidate features include `compute`, `speculation`, a later justified script adapter, and host-specific bindings. The product default is adaptive bounded speculation when qualified; compile-time packaging and exact default feature sets remain blocked on measured closures and host proof. Do not add empty Cargo feature switches to make this plan appear implemented.
 
 GPUI main currently contains web/wgpu adapter crates, but the admitted GPUI 0.2 dependency does not by itself establish access to those exact sources. Version compatibility, published availability, licenses, macros/re-export compatibility, UI-thread ownership, and GPU synchronization must be verified together.
 
@@ -63,4 +94,4 @@ GPUI main currently contains web/wgpu adapter crates, but the admitted GPUI 0.2 
 
 The requirement registry maps each obligation to its planned module seat and a named future test file. The journey registry supplies public-surface falsification cases. Runtime implementation begins only after the relevant open design obligations are closed, tests are specified with independent oracles, and strict assurance can report honestly. File existence will never be used as a substitute for executed behavior.
 
-The finalized product contract is maintained in `docs/decisions.md`, not a second plan or API specification. Added requirements for HTML hosting, phone parity, design tokens/controls, default recovery, compact agent semantics and diagnostics bind to the seats above. This allocation is not permission to implement new storage engines, duplicate LOK/Braid authority, or create separate per-platform applications. Cargo remains the baseline workflow; the `drishti` command (`src/bin/drishti.rs`) is a convenience behind the default `cli` feature.
+The finalized product contract is maintained in `docs/decisions.md`, not a second plan or API specification. Added requirements for HTML hosting, phone parity, design tokens/controls, default recovery, compact agent semantics and diagnostics bind to the seats above. This allocation is not permission to implement new storage engines, duplicate LOK/Braid authority, or create separate per-platform applications. Cargo remains the baseline workflow; the `drishti` command (`src/bin/drishti/main.rs`) is a convenience behind the default `cli` feature.

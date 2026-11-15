@@ -229,9 +229,48 @@ fn all_narrative_documents_are_in_the_publication() -> TestResult {
         package.contains("reference core"),
         "undeclared reference core"
     );
-    for module in ["pub mod design;", "pub mod ink_lab;", "pub mod runtime;"] {
+    for module in [
+        "pub mod design;",
+        "pub mod ink_lab;",
+        "pub mod runtime;",
+        "pub mod canvas_protocol;",
+        "pub mod canvas_scene;",
+        "pub mod cli;",
+        "pub mod motion;",
+        "pub mod native_host;",
+        "pub mod preview;",
+    ] {
         assert!(library.contains(module), "missing realized module {module}");
     }
+    Ok(())
+}
+
+#[test]
+fn decision_ids_are_unique_and_the_adr_cites_live_ones() -> TestResult {
+    let decisions = include_str!("../docs/decisions.md");
+    let ids: Vec<&str> = decisions
+        .lines()
+        .filter_map(|line| line.strip_prefix("| D"))
+        .filter_map(|line| line.split(" | ").next())
+        .collect();
+    let unique: HashSet<&str> = ids.iter().copied().collect();
+    assert_eq!(ids.len(), unique.len(), "a decision id is repeated");
+    for number in 1..=19 {
+        let id = format!("{number:02}");
+        assert!(ids.contains(&id.as_str()), "decision D{id} is missing");
+    }
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let adr =
+        std::fs::read_to_string(root.join("docs/adr/0001-scope-audit-and-bound-the-broker.md"))?;
+    assert!(adr.starts_with("# "), "the ADR has no title");
+    assert!(
+        adr.contains("D18 and D19"),
+        "the ADR must cite the renumbered ledger entries"
+    );
+    assert!(
+        !adr.contains("D16 and D17"),
+        "the ADR cites the private repository's ids"
+    );
     Ok(())
 }
 

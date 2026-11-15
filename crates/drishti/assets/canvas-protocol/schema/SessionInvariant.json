@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "definitions": {
+    "PolicyBundleId": {
+      "type": "string"
+    },
+    "SessionId": {
+      "type": "string"
+    },
+    "TenantId": {
+      "type": "string"
+    },
+    "UserSub": {
+      "type": "string"
+    },
+    "WorkObjectId": {
+      "type": "string"
+    }
+  },
+  "properties": {
+    "policy_bundle_id": {
+      "$ref": "#/definitions/PolicyBundleId"
+    },
+    "session_id": {
+      "$ref": "#/definitions/SessionId"
+    },
+    "tenant_id": {
+      "$ref": "#/definitions/TenantId"
+    },
+    "user_sub": {
+      "$ref": "#/definitions/UserSub"
+    },
+    "work_object_id": {
+      "$ref": "#/definitions/WorkObjectId"
+    }
+  },
+  "required": [
+    "work_object_id",
+    "session_id",
+    "policy_bundle_id",
+    "tenant_id",
+    "user_sub"
+  ],
+  "type": "object"
+}

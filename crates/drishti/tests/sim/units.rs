@@ -2,7 +2,7 @@
 //! indirectly: the brand colour arithmetic, the percentile reader, the option
 //! and canvas domains, and the ink engine called directly.
 //!
-//! Each test draws its inputs from one [`Rng`] seed per case and checks the
+//! Each test draws its inputs from one [`SplitMix64`] seed per case and checks the
 //! library against an independent model written here, so a failure names the
 //! seed that replays it. Sources: WCAG 2.2 §1.4.3 and §1.4.6 with the
 //! relative-luminance definition (contrast is `(L1 + 0.05) / (L2 + 0.05)`),
@@ -18,7 +18,7 @@ use drishti::ink_lab::{
 };
 use drishti::runtime::Percentiles;
 
-use crate::harness::{Rng, TRACE_SEED, mix};
+use crate::rng::{SplitMix64, TRACE_SEED, mix};
 
 /// Cases each simulation draws.
 const CASES: u64 = 512;
@@ -27,7 +27,7 @@ const CASES: u64 = 512;
 const FRAME: f64 = 1000.0 / 60.0;
 
 /// A colour drawn from `rng`.
-fn colour(rng: &mut Rng) -> Rgb {
+fn colour(rng: &mut SplitMix64) -> Rgb {
     let [red, green, blue, _, _, _, _, _] = rng.next_u64().to_be_bytes();
     Rgb::new(red, green, blue)
 }
@@ -56,9 +56,9 @@ const fn rank(grade: Wcag) -> u8 {
 }
 
 /// Run `case` once per seed of `base..base + CASES`.
-fn sweep(base: u64, mut case: impl FnMut(u64, &mut Rng)) {
+fn sweep(base: u64, mut case: impl FnMut(u64, &mut SplitMix64)) {
     for seed in base..base.saturating_add(CASES) {
-        let mut rng = Rng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         case(seed, &mut rng);
     }
 }
@@ -232,7 +232,7 @@ fn nearest_rank(sorted: &[f64], permille: usize) -> Option<f64> {
 }
 
 /// Between one and a thousand seeded samples.
-fn samples(rng: &mut Rng) -> Vec<f64> {
+fn samples(rng: &mut SplitMix64) -> Vec<f64> {
     let count = rng.below(1000).saturating_add(1);
     (0..count).map(|_| rng.range(0.0, 50.0)).collect()
 }
@@ -289,7 +289,7 @@ fn sim_percentiles_are_ordered_and_an_empty_set_says_so() {
 #[test]
 fn sim_a_canvas_is_clamped_whatever_it_is_given() {
     sweep(111_000, |seed, rng| {
-        let axis = |rng: &mut Rng| match rng.below(6) {
+        let axis = |rng: &mut SplitMix64| match rng.below(6) {
             0 => f64::NAN,
             1 => f64::INFINITY,
             2 => f64::NEG_INFINITY,

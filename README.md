@@ -20,7 +20,7 @@
 | `lgwks_ast` | 6.0.3 | [docs.rs](https://docs.rs/lgwks_ast) | Parse many languages into one AST type. tree-sitter grammars behind cargo features, bounded traversal, and typed diagnostics for tools that report on code |
 | `lgwks_macros` | 2.1.2 | [docs.rs](https://docs.rs/lgwks_macros) | The syntax of `lgwks_bot::script!`, orchestration written as indented flows. Not a surface of its own: Rust requires a proc macro to live in its own crate, so use it through `lgwks_bot` |
 | `lgwks_deps` | 7.2.0 | [docs.rs](https://docs.rs/lgwks_deps) | One audited place to opt into third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
-| `drishti` | 0.1.5 | [docs.rs](https://docs.rs/drishti) | The Drishti frontend's design publication and reference core: Logical Works brand tokens, the eleven seeded ink effects, the GPU residency model, a GPUI host (feature `ui`), and the `drishti` command over all of them. Its proof gates G01–G15 stay blocked |
+| `drishti` | 0.2.0 | [docs.rs](https://docs.rs/drishti) | The Drishti frontend's design publication and reference core: Logical Works brand tokens, the eleven seeded ink effects, the GPU residency model, the Logic OS Canvas protocol, scene, motion and native host broker, a GPUI host (feature `ui`), and the `drishti` command over all of them. Its proof gates G01–G15 stay blocked |
 
 Versions move independently from one repository and one tag; the table lists this tree's manifests, not what is published ([`docs/releasing.md`](docs/releasing.md) keeps the two apart).
 

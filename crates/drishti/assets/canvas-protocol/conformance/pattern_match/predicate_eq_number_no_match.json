@@ -1,0 +1,20 @@
+{
+  "pattern": {
+    "kind_glob": "timer.*",
+    "payload_predicate": { "eq": ["elapsed_ms", 999] }
+  },
+  "envelope": {
+    "signal_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f",
+    "kind": "timer.elapsed",
+    "source_kind": "widget",
+    "source_id": "com.logicalworks.widget.timer",
+    "session_invariant": {
+      "work_object_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e01",
+      "session_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e02",
+      "policy_bundle_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e03"
+    },
+    "emitted_at": "2026-05-25T12:00:00Z",
+    "payload": { "elapsed_ms": 1800000 }
+  },
+  "expected": false
+}

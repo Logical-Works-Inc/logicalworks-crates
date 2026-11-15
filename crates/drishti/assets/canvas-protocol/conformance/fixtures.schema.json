@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "ConformanceFixtures",
+  "title": "ConformanceFixtures",
+  "description": "Meta-schema describing the fixture shapes used in the canvas-protocol conformance suite.",
+  "definitions": {
+    "ValidEnvelopeFixture": {
+      "description": "Placed in valid_envelopes/. The raw object is a valid envelope that must pass validateEnvelope.",
+      "type": "object",
+      "required": ["signal_id", "kind", "source_kind", "source_id", "session_invariant", "emitted_at", "payload"],
+      "properties": {
+        "signal_id":         { "type": "string" },
+        "kind":              { "type": "string" },
+        "source_kind":       { "type": "string" },
+        "source_id":         { "type": "string" },
+        "session_invariant": { "type": "object" },
+        "emitted_at":        { "type": "string" },
+        "payload":           {}
+      }
+    },
+    "InvalidEnvelopeFixture": {
+      "description": "Placed in invalid_envelopes/. Must fail validateEnvelope.",
+      "type": "object",
+      "required": ["input"],
+      "properties": {
+        "input":          {},
+        "expected_error": { "type": "string" }
+      }
+    },
+    "PatternMatchFixture": {
+      "description": "Placed in pattern_match/. expected=true means the envelope matches the pattern.",
+      "type": "object",
+      "required": ["pattern", "envelope", "expected"],
+      "properties": {
+        "pattern":  {
+          "type": "object",
+          "required": ["kind_glob"],
+          "properties": {
+            "kind_glob":         { "type": "string" },
+            "payload_predicate": {}
+          }
+        },
+        "envelope": { "type": "object" },
+        "expected": { "type": "boolean" }
+      }
+    },
+    "CapabilityFixture": {
+      "description": "Placed in capability/. expected=ok means assertCapability(have, need) succeeds.",
+      "type": "object",
+      "required": ["have", "need", "expected"],
+      "properties": {
+        "have":     { "type": "array", "items": { "type": "string" } },
+        "need":     { "type": "string" },
+        "expected": { "type": "string", "enum": ["ok", "err"] }
+      }
+    },
+    "InvariantFixture": {
+      "description": "Placed in invariant/. expected=ok means validateInvariant(input) succeeds.",
+      "type": "object",
+      "required": ["input", "expected"],
+      "properties": {
+        "input":    {},
+        "expected": { "type": "string", "enum": ["ok", "err"] }
+      }
+    }
+  }
+}

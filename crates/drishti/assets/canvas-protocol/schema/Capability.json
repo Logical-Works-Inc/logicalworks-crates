@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "Capability",
+  "title": "Capability",
+  "description": "Permission token. tape.read and view.inject are ML-only. intent.emit is command-bar-only (E11). motion.* capabilities added in canvas-protocol 0.4.0 (ADR-057, G01). New values appended at END to preserve Host-Native Logic CaseIterable ordering (gap-AI-miss #3).",
+  "type": "string",
+  "enum": [
+    "signal.emit",
+    "signal.subscribe",
+    "tape.read",
+    "view.inject",
+    "intent.emit",
+    "motion.schedule",
+    "motion.observe",
+    "motion.patch",
+    "motion.plugin.register",
+    "motion.replay",
+    "efface.shred",
+    "efface.rtbf",
+    "compute.remote"
+  ]
+}

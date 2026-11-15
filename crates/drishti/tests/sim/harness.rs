@@ -13,82 +13,7 @@ use drishti::ink_lab::{
 };
 use drishti::runtime::{Budgets, DeviceState, Runtime, RuntimeError, RuntimeReport};
 
-/// A `splitmix64` source: the only randomness a simulation may use.
-pub struct Rng {
-    /// Generator state.
-    state: u64,
-}
-
-impl Rng {
-    /// Seed the source.
-    pub const fn new(seed: u64) -> Self {
-        Self { state: seed }
-    }
-
-    /// The next 64-bit value.
-    pub fn next_u64(&mut self) -> u64 {
-        self.state = self.state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut mixed = self.state;
-        mixed = (mixed ^ mixed.wrapping_shr(30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        mixed = (mixed ^ mixed.wrapping_shr(27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        mixed ^ mixed.wrapping_shr(31)
-    }
-
-    /// A value in `[0, bound)`; `bound` zero yields zero.
-    pub fn below(&mut self, bound: u64) -> u64 {
-        let draw = self.next_u64();
-        match std::num::NonZeroU64::new(bound) {
-            Some(bound) => draw % bound,
-            None => 0,
-        }
-    }
-
-    /// A `u32` in `[0, bound)`; `bound` zero yields zero.
-    pub fn below_u32(&mut self, bound: u32) -> u32 {
-        let [b0, b1, b2, b3, _, _, _, _] = self.next_u64().to_be_bytes();
-        let draw = u32::from_be_bytes([b0, b1, b2, b3]);
-        match std::num::NonZeroU32::new(bound) {
-            Some(bound) => draw % bound,
-            None => 0,
-        }
-    }
-
-    /// A `u16` in `[0, bound)`; `bound` zero yields zero.
-    pub fn below_u16(&mut self, bound: u16) -> u16 {
-        let [b0, b1, _, _, _, _, _, _] = self.next_u64().to_be_bytes();
-        let draw = u16::from_be_bytes([b0, b1]);
-        match std::num::NonZeroU16::new(bound) {
-            Some(bound) => draw % bound,
-            None => 0,
-        }
-    }
-
-    /// A float in `[0, 1)`.
-    pub fn unit(&mut self) -> f64 {
-        let [b0, b1, b2, b3, _, _, _, _] = self.next_u64().to_be_bytes();
-        f64::from(u32::from_be_bytes([b0, b1, b2, b3])) / 4_294_967_296.0
-    }
-
-    /// A float in `[low, high)`.
-    pub fn range(&mut self, low: f64, high: f64) -> f64 {
-        low + (high - low) * self.unit()
-    }
-
-    /// Pick one of `items`.
-    pub fn pick<T: Copy>(&mut self, items: &[T]) -> Option<T> {
-        let length = u64::try_from(items.len()).ok()?;
-        let index = usize::try_from(self.below(length)).ok()?;
-        items.get(index).copied()
-    }
-}
-
-/// Fold a value into a trace hash (FNV-1a over 64-bit words).
-pub fn mix(hash: u64, value: u64) -> u64 {
-    (hash ^ value).wrapping_mul(0x0000_0100_0000_01b3)
-}
-
-/// The initial trace hash.
-pub const TRACE_SEED: u64 = 0xcbf2_9ce4_8422_2325;
+use crate::rng::{SplitMix64, TRACE_SEED, mix};
 
 /// Which faults a scenario injects.
 #[derive(Clone, Copy, Debug)]
@@ -128,7 +53,7 @@ pub struct Tenant {
     /// The scenario's faults.
     faults: Faults,
     /// The tenant's own randomness.
-    rng: Rng,
+    rng: SplitMix64,
     /// The trace hash so far.
     trace: u64,
     /// Operations run.
@@ -144,7 +69,7 @@ pub struct Tenant {
 impl Tenant {
     /// A tenant seeded by `seed`, hosting only `effects`.
     pub fn new(seed: u64, effects: &[Effect], faults: Faults) -> Self {
-        let mut rng = Rng::new(seed);
+        let mut rng = SplitMix64::new(seed);
         let mut budgets = Budgets::conservative();
         if faults.tight_budgets && rng.below(2) == 0 {
             budgets.max_in_flight = rng.below_u32(4).saturating_add(1);
@@ -334,21 +259,22 @@ impl Tenant {
         let mut options = Options::new();
         let hostile = self.faults.hostile_options && self.rng.below(2) == 0;
         let mut valid = true;
-        let mut value = |rng: &mut Rng, sane: (f64, f64), domain: (f64, f64)| -> Option<f64> {
-            let number = if hostile {
-                match rng.below(5) {
-                    0 => f64::NAN,
-                    1 => f64::INFINITY,
-                    2 => -rng.range(0.0, 1.0e6),
-                    3 => rng.range(1.0e13, 1.0e14),
-                    _ => rng.range(sane.0, sane.1),
-                }
-            } else {
-                rng.range(sane.0, sane.1)
+        let mut value =
+            |rng: &mut SplitMix64, sane: (f64, f64), domain: (f64, f64)| -> Option<f64> {
+                let number = if hostile {
+                    match rng.below(5) {
+                        0 => f64::NAN,
+                        1 => f64::INFINITY,
+                        2 => -rng.range(0.0, 1.0e6),
+                        3 => rng.range(1.0e13, 1.0e14),
+                        _ => rng.range(sane.0, sane.1),
+                    }
+                } else {
+                    rng.range(sane.0, sane.1)
+                };
+                valid &= number.is_finite() && number >= domain.0 && number <= domain.1;
+                Some(number)
             };
-            valid &= number.is_finite() && number >= domain.0 && number <= domain.1;
-            Some(number)
-        };
         let time = (0.0, 3.6e6);
         let unit = (0.0, 1.0);
         let count = (-1.0e15, 1.0e15);

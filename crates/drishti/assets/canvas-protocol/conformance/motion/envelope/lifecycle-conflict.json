@@ -1,0 +1,16 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.conflict",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5f00",
+  "sequence_number": 5,
+  "emitted_at": "2026-05-28T12:00:09.200Z",
+  "payload": {
+    "element_selector": "#hero",
+    "property": "transform",
+    "intent_ids": [
+      "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e31",
+      "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e41"
+    ],
+    "resolution": "last-write"
+  }
+}

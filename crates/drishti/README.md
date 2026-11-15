@@ -2,7 +2,9 @@
 
 **Frontend is orchestration. Creators express experiences; the framework owns the coordination that makes them coherent.**
 
-**Version 0.0.1 published the documentation-only design package. Version 0.1.0 published the first realized presentation layer, current at 0.1.3:** the Logical Works ink lab (`src/ink_lab.rs`), its brand tokens (`src/design.rs`), the GPU residency model (`src/runtime.rs`), and a native GPU host (`src/native.rs`, feature `ui`) that presents ink frames in a GPUI window. GPUI arrives through the estate storefront (`lgwks_deps/gpui`). A browser host, the goo filter (GPUI 0.2 has no blur or threshold pass), and a qualified Keel integration are still absent.
+**Version 0.0.1 published the documentation-only design package. Version 0.1.0 published the first realized presentation layer. Version 0.2.0 folds in the Canvas mechanisms below.** The presentation layer is the Logical Works ink lab (`src/ink_lab.rs`), its brand tokens (`src/design.rs`), the GPU residency model (`src/runtime.rs`), and a native GPU host (`src/native.rs`, feature `ui`) that presents ink frames in a GPUI window. GPUI arrives through the estate storefront (`lgwks_deps/gpui`). A browser host, the goo filter (GPUI 0.2 has no blur or threshold pass), and a qualified Keel integration are still absent.
+
+**The crate also holds the Logic OS Canvas mechanisms.** They come from kernel#850 row 15, on the Director's order of 2026-11-03 to deprecate the kernel by absorption (D17 in `docs/decisions.md`). The crate holds the canvas protocol vocabulary and workspace validation, the deterministic motion core, and the bounded native scene and reducer. It also holds the headless trace host with its checker. The native-host contract covers the signal broker, session and governance stores, telemetry, command bar and attestation evidence. Each part has its falsifying tests. These are tested Rust, not qualified product claims: no GPU backend, browser host, or product journey is asserted passed by them. The native-host broker scopes every inspector read to the caller's session and tenant, gates the command bar and cross-tenant reads on an injected grant store, bounds its registries, and reports every decision to a required audit sink (D18).
 
 ```text
 cargo run --release --features ui --example ink_lab                       # open the ink lab
@@ -41,7 +43,7 @@ The same narrative documents are embedded in the crate's Rustdoc modules so they
 
 ## This package
 
-Apache-2.0, a member of the logicalworks-crates workspace since ADR 0006 R6, which merged this repository with its history. The library depends on `lgwks_std` for its hex encoding and trace events. The default `cli` feature builds the `drishti` command, which orchestrates through `lgwks_bot`'s `script!`. The optional `ui` feature adds `lgwks_deps` with its `gpui` storefront feature. There is no build script, telemetry or network client. This is an active project's design publication plus its first presentation seats, not a usable UI framework yet.
+Apache-2.0, a member of the logicalworks-crates workspace since ADR 0006 R6, which merged this repository with its history. The library depends on the estate crates `lgwks_std` (JSON, ids, randomness, trace events), `lgwks_ast` and `lgwks_macros` (the typed-error derive). Every third-party crate arrives through the `lgwks_deps` storefront: SQLite (`sqlite`), P-256 signatures (`p256`) and float maths (`libm`) are always on, GPUI is the optional `ui` feature and the desktop preview window (winit, softbuffer, cosmic-text) is the optional `desktop` feature. The default `cli` feature builds the `drishti` command, which orchestrates through `lgwks_bot`'s `script!`. Five more binaries are diagnostics: `canvas_preview`, `trace_check`, and the three `api_drive_*` conformance drivers; the `desktop` window is the only executable with a display path. There is no build script, telemetry or network client. This is an active project's design publication plus its presentation seats and Canvas mechanisms, not a usable UI framework yet.
 
 ```text
 drishti tokens                      the brand: primitives, both themes' roles with WCAG grades, colourways, CSS
@@ -58,13 +60,15 @@ Verification, from the workspace root:
 ```text
 cargo clippy -p drishti --all-targets --locked -- -D warnings
 cargo clippy -p drishti --all-targets --features ui --locked -- -D warnings
+cargo clippy -p drishti --all-targets --features desktop --locked -- -D warnings
 cargo nextest run -p drishti --locked
+cargo nextest run -p drishti --features desktop --locked
 ```
 These commands do not discharge runtime, security, experience, performance, or Keel obligations; G01–G15 in `docs/decisions.md` stay blocked. There is deliberately no empty runtime scaffold or green placeholder lane.
 
 ## Finalized requirements amendment
 
-The 2026-09-12 contract amendment in `docs/contract.md` captures the Director's answers and subsequent corrections, including phone workflow parity, structural recovery instead of prompt friction, first-party trust at the chosen layer, and reuse of LOK/Braid authority contracts. Engineering derivations and open proof obligations are labeled separately. The working-tree amendment is not a republication of the immutable 0.0.1 release and does not authorize runtime implementation; D15 and D16 later authorized the presentation seats.
+The 2026-09-12 contract amendment in `docs/contract.md` captures the Director's answers and subsequent corrections, including phone workflow parity, structural recovery instead of prompt friction, first-party trust at the chosen layer, and reuse of LOK/Braid authority contracts. Engineering derivations and open proof obligations are labeled separately. The working-tree amendment is not a republication of the immutable 0.0.1 release and does not authorize runtime implementation; D15 and D16 later authorized the presentation seats, and D17 to D19 the Canvas mechanisms.
 
 ## Publisher
 

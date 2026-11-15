@@ -1,0 +1,11 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.plugin_timeout",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5f20",
+  "sequence_number": 7,
+  "emitted_at": "2026-05-28T12:00:09.400Z",
+  "payload": {
+    "plugin_id": "ca.logicalworks.motion.plugin.test",
+    "timeout_ms": 5
+  }
+}

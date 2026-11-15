@@ -1,0 +1,12 @@
+{
+  "$schema_ref": "MotionLifecycle",
+  "kind": "motion.lifecycle.cancel",
+  "span_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5ee0",
+  "sequence_number": 3,
+  "emitted_at": "2026-05-28T12:00:09.000Z",
+  "motion_intent_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e41",
+  "payload": {
+    "motion_intent_id": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e41",
+    "reason": "unmount"
+  }
+}

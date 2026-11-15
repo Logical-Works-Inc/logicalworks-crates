@@ -89,6 +89,18 @@ const OTHER_SUBJECTS: [&str; 5] = [
     "estate assets inform the shape",
 ];
 
+/// Why a drishti Canvas file names revocation: the instance's own `revoke`.
+const DRISHTI_CANVAS: &str = "drishti's Canvas instance revoke and its Revoked refusal are shipped, \
+     tested operations of a presentation instance, not GrantSet";
+
+/// Why a drishti broker file names revocation: the audited withdrawal of its handles.
+const DRISHTI_BROKER: &str = "drishti's broker withdraws the handles it issued and audits the Revoke \
+     action; a shipped, tested operation of its own registry, not GrantSet";
+
+/// Why the drishti conformance fixture names revocation: a protocol signal kind.
+const DRISHTI_PROTOCOL: &str = "the Canvas protocol's capability.revoked signal kind, a frozen \
+     conformance fixture of drishti's own protocol, not GrantSet";
+
 /// Files the scan does not read, each with the reason it is not read.
 ///
 /// One file, and the cost is stated: nothing in it is checked. It is the
@@ -118,7 +130,15 @@ const OTHER_SUBJECTS: [&str; 5] = [
 /// The six broker entries are the same bargain for effect attempts (#876):
 /// `Broker::revoke_operation` is a shipped, tested one-way withdrawal of one
 /// operation's dispatch authority, and it says nothing about `GrantSet`.
-const NOT_AUTHORITY_CLAIMS: [(&str, &str); 22] = [
+///
+/// The twenty-seven `crates/drishti` source, asset and test entries below the
+/// design records are drishti's own shipped operations, not `GrantSet`: the
+/// Canvas instance's `revoke` and its `Revoked` refusal, the trace summary key
+/// `revocation_refused`, the protocol's `capability.revoked` signal kind, and the
+/// broker's audited `Revoke` action for the handles it issued. Each name is a
+/// public identifier or a frozen protocol string, so the prose cannot dodge it;
+/// every other drishti mention was reworded (ADR 0058).
+const NOT_AUTHORITY_CLAIMS: [(&str, &str); 49] = [
     (
         "crates/lgwks-bot/src/broker.rs",
         "the broker's refusals name its shipped withdrawal of an operation, not GrantSet",
@@ -204,6 +224,63 @@ const NOT_AUTHORITY_CLAIMS: [(&str, &str); 22] = [
         "Drishti's decisions: gate G06, blocked, names authority revocation as work its \
          lifecycle must model",
     ),
+    (
+        "crates/drishti/assets/canvas-protocol/conformance/valid_envelopes/system_capability_revoked.json",
+        DRISHTI_PROTOCOL,
+    ),
+    ("crates/drishti/src/bin/api_drive_scene.rs", DRISHTI_CANVAS),
+    ("crates/drishti/src/canvas_scene/model.rs", DRISHTI_CANVAS),
+    ("crates/drishti/src/canvas_scene/scene.rs", DRISHTI_CANVAS),
+    (
+        "crates/drishti/src/canvas_scene/scene/query.rs",
+        DRISHTI_CANVAS,
+    ),
+    ("crates/drishti/src/preview/check.rs", DRISHTI_CANVAS),
+    ("crates/drishti/src/preview/desktop.rs", DRISHTI_CANVAS),
+    ("crates/drishti/src/preview/trace.rs", DRISHTI_CANVAS),
+    (
+        "crates/drishti/src/bin/api_drive_host/audit_drive.rs",
+        DRISHTI_BROKER,
+    ),
+    ("crates/drishti/src/native_host/broker.rs", DRISHTI_BROKER),
+    (
+        "crates/drishti/src/native_host/broker/audit.rs",
+        DRISHTI_BROKER,
+    ),
+    (
+        "crates/drishti/src/native_host/broker/emit.rs",
+        DRISHTI_BROKER,
+    ),
+    (
+        "crates/drishti/src/native_host/broker/inspect.rs",
+        DRISHTI_BROKER,
+    ),
+    ("crates/drishti/tests/native_host_drive.rs", DRISHTI_BROKER),
+    (
+        "crates/drishti/tests/presentation_contract.rs",
+        DRISHTI_CANVAS,
+    ),
+    (
+        "crates/drishti/tests/presentation_contract_commit.rs",
+        DRISHTI_CANVAS,
+    ),
+    ("crates/drishti/tests/sim/broker_abuse.rs", DRISHTI_BROKER),
+    ("crates/drishti/tests/sim/broker_bounds.rs", DRISHTI_BROKER),
+    ("crates/drishti/tests/sim/broker_leaks.rs", DRISHTI_BROKER),
+    ("crates/drishti/tests/sim/broker_scope.rs", DRISHTI_BROKER),
+    ("crates/drishti/tests/sim/canvas_frames.rs", DRISHTI_CANVAS),
+    ("crates/drishti/tests/sim/canvas_journey.rs", DRISHTI_CANVAS),
+    ("crates/drishti/tests/sim/canvas_reducer.rs", DRISHTI_CANVAS),
+    (
+        "crates/drishti/tests/sim/preview_checker.rs",
+        DRISHTI_CANVAS,
+    ),
+    (
+        "crates/drishti/tests/sim/telemetry_faults.rs",
+        DRISHTI_BROKER,
+    ),
+    ("crates/drishti/tests/support/broker.rs", DRISHTI_BROKER),
+    ("crates/drishti/tests/trace_oracle.rs", DRISHTI_CANVAS),
     (
         "crates/lgwks-bot/src/cap_token.rs",
         "the offline bearer-token id ledger with its explicit tested verify, attenuate \

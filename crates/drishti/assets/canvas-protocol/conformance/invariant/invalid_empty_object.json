@@ -1,0 +1,7 @@
+{
+  "input": {
+    "tenant_id": "tenant-1",
+    "user_sub": "018f5b3a-4c1d-7000-8e2f-1a2b3c4d5e6f"
+  },
+  "expected": "err"
+}

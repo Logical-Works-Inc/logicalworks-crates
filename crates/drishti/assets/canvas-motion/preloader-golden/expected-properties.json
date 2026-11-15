@@ -1,0 +1,301 @@
+{
+  "description": "Golden conformance assertions for the landing-preloader timeline. Covers all 4 phases.",
+  "timeline_id": "landing-preloader",
+  "timeline_source": "surfaces/landing/src/timelines/landing-preloader.timeline.json",
+  "checks": [
+    {
+      "id": "doc-fields-present",
+      "description": "Timeline document must declare required top-level fields",
+      "assert": "has_keys",
+      "keys": ["id", "version", "labels", "nodes"]
+    },
+    {
+      "id": "doc-id-value",
+      "description": "timeline id must equal 'landing-preloader'",
+      "assert": "field_equals",
+      "field": "id",
+      "expected": "landing-preloader"
+    },
+    {
+      "id": "total-node-count",
+      "description": "Timeline must declare exactly 16 nodes",
+      "assert": "node_count",
+      "expected": 16
+    },
+    {
+      "id": "phase1-label-exists",
+      "description": "Phase 1 label must exist at 0ms",
+      "assert": "label_equals",
+      "label": "phase1",
+      "expected": 0
+    },
+    {
+      "id": "phase2-label-exists",
+      "description": "Phase 2 label must exist at 600ms",
+      "assert": "label_equals",
+      "label": "phase2",
+      "expected": 600
+    },
+    {
+      "id": "phase3-label-exists",
+      "description": "Phase 3 label must exist at 1200ms",
+      "assert": "label_equals",
+      "label": "phase3",
+      "expected": 1200
+    },
+    {
+      "id": "phase4-label-exists",
+      "description": "Phase 4 label must exist at 2200ms",
+      "assert": "label_equals",
+      "label": "phase4",
+      "expected": 2200
+    },
+    {
+      "id": "phase1-letter-opacity-count",
+      "description": "Phase 1 — exactly 5 letter opacity tween nodes",
+      "assert": "node_query_count",
+      "filter": {
+        "target_selector_contains": ".js-preloader-letter-",
+        "property": "opacity"
+      },
+      "expected": 5
+    },
+    {
+      "id": "phase1-letter-translateY-count",
+      "description": "Phase 1 — exactly 5 letter translateY tween nodes",
+      "assert": "node_query_count",
+      "filter": {
+        "target_selector_contains": ".js-preloader-letter-",
+        "property": "translateY"
+      },
+      "expected": 5
+    },
+    {
+      "id": "phase1-letter-opacity-from",
+      "description": "Phase 1 — letter opacity nodes animate from 0",
+      "assert": "node_field_all",
+      "filter": {
+        "target_selector_contains": ".js-preloader-letter-",
+        "property": "opacity"
+      },
+      "field": "from",
+      "expected": 0
+    },
+    {
+      "id": "phase1-letter-opacity-to",
+      "description": "Phase 1 — letter opacity nodes animate to 1",
+      "assert": "node_field_all",
+      "filter": {
+        "target_selector_contains": ".js-preloader-letter-",
+        "property": "opacity"
+      },
+      "field": "to",
+      "expected": 1
+    },
+    {
+      "id": "phase1-letter-0-start-ms",
+      "description": "Phase 1 — first letter starts at 0ms",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader-letter-0",
+        "property": "opacity"
+      },
+      "field": "start_ms",
+      "expected": 0
+    },
+    {
+      "id": "phase1-letter-translateY-from",
+      "description": "Phase 1 — letter translateY starts at 20px",
+      "assert": "node_field_all",
+      "filter": {
+        "target_selector_contains": ".js-preloader-letter-",
+        "property": "translateY"
+      },
+      "field": "from",
+      "expected": 20
+    },
+    {
+      "id": "phase1-letter-translateY-to",
+      "description": "Phase 1 — letter translateY ends at 0px",
+      "assert": "node_field_all",
+      "filter": {
+        "target_selector_contains": ".js-preloader-letter-",
+        "property": "translateY"
+      },
+      "field": "to",
+      "expected": 0
+    },
+    {
+      "id": "phase2-logo-translateY-exists",
+      "description": "Phase 2 — logo repositions upward via translateY",
+      "assert": "node_query_count",
+      "filter": {
+        "target_selector": ".js-preloader-logo",
+        "property": "translateY"
+      },
+      "expected": 1
+    },
+    {
+      "id": "phase2-logo-translateY-from",
+      "description": "Phase 2 — logo translateY starts at 0",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader-logo",
+        "property": "translateY"
+      },
+      "field": "from",
+      "expected": 0
+    },
+    {
+      "id": "phase2-logo-translateY-to",
+      "description": "Phase 2 — logo translateY ends at -40 (moves up)",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader-logo",
+        "property": "translateY"
+      },
+      "field": "to",
+      "expected": -40
+    },
+    {
+      "id": "phase2-logo-start-ms",
+      "description": "Phase 2 — logo reposition starts at 600ms",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader-logo",
+        "property": "translateY"
+      },
+      "field": "start_ms",
+      "expected": 600
+    },
+    {
+      "id": "phase2-logo-end-ms",
+      "description": "Phase 2 — logo reposition ends at 1400ms (600 + 800)",
+      "assert": "node_field_computed",
+      "filter": {
+        "target_selector": ".js-preloader-logo",
+        "property": "translateY"
+      },
+      "computed_field": "end_ms",
+      "expected": 1400
+    },
+    {
+      "id": "phase3-site-header-opacity-exists",
+      "description": "Phase 3 — site header reveals via opacity",
+      "assert": "node_query_count",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "opacity"
+      },
+      "expected": 1
+    },
+    {
+      "id": "phase3-site-header-opacity-from",
+      "description": "Phase 3 — site header starts fully transparent",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "opacity"
+      },
+      "field": "from",
+      "expected": 0
+    },
+    {
+      "id": "phase3-site-header-opacity-to",
+      "description": "Phase 3 — site header ends fully opaque",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "opacity"
+      },
+      "field": "to",
+      "expected": 1
+    },
+    {
+      "id": "phase3-site-header-start-ms",
+      "description": "Phase 3 — chrome reveal starts at 1200ms",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "opacity"
+      },
+      "field": "start_ms",
+      "expected": 1200
+    },
+    {
+      "id": "phase3-clip-path-exists",
+      "description": "Phase 3 — site header clip-path reveal node exists",
+      "assert": "node_query_count",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "clipPath"
+      },
+      "expected": 1
+    },
+    {
+      "id": "phase3-clip-path-from",
+      "description": "Phase 3 — clip-path reveal starts at 0 (fully clipped)",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "clipPath"
+      },
+      "field": "from",
+      "expected": 0
+    },
+    {
+      "id": "phase3-clip-path-to",
+      "description": "Phase 3 — clip-path reveal ends at 1 (fully visible)",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-site-header",
+        "property": "clipPath"
+      },
+      "field": "to",
+      "expected": 1
+    },
+    {
+      "id": "phase4-preloader-dismiss-exists",
+      "description": "Phase 4 — preloader dismiss opacity node exists",
+      "assert": "node_query_count",
+      "filter": {
+        "target_selector": ".js-preloader",
+        "property": "opacity"
+      },
+      "expected": 1
+    },
+    {
+      "id": "phase4-preloader-dismiss-from",
+      "description": "Phase 4 — preloader fades from fully opaque",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader",
+        "property": "opacity"
+      },
+      "field": "from",
+      "expected": 1
+    },
+    {
+      "id": "phase4-preloader-dismiss-to",
+      "description": "Phase 4 — preloader fades to fully transparent",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader",
+        "property": "opacity"
+      },
+      "field": "to",
+      "expected": 0
+    },
+    {
+      "id": "phase4-preloader-dismiss-start-ms",
+      "description": "Phase 4 — preloader dismiss starts at 2200ms",
+      "assert": "node_field_one",
+      "filter": {
+        "target_selector": ".js-preloader",
+        "property": "opacity"
+      },
+      "field": "start_ms",
+      "expected": 2200
+    }
+  ]
+}

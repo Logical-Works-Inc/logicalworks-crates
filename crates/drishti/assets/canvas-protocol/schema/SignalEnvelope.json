@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "SignalEnvelope",
+  "title": "SignalEnvelope",
+  "description": "Union of all signal envelope variants. source_kind discriminates.",
+  "oneOf": [
+    { "$ref": "#/definitions/WidgetSignalEnvelope" },
+    { "$ref": "#/definitions/SystemSignalEnvelope" },
+    { "$ref": "#/definitions/PredictionEnvelope" },
+    { "$ref": "#/definitions/IntentSignalEnvelope" }
+  ],
+  "definitions": {
+    "SessionInvariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "work_object_id":    { "type": "string", "format": "uuid" },
+        "session_id":        { "type": "string", "format": "uuid" },
+        "policy_bundle_id":  { "type": "string", "format": "uuid" }
+      },
+      "required": ["work_object_id", "session_id", "policy_bundle_id"]
+    },
+    "SignalEnvelopeBase": {
+      "type": "object",
+      "properties": {
+        "signal_id":         { "type": "string", "format": "uuid" },
+        "kind":              { "type": "string", "minLength": 1 },
+        "source_kind":       { "type": "string" },
+        "source_id":         { "type": "string", "minLength": 1 },
+        "session_invariant": { "$ref": "#/definitions/SessionInvariant" },
+        "emitted_at":        { "type": "string", "format": "date-time" },
+        "payload":           {}
+      },
+      "required": ["signal_id", "kind", "source_kind", "source_id", "session_invariant", "emitted_at", "payload"]
+    },
+    "WidgetSignalEnvelope": {
+      "allOf": [
+        { "$ref": "#/definitions/SignalEnvelopeBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "signal_id": {}, "kind": {}, "source_kind": { "type": "string", "const": "widget" },
+            "source_id": {}, "session_invariant": {}, "emitted_at": {}, "payload": {}
+          },
+          "required": ["source_kind"]
+        }
+      ]
+    },
+    "SystemSignalEnvelope": {
+      "allOf": [
+        { "$ref": "#/definitions/SignalEnvelopeBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "signal_id": {}, "kind": {}, "source_kind": { "type": "string", "const": "system" },
+            "source_id": {}, "session_invariant": {}, "emitted_at": {}, "payload": {}
+          },
+          "required": ["source_kind"]
+        }
+      ]
+    },
+    "PredictionEnvelope": {
+      "allOf": [
+        { "$ref": "#/definitions/SignalEnvelopeBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "signal_id": {}, "kind": {}, "source_kind": { "type": "string", "const": "ml" },
+            "source_id": {}, "session_invariant": {}, "emitted_at": {}, "payload": {},
+            "model_version": { "type": "string", "minLength": 1 },
+            "confidence":    { "type": "number", "minimum": 0, "maximum": 1 },
+            "reasoning":     { "type": "string", "minLength": 1 },
+            "view_directive": {}
+          },
+          "required": ["source_kind", "model_version", "confidence", "reasoning"]
+        }
+      ]
+    },
+    "IntentSignalEnvelope": {
+      "allOf": [
+        { "$ref": "#/definitions/SignalEnvelopeBase" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "signal_id": {}, "kind": {}, "source_kind": { "type": "string", "const": "user" },
+            "source_id": {}, "session_invariant": {}, "emitted_at": {}, "payload": {},
+            "raw_text":      { "type": "string" },
+            "resolved_kind": { "type": "string" }
+          },
+          "required": ["source_kind"]
+        }
+      ]
+    }
+  }
+}
