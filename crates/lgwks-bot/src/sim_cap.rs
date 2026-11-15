@@ -30,9 +30,9 @@ use std::time::Duration;
 
 use crate::cap::{Cap, Demand, is_credential_status};
 use crate::clock::Clock;
-use crate::error::BotError;
+use crate::error::KernelError;
 use crate::gate::GrantSet;
-use crate::sim_stream::{RECEIPT_START, Stream, fold};
+use crate::sim_stream::{DrawError, RECEIPT_START, SimError, Stream, fold};
 
 /// The seeds every family replays.
 const SEEDS: [u64; 4] = [
@@ -63,7 +63,7 @@ const POOL: [&str; 10] = [
 type Outcome = Result<(), String>;
 
 /// Up to `most` drawn pool names, repeats allowed.
-fn names(stream: &mut Stream, most: usize) -> Result<Vec<&'static str>, String> {
+fn names(stream: &mut Stream, most: usize) -> Result<Vec<&'static str>, DrawError> {
     let count = stream.below(most.saturating_add(1))?;
     (0..count).map(|_| stream.choose(&POOL)).collect()
 }
@@ -135,16 +135,23 @@ fn sweep(mut check: impl FnMut(u64, &mut Stream, &Scenario) -> Outcome) -> Outco
 }
 
 /// The names a denial reports, or `None` for an admission.
-fn denied_names(result: Result<(), BotError>) -> Result<Option<Vec<String>>, String> {
+fn denied_names(
+    result: Result<(), KernelError>,
+    seed: u64,
+) -> Result<Option<Vec<String>>, SimError> {
     match result {
         Ok(()) => Ok(None),
-        Err(BotError::CapabilityDenied { deficit }) => Ok(Some(
+        Err(KernelError::CapabilityDenied { deficit }) => Ok(Some(
             deficit
                 .shortages()
                 .map(|shortage| shortage.required().as_str().to_owned())
                 .collect(),
         )),
-        Err(other) => Err(format!("expected a capability denial, got {other}")),
+        Err(other) => Err(SimError::Unexpected {
+            seed,
+            wanted: "a capability denial",
+            got: Box::new(other),
+        }),
     }
 }
 
@@ -153,7 +160,7 @@ fn denied_names(result: Result<(), BotError>) -> Result<Option<Vec<String>>, Str
 /// denial names exactly the reference shortfall.
 fn sim_admission_is_subset_and_a_denial_names_the_whole_shortfall() -> Outcome {
     sweep(|seed, _, scenario| {
-        let named = denied_names(scenario.grants().admit(&scenario.required_caps()))?;
+        let named = denied_names(scenario.grants().admit(&scenario.required_caps()), seed)?;
         let shortfall = scenario.shortfall();
         match named {
             None => assert!(
@@ -242,7 +249,7 @@ fn sim_the_deficit_repairs_exactly_the_shortfall() -> Outcome {
     sweep(|seed, _, scenario| {
         let held = scenario.grants();
         let required = scenario.required_caps();
-        let Err(BotError::CapabilityDenied { deficit }) = held.admit(&required) else {
+        let Err(KernelError::CapabilityDenied { deficit }) = held.admit(&required) else {
             return Ok(());
         };
         let repair = deficit.to_grant_set();
@@ -274,8 +281,8 @@ fn sim_granting_twice_changes_nothing() -> Outcome {
         for _ in 0..4 {
             let probe: Vec<Cap> = names(stream, 6)?.into_iter().map(Cap::new).collect();
             assert_eq!(
-                denied_names(once.admit(&probe))?,
-                denied_names(twice.admit(&probe))?,
+                denied_names(once.admit(&probe), seed)?,
+                denied_names(twice.admit(&probe), seed)?,
                 "seed {seed:#x}: re-granting changed a verdict"
             );
         }
@@ -341,7 +348,7 @@ fn sim_a_proof_expires_at_its_shortest_lifetime() -> Outcome {
         assert!(
             matches!(
                 proof.check(&required),
-                Err(BotError::CredentialExpired { .. })
+                Err(KernelError::CredentialExpired { .. })
             ),
             "seed {seed:#x}: the check reports the expiry"
         );
@@ -373,14 +380,14 @@ fn sim_expiry_and_coverage_are_reported_in_their_documented_order() -> Outcome {
         assert!(
             matches!(
                 proof.check(&outside),
-                Err(BotError::CredentialExpired { .. })
+                Err(KernelError::CredentialExpired { .. })
             ),
             "seed {seed:#x}: the same-clock check reports expiry first"
         );
         assert!(
             matches!(
                 proof.check_remote(&outside, &clock),
-                Err(BotError::CapabilityDenied { .. })
+                Err(KernelError::CapabilityDenied { .. })
             ),
             "seed {seed:#x}: the cross-host check reports the shortfall first"
         );
@@ -429,7 +436,7 @@ fn verdict_trace(seed: u64) -> Result<u64, String> {
     let mut trace = RECEIPT_START;
     for _ in 0..SCENARIOS {
         let scenario = Scenario::draw(&mut stream)?;
-        let verdict = denied_names(scenario.grants().admit(&scenario.required_caps()))?;
+        let verdict = denied_names(scenario.grants().admit(&scenario.required_caps()), seed)?;
         trace = fold(trace, format!("{verdict:?};").as_bytes());
     }
     Ok(trace)

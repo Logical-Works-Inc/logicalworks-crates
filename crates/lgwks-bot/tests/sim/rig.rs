@@ -31,7 +31,9 @@ use lgwks_bot::journal::{
     JournalEntry, JournalError, JournalPosition, MemoryJournal,
 };
 use lgwks_bot::spec::{Bot, EffectIdentity, EffectScope};
-use lgwks_bot::{Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, InputIdentity, Observe};
+use lgwks_bot::{
+    Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, InputIdentity, KernelError, Observe,
+};
 
 /// The value [`FixedSource`] yields on every poll.
 ///
@@ -323,7 +325,7 @@ impl Observe for FixedSource {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         Ok(VALUE)
     }
@@ -346,7 +348,7 @@ impl<T: Copy + PartialEq + InputIdentity + 'static> Observe for Requests<T> {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<T, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<T, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         Ok(*self.0.borrow())
     }
@@ -388,7 +390,7 @@ impl Execute for NoteWhatIsRecorded {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         let journal = self.store.borrow();
         let events: Vec<EffectEvent> = journal.events().copied().collect();
@@ -425,13 +427,13 @@ impl Execute for NeverSettles {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.entered.set(self.entered.get().saturating_add(1));
-        Err(BotError::EffectIndeterminate {
+        Err(EcsError::Kernel(KernelError::EffectIndeterminate {
             domain: "test::never_settles".to_owned(),
             cause: "the acknowledgement never arrived".to_owned(),
-        })
+        }))
     }
 
     fn domain_id(&self) -> &str {
@@ -457,7 +459,7 @@ impl Execute for AlwaysLands {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.entered.set(self.entered.get().saturating_add(1));
         Ok(())

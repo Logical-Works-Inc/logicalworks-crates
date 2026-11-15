@@ -19,6 +19,7 @@ rustc-workspace-wrapper = "clippy-driver"
 # 2026-11-11: 33,032 of 142,357 calls were "non-cacheable: incremental", a
 # 33.66 % hit rate, and `target/debug/incremental` held 12 GB. This repository's
 # value wins over the home one, so the manifest's profile is what builds.
+# `test` sets its own `incremental = true` in Cargo.toml and keeps it (ADR 0062).
 [profile.dev]
 incremental = false
 debug = 0

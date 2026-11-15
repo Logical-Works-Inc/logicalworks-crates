@@ -185,7 +185,7 @@ impl fmt::Display for WallStamp {
 /// ahead clock, and a behind clock is blind to it. Past the bound on the
 /// observer's own reading the lease is refused with the typed outcome the
 /// caller already matches on
-/// ([`crate::error::BotError::CredentialExpired`]).
+/// ([`crate::error::KernelError::CredentialExpired`]).
 ///
 /// Saturating: an expiry near the representable ceiling plus a bound is the
 /// ceiling, not a wrap into a refusal of everything.

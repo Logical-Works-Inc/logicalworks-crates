@@ -3,7 +3,8 @@
 
 use crate::cap::{Auth, Cap};
 use crate::clock::Clock;
-use crate::error::{BotError, DispatchCertainty};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
 use crate::verb;
 
 /// Execute actions in sequence. Each action's output feeds the next.
@@ -29,7 +30,7 @@ pub trait PipelineStep {
     fn run_any<'a>(
         &'a self,
         call: (Auth, &'a dyn std::any::Any),
-    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, BotError>>;
+    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, EcsError>>;
 
     #[doc(hidden)]
     /// [`PipelineStep::run_any`] on the clock of the flow that runs the step.
@@ -39,10 +40,9 @@ pub trait PipelineStep {
     /// [`Execute::execute_action_on`](crate::verb::Execute::execute_action_on).
     fn run_any_on<'a>(
         &'a self,
-        clock: &'a Clock,
+        _clock: &'a Clock,
         call: (Auth, &'a dyn std::any::Any),
-    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, BotError>> {
-        let _ = clock;
+    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, EcsError>> {
         self.run_any(call)
     }
 }
@@ -60,7 +60,7 @@ where
     fn run_any<'a>(
         &'a self,
         call: (Auth, &'a dyn std::any::Any),
-    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, BotError>> {
+    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, EcsError>> {
         pipeline_run(self, None, call)
     }
 
@@ -68,7 +68,7 @@ where
         &'a self,
         clock: &'a Clock,
         call: (Auth, &'a dyn std::any::Any),
-    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, BotError>> {
+    ) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, EcsError>> {
         pipeline_run(self, Some(clock), call)
     }
 }
@@ -82,7 +82,7 @@ fn pipeline_run<'a, A>(
     step: &'a A,
     clock: Option<&'a Clock>,
     call: (Auth, &'a dyn std::any::Any),
-) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, BotError>>
+) -> crate::BoxFuture<'a, Result<Box<dyn std::any::Any>, EcsError>>
 where
     A: verb::Execute + 'static,
     A::Input: 'static,
@@ -99,11 +99,11 @@ where
                 let boxed: Box<dyn std::any::Any> = Box::new(value);
                 Ok(boxed)
             }
-            None => Err(BotError::DomainError {
+            None => Err(EcsError::from(KernelError::DomainError {
                 domain: verb::Execute::domain_id(step).into(),
                 certainty: DispatchCertainty::Refused,
                 cause: "type mismatch in pipeline step input".into(),
-            }),
+            })),
         }
     })
 }
@@ -188,7 +188,7 @@ impl verb::Execute for Pipeline {
         &self.caps
     }
 
-    async fn execute_action(&self, call: (Auth, &())) -> Result<PipelineOutput, BotError> {
+    async fn execute_action(&self, call: (Auth, &())) -> Result<PipelineOutput, EcsError> {
         let (auth, _) = call;
         auth.check(verb::Execute::required_caps(self))?;
         let mut current: Box<dyn std::any::Any> = Box::new(());
@@ -203,7 +203,7 @@ impl verb::Execute for Pipeline {
         &self,
         clock: &Clock,
         call: (Auth, &()),
-    ) -> Result<PipelineOutput, BotError> {
+    ) -> Result<PipelineOutput, EcsError> {
         let (auth, _) = call;
         auth.check(verb::Execute::required_caps(self))?;
         let mut current: Box<dyn std::any::Any> = Box::new(());

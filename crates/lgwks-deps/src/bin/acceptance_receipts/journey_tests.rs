@@ -3,7 +3,7 @@
 
 use std::error::Error;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::fixture::Fixture;
 use crate::{Streams, execute};
@@ -187,6 +187,170 @@ fn a_named_test_no_shard_reported_is_not_run() -> TestResult {
     let (code, _, err) = run(&arguments)?;
     assert_eq!(code, 1, "{err}");
     assert!(err.contains("T02::it::b::one_t02 was not run"), "{err}");
+    Ok(())
+}
+
+/// The file that holds the module `name`, declared in `file` (`mod name;` with an
+/// optional `#[path]`, or `mod name {` inline), as rustc resolves it.
+fn module_file(file: &Path, name: &str) -> Result<Option<PathBuf>, Box<dyn Error>> {
+    let source = fs::read_to_string(file)?;
+    let lines: Vec<&str> = source.lines().map(str::trim).collect();
+    let dir = file.parent().ok_or("a source file has a parent")?;
+    for (at, line) in lines.iter().enumerate() {
+        let bare = match line.strip_prefix("pub") {
+            Some(rest) if rest.starts_with(' ') || rest.starts_with('(') => {
+                match rest.split_once(' ') {
+                    Some((_, tail)) => tail,
+                    None => continue,
+                }
+            }
+            _ => line,
+        };
+        if bare == format!("mod {name} {{") {
+            return Ok(Some(file.to_path_buf()));
+        }
+        if bare != format!("mod {name};") {
+            continue;
+        }
+        for attribute in lines
+            .iter()
+            .take(at)
+            .rev()
+            .take_while(|above| above.starts_with("#["))
+        {
+            if let Some(path) = attribute
+                .strip_prefix("#[path = \"")
+                .and_then(|rest| rest.strip_suffix("\"]"))
+            {
+                return Ok(Some(dir.join(path)));
+            }
+        }
+        let owner = matches!(
+            file.file_name().and_then(|stem| stem.to_str()),
+            Some("mod.rs" | "main.rs" | "lib.rs")
+        );
+        let base = if owner {
+            dir.to_path_buf()
+        } else {
+            dir.join(file.file_stem().ok_or("a source file has a stem")?)
+        };
+        let flat = base.join(format!("{name}.rs"));
+        return Ok(Some(if flat.is_file() {
+            flat
+        } else {
+            base.join(name).join("mod.rs")
+        }));
+    }
+    Ok(None)
+}
+
+/// Whether `source` holds `name` as a whole identifier, which a `fn` or a
+/// test-generating macro's argument both are.
+fn holds_identifier(source: &str, name: &str) -> bool {
+    let word = |ch: char| ch.is_ascii_alphanumeric() || ch == '_';
+    source.match_indices(name).any(|(at, _)| {
+        let before = source.get(..at);
+        let after = source.get(at..).and_then(|rest| rest.strip_prefix(name));
+        let (Some(before), Some(after)) = (before, after) else {
+            return false;
+        };
+        !before.chars().next_back().is_some_and(word) && !after.chars().next().is_some_and(word)
+    })
+}
+
+/// Every name the committed maps list is a test its module path reaches, so a test
+/// file split that moves a test without its map entry fails here, before the CI
+/// receipt step reports the test as not run (#1063's split left 68 Linux map names
+/// stale that way).
+#[test]
+fn every_committed_map_name_reaches_a_declared_test() -> TestResult {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let bot = repo.join("crates/lgwks-bot");
+    let (mut named, mut lost) = (0_usize, Vec::new());
+    for map in ["t-rows.toml", "t-rows-darwin.toml", "t-rows-windows.toml"] {
+        let (_, rows) = crate::render::load_rows(&repo.join("docs/acceptance").join(map))?;
+        for (row, test) in rows
+            .iter()
+            .flat_map(|row| row.tests.iter().map(move |test| (&row.id, test)))
+        {
+            named = named.saturating_add(1);
+            let mut segments: Vec<&str> = test.split("::").collect();
+            let (Some(leaf), Some(binary)) = (segments.pop(), segments.first().copied()) else {
+                lost.push(format!("{map} {row}: {test} is not <binary>::<test>"));
+                continue;
+            };
+            let flat = bot.join("tests").join(format!("{binary}.rs"));
+            let mut file = Some(match binary {
+                "lgwks_bot" => bot.join("src/lib.rs"),
+                _ if flat.is_file() => flat,
+                _ => bot.join("tests").join(binary).join("main.rs"),
+            });
+            for segment in segments.iter().skip(1) {
+                file = match file {
+                    Some(parent) if parent.is_file() => module_file(&parent, segment)?,
+                    _ => None,
+                };
+            }
+            let found = match file.as_ref() {
+                Some(path) if path.is_file() => holds_identifier(&fs::read_to_string(path)?, leaf),
+                _ => false,
+            };
+            if !found {
+                lost.push(format!(
+                    "{map} {row}: {test} is not declared where its path leads ({file:?})"
+                ));
+            }
+        }
+    }
+    assert!(named > 500, "the three maps name {named} tests");
+    assert!(
+        lost.is_empty(),
+        "{} map names reach no test:\n{}",
+        lost.len(),
+        lost.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+fn a_module_path_resolves_through_path_attributes_inline_modules_and_mod_rs() -> TestResult {
+    let fixture = Fixture::claim(&std::env::temp_dir(), "lgwks-acceptance-modules")?;
+    let root = fixture.path();
+    fs::create_dir_all(root.join("parent/deep"))?;
+    fs::write(
+        root.join("main.rs"),
+        "#[cfg(test)]\n#[path = \"elsewhere/moved.rs\"]\nmod moved;\npub(crate) mod parent;\nmod inline {\n}\n",
+    )?;
+    fs::write(root.join("parent.rs"), "mod child;\nmod deep;\n")?;
+    fs::write(root.join("parent/child.rs"), "fn a_case_t01() {}\n")?;
+    fs::write(root.join("parent/deep/mod.rs"), "fn other() {}\n")?;
+    let main = root.join("main.rs");
+    assert_eq!(
+        module_file(&main, "moved")?,
+        Some(root.join("elsewhere/moved.rs"))
+    );
+    assert_eq!(module_file(&main, "parent")?, Some(root.join("parent.rs")));
+    assert_eq!(module_file(&main, "inline")?, Some(main.clone()));
+    assert_eq!(module_file(&main, "absent")?, None);
+    let parent = root.join("parent.rs");
+    assert_eq!(
+        module_file(&parent, "child")?,
+        Some(root.join("parent/child.rs"))
+    );
+    assert_eq!(
+        module_file(&parent, "deep")?,
+        Some(root.join("parent/deep/mod.rs"))
+    );
+    let child = fs::read_to_string(root.join("parent/child.rs"))?;
+    assert!(holds_identifier(&child, "a_case_t01"));
+    assert!(
+        !holds_identifier(&child, "a_case"),
+        "a prefix is not the identifier"
+    );
+    assert!(
+        !holds_identifier(&child, "case_t01"),
+        "a suffix is not the identifier"
+    );
     Ok(())
 }
 

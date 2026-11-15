@@ -23,7 +23,7 @@ use crate::effect::{
     ActionDigest, ActionId, AttemptId, EffectIdentity, EffectKey, EffectKeyError, EnvironmentEpoch,
     EnvironmentId, FlowRevision, RunId,
 };
-use crate::sim_stream::{RECEIPT_START, Stream, TempDir, fold};
+use crate::sim_stream::{DrawError, RECEIPT_START, Stream, TempDir, fold};
 
 /// A test's outcome.
 type Outcome = Result<(), Box<dyn std::error::Error>>;
@@ -107,7 +107,7 @@ enum WalkError {
     /// The scratch device refused.
     Io(std::io::Error),
     /// The draw stream refused an empty range.
-    Draw(String),
+    Draw(DrawError),
     /// A continuing journal declined to continue.
     NotContinued,
 }
@@ -124,8 +124,8 @@ impl From<std::io::Error> for WalkError {
     }
 }
 
-impl From<String> for WalkError {
-    fn from(cause: String) -> Self {
+impl From<DrawError> for WalkError {
+    fn from(cause: DrawError) -> Self {
         Self::Draw(cause)
     }
 }

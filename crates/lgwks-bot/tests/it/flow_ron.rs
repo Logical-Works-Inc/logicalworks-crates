@@ -5,7 +5,7 @@
 //! codec arrives: that the notation changes the *spelling* only, and never
 //! which documents are acceptable.
 
-use lgwks_bot::{BotError, FlowSpec};
+use lgwks_bot::{FlowSpec, SessionError};
 
 /// A minimal valid flow, in each notation.
 const RON: &str = r#"FlowSpec(
@@ -27,7 +27,7 @@ const JSON: &str = r#"{
 ///
 /// Returned rather than matched so the assertions below carry the whole
 /// refusal in their message.
-fn refusals(ron: &str, json: &str) -> [Option<BotError>; 2] {
+fn refusals(ron: &str, json: &str) -> [Option<SessionError>; 2] {
     [
         FlowSpec::from_ron(ron).err(),
         FlowSpec::from_json(json).err(),
@@ -35,25 +35,25 @@ fn refusals(ron: &str, json: &str) -> [Option<BotError>; 2] {
 }
 
 /// The `(node, kind)` an unknown-node-kind refusal named, if that is what it was.
-fn unknown_kind(decoded: Result<FlowSpec, BotError>) -> Option<(String, String)> {
+fn unknown_kind(decoded: Result<FlowSpec, SessionError>) -> Option<(String, String)> {
     match decoded.err() {
-        Some(BotError::UnknownNodeKind { node, kind }) => Some((node, kind)),
+        Some(SessionError::UnknownNodeKind { node, kind }) => Some((node, kind)),
         _ => None,
     }
 }
 
 /// The `(bytes, limit)` an oversize refusal named, if that is what it was.
-fn too_large(decoded: Result<FlowSpec, BotError>) -> Option<(usize, usize)> {
+fn too_large(decoded: Result<FlowSpec, SessionError>) -> Option<(usize, usize)> {
     match decoded.err() {
-        Some(BotError::FlowTooLarge { bytes, limit }) => Some((bytes, limit)),
+        Some(SessionError::FlowTooLarge { bytes, limit }) => Some((bytes, limit)),
         _ => None,
     }
 }
 
 /// The diagnostic a malformed refusal carried, if that is what it was.
-fn malformed(decoded: Result<FlowSpec, BotError>) -> Option<String> {
+fn malformed(decoded: Result<FlowSpec, SessionError>) -> Option<String> {
     match decoded.err() {
-        Some(BotError::MalformedFlow { cause }) => Some(cause),
+        Some(SessionError::MalformedFlow { cause }) => Some(cause),
         _ => None,
     }
 }
@@ -156,7 +156,7 @@ fn an_oversized_document_is_refused() {
         .zip(refusals(&oversized_ron, &oversized_json))
     {
         assert!(
-            matches!(error, Some(BotError::FlowTooLarge { .. })),
+            matches!(error, Some(SessionError::FlowTooLarge { .. })),
             "{notation}: expected FlowTooLarge, got {error:?}"
         );
     }
@@ -188,7 +188,7 @@ fn a_refusal_escapes_control_characters() {
 
     for source in hostile {
         for error in refusals(source, source) {
-            if let Some(BotError::MalformedFlow { cause }) = error {
+            if let Some(SessionError::MalformedFlow { cause }) = error {
                 assert!(
                     !cause.chars().any(char::is_control),
                     "a diagnostic carried a control character: {cause:?}"

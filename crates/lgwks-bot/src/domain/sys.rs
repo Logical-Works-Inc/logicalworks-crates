@@ -17,11 +17,12 @@
 //!   and the supervisor has reaped the whole group.
 //! - **Dispatch certainty is not a single answer.** A refusal before the fork
 //!   is [`DispatchCertainty::Refused`] — nothing ran; a failure after the child
-//!   started is [`BotError::EffectIndeterminate`] — it ran and the outcome is
+//!   started is [`KernelError::EffectIndeterminate`] — it ran and the outcome is
 //!   unknown.
 
 use crate::cap::{Auth, Cap};
-use crate::error::{BotError, DispatchCertainty};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
 use crate::verb;
 
 #[cfg(feature = "process")]
@@ -249,11 +250,11 @@ impl Process {
     /// The three error arms are the whole retry contract: a refusal or a failed
     /// start established that nothing ran, so the certainty is
     /// [`DispatchCertainty::Refused`]; a failure after the child started
-    /// established that it did run, so it is [`BotError::EffectIndeterminate`]
+    /// established that it did run, so it is [`KernelError::EffectIndeterminate`]
     /// and never `Refused`.
-    async fn run_once(&self) -> Result<ProcessState, BotError> {
+    async fn run_once(&self) -> Result<ProcessState, KernelError> {
         let Ok(_slot) = self.slots.acquire().await else {
-            let refusal = Err(BotError::DomainError {
+            let refusal = Err(KernelError::DomainError {
                 domain: String::from("sys::process"),
                 certainty: DispatchCertainty::Refused,
                 cause: String::from("the process slots were closed before the process started"),
@@ -264,17 +265,17 @@ impl Process {
         let mut supervisor = Supervisor::new(1);
         match supervisor.run_process(&self.spec).await {
             Ok(run) => Ok(ProcessState::from_run(&run, self.frame_stdout)),
-            Err(ProcessRunError::Refused) => Err(BotError::DomainError {
+            Err(ProcessRunError::Refused) => Err(KernelError::DomainError {
                 domain: String::from("sys::process"),
                 certainty: DispatchCertainty::Refused,
                 cause: String::from("the supervisor was cancelled before the process started"),
             }),
-            Err(ProcessRunError::NotStarted { source }) => Err(BotError::DomainError {
+            Err(ProcessRunError::NotStarted { source }) => Err(KernelError::DomainError {
                 domain: String::from("sys::process"),
                 certainty: DispatchCertainty::Refused,
                 cause: format!("the process did not start: {source}"),
             }),
-            Err(ProcessRunError::AfterStart { source }) => Err(BotError::EffectIndeterminate {
+            Err(ProcessRunError::AfterStart { source }) => Err(KernelError::EffectIndeterminate {
                 domain: String::from("sys::process"),
                 cause: format!("the process started but its outcome is unknown: {source}"),
             }),
@@ -333,15 +334,15 @@ impl Process {
     /// method rather than about each verb: a build with no runner has no
     /// supervised process to bind to, so the refusal names the verb and the
     /// command it was asked to run.
-    async fn dispatch(&self, verb: &'static str) -> Result<ProcessState, BotError> {
+    async fn dispatch(&self, verb: &'static str) -> Result<ProcessState, KernelError> {
         #[cfg(feature = "process")]
         {
-            let _ = verb;
+            lgwks_std::trace::debug!(verb, "sys::process: running the bound command once");
             self.run_once().await
         }
         #[cfg(not(feature = "process"))]
         {
-            Err(BotError::DomainError {
+            Err(KernelError::DomainError {
                 domain: String::from("sys::process"),
                 certainty: DispatchCertainty::Refused,
                 cause: format!("{verb} {:?} — binding required", self.command),
@@ -357,12 +358,12 @@ impl verb::Observe for Process {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<ProcessState, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<ProcessState, EcsError> {
         call.0.check(self.required_caps())?;
         // A one-shot process has no persistent state to read, so the observed
         // value is the result of running it: the ECS schedule fires the chain
         // when that state moves.
-        self.dispatch("polling").await
+        Ok(self.dispatch("polling").await?)
     }
 
     fn domain_id(&self) -> &str {
@@ -378,9 +379,9 @@ impl verb::Execute for Process {
         &self.caps
     }
 
-    async fn execute_action(&self, call: (Auth, &())) -> Result<ProcessState, BotError> {
+    async fn execute_action(&self, call: (Auth, &())) -> Result<ProcessState, EcsError> {
         call.0.check(self.required_caps())?;
-        self.dispatch("executing").await
+        Ok(self.dispatch("executing").await?)
     }
 
     fn domain_id(&self) -> &str {
@@ -396,12 +397,12 @@ impl verb::Query for Process {
         &self.caps
     }
 
-    async fn query(&self, call: (Auth, &())) -> Result<ProcessState, BotError> {
+    async fn query(&self, call: (Auth, &())) -> Result<ProcessState, EcsError> {
         call.0.check(self.required_caps())?;
         // The read-only probe form: it runs the same command and reports, and
         // by construction performs no write of its own beyond what the command
         // does. A command with an effect belongs in `Execute`.
-        self.dispatch("querying").await
+        Ok(self.dispatch("querying").await?)
     }
 
     fn domain_id(&self) -> &str {

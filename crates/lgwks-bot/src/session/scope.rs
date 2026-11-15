@@ -1,7 +1,7 @@
 //! Variable scope, compiled templates and the interpolator. Split from `session.rs` (#526).
 
 use super::{
-    AnswerDomain, BTreeMap, BotError, MAX_RECORD_BYTES, MAX_VALUE_BYTES, Value, VarType, bound,
+    AnswerDomain, BTreeMap, MAX_RECORD_BYTES, MAX_VALUE_BYTES, SessionError, Value, VarType, bound,
     valid_identifier, validate_declarations,
 };
 
@@ -17,7 +17,19 @@ pub struct VarScope {
 
 impl VarScope {
     /// Construct an empty-value scope from declarations.
-    pub fn new(declarations: BTreeMap<String, VarType>) -> Result<Self, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{VarScope, VarType};
+    ///
+    /// let scope = VarScope::new(BTreeMap::from([("size".to_owned(), VarType::Integer)]))?;
+    /// assert!(scope.values().is_empty());
+    /// assert!(VarScope::new(BTreeMap::from([("not valid".to_owned(), VarType::Integer)])).is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn new(declarations: BTreeMap<String, VarType>) -> Result<Self, SessionError> {
         validate_declarations(&declarations)?;
         Ok(Self {
             declarations,
@@ -58,9 +70,23 @@ impl VarScope {
     }
 
     /// Assign a typed value after checking its declaration.
-    pub fn set(&mut self, name: &str, value: Value) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{Value, VarScope, VarType};
+    ///
+    /// let mut scope = VarScope::new(BTreeMap::from([("size".to_owned(), VarType::Integer)]))?;
+    /// scope.set("size", Value::Integer(3))?;
+    /// assert_eq!(scope.get("size"), Some(&Value::Integer(3)));
+    /// assert!(scope.set("size", Value::Boolean(true)).is_err());
+    /// assert!(scope.set("colour", Value::Integer(1)).is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn set(&mut self, name: &str, value: Value) -> Result<(), SessionError> {
         let Some(declared) = self.declarations.get(name) else {
-            let refusal = Err(BotError::UndeclaredVariable {
+            let refusal = Err(SessionError::UndeclaredVariable {
                 name: name.to_owned(),
             });
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "set: returning an error to the caller");
@@ -70,7 +96,7 @@ impl VarScope {
             self.values.insert(name.to_owned(), value);
             Ok(())
         } else {
-            Err(BotError::VariableTypeMismatch {
+            Err(SessionError::VariableTypeMismatch {
                 name: name.to_owned(),
             })
         }
@@ -83,7 +109,20 @@ impl VarScope {
     /// the candidate that reaches here is one validation already accepted. It
     /// stays a `Result` because this method is public and a caller may hold a
     /// scope that no `FlowSpec` validated.
-    pub fn set_from_answer(&mut self, name: &str, answer: &str) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{Value, VarScope, VarType};
+    ///
+    /// let mut scope = VarScope::new(BTreeMap::from([("size".to_owned(), VarType::Integer)]))?;
+    /// scope.set_from_answer("size", " 42 ")?;
+    /// assert_eq!(scope.get("size"), Some(&Value::Integer(42)));
+    /// assert!(scope.set_from_answer("size", "large").is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn set_from_answer(&mut self, name: &str, answer: &str) -> Result<(), SessionError> {
         self.set_from_answer_within(name, answer, MAX_VALUE_BYTES)
     }
 
@@ -96,17 +135,17 @@ impl VarScope {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::InvalidVariableValue`] for an answer the declared
-    /// type cannot hold, and [`BotError::ValueTooLarge`] for one that decodes
+    /// Returns [`SessionError::InvalidVariableValue`] for an answer the declared
+    /// type cannot hold, and [`SessionError::ValueTooLarge`] for one that decodes
     /// to a value wider than `value_bytes`.
     pub fn set_from_answer_within(
         &mut self,
         name: &str,
         answer: &str,
         value_bytes: usize,
-    ) -> Result<(), BotError> {
+    ) -> Result<(), SessionError> {
         let Some(declared) = self.declarations.get(name) else {
-            let refusal = Err(BotError::UndeclaredVariable {
+            let refusal = Err(SessionError::UndeclaredVariable {
                 name: name.to_owned(),
             });
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "set_from_answer_within: returning an error to the caller");
@@ -119,17 +158,16 @@ impl VarScope {
         // "cannot hold this" error, and naming *why* keeps a caller from having
         // to guess between a non-integer, an out-of-range integer, a bad boolean
         // and an undeclared choice.
-        let value =
-            declared
-                .decode_answer(answer)
-                .map_err(|rejection| BotError::InvalidVariableValue {
-                    variable: name.to_owned(),
-                    value: answer.to_owned(),
-                    reason: rejection.to_string(),
-                })?;
+        let value = declared.decode_answer(answer).map_err(|rejection| {
+            SessionError::InvalidVariableValue {
+                variable: name.to_owned(),
+                value: answer.to_owned(),
+                reason: rejection.to_string(),
+            }
+        })?;
         let bytes = value.rendered_bytes();
         if bytes > value_bytes {
-            let refusal = Err(BotError::ValueTooLarge {
+            let refusal = Err(SessionError::ValueTooLarge {
                 variable: name.to_owned(),
                 bytes,
                 limit: value_bytes,
@@ -145,10 +183,23 @@ impl VarScope {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::MalformedTemplate`] for invalid syntax,
-    /// [`BotError::VariableUnset`] for an unresolved marker, and
-    /// [`BotError::TemplateExpansionTooLarge`] past the ceiling.
-    pub fn interpolate(&self, template: &str) -> Result<String, BotError> {
+    /// Returns [`SessionError::MalformedTemplate`] for invalid syntax,
+    /// [`SessionError::VariableUnset`] for an unresolved marker, and
+    /// [`SessionError::TemplateExpansionTooLarge`] past the ceiling.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{VarScope, VarType};
+    ///
+    /// let mut scope = VarScope::new(BTreeMap::from([("name".to_owned(), VarType::String)]))?;
+    /// assert!(scope.interpolate("hello ${name}").is_err());
+    /// scope.set_from_answer("name", "Ada")?;
+    /// assert_eq!(scope.interpolate("hello ${name}")?, "hello Ada");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn interpolate(&self, template: &str) -> Result<String, SessionError> {
         self.interpolate_within(template, MAX_RECORD_BYTES)
     }
 
@@ -167,7 +218,7 @@ impl VarScope {
         &self,
         template: &str,
         record_bytes: usize,
-    ) -> Result<String, BotError> {
+    ) -> Result<String, SessionError> {
         TemplateInterpolator::new().interpolate(template, self, "<scope>", record_bytes)
     }
 }
@@ -228,9 +279,23 @@ impl<'a> CompiledTemplate<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::MalformedTemplate`] for an unterminated marker or a
+    /// Returns [`SessionError::MalformedTemplate`] for an unterminated marker or a
     /// name that is not an identifier.
-    pub fn compile(template: &'a str) -> Result<Self, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::session::{CompiledTemplate, TemplatePart};
+    ///
+    /// let template = CompiledTemplate::compile("hi ${name}")?;
+    /// assert_eq!(
+    ///     template.parts(),
+    ///     &[TemplatePart::Literal("hi "), TemplatePart::Variable("name")]
+    /// );
+    /// assert!(CompiledTemplate::compile("hi ${name").is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn compile(template: &'a str) -> Result<Self, SessionError> {
         let mut parts = Vec::new();
         let mut cursor = 0;
         while let Some(relative_start) = template[cursor..].find("${") {
@@ -240,7 +305,7 @@ impl<'a> CompiledTemplate<'a> {
             }
             let name_start = start.saturating_add(2);
             let Some(relative_end) = template[name_start..].find('}') else {
-                let refusal = Err(BotError::MalformedTemplate {
+                let refusal = Err(SessionError::MalformedTemplate {
                     node: "<runtime>".into(),
                     field: "template",
                 });
@@ -250,7 +315,7 @@ impl<'a> CompiledTemplate<'a> {
             let end = name_start.saturating_add(relative_end);
             let name = &template[name_start..end];
             if !valid_identifier(name) {
-                let refusal = Err(BotError::MalformedTemplate {
+                let refusal = Err(SessionError::MalformedTemplate {
                     node: "<runtime>".into(),
                     field: "template",
                 });
@@ -280,11 +345,25 @@ impl<'a> CompiledTemplate<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::VariableUnset`] for a marker with no value, or
-    /// [`BotError::TemplateExpansionTooLarge`] with `bytes` of [`usize::MAX`]
+    /// Returns [`SessionError::VariableUnset`] for a marker with no value, or
+    /// [`SessionError::TemplateExpansionTooLarge`] with `bytes` of [`usize::MAX`]
     /// if the sum overflows, which no real expansion can and which is reported
     /// rather than wrapped.
-    pub fn expanded_bytes(&self, scope: &VarScope) -> Result<usize, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{CompiledTemplate, VarScope, VarType};
+    ///
+    /// let mut scope = VarScope::new(BTreeMap::from([("name".to_owned(), VarType::String)]))?;
+    /// let template = CompiledTemplate::compile("hi ${name}")?;
+    /// assert!(template.expanded_bytes(&scope).is_err());
+    /// scope.set_from_answer("name", "Ada")?;
+    /// assert_eq!(template.expanded_bytes(&scope)?, 6);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn expanded_bytes(&self, scope: &VarScope) -> Result<usize, SessionError> {
         let mut total = 0usize;
         for part in &self.parts {
             let bytes = match *part {
@@ -293,7 +372,7 @@ impl<'a> CompiledTemplate<'a> {
             };
             total = total
                 .checked_add(bytes)
-                .ok_or(BotError::TemplateExpansionTooLarge {
+                .ok_or(SessionError::TemplateExpansionTooLarge {
                     node: "<runtime>".into(),
                     bytes: usize::MAX,
                     limit: usize::MAX,
@@ -313,10 +392,23 @@ impl<'a> CompiledTemplate<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::VariableUnset`] if a value disappeared between
+    /// Returns [`SessionError::VariableUnset`] if a value disappeared between
     /// sizing and rendering. A scope is not mutated during a render, so this is
     /// reachable only through a caller that interleaves the two.
-    pub fn render(&self, scope: &VarScope) -> Result<String, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{CompiledTemplate, VarScope, VarType};
+    ///
+    /// let mut scope = VarScope::new(BTreeMap::from([("name".to_owned(), VarType::String)]))?;
+    /// scope.set_from_answer("name", "Ada")?;
+    /// let template = CompiledTemplate::compile("hi ${name}")?;
+    /// assert_eq!(template.render(&scope)?, "hi Ada");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn render(&self, scope: &VarScope) -> Result<String, SessionError> {
         let mut output = String::new();
         for part in &self.parts {
             match *part {
@@ -419,16 +511,16 @@ pub trait Interpolate {
     ///
     /// # Errors
     ///
-    /// Returns [`BotError::MalformedTemplate`] for invalid syntax,
-    /// [`BotError::VariableUnset`] for an unresolved marker, and
-    /// [`BotError::TemplateExpansionTooLarge`] for an expansion over `limit`.
+    /// Returns [`SessionError::MalformedTemplate`] for invalid syntax,
+    /// [`SessionError::VariableUnset`] for an unresolved marker, and
+    /// [`SessionError::TemplateExpansionTooLarge`] for an expansion over `limit`.
     fn interpolate(
         &self,
         template: &str,
         scope: &VarScope,
         node: &str,
         limit: usize,
-    ) -> Result<String, BotError>;
+    ) -> Result<String, SessionError>;
 }
 
 /// The shipped bounded interpolation implementation.
@@ -456,12 +548,12 @@ impl Interpolate for TemplateInterpolator {
         scope: &VarScope,
         node: &str,
         limit: usize,
-    ) -> Result<String, BotError> {
+    ) -> Result<String, SessionError> {
         let compiled = CompiledTemplate::compile(template).map_err(|error| match error {
             // The compile-time diagnostics name the runtime as their node,
             // because the compiler is not handed the node it is compiling for.
             // Here it is known, so it replaces the placeholder.
-            BotError::MalformedTemplate { field, .. } => BotError::MalformedTemplate {
+            SessionError::MalformedTemplate { field, .. } => SessionError::MalformedTemplate {
                 node: node.to_owned(),
                 field,
             },
@@ -469,7 +561,7 @@ impl Interpolate for TemplateInterpolator {
         })?;
         let bytes = compiled.expanded_bytes(scope)?;
         if bytes > limit {
-            let refusal = Err(BotError::TemplateExpansionTooLarge {
+            let refusal = Err(SessionError::TemplateExpansionTooLarge {
                 node: node.to_owned(),
                 bytes,
                 limit,

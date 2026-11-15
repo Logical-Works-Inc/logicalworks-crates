@@ -204,18 +204,12 @@ fn simulate(reviewed: &str, fault: Fault, body: &str) -> Result<Trace, Box<dyn s
     }
 
     // Publish, exactly once, whatever the response did.
-    let mut created = match fault {
-        Fault::CreateRefused => None,
-        _ => {
-            creates = creates.saturating_add(1);
-            let id = receiver.apply(reviewed, &payload)?;
-            Some(id)
-        }
-    };
-    if fault == Fault::ResponseLost {
-        // The response is lost; the run cannot know the id, and must not ask
-        // for a second create.
-        created = None;
+    // A lost response leaves the run without the id, and it must not ask for a
+    // second create; the id is never consulted either way, because verification
+    // reads the receiver rather than the create's answer.
+    if fault != Fault::CreateRefused {
+        creates = creates.saturating_add(1);
+        receiver.apply(reviewed, &payload)?;
     }
 
     // Verify: a separate observation of the receiver, never the create's exit.
@@ -241,12 +235,9 @@ fn simulate(reviewed: &str, fault: Fault, body: &str) -> Result<Trace, Box<dyn s
             outcome: Outcome::Published,
             creates,
         },
-        None => {
-            // A create that returned an id the read-back does not return is a
-            // contradiction, not a success and not a silent re-post.
-            let _ = created;
-            unknown(reviewed, creates)
-        }
+        // A create whose review the read-back does not return is a
+        // contradiction, not a success and not a silent re-post.
+        None => unknown(reviewed, creates),
     })
 }
 
@@ -578,7 +569,8 @@ fn argument_vectors_r64() -> TestResult {
 /// to.
 #[test]
 fn certainty_classification_r64() -> TestResult {
-    use lgwks_bot::error::{BotError, DispatchCertainty};
+    use lgwks_bot::EcsError;
+    use lgwks_bot::error::{DispatchCertainty, KernelError};
 
     let mut hashes = Vec::new();
     let mut seen_refused = 0_u32;
@@ -640,8 +632,10 @@ fn certainty_classification_r64() -> TestResult {
         let shown = error.to_string();
         let certainty = match lgwks_bot::script::FlowError::from(error) {
             lgwks_bot::script::FlowError::Bot { ref source, .. } => match **source {
-                BotError::DomainError { certainty, .. } => certainty,
-                BotError::EffectIndeterminate { .. } => DispatchCertainty::Unsettled,
+                EcsError::Kernel(KernelError::DomainError { certainty, .. }) => certainty,
+                EcsError::Kernel(KernelError::EffectIndeterminate { .. }) => {
+                    DispatchCertainty::Unsettled
+                }
                 ref other => return Err(format!("{shown}: unexpected bot error {other}").into()),
             },
             other => return Err(format!("{shown}: not a bot error: {other}").into()),

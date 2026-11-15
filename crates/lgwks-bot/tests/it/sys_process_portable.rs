@@ -9,12 +9,13 @@
 #![cfg(all(not(unix), feature = "process"))]
 
 use lgwks_bot::domain::sys::Process;
+use lgwks_bot::error::KernelError;
 use lgwks_bot::rt::process::{ProcessRunError, ProcessSpec};
 use lgwks_bot::rt::supervise::Supervisor;
 use lgwks_bot::{Auth, BotError, Cap, DispatchCertainty, Execute, GrantSet};
 
 /// An `Auth` covering `bot.sys`.
-fn sys_auth() -> Result<Auth, BotError> {
+fn sys_auth() -> Result<Auth, KernelError> {
     GrantSet::empty().grant(Cap::sys()).issue(&[Cap::sys()])
 }
 
@@ -53,10 +54,11 @@ fn the_sys_domain_refuses_without_a_runner() -> Result<(), Box<dyn std::error::E
     let error = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })
         .err()
         .ok_or("a non-Unix process must be refused rather than run")?;
+    let shown = error.to_string();
     assert_eq!(
-        error.dispatch_certainty(),
+        BotError::from(error).dispatch_certainty(),
         DispatchCertainty::Refused,
-        "nothing ran, so the certainty is Refused: {error}"
+        "nothing ran, so the certainty is Refused: {shown}"
     );
     Ok(())
 }

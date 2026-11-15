@@ -20,14 +20,14 @@ use std::time::Duration;
 
 use crate::scratch::Scratch;
 
-use lgwks_bot::cap::{Cap, upstream_credential_rejection};
+use lgwks_bot::cap::Cap;
 use lgwks_bot::clock::Clock;
 use lgwks_bot::domain::data::JsonStore;
 use lgwks_bot::domain::gh::GhError;
-use lgwks_bot::error::BotError;
-use lgwks_bot::spec::{Need, NeedSet};
+use lgwks_bot::error::KernelError;
+use lgwks_bot::spec::{Need, NeedSet, upstream_credential_rejection};
 use lgwks_bot::verb::Observe;
-use lgwks_bot::{GrantSet, RetryClass};
+use lgwks_bot::{EcsError, GrantSet, RetryClass};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -47,7 +47,7 @@ fn real_store(tag: &str) -> Result<(Scratch, JsonStore), Box<dyn Error>> {
 }
 
 /// Poll a store with `auth`, keeping the error rather than its classification.
-async fn poll_with(store: &JsonStore, auth: &lgwks_bot::Auth) -> Result<String, BotError> {
+async fn poll_with(store: &JsonStore, auth: &lgwks_bot::Auth) -> Result<String, EcsError> {
     Observe::poll(store, (auth.clone(), ()))
         .await
         .map(|state| state.raw().to_owned())
@@ -81,11 +81,11 @@ fn a_proof_that_lapses_mid_run_refuses_the_verb() -> TestResult {
             "a credential that expired {ELAPSED:?} ago must not read the store, but it \
              returned {raw}"
         )))),
-        Err(BotError::CredentialExpired {
+        Err(EcsError::Kernel(KernelError::CredentialExpired {
             ref capabilities,
             expired_at,
             now,
-        }) => {
+        })) => {
             assert_eq!(
                 capabilities,
                 &[Cap::fs()],
@@ -204,7 +204,7 @@ fn an_upstream_rejection_carries_the_repair_and_is_never_retried() -> TestResult
         "the same credential against the same receiver gives the same status, so a retry is \
          a loop rather than a repair"
     );
-    let BotError::CredentialRejected {
+    let EcsError::CredentialRejected {
         ref domain,
         status,
         ref needs,

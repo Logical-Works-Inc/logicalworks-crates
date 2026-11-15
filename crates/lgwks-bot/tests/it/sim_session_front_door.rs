@@ -24,7 +24,7 @@ use std::error::Error;
 
 use lgwks_bot::language::LanguageResolver;
 use lgwks_bot::session::{MatchTier, Question, Resolution, Session, Terminal};
-use lgwks_bot::{BotError, CompiledTemplate, Resolver, ResourceAxis, ResourceLimits, VarScope};
+use lgwks_bot::{CompiledTemplate, Resolver, ResourceAxis, ResourceLimits, SessionError, VarScope};
 
 use crate::session_front_door::size_flow;
 use crate::sim;
@@ -66,7 +66,7 @@ fn an_answer_stream_ends_the_flow_at_the_first_recognized_answer() -> TestResult
             let outcome = session.answer(answer);
             if ended_at.is_some() {
                 assert!(
-                    matches!(outcome, Err(BotError::SessionTerminated)),
+                    matches!(outcome, Err(SessionError::SessionTerminated)),
                     "answer {index} came after the end and must be refused"
                 );
                 continue;
@@ -109,7 +109,7 @@ fn an_answer_after_the_end_is_refused_however_many_follow() -> TestResult {
         for _ in 0..extra {
             let answer = draw_answer(sim.rng())?;
             assert!(
-                matches!(session.answer(answer), Err(BotError::SessionTerminated)),
+                matches!(session.answer(answer), Err(SessionError::SessionTerminated)),
                 "an answer after the end is refused, whatever it says"
             );
         }
@@ -147,7 +147,7 @@ fn sessions_over_one_flow_never_share_a_transcript() -> TestResult {
             let outcome = session.answer(answer);
             if *finished {
                 assert!(
-                    matches!(outcome, Err(BotError::SessionTerminated)),
+                    matches!(outcome, Err(SessionError::SessionTerminated)),
                     "tenant {which} already ended"
                 );
             } else {
@@ -203,7 +203,7 @@ fn a_tightened_axis_reads_back_and_is_refused_only_above_its_ceiling() -> TestRe
         }
         match tight.within_ceiling() {
             Ok(_) => assert!(requested <= ceiling, "{requested} is above {ceiling}"),
-            Err(BotError::ResourceLimitAboveCeiling {
+            Err(SessionError::ResourceLimitAboveCeiling {
                 axis: named,
                 requested: asked,
                 ceiling: allowed,

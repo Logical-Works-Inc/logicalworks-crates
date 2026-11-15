@@ -2,7 +2,9 @@
 
 use super::ReviewPayload;
 use crate::cap::Cap;
-use crate::error::BotError;
+use crate::ecs::EcsError;
+#[cfg(any(feature = "script", feature = "process"))]
+use crate::error::KernelError;
 
 // ── Errors ──────────────────────────────────────────────────────────────────
 
@@ -241,12 +243,12 @@ impl GhError {
     ///
     /// The one place the verb path ([`PrSnapshotSource`]) and the flow path
     /// (`From<GhError> for FlowError`) turn a `401`/`403`/`404` into a
-    /// [`BotError::CredentialRejected`] carrying its repair, so neither can
+    /// [`EcsError::CredentialRejected`] carrying its repair, so neither can
     /// flatten a permission loss into a generic domain failure that a retry
     /// policy would then repeat.
-    pub(super) fn credential_rejection(&self, domain: &str) -> Option<BotError> {
+    pub(super) fn credential_rejection(&self, domain: &str) -> Option<EcsError> {
         match *self {
-            Self::Unauthorized { status, .. } => Some(crate::cap::upstream_credential_rejection(
+            Self::Unauthorized { status, .. } => Some(crate::spec::upstream_credential_rejection(
                 domain,
                 status,
                 &credential_caps(),
@@ -474,7 +476,7 @@ impl From<GhError> for crate::script::FlowError {
     fn from(source: GhError) -> Self {
         crate::script::FlowError::Bot {
             at: std::sync::Arc::from(""),
-            source: Box::new(source.into_bot_error("gh")),
+            source: Box::new(source.into_ecs_error("gh")),
         }
     }
 }
@@ -485,7 +487,7 @@ impl GhError {
     ///
     /// One mapping for the flow path and the verb path, so the certainty a
     /// retry decision reads is the same however the adapter was reached.
-    pub(super) fn into_bot_error(self, domain: &str) -> BotError {
+    pub(super) fn into_ecs_error(self, domain: &str) -> EcsError {
         // A refused credential is its own typed outcome, with the repair
         // attached, rather than a `DomainError` a caller would retry.
         if let Some(rejection) = self.credential_rejection(domain) {
@@ -527,16 +529,16 @@ impl GhError {
             // and its answer been lost or misread.
             _ => crate::error::DispatchCertainty::NotDelivered,
         };
-        match certainty {
-            crate::error::DispatchCertainty::Unsettled => BotError::EffectIndeterminate {
+        EcsError::from(match certainty {
+            crate::error::DispatchCertainty::Unsettled => KernelError::EffectIndeterminate {
                 domain: domain.to_owned(),
                 cause: self.to_string(),
             },
-            _ => BotError::DomainError {
+            _ => KernelError::DomainError {
                 domain: domain.to_owned(),
                 certainty,
                 cause: self.to_string(),
             },
-        }
+        })
     }
 }

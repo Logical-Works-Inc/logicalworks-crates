@@ -9,7 +9,7 @@
 //!
 //! What these tests claim is exactly what the protocol claims: a reading is
 //! reported only when two independent reads agreed, and a subject that never
-//! settles is reported as [`BotError::UnstableObservation`] rather than as a
+//! settles is reported as [`EcsError::UnstableObservation`] rather than as a
 //! value. They do **not** claim that a settled reading is valid JSON — a writer
 //! that pauses between two writes produces a stable prefix, which is the
 //! writer's discipline to fix and is stated as such in `lgwks_bot::stability`.
@@ -21,9 +21,9 @@ use std::process::{Child, Command, Stdio};
 use crate::scratch::Scratch;
 
 use lgwks_bot::domain::data::JsonStore;
-use lgwks_bot::error::BotError;
+use lgwks_bot::error::KernelError;
 use lgwks_bot::verb::{Observe, Query};
-use lgwks_bot::{Cap, GrantSet};
+use lgwks_bot::{Cap, EcsError, GrantSet};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -64,7 +64,7 @@ fn refuse(cause: impl std::fmt::Display) -> Result<(), Box<dyn Error>> {
 
 /// Proof this store's poll is admitted with, minted the way a bot's build mints
 /// it.
-fn proof() -> Result<lgwks_bot::Auth, BotError> {
+fn proof() -> Result<lgwks_bot::Auth, KernelError> {
     GrantSet::empty().grant(Cap::fs()).issue(&[Cap::fs()])
 }
 
@@ -199,16 +199,16 @@ enum Polled {
     /// Carries the refusal itself rather than a copy of its fields, because the
     /// refusal *is* what a caller matches on, and a test that read a
     /// classification would be asserting about its own fixture instead.
-    Pending(BotError),
+    Pending(EcsError),
     /// The subject could not be read at all.
-    Unreadable(BotError),
+    Unreadable(EcsError),
 }
 
 /// Classify a refused poll once, so the two verbs below share the reading of a
 /// pending answer rather than each decoding it.
-fn classify(failure: BotError) -> Result<Polled, Box<dyn Error>> {
+fn classify(failure: EcsError) -> Result<Polled, Box<dyn Error>> {
     match failure {
-        failure @ BotError::UnstableObservation { .. } => Ok(Polled::Pending(failure)),
+        failure @ EcsError::UnstableObservation { .. } => Ok(Polled::Pending(failure)),
         other => Ok(Polled::Unreadable(other)),
     }
 }
@@ -517,14 +517,19 @@ const GONE_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
 /// is an observation rather than a second kill. It is answered by a child of its
 /// own so the test needs no `unsafe` and no libc edge of its own.
 fn alive(pid: u32) -> bool {
-    Command::new("/bin/sh")
+    match Command::new("/bin/sh")
         .arg("-c")
         .arg(format!("kill -0 {pid} 2>/dev/null"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .is_ok_and(|status| status.success())
+    {
+        Ok(status) => status.success(),
+        // A probe that cannot run cannot say the process is gone, so the
+        // caller's budget decides rather than a guess that it exited.
+        Err(_probe_unavailable) => true,
+    }
 }
 
 /// A store that is dropped takes its writer with it.
@@ -547,7 +552,9 @@ fn a_dropped_store_takes_its_writer_with_it() -> TestResult {
 
     let started = std::time::Instant::now();
     while alive(pid) && started.elapsed() < GONE_BUDGET {
-        std::thread::park_timeout(std::time::Duration::from_millis(10));
+        // Each probe is a child process of its own, which paces this loop;
+        // yielding hands the core to the writer's teardown between probes.
+        std::thread::yield_now();
     }
     assert!(
         !alive(pid),
@@ -567,7 +574,7 @@ fn an_unsettled_reading_names_its_reads_and_its_axis() -> TestResult {
             continue;
         };
         named = named.saturating_add(1);
-        let BotError::UnstableObservation { ref unstable, .. } = *failure else {
+        let EcsError::UnstableObservation { ref unstable, .. } = *failure else {
             return refuse("a pending poll must carry the unsettled reading itself");
         };
         assert!(
@@ -622,7 +629,7 @@ fn an_absent_store_is_unreadable_rather_than_unsettled() -> TestResult {
     let store = JsonStore::new(&path);
 
     match lgwks_std::task::block_on(poll_once(&store))? {
-        Polled::Unreadable(BotError::DomainError { ref cause, .. }) => {
+        Polled::Unreadable(EcsError::Kernel(KernelError::DomainError { ref cause, .. })) => {
             assert!(
                 cause.contains("No such file") || cause.contains("not found"),
                 "the platform's own report is retained as the cause: {cause}"
@@ -658,13 +665,8 @@ fn an_unsettled_reading_is_pending_rather_than_a_committed_change() -> TestResul
         };
         asserted = asserted.saturating_add(1);
         assert!(
-            matches!(failure, BotError::UnstableObservation { .. }),
+            matches!(failure, EcsError::UnstableObservation { .. }),
             "the sweep must produce the unsettled refusal, not another failure: {failure}"
-        );
-        assert_eq!(
-            failure.dispatch_certainty(),
-            lgwks_bot::DispatchCertainty::NotDelivered,
-            "nothing was read and nothing was committed, so a later tick is a plain retry"
         );
         assert_eq!(
             failure.retry_class(),

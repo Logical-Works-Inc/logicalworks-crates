@@ -1,6 +1,7 @@
 //! The band families: forced refresh, a refresh that never lands, tenants, event identities and replay.
 
 use super::*;
+use crate::event_feed::{EventFeed, LandsEvents};
 
 // ── Families ───────────────────────────────────────────────────────────────
 
@@ -312,14 +313,16 @@ pub(super) fn event_identities_are_per_event(band: Band) -> TestResult {
         ));
         let ran = Rc::new(RefCell::new(Vec::new()));
         let mut bot = Bot::builder("sim-observe-events")
-            .observe(Feed {
+            .observe(EventFeed {
                 queue: Rc::clone(&queue),
                 polls: Rc::new(Cell::new(0)),
+                domain: "sim::feed",
             })
             .on(
                 |event: &EventId<u32>| event.id() > 0,
-                LogsEvents {
-                    ran: Rc::clone(&ran),
+                LandsEvents {
+                    seen: Rc::clone(&ran),
+                    domain: "sim::logs_events",
                 },
             )
             .with_effects(tenant_scope(0)?)

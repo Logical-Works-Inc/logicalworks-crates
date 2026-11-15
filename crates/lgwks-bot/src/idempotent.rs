@@ -19,7 +19,7 @@
 //! ledger writes it down as a fact (#910 defect 3):
 //!
 //! - a 2xx is the effect applied;
-//! - a 401/403/404 is [`BotError::CredentialRejected`] carrying its
+//! - a 401/403/404 is [`EcsError::CredentialRejected`] carrying its
 //!   [`NeedSet`](crate::spec::NeedSet) repair, the credential row's vocabulary
 //!   reused rather than redeclared;
 //! - a 408, 425 or 429 is the receiver saying it did not process the request:
@@ -27,7 +27,7 @@
 //! - any other 4xx is the receiver refusing the effect: `Refused`;
 //! - a 5xx, a 409 (the key is in use), an unfollowed 3xx, and every transport
 //!   failure after the request may have left are
-//!   [`BotError::EffectIndeterminate`]: the effect may have landed, so the
+//!   [`KernelError::EffectIndeterminate`]: the effect may have landed, so the
 //!   ledger records no outcome and holds the key as a barrier;
 //! - a failure to resolve, connect or handshake sent nothing: `NotDelivered`.
 //!
@@ -49,9 +49,11 @@ use std::time::Duration;
 
 use lgwks_std::http::{self, BodyPolicy, FailureStage, Options, RedirectPolicy};
 
-use crate::cap::{Auth, Cap, upstream_credential_rejection};
+use crate::cap::{Auth, Cap};
 use crate::domain::net::BODY_PREVIEW;
-use crate::error::{BotError, DispatchCertainty};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
+use crate::spec::upstream_credential_rejection;
 use crate::verb;
 
 /// Bytes of request body the adapter will send.
@@ -93,7 +95,7 @@ impl PostInput {
     ///
     /// # Errors
     ///
-    /// [`BotError::DomainError`] with [`DispatchCertainty::Refused`] when the
+    /// [`KernelError::DomainError`] with [`DispatchCertainty::Refused`] when the
     /// key is empty — an unkeyed POST through a retrying proxy is the defect
     /// this adapter exists to prevent, and it is refused at construction
     /// rather than sent — or when the body exceeds [`MAX_POST_BYTES`].
@@ -102,13 +104,13 @@ impl PostInput {
         key: impl Into<String>,
         content_type: impl Into<String>,
         body: Vec<u8>,
-    ) -> Result<Self, BotError> {
+    ) -> Result<Self, KernelError> {
         let key = key.into();
         if key.is_empty() {
             lgwks_std::trace::warn!(
                 "idempotent post: refusing a POST with an empty idempotency key, nothing is sent"
             );
-            return Err(BotError::DomainError {
+            return Err(KernelError::DomainError {
                 domain: "idempotent::post".to_owned(),
                 certainty: DispatchCertainty::Refused,
                 cause: "an idempotent POST requires a non-empty idempotency key".to_owned(),
@@ -119,7 +121,7 @@ impl PostInput {
                 "idempotent post: refusing a {}-byte body over the {MAX_POST_BYTES}-byte cap, nothing is sent",
                 body.len()
             );
-            return Err(BotError::DomainError {
+            return Err(KernelError::DomainError {
                 domain: "idempotent::post".to_owned(),
                 certainty: DispatchCertainty::Refused,
                 cause: format!(
@@ -229,7 +231,7 @@ impl verb::Execute for IdempotentPost {
         verb::EffectLifetime::External
     }
 
-    async fn execute_action(&self, call: (Auth, &Self::Input)) -> Result<Self::Output, BotError> {
+    async fn execute_action(&self, call: (Auth, &Self::Input)) -> Result<Self::Output, EcsError> {
         call.0.check(self.required_caps())?;
         let input = call.1;
         let domain = self.domain_id().to_owned();
@@ -251,7 +253,7 @@ impl verb::Execute for IdempotentPost {
             lgwks_std::task::try_spawn_blocking(move || http::post_with(&url, &content_type, &body, &options))
                 .map_err(|error| {
                     lgwks_std::trace::debug!(%error, "execute_action: the blocking pool refused the request");
-                    BotError::DomainError {
+                    KernelError::DomainError {
                         domain: domain.clone(),
                         certainty: DispatchCertainty::Refused,
                         cause: format!("no thread was available for the request: {error}"),
@@ -274,20 +276,20 @@ impl verb::Execute for IdempotentPost {
             Answer::Credential => {
                 upstream_credential_rejection(&domain, status, self.required_caps())
             }
-            Answer::NotProcessed => BotError::DomainError {
+            Answer::NotProcessed => EcsError::from(KernelError::DomainError {
                 domain,
                 certainty: DispatchCertainty::NotDelivered,
                 cause: format!("the upstream answered {status} without processing the effect"),
-            },
-            Answer::Refused => BotError::DomainError {
+            }),
+            Answer::Refused => EcsError::from(KernelError::DomainError {
                 domain,
                 certainty: DispatchCertainty::Refused,
                 cause: format!("the upstream refused the effect with {status}"),
-            },
-            Answer::Unknown => BotError::EffectIndeterminate {
+            }),
+            Answer::Unknown => EcsError::from(KernelError::EffectIndeterminate {
                 domain,
                 cause: format!("the upstream answered {status}; the effect may have landed"),
-            },
+            }),
         };
         lgwks_std::trace::warn!(status, error = %refusal, "idempotent post: the keyed effect was not applied");
         Err(refusal)
@@ -333,10 +335,10 @@ fn answer_of(status: u16) -> Answer {
 /// With redirects off there is one hop, so a failure to resolve, connect or
 /// handshake sent no byte of the request. Every later stage, the whole-call
 /// deadline and any stage this build does not know may have sent all of it.
-fn transport_failure(domain: String, error: &http::Error) -> BotError {
+fn transport_failure(domain: String, error: &http::Error) -> KernelError {
     let refusal = match *error {
         http::Error::InvalidUrl | http::Error::RedirectLimitTooLarge { .. } => {
-            BotError::DomainError {
+            KernelError::DomainError {
                 domain,
                 certainty: DispatchCertainty::Refused,
                 cause: format!("the effect was not sent: {error}"),
@@ -345,12 +347,12 @@ fn transport_failure(domain: String, error: &http::Error) -> BotError {
         http::Error::Failure {
             stage: FailureStage::Resolve | FailureStage::Connect | FailureStage::Tls,
             ..
-        } => BotError::DomainError {
+        } => KernelError::DomainError {
             domain,
             certainty: DispatchCertainty::NotDelivered,
             cause: format!("the effect did not reach its upstream: {error}"),
         },
-        _ => BotError::EffectIndeterminate {
+        _ => KernelError::EffectIndeterminate {
             domain,
             cause: format!("the effect may have reached its upstream: {error}"),
         },
@@ -375,7 +377,7 @@ mod tests {
 
     #[test]
     fn an_empty_key_is_refused_before_anything_is_sent() -> TestResult {
-        let Err(BotError::DomainError { cause, .. }) =
+        let Err(KernelError::DomainError { cause, .. }) =
             PostInput::new("http://127.0.0.1:9/", "", "application/json", vec![1])
         else {
             return Err("an unkeyed POST must be refused at construction".into());

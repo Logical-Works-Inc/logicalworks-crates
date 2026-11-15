@@ -8,7 +8,7 @@
 use lgwks_bot::domain::gh::ReviewComment;
 use lgwks_bot::review::ReviewOutcome;
 
-use super::fake_gh::{FakeGh, Scenario};
+use super::scripted_gh::{Scenario, ScriptedGh};
 use super::{
     CAPTURE, HEAD, Run, error_text, gh_for, host, normalized_argv, request, review_task, sim,
 };
@@ -210,20 +210,20 @@ pub(super) fn run_subject_fault(
     let draw = over_ceiling_draw(index);
     let host = host()?;
     let job = review_task()?;
-    let fake = FakeGh::install(fault.label(), HEAD)?;
-    fake.configure(subject_scenario(fault, HEAD, draw)?)?;
+    let scripted = ScriptedGh::install(fault.label(), HEAD)?;
+    scripted.configure(subject_scenario(fault, HEAD, draw)?)?;
 
     let mut request = request(7)?;
     if fault == SubjectFault::PartialComments {
         request = request.with_comments(comments(draw.intended));
     }
-    let report = host.block_on(&job, (gh_for(&fake, fault.capture())?, request))?;
-    let argv = normalized_argv(&fake.calls()?);
+    let report = host.block_on(&job, (gh_for(&scripted, fault.capture())?, request))?;
+    let argv = normalized_argv(&scripted.calls()?);
     Ok((
         fault,
         Run {
             report,
-            creates: fake.creates()?,
+            creates: scripted.creates()?,
             argv,
         },
     ))

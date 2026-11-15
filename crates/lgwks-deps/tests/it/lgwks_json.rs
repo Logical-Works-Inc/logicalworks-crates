@@ -60,6 +60,35 @@ fn new_json_is_parseable() -> TestResult {
     Ok(())
 }
 
+/// A name that is already a file is refused with the reason, and the file
+/// is left as it was: `read_dir` fails there (ENOTDIR on Unix), and that
+/// failure is a refusal, never leave to write the scaffold.
+#[test]
+fn new_refuses_a_name_that_is_a_file_and_leaves_it_untouched() -> TestResult {
+    let scratch = Scratch::fresh("new-file").map_err(|error| format!("no scratch: {error}"))?;
+    let path = scratch.dir().join("plainfile");
+    std::fs::write(&path, "keep me\n").map_err(|error| format!("no file: {error}"))?;
+    let outcome = run_lgwks(scratch.dir(), &["new", "plainfile", "--json"])?;
+    if outcome.code == Some(0) {
+        return refuse("lgwks new accepted a name that is a file");
+    }
+    let value = parse_stdout(outcome.stdout.as_slice(), "lgwks new")?;
+    if verdict_ok(&value, "lgwks new")? {
+        return refuse("lgwks new --json claims success over a file");
+    }
+    let shown = value.to_string();
+    if !shown.contains("is not a readable directory") {
+        return refuse(format!(
+            "lgwks new did not name the unreadable path: {shown}"
+        ));
+    }
+    let kept = std::fs::read_to_string(&path).map_err(|error| format!("file gone: {error}"))?;
+    if kept != "keep me\n" {
+        return refuse(format!("lgwks new changed the file: {kept:?}"));
+    }
+    Ok(())
+}
+
 /// Check answers the same verdict as text and as JSON.
 #[test]
 fn check_json_matches_the_human_verdict() -> TestResult {

@@ -3,8 +3,8 @@
 //! `sim_cas_disk` drives [`RecordStore`] directly; this family drives the same
 //! store through [`CasWrite`], the [`Execute`] adapter a bot actually calls, so
 //! what is under test is the mapping a caller sees: a lost write is
-//! [`BotError::Conflict`] and never retried blindly, a persist the disk refuses
-//! is a refused [`BotError::DomainError`] that applied nothing, a proof that
+//! [`KernelError::Conflict`] and never retried blindly, a persist the disk refuses
+//! is a refused [`KernelError::DomainError`] that applied nothing, a proof that
 //! does not cover the store's capability writes nothing, and a credential is
 //! honoured exactly until its lifetime runs out on a virtual [`Clock`].
 //!
@@ -15,10 +15,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use lgwks_bot::EcsError;
 use lgwks_bot::cap::{Auth, Cap};
-use lgwks_bot::cas::{CasInput, CasWrite, RecordStore};
+use lgwks_bot::cas::{CasInput, RecordStore};
 use lgwks_bot::clock::Clock;
-use lgwks_bot::error::{BotError, DispatchCertainty, RetryClass};
+use lgwks_bot::domain::cas::CasWrite;
+use lgwks_bot::error::{DispatchCertainty, KernelError, RetryClass};
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::verb::Execute;
 
@@ -28,8 +30,20 @@ use crate::sim_cas_disk::{Model, SEEDS, TestResult, agrees, store_path, sweep};
 use crate::sweep_fixtures::refuse;
 
 /// A proof covering the store's one capability, with no lifetime.
-fn fs_auth() -> Result<Auth, BotError> {
+fn fs_auth() -> Result<Auth, KernelError> {
     GrantSet::empty().grant(Cap::fs()).issue(&[Cap::fs()])
+}
+
+/// The store file's bytes, or `None` when nothing has been persisted yet.
+///
+/// Only a missing file is "nothing persisted"; any other read failure is the
+/// test's own failure and propagates.
+fn file_bytes(path: &std::path::Path) -> std::io::Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// One seeded write through the adapter, checked against the model.
@@ -70,13 +84,13 @@ fn execute_step(
             ));
         }
         Err(error) if !fresh => {
-            let BotError::Conflict {
+            let EcsError::Kernel(KernelError::Conflict {
                 ref domain,
                 ref record,
                 expected: named,
                 found,
                 ..
-            } = error
+            }) = error
             else {
                 return refuse(format!(
                     "a stale write failed as {error}, not as a conflict"
@@ -147,11 +161,11 @@ fn a_refused_persist_through_the_adapter_applies_nothing() -> TestResult {
         };
         let input = CasInput::new(name, expected, "never persisted");
         match lgwks_std::task::block_on(adapter.execute_action((auth, &input))) {
-            Err(BotError::DomainError {
+            Err(EcsError::Kernel(KernelError::DomainError {
                 ref domain,
                 certainty: DispatchCertainty::Refused,
                 ..
-            }) if domain == "cas::store" => trace.record("refused"),
+            })) if domain == "cas::store" => trace.record("refused"),
             other => return refuse(format!("a refused persist reached the caller as {other:?}")),
         }
         agrees(&adapter.store().state(), &model)
@@ -173,17 +187,19 @@ fn a_proof_without_the_fs_capability_writes_nothing() -> TestResult {
         for _ in 0..rng.between(1, 8) {
             execute_step(&mut rng, &adapter, &granted, &mut model, records, trace)?;
         }
-        let before = std::fs::read(&path).ok();
+        let before = file_bytes(&path)?;
         let bare = GrantSet::empty().issue(&[])?;
         for _ in 0..rng.between(1, 6) {
             let name = format!("record-{}", rng.below(records));
             let input = CasInput::new(name.clone(), model.version(&name), "denied");
             match lgwks_std::task::block_on(adapter.execute_action((bare.clone(), &input))) {
-                Err(BotError::CapabilityDenied { .. }) => trace.record("denied"),
+                Err(EcsError::Kernel(KernelError::CapabilityDenied { .. })) => {
+                    trace.record("denied");
+                }
                 other => return refuse(format!("an uncovered proof reached {other:?}")),
             }
         }
-        if std::fs::read(&path).ok() != before {
+        if file_bytes(&path)? != before {
             return refuse("a denied write changed the store file");
         }
         agrees(&adapter.store().state(), &model)
@@ -229,11 +245,11 @@ fn a_credential_writes_until_its_lifetime_runs_out() -> TestResult {
                 }
                 (
                     false,
-                    Err(BotError::CredentialExpired {
+                    Err(EcsError::Kernel(KernelError::CredentialExpired {
                         expired_at,
                         now: seen,
                         ..
-                    }),
+                    })),
                 ) => {
                     if expired_at != ttl || seen != now {
                         return refuse(format!(
@@ -280,7 +296,7 @@ fn threads_through_one_adapter_lose_no_update() -> TestResult {
                 .into_iter()
                 .map(|handle| match handle.join() {
                     Ok(outcome) => outcome,
-                    Err(_) => Err("a writer thread panicked".to_owned()),
+                    Err(_writer_panicked) => Err("a writer thread panicked".to_owned()),
                 })
                 .collect()
         });
@@ -327,7 +343,7 @@ fn bump(adapter: &CasWrite, auth: &Auth, record: u32, bumps: u32) -> Result<(), 
         let input = CasInput::new(name.clone(), seen, "bumped");
         match lgwks_std::task::block_on(adapter.execute_action((auth.clone(), &input))) {
             Ok(_) => left = left.saturating_sub(1),
-            Err(BotError::Conflict { .. }) => {}
+            Err(EcsError::Kernel(KernelError::Conflict { .. })) => {}
             Err(error) => return give_up(format!("{name}: {error}")),
         }
     }

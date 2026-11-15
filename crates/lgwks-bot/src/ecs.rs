@@ -72,7 +72,7 @@
 //! an effect that already happened is never replayed to get past a successor —
 //! the failure mode where retrying a refused second entry duplicates the first
 //! entry's merge. An entry that *may* have happened
-//! ([`BotError::EffectIndeterminate`]) is held outright: it is attempted again
+//! ([`KernelError::EffectIndeterminate`](crate::error::KernelError::EffectIndeterminate)) is held outright: it is attempted again
 //! only when the caller supplies evidence, through `EcsBot::resolve_effect`.
 //!
 //! A tick is clean only when nothing is left holding a transition. When
@@ -98,7 +98,7 @@
 //! - **Outcome unknown** — nothing established whether the bytes arrived, so
 //!   the action is *held*. The walk stops at it rather than beginning another
 //!   attempt, the tick reports
-//!   [`BotError::PendingTransition`], and
+//!   [`EcsError::PendingTransition`], and
 //!   the key a caller settles by is on the report.
 //! - **Outcome landed** — the effect is done for the generation its key names,
 //!   so the walk retires the entry rather than dispatching it again. That
@@ -165,6 +165,8 @@
 //! `EcsBot::tick`: the same error ordering `Bot::tick` documents, where the
 //! first error in declaration order is returned.
 
+// The world layer's one error: what the verbs, the spec and the substrate refuse with (#990).
+mod error;
 // `self` is load-bearing for the derives in the child modules.
 /// The per-stage tick profiler. Compiled out entirely without the default-off
 /// `profile` feature: every charge site in this file sits behind the same
@@ -194,6 +196,9 @@ mod entry;
 mod fold;
 #[cfg(feature = "ecs")]
 mod ledger;
+// Spec chains turned into erased chains, every unmet need recorded.
+#[cfg(feature = "ecs")]
+mod materialize;
 // Requests into the world: the HTTP edge's events (ADR 0006 R4). Gated with
 // the edge, its one producer.
 #[cfg(feature = "edge")]
@@ -224,12 +229,14 @@ mod work;
 
 #[cfg(feature = "edge")]
 pub(crate) use crate::cell::SubmitRefused;
+pub use crate::journal::EffectEvidence;
 #[cfg(feature = "ecs")]
 pub use bot::EcsBot;
 #[cfg(feature = "ecs")]
 pub use builder::EcsBuilder;
 #[cfg(feature = "ecs")]
 pub use builder::EcsObserveBuilder;
+pub use error::EcsError;
 pub use lgwks_std::retry::RetryPolicy;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 pub use projection::{ProjectionError, RecordFold, RecordProjection};
@@ -268,7 +275,6 @@ pub use watchdog::MAX_POLL_DEADLINE;
 pub use work::AbandonReason;
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
 pub(crate) use work::AdmittedInput;
-pub use work::EffectEvidence;
 pub use work::PendingWork;
 pub use work::TransitionHold;
 pub use work::WorkId;

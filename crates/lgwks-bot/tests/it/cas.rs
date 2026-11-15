@@ -3,7 +3,7 @@
 //!
 //! The simulation (`sim_cas`) sweeps the schedules; this file races real
 //! threads against the shipped [`RecordStore`](lgwks_bot::cas::RecordStore)
-//! on a real file, drives the [`CasWrite`](lgwks_bot::cas::CasWrite)
+//! on a real file, drives the [`CasWrite`](lgwks_bot::domain::cas::CasWrite)
 //! [`Execute`](lgwks_bot::verb::Execute) adapter through its public verbs,
 //! and reopens the store afterwards.
 //!
@@ -11,7 +11,7 @@
 //!
 //! - N threads racing one record produce exactly one winner per round and
 //!   N-1 typed conflicts, with versions contiguous from one — no lost update;
-//! - every conflict is [`BotError::Conflict`](lgwks_bot::error::BotError)
+//! - every conflict is [`KernelError::Conflict`](lgwks_bot::error::KernelError)
 //!   naming `expected` and `found`, and its
 //!   [`RetryClass`](lgwks_bot::error::RetryClass) is `Never`: never retried
 //!   blindly;
@@ -21,9 +21,11 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use lgwks_bot::EcsError;
 use lgwks_bot::cap::Cap;
-use lgwks_bot::cas::{CasInput, CasWrite, NO_VERSION, RecordStore};
-use lgwks_bot::error::{BotError, RetryClass};
+use lgwks_bot::cas::{CasInput, NO_VERSION, RecordStore};
+use lgwks_bot::domain::cas::CasWrite;
+use lgwks_bot::error::{KernelError, RetryClass};
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::verb::Execute;
 
@@ -36,7 +38,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 const WRITERS: usize = 16;
 
 /// An `Auth` covering the store's capability.
-fn fs_auth() -> Result<lgwks_bot::cap::Auth, BotError> {
+fn fs_auth() -> Result<lgwks_bot::cap::Auth, KernelError> {
     GrantSet::empty().grant(Cap::fs()).issue(&[Cap::fs()])
 }
 
@@ -112,12 +114,12 @@ fn the_execute_path_reports_a_typed_conflict_that_survives_reopen() -> TestResul
         adapter.execute_action((auth.clone(), &CasInput::new("shared", NO_VERSION, "winner"))),
     )?;
     assert_eq!(won.version(), 1, "the first write installs version one");
-    let Err(BotError::Conflict {
+    let Err(EcsError::Kernel(KernelError::Conflict {
         expected,
         found,
         record,
         ..
-    }) = lgwks_std::task::block_on(
+    })) = lgwks_std::task::block_on(
         adapter.execute_action((auth, &CasInput::new("shared", NO_VERSION, "loser"))),
     )
     else {
@@ -126,7 +128,7 @@ fn the_execute_path_reports_a_typed_conflict_that_survives_reopen() -> TestResul
     assert_eq!(record, "shared", "the conflict names its record");
     assert_eq!(expected, 0, "the conflict names the version the write saw");
     assert_eq!(found, 1, "the conflict names the version the store holds");
-    let conflict = BotError::Conflict {
+    let conflict = KernelError::Conflict {
         domain: "cas::store".to_owned(),
         record: "shared".to_owned(),
         expected,

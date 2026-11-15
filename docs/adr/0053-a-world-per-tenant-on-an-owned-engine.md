@@ -19,9 +19,9 @@ Read on main `37fbb264`, 2026-11-14.
   `crates/lgwks-bot/src/ecs/fold.rs:3` and `crates/lgwks-bot/src/ecs/resources.rs:11`.
 - The world holds two components, `SourceId` (`crates/lgwks-bot/src/ecs/resources.rs:37`) and `Revision`
   (`crates/lgwks-bot/src/ecs/resources.rs:59`).
-- One schedule runs two exclusive systems in order (`crates/lgwks-bot/src/ecs/fold.rs:758`), `observe_fold` and
-  `fire_plan`, each taking `&mut World` (`crates/lgwks-bot/src/ecs/fold.rs:67`). The executor is single-threaded
-  on purpose (`crates/lgwks-bot/src/ecs/fold.rs:751`).
+- One schedule runs two exclusive systems in order (`crates/lgwks-bot/src/ecs/fold.rs:759`), `observe_fold` and
+  `fire_plan`, each taking `&mut World` (`crates/lgwks-bot/src/ecs/fold.rs:68`). The executor is single-threaded
+  on purpose (`crates/lgwks-bot/src/ecs/fold.rs:752`).
 - Real state lives in resources indexed by chain position, not in components: a source's id is only "the key into
   `Chains` and `Observed`" (`crates/lgwks-bot/src/ecs/resources.rs:38`).
 - The one query is `Changed<Revision>` (`crates/lgwks-bot/src/ecs/resources.rs:184`), copied into a `Vec<bool>`

@@ -10,7 +10,7 @@ use std::error::Error;
 use std::time::Duration;
 
 use lgwks_bot::dist_lease::AuthorityHandle;
-use lgwks_bot::{Bot, BotError, GrantSet};
+use lgwks_bot::{Bot, EcsError, GrantSet};
 
 use crate::effects::memory_scope;
 
@@ -34,7 +34,7 @@ fn a_poll_deadline_of_zero_is_refused_at_build() -> TestResult {
         .build(&GrantSet::empty());
     assert!(matches!(
         refused,
-        Err(BotError::PollDeadlineUnbounded { .. })
+        Err(EcsError::PollDeadlineUnbounded { .. })
     ));
     Ok(())
 }

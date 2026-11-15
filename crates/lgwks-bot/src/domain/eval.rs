@@ -1,6 +1,6 @@
 //! `eval` owns shipped evaluators: composable conditions for the Evaluate verb.
 
-use crate::error::BotError;
+use crate::ecs::EcsError;
 use crate::verb::Evaluate;
 
 /// True when a value has changed since last check. Requires the observed type
@@ -32,7 +32,7 @@ impl<T: Clone + PartialEq> Default for Changed<T> {
 }
 
 impl<T: Clone + PartialEq + 'static> Evaluate<T> for Changed<T> {
-    fn check(&self, value: &T) -> Result<bool, BotError> {
+    fn check(&self, value: &T) -> Result<bool, EcsError> {
         let mut last = self.last.borrow_mut();
         let changed = match last.as_ref() {
             Some(prev) => prev != value,
@@ -64,7 +64,7 @@ impl<T: PartialOrd + 'static> Below<T> {
 }
 
 impl<T: PartialOrd + 'static> Evaluate<T> for Below<T> {
-    fn check(&self, value: &T) -> Result<bool, BotError> {
+    fn check(&self, value: &T) -> Result<bool, EcsError> {
         Ok(value < &self.threshold)
     }
 
@@ -90,7 +90,7 @@ impl<T: PartialOrd + 'static> Above<T> {
 }
 
 impl<T: PartialOrd + 'static> Evaluate<T> for Above<T> {
-    fn check(&self, value: &T) -> Result<bool, BotError> {
+    fn check(&self, value: &T) -> Result<bool, EcsError> {
         Ok(value > &self.threshold)
     }
 
@@ -118,7 +118,7 @@ impl Contains {
 }
 
 impl Evaluate<String> for Contains {
-    fn check(&self, value: &String) -> Result<bool, BotError> {
+    fn check(&self, value: &String) -> Result<bool, EcsError> {
         Ok(value.contains(&self.pattern))
     }
 
@@ -128,7 +128,7 @@ impl Evaluate<String> for Contains {
 }
 
 impl Evaluate<super::chat::ChatMessage> for Contains {
-    fn check(&self, value: &super::chat::ChatMessage) -> Result<bool, BotError> {
+    fn check(&self, value: &super::chat::ChatMessage) -> Result<bool, EcsError> {
         Ok(value.text().contains(&self.pattern))
     }
 
@@ -204,7 +204,7 @@ impl<T: 'static> All<T> {
 }
 
 impl<T: 'static> Evaluate<T> for All<T> {
-    fn check(&self, value: &T) -> Result<bool, BotError> {
+    fn check(&self, value: &T) -> Result<bool, EcsError> {
         for condition in &self.conditions {
             if !condition.check(value)? {
                 return Ok(false);
@@ -243,7 +243,7 @@ impl<T: 'static> Any<T> {
 }
 
 impl<T: 'static> Evaluate<T> for Any<T> {
-    fn check(&self, value: &T) -> Result<bool, BotError> {
+    fn check(&self, value: &T) -> Result<bool, EcsError> {
         for condition in &self.conditions {
             if condition.check(value)? {
                 return Ok(true);

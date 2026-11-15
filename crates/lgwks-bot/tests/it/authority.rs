@@ -52,9 +52,10 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Barrier;
 
+use lgwks_bot::error::KernelError;
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::verb::{Execute, Observe};
-use lgwks_bot::{Auth, Bot, BotError, Cap, DispatchCertainty, EffectLifetime, GrantSet};
+use lgwks_bot::{Auth, Bot, Cap, DispatchCertainty, EcsError, EffectLifetime, GrantSet};
 
 use crate::effects;
 use crate::poll::admit_poll;
@@ -63,7 +64,7 @@ mod claims;
 
 /// What a test here reports when its precondition did not hold.
 ///
-/// These tests cross `BotError` and `std::io`, so they return `Box<dyn Error>`
+/// These tests cross `EcsError` and `std::io`, so they return `Box<dyn Error>`
 /// and propagate with `?`. A precondition that fails is then a named reason
 /// rather than an unwind that reports only that something unwound. A scope that
 /// cannot be built reports through the same box for the same reason: the error
@@ -116,7 +117,7 @@ impl Observe for Script {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u16, EcsError> {
         admit_poll(&call.0, Observe::required_caps(self), &self.polls)?;
         let index = self.cursor.get();
         self.cursor.set(index.saturating_add(1));
@@ -124,11 +125,11 @@ impl Observe for Script {
         // refuses, because answering a value the test never scripted would let a
         // chain fire on movement nobody wrote.
         let Some(value) = self.values.get(index) else {
-            let refusal = Err(BotError::DomainError {
+            let refusal = Err(EcsError::Kernel(KernelError::DomainError {
                 domain: "test::script".to_owned(),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: format!("the script ran out at poll {index}"),
-            });
+            }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "poll: returning an error to the caller");
             return refusal;
         };
@@ -156,7 +157,7 @@ impl Execute for Counted {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.0.set(self.0.get().saturating_add(1));
         Ok(())
@@ -178,7 +179,7 @@ impl Execute for Counted {
 /// about a different boundary than durability is.
 ///
 /// Returns `ScopeResult` because building a scope crosses `IdError` and
-/// `BrokerError` as well as `BotError`, and none of the three converts into
+/// `BrokerError` as well as `EcsError`, and none of the three converts into
 /// another; the tests below report through `Box<dyn Error>` for the same reason.
 pub(crate) fn test_effects() -> ScopeResult<EffectScope> {
     effects::memory_scope()
@@ -257,7 +258,7 @@ fn withdrawing_authority_after_build_means_building_again() -> TestResult {
         .build(&authority)
     {
         Ok(_) => Err("a source requiring `bot.net` was admitted by an empty grant set".into()),
-        Err(BotError::CapabilityDenied { deficit }) => {
+        Err(EcsError::Kernel(KernelError::CapabilityDenied { deficit })) => {
             assert_eq!(
                 deficit.first().required(),
                 &Cap::net(),
@@ -278,7 +279,7 @@ const ROUNDS: usize = 32;
 /// One tenant's round: build a bot whose source requires `bot.net` under `grants`
 /// and, if it is admitted, tick it once. Reports how many times the action fired,
 /// or the refusal admission gave.
-fn round(grants: &GrantSet) -> ScopeResult<Result<usize, BotError>> {
+fn round(grants: &GrantSet) -> ScopeResult<Result<usize, EcsError>> {
     let fired = Rc::new(Cell::new(0));
     let built = Bot::builder("tenant-round")
         .observe(Script::new(vec![503]))
@@ -332,7 +333,7 @@ fn a_tenant_without_the_grant_is_refused_while_the_other_is_served() -> TestResu
                 (true, other) => {
                     return Err(format!("the granted tenant was not served once: {other:?}").into());
                 }
-                (false, Err(BotError::CapabilityDenied { deficit })) => {
+                (false, Err(EcsError::Kernel(KernelError::CapabilityDenied { deficit }))) => {
                     assert_eq!(
                         deficit.first().required(),
                         &Cap::net(),

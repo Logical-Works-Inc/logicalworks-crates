@@ -23,7 +23,7 @@ use std::fmt;
 use std::time::Duration;
 
 use super::clock::Clock;
-use super::error::BotError;
+use super::error::KernelError;
 use super::gate::GrantSet;
 use super::skew::{MonoDeadline, SkewBound, lease_holds};
 
@@ -334,6 +334,51 @@ where
     shortages
 }
 
+/// Hold the repair a denial derives to its three promises, and return the set it
+/// closes: the derived set admits every requirement the deficit named, leaves
+/// out what `held` already covers (a deficit is the shortfall, not a restatement
+/// of the requirement), and folded into `held` it admits all of `required`
+/// while `held` alone does not.
+///
+/// One check for the two layers that report a deficit, [`Auth`] and
+/// [`GrantSet`], so neither test can drift from the promise the other keeps.
+#[cfg(test)]
+pub(crate) fn assert_repair_closes(
+    deficit: &Deficit,
+    held: &GrantSet,
+    required: &[Cap],
+) -> GrantSet {
+    let missing: Vec<Cap> = deficit
+        .shortages()
+        .map(|shortage| shortage.required().clone())
+        .collect();
+    let repair = deficit.to_grant_set();
+    assert!(
+        repair.admit(&missing).is_ok(),
+        "the derived set must admit every requirement the deficit named: {deficit}"
+    );
+    for cap in required.iter().filter(|cap| held.grants(cap)) {
+        assert!(
+            !repair.grants(cap),
+            "{cap:?} was already covered, so it is not in the repair: {deficit}"
+        );
+    }
+    // The documented composition: `grant` consumes and de-dupes, so folding the
+    // repair into what the caller holds reaches a fixed point.
+    let closed = missing
+        .iter()
+        .fold(held.clone(), |set, cap| set.grant(cap.clone()));
+    assert!(
+        closed.admit(required).is_ok(),
+        "the deficit's set folded into the held set must close the requirement"
+    );
+    assert!(
+        held.admit(required).is_err(),
+        "control: the held set alone must not, or the test proves nothing"
+    );
+    closed
+}
+
 // ── Sealed proof ─────────────────────────────────────────────────────────────
 
 /// Proof of granted authority. A tuple struct with a private payload:
@@ -505,7 +550,7 @@ impl Auth {
         uncovered(required, |cap| self.covers_cap(cap), None)
     }
 
-    /// Deny with [`BotError::CapabilityDenied`] naming **every** required
+    /// Deny with [`KernelError::CapabilityDenied`] naming **every** required
     /// capability this proof does not cover.
     ///
     /// Coverage is exact set membership, not subsumption: a proof also denies
@@ -521,12 +566,23 @@ impl Auth {
     ///
     /// # Errors
     ///
-    /// [`BotError::CapabilityDenied`] when any required capability is not
+    /// [`KernelError::CapabilityDenied`] when any required capability is not
     /// covered.
-    pub fn check(&self, required: &[Cap]) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::{Cap, GrantSet};
+    ///
+    /// let auth = GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])?;
+    /// assert!(auth.check(&[Cap::net()]).is_ok());
+    /// assert!(auth.check(&[Cap::fs()]).is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn check(&self, required: &[Cap]) -> Result<(), KernelError> {
         self.check_expiry()?;
         match Deficit::from_shortages(self.uncovered(required)) {
-            Some(deficit) => Err(BotError::CapabilityDenied { deficit }),
+            Some(deficit) => Err(KernelError::CapabilityDenied { deficit }),
             None => Ok(()),
         }
     }
@@ -555,14 +611,30 @@ impl Auth {
     ///
     /// # Errors
     ///
-    /// [`BotError::CapabilityDenied`] when any required capability is not
+    /// [`KernelError::CapabilityDenied`] when any required capability is not
     /// covered, checked first so a proof that never covered the call is not
-    /// reported as merely lapsed; [`BotError::CredentialExpired`] when the
+    /// reported as merely lapsed; [`KernelError::CredentialExpired`] when the
     /// observer's reading is past the deadline plus the bound, carrying the
     /// observer's reading as `now` so the refusal says which clock judged it.
-    pub fn check_remote(&self, required: &[Cap], observer: &Clock) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use lgwks_bot::clock::Clock;
+    /// use lgwks_bot::{Cap, GrantSet};
+    ///
+    /// let clock = Clock::virtual_at(Duration::ZERO);
+    /// let auth = GrantSet::empty()
+    ///     .grant(Cap::net())
+    ///     .issue_at(&[Cap::net()], &clock)?;
+    /// assert!(auth.check_remote(&[Cap::net()], &clock).is_ok());
+    /// assert!(auth.check_remote(&[Cap::fs()], &clock).is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn check_remote(&self, required: &[Cap], observer: &Clock) -> Result<(), KernelError> {
         match Deficit::from_shortages(self.uncovered(required)) {
-            Some(deficit) => Err(BotError::CapabilityDenied { deficit }),
+            Some(deficit) => Err(KernelError::CapabilityDenied { deficit }),
             None => Ok(()),
         }?;
         let Some(lease) = self.lease.as_ref() else {
@@ -572,7 +644,7 @@ impl Auth {
         if lease_holds(lease.expires_at, observer_now, lease.max_skew) {
             return Ok(());
         }
-        let refusal = Err(BotError::CredentialExpired {
+        let refusal = Err(KernelError::CredentialExpired {
             capabilities: self.covers.clone(),
             expired_at: lease.expires_at,
             now: observer_now,
@@ -592,7 +664,7 @@ impl Auth {
     /// expired credential is closed by *re-granting* — the capability is still
     /// held and still worthless. A caller handed one arm for both would grant
     /// what it already has and be refused again.
-    fn check_expiry(&self) -> Result<(), BotError> {
+    fn check_expiry(&self) -> Result<(), KernelError> {
         let Some(lease) = self.lease.as_ref() else {
             return Ok(());
         };
@@ -603,7 +675,7 @@ impl Auth {
         if !MonoDeadline::at(lease.expires_at).is_due_on(now) {
             return Ok(());
         }
-        let refusal = Err(BotError::CredentialExpired {
+        let refusal = Err(KernelError::CredentialExpired {
             capabilities: self.covers.clone(),
             expired_at: lease.expires_at,
             now,
@@ -632,282 +704,9 @@ pub const fn is_credential_status(status: u16) -> bool {
     matches!(status, 401 | 403 | 404)
 }
 
-/// The refusal an adapter reports when the *upstream* refused the credential it
-/// presented, as a typed outcome carrying the repair rather than a generic
-/// failure.
-///
-/// Call it only for a status [`is_credential_status`] accepts: a receiver that
-/// failed for another reason has not refused the credential, and reporting a
-/// re-grant for it sends a caller to repair something that is not broken.
-///
-/// A distinct variant from [`BotError::CapabilityDenied`] because the two are
-/// opposite facts. A denied capability was never granted; a rejected
-/// credential **was** granted and the receiver refused it anyway, which means
-/// its issuer has cancelled, rotated or expired the authority behind it. The
-/// repair is the same shape — a [`NeedSet`](crate::spec::NeedSet) naming the
-/// capabilities to re-grant — and it is carried in the error so a caller cannot
-/// read the status and then have to reconstruct what to do about it.
-///
-/// Never a retry: retrying the same credential against the same receiver
-/// produces the same refusal, so this is the typed outcome that stops a
-/// refresh-then-retry loop rather than feeding one.
-#[must_use]
-pub fn upstream_credential_rejection(domain: &str, status: u16, required: &[Cap]) -> BotError {
-    BotError::CredentialRejected {
-        domain: domain.to_owned(),
-        status,
-        needs: crate::spec::NeedSet::expired_credentials(domain, required),
-    }
-}
-
 #[cfg(test)]
 #[path = "sim_cap.rs"]
 mod sim_cap;
 
 #[cfg(test)]
-mod tests {
-    use super::{Auth, Cap, Deficit, Demand};
-    use crate::error::{BotError, DispatchCertainty};
-    use crate::gate::GrantSet;
-
-    /// A typed test failure, in the shape the other modules' tests use. Not a
-    /// `panic!`, which this workspace forbids outright.
-    fn failed(cause: impl Into<String>) -> BotError {
-        BotError::DomainError {
-            domain: "cap::tests".into(),
-            certainty: DispatchCertainty::NotDelivered,
-            cause: cause.into(),
-        }
-    }
-
-    /// Capabilities by name, in the order given.
-    ///
-    /// `&'static str` rather than `&str` because that is what `Cap::new`
-    /// accepts, and the restriction is the point of the `Cow`: a capability
-    /// name is a constant or a value the caller owns, never a borrow of
-    /// something shorter-lived that a proof would then outlive.
-    fn caps(names: &[&'static str]) -> Vec<Cap> {
-        names.iter().map(|name| Cap::new(*name)).collect()
-    }
-
-    /// The names a deficit reports, in order — what a caller actually reads.
-    fn names(deficit: &Deficit) -> Vec<&str> {
-        deficit
-            .shortages()
-            .map(|shortage| shortage.required().as_str())
-            .collect()
-    }
-
-    /// The whole reason `Deficit` exists.
-    ///
-    /// The check this replaced returned at the first uncovered capability, so
-    /// a caller granting what they were told was refused again for the next
-    /// word. Three requirements, one covered, must produce **two** shortages
-    /// from **one** refusal.
-    #[test]
-    fn a_check_names_every_uncovered_requirement_at_once() -> Result<(), BotError> {
-        let proof = Auth::new(caps(&[Cap::NET]));
-        let required = caps(&[Cap::NET, Cap::FS, Cap::SYS]);
-
-        match proof.check(&required) {
-            Err(BotError::CapabilityDenied { deficit }) => {
-                assert_eq!(
-                    names(&deficit),
-                    vec![Cap::FS, Cap::SYS],
-                    "the deficit must carry every uncovered requirement, in declaration order: \
-                     {deficit}"
-                );
-                assert_eq!(deficit.len(), 2);
-                assert_eq!(
-                    deficit.first().required(),
-                    &Cap::fs(),
-                    "first is the first one, not an arbitrary one: {deficit}"
-                );
-                Ok(())
-            }
-            other => Err(failed(format!(
-                "a proof covering `bot.net` must not admit `bot.fs` or `bot.sys`: {other:?}"
-            ))),
-        }
-    }
-
-    #[test]
-    fn a_requirement_declared_twice_is_reported_once() -> Result<(), BotError> {
-        let proof = Auth::new(Vec::new());
-
-        match proof.check(&caps(&[Cap::NET, Cap::NET, Cap::FS])) {
-            Err(BotError::CapabilityDenied { deficit }) => {
-                assert_eq!(
-                    names(&deficit),
-                    vec![Cap::NET, Cap::FS],
-                    "a domain listing one capability twice states one requirement: {deficit}"
-                );
-                assert_eq!(deficit.len(), 2, "and `len` must count requirements");
-                Ok(())
-            }
-            other => Err(failed(format!("an empty proof covers nothing: {other:?}"))),
-        }
-    }
-
-    /// `to_grant_set` is the "seek the missing pieces" step: the repair is
-    /// derived from the diagnostic rather than transcribed from it, which is
-    /// where a hand-written repair drops everything after the first line.
-    #[test]
-    fn the_deficit_derives_the_grant_set_that_repairs_it() -> Result<(), BotError> {
-        let proof = Auth::new(caps(&[Cap::NET]));
-        let required = caps(&[Cap::NET, Cap::FS, Cap::SYS]);
-
-        match proof.check(&required) {
-            Err(BotError::CapabilityDenied { deficit }) => {
-                let missing: Vec<Cap> = deficit
-                    .shortages()
-                    .map(|shortage| shortage.required().clone())
-                    .collect();
-                let repair = deficit.to_grant_set();
-
-                assert!(
-                    repair.admit(&missing).is_ok(),
-                    "the derived set must admit every requirement the deficit named: {deficit}"
-                );
-                assert!(
-                    !repair.grants(&Cap::net()),
-                    "a deficit is the shortfall, not a restatement of the requirement: \
-                     `bot.net` was already covered, so it is not in the repair"
-                );
-
-                // The documented composition: fold it into what the caller
-                // already holds, which is what closes the requirement. `grant`
-                // consumes and de-dupes, so this reaches a fixed point.
-                let held = GrantSet::empty().grant(Cap::net());
-                let closed = missing
-                    .iter()
-                    .fold(held.clone(), |set, cap| set.grant(cap.clone()));
-                assert!(
-                    closed.admit(&required).is_ok(),
-                    "the deficit's set folded into the held set must close the requirement"
-                );
-                assert!(
-                    held.admit(&required).is_err(),
-                    "control: the held set alone must not, or the test proves nothing"
-                );
-                assert!(
-                    closed
-                        .grant(Cap::net())
-                        .uncovered(&required, &Demand::new("test::domain"))
-                        .is_empty(),
-                    "re-granting a capability the set already holds changes nothing"
-                );
-                Ok(())
-            }
-            other => Err(failed(format!(
-                "expected a denial for two uncovered capabilities: {other:?}"
-            ))),
-        }
-    }
-
-    /// The invariant `covers_cap`'s binary search rests on.
-    ///
-    /// A proof is a set the caller happened to pass as a `Vec`; sorting and
-    /// de-duplicating at mint is what makes each coverage question logarithmic
-    /// rather than a scan, and the scan was the quadratic term the benchmark
-    /// measured.
-    #[test]
-    fn a_proof_holds_its_capabilities_sorted_and_deduplicated() {
-        let proof = Auth::new(caps(&[Cap::SYS, Cap::NET, Cap::SYS, Cap::FS]));
-
-        assert_eq!(
-            proof.covers(),
-            caps(&[Cap::FS, Cap::NET, Cap::SYS]).as_slice(),
-            "a proof is a set: name-ordered, each capability once"
-        );
-        assert!(
-            proof.covers_cap(&Cap::net()),
-            "membership answers for a held cap"
-        );
-        assert!(
-            !proof.covers_cap(&Cap::notify()),
-            "and denies one it does not hold"
-        );
-    }
-
-    /// `Auth::uncovered` and `GrantSet::uncovered` are the same walk, which is
-    /// what keeps a proof and a gate from naming different holes for the same
-    /// requirement. The only intended difference is attribution.
-    #[test]
-    fn the_proof_and_the_gate_name_the_same_shortfall() {
-        let required = caps(&[Cap::NET, Cap::FS]);
-        let proof = Auth::new(Vec::new());
-        let gate = GrantSet::empty();
-
-        let from_proof = proof.uncovered(&required);
-        let from_gate = gate.uncovered(&required, &Demand::new("test::domain"));
-
-        let proof_names: Vec<&str> = from_proof
-            .iter()
-            .map(|shortage| shortage.required().as_str())
-            .collect();
-        let gate_names: Vec<&str> = from_gate
-            .iter()
-            .map(|shortage| shortage.required().as_str())
-            .collect();
-        assert_eq!(
-            proof_names, gate_names,
-            "the two checks must agree on which requirements are unmet"
-        );
-
-        assert!(
-            from_proof
-                .iter()
-                .all(|shortage| shortage.demand().is_none()),
-            "a bare check is handed a capability list and no caller, so it names no domain"
-        );
-        assert_eq!(
-            from_gate
-                .first()
-                .and_then(|shortage| shortage.demand())
-                .map(Demand::domain),
-            Some("test::domain"),
-            "and the gate, which was told one, must carry it"
-        );
-    }
-
-    /// The invariant `Cap`'s `Cow` rests on, and the reason it is safe to make
-    /// the shipped constants borrow their names.
-    ///
-    /// A capability that arrived from JSON is `Owned`; a capability built from
-    /// a constant is `Borrowed`. If those compared as different values, a grant
-    /// set built from a spec would deny a call made with a constant — the two
-    /// spellings of `bot.net` would be two capabilities, and the gate would
-    /// refuse a bot it had in fact granted. Equality, ordering and hashing
-    /// compare the contents, so they are one capability.
-    #[test]
-    fn a_borrowed_and_an_owned_spelling_are_one_capability() {
-        let borrowed = Cap::net();
-        let owned = Cap::new(String::from(Cap::NET));
-
-        assert!(matches!(borrowed.0, std::borrow::Cow::Borrowed(_)));
-        assert!(matches!(owned.0, std::borrow::Cow::Owned(_)));
-
-        assert_eq!(borrowed, owned, "the two spellings name one capability");
-        assert_eq!(Cap::net().cmp(&owned), std::cmp::Ordering::Equal);
-        assert!(
-            GrantSet::empty().grant(borrowed).grants(&owned),
-            "a grant made with a constant must cover a capability read from a spec"
-        );
-        assert!(
-            GrantSet::empty().grant(owned).grants(&Cap::net()),
-            "and the reverse, or the gate would depend on which side did the naming"
-        );
-    }
-
-    #[test]
-    fn a_covered_requirement_is_admitted() -> Result<(), BotError> {
-        let proof = Auth::new(caps(&[Cap::NET, Cap::FS]));
-        proof.check(&caps(&[Cap::FS, Cap::NET]))?;
-        assert!(
-            proof.uncovered(&caps(&[Cap::NET, Cap::FS])).is_empty(),
-            "the total form and the Result form must agree on the empty case"
-        );
-        Ok(())
-    }
-}
+mod tests;

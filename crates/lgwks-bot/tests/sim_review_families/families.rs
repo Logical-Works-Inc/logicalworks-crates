@@ -15,7 +15,7 @@ use lgwks_bot::review::{ReviewOutcome, ReviewRequest};
 use lgwks_bot::script::Scope;
 use lgwks_bot::task::{Host, task};
 
-use super::fake_gh::{FakeGh, HANG_BOUND, Scenario};
+use super::scripted_gh::{HANG_BOUND, Scenario, ScriptedGh};
 use super::{
     BODY, CAPTURE, FIRST_REVIEW_ID, Fault, HEAD, LAST_REVIEW_ID, MOVED, Run, SEEDS, TestResult,
     assert_the_invariant, capture_for, error_text, gh_for, host, pull, request, review_task,
@@ -116,17 +116,17 @@ fn gh_exit_failures_r32() -> TestResult {
 #[test]
 fn deadline_stop_r32() -> TestResult {
     for index in 0..8u64 {
-        let fake = FakeGh::install("deadline", HEAD)?;
+        let scripted = ScriptedGh::install("deadline", HEAD)?;
         // A hang of 30s against a 400ms adapter deadline: the deadline, not the
         // client, is what ends the call.
-        fake.configure(Scenario::new(HEAD).hangs_for(30))?;
+        scripted.configure(Scenario::new(HEAD).hangs_for(30))?;
         let host = host()?;
         let job = review_task()?;
         let gh = Gh::new(Repository::new("acme/widgets")?)
-            .program(fake.program())
+            .program(scripted.program())
             .capture_limit(NonZeroUsize::new(CAPTURE).ok_or("a non-zero limit")?)
             .deadline(Some(Duration::from_millis(400)))
-            .env("PATH", fake.search_path()?);
+            .env("PATH", scripted.search_path()?);
         let started = std::time::Instant::now();
         let report = host.block_on(&job, (gh, request(7)?))?;
         let elapsed = started.elapsed();
@@ -150,7 +150,7 @@ fn deadline_stop_r32() -> TestResult {
             report.output()
         );
         assert!(
-            fake.creates()? <= 1,
+            scripted.creates()? <= 1,
             "seed {index}: a stopped run publishes at most once"
         );
     }
@@ -165,11 +165,11 @@ fn deadline_stop_r32() -> TestResult {
 #[test]
 fn head_moved_between_snapshot_and_publish_r32() -> TestResult {
     for index in 0..SEEDS {
-        let fake = FakeGh::install("moved-sim", HEAD)?;
-        fake.configure(Scenario::new(HEAD).head_moves_to(MOVED))?;
+        let scripted = ScriptedGh::install("moved-sim", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).head_moves_to(MOVED))?;
         let host = host()?;
         let job = review_task()?;
-        let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+        let report = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
 
         let Some(outcome) = report.output() else {
             return Err(format!(
@@ -199,7 +199,7 @@ fn head_moved_between_snapshot_and_publish_r32() -> TestResult {
             }
         }
         assert_eq!(
-            fake.creates()?,
+            scripted.creates()?,
             0,
             "seed {index}: a review of code nobody read must never be created"
         );
@@ -229,15 +229,15 @@ fn malformed_and_oversized_answers_r32() -> TestResult {
         }
         seen.insert(fault);
 
-        let fake = FakeGh::install(fault.label(), HEAD)?;
-        fake.configure(scenario_for(fault, HEAD)?)?;
+        let scripted = ScriptedGh::install(fault.label(), HEAD)?;
+        scripted.configure(scenario_for(fault, HEAD)?)?;
         let host = host()?;
         let job = review_task()?;
         // The ceiling comes from the fault rather than from the test, so the
         // difference between "refused as oversized" and "refused as malformed"
         // is the fault and not the ceiling.
         let capture = capture_for(fault);
-        let report = host.block_on(&job, (gh_for(&fake, capture)?, request(7)?))?;
+        let report = host.block_on(&job, (gh_for(&scripted, capture)?, request(7)?))?;
 
         assert!(
             !report.output().is_some_and(ReviewOutcome::is_published),
@@ -280,14 +280,14 @@ fn malformed_and_oversized_answers_r32() -> TestResult {
 #[test]
 fn a_publication_the_ceiling_cannot_verify_stays_unknown() -> TestResult {
     for index in 0..8u64 {
-        let fake = FakeGh::install("ceiling-sim", HEAD)?;
-        fake.configure(scenario_for(Fault::ListOverCeiling, HEAD)?)?;
+        let scripted = ScriptedGh::install("ceiling-sim", HEAD)?;
+        scripted.configure(scenario_for(Fault::ListOverCeiling, HEAD)?)?;
         let host = host()?;
         let job = review_task()?;
         let report = host.block_on(
             &job,
             (
-                gh_for(&fake, capture_for(Fault::ListOverCeiling))?,
+                gh_for(&scripted, capture_for(Fault::ListOverCeiling))?,
                 request(7)?,
             ),
         )?;
@@ -295,13 +295,13 @@ fn a_publication_the_ceiling_cannot_verify_stays_unknown() -> TestResult {
         // The effect really landed: the receiver was asked for exactly one
         // create, and it accepted it.
         assert_eq!(
-            fake.creates()?,
+            scripted.creates()?,
             1,
             "seed {index}: the create itself is not in doubt — only its \
              verification is"
         );
         assert_eq!(
-            fake.received()?.len(),
+            scripted.received()?.len(),
             1,
             "seed {index}: and the receiver holds the payload the adapter sent"
         );
@@ -319,7 +319,7 @@ fn a_publication_the_ceiling_cannot_verify_stays_unknown() -> TestResult {
         );
         // One read was attempted, and it was the read that refused.
         assert!(
-            fake.reads_of("/pulls/7/reviews")? >= 1,
+            scripted.reads_of("/pulls/7/reviews")? >= 1,
             "seed {index}: the run must have tried the independent read rather \
              than concluding from the create"
         );
@@ -419,14 +419,14 @@ fn every_fault_is_reachable() -> TestResult {
     Ok(())
 }
 
-/// One identity's review of pull request 7 through `fake`: it publishes
+/// One identity's review of pull request 7 through `scripted`: it publishes
 /// `body`, marked with `body`, and returns the outcome it verified.
 ///
 /// The body is bound at declaration: the closure is what a real consumer
 /// supplies, so the cross-talk question is "does this identity verify its own
 /// review", not "does the harness remember which body it passed".
 fn run_tenant(
-    fake: &FakeGh,
+    scripted: &ScriptedGh,
     host: &Host,
     path: &std::ffi::OsStr,
     body: &'static str,
@@ -441,7 +441,7 @@ fn run_tenant(
         },
     )?;
     let gh = Gh::new(Repository::new("acme/widgets")?)
-        .program(fake.program())
+        .program(scripted.program())
         .capture_limit(NonZeroUsize::new(CAPTURE).ok_or("a non-zero limit")?)
         .deadline(Some(HANG_BOUND))
         .env("PATH", path);
@@ -458,14 +458,14 @@ fn run_tenant(
 /// the two outcomes, in that order.
 pub(super) fn two_identities(
     tag: &str,
-) -> Result<(FakeGh, ReviewOutcome, ReviewOutcome), Box<dyn std::error::Error>> {
-    let fake = FakeGh::install(tag, HEAD)?;
-    fake.configure(Scenario::new(HEAD))?;
+) -> Result<(ScriptedGh, ReviewOutcome, ReviewOutcome), Box<dyn std::error::Error>> {
+    let scripted = ScriptedGh::install(tag, HEAD)?;
+    scripted.configure(Scenario::new(HEAD))?;
     let host = host()?;
-    let path = fake.search_path()?;
-    let first = run_tenant(&fake, &host, &path, "first identity")?;
-    let second = run_tenant(&fake, &host, &path, "second identity")?;
-    Ok((fake, first, second))
+    let path = scripted.search_path()?;
+    let first = run_tenant(&scripted, &host, &path, "first identity")?;
+    let second = run_tenant(&scripted, &host, &path, "second identity")?;
+    Ok((scripted, first, second))
 }
 
 /// The tenant family: two identities on one pull request number.
@@ -477,7 +477,7 @@ pub(super) fn two_identities(
 #[test]
 fn two_tenants_on_one_pull_request_r32() -> TestResult {
     for index in 0..SEEDS {
-        let (fake, first, second) = two_identities("tenants")?;
+        let (scripted, first, second) = two_identities("tenants")?;
 
         assert!(
             first.is_published() && second.is_published(),
@@ -497,7 +497,7 @@ fn two_tenants_on_one_pull_request_r32() -> TestResult {
             "seed {index}: two identities must verify two distinct reviews, not \
              one review twice: {first:?} {second:?}"
         );
-        let payloads = fake.received()?;
+        let payloads = scripted.received()?;
         assert_eq!(
             payloads.len(),
             2,
@@ -531,12 +531,12 @@ fn two_tenants_on_one_pull_request_r32() -> TestResult {
 #[test]
 fn retention_is_bounded_by_the_declared_ceiling() -> TestResult {
     for flood in [100u32, 1_000, 10_000] {
-        let fake = FakeGh::install("flood-sim", HEAD)?;
-        fake.configure(Scenario::new(HEAD).floods(flood))?;
+        let scripted = ScriptedGh::install("flood-sim", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).floods(flood))?;
         let host = host()?;
         let job = review_task()?;
         let capture = 1024;
-        let report = host.block_on(&job, (gh_for(&fake, capture)?, request(7)?))?;
+        let report = host.block_on(&job, (gh_for(&scripted, capture)?, request(7)?))?;
 
         assert!(
             !report.output().is_some_and(ReviewOutcome::is_published),
@@ -573,8 +573,8 @@ fn cancellation_under_faults_r16() -> TestResult {
         // the create. Both are reachable by a real caller cancelling under load,
         // and they are the two answers a caller most needs to tell apart.
         let after_create = index % 2 == 0;
-        let fake = FakeGh::install("cancel", HEAD)?;
-        fake.configure(
+        let scripted = ScriptedGh::install("cancel", HEAD)?;
+        scripted.configure(
             Scenario::new(HEAD)
                 .created_body(BODY)
                 .hangs_for(if after_create { 3 } else { 0 }),
@@ -585,7 +585,7 @@ fn cancellation_under_faults_r16() -> TestResult {
         if after_create {
             // Run to the publication, then stop the host: the create's response
             // is still in flight when the stop arrives.
-            let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+            let report = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
             host.cancel();
             assert!(
                 !report.output().is_some_and(ReviewOutcome::is_published),
@@ -594,13 +594,13 @@ fn cancellation_under_faults_r16() -> TestResult {
                 report.output()
             );
             assert!(
-                fake.creates()? <= 1,
+                scripted.creates()? <= 1,
                 "seed {index}: a cancelled run publishes at most once"
             );
         } else {
             // Stop the host before the run is even admitted.
             host.cancel();
-            let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+            let report = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
             assert_ne!(
                 report.disposition().label(),
                 "Succeeded",
@@ -609,7 +609,7 @@ fn cancellation_under_faults_r16() -> TestResult {
                 error_text(&report)
             );
             assert_eq!(
-                fake.creates()?,
+                scripted.creates()?,
                 0,
                 "seed {index}: a run cancelled before it starts creates nothing"
             );
@@ -628,8 +628,8 @@ fn cancellation_under_faults_r16() -> TestResult {
 #[test]
 fn duplicate_submission_r16() -> TestResult {
     for index in 0..16u64 {
-        let fake = FakeGh::install("duplicate", HEAD)?;
-        fake.configure(Scenario::new(HEAD).created_body(BODY))?;
+        let scripted = ScriptedGh::install("duplicate", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).created_body(BODY))?;
         let host = host()?;
         let job = review_task()?;
 
@@ -637,12 +637,12 @@ fn duplicate_submission_r16() -> TestResult {
         // response dropped. The second is what a caller retrying after a
         // timeout would produce, and it is exactly the case the reconciliation
         // read exists for rather than a second create.
-        let clean = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
-        fake.configure(Scenario::new(HEAD).created_body(BODY).accept_then_drop())?;
-        let retried = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+        let clean = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
+        scripted.configure(Scenario::new(HEAD).created_body(BODY).accept_then_drop())?;
+        let retried = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
 
         assert_eq!(
-            fake.creates()?,
+            scripted.creates()?,
             2,
             "seed {index}: two runs are two reviews — one each, never one run \
              posting twice"
@@ -668,7 +668,7 @@ fn duplicate_submission_r16() -> TestResult {
         // verification reads.
         let first_id = clean.output().and_then(ReviewOutcome::review_id);
         let second_id = retried.output().and_then(ReviewOutcome::review_id);
-        let applied = fake.received()?;
+        let applied = scripted.received()?;
         assert_eq!(
             applied.len(),
             2,
@@ -704,10 +704,10 @@ fn duplicate_submission_r16() -> TestResult {
 #[test]
 fn two_repositories_on_one_host_r16() -> TestResult {
     for index in 0..16u64 {
-        let first_fake = FakeGh::install("repo-a", HEAD)?;
-        let second_fake = FakeGh::install("repo-b", MOVED)?;
-        first_fake.configure(Scenario::new(HEAD).created_body(BODY))?;
-        second_fake.configure(Scenario::new(MOVED).created_body(BODY))?;
+        let first_scripted = ScriptedGh::install("repo-a", HEAD)?;
+        let second_scripted = ScriptedGh::install("repo-b", MOVED)?;
+        first_scripted.configure(Scenario::new(HEAD).created_body(BODY))?;
+        second_scripted.configure(Scenario::new(MOVED).created_body(BODY))?;
         let host = host()?;
 
         // One host, two bindings, two repositories. The second names the second
@@ -724,24 +724,25 @@ fn two_repositories_on_one_host_r16() -> TestResult {
             },
         )?;
 
-        let run =
-            |repo: &str, fake: &FakeGh| -> Result<ReviewOutcome, Box<dyn std::error::Error>> {
-                let gh = Gh::new(Repository::new(repo)?)
-                    .program(fake.program())
-                    .capture_limit(NonZeroUsize::new(CAPTURE).ok_or("a non-zero limit")?)
-                    .deadline(Some(HANG_BOUND))
-                    .env("PATH", fake.search_path()?);
-                let pull = PullRequest::new(Repository::new(repo)?, 7);
-                let request = ReviewRequest::new(pull, "COMMENT", BODY).with_marker(repo);
-                let report = host.block_on(&job, (gh, String::from(repo), request))?;
-                report
-                    .output()
-                    .cloned()
-                    .ok_or_else(|| format!("{repo} produced no outcome").into())
-            };
+        let run = |repo: &str,
+                   scripted: &ScriptedGh|
+         -> Result<ReviewOutcome, Box<dyn std::error::Error>> {
+            let gh = Gh::new(Repository::new(repo)?)
+                .program(scripted.program())
+                .capture_limit(NonZeroUsize::new(CAPTURE).ok_or("a non-zero limit")?)
+                .deadline(Some(HANG_BOUND))
+                .env("PATH", scripted.search_path()?);
+            let pull = PullRequest::new(Repository::new(repo)?, 7);
+            let request = ReviewRequest::new(pull, "COMMENT", BODY).with_marker(repo);
+            let report = host.block_on(&job, (gh, String::from(repo), request))?;
+            report
+                .output()
+                .cloned()
+                .ok_or_else(|| format!("{repo} produced no outcome").into())
+        };
 
-        let first = run("acme/widgets", &first_fake)?;
-        let second = run("other/gadgets", &second_fake)?;
+        let first = run("acme/widgets", &first_scripted)?;
+        let second = run("other/gadgets", &second_scripted)?;
 
         assert!(
             first.is_published(),
@@ -765,14 +766,18 @@ fn two_repositories_on_one_host_r16() -> TestResult {
              first's"
         );
         // Each receiver saw only its own create.
-        assert_eq!(first_fake.creates()?, 1, "seed {index}: receiver A's count");
         assert_eq!(
-            second_fake.creates()?,
+            first_scripted.creates()?,
+            1,
+            "seed {index}: receiver A's count"
+        );
+        assert_eq!(
+            second_scripted.creates()?,
             1,
             "seed {index}: receiver B's count"
         );
         assert!(
-            first_fake
+            first_scripted
                 .received()?
                 .iter()
                 .all(|payload| !payload.contains("other/gadgets")),

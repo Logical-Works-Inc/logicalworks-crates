@@ -9,17 +9,20 @@ use lgwks_bot::review::ReviewOutcome;
 use lgwks_bot::script::Scope;
 use lgwks_bot::task::task;
 
-use super::fake_gh::{FakeGh, Scenario};
 use super::families::{assert_replays, two_identities};
-use super::saturation::run_saturation_tier;
+use super::scripted_gh::{Scenario, ScriptedGh};
 use super::subject::{
     SubjectDraw, SubjectFault, over_ceiling_draw, reason_of, run_subject_fault, run_subject_seed,
-    subject_scenario,
 };
 use super::{
     CAPTURE, FIRST_REVIEW_ID, HEAD, LAST_REVIEW_ID, TestResult, band_family, error_text, gh_for,
     host, pull, request, review_task, sim,
 };
+
+// The journey-wide properties (outcomes, saturation, tenants, pinning), split
+// out by responsibility (the size law).
+#[path = "subject_outcomes.rs"]
+mod subject_outcomes;
 
 /// The subject family: every fault reaches its own distinct outcome, and none
 /// but the clean world reports a publication.
@@ -124,7 +127,7 @@ fn same_seed_same_trace_hash_subject(band: sim::Band) -> TestResult {
 
 /// One seed of the two-identity sweep: each identity publishes and verifies only its own review.
 fn identities_seed(index: u64) -> TestResult {
-    let (fake, first, second) = two_identities("subject-tenants")?;
+    let (scripted, first, second) = two_identities("subject-tenants")?;
     assert!(
         first.is_published() && second.is_published(),
         "seed {index}: both identities publish independently: {first:?} {second:?}"
@@ -134,7 +137,7 @@ fn identities_seed(index: u64) -> TestResult {
         second.review_id(),
         "seed {index}: two identities must verify two distinct reviews: {first:?} {second:?}"
     );
-    let payloads = fake.received()?;
+    let payloads = scripted.received()?;
     assert_eq!(
         payloads
             .iter()
@@ -388,8 +391,8 @@ fn a_renamed_repository_is_refused_naming_both() -> TestResult {
 /// domain failure a retry policy would repeat, and never with a create.
 #[test]
 fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
+    use lgwks_bot::EcsError;
     use lgwks_bot::cap::Cap;
-    use lgwks_bot::error::BotError;
     use lgwks_bot::script::FlowError;
     use lgwks_bot::spec::NeedSet;
 
@@ -403,11 +406,11 @@ fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
             .ok_or("a refusal index drawn below the list's length")?;
         let host = host()?;
         let job = review_task()?;
-        let fake = FakeGh::install("credential-refused", HEAD)?;
-        fake.configure(Scenario::new(HEAD).deny_credential(status))?;
-        let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+        let scripted = ScriptedGh::install("credential-refused", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).deny_credential(status))?;
+        let report = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
         assert_eq!(
-            fake.creates()?,
+            scripted.creates()?,
             0,
             "seed {index} ({status}): a refused credential publishes nothing"
         );
@@ -425,7 +428,7 @@ fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "a_refused_credential_stops_the_review_with_its_repair: returning an error to the caller");
             return refusal;
         };
-        let BotError::CredentialRejected {
+        let EcsError::CredentialRejected {
             status: reported,
             ref needs,
             ..
@@ -462,7 +465,7 @@ fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
 
 /// An untrusted build script in the changed-file inventory is never executed.
 ///
-/// The oracle is a file the inventory's patch text names: the fake emits a
+/// The oracle is a file the inventory's patch text names: the script emits a
 /// `build.rs` whose patch is `rm -f $LGWKS_TEST_MARKER`, and the test writes
 /// that marker into the fixture's own directory and names it in the child's
 /// environment. A review path that executed the inventory — compiling,
@@ -473,14 +476,14 @@ fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
 fn an_untrusted_build_script_is_never_executed() -> TestResult {
     let band = sim::Band::new(19, 8);
     for index in band.seeds() {
-        let fake = FakeGh::install("build-script", HEAD)?;
-        fake.configure(Scenario::new(HEAD).hostile_build_script())?;
-        let marker = fake.dir().join(format!("LGWKS_MARKER-{index}"));
+        let scripted = ScriptedGh::install("build-script", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).hostile_build_script())?;
+        let marker = scripted.dir().join(format!("LGWKS_MARKER-{index}"));
         std::fs::write(&marker, b"present")?;
 
         let host = host()?;
         let job = review_task()?;
-        let gh = gh_for(&fake, CAPTURE)?.env("LGWKS_TEST_MARKER", marker.as_os_str());
+        let gh = gh_for(&scripted, CAPTURE)?.env("LGWKS_TEST_MARKER", marker.as_os_str());
         let report = host.block_on(&job, (gh, request(7)?))?;
 
         assert!(
@@ -509,11 +512,11 @@ fn an_untrusted_build_script_is_never_executed() -> TestResult {
 fn a_pending_draft_is_never_reposted() -> TestResult {
     let band = sim::Band::new(20, 16);
     for index in band.seeds() {
-        let fake = FakeGh::install("pending", HEAD)?;
-        fake.configure(Scenario::new(HEAD).records_pending_draft())?;
+        let scripted = ScriptedGh::install("pending", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).records_pending_draft())?;
         let host = host()?;
         let job = review_task()?;
-        let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+        let report = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
 
         let outcome = report
             .output()
@@ -527,7 +530,7 @@ fn a_pending_draft_is_never_reposted() -> TestResult {
             "seed {index}: an unsubmitted draft is never a publication: {outcome:?}"
         );
         assert_eq!(
-            fake.creates()?,
+            scripted.creates()?,
             1,
             "seed {index}: the draft was created once and reconciliation issued no \
              second create — a repost here is the duplicate T33 names"
@@ -537,7 +540,7 @@ fn a_pending_draft_is_never_reposted() -> TestResult {
             "seed {index}: the draft's id is retained, so recovery targets it: {outcome:?}"
         );
         assert!(
-            fake.reads_of("/pulls/7/reviews")? >= 1,
+            scripted.reads_of("/pulls/7/reviews")? >= 1,
             "seed {index}: the draft was found by an independent read, not assumed"
         );
     }
@@ -604,11 +607,11 @@ fn a_partial_submission_reports_both_counts() -> TestResult {
 fn an_unverified_effect_retains_its_review_id() -> TestResult {
     let band = sim::Band::new(22, 16);
     for index in band.seeds() {
-        let fake = FakeGh::install("unverified", HEAD)?;
-        fake.configure(Scenario::new(HEAD).deny_reads())?;
+        let scripted = ScriptedGh::install("unverified", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).deny_reads())?;
         let host = host()?;
         let job = review_task()?;
-        let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
+        let report = host.block_on(&job, (gh_for(&scripted, CAPTURE)?, request(7)?))?;
 
         let outcome = report
             .output()
@@ -622,7 +625,7 @@ fn an_unverified_effect_retains_its_review_id() -> TestResult {
             format!("seed {index}: an Unverified outcome retains the id: {outcome:?}")
         })?;
         assert_eq!(
-            fake.creates()?,
+            scripted.creates()?,
             1,
             "seed {index}: the effect really landed, and no second create was issued"
         );
@@ -669,15 +672,15 @@ fn unauthorized_and_transport_stay_distinct() -> TestResult {
 
     for index in band.seeds() {
         // The read-back loses permission: a real `403` from the receiver.
-        let fake = FakeGh::install("denied", HEAD)?;
-        fake.configure(Scenario::new(HEAD).deny_reads())?;
-        let denial = host()?.block_on(&job, (gh_for(&fake, CAPTURE)?, pull(7)?))?;
+        let scripted = ScriptedGh::install("denied", HEAD)?;
+        scripted.configure(Scenario::new(HEAD).deny_reads())?;
+        let denial = host()?.block_on(&job, (gh_for(&scripted, CAPTURE)?, pull(7)?))?;
 
         // The same read fails for a reason that names no HTTP status at all:
         // the receiver refuses with a bare non-zero exit, which is the shape a
         // dropped connection takes and the shape a permission answer never
         // takes.
-        let other = FakeGh::install("transported", HEAD)?;
+        let other = ScriptedGh::install("transported", HEAD)?;
         let refused = sim::Rng::new(index).between(1, 4);
         other.configure(Scenario::new(HEAD).fail_reads(refused))?;
         let outage = host()?.block_on(&job, (gh_for(&other, CAPTURE)?, pull(7)?))?;
@@ -720,178 +723,6 @@ fn unauthorized_and_transport_stay_distinct() -> TestResult {
             "seed {index}: a permission refusal must not be reported as a transport \
              failure, which would hide a credential problem behind a network one \
              and make a healthy credential look like a flaky link: {denial}"
-        );
-    }
-    Ok(())
-}
-
-/// The same two faults reach different outcomes through the whole journey.
-///
-/// The classification above is the adapter's; this is the journey's. A run
-/// whose read-back lost permission reports `Unverified` with the id retained,
-/// while a run whose read-back failed for a transport reason reports `Unknown`.
-/// Merging them would either discard applied-effect evidence or over-report a
-/// blocking state for a failure nobody can attribute to permissions.
-#[test]
-fn permission_loss_and_transport_outcome_differ() -> TestResult {
-    let band = sim::Band::new(24, 8);
-    for index in band.seeds() {
-        let denied = FakeGh::install("outcome-denied", HEAD)?;
-        denied.configure(Scenario::new(HEAD).deny_reads())?;
-        let host = host()?;
-        let job = review_task()?;
-        let denied_report = host.block_on(&job, (gh_for(&denied, CAPTURE)?, request(7)?))?;
-
-        let outage = FakeGh::install("outcome-transported", HEAD)?;
-        outage.configure(Scenario::new(HEAD).fail_reads(4))?;
-        let outage_report = host.block_on(&job, (gh_for(&outage, CAPTURE)?, request(7)?))?;
-
-        assert!(
-            denied_report
-                .output()
-                .is_some_and(ReviewOutcome::is_unverified),
-            "seed {index}: a lost permission after a create is Unverified: {:?}",
-            denied_report.output()
-        );
-        assert!(
-            outage_report
-                .output()
-                .is_some_and(ReviewOutcome::is_unknown),
-            "seed {index}: a transport failure leaves the effect unobserved, so it \
-             is Unknown — not Unverified, which would claim a permission loss \
-             nobody observed: {:?}",
-            outage_report.output()
-        );
-        assert_eq!(
-            denied.creates()?,
-            1,
-            "seed {index}: the denied run applied exactly one create"
-        );
-    }
-    Ok(())
-}
-
-/// Saturation over the subject path: many concurrent runs on one pull request,
-/// each receiver's own record asserted.
-///
-/// The concurrency counterpart to the arm families above: a per-seed arm is one
-/// world at a time, and a bound that holds for one run says nothing about a host
-/// running many. The runs go through [`run_saturation_tier`], so the receiver is
-/// sharded at [`RUNS_PER_RECEIVER`] and the equalities are the strict ones — with
-/// no fault configured, creates *equal* runs and every run verifies — rather
-/// than the weak `creates <= runs` a degenerate world satisfies just as readily.
-#[test]
-fn subject_saturation_conserves_creates() -> TestResult {
-    for _ in 0..16u64 {
-        run_saturation_tier(64, 16, "subject-saturation")?;
-    }
-    Ok(())
-}
-
-/// Two tenants' coverage decisions on one pull request stay apart.
-///
-/// A host that leaked a diff verdict between runs would tell one tenant its
-/// coverage was complete when the other tenant's oversized diff was the reason
-/// it was refused. The two tenants' inventories differ in size — one clean, one
-/// past the file ceiling — so a crossed verdict would be visible.
-#[test]
-fn two_tenants_coverage_stays_isolated() -> TestResult {
-    let band = sim::Band::new(25, 16);
-    for index in band.seeds() {
-        let clean = FakeGh::install("tenant-clean", HEAD)?;
-        clean.configure(Scenario::new(HEAD))?;
-        let refused = FakeGh::install("tenant-refused", HEAD)?;
-        refused.configure(subject_scenario(
-            SubjectFault::DiffOverFiles,
-            HEAD,
-            over_ceiling_draw(index),
-        )?)?;
-
-        let host = host()?;
-        let job = review_task()?;
-        let clean_report = host.block_on(&job, (gh_for(&clean, CAPTURE)?, request(7)?))?;
-        let refused_report = host.block_on(
-            &job,
-            (
-                gh_for(&refused, fault_capture(SubjectFault::DiffOverFiles))?,
-                request(7)?,
-            ),
-        )?;
-
-        assert!(
-            clean_report
-                .output()
-                .is_some_and(ReviewOutcome::is_published),
-            "seed {index}: the clean tenant's coverage is complete and it publishes: {:?}",
-            clean_report.output()
-        );
-        assert!(
-            refused_report
-                .output()
-                .is_some_and(ReviewOutcome::is_incomplete),
-            "seed {index}: the over-ceiling tenant's coverage is incomplete and it \
-             publishes nothing — the two verdicts must not cross: {:?}",
-            refused_report.output()
-        );
-        assert_eq!(
-            refused.creates()?,
-            0,
-            "seed {index}: the refused tenant's receiver saw no create"
-        );
-        assert_eq!(
-            clean.creates()?,
-            1,
-            "seed {index}: the clean tenant's receiver saw exactly one create"
-        );
-    }
-    Ok(())
-}
-
-/// The capture ceiling the file-ceiling arm runs with.
-///
-/// One helper because the byte arm shares it and a per-family literal is a
-/// place for the two to drift: a family running the over-ceiling inventory
-/// under a capture ceiling that refused it for the *wrong* reason would report
-/// an incomplete coverage for a capture truncation and prove nothing about the
-/// file bound.
-fn fault_capture(fault: SubjectFault) -> usize {
-    fault.capture()
-}
-
-/// The review is pinned to the commit that was read, across every arm.
-///
-/// Every arm above checks a *refusal* arm. This one checks the success arm and
-/// the pinning that T31/T33/T34 all rest on: a publication is reported at the
-/// commit the run read and nowhere else. It runs through the whole path, so a
-/// run that somehow re-pointed the subject at the canonical name after a rename
-/// would publish at a commit it never read.
-#[test]
-fn a_publication_is_pinned_to_the_read_commit() -> TestResult {
-    let band = sim::Band::new(26, 16);
-    for index in band.seeds() {
-        let fake = FakeGh::install("pinned", HEAD)?;
-        fake.configure(Scenario::new(HEAD))?;
-        let host = host()?;
-        let job = review_task()?;
-        let report = host.block_on(&job, (gh_for(&fake, CAPTURE)?, request(7)?))?;
-
-        let outcome = report
-            .output()
-            .ok_or_else(|| format!("seed {index}: a clean run reports an outcome"))?;
-        assert!(
-            outcome.is_published(),
-            "seed {index}: a clean run publishes: {outcome:?}"
-        );
-        assert_eq!(
-            outcome.commit_id().map(CommitId::as_str),
-            Some(HEAD),
-            "seed {index}: the publication is pinned to the commit that was read, \
-             never re-pointed: {outcome:?}"
-        );
-        assert_eq!(
-            fake.creates()?,
-            1,
-            "seed {index}: a clean run creates exactly once"
         );
     }
     Ok(())

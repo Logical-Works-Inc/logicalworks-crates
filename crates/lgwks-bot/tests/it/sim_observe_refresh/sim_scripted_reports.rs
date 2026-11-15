@@ -53,7 +53,7 @@ fn a_poll_deadline_around_both_edges_is_accepted_or_refused_at_build() -> TestRe
         .with_effects(tenant_scope(0)?)
         .build(&GrantSet::empty());
     assert!(
-        matches!(zero, Err(BotError::PollDeadlineUnbounded { deadline }) if deadline.is_zero()),
+        matches!(zero, Err(EcsError::PollDeadlineUnbounded { deadline }) if deadline.is_zero()),
         "seed {SEED}: zero bounds nothing and is refused, naming the number: {zero:?}"
     );
 
@@ -63,7 +63,7 @@ fn a_poll_deadline_around_both_edges_is_accepted_or_refused_at_build() -> TestRe
         .with_effects(tenant_scope(0)?)
         .build(&GrantSet::empty());
     match over {
-        Err(BotError::PollDeadlineExceeded { deadline, ceiling }) => {
+        Err(EcsError::PollDeadlineExceeded { deadline, ceiling }) => {
             assert_eq!(
                 deadline, past,
                 "seed {SEED}: the refusal names the budget that was asked for"

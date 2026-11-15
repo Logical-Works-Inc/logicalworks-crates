@@ -1,9 +1,11 @@
 //! Tests of the session module. Split from `session.rs` (#526).
 
+#[cfg(test)]
 use super::*;
+use crate::error::KernelError;
 
 /// Return a small validated flow used by focused unit tests.
-fn end_flow() -> Result<FlowSpec, BotError> {
+fn end_flow() -> Result<FlowSpec, SessionError> {
     FlowSpec::new(
         BTreeMap::new(),
         "end",
@@ -15,7 +17,7 @@ fn end_flow() -> Result<FlowSpec, BotError> {
 }
 
 #[test]
-fn predicates_compare_typed_values() -> Result<(), BotError> {
+fn predicates_compare_typed_values() -> Result<(), SessionError> {
     let mut declarations = BTreeMap::new();
     declarations.insert(String::from("answer"), VarType::Integer);
     let mut scope = VarScope::new(declarations)?;
@@ -29,7 +31,7 @@ fn predicates_compare_typed_values() -> Result<(), BotError> {
 }
 
 #[test]
-fn templates_use_scope_values() -> Result<(), BotError> {
+fn templates_use_scope_values() -> Result<(), SessionError> {
     let mut declarations = BTreeMap::new();
     declarations.insert(String::from("name"), VarType::String);
     let mut scope = VarScope::new(declarations)?;
@@ -102,7 +104,7 @@ fn the_answer_decoder_is_one_function_for_validation_and_assignment() {
 }
 
 #[test]
-fn assignment_uses_the_same_decoder_validation_does() -> Result<(), BotError> {
+fn assignment_uses_the_same_decoder_validation_does() -> Result<(), SessionError> {
     // The property that makes the load-time check worth anything: for every
     // case the decoder accepts, assigning supplies the answer to a scope
     // and stores exactly the value the decoder named. A second, separately
@@ -126,7 +128,7 @@ fn assignment_uses_the_same_decoder_validation_does() -> Result<(), BotError> {
             }
             Err(rejection) => {
                 assert!(
-                    matches!(assigned, Err(BotError::InvalidVariableValue { .. })),
+                    matches!(assigned, Err(SessionError::InvalidVariableValue { .. })),
                     "assigning {answer:?} as {} must refuse with the typed value error, got \
                      {assigned:?} ({rejection})",
                     declared.label()
@@ -159,7 +161,7 @@ fn every_rejection_renders_a_cause_a_reader_can_act_on() {
 }
 
 #[test]
-fn an_ask_whose_variable_cannot_hold_its_options_is_refused_at_load() -> Result<(), BotError> {
+fn an_ask_whose_variable_cannot_hold_its_options_is_refused_at_load() -> Result<(), SessionError> {
     // The counterexample the review filed: a boolean variable and a
     // question offering "Continue"/"Cancel". Every candidate is decodable
     // at load time, and neither one is storable, so the document is refused
@@ -185,7 +187,7 @@ fn an_ask_whose_variable_cannot_hold_its_options_is_refused_at_load() -> Result<
         BTreeMap::new(),
         FlowBounds::new(8),
     );
-    let BotError::AskOptionNotAssignable {
+    let SessionError::AskOptionNotAssignable {
         node,
         variable,
         option,
@@ -194,13 +196,13 @@ fn an_ask_whose_variable_cannot_hold_its_options_is_refused_at_load() -> Result<
     } = (match outcome {
         Err(error) => error,
         Ok(spec) => {
-            return Err(BotError::MalformedFlow {
+            return Err(SessionError::MalformedFlow {
                 cause: format!("accepted a flow with {} nodes", spec.nodes().len()),
             });
         }
     })
     else {
-        return Err(BotError::MalformedFlow {
+        return Err(SessionError::MalformedFlow {
             cause: String::from("refused for the wrong reason"),
         });
     };
@@ -223,7 +225,7 @@ fn an_ask_whose_variable_cannot_hold_its_options_is_refused_at_load() -> Result<
 }
 
 #[test]
-fn an_ask_the_variable_can_hold_is_still_accepted() -> Result<(), BotError> {
+fn an_ask_the_variable_can_hold_is_still_accepted() -> Result<(), SessionError> {
     // The other half of the rule, so the check above cannot be satisfied by
     // refusing everything: a boolean variable offered boolean literals, a
     // choice variable offered its own declared values, and an integer
@@ -303,7 +305,7 @@ fn the_default_resolver_has_an_explicit_unrecognized_case() {
 }
 
 #[test]
-fn end_session_stops_at_terminal() -> Result<(), BotError> {
+fn end_session_stops_at_terminal() -> Result<(), SessionError> {
     let session = Session::new("test", end_flow()?)?;
     assert_eq!(session.current(), None);
     assert_eq!(session.terminal(), Some(&Terminal::Completed));
@@ -433,13 +435,13 @@ fn an_indeterminate_effect_is_what_puts_a_run_in_doubt() {
     // The law tying the two halves of this change together: the error says
     // an effect may have happened, and that is exactly what puts the run in
     // doubt. Neither half is reachable in practice without the other.
-    let errors = [BotError::EffectIndeterminate {
+    let errors = [KernelError::EffectIndeterminate {
         domain: String::from("gh::merge"),
         cause: String::from("request timed out"),
     }];
     let unsettled = errors
         .iter()
-        .filter(|error| matches!(**error, BotError::EffectIndeterminate { .. }))
+        .filter(|error| matches!(**error, KernelError::EffectIndeterminate { .. }))
         .count();
 
     assert_eq!(unsettled, 1, "the run left one effect unsettled");

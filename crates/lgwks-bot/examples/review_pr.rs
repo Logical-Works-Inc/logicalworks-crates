@@ -33,8 +33,8 @@
 use std::io::Write;
 
 use lgwks_bot::domain::gh::{CommitId, Gh, PullRequest, Repository};
-use lgwks_bot::review::{ReviewOutcome, ReviewRequest, ScriptFailure};
-use lgwks_bot::script::{Scope, Tenant};
+use lgwks_bot::review::{ReviewOutcome, ReviewRequest};
+use lgwks_bot::script::{FlowError, Scope, Tenant};
 use lgwks_bot::task::{Host, task};
 
 /// The pull request number, repository, event and body, from the command line.
@@ -191,9 +191,9 @@ fn analyse(
     snapshot: &lgwks_bot::domain::gh::PrSnapshot,
     pull: &PullRequest,
     draft: &str,
-) -> Result<String, ScriptFailure> {
+) -> Result<String, FlowError> {
     let head = CommitId::new(snapshot.head_sha())
-        .map_err(|source| ScriptFailure::new(format!("the head is not a commit: {source}")))?;
+        .map_err(|source| FlowError::failed(format!("the head is not a commit: {source}")))?;
     Ok(format!(
         "{draft}\n\nReviewed {}#{} at {head}.",
         pull.repository(),

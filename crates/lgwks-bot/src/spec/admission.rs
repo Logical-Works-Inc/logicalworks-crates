@@ -2,7 +2,8 @@
 //! Split from `spec.rs` (#526) so the refusal vocabulary is one file.
 
 use crate::cap::Cap;
-use crate::error::{BotError, Escaped};
+use crate::ecs::EcsError;
+use crate::error::Escaped;
 use crate::gate::GrantSet;
 
 /// Why a spec could not be materialized into a runnable bot.
@@ -24,7 +25,7 @@ use crate::gate::GrantSet;
 #[derive(Debug)]
 pub enum Admission {
     /// The document or the registry is malformed, independently of authority.
-    Refused(BotError),
+    Refused(EcsError),
     /// Every presently knowable unmet need, in declaration order.
     Needs(NeedSet),
 }
@@ -47,9 +48,52 @@ impl std::error::Error for Admission {
     }
 }
 
-impl From<BotError> for Admission {
-    fn from(cause: BotError) -> Self {
+impl From<EcsError> for Admission {
+    fn from(cause: EcsError) -> Self {
         Self::Refused(cause)
+    }
+}
+
+/// The refusal an adapter reports when the *upstream* refused the credential it
+/// presented, as a typed outcome carrying the repair rather than a generic
+/// failure.
+///
+/// Call it only for a status [`is_credential_status`](crate::cap::is_credential_status)
+/// accepts: a receiver that failed for another reason has not refused the
+/// credential, and reporting a re-grant for it sends a caller to repair
+/// something that is not broken.
+///
+/// A distinct variant from [`KernelError::CapabilityDenied`](crate::error::KernelError::CapabilityDenied)
+/// because the two are opposite facts. A denied capability was never granted; a
+/// rejected credential **was** granted and the receiver refused it anyway, which
+/// means its issuer has cancelled, rotated or expired the authority behind it.
+/// The repair is the same shape — a [`NeedSet`] naming the capabilities to
+/// re-grant — and it is carried in the error so a caller cannot read the status
+/// and then have to reconstruct what to do about it.
+///
+/// Lives in the world layer, beside the [`NeedSet`] it carries: the kernel's own
+/// vocabulary does not name a spec.
+///
+/// Never a retry: retrying the same credential against the same receiver
+/// produces the same refusal, so this is the typed outcome that stops a
+/// refresh-then-retry loop rather than feeding one.
+///
+/// # Examples
+///
+/// ```
+/// use lgwks_bot::spec::upstream_credential_rejection;
+/// use lgwks_bot::{Cap, EcsError, RetryClass};
+///
+/// let refusal = upstream_credential_rejection("net::probe", 401, &[Cap::net()]);
+/// assert!(matches!(refusal, EcsError::CredentialRejected { status: 401, .. }));
+/// assert_eq!(refusal.retry_class(), RetryClass::Never);
+/// ```
+#[must_use]
+pub fn upstream_credential_rejection(domain: &str, status: u16, required: &[Cap]) -> EcsError {
+    EcsError::CredentialRejected {
+        domain: domain.to_owned(),
+        status,
+        needs: NeedSet::expired_credentials(domain, required),
     }
 }
 
@@ -233,7 +277,7 @@ pub enum Need {
     /// the one it presented.
     ///
     /// Not a [`Self::MissingCapability`] for the same reason
-    /// [`BotError::CredentialExpired`] is not a capability denial: the
+    /// [`KernelError::CredentialExpired`](crate::error::KernelError::CredentialExpired) is not a capability denial: the
     /// capability is still granted and now names nothing, so the repair is a
     /// *re-grant* of capabilities that are already
     /// held. A need set that named them as missing would produce an admission

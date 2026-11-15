@@ -404,6 +404,41 @@ mod durable {
         Ok(())
     }
 
+    #[test]
+    fn the_smoke_binary_opens_all_four_library_doors() -> TestResult {
+        // The doors (#990) on the shipped binary: each prints its proof only when
+        // every outcome it asserts held, and a deviation makes the exit non-zero.
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_estate")).output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "no door deviated: {stdout} {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let record = format!(
+            "record door: installed draft at version 1, a stale write was a conflict (expected {}, \
+             found 1), an uncovered proof was denied",
+            lgwks_bot::cas::NO_VERSION
+        );
+        let stability = format!(
+            "stability door: a steady subject settled whole, a writer that never pauses was refused \
+             after {} reads (",
+            lgwks_bot::stability::MAX_STABILITY_READS
+        );
+        for line in [
+            record.as_str(),
+            "session door: one re-ask, one routed answer, and an answer after the end refused in ",
+            "credential door: a 401 carries its re-grant repair and is never retried",
+            stability.as_str(),
+        ] {
+            assert!(
+                stdout.contains(line),
+                "the smoke printed {line:?}: {stdout}"
+            );
+        }
+        Ok(())
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_new_store_is_owner_only() -> TestResult {

@@ -13,16 +13,62 @@
 //! goes through `std::io::Write` because `clippy::print_stdout` is forbidden
 //! workspace-wide, examples included.
 
-use std::error::Error;
 use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use lgwks_bot::script::Scope;
-use lgwks_bot::task::{Host, task};
+use lgwks_bot::script::{FlowError, Scope};
+use lgwks_bot::task::{Host, HostError, task};
 use lgwks_bot::{
-    Action, Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
+    Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
 };
+
+/// Why the program failed, one variant per step.
+#[derive(Debug)]
+enum WatchError {
+    /// The host refused to build.
+    Host(HostError),
+    /// The flow refused to register as a task.
+    Task(FlowError),
+    /// The run was refused or failed; its report, as text.
+    Run(String),
+    /// A host without the grant ran the page.
+    Ungated,
+    /// Writing the output failed.
+    Output(std::io::Error),
+}
+
+impl std::fmt::Display for WatchError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Host(ref cause) => write!(formatter, "the host did not build: {cause}"),
+            Self::Task(ref cause) => write!(formatter, "the task did not register: {cause}"),
+            Self::Run(ref cause) => formatter.write_str(cause),
+            Self::Ungated => formatter.write_str("a host without the grant ran the page"),
+            Self::Output(ref cause) => write!(formatter, "the output was not written: {cause}"),
+        }
+    }
+}
+
+impl std::error::Error for WatchError {}
+
+impl From<HostError> for WatchError {
+    fn from(cause: HostError) -> Self {
+        Self::Host(cause)
+    }
+}
+
+impl From<FlowError> for WatchError {
+    fn from(cause: FlowError) -> Self {
+        Self::Task(cause)
+    }
+}
+
+impl From<std::io::Error> for WatchError {
+    fn from(cause: std::io::Error) -> Self {
+        Self::Output(cause)
+    }
+}
 
 /// The queue's depth. A real source reads a socket, a file or an API; this one
 /// reads a counter the program owns, so every run is deterministic.
@@ -36,7 +82,7 @@ struct QueueDepth;
 
 impl QueueDepth {
     /// Build the source from the name a flow gives after `of`.
-    fn from_target(_queue: &str) -> Result<Source, BotError> {
+    fn from_target(_queue: &str) -> Result<Source, EcsError> {
         Ok(Source::ordered(Self))
     }
 }
@@ -48,7 +94,7 @@ impl Observe for QueueDepth {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(self.required_caps())?;
         Ok(DEPTH.load(Ordering::SeqCst))
     }
@@ -67,7 +113,7 @@ struct Page {
 
 impl Page {
     /// Build the action from the name a flow gives after `on`.
-    fn from_target(_who: &str) -> Result<Action, BotError> {
+    fn from_target(_who: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self {
             caps: [Cap::notify()],
         }))
@@ -88,7 +134,7 @@ impl Execute for Page {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         // Checked before the effect, not after it.
         call.0.check(self.required_caps())?;
         PAGES.fetch_add(1, Ordering::SeqCst);
@@ -122,7 +168,7 @@ lgwks_bot::script! {
 }
 
 /// A host for the `queue-watch` tenant over [`QUEUE_DOMAINS`], holding `grants`.
-fn host(grants: GrantSet) -> Result<Host, Box<dyn Error>> {
+fn host(grants: GrantSet) -> Result<Host, WatchError> {
     Ok(Host::builder("queue-watch")?
         .domains(&QUEUE_DOMAINS)
         .grants(grants)
@@ -132,16 +178,19 @@ fn host(grants: GrantSet) -> Result<Host, Box<dyn Error>> {
 
 /// Set the queue to `depth` and run the flow once on `host`: the depth it read,
 /// or the reason the run was refused.
-fn run_at(host: &Host, depth: u32) -> Result<u32, Box<dyn Error>> {
+fn run_at(host: &Host, depth: u32) -> Result<u32, WatchError> {
     DEPTH.store(depth, Ordering::SeqCst);
     let watching = task("watching", |scope: Scope, name: &'static str| async move {
         watch(&scope, name).await
     })?;
     let report = lgwks_bot::block_on(host.run(&watching, "jobs"));
-    Ok(report.result().copied().map_err(ToString::to_string)?)
+    report
+        .result()
+        .copied()
+        .map_err(|failure| WatchError::Run(failure.to_string()))
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), WatchError> {
     let mut out = std::io::stdout().lock();
 
     // The grant belongs to the host: a flow can only page where the host was
@@ -164,7 +213,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // the page, which never runs.
     let refusal = run_at(&host(GrantSet::empty())?, 11)
         .err()
-        .ok_or("a host without the grant ran the page")?;
+        .ok_or(WatchError::Ungated)?;
     let pages = PAGES.load(Ordering::SeqCst);
     writeln!(out, "no grant: {refusal}")?;
     assert_eq!(pages, 1, "a refused page is not delivered");

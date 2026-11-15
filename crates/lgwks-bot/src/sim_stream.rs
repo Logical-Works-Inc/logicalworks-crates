@@ -6,6 +6,95 @@
 //! seed is a replayable trace, and every draw refuses rather than guesses when
 //! asked for an index into nothing.
 
+use std::fmt;
+
+use crate::error::KernelError;
+
+/// A draw the stream refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DrawError {
+    /// An index was asked of an empty range.
+    EmptyRange,
+    /// A drawn index fell outside the `len` items it was drawn for.
+    OutsideItems {
+        /// The index drawn.
+        at: usize,
+        /// How many items there were.
+        len: usize,
+    },
+}
+
+impl fmt::Display for DrawError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::EmptyRange => f.write_str("an index drawn from an empty range"),
+            Self::OutsideItems { at, len } => write!(f, "{at} is outside {len} items"),
+        }
+    }
+}
+
+impl std::error::Error for DrawError {}
+
+/// Families whose own verdict type is still text read a refusal as its line.
+impl From<DrawError> for String {
+    fn from(error: DrawError) -> Self {
+        error.to_string()
+    }
+}
+
+/// Why a seeded check could not reach its verdict. A failed assertion is not
+/// this: assertions fail the test on their own, and this is the check being
+/// unable to ask its question.
+#[derive(Debug)]
+pub(crate) enum SimError {
+    /// The stream refused a draw.
+    Draw(DrawError),
+    /// A call came back as something other than the outcome the check drives.
+    Unexpected {
+        /// The seed whose scenario drew the call.
+        seed: u64,
+        /// What the check expected the call to be.
+        wanted: &'static str,
+        /// What came back instead, boxed so the `Result` stays small.
+        got: Box<KernelError>,
+    },
+}
+
+impl fmt::Display for SimError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Draw(ref error) => write!(f, "{error}"),
+            Self::Unexpected {
+                seed,
+                wanted,
+                ref got,
+            } => write!(f, "seed {seed:#x}: expected {wanted}, got {got}"),
+        }
+    }
+}
+
+impl std::error::Error for SimError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::Draw(ref error) => Some(error),
+            Self::Unexpected { ref got, .. } => Some(&**got),
+        }
+    }
+}
+
+impl From<DrawError> for SimError {
+    fn from(error: DrawError) -> Self {
+        Self::Draw(error)
+    }
+}
+
+/// Families whose own verdict type is still text read a refusal as its line.
+impl From<SimError> for String {
+    fn from(error: SimError) -> Self {
+        error.to_string()
+    }
+}
+
 /// SplitMix64 over one word of state.
 pub(crate) struct Stream(u64);
 
@@ -28,20 +117,20 @@ impl Stream {
     /// bound a simulation here asks for is far below 65,536, so the bias is
     /// under one part in a hundred. An empty range has no index, and is
     /// refused.
-    pub(crate) fn below(&mut self, bound: usize) -> Result<usize, String> {
+    pub(crate) fn below(&mut self, bound: usize) -> Result<usize, DrawError> {
         let [low, high, ..] = self.next().to_le_bytes();
         usize::from(u16::from_le_bytes([low, high]))
             .checked_rem(bound)
-            .ok_or_else(|| "an index drawn from an empty range".to_owned())
+            .ok_or(DrawError::EmptyRange)
     }
 
     /// A drawn element of `items`.
-    pub(crate) fn choose<T: Copy>(&mut self, items: &[T]) -> Result<T, String> {
+    pub(crate) fn choose<T: Copy>(&mut self, items: &[T]) -> Result<T, DrawError> {
         let at = self.below(items.len())?;
-        items
-            .get(at)
-            .copied()
-            .ok_or_else(|| format!("{at} is outside {} items", items.len()))
+        items.get(at).copied().ok_or(DrawError::OutsideItems {
+            at,
+            len: items.len(),
+        })
     }
 }
 
@@ -58,23 +147,36 @@ pub(crate) const RECEIPT_START: u64 = 0xcbf2_9ce4_8422_2325;
 
 /// A directory of one simulation's own, removed when it drops.
 ///
-/// Named by nanos plus a counter, never by a process id: the OS reuses ids, and
-/// a reused one must not make two simulations share a directory.
+/// Named by a counter and made with exclusive creation, never by a clock or a
+/// process id: the OS reuses ids, and a reused one must not make two
+/// simulations share a directory. A name already taken (by a parallel test
+/// process, or by a directory a crashed run left) is stepped over, so the
+/// directory handed back is always new and empty.
 pub(crate) struct TempDir(std::path::PathBuf);
 
 impl TempDir {
+    /// Names tried before giving up: more than any one run leaves behind.
+    const ATTEMPTS: u32 = 4096;
+
     /// A fresh directory whose name starts `lgwks-sim-<name>`.
     pub(crate) fn new(name: &str) -> std::io::Result<Self> {
+        use std::io::ErrorKind;
         use std::sync::atomic::{AtomicU64, Ordering};
-        static UNIQUE: AtomicU64 = AtomicU64::new(0);
-        let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
-        let nanos = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-            Ok(since) => since.as_nanos(),
-            Err(before) => before.duration().as_nanos(),
-        };
-        let dir = std::env::temp_dir().join(format!("lgwks-sim-{name}-{nanos}-{unique}"));
-        std::fs::create_dir_all(&dir)?;
-        Ok(Self(dir))
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let root = std::env::temp_dir();
+        for _ in 0..Self::ATTEMPTS {
+            let unique = NEXT.fetch_add(1, Ordering::Relaxed);
+            let dir = root.join(format!("lgwks-sim-{name}-{unique}"));
+            match std::fs::create_dir(&dir) {
+                Ok(()) => return Ok(Self(dir)),
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+                Err(error) => {
+                    lgwks_std::trace::warn!(error = %error, "sim_stream: a simulation's directory was not made");
+                    return Err(error);
+                }
+            }
+        }
+        Err(ErrorKind::AlreadyExists.into())
     }
 
     /// The directory.

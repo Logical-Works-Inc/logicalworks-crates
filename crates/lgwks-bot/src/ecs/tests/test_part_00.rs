@@ -197,7 +197,7 @@ fn a_durable_retry_after_a_lost_reply_settles_instead_of_stalling() -> TestResul
 
     unknown_once.set(true);
     match bot.tick() {
-        Err(error @ BotError::EffectUnrecorded { .. }) => {
+        Err(error @ EcsError::EffectUnrecorded { .. }) => {
             assert_eq!(
                 error.dispatch_certainty(),
                 DispatchCertainty::Occurred,
@@ -248,7 +248,7 @@ fn a_post_applied_append_failure_is_a_recording_failure_not_a_refusal() -> TestR
         format!("a refused outcome append was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectUnrecorded { .. }),
+        matches!(error, EcsError::EffectUnrecorded { .. }),
         "expected EffectUnrecorded, got {error:?}"
     );
     assert_eq!(
@@ -326,7 +326,7 @@ fn a_post_failure_append_failure_keeps_the_not_applied_fact() -> TestResult {
     assert!(
         matches!(
             error,
-            BotError::EffectUnrecorded {
+            EcsError::EffectUnrecorded {
                 evidence: EffectEvidence::NotApplied,
                 ..
             }
@@ -363,7 +363,7 @@ fn a_post_failure_append_failure_keeps_the_not_applied_fact() -> TestResult {
         format!("an open entry was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::PendingTransition { .. }),
+        matches!(error, EcsError::PendingTransition { .. }),
         "expected the still-open entry, got {error:?}"
     );
     assert_eq!(
@@ -404,7 +404,7 @@ fn an_append_failure_before_the_action_is_still_a_pre_dispatch_refusal() -> Test
         format!("a refused intent append was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectRefused { .. }),
+        matches!(error, EcsError::Kernel(KernelError::EffectRefused { .. })),
         "expected EffectRefused before intent, got {error:?}"
     );
     assert_eq!(error.dispatch_certainty(), DispatchCertainty::Refused);
@@ -423,7 +423,7 @@ fn an_append_failure_before_the_action_is_still_a_pre_dispatch_refusal() -> Test
         format!("a refused prepare append was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectRefused { .. }),
+        matches!(error, EcsError::Kernel(KernelError::EffectRefused { .. })),
         "expected EffectRefused before preparation, got {error:?}"
     );
     assert_eq!(error.dispatch_certainty(), DispatchCertainty::Refused);
@@ -671,7 +671,10 @@ fn building_without_the_grant_is_refused() -> TestResult {
         Ok(_) => Err("a source requiring `bot.net` built without it".into()),
         Err(error) => {
             assert!(
-                matches!(error, BotError::CapabilityDenied { .. }),
+                matches!(
+                    error,
+                    EcsError::Kernel(KernelError::CapabilityDenied { .. })
+                ),
                 "expected CapabilityDenied, got {error:?}"
             );
             Ok(())
@@ -702,7 +705,7 @@ fn admission_names_every_unmet_requirement_and_the_domain_that_declared_it() -> 
         .build(&GrantSet::empty())
     {
         Ok(_) => Err("a bot requiring two ungranted capabilities built".into()),
-        Err(BotError::CapabilityDenied { deficit }) => {
+        Err(EcsError::Kernel(KernelError::CapabilityDenied { deficit })) => {
             let named: Vec<(&str, Option<&str>)> = deficit
                 .shortages()
                 .map(|shortage| {
@@ -760,7 +763,7 @@ fn a_poll_error_is_returned_and_commits_nothing() -> TestResult {
         String::from("a failing poll was reported as a successful tick")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the observer's own error, got {error:?}"
     );
     assert_eq!(

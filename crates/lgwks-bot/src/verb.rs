@@ -7,10 +7,204 @@
 //! while the value it compares against is too.
 
 use super::cap::{Auth, Cap};
-use super::error::BotError;
+use super::ecs::EcsError;
 use crate::clock::Clock;
+use lgwks_std::hash::Digest;
+use std::fmt;
 use std::future::Future;
 use std::time::Duration;
+
+// ── Torn reads ─────────────────────────────────────────────────────────────
+
+/// Which axis of a subject's identity moved between two reads.
+///
+/// Typed rather than a boolean, because the three axes have different repairs:
+/// a length that moved is a write in progress, a modification time that moved
+/// alone is a `touch`, and a digest that moved with neither is a subject whose
+/// bytes changed without the filesystem noticing.
+///
+/// Defined here, with the verb whose failure carries it, so the world layer's
+/// error can name [`Unstable`] without importing the stable-read protocol that
+/// produces it; `stability` re-exports both under their old paths.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(lgwks_bot::verb::Drift::Length.to_string(), "length");
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Drift {
+    /// The subject's reported length is not the same on both reads.
+    Length,
+    /// The subject's modification time is not the same on both reads.
+    Modified,
+    /// The subject's bytes are not the same on both reads, although its length
+    /// and its modification time are.
+    ///
+    /// A distinct axis rather than a variant of length: an in-place rewrite to
+    /// the same number of bytes within one filesystem timestamp granularity is
+    /// the case this names, and it is exactly the case a size-and-mtime check
+    /// alone admits.
+    Contents,
+    /// One of the two reads returned fewer bytes than the subject reported.
+    ///
+    /// The read was cut short, so the subject's identity was never established
+    /// at all. Never reported for a pair whose bytes agree, which is why it is
+    /// the last check rather than the first.
+    Truncated,
+}
+
+impl Drift {
+    /// A stable short name, for a report that is keyed by string.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// assert_eq!(lgwks_bot::verb::Drift::Truncated.as_str(), "truncated");
+    /// ```
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::Modified => "modified",
+            Self::Contents => "contents",
+            Self::Truncated => "truncated",
+        }
+    }
+}
+
+impl fmt::Display for Drift {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+/// A subject that never presented the same identity twice.
+///
+/// Carries the two readings that were compared when the attempt gave up, so a
+/// caller reporting the failure can say *which* bytes it saw rather than only
+/// that it saw two of them.
+///
+/// # Examples
+///
+/// ```
+/// use std::time::SystemTime;
+/// use lgwks_bot::stability::{Reading, read_stable};
+///
+/// // A writer that never pauses: every read sees a longer subject.
+/// let mut n = 0_u64;
+/// let torn = read_stable(|| { n += 1; Ok(Reading::of_subject(vec![0; n as usize], n, SystemTime::UNIX_EPOCH)) });
+/// let unstable = torn.err().and_then(|failure| failure.unstable().copied()).ok_or("settled")?;
+/// assert!(unstable.to_string().starts_with("the subject did not settle"));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Unstable {
+    /// How many reads the attempt took before it gave up.
+    reads: u32,
+    /// The axis that moved on the last comparison.
+    drift: Drift,
+    /// The digest of the reading held from the previous comparison.
+    held: Digest,
+    /// The digest of the reading that disagreed with it.
+    observed: Digest,
+}
+
+impl Unstable {
+    /// The refusal of a subject that moved on `reads` consecutive comparisons.
+    #[must_use]
+    pub(crate) const fn new(reads: u32, drift: Drift, held: Digest, observed: Digest) -> Self {
+        Self {
+            reads,
+            drift,
+            held,
+            observed,
+        }
+    }
+
+    /// How many reads the attempt took.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::time::SystemTime;
+    /// # use lgwks_bot::stability::{MAX_STABILITY_READS, Reading, read_stable};
+    /// # let mut n = 0_u64;
+    /// # let torn = read_stable(|| { n += 1; Ok(Reading::of_subject(vec![0; n as usize], n, SystemTime::UNIX_EPOCH)) });
+    /// # let unstable = torn.err().and_then(|f| f.unstable().copied()).ok_or("settled")?;
+    /// assert_eq!(unstable.reads(), MAX_STABILITY_READS);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn reads(&self) -> u32 {
+        self.reads
+    }
+
+    /// The axis that moved on the last comparison.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::time::SystemTime;
+    /// # use lgwks_bot::stability::{Reading, read_stable};
+    /// # let mut n = 0_u64;
+    /// # let torn = read_stable(|| { n += 1; Ok(Reading::of_subject(vec![0; n as usize], n, SystemTime::UNIX_EPOCH)) });
+    /// # let unstable = torn.err().and_then(|f| f.unstable().copied()).ok_or("settled")?;
+    /// assert!(!unstable.drift().as_str().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn drift(&self) -> Drift {
+        self.drift
+    }
+
+    /// The digest of the reading the attempt was holding.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::time::SystemTime;
+    /// # use lgwks_bot::stability::{Reading, read_stable};
+    /// # let mut n = 0_u64;
+    /// # let torn = read_stable(|| { n += 1; Ok(Reading::of_subject(vec![0; n as usize], n, SystemTime::UNIX_EPOCH)) });
+    /// # let unstable = torn.err().and_then(|f| f.unstable().copied()).ok_or("settled")?;
+    /// assert_ne!(unstable.held(), unstable.observed());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn held(&self) -> Digest {
+        self.held
+    }
+
+    /// The digest of the reading that disagreed with it.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use std::time::SystemTime;
+    /// # use lgwks_bot::stability::{Reading, read_stable};
+    /// # let mut n = 0_u64;
+    /// # let torn = read_stable(|| { n += 1; Ok(Reading::of_subject(vec![0; n as usize], n, SystemTime::UNIX_EPOCH)) });
+    /// # let unstable = torn.err().and_then(|f| f.unstable().copied()).ok_or("settled")?;
+    /// assert_ne!(unstable.observed(), unstable.held());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn observed(&self) -> Digest {
+        self.observed
+    }
+}
+
+impl fmt::Display for Unstable {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "the subject did not settle: {} moved across {} read(s)",
+            self.drift, self.reads
+        )
+    }
+}
 
 // ── Observe ────────────────────────────────────────────────────────────────
 
@@ -145,7 +339,7 @@ pub trait Observe {
     /// `Send` bound would force every domain to be `Send` and rule out the
     /// thread-local state `Bot::tick` is built for. `Bot::tick` polls every
     /// source concurrently.
-    fn poll(&self, call: (Auth, ())) -> impl Future<Output = Result<Self::Output, BotError>>;
+    fn poll(&self, call: (Auth, ())) -> impl Future<Output = Result<Self::Output, EcsError>>;
 
     /// The state of this source's own caching, when it has one.
     ///
@@ -278,7 +472,7 @@ pub trait Observe {
 /// is proven again when the action runs.
 pub trait Evaluate<T> {
     /// Returns `true` when the condition is met.
-    fn check(&self, value: &T) -> Result<bool, BotError>;
+    fn check(&self, value: &T) -> Result<bool, EcsError>;
 
     /// The condition identifier (e.g. `"changed"`, `"threshold::below(5)"`).
     fn condition_id(&self) -> &str;
@@ -289,7 +483,7 @@ impl<T, F> Evaluate<T> for F
 where
     F: Fn(&T) -> bool,
 {
-    fn check(&self, value: &T) -> Result<bool, BotError> {
+    fn check(&self, value: &T) -> Result<bool, EcsError> {
         Ok((self)(value))
     }
 
@@ -356,8 +550,7 @@ pub trait Execute {
     /// overrides this with the canonical encoding both sides agree on; a flow
     /// parks those same bytes, and the host refuses a decision that names any
     /// others.
-    fn archive_input(&self, input: &Self::Input) -> Option<Vec<u8>> {
-        let _ = input;
+    fn archive_input(&self, _input: &Self::Input) -> Option<Vec<u8>> {
         None
     }
 
@@ -371,7 +564,7 @@ pub trait Execute {
     fn execute_action(
         &self,
         call: (Auth, &Self::Input),
-    ) -> impl Future<Output = Result<Self::Output, BotError>>;
+    ) -> impl Future<Output = Result<Self::Output, EcsError>>;
 
     #[doc(hidden)]
     /// [`Execute::execute_action`] on the clock of the flow that runs it.
@@ -386,10 +579,9 @@ pub trait Execute {
     /// `Scope::enter_at`; a consumer writes `act` and never this.
     fn execute_action_on(
         &self,
-        clock: &Clock,
+        _clock: &Clock,
         call: (Auth, &Self::Input),
-    ) -> impl Future<Output = Result<Self::Output, BotError>> {
-        let _ = clock;
+    ) -> impl Future<Output = Result<Self::Output, EcsError>> {
         self.execute_action(call)
     }
 
@@ -421,7 +613,7 @@ pub trait Query {
     fn query(
         &self,
         call: (Auth, &Self::Input),
-    ) -> impl Future<Output = Result<Self::Output, BotError>>;
+    ) -> impl Future<Output = Result<Self::Output, EcsError>>;
 
     /// The identifier the query reports in findings (e.g. `"gh::pr_status"`).
     fn domain_id(&self) -> &str;

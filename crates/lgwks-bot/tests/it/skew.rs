@@ -27,7 +27,7 @@ use lgwks_bot::broker::Broker;
 use lgwks_bot::cap::Cap;
 use lgwks_bot::clock::Clock;
 use lgwks_bot::effect::EnvironmentId;
-use lgwks_bot::error::BotError;
+use lgwks_bot::error::KernelError;
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::skew::{SkewBound, epoch_holds, lease_holds};
 
@@ -107,7 +107,7 @@ fn an_observer_past_the_bound_is_refused_and_a_lagging_one_accepts() -> TestResu
         Duration::from_secs(TTL_SECS + SKEW_SECS + 540),
     ] {
         let observer = Clock::virtual_at(observer_at);
-        let Err(BotError::CredentialExpired {
+        let Err(KernelError::CredentialExpired {
             expired_at, now, ..
         }) = proof.check_remote(&[Cap::net()], &observer)
         else {
@@ -174,7 +174,7 @@ fn the_same_clock_check_refuses_without_an_allowance() -> TestResult {
         .grant_expiring(Cap::net(), Duration::from_secs(60));
     let proof = grants.issue_skewed(&[Cap::net()], &clock, SkewBound::ZERO)?;
     clock.advance(Duration::from_secs(60))?;
-    let Err(BotError::CredentialExpired { .. }) = proof.check(&[Cap::net()]) else {
+    let Err(KernelError::CredentialExpired { .. }) = proof.check(&[Cap::net()]) else {
         return refuse("an expired lease must be refused on its own clock");
     };
     Ok(())

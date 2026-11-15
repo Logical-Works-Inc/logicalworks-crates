@@ -19,9 +19,9 @@ use lgwks_bot::domain::inspect::Subject;
 use lgwks_bot::inspect::Inspection;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::spec::{Bot, BotSpec, EffectScope};
-use lgwks_bot::{Action, Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, domains};
+use lgwks_bot::{Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, domains};
 
-/// A test result that may carry a `BotError`, an id error or an I/O error.
+/// A test result that may carry an `EcsError`, an id error or an I/O error.
 pub type TestResult<T> = Result<T, Box<dyn Error>>;
 
 thread_local! {
@@ -46,8 +46,7 @@ pub struct Capture;
 
 impl Capture {
     /// Build one from the `target` its spec names (ignored).
-    pub fn from_target(target: &str) -> Result<Action, BotError> {
-        let _ = target;
+    pub fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self))
     }
 }
@@ -64,7 +63,7 @@ impl Execute for Capture {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &Inspection)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &Inspection)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         CAPTURED.with(|slot| *slot.borrow_mut() = Some(call.1.clone()));
         Ok(())

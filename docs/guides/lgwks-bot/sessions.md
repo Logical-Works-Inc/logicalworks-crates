@@ -59,7 +59,6 @@ FlowSpec(
     },
 )
 ```
-
 A variant is written with its own name. `NodeKind` is a serde externally tagged
 enum, so a unit variant is its own name (`end`) and a variant carrying fields
 takes them in parentheses (`say(text: "hello")`). This is the document's contract
@@ -82,11 +81,11 @@ store: it returns `BotError::InvalidVariableValue` when the answer cannot be
 converted.
 
 The same decoder runs at load, over every candidate of every ask
-(`crates/lgwks-bot/src/session/validate.rs:121`). An ask whose options include one the
+(`crates/lgwks-bot/src/session/validate/nodes.rs:112`). An ask whose options include one the
 declared variable cannot hold is refused by `FlowSpec::validate` with
-`BotError::AskOptionNotAssignable` — naming the node, the variable, the option,
-the expected type and the cause — so a flow that loads is a flow every one of
-whose options can be answered. A candidate is a *label* the resolver matches and
+`BotError::AskOptionNotAssignable`, which names the node, the variable, the
+option, the expected type and the cause. So a flow that loads is a flow whose
+every option can be answered. A candidate is a *label* the resolver matches and
 a *value* the variable stores, and they need not be the same string: `yes`
 offered for a boolean variable stores `Value::Boolean(true)`, and a candidate
 differing from a declared choice only in case stores the declared spelling.

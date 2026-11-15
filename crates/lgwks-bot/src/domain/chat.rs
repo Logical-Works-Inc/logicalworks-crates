@@ -4,7 +4,8 @@
 //! history). It is NOT a separate verb; it is where triggers come from.
 
 use crate::cap::{Auth, Cap};
-use crate::error::{BotError, unbound_domain};
+use crate::ecs::EcsError;
+use crate::error::unbound_domain;
 // `Observe` is in scope for the two inherent `unbound` helpers, which read the
 // same two trait methods the verb bodies do; naming the trait is what lets each
 // helper be one line instead of a second copy of the refusal.
@@ -114,7 +115,7 @@ impl SlackChannel {
     }
 
     /// The refusal an unbound read gives, naming the channel it was asked for.
-    fn unbound<T>(&self, auth: &Auth, verb: &str) -> Result<T, BotError> {
+    fn unbound<T>(&self, auth: &Auth, verb: &str) -> Result<T, EcsError> {
         unbound_domain(
             auth,
             self.required_caps(),
@@ -132,7 +133,7 @@ impl verb::Observe for SlackChannel {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<ChatMessage, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<ChatMessage, EcsError> {
         self.unbound(&call.0, "polling")
     }
 
@@ -149,7 +150,7 @@ impl verb::Query for SlackChannel {
         &self.caps
     }
 
-    async fn query(&self, call: (Auth, &())) -> Result<Vec<ChatMessage>, BotError> {
+    async fn query(&self, call: (Auth, &())) -> Result<Vec<ChatMessage>, EcsError> {
         self.unbound(&call.0, "querying")
     }
 
@@ -184,7 +185,7 @@ impl HttpWebhook {
 
     /// The refusal an unbound read gives, naming the webhook path it was asked
     /// for.
-    fn unbound<T>(&self, auth: &Auth, verb: &str) -> Result<T, BotError> {
+    fn unbound<T>(&self, auth: &Auth, verb: &str) -> Result<T, EcsError> {
         unbound_domain(
             auth,
             self.required_caps(),
@@ -202,7 +203,7 @@ impl verb::Observe for HttpWebhook {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<ChatMessage, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<ChatMessage, EcsError> {
         self.unbound(&call.0, "polling")
     }
 

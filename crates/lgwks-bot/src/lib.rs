@@ -177,9 +177,9 @@ pub mod cap;
 pub mod cap_token;
 /// Versioned shared records: compare-and-set writes for concurrent editors.
 ///
-/// [`CasWrite`](crate::cas::CasWrite) applies a write only when the record still
-/// holds the version the writer saw; a late write is the typed
-/// [`BotError::Conflict`] outcome — recorded in the
+/// [`CasWrite`](crate::domain::cas::CasWrite) applies a write only when the
+/// record still holds the version the writer saw; a late write is the typed
+/// [`KernelError::Conflict`] outcome — recorded in the
 /// store's bounded conflict log, never retried blindly (issue #278, row 5).
 #[doc(hidden)]
 pub mod cas;
@@ -191,6 +191,7 @@ pub mod domain {
     //! the crate root. Nine generic words — `fs`, `net`, `sys`, `data` — read
     //! like the standard library's at a call site that has not imported this
     //! crate's prelude, and a second path is a second thing to keep stable.
+    pub mod cas;
     pub mod chat;
     pub mod data;
     pub mod eval;
@@ -212,6 +213,9 @@ pub mod domain {
 }
 #[cfg(feature = "edge")]
 pub mod app;
+/// The app layer's error: a sum of the layer errors, re-exported as
+/// [`BotError`]. Private: the root re-export is the one path to it (#990).
+mod app_error;
 /// Sequential per-tenant execution cells: the request system's thread-per-core
 /// host, its command logs and its effect seam (issue #790). Private: it is the
 /// implementation behind [`RequestFeed`](crate::ecs::RequestFeed), not a second
@@ -256,7 +260,8 @@ mod ecs;
 /// moment the ledger accepts one. See [`EffectKey`](effect::EffectKey).
 #[doc(hidden)]
 pub mod effect;
-/// Typed bot errors.
+/// The kernel's typed errors: [`KernelError`], and the retry vocabulary every
+/// layer's error answers in.
 #[doc(hidden)]
 pub mod error;
 /// Politeness and admission: whether a host may be contacted now, and if not,
@@ -394,7 +399,7 @@ pub mod retry;
 ///
 /// # Example
 ///
-/// The task is built and driven against a fake `gh` in `tests/it/pr_review_journey.rs` and
+/// The task is built and driven against a scripted `gh` in `tests/it/pr_review_journey.rs` and
 /// `tests/it/sim_review_pr.rs`. A real run needs a `gh` on `PATH` and a repository to read, so no
 /// documentation example reaches the network.
 #[cfg(all(feature = "script", feature = "process"))]
@@ -486,7 +491,7 @@ pub mod spec;
 /// value a reader gets out of that is one nobody on the system ever held. This
 /// module is the discipline commercial automation applies to it with: two
 /// independent reads must agree, and a reading that cannot be confirmed is
-/// reported as [`BotError::UnstableObservation`] — pending, never a change.
+/// reported as [`EcsError::UnstableObservation`] — pending, never a change.
 ///
 /// Wired rather than offered: [`domain::data::JsonStore`] reads through
 /// [`stability::read_stable_file`], so every poll of a JSON-backed store is
@@ -524,12 +529,14 @@ pub mod verb;
 mod world;
 
 #[doc(hidden)]
+pub use app_error::BotError;
+#[doc(hidden)]
 pub use cap::{Auth, Cap, Deficit, Demand, Shortage};
+#[doc(hidden)]
+pub use ecs::EcsError;
 #[doc(hidden)]
 #[cfg(feature = "ecs")]
 pub use ecs::WakeHandle;
-#[doc(hidden)]
-#[cfg(feature = "ecs")]
 #[doc(hidden)]
 #[cfg(feature = "ecs")]
 pub use ecs::{
@@ -555,7 +562,7 @@ pub use ecs::{TickProfile, TickStage};
 #[doc(hidden)]
 pub use effect::{EventId, InputIdentity};
 #[doc(hidden)]
-pub use error::{BotError, DispatchCertainty, RetryClass};
+pub use error::{DispatchCertainty, KernelError, RetryClass};
 #[doc(hidden)]
 pub use gate::GrantSet;
 #[doc(hidden)]
@@ -575,9 +582,9 @@ pub use session::{
     JournalError, MAX_FLOW_BYTES, MAX_FLOW_SPEC_BYTES, MAX_RECORD_BYTES, MAX_SESSION_BYTES,
     MAX_UTTERANCE_BYTES, MAX_VALUE_BYTES, MatchTier, MemoryJournal, NodeId, NodeKind, Outcome,
     PolicyVersion, Predicate, Provenance, Question, RECEIPT_VERSION, ReceiptAcceptance,
-    RecordedDecision, Resolution, Resolver, ResourceAxis, ResourceLimits, Session, SessionId,
-    TemplateInterpolator, TemplatePart, Terminal, TranscriptEntry, Value, ValueExpr, VarScope,
-    VarType, Verdict,
+    RecordedDecision, Resolution, Resolver, ResourceAxis, ResourceLimits, Session, SessionError,
+    SessionId, TemplateInterpolator, TemplatePart, Terminal, TranscriptEntry, Value, ValueExpr,
+    VarScope, VarType, Verdict,
 };
 /// The live bot itself, behind `ecs` like the substrate it executes on.
 #[cfg(feature = "ecs")]

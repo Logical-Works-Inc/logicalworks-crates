@@ -16,7 +16,7 @@ use lgwks_std::seeded::Seeded;
 
 use crate::cap::{Auth, Cap};
 use crate::clock::Clock;
-use crate::error::BotError;
+use crate::ecs::EcsError;
 use crate::gate::GrantSet;
 use crate::verb::{Cadence, Observe};
 
@@ -47,7 +47,7 @@ impl Observe for Probe {
         &[]
     }
 
-    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, BotError>> {
+    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, EcsError>> {
         self.polls.set(self.polls.get().saturating_add(1));
         ready(Ok(self.polls.get()))
     }

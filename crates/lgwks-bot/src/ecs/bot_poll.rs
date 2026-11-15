@@ -1,11 +1,11 @@
 //! Polling sources inside a tick: waves, refreshes and stalls.
 
-use crate::error::BotError;
 use crate::spec::Erased;
 #[cfg(doc)]
 use crate::verb::Observe;
 use crate::verb::RefreshReason;
 
+use super::EcsError;
 use super::bot::EcsBot;
 use super::ledger::Ledger;
 use super::resources::Chains;
@@ -121,7 +121,7 @@ impl EcsBot {
     /// phase's ordering become another's.
     pub(super) async fn poll_sources(
         &self,
-        polled: &mut Vec<Result<Option<Erased>, BotError>>,
+        polled: &mut Vec<Result<Option<Erased>, EcsError>>,
         revisions: &mut Vec<Option<u64>>,
         scratch: &mut PollScratch,
     ) -> u32 {
@@ -129,7 +129,7 @@ impl EcsBot {
         // Cleared and left empty: a slot per chain is filled the first time a
         // wave has a source to poll, below. A tick on which every source reports
         // the revision its value was read at polls nothing, and a `Result` the
-        // size of a `BotError` written for every chain to say "did not move" was
+        // size of an `EcsError` written for every chain to say "did not move" was
         // most of what such a tick cost. Empty means nothing was polled, which is
         // what `observe_fold` reads it as.
         polled.clear();
@@ -298,7 +298,7 @@ impl EcsBot {
                 let Some(slot) = polled.get_mut(index) else {
                     continue;
                 };
-                if matches!(result, Err(BotError::PollStalled { .. })) {
+                if matches!(result, Err(EcsError::PollStalled { .. })) {
                     stalled.push(index);
                 }
                 *slot = result;

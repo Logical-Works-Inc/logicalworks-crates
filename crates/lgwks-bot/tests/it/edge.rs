@@ -7,14 +7,14 @@
 
 use std::future::{Future, ready};
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use lgwks_bot::rt::edge::{EdgeStop, MAX_BODY_BYTES, serve};
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::{
-    Auth, Bot, BotError, Cadence, Cap, GrantSet, Observe, Request, RequestFeed, Response,
+    Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe, Request, RequestFeed, Response,
     WakeHandle,
 };
 
@@ -88,7 +88,7 @@ impl Observe for Written {
         &[]
     }
 
-    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, BotError>> {
+    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, EcsError>> {
         let total = self.total.load(Ordering::Acquire);
         self.seen.store(total, Ordering::Release);
         self.polls.fetch_add(1, Ordering::AcqRel);
@@ -106,7 +106,7 @@ impl Observe for Written {
 
 #[test]
 fn two_tenants_over_http_never_read_each_others_state() -> TestResult {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
     let addr = listener.local_addr()?;
     let (total, seen, polls) = (Arc::default(), Arc::default(), Arc::default());
     let mut world = Bot::builder("edge-test")

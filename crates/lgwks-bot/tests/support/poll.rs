@@ -12,10 +12,14 @@
 
 use std::cell::Cell;
 
-use lgwks_bot::{Auth, BotError, Cap};
+use lgwks_bot::{Auth, Cap, KernelError};
 
 /// Refuse `auth` unless it covers `required`, then count the poll in `polls`.
-pub(crate) fn admit_poll(auth: &Auth, required: &[Cap], polls: &Cell<u32>) -> Result<(), BotError> {
+pub(crate) fn admit_poll(
+    auth: &Auth,
+    required: &[Cap],
+    polls: &Cell<u32>,
+) -> Result<(), KernelError> {
     auth.check(required)?;
     polls.set(polls.get().saturating_add(1));
     Ok(())

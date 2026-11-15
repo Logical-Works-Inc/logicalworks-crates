@@ -4,9 +4,10 @@ use std::time::Duration;
 
 use lgwks_deps::bevy_ecs::prelude::World;
 
-use crate::error::{BotError, RetryClass};
+use crate::error::RetryClass;
 use crate::spec::Erased;
 
+use super::EcsError;
 use super::entry::EntryState;
 use super::entry::RetryReading;
 use super::entry::Transition;
@@ -299,7 +300,7 @@ pub(super) fn resume(
 /// [`RetryReading::after_definite_failure`]: `first` is when the entry's first
 /// attempt of this generation began and `entropy` jitters the backoff.
 ///
-/// The classification is [`BotError::retry_class`] and nothing else. The error's
+/// The classification is [`EcsError::retry_class`] and nothing else. The error's
 /// *variant* is not the question: `DomainError` is where a permanent refusal, a
 /// connection that never opened, and a wiring defect all used to land, and they
 /// want three different answers. Reading the rendered `cause` to tell them apart
@@ -307,7 +308,7 @@ pub(super) fn resume(
 /// The producer states what the failure establishes about the effect, the
 /// certainty carries it here, and this function is a total map over that.
 pub(super) fn failure_state(
-    error: &BotError,
+    error: &EcsError,
     attempts: u32,
     retry: &RetryReading,
     first: Duration,
@@ -317,7 +318,7 @@ pub(super) fn failure_state(
     // abandoned: the occurrence is already known, and the only work left is the
     // append. Mapped here rather than through `RetryClass` so `Never` keeps its
     // meaning of "this failure will not change on a retry of the *action*".
-    if let BotError::EffectUnrecorded {
+    if let EcsError::EffectUnrecorded {
         ref key,
         ref evidence,
         ref cause,

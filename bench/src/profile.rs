@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use lgwks_bot::{TickProfile, TickStage};
 
+use crate::error::BenchError;
 use crate::scenarios::Scenario;
 use crate::stats;
 use crate::{Clock, build_bot, selected};
@@ -40,7 +41,7 @@ struct StageRow {
 /// buffer sits outside the measured window on both legs. The two legs run the
 /// *same* window on the *same* bot, back to back, so the difference between them
 /// is the instrument and nothing else.
-fn profile_row(scenario: &Scenario) -> Result<StageRow, Box<dyn std::error::Error>> {
+fn profile_row(scenario: &Scenario) -> Result<StageRow, BenchError> {
     let clock = Clock::new();
     let tally = Rc::new(Cell::new(0u64));
     let evals = Rc::new(Cell::new(0u64));
@@ -54,14 +55,14 @@ fn profile_row(scenario: &Scenario) -> Result<StageRow, Box<dyn std::error::Erro
         let mut bot = build_bot(scenario, &clock, &tally, &evals)?;
         for _ in 0..scenario.warmup_ticks {
             clock.set(tick);
-            let _ = bot.tick()?;
+            bot.tick()?;
             tick = tick.saturating_add(1);
         }
 
         let start = Instant::now();
         for _ in 0..scenario.ticks_per_round {
             clock.set(tick);
-            let _ = bot.tick()?;
+            bot.tick()?;
             tick = tick.saturating_add(1);
         }
         plain_rounds.push(per_tick_ns(start.elapsed(), scenario.ticks_per_round));
@@ -98,7 +99,7 @@ fn per_tick_ns(elapsed: Duration, ticks: u64) -> f64 {
 /// costs with the instrument off. The `instrument` column is the difference, and
 /// the clock's own cost is printed under the table because on this host it is
 /// what the instrument mostly is.
-pub(super) fn stage_report(only: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
+pub(super) fn stage_report(only: Option<&str>) -> Result<String, BenchError> {
     let scenarios = selected(only)?;
     let mut rows = Vec::with_capacity(scenarios.len());
     for scenario in scenarios {
@@ -124,14 +125,14 @@ pub(super) fn stage_report(only: Option<&str>) -> Result<String, Box<dyn std::er
     for row in &rows {
         write!(out, "  {:<20}", row.name)?;
         for stage in TickStage::ALL {
-            let _ = write!(out, " {value:>9.1}", value = ns_of(row, stage));
+            write!(out, " {value:>9.1}", value = ns_of(row, stage))?;
         }
-        let _ = writeln!(
+        writeln!(
             out,
             " {:>10.1} {:>+10.1}",
             row.plain_ns,
             row.profiled_ns - row.plain_ns
-        );
+        )?;
     }
     writeln!(out, "\n  shares of the measured tick")?;
     writeln!(
@@ -142,7 +143,7 @@ pub(super) fn stage_report(only: Option<&str>) -> Result<String, Box<dyn std::er
     for row in &rows {
         write!(out, "  {:<20}", row.name)?;
         for stage in TickStage::ALL {
-            let _ = write!(out, " {:>8.1}%", row.profile.share(stage) * 100.0);
+            write!(out, " {:>8.1}%", row.profile.share(stage) * 100.0)?;
         }
         out.push('\n');
     }
@@ -179,7 +180,7 @@ fn clock_read_ns() -> f64 {
     // The sink is read so the loop cannot be optimized away, and the sum is
     // deliberately meaningless: what is measured is the elapsed time around it.
     let elapsed = (start.elapsed().as_secs_f64() / READS as f64) * 1e9;
-    let _ = sink;
+    std::hint::black_box(sink);
     elapsed
 }
 

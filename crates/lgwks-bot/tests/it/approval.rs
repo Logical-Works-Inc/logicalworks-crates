@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use lgwks_bot::script::{ApprovalDecision, Clock, DecisionError, FlowError, Scope};
 use lgwks_bot::task::{Disposition, Host, Report, RunStore, StoreError, StoreLimitKind, task};
-use lgwks_bot::{Action, Auth, BotError, Cap, EffectLifetime, Execute};
+use lgwks_bot::{Action, Auth, Cap, EcsError, EffectLifetime, Execute};
 
 use crate::effect_policy::allowing;
 use crate::scratch::Scratch;
@@ -141,7 +141,7 @@ struct Release;
 
 impl Release {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, BotError> {
+    fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self))
     }
 }
@@ -166,7 +166,7 @@ impl Execute for Release {
         lgwks_bot::script::Durable::to_record(input).ok()
     }
 
-    async fn execute_action(&self, call: (Auth, &Vec<u8>)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &Vec<u8>)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         RELEASED.fetch_add(1, Ordering::SeqCst);
         Ok(())
@@ -178,7 +178,7 @@ impl Execute for Release {
 }
 
 lgwks_bot::domains! {
-    /// `test::release` bound to the stub the gated act runs.
+    /// `test::release` bound to the action the gated act runs.
     pub(crate) APPROVAL_DOMAINS {
         observe {}
         execute {

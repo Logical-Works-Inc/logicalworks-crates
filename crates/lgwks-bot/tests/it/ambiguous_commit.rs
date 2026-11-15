@@ -24,7 +24,7 @@ use std::rc::Rc;
 
 use lgwks_bot::journal::{EffectEvent, EffectEvidence};
 use lgwks_bot::spec::{Bot, EffectScope};
-use lgwks_bot::{BotError, DispatchCertainty, GrantSet};
+use lgwks_bot::{BotError, DispatchCertainty, EcsError, GrantSet};
 
 use crate::sim;
 
@@ -117,15 +117,16 @@ fn an_unknown_outcome_that_did_not_commit_reports_occurrence_and_records_on_retr
             return refusal;
         }
     };
-    if !matches!(answered, BotError::EffectUnrecorded { .. }) {
+    if !matches!(answered, EcsError::EffectUnrecorded { .. }) {
         let refusal = Err(format!("expected a lost reply, got {answered:?}").into());
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "an_unknown_outcome_that_did_not_commit_reports_occurrence_and_records_on_retry: returning an error to the caller");
         return refusal;
     }
+    let shown = format!("{answered:?}");
     assert_eq!(
-        answered.dispatch_certainty(),
+        BotError::from(answered).dispatch_certainty(),
         DispatchCertainty::Occurred,
-        "the effect ran; only its record's reply was lost: {answered:?}"
+        "the effect ran; only its record's reply was lost: {shown}"
     );
     assert_eq!(entered.get(), 1);
     assert!(

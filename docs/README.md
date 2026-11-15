@@ -100,7 +100,8 @@ the rest of this table is design history and contributor policy.
 | [`docs/codebook/dependencies.md`](codebook/dependencies.md) | Codebook §10 to §12: dependencies, banned constructs, and what a green gate does not prove. |
 | [`docs/governance/gates.md`](governance/gates.md) | Governance §3 and §4: the gates, and change control for governance. |
 | [`docs/governance/open-work.md`](governance/open-work.md) | Governance §6 and §7: open correctness and acceptance work, and the decisions requiring the Director. |
-| [`docs/governance/ledger-2026-11-13.md`](governance/ledger-2026-11-13.md) | Governance §5 ledger, 2026-11-13: the newest part. |
+| [`docs/governance/ledger-2026-11-15.md`](governance/ledger-2026-11-15.md) | Governance §5 ledger, 2026-11-15: the newest part. |
+| [`docs/governance/ledger-2026-11-13.md`](governance/ledger-2026-11-13.md) | Governance §5 ledger, 2026-11-13 to 2026-11-14. |
 | [`docs/governance/ledger-2026-10-26.md`](governance/ledger-2026-10-26.md) | Governance §5 ledger, 2026-10-26 to 2026-11-08. |
 | [`docs/governance/ledger-2026-10-21.md`](governance/ledger-2026-10-21.md) | Governance §5 ledger, 2026-10-21. |
 | [`docs/governance/ledger-2026-10-09.md`](governance/ledger-2026-10-09.md) | Governance §5 ledger, 2026-10-09 to 2026-10-20. |

@@ -45,8 +45,7 @@ use lgwks_deps::axum::{
     response::{IntoResponse, Response as HttpResponse},
 };
 
-use crate::ecs::{EcsBot, NextTick, RequestFeed, SubmitRefused};
-use crate::error::BotError;
+use crate::ecs::{EcsBot, EcsError, NextTick, RequestFeed, SubmitRefused};
 use crate::rt::runtime::driver;
 use crate::rt::sync::CancellationToken;
 
@@ -63,7 +62,7 @@ pub enum EdgeError {
     /// The listener or the driver failed.
     Io(io::Error),
     /// The world's closing tick failed.
-    World(BotError),
+    World(EcsError),
 }
 
 impl fmt::Display for EdgeError {
@@ -349,7 +348,7 @@ mod backpressure {
     use super::{EdgeStop, serve};
     use crate::ecs::{Request, RequestFeed, Response};
     use crate::spec::EffectScope;
-    use crate::{Auth, Bot, BotError, Cadence, Cap, GrantSet, Observe};
+    use crate::{Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -554,7 +553,7 @@ mod backpressure {
             &[]
         }
 
-        fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, BotError>> {
+        fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, EcsError>> {
             ready(Ok(0))
         }
 
@@ -629,7 +628,7 @@ mod backpressure {
             },
             MAILBOX_BOUND,
         );
-        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
         let addr = listener.local_addr()?;
         let mut world = Bot::builder("edge-backpressure")
             .with_effects(EffectScope::ephemeral()?)

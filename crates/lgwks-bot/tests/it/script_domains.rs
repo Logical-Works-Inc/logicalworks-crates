@@ -12,7 +12,7 @@
 //!
 //! | Claim | Test |
 //! |---|---|
-//! | `observe github::pr_status of "owner/repo"` compiles and runs against the stub | `a_flow_observes_the_stub_pull_request_domain` |
+//! | `observe github::pr_status of "owner/repo"` compiles and runs against a fixed-table source | `a_flow_observes_the_stub_pull_request_domain` |
 //! | an unknown identifier names the registry and the nearest declared one | `an_unknown_identifier_names_the_registry_and_the_nearest` |
 //! | the trace is the `BotSpec` path's | `the_flow_and_the_spec_leave_one_trace` (and the sim) |
 
@@ -25,7 +25,7 @@ use lgwks_bot::script::{FlowError, Scope, StepKind};
 use lgwks_bot::spec::{Bot, BotSpec};
 use lgwks_bot::task::{Host, Report, task};
 use lgwks_bot::{
-    Action, Auth, BotError, Cap, EffectLifetime, Execute, GrantSet, Need, Observe, Source, domains,
+    Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Need, Observe, Source, domains,
 };
 
 use crate::effect_policy::allowing;
@@ -37,13 +37,13 @@ type TestResult = Result<(), Box<dyn Error>>;
 
 // ── Domains ────────────────────────────────────────────────────────────────
 
-/// The open pull-request count the stub reports for each repository it knows.
+/// The open pull-request count the source reports for each repository it knows.
 const OPEN_PULL_REQUESTS: [(&str, u16); 2] = [("acme/widgets", 4), ("acme/gears", 0)];
 
-/// A stub of a GitHub pull-request status source: the count of open pull
-/// requests on the `owner/repo` its target names, from a fixed table.
+/// A GitHub pull-request status source over a fixed table: the count of open
+/// pull requests on the `owner/repo` its target names.
 ///
-/// A stub rather than the `gh` binding because what is under test is the
+/// A table rather than the `gh` binding because what is under test is the
 /// word's path to a registry constructor, not GitHub; the real binding's own
 /// contract is `gh_binding`'s.
 struct PullRequestStatus {
@@ -53,14 +53,14 @@ struct PullRequestStatus {
 
 impl PullRequestStatus {
     /// Build from an `owner/repo` target, refusing any other shape.
-    fn from_target(target: &str) -> Result<Source, BotError> {
+    fn from_target(target: &str) -> Result<Source, EcsError> {
         match target.split_once('/') {
             Some((owner, name)) if !owner.is_empty() && !name.is_empty() && !name.contains('/') => {
                 Ok(Source::ordered(Self {
                     repository: target.to_owned(),
                 }))
             }
-            _ => Err(BotError::IncompleteSpec {
+            _ => Err(EcsError::IncompleteSpec {
                 field: "target",
                 cause: String::from("a repository is named as owner/repo"),
             }),
@@ -75,7 +75,7 @@ impl Observe for PullRequestStatus {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u16, EcsError> {
         call.0.check(&[])?;
         record(format!("poll:{}:{}", self.domain_id(), self.repository));
         // A repository the table does not know has no open pull requests.
@@ -99,7 +99,7 @@ struct Post;
 
 impl Post {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, BotError> {
+    fn from_target(_target: &str) -> Result<Action, EcsError> {
         Ok(Action::new(Self))
     }
 }
@@ -116,7 +116,7 @@ impl Execute for Post {
         EffectLifetime::External
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         record(format!("execute:{}:{}", self.domain_id(), call.1));
         Ok(())
@@ -128,7 +128,7 @@ impl Execute for Post {
 }
 
 domains! {
-    /// What these flows name: the stub, the spec oracle's counter and page,
+    /// What these flows name: the status table, the spec oracle's counter and page,
     /// a counter that needs `bot.net`, and an external action.
     pub(crate) SCRIPT_DOMAINS {
         observe {
@@ -214,8 +214,8 @@ fn bare_host() -> Result<Host, Box<dyn Error>> {
         .build()?)
 }
 
-/// The `BotError` a flow failed with, or why it did not fail with one.
-pub(crate) fn bot_error<O: std::fmt::Debug>(report: &Report<O>) -> Result<&BotError, String> {
+/// The `EcsError` a flow failed with, or why it did not fail with one.
+pub(crate) fn bot_error<O: std::fmt::Debug>(report: &Report<O>) -> Result<&EcsError, String> {
     match *refusal(report)? {
         FlowError::Bot { ref source, .. } => Ok(&**source),
         ref other => Err(format!("expected a bot error, got {other:?}")),
@@ -243,10 +243,16 @@ fn refusal<O: std::fmt::Debug>(report: &Report<O>) -> Result<&FlowError, String>
 
 /// The needs of an `UndeclaredDomains` refusal.
 pub(crate) fn undeclared<O: std::fmt::Debug>(report: &Report<O>) -> Result<Vec<Need>, String> {
-    match *bot_error(report)? {
-        BotError::UndeclaredDomains { ref needs } => Ok(needs.needs().to_vec()),
+    match *refusal(report)? {
+        FlowError::UndeclaredDomains { ref needs, .. } => Ok(needs.needs().to_vec()),
         ref other => Err(format!("expected undeclared domains, got {other:?}")),
     }
+}
+
+/// Forget the trace a previous run on this thread left, so a test reads only
+/// its own.
+fn reset_trace() {
+    drop(take_trace());
 }
 
 /// The need an undeclared identifier in `SCRIPT_DOMAINS` reports.
@@ -268,7 +274,7 @@ fn a_flow_observes_the_stub_pull_request_domain() -> TestResult {
     let checking = task("checking", |scope: Scope, repo: &'static str| async move {
         open_pull_requests(&scope, repo).await
     })?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host.run(&checking, "acme/widgets"));
     assert_eq!(report.result().ok().copied(), Some(4));
     assert_eq!(take_trace(), ["poll:github::pr_status:acme/widgets"]);
@@ -293,7 +299,7 @@ fn an_unknown_identifier_names_the_registry_and_the_nearest() -> TestResult {
         "checking",
         |scope: Scope, target: &'static str| async move { two_misspellings(&scope, target).await },
     )?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host.run(&checking, "3"));
     assert_eq!(
         undeclared(&report)?,
@@ -304,7 +310,7 @@ fn an_unknown_identifier_names_the_registry_and_the_nearest() -> TestResult {
         "both unknown identifiers at once, each with its registry and nearest"
     );
     assert!(take_trace().is_empty(), "nothing polled or executed");
-    let rendered = bot_error(&report)?.to_string();
+    let rendered = refusal(&report)?.to_string();
     assert!(
         rendered.contains(
             "source `test::countr` is not declared in registry `SCRIPT_DOMAINS`; the nearest declared is `test::counter`"
@@ -320,7 +326,7 @@ fn the_flow_and_the_spec_leave_one_trace() -> TestResult {
     let paging = task("paging", |scope: Scope, labels: Vec<String>| async move {
         page_when_over(&scope, "3", 2, &labels).await
     })?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host.run(&paging, vec![String::from("a")]));
     assert_eq!(report.result().ok().copied(), Some(3));
     let script_trace = take_trace();
@@ -351,7 +357,7 @@ fn admission_runs_before_the_first_step() -> TestResult {
             page_then_misspelled_source(&scope, target).await
         },
     )?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host.run(&checking, "3"));
     assert_eq!(
         undeclared(&report)?,
@@ -385,7 +391,7 @@ fn a_host_with_no_registry_refuses_naming_the_absence() -> TestResult {
             nearest: None,
         }]
     );
-    let rendered = bot_error(&report)?.to_string();
+    let rendered = refusal(&report)?.to_string();
     assert!(
         rendered.contains("install one with `HostBuilder::domains`"),
         "the refusal names the repair: {rendered}"
@@ -399,12 +405,12 @@ fn a_target_the_constructor_refuses_is_its_refusal() -> TestResult {
     let checking = task("checking", |scope: Scope, repo: &'static str| async move {
         open_pull_requests(&scope, repo).await
     })?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host.run(&checking, "not-a-repository"));
     assert!(
         matches!(
             *bot_error(&report)?,
-            BotError::IncompleteSpec {
+            EcsError::IncompleteSpec {
                 field: "target",
                 ..
             }
@@ -426,7 +432,7 @@ fn a_value_bound_as_another_type_is_a_type_mismatch() -> TestResult {
     assert!(
         matches!(
             *bot_error(&report)?,
-            BotError::TypeMismatch {
+            EcsError::TypeMismatch {
                 site: "script::observe",
                 expected: "alloc::string::String",
                 observed: "u16",
@@ -445,7 +451,7 @@ fn an_action_output_reads_back_as_its_own_type_only() -> TestResult {
     let paging = task("paging", |scope: Scope, label: &'static str| async move {
         page_output(&scope, label).await
     })?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host.run(&paging, "b"));
     assert!(report.result().is_ok(), "{:?}", report.result());
     assert_eq!(take_trace(), ["execute:test::page:b:5"]);
@@ -458,7 +464,7 @@ fn an_action_output_reads_back_as_its_own_type_only() -> TestResult {
     assert!(
         matches!(
             *bot_error(&report)?,
-            BotError::TypeMismatch {
+            EcsError::TypeMismatch {
                 site: "script::act",
                 expected: "u16",
                 ..
@@ -484,7 +490,7 @@ pub(crate) fn posts_once(host: &lgwks_bot::task::Host) -> TestResult {
     let posting = task("posting", |scope: Scope, value: u16| async move {
         post(&scope, "channel", value).await
     })?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(allowing(host.run(&posting, 7)));
     assert!(report.result().is_ok(), "{:?}", report.result());
     assert_eq!(
@@ -501,7 +507,7 @@ fn a_source_short_of_authority_blocks_naming_the_capability() -> TestResult {
         "reaching",
         |scope: Scope, target: &'static str| async move { reach(&scope, target).await },
     )?;
-    let _ = take_trace();
+    reset_trace();
     let report = lgwks_bot::block_on(host("acme", GrantSet::empty())?.run(&reaching, "3"));
     assert_eq!(blocked_on(&report)?, [Cap::net()]);
     assert!(take_trace().is_empty(), "the source was never polled");

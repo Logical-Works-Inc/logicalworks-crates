@@ -709,7 +709,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_bot"
-version = "8.4.0"
+version = "9.0.0"
 dependencies = [
  "lgwks_ast",
  "lgwks_deps",

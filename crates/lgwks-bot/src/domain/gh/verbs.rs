@@ -2,7 +2,8 @@
 
 use super::{Gh, GhError, GhOutcome, PrSnapshot, PullRequest};
 use crate::cap::{Auth, Cap};
-use crate::error::{BotError, DispatchCertainty};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
 use crate::verb;
 
 // ── The four verbs over the `gh` binding ────────────────────────────────────
@@ -43,11 +44,11 @@ impl verb::Query for GhQuery {
         &self.caps
     }
 
-    async fn query(&self, call: (Auth, &())) -> Result<GhOutcome, BotError> {
+    async fn query(&self, call: (Auth, &())) -> Result<GhOutcome, EcsError> {
         // Checked before anything is started, so a denial is a refusal and not
         // a child process that ran and whose output nobody wanted.
         call.0.check(self.required_caps())?;
-        self.run().await
+        Ok(self.run().await?)
     }
 
     fn domain_id(&self) -> &str {
@@ -58,17 +59,17 @@ impl verb::Query for GhQuery {
 impl GhQuery {
     /// The call itself, shared by every build of this surface.
     #[cfg(not(feature = "process"))]
-    async fn run(&self) -> Result<GhOutcome, BotError> {
+    async fn run(&self) -> Result<GhOutcome, KernelError> {
         let rest: Vec<&str> = self.rest.iter().map(String::as_str).collect();
         let args = self.gh.args_for(&rest);
         match self.gh.call(&args).await {
             // Nothing ran, so a retry cannot duplicate anything.
-            Err(GhError::NoRunner) | Ok(GhOutcome { .. }) => Err(BotError::DomainError {
+            Err(GhError::NoRunner) | Ok(GhOutcome { .. }) => Err(KernelError::DomainError {
                 domain: String::from("gh::api"),
                 certainty: DispatchCertainty::Refused,
                 cause: GhError::NoRunner.to_string(),
             }),
-            Err(source) => Err(BotError::DomainError {
+            Err(source) => Err(KernelError::DomainError {
                 domain: String::from("gh::api"),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: source.to_string(),
@@ -78,7 +79,7 @@ impl GhQuery {
 
     /// The call itself, shared by every build of this surface.
     #[cfg(feature = "process")]
-    async fn run(&self) -> Result<GhOutcome, BotError> {
+    async fn run(&self) -> Result<GhOutcome, KernelError> {
         let rest: Vec<&str> = self.rest.iter().map(String::as_str).collect();
         let args = self.gh.args_for(&rest);
         match self.gh.call(&args).await {
@@ -86,7 +87,7 @@ impl GhQuery {
             Err(GhError::Process(crate::rt::process::ProcessRunError::Refused))
             | Err(GhError::Process(crate::rt::process::ProcessRunError::NotStarted { .. })) => {
                 // Nothing ran, so a retry cannot duplicate.
-                Err(BotError::DomainError {
+                Err(KernelError::DomainError {
                     domain: String::from("gh::api"),
                     certainty: DispatchCertainty::Refused,
                     cause: format!("the GitHub client did not start: {}", self.gh.program),
@@ -95,12 +96,12 @@ impl GhQuery {
             // The child started: whatever it was about to do may have happened,
             // so this is indeterminate rather than a clean failure.
             Err(GhError::Process(crate::rt::process::ProcessRunError::AfterStart { source })) => {
-                Err(BotError::EffectIndeterminate {
+                Err(KernelError::EffectIndeterminate {
                     domain: String::from("gh::api"),
                     cause: format!("the GitHub client started but did not settle: {source}"),
                 })
             }
-            Err(source) => Err(BotError::DomainError {
+            Err(source) => Err(KernelError::DomainError {
                 domain: String::from("gh::api"),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: source.to_string(),
@@ -144,17 +145,17 @@ impl verb::Observe for PrSnapshotSource {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<PrSnapshot, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<PrSnapshot, EcsError> {
         call.0.check(self.required_caps())?;
         match self.gh.snapshot(&self.pull).await {
             Ok(snapshot) => Ok(snapshot),
             Err(source) => Err(match source.credential_rejection(self.domain_id()) {
                 Some(rejection) => rejection,
-                None => BotError::DomainError {
+                None => EcsError::from(KernelError::DomainError {
                     domain: self.domain_id().into(),
                     certainty: DispatchCertainty::NotDelivered,
                     cause: source.to_string(),
-                },
+                }),
             }),
         }
     }

@@ -39,9 +39,10 @@ use lgwks_bot::effect::{
     ActionDigest, ActionId, EffectIdentity, EffectKey, EnvironmentEpoch, EnvironmentId,
     FlowRevision, RunId,
 };
+use lgwks_bot::error::KernelError;
 use lgwks_bot::journal::{EffectEvent, EffectJournal, FileJournal, MemoryJournal};
 use lgwks_bot::spec::{Bot, EffectEvidence as Settled};
-use lgwks_bot::{BotError, GrantSet};
+use lgwks_bot::{EcsError, GrantSet};
 
 use sim::rig::{self, FixedSource, NeverSettles, RUN_NAME, attempt_key, is_value, recorded, scope};
 
@@ -202,12 +203,12 @@ fn rewrite(field: u32, held: EffectKey) -> Result<EffectKey, Box<dyn Error>> {
 ///
 /// A `match` over the typed variant rather than a string, so a renamed variant
 /// breaks the row instead of quietly widening what it accepts.
-fn refused_as(field: u32, outcome: &Result<(), BotError>) -> TestResult {
+fn refused_as(field: u32, outcome: &Result<(), EcsError>) -> TestResult {
     match (field, outcome.as_ref().err()) {
-        (2, Some(&BotError::EvidenceSuperseded { .. })) => {}
-        (5, Some(&BotError::EffectUnrecorded { .. })) => {}
-        (6, Some(&BotError::EvidenceStaleAttempt { .. })) => {}
-        (0 | 1 | 3 | 4, Some(&BotError::ActionNotDeclared { .. })) => {}
+        (2, Some(&EcsError::EvidenceSuperseded { .. })) => {}
+        (5, Some(&EcsError::EffectUnrecorded { .. })) => {}
+        (6, Some(&EcsError::EvidenceStaleAttempt { .. })) => {}
+        (0 | 1 | 3 | 4, Some(&EcsError::Kernel(KernelError::ActionNotDeclared { .. }))) => {}
         (field, actual) => {
             let refusal = Err(format!(
                 "{}: the refusal was {actual:?}, not the one this field must produce",
@@ -244,7 +245,7 @@ fn identity_case(sim: &mut sim::Sim, field: u32) -> TestResult {
         .with_effects(scope(rig::identity()?, Rc::clone(&store))?)
         .build(&GrantSet::empty())?;
     match bot.tick() {
-        Err(BotError::EffectIndeterminate { .. }) => {}
+        Err(EcsError::Kernel(KernelError::EffectIndeterminate { .. })) => {}
         Err(other) => {
             let refusal = Err(format!("expected the action's own error, got {other:?}").into());
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "identity_case: returning an error to the caller");

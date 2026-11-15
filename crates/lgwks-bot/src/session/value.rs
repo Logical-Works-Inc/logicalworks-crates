@@ -1,6 +1,6 @@
 //! Typed values, variable types, answer domains and the expressions over them. Split from `session.rs` (#526).
 
-use super::{BotError, Deserialize, FlowSpec, Hasher, IntErrorKind, Serialize, VarScope, fmt};
+use super::{Deserialize, FlowSpec, Hasher, IntErrorKind, Serialize, SessionError, VarScope, fmt};
 
 /// Stable identifier of a flow node.
 pub type NodeId = String;
@@ -248,7 +248,7 @@ impl fmt::Display for AnswerDomain {
 /// instead of parsing prose, and so the set of ways an answer can be unusable
 /// is stated where a reviewer reads it. It is what
 /// [`VarType::decode_answer`] returns, and therefore what flow validation
-/// reports through [`BotError::AskOptionNotAssignable`] when a candidate is
+/// reports through [`SessionError::AskOptionNotAssignable`] when a candidate is
 /// unusable at load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -326,7 +326,21 @@ pub enum Predicate {
 
 impl Predicate {
     /// Evaluate this predicate against a variable scope.
-    pub fn evaluate(&self, scope: &VarScope) -> Result<bool, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{Predicate, Value, ValueExpr, VarScope, VarType};
+    ///
+    /// let mut scope = VarScope::new(BTreeMap::from([("size".to_owned(), VarType::Integer)]))?;
+    /// let big = Predicate::Gt(ValueExpr::variable("size"), ValueExpr::Literal(Value::Integer(5)));
+    /// assert!(big.evaluate(&scope).is_err());
+    /// scope.set_from_answer("size", "9")?;
+    /// assert!(big.evaluate(&scope)?);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn evaluate(&self, scope: &VarScope) -> Result<bool, SessionError> {
         match *self {
             Self::Const(value) => Ok(value),
             Self::Eq(ref left, ref right) => same_value(left, right, scope, true),
@@ -365,7 +379,7 @@ fn same_value(
     right: &ValueExpr,
     scope: &VarScope,
     equal: bool,
-) -> Result<bool, BotError> {
+) -> Result<bool, SessionError> {
     let left_value = resolve_expr(left, scope)?;
     let right_value = resolve_expr(right, scope)?;
     Ok((left_value == right_value) == equal)
@@ -378,7 +392,7 @@ fn same_value(
 /// propagation operator inside it, so the `match` above held three of them
 /// across two arms and a reader could not see the short-circuit rule without
 /// reading both loops in full.
-fn all_true(items: &[Predicate], scope: &VarScope) -> Result<bool, BotError> {
+fn all_true(items: &[Predicate], scope: &VarScope) -> Result<bool, SessionError> {
     for item in items {
         if !item.evaluate(scope)? {
             return Ok(false);
@@ -390,7 +404,7 @@ fn all_true(items: &[Predicate], scope: &VarScope) -> Result<bool, BotError> {
 /// Some item must hold; evaluation stops at the first that does.
 ///
 /// `Ok(false)` on an empty list, the identity for `or`.
-fn any_true(items: &[Predicate], scope: &VarScope) -> Result<bool, BotError> {
+fn any_true(items: &[Predicate], scope: &VarScope) -> Result<bool, SessionError> {
     for item in items {
         if item.evaluate(scope)? {
             return Ok(true);
@@ -438,10 +452,10 @@ pub(super) fn prompt_bytes(options: &[String]) -> usize {
 /// is canonical: two flows that differ only in the order their maps were built
 /// from digest identically, which is what makes this a *revision* rather than a
 /// serialization accident.
-pub(super) fn revision_of(flow: &FlowSpec) -> Result<String, BotError> {
+pub(super) fn revision_of(flow: &FlowSpec) -> Result<String, SessionError> {
     crate::json::to_string(flow)
         .map(|rendered| lgwks_std::hash::blake3(rendered.as_bytes()).to_hex())
-        .map_err(|error| BotError::MalformedFlow {
+        .map_err(|error| SessionError::MalformedFlow {
             cause: error.to_string().escape_debug().to_string(),
         })
 }
@@ -463,13 +477,13 @@ pub(super) fn options_revision(options: &[String]) -> String {
 }
 
 /// Resolve one scalar expression from a variable scope.
-fn resolve_expr(expression: &ValueExpr, scope: &VarScope) -> Result<Value, BotError> {
+fn resolve_expr(expression: &ValueExpr, scope: &VarScope) -> Result<Value, SessionError> {
     match *expression {
         ValueExpr::Literal(ref value) => Ok(value.clone()),
         ValueExpr::Var(ref name) => scope
             .get(name)
             .cloned()
-            .ok_or_else(|| BotError::VariableUnset { name: name.clone() }),
+            .ok_or_else(|| SessionError::VariableUnset { name: name.clone() }),
     }
 }
 
@@ -479,7 +493,7 @@ fn compare_expr<F>(
     right: &ValueExpr,
     scope: &VarScope,
     predicate: F,
-) -> Result<bool, BotError>
+) -> Result<bool, SessionError>
 where
     F: FnOnce(std::cmp::Ordering) -> bool,
 {
@@ -491,7 +505,7 @@ where
         (Value::Integer(left), Value::Integer(right)) => left.cmp(&right),
         (Value::Boolean(left), Value::Boolean(right)) => left.cmp(&right),
         _ => {
-            let refusal = Err(BotError::PredicateTypeMismatch);
+            let refusal = Err(SessionError::PredicateTypeMismatch);
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "compare_expr: returning an error to the caller");
             return refusal;
         }

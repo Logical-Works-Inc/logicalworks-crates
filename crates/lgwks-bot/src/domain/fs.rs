@@ -3,7 +3,8 @@
 use std::path::PathBuf;
 
 use crate::cap::{Auth, Cap};
-use crate::error::BotError;
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, KernelError};
 use crate::verb;
 
 /// Observe a filesystem path for changes. Supports Observe and Query.
@@ -43,6 +44,22 @@ impl Path {
     }
 }
 
+/// Whether `target` exists and its size in bytes, read on a blocking-pool
+/// thread. A metadata read that fails after the existence check (the file was
+/// removed between the two calls) reports no size and is traced, never hidden.
+fn stat_of(target: &std::path::Path) -> (bool, Option<u64>) {
+    if !target.exists() {
+        return (false, None);
+    }
+    match std::fs::metadata(target) {
+        Ok(metadata) => (true, Some(metadata.len())),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, path = %target.display(), "fs::path: metadata read failed after the path existed");
+            (true, None)
+        }
+    }
+}
+
 impl verb::Observe for Path {
     type Output = FsState;
 
@@ -50,21 +67,21 @@ impl verb::Observe for Path {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<FsState, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<FsState, EcsError> {
         call.0.check(self.required_caps())?;
         let target = self.target.clone();
-        let (exists, size) = lgwks_std::task::spawn_blocking(move || {
-            let exists = target.exists();
-            let size = if exists {
-                std::fs::metadata(&target)
-                    .ok()
-                    .map(|metadata| metadata.len())
-            } else {
-                None
-            };
-            (exists, size)
-        })
-        .await;
+        // The stat runs on the bounded blocking pool, and its handle is awaited
+        // here, so the poll owns the job; a full pool is a typed refusal rather
+        // than an unbounded queue.
+        let stat =
+            lgwks_std::task::try_spawn_blocking(move || stat_of(&target)).map_err(|refusal| {
+                KernelError::DomainError {
+                    domain: String::from("fs::path"),
+                    certainty: DispatchCertainty::Refused,
+                    cause: refusal.to_string(),
+                }
+            })?;
+        let (exists, size) = stat.await;
         Ok(FsState {
             modified: false,
             exists,
@@ -85,7 +102,7 @@ impl verb::Query for Path {
         &self.caps
     }
 
-    async fn query(&self, call: (Auth, &())) -> Result<FsState, BotError> {
+    async fn query(&self, call: (Auth, &())) -> Result<FsState, EcsError> {
         let (auth, _) = call;
         verb::Observe::poll(self, (auth, ())).await
     }

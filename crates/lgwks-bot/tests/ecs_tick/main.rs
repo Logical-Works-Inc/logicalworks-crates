@@ -7,7 +7,7 @@
 //! waiting on never runs, and the tick never returns — a deadlock, not a slow
 //! tick. The repair has three parts and this file covers all three: the tick is
 //! awaitable ([`Bot::tick_async`]), the synchronous adapter refuses on a thread
-//! a runtime already drives ([`BotError::TickInsideRuntime`]) rather than
+//! a runtime already drives ([`EcsError::TickInsideRuntime`]) rather than
 //! parking it, and the synchronous adapter still works where it is the only
 //! option — a plain thread, on futures that need no reactor.
 //!
@@ -44,8 +44,8 @@ use lgwks_bot::spec::{
     AbandonReason, EffectEvidence, EffectKey, PendingWork, RetryPolicy, TransitionHold,
 };
 use lgwks_bot::{
-    Auth, Bot, BotError, Builder, Cap, DispatchCertainty, EffectLifetime, Execute, GrantSet,
-    Observe,
+    Auth, Bot, Builder, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, GrantSet,
+    KernelError, Observe,
 };
 
 #[path = "../support/effects.rs"]
@@ -258,7 +258,7 @@ impl Observe for TimerSource {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         sleep(self.delay).await;
         Ok(self.value)
@@ -282,7 +282,7 @@ impl Observe for YieldSource {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         Ok(YieldOnce::new(self.value).await)
     }
@@ -312,7 +312,7 @@ impl Observe for ChannelSource {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         let mut held = self.receiver.lock().await;
         let Some(receiver) = held.as_mut() else {
@@ -364,7 +364,7 @@ impl Execute for TimerAction {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         sleep(TIMER_DELAY).await;
         self.log.borrow_mut().push(self.label);
@@ -396,7 +396,7 @@ impl Execute for YieldAction {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         // The value it resolves to is not this action's subject: the yield is
         // what makes the effect a two-poll future with no reactor behind it.
@@ -537,12 +537,12 @@ fn is_positive(seen: &u32) -> bool {
 /// `NotDelivered` and not `Refused`: these fixtures are *transient* refusals a
 /// chain is expected to retry while it has budget, and `Refused` classifies as
 /// `RetryClass::Never`, which abandons the entry on the first failure.
-fn undelivered(domain: &str, cause: &str) -> BotError {
-    BotError::DomainError {
+fn undelivered(domain: &str, cause: &str) -> EcsError {
+    EcsError::Kernel(KernelError::DomainError {
         domain: domain.to_owned(),
         certainty: DispatchCertainty::NotDelivered,
         cause: cause.to_owned(),
-    }
+    })
 }
 
 /// A source whose value the test moves by hand.
@@ -565,7 +565,7 @@ impl Observe for Dial {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         Ok(self.value.get())
     }
@@ -578,7 +578,7 @@ impl Observe for Dial {
 /// An action whose outcome the test chooses, recording the value it ran with.
 ///
 /// `uncertain` is the state the ledger exists for: an attempt that returns
-/// [`BotError::EffectIndeterminate`] may already be live, so the entry is held
+/// [`KernelError::EffectIndeterminate`] may already be live, so the entry is held
 /// rather than retried. Flipping it back is how a test produces a *settled*
 /// generation and then a fresh one at the same slot, which is the shape every
 /// generation counterexample needs.
@@ -601,14 +601,14 @@ impl Execute for Doubtful {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         self.seen.borrow_mut().push(*call.1);
         if self.uncertain.get() {
-            let refusal = Err(BotError::EffectIndeterminate {
+            let refusal = Err(EcsError::Kernel(KernelError::EffectIndeterminate {
                 domain: "test::doubtful".to_owned(),
                 cause: "the acknowledgment never arrived".to_owned(),
-            });
+            }));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "execute_action: returning an error to the caller");
             return refusal;
         }

@@ -1,0 +1,457 @@
+//! `Supervisor::run_process`: exit status, captured streams, deadline, the two
+//! kinds of refusal, bounded concurrency and drop safety.
+
+use crate::scratch::Scratch;
+
+use std::num::NonZeroUsize;
+use std::time::Duration;
+
+use lgwks_bot::rt::process::{ProcessRunError, ProcessSpec};
+use lgwks_bot::rt::runtime::Builder;
+use lgwks_bot::rt::supervise::{CleanupReceipt, Supervisor};
+
+// The pid-file scratch directory and the group-absence wait are shared with the
+// other process test targets, so there is one copy of each.
+use crate::process_probe;
+
+use process_probe::{drop_after_pid, read_pid, wait_group_gone, wait_group_stopped};
+
+use super::{TestResult, captured_shell, shell};
+
+/// How long a liveness wait may take before the test calls it a failure.
+const BUDGET: Duration = Duration::from_secs(10);
+
+// ── run_process: exit status, streams, deadline ─────────────────────────────
+
+#[test]
+fn run_process_reports_an_exit_code_and_a_signal_distinctly() -> TestResult {
+    let runtime = lgwks_bot::Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+
+        let exited_zero = supervisor.run_process(&shell("exit 0")).await?;
+        assert_eq!(
+            exited_zero.exit_code(),
+            Some(0),
+            "exit zero is reported as exit zero, not as a completed task (T35)"
+        );
+        assert_eq!(exited_zero.signal(), None, "a clean exit is not a signal");
+        assert!(!exited_zero.deadline_fired(), "no deadline was set");
+
+        let exited_seven = supervisor.run_process(&shell("exit 7")).await?;
+        assert_eq!(exited_seven.exit_code(), Some(7), "the code survives");
+
+        let signalled = supervisor.run_process(&shell("kill -TERM $$")).await?;
+        assert_eq!(
+            signalled.exit_code(),
+            None,
+            "a signal death has no exit code"
+        );
+        assert_eq!(
+            signalled.signal(),
+            Some(15),
+            "the terminating signal is reported, not folded into a code"
+        );
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })?;
+    Ok(())
+}
+
+#[test]
+fn run_process_captures_stdout_and_stderr_exactly_under_the_limit() -> TestResult {
+    let runtime = lgwks_bot::Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        let run = supervisor
+            .run_process(&captured_shell("printf abc; printf def >&2", 4096))
+            .await?;
+        assert_eq!(run.stdout().bytes(), b"abc", "stdout is captured verbatim");
+        assert_eq!(run.stderr().bytes(), b"def", "stderr is captured verbatim");
+        assert!(!run.stdout().truncated() && !run.stderr().truncated());
+        assert_eq!(run.stdout().total_bytes(), 3, "the exact total is reported");
+        assert_eq!(run.stderr().total_bytes(), 3, "the exact total is reported");
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })?;
+    Ok(())
+}
+
+/// T05: a child that writes far more than the ceiling is drained and truncated,
+/// not blocked, and its retained buffer never exceeds the ceiling.
+#[test]
+fn a_chatty_child_is_drained_and_truncated_within_its_ceiling() -> TestResult {
+    const TOTAL: u64 = 50 * 1024 * 1024;
+    const LIMIT: usize = 4096;
+    // Two independent 50 MiB writes, one to each pipe. `/dev/zero` gives a
+    // stream of one byte (`0`), so the retained head is exactly that byte and
+    // the assertion can name what it kept. Fifty mebibytes through each pipe
+    // proves the child is drained while it runs rather than blocking on a full
+    // pipe.
+    let script = "head -c 52428800 /dev/zero; head -c 52428800 /dev/zero 1>&2";
+    let runtime = lgwks_bot::Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        let run = supervisor
+            .run_process(&captured_shell(script, LIMIT))
+            .await?;
+        for (name, stream) in [("stdout", run.stdout()), ("stderr", run.stderr())] {
+            assert_eq!(
+                stream.bytes().len(),
+                LIMIT,
+                "{name} must retain exactly the first {LIMIT} bytes"
+            );
+            assert!(
+                stream.bytes().iter().all(|byte| *byte == 0),
+                "{name} must retain the head of the stream"
+            );
+            assert!(
+                stream.truncated(),
+                "{name} wrote {TOTAL} bytes, over its {LIMIT}-byte ceiling"
+            );
+            assert_eq!(
+                stream.total_bytes(),
+                TOTAL,
+                "{name} must report the exact total it saw"
+            );
+            assert!(
+                stream.retained_capacity() <= LIMIT,
+                "{name} retained {} bytes of capacity, over the {LIMIT}-byte ceiling",
+                stream.retained_capacity()
+            );
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })?;
+    Ok(())
+}
+
+/// T05, slow-consumer half: a flooding child against a deliberately slow reader
+/// stays inside its ceiling, and the exact total is still reported.
+///
+/// A single worker is the point rather than a detail. The three driver futures —
+/// the two pipe reads and the exit observation — share one task, so on one worker
+/// the reader's own cost is the only thing deciding when the child's next write
+/// is serviced. That is the tightest reader/writer ratio available without
+/// touching the production loop, and it is what makes the assertion meaningful:
+/// a ceiling that leaked would grow here, and a reader that stopped draining at
+/// the ceiling would deadlock this test rather than pass it.
+#[test]
+fn a_flooding_child_against_a_slow_reader_stays_within_its_ceiling_t05() -> TestResult {
+    // Eight mebibytes on each stream. Far past the ceiling (so truncation is
+    // certain rather than incidental) and far past any pipe buffer (so the child
+    // blocks unless the reader keeps draining while it runs).
+    const TOTAL: u64 = 8 * 1024 * 1024;
+    const LIMIT: usize = 4096;
+    let script = format!("head -c {TOTAL} /dev/zero; head -c {TOTAL} /dev/zero 1>&2");
+    let runtime = Builder::new()
+        .worker_threads(NonZeroUsize::new(1))
+        .build()?;
+    let run = runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        supervisor
+            .run_process(&captured_shell(&script, LIMIT))
+            .await
+            .map_err(Box::<dyn std::error::Error>::from)
+    })?;
+
+    for (name, stream) in [("stdout", run.stdout()), ("stderr", run.stderr())] {
+        process_probe::assert_capture_within_ceiling(name, stream, LIMIT, TOTAL);
+    }
+    Ok(())
+}
+
+/// The same flood with a deadline, to prove the drain is concurrent with the
+/// child's writing rather than sequenced after its exit.
+///
+/// Without this the flood test above passes on an implementation that waits for
+/// the child to exit *before* reading, which is correct for a child under its
+/// ceiling and a deadlock for one over it. Here the child writes far more than a
+/// pipe holds and the deadline is far shorter than the write takes, so the only
+/// way the run settles promptly is if the pipe is being drained while the child
+/// is still running.
+#[test]
+fn a_flooding_child_is_drained_while_it_runs_not_after_it_exits() -> TestResult {
+    const LIMIT: usize = 4096;
+    // A child's write to a full pipe blocks, so under a reader that waits for the
+    // exit this child never exits and the run only settles by the deadline.
+    // A deadline long enough for a real drain, and far too short for a
+    // write-then-exit child of this size on a loaded machine.
+    const DEADLINE_MS: u64 = 5_000;
+    const TOTAL: u64 = 32 * 1024 * 1024;
+    let script = format!("head -c {TOTAL} /dev/zero");
+    let mut spec = shell(&script);
+    spec.capture_stdout(NonZeroUsize::new(LIMIT).ok_or("a ceiling of at least one")?);
+    spec.capture_stderr(NonZeroUsize::new(LIMIT).ok_or("a ceiling of at least one")?);
+    spec.deadline(Duration::from_millis(DEADLINE_MS));
+    let runtime = lgwks_bot::Runtime::new()?;
+    let run = runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        supervisor.run_process(&spec).await
+    })?;
+
+    assert!(
+        !run.deadline_fired(),
+        "a child drained while it runs finishes on its own; the deadline fired, so the \
+         reader was not draining concurrently with the write (retained {} of {} bytes)",
+        run.stdout().bytes().len(),
+        run.stdout().total_bytes()
+    );
+    assert_eq!(
+        run.exit_code(),
+        Some(0),
+        "the flood child must exit cleanly once its pipe is drained"
+    );
+    process_probe::assert_capture_within_ceiling("stdout", run.stdout(), LIMIT, TOTAL);
+    Ok(())
+}
+
+/// A deadline stops the whole group and says so.
+#[test]
+fn a_deadline_kill_is_reported_as_a_deadline_and_reaps_the_group() -> TestResult {
+    let dir = Scratch::new("deadline")?;
+    let pid_file = dir.path().join("shell.pid");
+    let script = format!("echo $$ > {}; sleep 60", pid_file.display());
+    let mut spec = shell(&script);
+    // The deadline is the input under test, and any value short of the 60 s
+    // sleep tests the same property. It must also outlast the shell's first
+    // command, because the group the test checks is named by the pid that
+    // command writes: at 200 ms a loaded host killed the shell before it ran
+    // (`the shell never recorded its pid`, under seven concurrent builds).
+    spec.deadline(Duration::from_secs(2));
+    let runtime = lgwks_bot::Runtime::new()?;
+    let (deadline_fired, cleanup, leader) = runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        let run = supervisor.run_process(&spec).await?;
+        let leader = read_pid(&pid_file)
+            .ok_or_else(|| std::io::Error::other("the shell never recorded its pid"))?;
+        Ok::<_, Box<dyn std::error::Error>>((run.deadline_fired(), run.cleanup().clone(), leader))
+    })?;
+    assert!(
+        deadline_fired,
+        "a stop this supervisor ordered must be reported as a deadline, not as an exit"
+    );
+    assert_ne!(
+        cleanup,
+        CleanupReceipt::CleanupFailed,
+        "the deadline kill is delivered and the receipt says so, not that it was refused"
+    );
+    assert!(
+        wait_group_gone(leader, BUDGET),
+        "the deadline kill must reach the whole group"
+    );
+    Ok(())
+}
+
+/// T19, zero-exit half: a parent that exits zero does not fabricate tree
+/// cleanup while a descendant lives.
+#[test]
+fn a_zero_exit_reaps_a_living_descendant_before_claiming_cleanup() -> TestResult {
+    let dir = Scratch::new("zero-exit")?;
+    let child_file = dir.path().join("child.pid");
+    let shell_file = dir.path().join("shell.pid");
+    let script = format!(
+        "sleep 60 & echo $! > {}; echo $$ > {}; exit 0",
+        child_file.display(),
+        shell_file.display()
+    );
+    let runtime = lgwks_bot::Runtime::new()?;
+    let (exit_code, cleanup, leader, descendant) = runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        let run = supervisor.run_process(&shell(&script)).await?;
+        let descendant = read_pid(&child_file)
+            .ok_or_else(|| std::io::Error::other("the descendant pid was not recorded"))?;
+        let leader = read_pid(&shell_file)
+            .ok_or_else(|| std::io::Error::other("the shell pid was not recorded"))?;
+        Ok::<_, Box<dyn std::error::Error>>((
+            run.exit_code(),
+            run.cleanup().clone(),
+            leader,
+            descendant,
+        ))
+    })?;
+    assert_eq!(exit_code, Some(0), "the parent exited zero");
+    assert_ne!(
+        cleanup,
+        CleanupReceipt::CleanupFailed,
+        "cleanup must not have failed"
+    );
+    assert!(
+        wait_group_gone(leader, BUDGET),
+        "the descendant group must be gone once the report claims cleanup: descendant {descendant}"
+    );
+    Ok(())
+}
+
+// ── run_process: refusals before and after the fork ─────────────────────────
+
+#[test]
+fn a_program_that_cannot_start_is_a_typed_pre_fork_refusal() -> TestResult {
+    let runtime = lgwks_bot::Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        match supervisor
+            .run_process(&ProcessSpec::new("/nonexistent/lgwks-bot-probe"))
+            .await
+        {
+            Err(ProcessRunError::NotStarted { source }) => assert_eq!(
+                source.kind(),
+                std::io::ErrorKind::NotFound,
+                "a missing program must be reported as a failed start, not a run: {source}"
+            ),
+            other => {
+                return Err(std::io::Error::other(format!(
+                    "expected a pre-fork refusal, got {other:?}"
+                ))
+                .into());
+            }
+        }
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })?;
+    Ok(())
+}
+
+#[test]
+fn a_cancelled_supervisor_refuses_before_starting_anything() -> TestResult {
+    let runtime = lgwks_bot::Runtime::new()?;
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        supervisor.cancel();
+        match supervisor.run_process(&shell("exit 1")).await {
+            Err(ProcessRunError::Refused) => {}
+            other => {
+                return Err(std::io::Error::other(format!(
+                    "a cancelled supervisor must refuse with Refused, got {other:?}"
+                ))
+                .into());
+            }
+        }
+        assert_eq!(
+            supervisor.stats().spawned,
+            0,
+            "a refusal before the fork must start nothing"
+        );
+        Ok::<_, Box<dyn std::error::Error>>(())
+    })?;
+    Ok(())
+}
+
+// ── run_process: bounded concurrency and drop safety ────────────────────────
+
+/// Two hundred processes through one supervisor with a bound of sixteen: all
+/// complete, and the live count never exceeds the bound.
+#[test]
+fn many_processes_stay_within_the_in_flight_bound() -> TestResult {
+    const PROCESSES: usize = 200;
+    const BOUND: usize = 16;
+    // `Stats::in_flight` counts tasks not yet reaped, which can briefly include
+    // one whose permit is already released, so it is not the live count. The
+    // children count themselves instead: each marks itself live, records how
+    // many live markers it saw, and moves its marker out before exiting. The
+    // highest record is a lower bound on the real concurrency, so it can only
+    // exceed the bound if the bound was not enforced.
+    let live = Scratch::new("bound-live")?;
+    let seen = Scratch::new("bound-seen")?;
+    let done = Scratch::new("bound-done")?;
+    let script = format!(
+        "touch {live}/$$; ls {live} | wc -l > {seen}/$$; sleep 0.02; mv {live}/$$ {done}/",
+        live = live.path().join("").display(),
+        seen = seen.path().join("").display(),
+        done = done.path().join("").display(),
+    );
+    let runtime = lgwks_bot::Runtime::new()?;
+    let (completed, succeeded) = runtime.block_on(async {
+        let mut supervisor = Supervisor::new(BOUND);
+        for _ in 0..PROCESSES {
+            supervisor.spawn_process(&shell(&script)).await?;
+        }
+        // Wait on the event itself: the supervisor reports when nothing is in
+        // flight, and the budget only bounds a supervisor that never does.
+        lgwks_bot::rt::time::timeout(BUDGET, supervisor.wait_idle())
+            .await
+            .map_err(|_elapsed| {
+                std::io::Error::other("processes did not settle within the budget")
+            })?;
+        let stats = supervisor.stats();
+        Ok::<_, std::io::Error>((stats.completed, stats.succeeded))
+    })?;
+    let mut high_water = 0_usize;
+    let mut records = 0_usize;
+    for entry in std::fs::read_dir(seen.path().join(""))? {
+        let count = std::fs::read_to_string(entry?.path())?;
+        high_water = high_water.max(count.trim().parse::<usize>()?);
+        records = records.saturating_add(1);
+    }
+    assert_eq!(records, PROCESSES, "every child records what it saw");
+    assert!(
+        high_water <= BOUND,
+        "the supervisor ran {high_water} processes at once against a bound of {BOUND}"
+    );
+    assert_eq!(
+        completed,
+        u64::try_from(PROCESSES)?,
+        "every process must complete"
+    );
+    assert_eq!(
+        succeeded,
+        u64::try_from(PROCESSES)?,
+        "every zero exit is a clean run"
+    );
+    Ok(())
+}
+
+/// T20: dropping the run future after the fork leaves no orphan.
+#[test]
+fn dropping_a_run_future_after_the_fork_leaves_no_orphan() -> TestResult {
+    let dir = Scratch::new("drop")?;
+    let pid_file = dir.path().join("shell.pid");
+    // The descendant is forked before the pid is written, so the drop lands
+    // after the fork (T20), never while one is in progress.
+    let script = format!("sleep 60 & echo $$ > {}; wait", pid_file.display());
+    let runtime = lgwks_bot::Runtime::new()?;
+    // The run future is dropped the moment its child reports its pid: the fork
+    // has happened, the child is asleep, and the future goes away mid-flight.
+    // The outer timeout only bounds a runner that never wakes again.
+    let leader = runtime.block_on(async {
+        let mut supervisor = Supervisor::new(1);
+        let spec = shell(&script);
+        lgwks_bot::rt::time::timeout(
+            BUDGET,
+            drop_after_pid(supervisor.run_process(&spec), &pid_file),
+        )
+        .await
+        .ok()
+        .flatten()
+    });
+    let leader =
+        leader.ok_or("the run future never started its child, or ended before the drop")?;
+    assert!(
+        wait_group_stopped(leader, BUDGET),
+        "dropping the run future must kill every process of the group it owned"
+    );
+    Ok(())
+}
+
+/// Dropping the run future before its first poll starts nothing at all.
+#[test]
+fn dropping_a_run_future_before_its_first_poll_starts_nothing() -> TestResult {
+    let dir = Scratch::new("pre-poll")?;
+    let marker = dir.path().join("marker");
+    let script = format!("touch {}", marker.display());
+    let mut supervisor = Supervisor::new(1);
+    let spec = shell(&script);
+
+    // Building a future and dropping it un-polled runs no code from it, so no
+    // fork can have happened. The supervisor's own count is the oracle: a
+    // mis-designed eager spawn would have counted its child, and no wait is needed
+    // to see it.
+    let future = supervisor.run_process(&spec);
+    drop(future);
+    assert_eq!(
+        supervisor.stats().spawned,
+        0,
+        "a run future dropped before its first poll must start no process"
+    );
+    assert!(
+        !marker.exists(),
+        "a run future dropped before its first poll must start no process"
+    );
+    Ok(())
+}

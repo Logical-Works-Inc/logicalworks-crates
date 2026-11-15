@@ -9,7 +9,7 @@ use std::error::Error;
 use lgwks_bot::domain::eval::Above;
 use lgwks_bot::spec::{ActionSpec, ChainSpec};
 use lgwks_bot::{
-    Auth, Bot, BotError, BotSpec, Cap, EffectLifetime, Evaluate, Execute, GrantSet, Observe,
+    Auth, Bot, BotSpec, Cap, EcsError, EffectLifetime, Evaluate, Execute, GrantSet, Observe,
 };
 
 /// What every fallible test here returns.
@@ -25,7 +25,7 @@ impl Observe for Counter {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u16, EcsError> {
         call.0.check(&[])?;
         Ok(3)
     }
@@ -46,7 +46,7 @@ impl Execute for Ring {
         &[]
     }
 
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         Ok(())
     }

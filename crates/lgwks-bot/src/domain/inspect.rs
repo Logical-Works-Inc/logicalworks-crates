@@ -41,8 +41,9 @@
 //! [`Inspection`]: crate::inspect::Inspection
 
 use crate::cap::{Auth, Cap};
+use crate::ecs::EcsError;
 use crate::effect::InputIdentity;
-use crate::error::{BotError, DispatchCertainty};
+use crate::error::{DispatchCertainty, KernelError};
 use crate::inspect::{Budgets, InspectRequest, Inspection, RuleSet, Scope as InspectScope};
 use crate::verb;
 
@@ -186,7 +187,7 @@ impl verb::Query for Inspector {
         &[]
     }
 
-    async fn query(&self, call: (Auth, &InspectionJob)) -> Result<Inspection, BotError> {
+    async fn query(&self, call: (Auth, &InspectionJob)) -> Result<Inspection, EcsError> {
         let (auth, job) = call;
         auth.check(verb::Query::required_caps(self))?;
         Ok(job.inspect())
@@ -230,12 +231,21 @@ impl Subject {
     ///
     /// # Errors
     ///
-    /// [`BotError::IncompleteSpec`] when `target` is empty, so a spec that
+    /// [`EcsError::IncompleteSpec`] when `target` is empty, so a spec that
     /// named no artifact is an attributed admission need rather than a poll
     /// that reads the working directory's empty name.
-    pub fn from_target(target: &str) -> Result<crate::Source, BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::domain::inspect::Subject;
+    ///
+    /// assert!(Subject::from_target("src/lib.rs").is_ok());
+    /// assert!(Subject::from_target("").is_err());
+    /// ```
+    pub fn from_target(target: &str) -> Result<crate::Source, EcsError> {
         if target.is_empty() {
-            let refusal = Err(BotError::IncompleteSpec {
+            let refusal = Err(EcsError::IncompleteSpec {
                 field: "target",
                 cause: String::from("the spec names no artifact path"),
             });
@@ -266,11 +276,19 @@ impl verb::Observe for Subject {
         &self.caps
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<Inspection, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<Inspection, EcsError> {
         call.0.check(self.required_caps())?;
         let path = self.artifact.clone();
         let limit = self.budgets.max_source_bytes;
-        let subject = lgwks_std::task::spawn_blocking(move || read_subject(&path, limit)).await?;
+        // The read runs on the bounded blocking pool and is awaited here; a full
+        // pool is a typed refusal the next tick retries.
+        let read = lgwks_std::task::try_spawn_blocking(move || read_subject(&path, limit))
+            .map_err(|refusal| KernelError::DomainError {
+                domain: DOMAIN.into(),
+                certainty: DispatchCertainty::NotDelivered,
+                cause: format!("the blocking pool refused the read: {refusal}"),
+            })?;
+        let subject = read.await?;
         Ok(crate::inspect::inspect(
             &InspectRequest::new(&self.artifact, &subject).budgets(self.budgets),
         ))
@@ -289,7 +307,7 @@ impl verb::Observe for Subject {
 /// as a typed domain error rather than lossily decoded, because the operation
 /// inspects a `&str` and a replacement character would be a subject the caller
 /// did not hand over.
-fn read_subject(path: &str, limit: usize) -> Result<String, BotError> {
+fn read_subject(path: &str, limit: usize) -> Result<String, KernelError> {
     let metadata = std::fs::metadata(path).map_err(|error| io_error(path, error))?;
     // Saturation, and here the saturated value *is* the verdict rather than a
     // stand-in for one: a length this host cannot address is larger than every
@@ -300,7 +318,7 @@ fn read_subject(path: &str, limit: usize) -> Result<String, BotError> {
         Err(_wider_than_this_host_addresses) => usize::MAX,
     };
     if length > limit {
-        let refusal = Err(BotError::DomainError {
+        let refusal = Err(KernelError::DomainError {
             domain: DOMAIN.into(),
             certainty: DispatchCertainty::Refused,
             cause: format!("{path} is {length} bytes; the inspection source budget is {limit}"),
@@ -312,8 +330,8 @@ fn read_subject(path: &str, limit: usize) -> Result<String, BotError> {
 }
 
 /// The typed refusal a failed filesystem read reports.
-fn io_error(path: &str, error: std::io::Error) -> BotError {
-    BotError::DomainError {
+fn io_error(path: &str, error: std::io::Error) -> KernelError {
+    KernelError::DomainError {
         domain: DOMAIN.into(),
         certainty: DispatchCertainty::NotDelivered,
         cause: format!("could not read artifact {path}: {error}"),

@@ -4,7 +4,7 @@
 //! reconciliation makes, with no process anywhere in the picture. This file
 //! simulates the same decisions *through the path a caller runs*: every family
 //! here drives [`lgwks_bot::review::review_pr`] on a [`Host`], with the adapter
-//! bound to a scripted `gh` on `PATH`. Nothing is mocked inside the process —
+//! bound to a scripted `gh` on `PATH`. Nothing is replaced inside the process —
 //! the code under test admits, forks, captures, applies its deadline and reaps
 //! exactly as it would for the real client, and the fixture records the argv it
 //! received.
@@ -69,8 +69,8 @@ use lgwks_bot::task::{Host, MAX_TASK_DEADLINE, Report, Task, task};
 // Its own binary rather than a module of `it` (#272): the saturation CI job
 // runs only this file's tiers, and building the whole `it` binary for them put
 // 80 s of compile on the gate's critical path.
-#[path = "support/fake_gh.rs"]
-mod fake_gh;
+#[path = "support/scripted_gh.rs"]
+mod scripted_gh;
 
 // The band arithmetic and the seeded generator, and nothing else: the rest of
 // the substrate drives journals and a network this family never opens.
@@ -86,7 +86,7 @@ mod sim {
 #[path = "sim/bands.rs"]
 mod band_family;
 
-use fake_gh::{FakeGh, HANG_BOUND, Scenario};
+use scripted_gh::{HANG_BOUND, Scenario, ScriptedGh};
 
 // The families, by responsibility (the size law): the fault space and the
 // tenant, retention and cancellation families; the saturation machinery; the
@@ -98,6 +98,8 @@ use fake_gh::{FakeGh, HANG_BOUND, Scenario};
 mod bounds;
 #[path = "sim_review_families/families.rs"]
 mod families;
+#[path = "sim_review_families/invariant.rs"]
+mod invariant;
 #[path = "sim_review_families/saturation.rs"]
 mod saturation;
 #[path = "sim_review_families/subject.rs"]
@@ -130,7 +132,7 @@ const CAPTURE: usize = 64 * 1024;
 /// The first review id the scripted receiver hands out.
 ///
 /// The receiver numbers accepted creates from `next_review_id`, which
-/// [`fake_gh::Scenario`] sets to 9001, and this family's two runs take 9001 and
+/// [`scripted_gh::Scenario`] sets to 9001, and this family's two runs take 9001 and
 /// 9002. Naming the range here rather than writing the numbers into an
 /// assertion keeps the comparison honest if the fixture's base ever moves: a
 /// run that reported an id from outside the receiver's own range would be
@@ -412,16 +414,16 @@ fn host_named(name: &str, tasks: usize) -> Result<Host, Box<dyn std::error::Erro
         .build()?)
 }
 
-/// The `Gh` binding pointed at `fake`, with a capture ceiling the family chose.
+/// The `Gh` binding pointed at `scripted`, with a capture ceiling the family chose.
 ///
 /// `capture` is a per-family parameter because the oversized family needs a
 /// ceiling it can exceed and every other family needs one it cannot; a single
 /// shared value would make one of them untestable.
-fn gh_for(fake: &FakeGh, capture: usize) -> Result<Gh, Box<dyn std::error::Error>> {
-    fake.binding("acme/widgets", capture)
+fn gh_for(scripted: &ScriptedGh, capture: usize) -> Result<Gh, Box<dyn std::error::Error>> {
+    Ok(scripted.binding("acme/widgets", capture)?)
 }
 
-/// The `Gh` binding the saturation tiers drive: the fake named by its absolute
+/// The `Gh` binding the saturation tiers drive: the script named by its absolute
 /// path, with no `PATH` override.
 ///
 /// That is the spawn a default binding makes, and it is not the spawn
@@ -434,8 +436,11 @@ fn gh_for(fake: &FakeGh, capture: usize) -> Result<Gh, Box<dyn std::error::Error
 /// adapter. `PATH` resolution itself is still exercised by every other family
 /// through [`gh_for`]; the tiers measure concurrency through the adapter, which
 /// this binding leaves unchanged.
-fn gh_spawned_directly(fake: &FakeGh, capture: usize) -> Result<Gh, Box<dyn std::error::Error>> {
-    let program = fake.dir().join(fake.program());
+fn gh_spawned_directly(
+    scripted: &ScriptedGh,
+    capture: usize,
+) -> Result<Gh, Box<dyn std::error::Error>> {
+    let program = scripted.dir().join(scripted.program());
     let program = program
         .to_str()
         .ok_or("the fixture directory is not valid UTF-8")?;
@@ -648,140 +653,22 @@ fn run_seed(index: u64, offset: u64) -> Result<(Fault, Run), Box<dyn std::error:
         ));
     }
 
-    let fake = FakeGh::install(fault.label(), HEAD)?;
-    fake.configure(scenario_for(fault, HEAD)?)?;
-    let report = host.block_on(&job, (gh_for(&fake, capture_for(fault))?, request(7)?))?;
-    let argv = normalized_argv(&fake.calls()?);
+    let scripted = ScriptedGh::install(fault.label(), HEAD)?;
+    scripted.configure(scenario_for(fault, HEAD)?)?;
+    let report = host.block_on(&job, (gh_for(&scripted, capture_for(fault))?, request(7)?))?;
+    let argv = normalized_argv(&scripted.calls()?);
     Ok((
         fault,
         Run {
             report,
-            creates: fake.creates()?,
+            creates: scripted.creates()?,
             argv,
         },
     ))
 }
 
-/// The property every family asserts, in one place.
-///
-/// It is here rather than written out four times because four copies of a safety
-/// argument is four chances for one of them to be the one that drifted, and a
-/// copy that drifted would be a test that passes for the wrong reason.
-fn assert_the_invariant(fault: Fault, run: &Run) -> Result<(), Box<dyn std::error::Error>> {
-    let trace = run.trace();
-
-    // One. A publication is reported only when an independent read observed it.
-    // Checked from both directions: the positive, and the negative — a fault
-    // that cannot produce an observation must never report one.
-    if let Some(outcome) = run.report.output() {
-        match *outcome {
-            ReviewOutcome::Published { verified, .. } => {
-                if !fault.can_be_verified() {
-                    let refusal = Err(format!(
-                        "{} reported a publication it could not have observed: {outcome:?}\n{}",
-                        fault.label(),
-                        trace.argv
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-                    return refusal;
-                }
-                if !verified {
-                    let refusal = Err("a Published outcome must carry verified = true".into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-                    return refusal;
-                }
-            }
-            ReviewOutcome::Unknown { ref commit_id, .. } => {
-                if fault.can_be_verified() {
-                    let refusal = Err(format!(
-                    "{} could have been observed but was reported unknown at {commit_id}: {outcome:?}",
-                    fault.label()
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-                    return refusal;
-                }
-            }
-            ReviewOutcome::TargetMoved { .. } => {
-                // A refusal, not a publication. It must name the commit that
-                // was read, so a moved head cannot be reported against a
-                // commit nobody read, and it must never appear for a fault
-                // whose head never moved.
-                if fault != Fault::HeadMoved {
-                    let refusal = Err(format!(
-                        "{} reported a moved head, but only a head that changed \
-                     can produce one: {outcome:?}",
-                        fault.label()
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-                    return refusal;
-                }
-            }
-            ReviewOutcome::Refused { .. } => {
-                // Draft-only and similar profiles. No run in this family holds
-                // one, so seeing it means a state machine reached a branch the
-                // journey does not name.
-                let refusal = Err(format!(
-                    "{} reported a draft-only refusal, which no fault here produces",
-                    fault.label()
-                )
-                .into());
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-                return refusal;
-            }
-            ref other => {
-                let refusal = Err(format!(
-                    "{} reported {other:?}, which no run in this family produces",
-                    fault.label()
-                )
-                .into());
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-                return refusal;
-            }
-        }
-    } else if run.report.disposition().label() == "Succeeded" {
-        let refusal = Err(format!(
-            "{} reported a successful run with no outcome at all",
-            fault.label()
-        )
-        .into());
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-        return refusal;
-    }
-
-    // Two. At most one create per run, whatever the fault. This is the number a
-    // duplicate-post defect doubles, and it is measured at the receiver rather
-    // than inferred from the outcome.
-    if run.creates > 1 {
-        let refusal = Err(format!(
-            "{} issued {} creates: a run publishes at most once\n{}",
-            fault.label(),
-            run.creates,
-            trace.argv
-        )
-        .into());
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-        return refusal;
-    }
-
-    // Three. A fault that never reaches the create lands nothing, so the
-    // receiver's record must agree with the fault's applicability.
-    if !fault.applies() && run.creates != 0 {
-        let refusal = Err(format!(
-            "{} must publish nothing, but {} creates were issued\n{}",
-            fault.label(),
-            run.creates,
-            trace.argv
-        )
-        .into());
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_the_invariant: returning an error to the caller");
-        return refusal;
-    }
-
-    Ok(())
-}
+// The property every family asserts lives in `invariant.rs` (the size law).
+use invariant::assert_the_invariant;
 
 /// The saturation family: many concurrent runs, each bounded.
 ///

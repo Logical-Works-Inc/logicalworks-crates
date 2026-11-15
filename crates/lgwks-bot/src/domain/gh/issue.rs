@@ -44,7 +44,7 @@ use super::{Gh, GhError, stage_input};
 use crate::Action;
 use crate::cap::{Auth, Cap};
 use crate::clock::Clock;
-use crate::error::BotError;
+use crate::ecs::EcsError;
 pub use crate::keyed::Settlement;
 use crate::keyed::{self, CreateFailure, KeyedReceiver};
 use crate::verb;
@@ -575,11 +575,20 @@ impl OpenIssue {
     ///
     /// # Errors
     ///
-    /// [`BotError::IncompleteSpec`] naming the target when it is not
+    /// [`EcsError::IncompleteSpec`] naming the target when it is not
     /// `owner/repo`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::domain::gh::OpenIssue;
+    ///
+    /// assert!(OpenIssue::from_target("acme/widgets").is_ok());
+    /// assert!(OpenIssue::from_target("not a repository").is_err());
+    /// ```
     #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-    pub fn from_target(target: &str) -> Result<Action, BotError> {
-        let repository = Repository::new(target).map_err(|refused| BotError::IncompleteSpec {
+    pub fn from_target(target: &str) -> Result<Action, EcsError> {
+        let repository = Repository::new(target).map_err(|refused| EcsError::IncompleteSpec {
             field: "target",
             cause: refused.to_string(),
         })?;
@@ -595,7 +604,7 @@ impl verb::Execute for OpenIssue {
         &self.caps
     }
 
-    async fn execute_action(&self, call: (Auth, &IssueDraft)) -> Result<OpenedIssue, BotError> {
+    async fn execute_action(&self, call: (Auth, &IssueDraft)) -> Result<OpenedIssue, EcsError> {
         // The call that carried no flow scope measures on the process's wall
         // clock, which is the live schedule GitHub's bound needs.
         self.execute_action_on(&Clock::wall(), call).await
@@ -605,13 +614,13 @@ impl verb::Execute for OpenIssue {
         &self,
         clock: &Clock,
         call: (Auth, &IssueDraft),
-    ) -> Result<OpenedIssue, BotError> {
+    ) -> Result<OpenedIssue, EcsError> {
         // Checked before `gh` starts, so a denial created and read nothing.
         call.0.check(self.required_caps())?;
         let issues = Issues { gh: &self.gh };
         let (record, settlement) = keyed::open_once(&issues, call.1, clock)
             .await
-            .map_err(|failure| failure.into_bot_error(DOMAIN, |gh| gh.into_bot_error(DOMAIN)))?;
+            .map_err(|failure| failure.into_ecs_error(DOMAIN, |gh| gh.into_ecs_error(DOMAIN)))?;
         Ok(record.settled(settlement))
     }
 

@@ -30,7 +30,7 @@ use crate::semantic::{
     Embedder, EmbedderIdentity, SemanticError, SemanticPolicy, SemanticResolver,
 };
 use crate::session::{AnswerDomain, DegradedReason, MatchTier, Question, Resolution, Resolver};
-use crate::sim_stream::{RECEIPT_START, Stream, fold};
+use crate::sim_stream::{DrawError, RECEIPT_START, Stream, fold};
 
 /// The seeds every family replays.
 const SEEDS: [u64; 4] = [
@@ -492,7 +492,7 @@ fn sim_numbers_and_learned_phrases_never_reach_the_model() -> Outcome {
 /// Equal policies have one version; different policies differ.
 fn sim_a_policy_version_is_its_numbers() -> Outcome {
     sweep(|seed, stream, scenario| {
-        let draw = |stream: &mut Stream| -> Result<f64, String> {
+        let draw = |stream: &mut Stream| -> Result<f64, DrawError> {
             stream.choose(&[0.0, 0.05, 0.1, 0.25, 0.5, 0.72, 0.9, 1.0])
         };
         let (first, second) = (

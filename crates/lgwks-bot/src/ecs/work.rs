@@ -15,12 +15,13 @@ use lgwks_deps::bevy_ecs::schedule::IntoScheduleConfigs;
 use lgwks_std::hash::Hasher;
 
 use crate::effect::{ActionId, EffectKey};
-#[cfg(feature = "ecs")]
-use crate::error::BotError;
 use crate::error::Escaped;
+use crate::journal::EffectEvidence;
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
 use crate::verb::Observe;
 
+#[cfg(feature = "ecs")]
+use super::EcsError;
 #[cfg(all(doc, feature = "ecs"))]
 use super::bot::EcsBot;
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
@@ -136,7 +137,7 @@ pub(super) fn parked(world: &World) -> bool {
         error
             .0
             .as_ref()
-            .is_some_and(|error| !matches!(error, BotError::PollStalled { .. }))
+            .is_some_and(|error| !matches!(error, EcsError::PollStalled { .. }))
     })
 }
 
@@ -441,55 +442,5 @@ impl fmt::Display for PendingWork {
             None => f.write_str("no attempt yet")?,
         }
         write!(f, "): {}", self.hold)
-    }
-}
-
-/// What a caller knows about an effect the substrate could not settle.
-///
-/// Two arms, because there are two facts a caller can establish, and the
-/// decision that matters — attempt it again or not — follows from which one
-/// they are. "Unknown and staying unknown" is not evidence and has no arm: an
-/// entry in that state stays reported, which is the honest outcome.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(
-    feature = "wire",
-    derive(
-        lgwks_std::wire::Archive,
-        lgwks_std::wire::Serialize,
-        lgwks_std::wire::Deserialize
-    )
-)]
-#[cfg_attr(
-    feature = "wire",
-    rkyv(attr(non_exhaustive), crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug))
-)]
-#[non_exhaustive]
-pub enum EffectEvidence {
-    /// The effect happened. The entry is acknowledged and never attempted
-    /// again.
-    Applied,
-    /// The effect did not happen. This is the evidence a retry requires: the
-    /// entry becomes eligible for an attempt again, with a fresh budget,
-    /// because a new fact is not a repeat of the attempt that failed.
-    NotApplied,
-}
-
-/// Renders the fact the caller established, not the enum arm, because these
-/// appear in refusal messages a person reads to decide whether their own
-/// observation was wrong: `applied` and `not applied` are what they were asked
-/// for, and `Applied`/`NotApplied` would make them translate.
-///
-/// Lives here rather than in `error.rs` for the same reason
-/// [`PendingWork`]'s does — the type owns its rendering, so a later variant
-/// cannot be interpolated anywhere unhandled.
-impl fmt::Display for EffectEvidence {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Matched through a dereference rather than through the reference: the
-        // type is `Copy`, and `clippy::pattern_type_mismatch` is forbidden in
-        // this workspace.
-        f.write_str(match *self {
-            Self::Applied => "applied",
-            Self::NotApplied => "not applied",
-        })
     }
 }

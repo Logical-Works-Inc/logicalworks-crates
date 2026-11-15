@@ -2,10 +2,9 @@
 
 use std::fmt;
 
-use super::BotError;
 use super::Escaped;
+use super::KernelError;
 use crate::cap::{Auth, Cap, Deficit};
-use crate::ecs::EffectEvidence;
 
 /// What a failed attempt establishes about the effect it was making.
 ///
@@ -19,8 +18,8 @@ use crate::ecs::EffectEvidence;
 /// permits a retry only against the caller's evidence.
 ///
 /// The third case is deliberately its own variant rather than a
-/// [`BotError::DomainError`] carrying [`Self::Unsettled`]: an effect that may
-/// or may not have happened is [`BotError::EffectIndeterminate`], which is not
+/// [`KernelError::DomainError`] carrying [`Self::Unsettled`]: an effect that may
+/// or may not have happened is [`KernelError::EffectIndeterminate`], which is not
 /// a domain error and must not become part of one — that is the catch-all this
 /// vocabulary exists to prevent. No `DomainError` this crate constructs carries
 /// `Unsettled`; the arm is here because it is the third answer to the question
@@ -50,13 +49,12 @@ pub enum DispatchCertainty {
     Unsettled,
     /// The effect definitely happened.
     ///
-    /// Produced only by a post-effect recording failure
-    /// ([`BotError::EffectUnrecorded`]) whose evidence is
-    /// [`Applied`](EffectEvidence::Applied): the action returned success, so the
-    /// occurrence is a fact even though the journal has no record of it yet.
-    /// A retry of the *effect* is forbidden — that is how a known success
-    /// becomes a duplicate. Retrying the *append* is the repair, and it does not
-    /// go through this type's retry map.
+    /// Produced only by a post-effect recording failure (the world layer's
+    /// `EffectUnrecorded`) whose evidence is `Applied`: the action returned
+    /// success, so the occurrence is a fact even though the journal has no
+    /// record of it yet. A retry of the *effect* is forbidden — that is how a
+    /// known success becomes a duplicate. Retrying the *append* is the repair,
+    /// and it does not go through this type's retry map.
     Occurred,
 }
 
@@ -74,10 +72,10 @@ impl DispatchCertainty {
 
 /// What a failure permits a caller to do about it.
 ///
-/// Read from the failure through [`BotError::retry_class`], which is total over
-/// the vocabulary and never inspects a rendered cause. A caller that branches
-/// on this is not choosing a retry policy by string-matching, which is the
-/// thing the type exists to make unnecessary.
+/// Read from the failure through `retry_class`, which every layer's error
+/// carries, is total over its vocabulary and never inspects a rendered cause. A
+/// caller that branches on this is not choosing a retry policy by
+/// string-matching, which is the thing the type exists to make unnecessary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RetryClass {
@@ -86,14 +84,14 @@ pub enum RetryClass {
     /// attempt.
     Never,
     /// The effect definitely did not happen, so a retry is a retry. Bounded by
-    /// the caller's budget, which is what [`crate::spec::RetryPolicy`] declares.
+    /// the caller's budget, which is what `RetryPolicy` declares.
     Safe,
     /// The effect may have happened, so a retry is a possible duplicate. Not
     /// attempted again without the caller reporting evidence.
     RequiresEvidence,
 }
 
-impl BotError {
+impl KernelError {
     /// What this failure establishes about the effect it was making.
     ///
     /// Exhaustive over the vocabulary and computed from the value, never from
@@ -101,56 +99,32 @@ impl BotError {
     /// [`DomainError`](Self::DomainError) or an
     /// [`EffectIndeterminate`](Self::EffectIndeterminate) names a refusal that
     /// happens *before* an effect is attempted — a capability that is not
-    /// granted, an erased verb handed the wrong type, a spec that does not
-    /// validate, a tick that may not park the thread it was called on — so all
-    /// of them answer [`DispatchCertainty::Refused`].
+    /// granted, an action the bot does not declare, a dispatch the broker
+    /// refused — so all of them answer [`DispatchCertainty::Refused`].
     #[must_use]
-    pub fn dispatch_certainty(&self) -> DispatchCertainty {
+    pub(crate) fn dispatch_certainty(&self) -> DispatchCertainty {
         match *self {
             Self::DomainError { certainty, .. } => certainty,
             Self::EffectIndeterminate { .. } => DispatchCertainty::Unsettled,
-            // The action ran and the outcome is a fact. Refused means "nothing
-            // left the process", and NotDelivered means "a retry is a retry" —
-            // both are lies about an effect that already returned.
-            Self::EffectUnrecorded { evidence, .. } => match evidence {
-                EffectEvidence::Applied => DispatchCertainty::Occurred,
-                EffectEvidence::NotApplied => DispatchCertainty::NotDelivered,
-            },
-            // A cancelled observation read nothing, so nothing left the process
-            // on this account and the next tick is a plain retry. Folding it
-            // into the `Refused` arm above would make a caller classify a source
-            // that recovers on the next tick as one whose wiring will never work.
-            Self::PollStalled { .. } => DispatchCertainty::NotDelivered,
-            // An unsettled reading is the same fact as a cancelled poll: the
-            // value that was to be replaced is still the one the substrate
-            // holds, so nothing was committed and a later tick is a plain retry.
-            Self::UnstableObservation { .. } => DispatchCertainty::NotDelivered,
-            // A lapsed credential is a refusal, and so is a rejected one: both
-            // happen before any effect is attempted, and neither is repaired by
-            // presenting the same authority again.
-            Self::CredentialExpired { .. } | Self::CredentialRejected { .. } => {
-                DispatchCertainty::Refused
-            }
+            // A lapsed credential is a refusal: it happens before any effect is
+            // attempted, and it is not repaired by presenting the same
+            // authority again.
+            Self::CredentialExpired { .. } => DispatchCertainty::Refused,
             // A lost write changed nothing: the winner's value stands and the
             // loser holds both versions, so the same expectation refused again
             // is the same refusal rather than a second attempt at the effect.
             Self::Conflict { .. } => DispatchCertainty::Refused,
-            _ => DispatchCertainty::Refused,
+            Self::CapabilityDenied { .. }
+            | Self::ActionNotDeclared { .. }
+            | Self::EffectUnsettled { .. }
+            | Self::EffectRefused { .. } => DispatchCertainty::Refused,
         }
     }
 
     /// What this failure permits a caller to do about it.
     #[must_use]
     pub fn retry_class(&self) -> RetryClass {
-        // A recording failure never re-enters the action, whatever the outcome
-        // was: the append is the only thing left to do, and it is not an effect
-        // attempt. `Never` here means "never dispatch again for this failure",
-        // not "abandon the entry" — `failure_state` maps this variant to a
-        // pending-record hold rather than to terminal abandonment.
-        match *self {
-            Self::EffectUnrecorded { .. } => RetryClass::Never,
-            _ => self.dispatch_certainty().retry_class(),
-        }
+        self.dispatch_certainty().retry_class()
     }
 }
 
@@ -181,7 +155,7 @@ impl fmt::Display for Deficit {
     }
 }
 
-impl From<Deficit> for BotError {
+impl From<Deficit> for KernelError {
     fn from(deficit: Deficit) -> Self {
         Self::CapabilityDenied { deficit }
     }
@@ -190,13 +164,13 @@ impl From<Deficit> for BotError {
 /// The one answer a domain with no bound transport gives, in two parts.
 ///
 /// Authority first: a caller that was never granted the capability is refused by
-/// [`Auth::check`] as [`BotError::CapabilityDenied`], which carries the whole
+/// [`Auth::check`] as [`KernelError::CapabilityDenied`], which carries the whole
 /// shortfall rather than one word of it, and only a caller that *was* granted it
 /// reaches the second part. The order matters — a missing capability is the
 /// repairable fault, and reporting "binding required" to a caller whose grant
 /// was short would send them looking for a transport that was never the problem.
 ///
-/// Then the `binding required` refusal, which is [`BotError::DomainError`] at
+/// Then the `binding required` refusal, which is [`KernelError::DomainError`] at
 /// [`DispatchCertainty::Refused`]: the domain is constructed with a channel, a
 /// path or a destination and no client behind it, so nothing was dispatched and
 /// nothing ever will be. `Refused` rather than `NotDelivered` because a retry of
@@ -216,23 +190,26 @@ impl From<Deficit> for BotError {
 /// `querying`, `notifying` — and `target` is the untrusted channel, path or
 /// destination it asked about, rendered through [`Escaped`] by `Display` for the
 /// same reason every other untrusted field is.
-pub(crate) fn unbound_domain<T>(
+///
+/// Generic over the caller's own error so each layer keeps its type: a domain
+/// that implements a verb returns the verb's error, and `From` does the wrap.
+pub(crate) fn unbound_domain<T, E: From<KernelError>>(
     auth: &Auth,
     required: &[Cap],
     domain: &str,
     verb: &str,
     target: &str,
-) -> Result<T, BotError> {
+) -> Result<T, E> {
     auth.check(required)?;
-    let refusal = Err(BotError::DomainError {
+    let refusal = KernelError::DomainError {
         domain: domain.to_owned(),
         certainty: DispatchCertainty::Refused,
         cause: format!("{verb} {target:?} — binding required"),
-    });
+    };
     lgwks_std::trace::debug!(
-        error = ?refusal.as_ref().err(),
+        error = ?refusal,
         %domain,
         "unbound domain: refusing a call with no bound transport",
     );
-    refusal
+    Err(E::from(refusal))
 }

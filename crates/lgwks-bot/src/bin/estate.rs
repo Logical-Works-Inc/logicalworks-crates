@@ -14,8 +14,7 @@ use lgwks_bot::rt::estate::{Estate, EstateError, EstateReport};
 use lgwks_bot::rt::supervise::TaskId;
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::task::{Disposition, task};
-use lgwks_bot::verb::{Execute, Observe};
-use lgwks_bot::{Auth, Bot, BotError, Cap, EffectLifetime, GrantSet};
+use lgwks_bot::{Bot, BotError, Cap, EcsError, GrantSet, KernelError};
 
 /// The script vocabulary on the shipped binary: what each runtime answers
 /// through the public interface. A submodule rather than inline code, so the
@@ -54,6 +53,11 @@ mod sealed;
 #[cfg(feature = "sealed")]
 #[path = "estate/sealed_journal.rs"]
 mod sealed_journal;
+
+/// Library doors with no front of their own, read as a downstream caller reads them: the versioned
+/// record write, the guidance session, the upstream credential refusal and the stable read.
+#[path = "estate/doors.rs"]
+mod doors;
 
 /// The `run_process` result door, read as a downstream caller reads it.
 async fn read_process_result(
@@ -94,69 +98,10 @@ struct RunCheck {
     error: Option<String>,
 }
 
-/// A source that answers once and requires `bot.net`, so the grant-replacement
-/// arm below (live revocation) has an authority to withdraw mid-run.
-struct SmokeSource {
-    /// The one capability this source requires.
-    caps: [Cap; 1],
-}
-
-impl SmokeSource {
-    /// A source that requires `bot.net`.
-    fn gated() -> Self {
-        Self { caps: [Cap::net()] }
-    }
-}
-
-impl Observe for SmokeSource {
-    /// The observed value.
-    type Output = u16;
-
-    fn required_caps(&self) -> &[Cap] {
-        &self.caps
-    }
-
-    async fn poll(&self, call: (Auth, ())) -> Result<u16, BotError> {
-        call.0.check(self.required_caps())?;
-        Ok(503)
-    }
-
-    fn domain_id(&self) -> &str {
-        "smoke::source"
-    }
-}
-
-/// An action that counts its invocations: the observable effect a live
-/// revocation has to stop.
-struct SmokeAction {
-    /// How many times the action ran.
-    fired: std::rc::Rc<std::cell::Cell<usize>>,
-}
-
-impl Execute for SmokeAction {
-    /// The observed value it consumes.
-    type Input = u16;
-    /// It answers nothing.
-    type Output = ();
-
-    fn required_caps(&self) -> &[Cap] {
-        &[]
-    }
-
-    fn effect_lifetime(&self) -> EffectLifetime {
-        EffectLifetime::Local
-    }
-
-    async fn execute_action(&self, call: (Auth, &u16)) -> Result<(), BotError> {
-        call.0.check(Execute::required_caps(self))?;
-        self.fired.set(self.fired.get().saturating_add(1));
-        Ok(())
-    }
-
-    fn domain_id(&self) -> &str {
-        "smoke::action"
-    }
-}
+/// The smoke's doubles, its error and its two directory helpers.
+#[path = "estate/smoke.rs"]
+mod smoke;
+use smoke::{SmokeAction, SmokeError, SmokeSource, make_dir, remove_dir};
 
 /// The supervisor's process doors, proved on the shipped artifact rather than
 /// trusted from the tests: record-then-release gating, the release handshake,
@@ -236,10 +181,10 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
     let deny_dir = std::env::temp_dir().join(format!("lgwks-estate-smoke-deny-{hex}"));
     let denied = deny_dir.join("denied");
-    std::fs::create_dir_all(&denied)
+    make_dir(&denied)
         .map_err(|error| std::io::Error::other(format!("the smoke denied dir failed: {error}")))?;
     let denied_read = profile.deny_read_beneath(&denied);
-    let _removed = std::fs::remove_dir_all(&deny_dir);
+    remove_dir(&deny_dir);
     if let Err(error) = denied_read {
         record(
             mismatch,
@@ -261,7 +206,18 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
     let mut spec = ProcessSpec::new("/usr/bin/true");
     if let Ok((reader, _writer)) = std::io::pipe() {
         spec.inherit_fd(std::os::fd::OwnedFd::from(reader));
-        let _ = (spec.inherited_fd_count(), spec.inherited_raw_fds());
+        if spec.inherited_fd_count() != 1 {
+            record(
+                mismatch,
+                "one inherited descriptor must count as one".to_owned(),
+            );
+        }
+        if spec.inherited_raw_fds().len() != 1 {
+            record(
+                mismatch,
+                "one inherited descriptor must list as one raw fd".to_owned(),
+            );
+        }
     }
     let mut spawned: GatedIdentifiedSpawn =
         match supervisor.spawn_process_identified_gated(&spec).await {
@@ -331,7 +287,9 @@ async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
 /// Record the first deviation and keep it: the first mismatch is the root cause, and later ones
 /// are its symptoms.
 fn record(mismatch: &mut Option<String>, message: String) {
-    let _ = mismatch.get_or_insert(message);
+    if mismatch.is_none() {
+        *mismatch = Some(message);
+    }
 }
 
 /// The smoke's scratch directory, removed on every exit — an early `?` return included.
@@ -346,21 +304,24 @@ impl Drop for Scratch {
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// Run one named sub-command, or the whole estate smoke when none is named.
+fn main() -> Result<(), SmokeError> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some((first, rest)) = args.split_first() {
         match first.as_str() {
-            "serve" => return serve_ref::run(rest).map_err(Box::<dyn std::error::Error>::from),
-            "apps" => return apps::run(rest).map_err(Box::<dyn std::error::Error>::from),
+            "serve" => {
+                return serve_ref::run(rest).map_err(|cause| SmokeError::command("serve", &cause));
+            }
+            "apps" => return apps::run(rest).map_err(|cause| SmokeError::command("apps", &cause)),
             "approvals" => {
                 let stdout = std::io::stdout();
                 return approvals::run(rest, &mut stdout.lock())
-                    .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+                    .map_err(|cause| SmokeError::command("approvals", &cause));
             }
             "sealed" => {
                 let stdout = std::io::stdout();
                 return sealed::run(rest, &mut stdout.lock())
-                    .map_err(|error| Box::<dyn std::error::Error>::from(error.to_string()));
+                    .map_err(|cause| SmokeError::command("sealed", &cause));
             }
             _ => {}
         }
@@ -741,9 +702,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             format!("the swap did not report exactly the withdrawn net grant: {report:?}"),
         );
     }
-    match bot.tick() {
-        Err(BotError::CapabilityDenied { .. }) => {
-            say("grant replacement: the next tick is denied")?;
+    // Read as the app layer's error: a consumer holding `BotError` still sees the
+    // kernel's refusal, tagged with the layer that carried it.
+    // The operator reads the certainty beside the error: whether a retry of this
+    // run could double an effect is the fact the failure carries, not its text.
+    match bot.tick().map_err(BotError::from) {
+        Err(refused @ BotError::World(EcsError::Kernel(KernelError::CapabilityDenied { .. }))) => {
+            say(&format!(
+                "grant replacement: the next tick is denied: dispatch={:?} retry={:?}",
+                refused.dispatch_certainty(),
+                refused.retry_class(),
+            ))?;
         }
         other => {
             record(
@@ -778,6 +747,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Err(error) => {
             record(&mut mismatch, format!("the vocabulary failed: {error}"));
+        }
+    }
+
+    // The library doors with no front of their own, on the shipped artifact (#990): each is called
+    // as a downstream caller calls it, and every outcome is asserted.
+    for door in doors::run(&dir) {
+        match door {
+            Ok(line) => say(&line)?,
+            Err(problem) => record(&mut mismatch, problem.to_string()),
         }
     }
 

@@ -29,7 +29,7 @@ fn a_source_that_moves_while_work_is_outstanding_neither_loses_nor_duplicates_it
         format!("a refusal was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the action's own error, got {error:?}"
     );
     assert_eq!(*first.borrow(), vec![200], "the first entry ran once");
@@ -136,7 +136,7 @@ fn an_attempt_whose_outcome_was_never_recorded_is_held_not_replayed() -> TestRes
         format!("a refused outcome append reported {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EffectUnrecorded { .. }),
+        matches!(error, EcsError::EffectUnrecorded { .. }),
         "expected the outcome append's own failure, got {error:?}"
     );
     assert_eq!(*log.borrow(), vec![200], "the action ran once");
@@ -197,7 +197,7 @@ fn an_attempt_whose_outcome_was_never_recorded_is_held_not_replayed() -> TestRes
     let error = refused(bot.tick(), |fired| {
         format!("an unrecorded attempt fired {fired}")
     })?;
-    let BotError::PendingTransition { work, .. } = error else {
+    let EcsError::PendingTransition { work, .. } = error else {
         return Err(format!("expected PendingTransition, got {error:?}").into());
     };
     assert!(
@@ -323,7 +323,7 @@ fn a_condition_that_cannot_be_evaluated_holds_the_chain_without_claiming_anythin
         format!("an evaluate error was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EvaluateError { .. }),
+        matches!(error, EcsError::EvaluateError { .. }),
         "expected the condition's own error, got {error:?}"
     );
     assert!(log.borrow().is_empty(), "nothing was attempted");
@@ -346,7 +346,7 @@ fn a_condition_that_cannot_be_evaluated_holds_the_chain_without_claiming_anythin
         format!("the second tick reported {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EvaluateError { .. }),
+        matches!(error, EcsError::EvaluateError { .. }),
         "the condition is evaluated again, not silently given up on: {error:?}"
     );
     assert!(log.borrow().is_empty(), "and still nothing was attempted");
@@ -379,7 +379,7 @@ fn a_condition_failure_stops_the_walk_after_the_effects_it_cleared() -> TestResu
         format!("a refused condition was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::EvaluateError { .. }),
+        matches!(error, EcsError::EvaluateError { .. }),
         "expected the condition's own error, got {error:?}"
     );
     assert_eq!(
@@ -411,8 +411,8 @@ fn an_ambiguous_schedule_is_refused_at_build() -> TestResult {
     match validate(&mut ambiguous, &mut world) {
         Ok(()) => return Err("an ambiguous schedule was accepted at build".into()),
         Err(error) => assert!(
-            matches!(error, BotError::DomainError { .. }),
-            "a schedule-build failure must surface as a typed BotError, got {error:?}"
+            matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
+            "a schedule-build failure must surface as a typed EcsError, got {error:?}"
         ),
     }
 
@@ -464,7 +464,7 @@ fn a_mispairing_behind_the_erasure_is_a_witness_miss() -> TestResult {
     bot.schedule.run(&mut bot.world);
 
     match bot.world.resource::<TickError>().0 {
-        Some(BotError::TypeMismatch {
+        Some(EcsError::TypeMismatch {
             site,
             chain,
             expected,
@@ -529,7 +529,7 @@ fn a_mismatched_pairing_costs_one_attempt_not_the_retry_budget() -> TestResult {
     assert!(
         matches!(
             error,
-            BotError::TypeMismatch {
+            EcsError::TypeMismatch {
                 site: "spec::typed_entry",
                 expected: "u32",
                 observed: "u16",
@@ -563,7 +563,7 @@ fn a_mismatched_pairing_costs_one_attempt_not_the_retry_budget() -> TestResult {
         format!("a retried wiring mismatch reported {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::PendingTransition { .. }),
+        matches!(error, EcsError::PendingTransition { .. }),
         "the abandoned entry is the barrier the next tick reports, got {error:?}"
     );
     Ok(())
@@ -589,7 +589,7 @@ fn a_permanent_refusal_does_not_burn_the_retry_budget() -> TestResult {
         format!("a permanent refusal was reported as {fired} fired")
     })?;
     assert!(
-        matches!(error, BotError::DomainError { .. }),
+        matches!(error, EcsError::Kernel(KernelError::DomainError { .. })),
         "expected the action's own error, got {error:?}"
     );
     assert_eq!(attempts.get(), 1, "a permanent refusal is attempted once");

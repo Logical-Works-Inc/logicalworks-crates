@@ -30,7 +30,7 @@
 //! sees. The drawn value is recorded in the trace so a sweep says which lags
 //! it reached.
 //!
-//! The fake receiver forks a shell per call, and a new key's open makes seven
+//! The scripted receiver forks a shell per call, and a new key's open makes seven
 //! calls when nothing is lost (two finds around the in-flight fence, which the
 //! scenario's clock spends, and the create), so the family pays in process
 //! starts rather than in seconds. Each tenant opens at most twice, which is the fewest that still
@@ -43,12 +43,13 @@ use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use lgwks_bot::BotError;
+use lgwks_bot::EcsError;
 use lgwks_bot::domain::gh::{IssueDraft, Settlement};
+use lgwks_bot::error::KernelError;
 use lgwks_bot::rt::clock::Clock;
 
-use crate::fake_gh_issues::{creates_on, held_on};
-use crate::gh_issue::{failed, fake_host_with_clock, full_grant, open_on_clock, opened};
+use crate::gh_issue::{failed, full_grant, open_on_clock, opened, scripted_host_with_clock};
+use crate::scripted_gh_issues::{creates_on, held_on};
 use crate::sim::{self, Band, Sim};
 
 /// A family's result: an error fails it with the seed's text.
@@ -60,7 +61,7 @@ const SEEDS: u64 = 48;
 /// Distinct owners for every pass, so no pass reads another's store.
 static PASS: AtomicU64 = AtomicU64::new(0);
 
-/// The receivers a seed draws from, by the repository name the fake reads.
+/// The receivers a seed draws from, by the repository name the script reads.
 ///
 /// The first three keep their answer; `lag` holds it and hides the issue from
 /// the listing; `droplag` and `kill` lose the answer and hide it too, which is
@@ -101,14 +102,16 @@ fn settled(
         });
     }
     match *failed(report)? {
-        BotError::EffectIndeterminate { ref domain, .. } if domain == "gh::issue" => {
+        EcsError::Kernel(KernelError::EffectIndeterminate { ref domain, .. })
+            if domain == "gh::issue" =>
+        {
             Ok("indeterminate")
         }
-        BotError::DomainError {
+        EcsError::Kernel(KernelError::DomainError {
             ref domain,
             ref cause,
             ..
-        } if domain == "gh::issue" && cause.contains("rejected by GitHub") => Ok("rejected"),
+        }) if domain == "gh::issue" && cause.contains("rejected by GitHub") => Ok("rejected"),
         ref other => Err(format!("an unmodelled failure {other:?}")),
     }
 }
@@ -122,7 +125,7 @@ fn seed(sim: &mut Sim) -> SimResult {
 }
 
 /// The repository name a seed opens on: the drawn lag is part of it for the
-/// receivers whose listing lags, so the fake reads the lag from the name.
+/// receivers whose listing lags, so the script reads the lag from the name.
 fn target(receiver: &str, drawn: u32) -> String {
     match receiver {
         "lag" => format!("lag-{drawn}"),
@@ -148,8 +151,8 @@ fn seed_on(sim: &mut Sim, receiver: &str) -> SimResult {
     // for, and the scenario owns every wait on it.
     let clock = Clock::virtual_at(Duration::ZERO);
     let tenants = [
-        fake_host_with_clock("acme", full_grant(), clock.clone())?,
-        fake_host_with_clock("zenith", full_grant(), clock.clone())?,
+        scripted_host_with_clock("acme", full_grant(), clock.clone())?,
+        scripted_host_with_clock("zenith", full_grant(), clock.clone())?,
     ];
     let drafts = [
         IssueDraft::new("acme-key", "Opened by acme", "")?,

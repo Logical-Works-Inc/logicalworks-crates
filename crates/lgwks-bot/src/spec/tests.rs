@@ -1,8 +1,11 @@
 //! Tests of the spec module: the wire contract, the builder entry points and the tick.
 //! Split from `spec.rs` (#526).
 
+#[cfg(test)]
 use super::*;
-use crate::error::DispatchCertainty;
+use crate::cap::{Auth, Cap};
+use crate::error::{DispatchCertainty, KernelError};
+use crate::gate::GrantSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 
@@ -31,12 +34,12 @@ fn test_effects() -> TestResult<EffectScope> {
 /// named assertion failure with the cause attached rather than as a bare
 /// unwind, and the cause names the invariant that was violated, not merely
 /// that something was.
-fn failed(cause: impl Into<String>) -> BotError {
-    BotError::DomainError {
+fn failed(cause: impl Into<String>) -> EcsError {
+    EcsError::Kernel(KernelError::DomainError {
         domain: "spec::tests".into(),
         certainty: DispatchCertainty::NotDelivered,
         cause: cause.into(),
-    }
+    })
 }
 
 /// How long a poll waits for its sibling at the [`Rendezvous`]: far past
@@ -135,7 +138,7 @@ impl crate::verb::Observe for NetSource {
     fn required_caps(&self) -> &[Cap] {
         &self.caps
     }
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(crate::verb::Observe::required_caps(self))?;
         Ok(self.value)
     }
@@ -160,7 +163,7 @@ impl crate::verb::Observe for FakeSource {
     fn required_caps(&self) -> &[Cap] {
         &self.0
     }
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(crate::verb::Observe::required_caps(self))?;
         Ok(42)
     }
@@ -176,7 +179,7 @@ impl crate::verb::Observe for Immediate {
     fn required_caps(&self) -> &[Cap] {
         &[]
     }
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(crate::verb::Observe::required_caps(self))?;
         Ok(1)
     }
@@ -192,12 +195,12 @@ impl crate::verb::Observe for Failing {
     fn required_caps(&self) -> &[Cap] {
         &[]
     }
-    async fn poll(&self, _call: (Auth, ())) -> Result<u32, BotError> {
-        Err(BotError::DomainError {
+    async fn poll(&self, _call: (Auth, ())) -> Result<u32, EcsError> {
+        Err(EcsError::Kernel(KernelError::DomainError {
             domain: "test::failing".into(),
             certainty: DispatchCertainty::NotDelivered,
             cause: "boom".into(),
-        })
+        }))
     }
     fn domain_id(&self) -> &str {
         "test::failing"
@@ -215,10 +218,20 @@ impl crate::verb::Observe for PeakSource {
     fn required_caps(&self) -> &[Cap] {
         &[]
     }
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(crate::verb::Observe::required_caps(self))?;
         let rendezvous = Arc::clone(&self.rendezvous);
-        lgwks_std::task::spawn_blocking(move || rendezvous.meet(2)).await;
+        // The bounded pool hands back the job's handle, and the poll awaits it,
+        // so the poll owns the thread; a full pool is a typed refusal.
+        let meeting =
+            lgwks_std::task::try_spawn_blocking(move || rendezvous.meet(2)).map_err(|refusal| {
+                crate::error::KernelError::DomainError {
+                    domain: String::from("test::peak"),
+                    certainty: crate::error::DispatchCertainty::Refused,
+                    cause: refusal.to_string(),
+                }
+            })?;
+        meeting.await;
         Ok(1)
     }
     fn domain_id(&self) -> &str {
@@ -262,7 +275,7 @@ impl crate::verb::Execute for Action {
     fn effect_lifetime(&self) -> crate::verb::EffectLifetime {
         crate::verb::EffectLifetime::Local
     }
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(crate::verb::Execute::required_caps(self))?;
         if let Some(ref counter) = self.counter {
             counter.fetch_add(1, Ordering::SeqCst);
@@ -275,7 +288,7 @@ impl crate::verb::Execute for Action {
 }
 
 #[test]
-fn spec_round_trips_json() -> Result<(), BotError> {
+fn spec_round_trips_json() -> Result<(), EcsError> {
     let spec = BotSpec {
         version: BotSpec::CURRENT_VERSION,
         name: "larry".into(),
@@ -340,18 +353,18 @@ fn spec_size_bound_is_checked_just_above_the_limit() {
     let at = "x".repeat(MAX_SPEC_BYTES);
     assert!(matches!(
         BotSpec::from_json(&at),
-        Err(BotError::MalformedSpec { .. })
+        Err(EcsError::MalformedSpec { .. })
     ));
     let over = "x".repeat(MAX_SPEC_BYTES + 1);
     assert!(matches!(
         BotSpec::from_json(&over),
-        Err(BotError::SpecTooLarge { bytes, limit })
+        Err(EcsError::SpecTooLarge { bytes, limit })
             if bytes == MAX_SPEC_BYTES + 1 && limit == MAX_SPEC_BYTES
     ));
 }
 
 #[test]
-fn malformed_spec_diagnostic_escapes_control_characters() -> Result<(), BotError> {
+fn malformed_spec_diagnostic_escapes_control_characters() -> Result<(), EcsError> {
     // An unknown field name is attacker-chosen; a newline in it must not
     // survive into the diagnostic as a log-forging byte.
     let Err(error) = BotSpec::from_json("{\"name\":\"x\",\"chains\":[],\"a\\nb\":1}") else {
@@ -360,7 +373,7 @@ fn malformed_spec_diagnostic_escapes_control_characters() -> Result<(), BotError
         ));
     };
     let cause = match error {
-        BotError::MalformedSpec { cause } => cause,
+        EcsError::MalformedSpec { cause } => cause,
         other => return Err(failed(format!("expected MalformedSpec, got {other:?}"))),
     };
     assert!(
@@ -380,7 +393,7 @@ fn both_builder_entry_points_apply_the_same_admission() -> TestResult<()> {
         fn required_caps(&self) -> &[Cap] {
             &self.0
         }
-        async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+        async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
             call.0.check(crate::verb::Observe::required_caps(self))?;
             Ok(0)
         }
@@ -394,7 +407,7 @@ fn both_builder_entry_points_apply_the_same_admission() -> TestResult<()> {
             Bot::builder("")
                 .with_effects(test_effects()?)
                 .build(&GrantSet::empty()),
-            Err(BotError::IncompleteSpec {
+            Err(EcsError::IncompleteSpec {
                 field: "name",
                 cause: _,
             })
@@ -408,7 +421,7 @@ fn both_builder_entry_points_apply_the_same_admission() -> TestResult<()> {
                 .observe(NeedsNet(vec![]))
                 .with_effects(test_effects()?)
                 .build(&GrantSet::empty()),
-            Err(BotError::IncompleteSpec {
+            Err(EcsError::IncompleteSpec {
                 field: "name",
                 cause: _,
             })
@@ -422,7 +435,10 @@ fn both_builder_entry_points_apply_the_same_admission() -> TestResult<()> {
         .with_effects(test_effects()?)
         .build(&GrantSet::empty());
     assert!(
-        matches!(denied, Err(BotError::CapabilityDenied { .. })),
+        matches!(
+            denied,
+            Err(EcsError::Kernel(KernelError::CapabilityDenied { .. }))
+        ),
         "a source whose cap is not in the grant set must be denied at build"
     );
     Ok(())
@@ -478,7 +494,7 @@ fn tick_fires_matching_actions() -> TestResult<()> {
         fn required_caps(&self) -> &[Cap] {
             &[]
         }
-        async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+        async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
             call.0.check(crate::verb::Observe::required_caps(self))?;
             Ok(10)
         }
@@ -509,10 +525,10 @@ fn tick_fires_matching_actions() -> TestResult<()> {
 }
 
 #[test]
-fn issue_denies_what_was_never_granted() -> Result<(), BotError> {
+fn issue_denies_what_was_never_granted() -> Result<(), EcsError> {
     let grants = GrantSet::empty();
     match grants.issue(&[Cap::net()]) {
-        Err(BotError::CapabilityDenied { deficit }) => {
+        Err(KernelError::CapabilityDenied { deficit }) => {
             assert_eq!(deficit.first().required(), &Cap::net());
             Ok(())
         }
@@ -521,12 +537,12 @@ fn issue_denies_what_was_never_granted() -> Result<(), BotError> {
 }
 
 #[test]
-fn call_with_empty_proof_is_denied_at_the_callee() -> Result<(), BotError> {
+fn call_with_empty_proof_is_denied_at_the_callee() -> Result<(), EcsError> {
     use crate::verb::Observe;
 
     let vacuous = GrantSet::empty().issue(&[])?;
     match lgwks_std::task::block_on(NetSource::net(1).poll((vacuous, ()))) {
-        Err(BotError::CapabilityDenied { deficit }) => {
+        Err(EcsError::Kernel(KernelError::CapabilityDenied { deficit })) => {
             assert_eq!(deficit.first().required(), &Cap::net());
             Ok(())
         }
@@ -537,12 +553,12 @@ fn call_with_empty_proof_is_denied_at_the_callee() -> Result<(), BotError> {
 }
 
 #[test]
-fn wrong_scope_proof_is_denied_confused_deputy() -> Result<(), BotError> {
+fn wrong_scope_proof_is_denied_confused_deputy() -> Result<(), EcsError> {
     use crate::verb::Observe;
 
     let fs_only = GrantSet::empty().grant(Cap::fs()).issue(&[Cap::fs()])?;
     match lgwks_std::task::block_on(NetSource::net(1).poll((fs_only, ()))) {
-        Err(BotError::CapabilityDenied { deficit }) => {
+        Err(EcsError::Kernel(KernelError::CapabilityDenied { deficit })) => {
             assert_eq!(deficit.first().required(), &Cap::net());
             Ok(())
         }
@@ -553,7 +569,7 @@ fn wrong_scope_proof_is_denied_confused_deputy() -> Result<(), BotError> {
 }
 
 #[test]
-fn issued_proof_authorizes_the_call() -> Result<(), BotError> {
+fn issued_proof_authorizes_the_call() -> Result<(), EcsError> {
     use crate::verb::Observe;
 
     let auth = GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])?;
@@ -638,7 +654,9 @@ fn a_failing_poll_fires_nothing_and_returns_the_first_error() -> TestResult<()> 
         .with_effects(test_effects()?)
         .build(&GrantSet::empty())?;
     match bot.tick() {
-        Err(BotError::DomainError { domain, .. }) => assert_eq!(domain, "test::failing"),
+        Err(EcsError::Kernel(KernelError::DomainError { domain, .. })) => {
+            assert_eq!(domain, "test::failing");
+        }
         other => {
             return Err(
                 failed(format!("expected the failing chain's error, got {other:?}")).into(),

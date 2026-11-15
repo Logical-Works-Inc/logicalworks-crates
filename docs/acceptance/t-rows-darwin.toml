@@ -79,7 +79,7 @@ row = "Large outputs, full stderr and slow stdout consumer stay within declared 
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 3 of the 7 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sys_process_binding::a_flooding_child_against_a_slow_reader_stays_within_its_ceiling_t05",
+  "it::sys_process_binding::run::a_flooding_child_against_a_slow_reader_stays_within_its_ceiling_t05",
   "it::t_rows_default::a_full_journal_refuses_one_more_event_and_keeps_its_history_t05",
   "it::sim_t_rows_default::journal_counts_are_exact_for_every_seed_t05",
 ]
@@ -91,7 +91,7 @@ row = "Saturated task A cannot starve independent B; one slow source does not bl
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 7 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::a_held_mass_never_starves_an_independent_chain_t06",
+  "it::sim_t_rows::refresh::a_held_mass_never_starves_an_independent_chain_t06",
 ]
 
 [[row]]
@@ -101,7 +101,7 @@ row = "A succeeds with a new fingerprint, B fails the atomic observation group, 
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 5 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::a_failed_group_leaves_its_own_chain_forced_t07",
+  "it::sim_t_rows::refresh::a_failed_group_leaves_its_own_chain_forced_t07",
 ]
 
 [[row]]
@@ -111,7 +111,7 @@ row = "Disconnect, watch overflow, stale remote key and invalidation failure for
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 9 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::every_declared_reason_forces_a_refresh_t08",
+  "it::sim_t_rows::refresh::every_declared_reason_forces_a_refresh_t08",
 ]
 
 [[row]]
@@ -121,7 +121,7 @@ row = "Identical event payloads with different event IDs both execute; duplicate
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 6 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::observe_refresh::identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does_not_t09",
+  "it::observe_refresh::events::identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does_not_t09",
 ]
 
 [[row]]
@@ -131,8 +131,8 @@ row = "A required predecessor fails, is abandoned, is skipped or becomes Unknown
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 2 of the 7 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::a_required_predecessor_holds_its_dependent_t10",
-  "it::sim_t_rows::every_predecessor_state_decides_its_dependent_t10",
+  "it::sim_t_rows::dependents::a_required_predecessor_holds_its_dependent_t10",
+  "it::sim_t_rows::dependents::every_predecessor_state_decides_its_dependent_t10",
 ]
 
 [[row]]
@@ -142,8 +142,8 @@ row = "A Unknown -> NotApplied -> B Unknown; delayed A NotApplied and A Applied 
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 2 of the 12 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::an_indeterminate_predecessor_is_never_resent_t11",
-  "it::wrong_identity_evidence::late_evidence_for_a_settled_attempt_cannot_alter_its_retry_t11",
+  "it::sim_t_rows::dependents::an_indeterminate_predecessor_is_never_resent_t11",
+  "it::wrong_identity_evidence::late_evidence::late_evidence_for_a_settled_attempt_cannot_alter_its_retry_t11",
 ]
 
 [[row]]
@@ -153,7 +153,7 @@ row = "Wrong tenant/run/action/payload/revision/environment/epoch evidence is re
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 8 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_t_rows::identical_digests_never_cross_tenants_t12",
+  "it::sim_t_rows::dependents::identical_digests_never_cross_tenants_t12",
 ]
 
 [[row]]
@@ -299,7 +299,7 @@ row = "Native task and supported wire form produce the same normalized operation
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 6 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::spec_materialize::one_chain_traces_match_t25",
+  "it::spec_materialize::traces::one_chain_traces_match_t25",
 ]
 
 [[row]]
@@ -381,10 +381,10 @@ row = "Untrusted PR, pagination, rename, unavailable diff and build-script execu
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 4 of the 14 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::pr_review_journey::an_untrusted_build_script_in_the_diff_is_never_executed_t31",
+  "it::pr_review_journey::subject::an_untrusted_build_script_in_the_diff_is_never_executed_t31",
   "it::t_rows_default::without_a_runner_nothing_executes_and_subjects_stay_typed_t31",
   "it::sim_t_rows_default::runnerless_calls_refuse_norunner_for_every_seed_t31",
-  "it::gh_binding::a_paginated_review_list_is_read_across_every_page_t31",
+  "it::gh_binding::reviews::a_paginated_review_list_is_read_across_every_page_t31",
 ]
 
 [[row]]
@@ -394,7 +394,7 @@ row = "Head advances between analysis and publication; report reviewed A/current
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 3 of the 5 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::pr_review_journey::a_moved_head_is_a_typed_refusal_and_publishes_nothing_t32",
+  "it::pr_review_journey::subject::a_moved_head_is_a_typed_refusal_and_publishes_nothing_t32",
   "it::t_rows_default::a_moved_head_is_detectable_as_reviewed_a_current_b_t32",
   "it::sim_t_rows_default::moves_detect_exactly_when_shas_differ_for_every_seed_t32",
 ]
@@ -406,7 +406,7 @@ row = "Provider accepts review but response is lost; reconciliation finds and ve
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 3 of the 9 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::pr_review_journey::a_lost_response_is_reconciled_by_reading_back_and_never_reposted_t33",
+  "it::pr_review_journey::lost_response::a_lost_response_is_reconciled_by_reading_back_and_never_reposted_t33",
   "it::t_rows_default::reconciliation_verifies_the_exact_review_or_stays_unknown_t33",
   "it::sim_t_rows_default::bodies_verify_exactly_when_they_match_for_every_seed_t33",
 ]
@@ -418,7 +418,7 @@ row = "Real readback proves exact IDs/state/subject/payload; lost read permissio
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 3 of the 6 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::pr_review_journey::a_lost_read_permission_reports_unverified_and_retains_the_review_id_t34",
+  "it::pr_review_journey::partial::a_lost_read_permission_reports_unverified_and_retains_the_review_id_t34",
   "it::t_rows_default::a_read_back_review_proves_its_exact_identity_t34",
   "it::sim_t_rows_default::records_prove_their_exact_identities_for_every_seed_t34",
 ]

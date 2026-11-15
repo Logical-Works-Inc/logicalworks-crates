@@ -34,7 +34,7 @@
 //! These are the *operator's* ceilings. A document may ask for tighter ones in
 //! its [`FlowBounds`], and an embedding application may ask for tighter ones on
 //! a session ([`Session::with_limits`]); neither may ask for looser, and a
-//! request above the ceiling is [`BotError::ResourceLimitAboveCeiling`] rather
+//! request above the ceiling is [`SessionError::ResourceLimitAboveCeiling`] rather
 //! than a silently applied bound. The two requests combine by taking the
 //! smaller value on each axis.
 
@@ -47,9 +47,9 @@ use lgwks_std::hash::Hasher;
 use lgwks_std::json::serde;
 use lgwks_std::json::{Deserialize, Serialize};
 
-use crate::error::BotError;
 use crate::semantic::EmbedderIdentity;
 
+mod error;
 mod graph;
 mod limits;
 mod parse;
@@ -62,6 +62,7 @@ mod tests;
 mod validate;
 mod value;
 
+pub use error::SessionError;
 pub use graph::*;
 pub use limits::*;
 pub use receipt::*;
@@ -84,10 +85,22 @@ use validate::{
 
 /// Flow validation entry point.
 pub mod flow {
-    use super::{BotError, FlowSpec, validate_flow};
+    use super::{FlowSpec, SessionError, validate_flow};
 
     /// Validate every structural invariant required before a session can run.
-    pub fn validate(spec: &FlowSpec) -> Result<(), BotError> {
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::collections::BTreeMap;
+    /// use lgwks_bot::session::{FlowBounds, FlowSpec, NodeKind, flow};
+    ///
+    /// let nodes = BTreeMap::from([("end".to_owned(), NodeKind::End)]);
+    /// let spec = FlowSpec::from_nodes(BTreeMap::new(), "end", nodes, FlowBounds::new(4))?;
+    /// assert!(flow::validate(&spec).is_ok());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn validate(spec: &FlowSpec) -> Result<(), SessionError> {
         validate_flow(spec)
     }
 }

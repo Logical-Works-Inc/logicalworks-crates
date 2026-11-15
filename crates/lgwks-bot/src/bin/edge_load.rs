@@ -49,7 +49,7 @@ use lgwks_bot::rt::serve::{RouteMethod, ServeOptions, TypedRoute};
 use lgwks_bot::rt::sync::CancellationToken;
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::{
-    Auth, Bot, BotError, Cadence, Cap, GrantSet, Observe, RequestFeed, Response, WakeHandle,
+    Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe, RequestFeed, Response, WakeHandle,
 };
 use lgwks_deps::axum::{
     Router,
@@ -360,7 +360,7 @@ fn serve_counter(store: Option<&str>) -> Result<(), LoadError> {
             ready(
                 tally(&counts, tenant, &body, adds)
                     .map(|count| count.to_string().into_bytes())
-                    .map_err(|why| (400, why.to_owned())),
+                    .map_err(|why| (400, why.to_string())),
             )
         })
     });
@@ -390,7 +390,7 @@ fn until_stdin_then<T>(cancel: impl FnOnce() + Send, serve: impl FnOnce() -> T) 
 
 /// Bind a loopback port and announce it on stdout.
 fn listen() -> Result<TcpListener, LoadError> {
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     let mut out = std::io::stdout().lock();
     writeln!(out, "listening {}", listener.local_addr()?)?;
     out.flush()?;
@@ -431,7 +431,7 @@ impl Observe for Traffic {
         &[]
     }
 
-    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, BotError>> {
+    fn poll(&self, _call: (Auth, ())) -> impl Future<Output = Result<u64, EcsError>> {
         self.polls.fetch_add(1, Ordering::Relaxed);
         let read = match (self.rejected.as_deref(), self.feed.get()) {
             (Some(rejected), _) => rejected.load(Ordering::Acquire),
@@ -533,12 +533,27 @@ fn held(counts: &Counts) -> MutexGuard<'_, HashMap<String, u64>> {
     }
 }
 
+/// Why a count was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CountRefused {
+    /// The request carried a body, and a count takes none.
+    BodyGiven,
+}
+
+impl fmt::Display for CountRefused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::BodyGiven => f.write_str("a count takes no body"),
+        }
+    }
+}
+
 /// The tenant's count after a `POST` (`adds`) or as it stands; a body on
 /// either is refused, as the world edge refuses it.
-fn tally(counts: &Counts, tenant: String, body: &[u8], adds: bool) -> Result<u64, &'static str> {
+fn tally(counts: &Counts, tenant: String, body: &[u8], adds: bool) -> Result<u64, CountRefused> {
     if !body.is_empty() {
         lgwks_std::trace::debug!(%tenant, bytes = body.len(), "edge-load: a count with a body is refused");
-        return Err("a count takes no body");
+        return Err(CountRefused::BodyGiven);
     }
     let mut held = held(counts);
     if adds {
@@ -589,6 +604,6 @@ async fn count(
 ) -> (StatusCode, String) {
     match tally(&counts, tenant, &body, method == Method::POST) {
         Ok(count) => (StatusCode::OK, count.to_string()),
-        Err(why) => (StatusCode::BAD_REQUEST, String::from(why)),
+        Err(why) => (StatusCode::BAD_REQUEST, why.to_string()),
     }
 }

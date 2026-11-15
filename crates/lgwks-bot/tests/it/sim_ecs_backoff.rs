@@ -33,10 +33,11 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::Duration;
 
+use lgwks_bot::error::KernelError;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::rt::clock::Clock;
 use lgwks_bot::spec::{AbandonReason, Bot, RetryPolicy, TransitionHold};
-use lgwks_bot::{Auth, BotError, Cap, DispatchCertainty, EffectLifetime, Execute, GrantSet};
+use lgwks_bot::{Auth, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, GrantSet};
 
 use sim::Band;
 use sim::rig::{FixedSource, identity, is_value, scope};
@@ -84,18 +85,18 @@ impl Execute for Flaky {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         let earlier = self.entries();
         self.entered.borrow_mut().push(self.clock.now());
         if earlier < self.refusals {
             // `NotDelivered`: the effect definitely did not happen, so the entry
             // is retried under the policy rather than held for evidence.
-            Err(BotError::DomainError {
+            Err(EcsError::Kernel(KernelError::DomainError {
                 domain: "test::flaky".to_owned(),
                 certainty: DispatchCertainty::NotDelivered,
                 cause: "the upstream refused before anything was delivered".to_owned(),
-            })
+            }))
         } else {
             Ok(())
         }
@@ -164,7 +165,10 @@ fn a_retry_waits_out_its_backoff(band: Band) -> TestResult {
             let failed_at = clock.now();
             let refused = bot.tick();
             assert!(
-                matches!(refused, Err(BotError::DomainError { .. })),
+                matches!(
+                    refused,
+                    Err(EcsError::Kernel(KernelError::DomainError { .. }))
+                ),
                 "attempt {failure} refuses: {refused:?}"
             );
             let (retry_at, attempts) = failed(&bot)?;
@@ -180,7 +184,7 @@ fn a_retry_waits_out_its_backoff(band: Band) -> TestResult {
                 clock.advance(early.saturating_sub(clock.now()))?;
                 let held = bot.tick();
                 assert!(
-                    matches!(held, Err(BotError::PendingTransition { .. })),
+                    matches!(held, Err(EcsError::PendingTransition { .. })),
                     "a tick one nanosecond before the backoff ends holds the entry: {held:?}"
                 );
                 assert_eq!(
@@ -234,7 +238,10 @@ fn no_attempt_begins_past_the_deadline(band: Band) -> TestResult {
         for _ in 0..max_attempts {
             let refused = bot.tick();
             assert!(
-                matches!(refused, Err(BotError::DomainError { .. })),
+                matches!(
+                    refused,
+                    Err(EcsError::Kernel(KernelError::DomainError { .. }))
+                ),
                 "every attempt refuses: {refused:?}"
             );
             if let Ok((retry_at, _)) = failed(&bot) {
@@ -272,7 +279,7 @@ fn no_attempt_begins_past_the_deadline(band: Band) -> TestResult {
         );
         let after = bot.tick();
         assert!(
-            matches!(after, Err(BotError::PendingTransition { .. })),
+            matches!(after, Err(EcsError::PendingTransition { .. })),
             "an abandoned entry is reported, never retried: {after:?}"
         );
         assert_eq!(
@@ -296,7 +303,10 @@ fn a_zero_deadline_gives_up_after_the_first_failure() -> TestResult {
     let action = Flaky::new(usize::MAX, &clock);
     let policy = RetryPolicy::new(5, Duration::from_millis(10), Duration::ZERO);
     let mut bot = bot_over(policy, &clock, action.clone())?;
-    assert!(matches!(bot.tick(), Err(BotError::DomainError { .. })));
+    assert!(matches!(
+        bot.tick(),
+        Err(EcsError::Kernel(KernelError::DomainError { .. }))
+    ));
     assert!(
         matches!(
             hold_of(&bot),
@@ -314,7 +324,7 @@ fn a_zero_deadline_gives_up_after_the_first_failure() -> TestResult {
     clock.advance(Duration::from_secs(60))?;
     assert!(matches!(
         bot.tick(),
-        Err(BotError::PendingTransition { .. })
+        Err(EcsError::PendingTransition { .. })
     ));
     assert_eq!(action.entries(), 1, "no retry is ever begun");
     Ok(())
@@ -334,7 +344,10 @@ fn the_default_policy_retries_three_times_without_waiting() -> TestResult {
         .with_effects(scope(identity()?, store)?)
         .build(&GrantSet::empty())?;
     for _ in 0..3 {
-        assert!(matches!(bot.tick(), Err(BotError::DomainError { .. })));
+        assert!(matches!(
+            bot.tick(),
+            Err(EcsError::Kernel(KernelError::DomainError { .. }))
+        ));
     }
     assert!(matches!(
         hold_of(&bot),
@@ -370,7 +383,10 @@ fn entries_that_fail_together_retry_apart() -> TestResult {
         .on(is_value, Flaky::new(usize::MAX, &clock))
         .with_effects(scope(identity()?, store)?)
         .build(&GrantSet::empty())?;
-    assert!(matches!(bot.tick(), Err(BotError::DomainError { .. })));
+    assert!(matches!(
+        bot.tick(),
+        Err(EcsError::Kernel(KernelError::DomainError { .. }))
+    ));
     let retries: Vec<Duration> = bot
         .pending()
         .iter()

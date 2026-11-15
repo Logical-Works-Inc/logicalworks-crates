@@ -33,7 +33,8 @@ use std::cell::Cell;
 use std::error::Error;
 use std::rc::Rc;
 
-use lgwks_bot::{Bot, BotError, Cap, GrantSet};
+use lgwks_bot::error::KernelError;
+use lgwks_bot::{Bot, Cap, EcsError, GrantSet};
 
 use crate::authority::{Counted, Script, test_effects};
 
@@ -65,7 +66,7 @@ fn replacing_grants_narrows_a_built_bot_on_its_next_tick() -> TestResult {
     );
 
     match bot.tick() {
-        Err(BotError::CapabilityDenied { deficit }) => {
+        Err(EcsError::Kernel(KernelError::CapabilityDenied { deficit })) => {
             assert_eq!(
                 deficit.first().required(),
                 &Cap::net(),

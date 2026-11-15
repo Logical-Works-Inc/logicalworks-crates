@@ -14,7 +14,6 @@ use lgwks_deps::bevy_ecs::{
     query::QueryState,
 };
 
-use crate::error::BotError;
 use crate::gate::GrantSet;
 use crate::registry::Source;
 use crate::spec::{ChainEntry, Erased, ObserveAny, Witness};
@@ -22,6 +21,7 @@ use crate::spec::{ChainEntry, Erased, ObserveAny, Witness};
 use crate::verb::Observe;
 use crate::verb::RefreshReason;
 
+use super::EcsError;
 use super::admit::AdmitKind;
 #[cfg(doc)]
 use super::bot::EcsBot;
@@ -76,7 +76,7 @@ pub(super) struct Fired(pub(super) usize);
 /// missing feature: it is the shape that keeps the failure ordered, because the
 /// systems stop at the first error and the driver reports that one.
 #[derive(Resource, Debug, Default)]
-pub(super) struct TickError(pub(super) Option<BotError>);
+pub(super) struct TickError(pub(super) Option<EcsError>);
 
 /// The source entities in chain order.
 #[derive(Resource, Debug, Default)]
@@ -677,7 +677,7 @@ pub(super) struct Observed(pub(super) Vec<Option<Erased>>);
 /// substrate keeps the value it already holds. Only `Ok(Some(_))` carries a new
 /// payload, and only those are boxed.
 #[derive(Default)]
-pub(super) struct Polled(pub(super) Vec<Result<Option<Erased>, BotError>>);
+pub(super) struct Polled(pub(super) Vec<Result<Option<Erased>, EcsError>>);
 
 /// Which chains moved on this tick, one flag per chain.
 ///
@@ -736,7 +736,7 @@ pub(super) struct Step {
 /// failure are the order they are reported in.
 ///
 /// The failures are sparse: only a chain that met one has a row. A slot per chain
-/// held a [`BotError`]-sized `None` for every chain on every tick, and the tick
+/// held an [`EcsError`]-sized `None` for every chain on every tick, and the tick
 /// that failed nowhere paid to write, clear and take all of them.
 #[derive(Default)]
 pub(super) struct Plan {
@@ -747,5 +747,5 @@ pub(super) struct Plan {
     /// order, at most one per chain. A chain whose walk met none has no row, and
     /// an action failure recorded by the driver displaces the condition failure
     /// of the chain it happened in.
-    pub(super) failures: Vec<(usize, BotError)>,
+    pub(super) failures: Vec<(usize, EcsError)>,
 }

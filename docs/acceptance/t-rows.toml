@@ -99,11 +99,11 @@ row = "Large outputs, full stderr and slow stdout consumer stay within declared 
 state = "exercised"
 gap = ""
 tests = [
-  "it::sys_process_binding::a_flooding_child_against_a_slow_reader_stays_within_its_ceiling_t05",
-  "it::sys_process_binding::a_chatty_child_is_drained_and_truncated_within_its_ceiling",
-  "it::sys_process_binding::a_framed_record_cut_off_mid_frame_is_a_typed_refusal",
-  "it::sys_process_binding::a_capture_ceiling_ends_the_framed_read_rather_than_the_child",
-  "it::sys_process_binding::execute_reports_the_exit_code_and_the_captured_streams",
+  "it::sys_process_binding::run::a_flooding_child_against_a_slow_reader_stays_within_its_ceiling_t05",
+  "it::sys_process_binding::run::a_chatty_child_is_drained_and_truncated_within_its_ceiling",
+  "it::sys_process_binding::frames::a_framed_record_cut_off_mid_frame_is_a_typed_refusal",
+  "it::sys_process_binding::frames::a_capture_ceiling_ends_the_framed_read_rather_than_the_child",
+  "it::sys_process_binding::verb::execute_reports_the_exit_code_and_the_captured_streams",
   "it::t_rows_default::a_full_journal_refuses_one_more_event_and_keeps_its_history_t05",
   "it::sim_t_rows_default::journal_counts_are_exact_for_every_seed_t05",
 ]
@@ -115,10 +115,10 @@ row = "Saturated task A cannot starve independent B; one slow source does not bl
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_t_rows::a_held_mass_never_starves_an_independent_chain_t06",
-  "it::observe_refresh::a_chain_held_at_capacity_does_not_starve_an_independent_chain",
-  "it::observe_refresh::a_slow_source_does_not_block_an_independent_chain",
-  "it::observe_refresh::a_saturated_mass_does_not_starve_an_independent_chain_at_every_tier",
+  "it::sim_t_rows::refresh::a_held_mass_never_starves_an_independent_chain_t06",
+  "it::observe_refresh::saturation::a_chain_held_at_capacity_does_not_starve_an_independent_chain",
+  "it::observe_refresh::slow_source::a_slow_source_does_not_block_an_independent_chain",
+  "it::observe_refresh::saturation::a_saturated_mass_does_not_starve_an_independent_chain_at_every_tier",
   "it::sim_observe_refresh::sim_scripted_reports::a_seeded_mass_of_held_chains_never_starves_an_independent_chain",
   "it::sim_observe_refresh::saturation_band_30",
   "it::sim_observe_refresh::saturation_band_31",
@@ -131,10 +131,10 @@ row = "A succeeds with a new fingerprint, B fails the atomic observation group, 
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_t_rows::a_failed_group_leaves_its_own_chain_forced_t07",
-  "it::observe_refresh::a_failed_refresh_keeps_the_baseline_marked",
+  "it::sim_t_rows::refresh::a_failed_group_leaves_its_own_chain_forced_t07",
+  "it::observe_refresh::forced_refresh::a_failed_refresh_keeps_the_baseline_marked",
   "it::sim_observe_refresh::sim_scripted_reports::a_failed_forced_refresh_keeps_the_mark_until_a_committed_read_spends_it",
-  "it::observe_refresh::two_tenants_sources_forced_refreshes_stay_attributed_to_their_own_chain",
+  "it::observe_refresh::forced_refresh::two_tenants_sources_forced_refreshes_stay_attributed_to_their_own_chain",
   "it::sim_observe_refresh::sim_scripted_reports::two_tenants_interleaved_ticks_never_cross_attribution",
 ]
 
@@ -145,11 +145,11 @@ row = "Disconnect, watch overflow, stale remote key and invalidation failure for
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_t_rows::every_declared_reason_forces_a_refresh_t08",
-  "it::observe_refresh::a_declared_failure_forces_a_refresh_rather_than_a_permanent_quiet_state",
-  "it::observe_refresh::a_forced_refresh_commits_the_newer_value_and_then_returns_to_quiet",
-  "it::observe_refresh::a_wave_spends_one_watchdog_and_a_mass_of_waves_spends_one_each",
-  "it::observe_refresh::a_stalled_chain_is_re_polled_and_commits_when_it_answers",
+  "it::sim_t_rows::refresh::every_declared_reason_forces_a_refresh_t08",
+  "it::observe_refresh::forced_refresh::a_declared_failure_forces_a_refresh_rather_than_a_permanent_quiet_state",
+  "it::observe_refresh::forced_refresh::a_forced_refresh_commits_the_newer_value_and_then_returns_to_quiet",
+  "it::observe_refresh::watchdogs::a_wave_spends_one_watchdog_and_a_mass_of_waves_spends_one_each",
+  "it::observe_refresh::slow_source::a_stalled_chain_is_re_polled_and_commits_when_it_answers",
   "it::sim_observe_refresh::sim_scripted_reports::a_seeded_reason_per_chain_is_reported_against_its_own_chain",
   "it::sim_observe_refresh::forced_refresh_band_00",
   "it::sim_observe_refresh::forced_refresh_band_01",
@@ -163,9 +163,9 @@ row = "Identical event payloads with different event IDs both execute; duplicate
 state = "exercised"
 gap = ""
 tests = [
-  "it::observe_refresh::identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does_not_t09",
-  "it::observe_refresh::an_intermediate_value_is_reported_as_superseded_rather_than_fired_or_retired",
-  "it::durable_dispatch::two_equal_payloads_with_distinct_event_ids_are_two_events",
+  "it::observe_refresh::events::identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does_not_t09",
+  "it::observe_refresh::events::an_intermediate_value_is_reported_as_superseded_rather_than_fired_or_retired",
+  "it::durable_dispatch::input_identity::two_equal_payloads_with_distinct_event_ids_are_two_events",
   "it::sim_observe_refresh::event_identities_band_14",
   "it::sim_observe_refresh::event_identities_band_15",
   "it::sim_observe_refresh::sim_scripted_reports::a_seeded_value_sequence_under_a_held_action_reports_each_replaced_revision_once",
@@ -178,13 +178,13 @@ row = "A required predecessor fails, is abandoned, is skipped or becomes Unknown
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_t_rows::a_required_predecessor_holds_its_dependent_t10",
-  "it::durable_dispatch::a_recovered_unknown_blocks_a_true_condition_and_its_successor",
-  "it::durable_dispatch::a_recovered_unknown_blocks_a_false_condition_and_its_successor",
-  "ecs_tick::an_abandoned_entry_blocks_its_successors",
-  "ecs_tick::a_skipped_entry_does_not_block_its_successor",
-  "ecs_tick::an_abandoned_entry_is_never_a_quiet_tick",
-  "it::sim_t_rows::every_predecessor_state_decides_its_dependent_t10",
+  "it::sim_t_rows::dependents::a_required_predecessor_holds_its_dependent_t10",
+  "it::durable_dispatch::recovery_barrier::a_recovered_unknown_blocks_a_true_condition_and_its_successor",
+  "it::durable_dispatch::recovery_barrier::a_recovered_unknown_blocks_a_false_condition_and_its_successor",
+  "ecs_tick::ledger_tests::an_abandoned_entry_blocks_its_successors",
+  "ecs_tick::ledger_tests::a_skipped_entry_does_not_block_its_successor",
+  "ecs_tick::ledger_tests::an_abandoned_entry_is_never_a_quiet_tick",
+  "it::sim_t_rows::dependents::every_predecessor_state_decides_its_dependent_t10",
 ]
 
 [[row]]
@@ -194,18 +194,18 @@ row = "A Unknown -> NotApplied -> B Unknown; delayed A NotApplied and A Applied 
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_t_rows::an_indeterminate_predecessor_is_never_resent_t11",
-  "it::durable_dispatch::a_recovered_unknown_blocks_a_true_condition_and_its_successor",
-  "it::durable_dispatch::a_recovered_unknown_blocks_a_false_condition_and_its_successor",
-  "it::durable_dispatch::a_poll_failure_does_not_erase_a_recovered_unknown",
-  "it::durable_dispatch::a_restart_holds_an_uncertain_attempt_rather_than_resending_it",
+  "it::sim_t_rows::dependents::an_indeterminate_predecessor_is_never_resent_t11",
+  "it::durable_dispatch::recovery_barrier::a_recovered_unknown_blocks_a_true_condition_and_its_successor",
+  "it::durable_dispatch::recovery_barrier::a_recovered_unknown_blocks_a_false_condition_and_its_successor",
+  "it::durable_dispatch::recovery_barrier::a_poll_failure_does_not_erase_a_recovered_unknown",
+  "it::durable_dispatch::recovery::a_restart_holds_an_uncertain_attempt_rather_than_resending_it",
   "it::effect_journal::e10_a_lost_reply_leaves_the_attempt_unknown_rather_than_not_applied",
   "it::effect_journal::e10_evidence_settles_the_unknown_without_a_second_dispatch",
-  "it::wrong_identity_evidence::a_duplicate_is_idempotent_and_a_contradiction_is_refused",
-  "it::sim_dispatch::not_applied_r00",
-  "it::sim_dispatch::applied_never_r00",
-  "it::sim_dispatch::store_isolation_r00",
-  "it::wrong_identity_evidence::late_evidence_for_a_settled_attempt_cannot_alter_its_retry_t11",
+  "it::wrong_identity_evidence::ledger::a_duplicate_is_idempotent_and_a_contradiction_is_refused",
+  "it::sim_dispatch::restart::not_applied_r00",
+  "it::sim_dispatch::restart::applied_never_r00",
+  "it::sim_dispatch::write_path::store_isolation_r00",
+  "it::wrong_identity_evidence::late_evidence::late_evidence_for_a_settled_attempt_cannot_alter_its_retry_t11",
 ]
 
 [[row]]
@@ -215,14 +215,14 @@ row = "Wrong tenant/run/action/payload/revision/environment/epoch evidence is re
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_t_rows::identical_digests_never_cross_tenants_t12",
-  "it::wrong_identity_evidence::every_wrong_identity_field_is_refused_and_the_correct_one_is_not",
-  "it::wrong_identity_evidence::a_settlement_carrying_another_runs_identity_is_refused",
-  "it::wrong_identity_evidence::a_refused_settlement_leaves_a_real_file_journal_byte_identical",
+  "it::sim_t_rows::dependents::identical_digests_never_cross_tenants_t12",
+  "it::wrong_identity_evidence::ledger::every_wrong_identity_field_is_refused_and_the_correct_one_is_not",
+  "it::wrong_identity_evidence::ledger::a_settlement_carrying_another_runs_identity_is_refused",
+  "it::wrong_identity_evidence::file_journal::a_refused_settlement_leaves_a_real_file_journal_byte_identical",
   "it::wrong_identity_evidence::counter::a_checked_counter_exhaustion_never_aliases_an_issued_identity",
   "it::wrong_identity_evidence::counter::a_journal_position_carries_a_head_so_a_wrapped_sequence_is_detectable",
-  "it::sim_dispatch::store_isolation_r00",
-  "it::sim_dispatch::store_isolation_r01",
+  "it::sim_dispatch::write_path::store_isolation_r00",
+  "it::sim_dispatch::write_path::store_isolation_r01",
 ]
 
 [[row]]
@@ -301,7 +301,7 @@ gap = ""
 tests = [
   "it::request_key::a_dropped_client_leaves_the_request_in_flight_for_a_later_client_t17",
   "it::request_key::a_host_stop_mid_run_leaves_the_request_resumable",
-  "it::durable_dispatch::a_restart_holds_an_uncertain_attempt_rather_than_resending_it",
+  "it::durable_dispatch::recovery::a_restart_holds_an_uncertain_attempt_rather_than_resending_it",
   "it::sim_journal::recover_uncertain_r00",
   "it::sim_journal::recover_uncertain_r01",
   "it::t_rows_default::a_dropped_waiter_leaves_uncertainty_and_a_later_client_settles_it_t17",
@@ -335,7 +335,7 @@ gap = ""
 tests = [
   "it::process_ownership::zero_exit_does_not_fabricate_tree_cleanup_t19",
   "it::process_ownership::nonzero_exit_does_not_fabricate_tree_cleanup",
-  "it::sys_process_binding::a_zero_exit_reaps_a_living_descendant_before_claiming_cleanup",
+  "it::sys_process_binding::run::a_zero_exit_reaps_a_living_descendant_before_claiming_cleanup",
   "it::rt_process::a_non_zero_exit_is_reported_failed_with_its_status",
 ]
 
@@ -348,7 +348,7 @@ gap = ""
 tests = [
   "it::process_ownership::cancellation_before_manager_task_poll_keeps_descendant_owned_t20",
   "it::process_ownership::cancel_before_spawn_process_refuses_without_starting_the_command",
-  "it::sys_process_binding::a_cancelled_supervisor_refuses_before_starting_anything",
+  "it::sys_process_binding::run::a_cancelled_supervisor_refuses_before_starting_anything",
 ]
 
 [[row]]
@@ -361,7 +361,7 @@ tests = [
   "it::process_escape::cleanup_never_signals_a_process_outside_the_supervisors_group_t21",
   "it::process_escape::a_session_escape_is_captured_and_stopped_by_pid",
   "it::process_escape::shutdown_reports_every_draining_cleanup_rather_than_aborting_it",
-  "it::gh_binding::a_hanging_client_is_stopped_as_a_whole_group_and_reports_no_exit_code",
+  "it::gh_binding::capture::a_hanging_client_is_stopped_as_a_whole_group_and_reports_no_exit_code",
   "it::orphan_reap::a_record_naming_a_recycled_pid_signals_nothing_t21",
   "lgwks_bot::rt::supervise::tests::cleanup::a_reaped_or_recycled_group_id_is_never_signalled",
 ]
@@ -426,8 +426,8 @@ row = "Native task and supported wire form produce the same normalized operation
 state = "exercised"
 gap = ""
 tests = [
-  "it::spec_materialize::one_chain_traces_match_t25",
-  "it::spec_materialize::two_entries_in_one_chain_trace_in_declaration_order",
+  "it::spec_materialize::traces::one_chain_traces_match_t25",
+  "it::spec_materialize::traces::two_entries_in_one_chain_trace_in_declaration_order",
   "it::sim_spec_materialize::spec_replay_0000",
   "it::sim_spec_materialize::spec_replay_0001",
   "it::ephemeral::a_minted_id_round_trips_through_its_wire_form",
@@ -449,7 +449,7 @@ tests = [
   "it::proposal::a_sandbox_escape_stays_an_observable_refusal",
   "it::proposal::a_credential_read_is_refused",
   "it::proposal::a_capability_the_run_does_not_hold_is_refused_by_name",
-  "it::gh_binding::a_changed_file_inventory_is_read_as_data",
+  "it::gh_binding::refusals::a_changed_file_inventory_is_read_as_data",
 ]
 
 [[row]]
@@ -540,19 +540,19 @@ state = "exercised"
 gap = ""
 tests = [
   "sim_review_path::subject_arms::an_untrusted_build_script_is_never_executed",
-  "it::pr_review_journey::an_untrusted_build_script_in_the_diff_is_never_executed_t31",
+  "it::pr_review_journey::subject::an_untrusted_build_script_in_the_diff_is_never_executed_t31",
   "sim_review_path::subject_arms::a_renamed_repository_is_refused_naming_both",
-  "it::pr_review_journey::a_renamed_repository_is_refused_and_never_silently_re_pointed",
+  "it::pr_review_journey::subject::a_renamed_repository_is_refused_and_never_silently_re_pointed",
   "sim_review_path::subject_arms::an_unavailable_diff_publishes_nothing",
-  "it::pr_review_journey::an_unavailable_diff_is_an_incomplete_coverage_and_publishes_nothing",
+  "it::pr_review_journey::subject::an_unavailable_diff_is_an_incomplete_coverage_and_publishes_nothing",
   "sim_review_path::subject_arms::the_two_diff_ceilings_are_refused_separately",
   "sim_review_path::subject_arms::a_partial_submission_reports_both_counts",
-  "it::gh_binding::an_unavailable_diff_is_a_typed_coverage_refusal",
-  "it::gh_binding::a_diff_past_its_file_ceiling_is_a_typed_coverage_refusal",
-  "it::gh_binding::a_review_list_past_the_ceiling_is_refused_not_truncated",
+  "it::gh_binding::refusals::an_unavailable_diff_is_a_typed_coverage_refusal",
+  "it::gh_binding::refusals::a_diff_past_its_file_ceiling_is_a_typed_coverage_refusal",
+  "it::gh_binding::reviews::a_review_list_past_the_ceiling_is_refused_not_truncated",
   "it::t_rows_default::without_a_runner_nothing_executes_and_subjects_stay_typed_t31",
   "it::sim_t_rows_default::runnerless_calls_refuse_norunner_for_every_seed_t31",
-  "it::gh_binding::a_paginated_review_list_is_read_across_every_page_t31",
+  "it::gh_binding::reviews::a_paginated_review_list_is_read_across_every_page_t31",
 ]
 
 [[row]]
@@ -562,9 +562,9 @@ row = "Head advances between analysis and publication; report reviewed A/current
 state = "exercised"
 gap = ""
 tests = [
-  "it::pr_review_journey::a_moved_head_is_a_typed_refusal_and_publishes_nothing_t32",
+  "it::pr_review_journey::subject::a_moved_head_is_a_typed_refusal_and_publishes_nothing_t32",
   "sim_review_path::families::head_moved_between_snapshot_and_publish_r32",
-  "sim_review_path::subject_arms::a_publication_is_pinned_to_the_read_commit",
+  "sim_review_path::subject_arms::subject_outcomes::a_publication_is_pinned_to_the_read_commit",
   "it::t_rows_default::a_moved_head_is_detectable_as_reviewed_a_current_b_t32",
   "it::sim_t_rows_default::moves_detect_exactly_when_shas_differ_for_every_seed_t32",
 ]
@@ -576,11 +576,11 @@ row = "Provider accepts review but response is lost; reconciliation finds and ve
 state = "exercised"
 gap = ""
 tests = [
-  "it::pr_review_journey::a_lost_response_is_reconciled_by_reading_back_and_never_reposted_t33",
-  "it::pr_review_journey::a_partial_submission_is_reconciled_as_partial_and_never_reposted",
-  "it::pr_review_journey::a_pending_draft_is_reconciled_as_a_draft_and_never_reposted",
-  "it::pr_review_journey::a_loss_that_cannot_be_reconciled_stays_unknown_and_still_does_not_repost",
-  "it::pr_review_journey::a_client_that_never_starts_is_a_definite_non_effect_and_is_not_reconciled",
+  "it::pr_review_journey::lost_response::a_lost_response_is_reconciled_by_reading_back_and_never_reposted_t33",
+  "it::pr_review_journey::partial::a_partial_submission_is_reconciled_as_partial_and_never_reposted",
+  "it::pr_review_journey::partial::a_pending_draft_is_reconciled_as_a_draft_and_never_reposted",
+  "it::pr_review_journey::lost_response::a_loss_that_cannot_be_reconciled_stays_unknown_and_still_does_not_repost",
+  "it::pr_review_journey::lost_response::a_client_that_never_starts_is_a_definite_non_effect_and_is_not_reconciled",
   "sim_review_path::families::duplicate_submission_r16",
   "sim_review_path::families::verified_and_not_observed_r32",
   "it::t_rows_default::reconciliation_verifies_the_exact_review_or_stays_unknown_t33",
@@ -594,10 +594,10 @@ row = "Real readback proves exact IDs/state/subject/payload; lost read permissio
 state = "exercised"
 gap = ""
 tests = [
-  "it::pr_review_journey::a_lost_read_permission_reports_unverified_and_retains_the_review_id_t34",
+  "it::pr_review_journey::partial::a_lost_read_permission_reports_unverified_and_retains_the_review_id_t34",
   "sim_review_path::subject_arms::an_unverified_effect_retains_its_review_id",
   "sim_review_path::families::a_publication_the_ceiling_cannot_verify_stays_unknown",
-  "it::gh_binding::a_record_still_being_appended_is_not_read_back",
+  "it::gh_binding::reviews::a_record_still_being_appended_is_not_read_back",
   "it::t_rows_default::a_read_back_review_proves_its_exact_identity_t34",
   "it::sim_t_rows_default::records_prove_their_exact_identities_for_every_seed_t34",
 ]
@@ -610,9 +610,9 @@ state = "exercised"
 gap = ""
 tests = [
   "it::proposal::the_three_untrue_successes_report_distinct_outcomes_t35",
-  "it::sys_process_binding::exit_zero_is_reported_as_zero_not_success",
+  "it::sys_process_binding::verb::exit_zero_is_reported_as_zero_not_success",
   "it::rt_process::a_command_that_exits_zero_is_reported_completed",
-  "it::pr_review_journey::a_non_zero_exit_is_not_a_published_review",
+  "it::pr_review_journey::lost_response::a_non_zero_exit_is_not_a_published_review",
 ]
 
 [[row]]

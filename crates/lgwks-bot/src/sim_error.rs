@@ -15,6 +15,8 @@
 //! - every document-sourced field of a rendered error is escaped;
 //! - each dispatch certainty maps to one retry class, and a domain error's
 //!   class is its certainty's whatever its cause says;
+//! - a kernel failure wrapped through the world, session and app layers keeps
+//!   its retry class, its certainty and its rendered line (ADR 0061);
 //! - the same seed replays the same renderings and distinct seeds diverge.
 //!
 //! Sources: CWE-117 (improper output neutralization for logs), CVE-2021-44228's
@@ -24,10 +26,13 @@
 use std::fmt::Write as _;
 use std::str::Chars;
 
+use crate::BotError;
 use crate::cap::{Cap, Demand};
-use crate::error::{BotError, DispatchCertainty, Escaped, RetryClass};
+use crate::ecs::EcsError;
+use crate::error::{DispatchCertainty, Escaped, KernelError, RetryClass};
 use crate::gate::GrantSet;
-use crate::sim_stream::{RECEIPT_START, Stream, fold};
+use crate::session::SessionError;
+use crate::sim_stream::{DrawError, RECEIPT_START, Stream, fold};
 
 /// The seeds every family replays.
 const SEEDS: [u64; 4] = [
@@ -51,7 +56,7 @@ const GLYPHS: [char; 16] = [
 type Outcome = Result<(), String>;
 
 /// Up to 48 drawn glyphs.
-fn hostile(stream: &mut Stream) -> Result<String, String> {
+fn hostile(stream: &mut Stream) -> Result<String, DrawError> {
     let len = stream.below(49)?;
     (0..len).map(|_| stream.choose(&GLYPHS)).collect()
 }
@@ -188,10 +193,10 @@ fn sim_a_denial_renders_every_shortage_on_one_line() -> Outcome {
 fn sim_document_sourced_fields_render_escaped() -> Outcome {
     sweep(|seed, _, text| {
         let errors = [
-            BotError::UnregisteredDomain {
+            EcsError::UnregisteredDomain {
                 domain: text.to_owned(),
             },
-            BotError::IncompleteSpec {
+            EcsError::IncompleteSpec {
                 field: "name",
                 cause: text.to_owned(),
             },
@@ -230,7 +235,7 @@ fn sim_a_domain_errors_class_is_its_certaintys() -> Outcome {
             DispatchCertainty::Unsettled,
             DispatchCertainty::Occurred,
         ])?;
-        let error = BotError::DomainError {
+        let error = KernelError::DomainError {
             domain: "sim::domain".to_owned(),
             certainty,
             cause: format!("retry {text} transient permanent safe"),
@@ -258,19 +263,96 @@ fn sim_a_pre_dispatch_refusal_is_never_retried() -> Outcome {
             .admit(&[Cap::new(text.to_owned())])
             .err()
             .ok_or_else(|| format!("seed {seed:#x}: an empty set admitted {text:?}"))?;
-        for error in [
-            denied,
-            BotError::UnregisteredDomain {
-                domain: text.to_owned(),
-            },
+        let unregistered = EcsError::UnregisteredDomain {
+            domain: text.to_owned(),
+        };
+        for (certainty, class) in [
+            (denied.dispatch_certainty(), denied.retry_class()),
+            (
+                unregistered.dispatch_certainty(),
+                unregistered.retry_class(),
+            ),
         ] {
-            assert_eq!(
-                error.dispatch_certainty(),
-                DispatchCertainty::Refused,
-                "seed {seed:#x}"
-            );
-            assert_eq!(error.retry_class(), RetryClass::Never, "seed {seed:#x}");
+            assert_eq!(certainty, DispatchCertainty::Refused, "seed {seed:#x}");
+            assert_eq!(class, RetryClass::Never, "seed {seed:#x}");
         }
+        Ok(())
+    })
+}
+
+/// The shape of a drawn kernel failure: a domain error under a certainty, or
+/// an indeterminate effect. `KernelError` is not `Clone`, so one draw is built
+/// once per layer it is wrapped into.
+#[derive(Clone, Copy)]
+enum Shape {
+    /// A `DomainError` carrying this certainty.
+    Domain(DispatchCertainty),
+    /// An `EffectIndeterminate`.
+    Indeterminate,
+}
+
+impl Shape {
+    /// A shape drawn from `stream`.
+    fn draw(stream: &mut Stream) -> Result<Self, DrawError> {
+        let certainty = stream.choose(&[
+            DispatchCertainty::Refused,
+            DispatchCertainty::NotDelivered,
+            DispatchCertainty::Unsettled,
+            DispatchCertainty::Occurred,
+        ])?;
+        Ok(if stream.below(4)? == 0 {
+            Self::Indeterminate
+        } else {
+            Self::Domain(certainty)
+        })
+    }
+
+    /// The kernel failure this shape names, with `text` as its cause.
+    fn build(self, text: &str) -> KernelError {
+        match self {
+            Self::Domain(certainty) => KernelError::DomainError {
+                domain: "sim::wrap".to_owned(),
+                certainty,
+                cause: text.to_owned(),
+            },
+            Self::Indeterminate => KernelError::EffectIndeterminate {
+                domain: "sim::wrap".to_owned(),
+                cause: text.to_owned(),
+            },
+        }
+    }
+}
+
+#[test]
+/// A kernel failure wrapped through the world layer, the session layer and the
+/// app layer keeps its retry class, its certainty and its rendered line.
+fn sim_a_kernel_failure_keeps_its_class_through_every_layer() -> Outcome {
+    sweep(|seed, stream, text| {
+        let shape = Shape::draw(stream)?;
+        let bare = shape.build(text);
+        let world = EcsError::from(shape.build(text));
+        let session = SessionError::from(shape.build(text));
+        let app_world = BotError::from(EcsError::from(shape.build(text)));
+        let app_session = BotError::from(SessionError::from(shape.build(text)));
+        let class = bare.retry_class();
+        let certainty = bare.dispatch_certainty();
+        assert!(matches!(world, EcsError::Kernel(_)), "seed {seed:#x}");
+        assert!(matches!(session, SessionError::Kernel(_)), "seed {seed:#x}");
+        assert_eq!(world.retry_class(), class, "seed {seed:#x}: world");
+        assert_eq!(session.retry_class(), class, "seed {seed:#x}: session");
+        assert_eq!(app_world.retry_class(), class, "seed {seed:#x}: app world");
+        assert_eq!(
+            app_session.retry_class(),
+            class,
+            "seed {seed:#x}: app session"
+        );
+        assert_eq!(world.dispatch_certainty(), certainty, "seed {seed:#x}");
+        assert_eq!(session.dispatch_certainty(), certainty, "seed {seed:#x}");
+        assert_eq!(app_world.dispatch_certainty(), certainty, "seed {seed:#x}");
+        let line = bare.to_string();
+        assert_eq!(world.to_string(), line, "seed {seed:#x}: world line");
+        assert_eq!(session.to_string(), line, "seed {seed:#x}: session line");
+        assert_eq!(app_world.to_string(), line, "seed {seed:#x}: app line");
         Ok(())
     })
 }

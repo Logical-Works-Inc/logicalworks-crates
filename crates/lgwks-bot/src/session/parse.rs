@@ -1,31 +1,67 @@
 //! Reading a flow from JSON or RON, with the size and node-kind guards. Split from `session.rs` (#526).
 
-use super::{BTreeMap, BotError, Deserialize, MAX_FLOW_BYTES, serde};
+use super::{BTreeMap, Deserialize, MAX_FLOW_BYTES, SessionError, serde};
 
-/// Decode `text` as JSON, with the decoder's diagnostic as a string.
-pub(super) fn parse_json<T>(text: &str) -> Result<T, String>
-where
-    T: serde::de::DeserializeOwned,
-{
-    crate::json::from_str(text).map_err(|error| error.to_string())
+/// Which notation a document was written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Notation {
+    /// JSON, through the shared facade.
+    Json,
+    /// RON, the estate's notation for human-facing documents.
+    #[cfg(feature = "ron")]
+    Ron,
 }
 
-/// Decode `text` as RON, with the decoder's diagnostic as a string.
-#[cfg(feature = "ron")]
-pub(super) fn parse_ron<T>(text: &str) -> Result<T, String>
+/// A decoder's refusal of a document: which notation refused it, and the
+/// decoder's own diagnostic.
+///
+/// The diagnostic stays text because it is the foreign decoder's rendering; the
+/// notation says which decoder spoke. `Display` writes the diagnostic alone, so
+/// [`malformed_flow`] renders what it always rendered.
+#[derive(Debug)]
+pub(super) struct DecodeFailure {
+    /// The notation whose decoder refused.
+    pub(super) notation: Notation,
+    /// The decoder's own diagnostic.
+    pub(super) diagnostic: String,
+}
+
+impl std::fmt::Display for DecodeFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.diagnostic)
+    }
+}
+
+/// Decode `text` as JSON, with the decoder's diagnostic as a typed refusal.
+pub(super) fn parse_json<T>(text: &str) -> Result<T, DecodeFailure>
 where
     T: serde::de::DeserializeOwned,
 {
-    lgwks_std::ron::from_str(text).map_err(|error| error.to_string())
+    crate::json::from_str(text).map_err(|error| DecodeFailure {
+        notation: Notation::Json,
+        diagnostic: error.to_string(),
+    })
+}
+
+/// Decode `text` as RON, with the decoder's diagnostic as a typed refusal.
+#[cfg(feature = "ron")]
+pub(super) fn parse_ron<T>(text: &str) -> Result<T, DecodeFailure>
+where
+    T: serde::de::DeserializeOwned,
+{
+    lgwks_std::ron::from_str(text).map_err(|error| DecodeFailure {
+        notation: Notation::Ron,
+        diagnostic: error.to_string(),
+    })
 }
 
 /// Refuse an oversized document before a decoder walks it.
 ///
 /// Every notation is measured the same way, so a document cannot be too large
 /// in one and acceptable in another.
-pub(super) fn check_flow_size(source: &str) -> Result<(), BotError> {
+pub(super) fn check_flow_size(source: &str) -> Result<(), SessionError> {
     if source.len() > MAX_FLOW_BYTES {
-        let refusal = Err(BotError::FlowTooLarge {
+        let refusal = Err(SessionError::FlowTooLarge {
             bytes: source.len(),
             limit: MAX_FLOW_BYTES,
         });
@@ -40,8 +76,8 @@ pub(super) fn check_flow_size(source: &str) -> Result<(), BotError> {
 /// The diagnostic is escaped before it is stored. A document is untrusted
 /// input, and a raw newline or escape in one would otherwise forge lines in
 /// whatever log line ends up carrying the refusal.
-pub(super) fn malformed_flow(error: impl std::fmt::Display) -> BotError {
-    BotError::MalformedFlow {
+pub(super) fn malformed_flow(error: impl std::fmt::Display) -> SessionError {
+    SessionError::MalformedFlow {
         cause: error.to_string().escape_debug().to_string(),
     }
 }
@@ -50,13 +86,13 @@ pub(super) fn malformed_flow(error: impl std::fmt::Display) -> BotError {
 /// malformed-document diagnostic.
 pub(super) fn reject_unknown_node_kinds(
     declared: &BTreeMap<String, String>,
-) -> Result<(), BotError> {
+) -> Result<(), SessionError> {
     for (node_id, kind) in declared {
         if !matches!(
             kind.as_str(),
             "say" | "ask" | "branch" | "handoff" | "refer" | "route" | "end"
         ) {
-            let refusal = Err(BotError::UnknownNodeKind {
+            let refusal = Err(SessionError::UnknownNodeKind {
                 node: node_id.clone(),
                 kind: kind.clone(),
             });
@@ -148,19 +184,36 @@ impl<'de, const FIELDED: bool> Deserialize<'de> for VariantName<FIELDED> {
 /// cannot read, and it is not an error. When neither shape reads, the guard has
 /// no names to check and stays quiet, leaving the flow's own refusal to speak.
 pub(super) fn merge_read_kinds<const FIRST: bool, const SECOND: bool>(
-    first: Result<DeclaredNodes<FIRST>, String>,
-    second: Result<DeclaredNodes<SECOND>, String>,
+    first: Result<DeclaredNodes<FIRST>, DecodeFailure>,
+    second: Result<DeclaredNodes<SECOND>, DecodeFailure>,
 ) -> BTreeMap<String, String> {
     let mut merged = BTreeMap::new();
-    if let Ok(declared) = first {
-        for (node_id, name) in declared.nodes {
-            merged.insert(node_id, name.0);
+    match first {
+        Ok(declared) => {
+            for (node_id, name) in declared.nodes {
+                merged.insert(node_id, name.0);
+            }
         }
+        Err(unread) => trace_unread(&unread),
     }
-    if let Ok(declared) = second {
-        for (node_id, name) in declared.nodes {
-            merged.insert(node_id, name.0);
+    match second {
+        Ok(declared) => {
+            for (node_id, name) in declared.nodes {
+                merged.insert(node_id, name.0);
+            }
         }
+        Err(unread) => trace_unread(&unread),
     }
     merged
+}
+
+/// Notes a shape whose decode contributed nothing to the guard.
+///
+/// Not a failure: a document of only unit variants is exactly the case the
+/// fielded attempt cannot read. Traced so the silence is on record.
+fn trace_unread(unread: &DecodeFailure) {
+    lgwks_std::trace::debug!(
+        notation = ?unread.notation,
+        "merge_read_kinds: a shape read no node kinds; the flow's own refusal speaks"
+    );
 }

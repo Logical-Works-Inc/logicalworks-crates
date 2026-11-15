@@ -46,20 +46,18 @@ mod declarable;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 mod effects;
 
-#[cfg(all(
-    unix,
-    feature = "script",
-    feature = "process",
-    feature = "time",
-    feature = "sync",
-    feature = "ephemeral"
-))]
-#[path = "../support/fake_gh.rs"]
-mod fake_gh;
+#[cfg(all(feature = "ecs", feature = "wire"))]
+#[path = "../support/event_feed.rs"]
+mod event_feed;
+
+#[cfg(all(unix, feature = "process", feature = "script"))]
+#[cfg(all(feature = "ephemeral", feature = "sync", feature = "time"))]
+#[path = "../support/scripted_gh.rs"]
+mod scripted_gh;
 
 #[cfg(all(unix, feature = "script", feature = "process", feature = "ephemeral"))]
-#[path = "../support/fake_gh_issues.rs"]
-mod fake_gh_issues;
+#[path = "../support/scripted_gh_issues.rs"]
+mod scripted_gh_issues;
 
 #[cfg(all(feature = "inspect", feature = "script"))]
 #[path = "../inspect_support/mod.rs"]

@@ -1,7 +1,7 @@
 //! `act gh::issue`: a `script!` flow opens a GitHub issue once per key.
 //!
 //! The flow is expanded by the real macro and run by a real `Host`; the action
-//! is the shipped `OpenIssue`, forking a fake `gh` that holds issues through
+//! is the shipped `OpenIssue`, forking a scripted `gh` that holds issues through
 //! the same supervised runner the real client runs through. What each test
 //! asserts is what the receiver holds and how many creates were issued, which
 //! is the number a duplicate doubles.
@@ -20,24 +20,27 @@ use std::time::{Duration, Instant};
 use lgwks_bot::domain::gh::{
     GhError, ISSUE_CREATE, IssueDraft, OpenIssue, OpenedIssue, Settlement,
 };
+use lgwks_bot::error::KernelError;
 use lgwks_bot::rt::clock::Clock;
 use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Host, MAX_TASK_DEADLINE, Report, task};
-use lgwks_bot::{BotError, Cap, DispatchCertainty, GrantSet, domains};
+use lgwks_bot::{Cap, DispatchCertainty, EcsError, GrantSet, domains};
 
 use crate::effect_policy::allowing;
-use crate::fake_gh_issues::{calls_on, creates_on, held_on, hide, hold, issue_on_fake, land_later};
+use crate::scripted_gh_issues::{
+    calls_on, creates_on, held_on, hide, hold, issue_on_scripted, land_later,
+};
 use crate::sim_keyed::drive;
 
 /// A test's result: an error fails it with the error's text.
 type TestResult = Result<(), Box<dyn Error>>;
 
 domains! {
-    /// `gh::issue` bound to the fake receiver.
-    pub(crate) FAKE_ISSUES {
+    /// `gh::issue` bound to the scripted receiver.
+    pub(crate) SCRIPTED_ISSUES {
         observe {}
         execute {
-            "gh::issue" => issue_on_fake,
+            "gh::issue" => issue_on_scripted,
         }
     }
 }
@@ -67,13 +70,13 @@ pub(crate) fn full_grant() -> GrantSet {
         .grant(Cap::new(ISSUE_CREATE))
 }
 
-/// A host for `tenant` over the fake receiver, on a clock [`open`] drives.
+/// A host for `tenant` over the scripted receiver, on a clock [`open`] drives.
 ///
 /// Every new key waits out GitHub's in-flight bound before its create, so a
 /// host on the wall clock would spend eleven real seconds per create; on this
 /// clock the wait is spent by the driver and costs nothing.
-pub(crate) fn fake_host(tenant: &str, grants: GrantSet) -> Result<Host, Box<dyn Error>> {
-    fake_host_with_clock(tenant, grants, Clock::virtual_at(Duration::ZERO))
+pub(crate) fn scripted_host(tenant: &str, grants: GrantSet) -> Result<Host, Box<dyn Error>> {
+    scripted_host_with_clock(tenant, grants, Clock::virtual_at(Duration::ZERO))
 }
 
 /// A host for `tenant` whose runs measure every wait on `clock`.
@@ -81,13 +84,13 @@ pub(crate) fn fake_host(tenant: &str, grants: GrantSet) -> Result<Host, Box<dyn 
 /// The deadline is the host's own day-long ceiling: a test moves the clock a
 /// second at a time while a fork is outstanding, and a 120-second deadline
 /// would turn that move into a timeout the action never asked for.
-pub(crate) fn fake_host_with_clock(
+pub(crate) fn scripted_host_with_clock(
     tenant: &str,
     grants: GrantSet,
     clock: Clock,
 ) -> Result<Host, Box<dyn Error>> {
     Ok(Host::builder(tenant)?
-        .domains(&FAKE_ISSUES)
+        .domains(&SCRIPTED_ISSUES)
         .grants(grants)
         .clock(clock)
         .default_deadline(MAX_TASK_DEADLINE)
@@ -123,7 +126,7 @@ pub(crate) fn open_on_clock(
             open_issue(&scope, &repo, draft).await
         },
     )?;
-    // Every caller here drives the fake GitHub, whose issues never leave the
+    // Every caller here drives the scripted GitHub, whose issues never leave the
     // process, where the default policy would gate `gh::issue`.
     Ok(drive(
         clock,
@@ -139,7 +142,7 @@ pub(crate) fn opened(report: &Report<OpenedIssue>) -> Result<&OpenedIssue, Strin
 }
 
 /// The crate error a run failed with, or what it returned instead.
-pub(crate) fn failed(report: &Report<OpenedIssue>) -> Result<&BotError, String> {
+pub(crate) fn failed(report: &Report<OpenedIssue>) -> Result<&EcsError, String> {
     let refusal = match report.result() {
         Err(refusal) => refusal,
         Ok(issue) => {
@@ -159,7 +162,7 @@ pub(crate) fn failed(report: &Report<OpenedIssue>) -> Result<&BotError, String> 
 /// clock, finds nothing again, and creates once.
 #[test]
 fn a_flow_opens_an_issue_and_reads_it_back() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("j1", "The harness opened this", "Body text.")?;
     let started = Instant::now();
     let issue = opened(&open(&host, "j1-owner/accept", &draft)?)?.clone();
@@ -189,7 +192,7 @@ fn a_flow_opens_an_issue_and_reads_it_back() -> TestResult {
 /// an unfiltered read past the capture on their own.
 #[test]
 fn a_repository_of_long_issues_still_reads_back_within_the_capture() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let long = "b".repeat(60_000);
     for key in ["long-1", "long-2"] {
         let draft = IssueDraft::new(key, "A long issue", long.as_str())?;
@@ -214,7 +217,7 @@ fn a_repository_of_long_issues_still_reads_back_within_the_capture() -> TestResu
 /// listing to catch up.
 #[test]
 fn an_immediate_rerun_under_a_lagging_listing_finds_the_issue_by_number() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("lagged", "Listed late", "")?;
     let first = open(&host, "lag-owner/lag", &draft)?;
     let again = open(&host, "lag-owner/lag", &draft)?;
@@ -244,7 +247,7 @@ fn an_immediate_rerun_under_a_lagging_listing_finds_the_issue_by_number() -> Tes
 /// it, so a rerun reports the original, not the duplicate.
 #[test]
 fn a_key_that_names_two_issues_answers_the_first() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("twice", "Opened twice", "")?;
     // The original and its duplicate, as the lagging rerun left them.
     hold("twice-owner", "accept", 1, &draft)?;
@@ -261,7 +264,7 @@ fn a_key_that_names_two_issues_answers_the_first() -> TestResult {
 /// number and answers the same issue.
 #[test]
 fn a_listing_that_never_shows_the_issue_is_read_past_by_number() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("stale", "Never listed", "")?;
     let first = opened(&open(&host, "stale-owner/stale", &draft)?)?.clone();
     let again = opened(&open(&host, "stale-owner/stale", &draft)?)?.clone();
@@ -278,7 +281,7 @@ fn a_listing_that_never_shows_the_issue_is_read_past_by_number() -> TestResult {
 /// the listing until GitHub has none.
 #[test]
 fn the_scan_reads_past_an_unlisted_issue_of_another_key() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let ours = IssueDraft::new("ours", "Ours", "")?;
     let theirs = IssueDraft::new("theirs", "Theirs", "")?;
     // `lag-5` hides each created issue from the next five listing reads.
@@ -335,7 +338,7 @@ fn the_shipped_constructor_refuses_a_target_that_is_not_a_repository() -> TestRe
     assert!(
         matches!(
             *failed(&report)?,
-            BotError::IncompleteSpec {
+            EcsError::IncompleteSpec {
                 field: "target",
                 ..
             }
@@ -350,7 +353,7 @@ fn the_shipped_constructor_refuses_a_target_that_is_not_a_repository() -> TestRe
 
 #[test]
 fn a_second_run_with_the_same_key_finds_the_first_issue() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("j3", "Opened once", "")?;
     let first = open(&host, "j3-owner/accept", &draft)?;
     let second = open(&host, "j3-owner/accept", &draft)?;
@@ -363,7 +366,7 @@ fn a_second_run_with_the_same_key_finds_the_first_issue() -> TestResult {
 
 #[test]
 fn a_lost_answer_is_reconciled_by_reading_back_and_never_reposted() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("lost", "Answer lost", "")?;
     let first = open(&host, "lost-owner/drop", &draft)?;
     assert_eq!(opened(&first)?.settlement(), Settlement::Reconciled);
@@ -376,7 +379,7 @@ fn a_lost_answer_is_reconciled_by_reading_back_and_never_reposted() -> TestResul
 /// A real `SIGKILL` between the POST and its reply, then a rerun with the same
 /// key, leaves exactly one issue.
 ///
-/// The child is the fake client, and it kills itself with `SIGKILL` after it
+/// The child is the scripted client, and it kills itself with `SIGKILL` after it
 /// has held the issue and before it prints the answer — the same instant a
 /// `kill -9` of `gh` catches. What the supervisor reports is a signal death,
 /// not an exit code, so the action cannot know whether the create landed; it
@@ -388,7 +391,7 @@ fn a_lost_answer_is_reconciled_by_reading_back_and_never_reposted() -> TestResul
 #[test]
 fn a_real_kill_between_the_post_and_its_reply_leaves_one_issue() -> TestResult {
     let clock = Clock::virtual_at(Duration::ZERO);
-    let host = fake_host_with_clock("acme", full_grant(), clock.clone())?;
+    let host = scripted_host_with_clock("acme", full_grant(), clock.clone())?;
     let draft = IssueDraft::new("killed", "Killed mid-create", "")?;
     let first = open_on_clock(&host, &clock, "kill-owner/kill", &draft)?;
     assert_eq!(
@@ -422,7 +425,7 @@ fn a_real_kill_between_the_post_and_its_reply_leaves_one_issue() -> TestResult {
 #[test]
 fn a_lost_answer_that_landed_nowhere_is_indeterminate_after_the_settle() -> TestResult {
     let clock = Clock::virtual_at(Duration::ZERO);
-    let host = fake_host_with_clock("acme", full_grant(), clock.clone())?;
+    let host = scripted_host_with_clock("acme", full_grant(), clock.clone())?;
     let draft = IssueDraft::new("vanished", "Lost and never held", "")?;
     let started = Instant::now();
     let report = open_on_clock(&host, &clock, "vanish-owner/vanish", &draft)?;
@@ -430,7 +433,8 @@ fn a_lost_answer_that_landed_nowhere_is_indeterminate_after_the_settle() -> Test
     assert!(
         matches!(
             *failed(&report)?,
-            BotError::EffectIndeterminate { ref domain, .. } if domain == "gh::issue"
+            EcsError::Kernel(KernelError::EffectIndeterminate { ref domain, .. })
+                if domain == "gh::issue"
         ),
         "{:?}",
         report.result()
@@ -455,13 +459,13 @@ fn a_lost_answer_that_landed_nowhere_is_indeterminate_after_the_settle() -> Test
 /// rejection at once, reads nothing back, and a rerun may create.
 #[test]
 fn a_rejected_create_is_refused_at_once_and_not_read_back() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("rejected", "Rejected by the receiver", "")?;
     let report = open(&host, "rejected-owner/refuse", &draft)?;
     assert!(
         matches!(
             *failed(&report)?,
-            BotError::DomainError { ref domain, ref cause, .. }
+            EcsError::Kernel(KernelError::DomainError { ref domain, ref cause, .. })
                 if domain == "gh::issue" && cause.contains("rejected by GitHub (HTTP 422)")
         ),
         "{:?}",
@@ -481,19 +485,21 @@ fn a_create_rejected_with_400_or_410_is_refused_at_once() -> TestResult {
     for status in ["400", "410"] {
         let owner = format!("rejected{status}-owner");
         let repo = format!("refuse-{status}");
-        let host = fake_host("acme", full_grant())?;
+        let host = scripted_host("acme", full_grant())?;
         let draft = IssueDraft::new("rejected", "Rejected by the receiver", "")?;
         let report = open(&host, &format!("{owner}/{repo}"), &draft)?;
         let error = failed(&report)?;
         assert!(
             matches!(
                 *error,
-                BotError::DomainError { ref cause, .. }
-                    if cause.contains(&format!("rejected by GitHub (HTTP {status})"))
+                EcsError::Kernel(KernelError::DomainError {
+                    ref cause,
+                    certainty: DispatchCertainty::Refused,
+                    ..
+                }) if cause.contains(&format!("rejected by GitHub (HTTP {status})"))
             ),
-            "{error:?}"
+            "a rejection is refused outright, and names the status: {error:?}"
         );
-        assert_eq!(error.dispatch_certainty(), DispatchCertainty::Refused);
         assert_eq!(held_on(&owner, &repo)?, 0);
         assert_eq!(calls_on(&owner)?.len(), 7, "no read-back after a rejection");
     }
@@ -504,7 +510,7 @@ fn a_create_rejected_with_400_or_410_is_refused_at_once() -> TestResult {
 /// finds the issue the lost create left, and the run is reconciled.
 #[test]
 fn a_failed_read_back_read_does_not_end_the_read_back() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("flaky", "Read back through a failure", "")?;
     let report = open(&host, "flaky-owner/dropflaky", &draft)?;
     assert_eq!(opened(&report)?.settlement(), Settlement::Reconciled);
@@ -520,7 +526,7 @@ fn a_failed_read_back_read_does_not_end_the_read_back() -> TestResult {
 /// still read, and no duplicate is created.
 #[test]
 fn a_discussion_number_inside_the_sequence_does_not_end_the_find() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let ours = IssueDraft::new("ours", "Ours", "")?;
     let theirs = IssueDraft::new("theirs", "Theirs", "")?;
     // #1 is listed, #2 is a Discussion (no issue), #3 is ours and unlisted.
@@ -538,7 +544,7 @@ fn a_discussion_number_inside_the_sequence_does_not_end_the_find() -> TestResult
 /// below the listing's newest, not yet listed, is read by its number.
 #[test]
 fn an_unlisted_issue_below_a_listed_one_is_found() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let ours = IssueDraft::new("ours", "Ours", "")?;
     let theirs = IssueDraft::new("theirs", "Theirs", "")?;
     hold("below-owner", "accept", 1, &ours)?;
@@ -557,7 +563,7 @@ fn an_unlisted_issue_below_a_listed_one_is_found() -> TestResult {
 /// creating a second.
 #[test]
 fn a_create_still_in_flight_from_a_killed_run_is_found_not_duplicated() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("inflight", "Sent by a killed run", "")?;
     // It lands on the fourth call: after the first find's three, before the
     // read that follows the fence is answered.
@@ -575,7 +581,7 @@ fn a_create_still_in_flight_from_a_killed_run_is_found_not_duplicated() -> TestR
 /// open rather than creating over a window it could not read.
 #[test]
 fn a_listing_more_than_sixteen_numbers_behind_refuses_the_open() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let theirs = IssueDraft::new("theirs", "Theirs", "")?;
     for number in 1..=17 {
         hold("behind-owner", "accept", number, &theirs)?;
@@ -586,7 +592,8 @@ fn a_listing_more_than_sixteen_numbers_behind_refuses_the_open() -> TestResult {
     assert!(
         matches!(
             *failed(&report)?,
-            BotError::DomainError { ref cause, .. } if cause.contains("more than 16 issue numbers")
+            EcsError::Kernel(KernelError::DomainError { ref cause, .. })
+                if cause.contains("more than 16 issue numbers")
         ),
         "{:?}",
         report.result()
@@ -599,11 +606,11 @@ fn a_listing_more_than_sixteen_numbers_behind_refuses_the_open() -> TestResult {
 
 #[test]
 fn a_refused_credential_is_a_typed_rejection_and_creates_nothing() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("deny", "Never opened", "")?;
     let report = open(&host, "deny-owner/deny", &draft)?;
     assert!(
-        matches!(*failed(&report)?, BotError::CredentialRejected { .. }),
+        matches!(*failed(&report)?, EcsError::CredentialRejected { .. }),
         "{:?}",
         report.result()
     );
@@ -613,11 +620,11 @@ fn a_refused_credential_is_a_typed_rejection_and_creates_nothing() -> TestResult
 
 #[test]
 fn a_create_refused_for_its_credential_is_not_read_back() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let draft = IssueDraft::new("denycreate", "Never opened", "")?;
     let report = open(&host, "dc-owner/denycreate", &draft)?;
     assert!(
-        matches!(*failed(&report)?, BotError::CredentialRejected { .. }),
+        matches!(*failed(&report)?, EcsError::CredentialRejected { .. }),
         "{:?}",
         report.result()
     );
@@ -629,7 +636,7 @@ fn a_create_refused_for_its_credential_is_not_read_back() -> TestResult {
 
 #[test]
 fn a_key_already_on_an_issue_with_another_title_is_refused() -> TestResult {
-    let host = fake_host("acme", full_grant())?;
+    let host = scripted_host("acme", full_grant())?;
     let first = IssueDraft::new("shared", "First title", "")?;
     let second = IssueDraft::new("shared", "Second title", "")?;
     assert_eq!(
@@ -638,7 +645,11 @@ fn a_key_already_on_an_issue_with_another_title_is_refused() -> TestResult {
     );
     let report = open(&host, "key-owner/accept", &second)?;
     assert!(
-        matches!(*failed(&report)?, BotError::DomainError { ref cause, .. } if cause.contains("a key names one issue")),
+        matches!(
+            *failed(&report)?,
+            EcsError::Kernel(KernelError::DomainError { ref cause, .. })
+                if cause.contains("a key names one issue")
+        ),
         "{:?}",
         report.result()
     );
