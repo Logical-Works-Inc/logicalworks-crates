@@ -35,6 +35,8 @@ use super::say;
 
 #[path = "vocabulary/approval.rs"]
 mod approval;
+#[path = "vocabulary/clock_wait.rs"]
+mod clock_wait;
 #[path = "vocabulary/outside.rs"]
 mod outside;
 
@@ -485,6 +487,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         );
     }
     say("bounds: the fan-out bound, retry budget and deadlines hold")?;
+    clock_wait::run(driver)?;
 
     // A needs-ordered graph, written as `graph:`: fetch twice, merge.
     if MAX_GRAPH_NODES != 4_096 {

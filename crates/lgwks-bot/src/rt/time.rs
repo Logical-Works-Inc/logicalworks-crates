@@ -39,17 +39,47 @@ impl Clock {
     /// Implemented here rather than beside the clock: the clock is core and
     /// names no driver (ADR 0006 decision 4), so the driver extends it.
     ///
-    /// Crate-private because a consumer waits through the action it runs: the
-    /// `Scope` it is handed already names the clock, and `act` is the word that
-    /// spends it. Its callers are `keyed` and the HTTP edge's world driver,
-    /// which waits for a world's next deadline on that world's own clock.
+    /// Public for the wait that lives outside any step. A step waits through the
+    /// `Scope` it is handed, which already names the clock, and `act` is the word
+    /// that spends it. A fixed-latency upstream a flow calls, or a human's
+    /// decision delay between a park and its resume, runs outside every step, so
+    /// the thing that owns that wait owns a [`Clock`] and waits on it here: the
+    /// live process passes [`Clock::wall`] and a simulation passes
+    /// [`Clock::virtual_at`] and moves it with [`Clock::advance`], so the same
+    /// code waits real time live and no time at all under test. Its callers are
+    /// `keyed`, the HTTP edge's world driver (which waits for a world's next
+    /// deadline on that world's own clock), the durable workflow bench, whose
+    /// upstreams and approval delay are exactly such waits, and the estate
+    /// smoke, which proves both sources on the shipped binary.
+    ///
+    /// The deadline is taken on the first poll, from the clock's reading then.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::pin::pin;
+    /// use std::task::{Context, Waker};
+    /// use std::time::Duration;
+    ///
+    /// use lgwks_bot::rt::time::{Clock, ClockError};
+    ///
+    /// let clock = Clock::virtual_at(Duration::ZERO);
+    /// let mut sleep = pin!(clock.sleep(Duration::from_millis(5)));
+    /// let mut context = Context::from_waker(Waker::noop());
+    /// // Parked: nothing moved the clock.
+    /// assert!(std::future::Future::poll(sleep.as_mut(), &mut context).is_pending());
+    /// clock.advance(Duration::from_millis(5))?;
+    /// // Due: the advance reached the deadline, and no real time passed.
+    /// assert!(std::future::Future::poll(sleep.as_mut(), &mut context).is_ready());
+    /// # Ok::<(), ClockError>(())
+    /// ```
     ///
     /// # Panics
     ///
     /// A wall clock's wait panics when polled outside a runtime with the `time`
     /// driver, exactly as any driver timer does. A virtual clock's wait needs
     /// no runtime.
-    pub(crate) async fn sleep(&self, duration: Duration) {
+    pub async fn sleep(&self, duration: Duration) {
         match self.source() {
             TimeSource::Wall => sleep(duration).await,
             TimeSource::Virtual => self.sleep_virtual(duration).await,
