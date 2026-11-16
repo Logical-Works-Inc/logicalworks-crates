@@ -380,10 +380,16 @@ fn dropping_a_tracked_set_cancels_its_tasks() -> TestResult {
             return Err("the task ended before it reported its start");
         }
         drop(tasks);
+        // The task's future must be gone before the release, so a poll still
+        // running on another worker when the set dropped cannot see the
+        // release. A detach never closes `done`; the bound turns that into a
+        // refusal instead of a hang.
+        const DETACH_BOUND: Duration = Duration::from_secs(30);
+        let closed = timeout(DETACH_BOUND, async { while done.recv().await.is_some() {} }).await;
         release.cancel();
-        // `None` once the task's future is gone: dropped by the cancel, or run
-        // to its end by a detach. `ran` then tells the two apart.
-        while done.recv().await.is_some() {}
+        if closed.is_err() {
+            return Err("dropping a JoinSet left its task running");
+        }
         Ok(())
     })?;
     assert!(
