@@ -10,7 +10,9 @@
 //!
 //! `--rows lgwks,restate` runs the same workload on `restate-server` too, through
 //! the `lgwks-bench-restate-worker` binary built beside this one, and prints one
-//! table; `--markdown` prints it as Markdown and `--json` as one document.
+//! table; `--markdown` prints it as Markdown and `--json` as one document. With
+//! `--write-doc <path>` the Markdown table is also written between the two
+//! `durable-table` marker lines of that doc, after the run.
 //!
 //! The report goes to stdout, as text or, with `--json`, as one JSON document.
 //! Progress and the failure line go to stderr. The exit status is 0, 1 for a run
@@ -18,9 +20,15 @@
 //! written.
 
 mod args;
+mod doc;
 mod error;
 mod fleet;
 mod flow;
+// The bench target's argument filter, built into this binary's tests only: the
+// target `benches/durable.rs` is its one caller, and `sim_forward` is its test.
+#[cfg(test)]
+#[path = "../benches/durable/forward.rs"]
+mod forward;
 mod measure;
 mod recover;
 mod report;
@@ -35,9 +43,13 @@ mod sim;
 #[cfg(test)]
 mod sim_chaos;
 #[cfg(test)]
+mod sim_doc;
+#[cfg(test)]
 mod sim_edges;
 #[cfg(test)]
 mod sim_fools;
+#[cfg(test)]
+mod sim_forward;
 #[cfg(test)]
 mod sim_kit;
 #[cfg(test)]
@@ -81,6 +93,10 @@ fn emit(text: &str) -> Result<(), BenchError> {
 /// The rows `--rows` named, measured on one workload and printed as one table:
 /// text, Markdown with `--markdown`, or one JSON document with `--json`.
 fn table(args: &Args, clock: &Clock) -> Result<(), BenchError> {
+    // A doc that cannot take the table is refused before the run, not after it.
+    if let Some(path) = &args.write_doc {
+        doc::check(path)?;
+    }
     let work = Workdir::create(args.work_dir.as_deref())?;
     let names: Vec<&str> = args.rows.iter().map(|row| row.name()).collect();
     progress(&format!(
@@ -88,14 +104,20 @@ fn table(args: &Args, clock: &Clock) -> Result<(), BenchError> {
         args.runs,
         names.join(", ")
     ))?;
-    let doc = rival::rows(args, work.path(), clock, &mut progress)?;
+    let measured = rival::rows(args, work.path(), clock, &mut progress)?;
     emit(&if args.json {
-        report::json(&doc)?
+        report::json(&measured)?
     } else if args.markdown {
-        report::table_markdown(&doc)
+        report::table_markdown(&measured)
     } else {
-        report::table_text(&doc)
-    })
+        report::table_text(&measured)
+    })?;
+    // The report is out before the doc is touched, so a refused write loses no run.
+    if let Some(path) = &args.write_doc {
+        doc::write(path, &report::table_markdown(&measured))?;
+        progress(&format!("wrote the table into {}", path.display()))?;
+    }
+    Ok(())
 }
 
 /// Do what the command line asked.

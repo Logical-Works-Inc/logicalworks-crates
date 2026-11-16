@@ -115,6 +115,8 @@ pub(crate) struct Args {
     pub(crate) restate_server: String,
     /// The table as Markdown instead of text.
     pub(crate) markdown: bool,
+    /// The doc whose marked block takes the Markdown table after the run.
+    pub(crate) write_doc: Option<PathBuf>,
     /// The command line, as the report prints it.
     pub(crate) command: String,
 }
@@ -191,6 +193,7 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
     let (mut work_dir, mut seed) = (None, DEFAULT_SEED);
     let (mut json, mut recover, mut child, mut markdown) = (false, false, false, false);
     let (mut rows, mut restate_server) = (Vec::new(), DEFAULT_RESTATE_SERVER.to_owned());
+    let mut write_doc = None;
     let mut cursor = words.iter();
     while let Some(word) = cursor.next() {
         match word.as_str() {
@@ -215,6 +218,10 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
                 value("--restate-server", cursor.next())?.clone_into(&mut restate_server);
             }
             "--markdown" => markdown = true,
+            "--write-doc" => {
+                let found = value("--write-doc", cursor.next())?;
+                write_doc = Some(PathBuf::from(found));
+            }
             "--json" => json = true,
             "--recover" => recover = true,
             "--park-child" => child = true,
@@ -237,10 +244,13 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
         lgwks_std::trace::debug!("the recovery child was given no --work-dir");
         return Err(BenchError::MissingValue { flag: "--work-dir" });
     }
-    if (markdown && json) || (markdown && rows.is_empty()) || (!rows.is_empty() && child) {
-        lgwks_std::trace::debug!("--markdown wants --rows and excludes --json; --rows excludes --park-child");
+    let table_flag = markdown || write_doc.is_some();
+    if (markdown && json) || (table_flag && rows.is_empty()) || (!rows.is_empty() && child) {
+        lgwks_std::trace::debug!(
+            "--markdown and --write-doc want --rows; --markdown excludes --json; --rows excludes --park-child"
+        );
         return Err(BenchError::UnknownArgument {
-            argument: "--markdown or --rows used with a flag it excludes".to_owned(),
+            argument: "--markdown, --write-doc or --rows used with a flag it excludes".to_owned(),
         });
     }
     let most = if mode == Mode::Flow {
@@ -256,6 +266,7 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
         rows,
         restate_server,
         markdown,
+        write_doc,
         work_dir,
         seed,
         json,

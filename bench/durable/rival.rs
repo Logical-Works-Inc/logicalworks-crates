@@ -214,8 +214,10 @@ struct Rig {
     reader: Option<JoinHandle<Result<(), RivalError>>>,
     /// What the server will flush.
     durability: Durability,
-    /// The clock every wait is made on.
+    /// The clock every wait is made on, and the one the deploy time is read from.
     clock: Clock,
+    /// Microseconds from spawning the server until the worker was registered.
+    deployed_us: u64,
 }
 
 /// Start the server on `config`, its output in `dir`.
@@ -276,6 +278,9 @@ impl Rig {
             config_text(&base, &ports).map_err(|source| BenchError::Rival { source })?;
         let config = write_file(dir, "restate.toml", &config_body)?;
         let durability = check_durability(&args.restate_server, &config)?;
+        // The deploy time starts as the server is spawned and ends when the worker
+        // is registered: the rig's start to ready, read off the injected clock.
+        let deploying = clock.now();
         let server = spawn_server(&args.restate_server, &config, dir)?;
         let mut command = Command::new(worker_path()?);
         command
@@ -295,7 +300,7 @@ impl Rig {
         let mut worker = Owned::spawn("the Restate worker", &mut command)?;
         let notices = Arc::new(Notices::default());
         let reader = spawn_reader(&mut worker, &notices)?;
-        let rig = Self {
+        let mut rig = Self {
             wire: Wire::new(&ports)?,
             notices,
             server_name: args.restate_server.clone(),
@@ -306,6 +311,7 @@ impl Rig {
             reader: Some(reader),
             durability,
             clock: clock.clone(),
+            deployed_us: 0,
         };
         rig.await_health()?;
         let pause = |gap| lgwks_bot::block_on(rig.clock.sleep(gap));
@@ -313,15 +319,19 @@ impl Rig {
             rig.wire.register().map(|()| true)
         })
         .map_err(|source| BenchError::Rival { source })?;
+        rig.deployed_us = micros(clock.now().saturating_sub(deploying));
         Ok(rig)
     }
 
     /// `kill -9` the server, reap it, start it again on the same base directory
-    /// and wait until both doors answer.
-    fn crash_and_restart(&mut self) -> Result<(), BenchError> {
+    /// and wait until both doors answer; the microseconds, on the injected clock,
+    /// from spawning the new server to both doors answering.
+    fn crash_and_restart(&mut self) -> Result<u64, BenchError> {
         self.server.kill_and_reap()?;
+        let restarting = self.clock.now();
         self.server = spawn_server(&self.server_name, &self.config, &self.dir)?;
-        self.await_health()
+        self.await_health()?;
+        Ok(micros(self.clock.now().saturating_sub(restarting)))
     }
 
     /// The retries and injected failures the worker logged.
@@ -492,7 +502,7 @@ fn row_of(args: &Args, parts: RowParts) -> Result<RowDoc, BenchError> {
         throttled_runs: 0,
         exhausted_runs: parts.exhausted,
         code_lines: code_lines(FLOW_SOURCE),
-        cold_build: None,
+        deploy_us: Summary::of(&mut [parts.deployed_us]),
         recovery: None,
     })
 }
@@ -513,14 +523,17 @@ struct RowParts {
     injected: u64,
     /// Runs lost to the retry policy.
     exhausted: u64,
+    /// Microseconds the stack took from its server's spawn to its worker's registration.
+    deployed_us: u64,
 }
 
-/// The Restate row of the flow measurement, with the stack in `dir`.
+/// The Restate row of the flow measurement, with the stack in `dir`, and the
+/// microseconds the stack took to start: the first deploy sample of the row.
 ///
 /// # Errors
 ///
 /// Any [`BenchError`] the stack, a run or the memory reading raises.
-pub(crate) fn flow(args: &Args, dir: &Path, clock: &Clock) -> Result<RowDoc, BenchError> {
+pub(crate) fn flow(args: &Args, dir: &Path, clock: &Clock) -> Result<(RowDoc, u64), BenchError> {
     let world = World::plan(
         args.seed,
         args.runs,
@@ -557,8 +570,9 @@ pub(crate) fn flow(args: &Args, dir: &Path, clock: &Clock) -> Result<RowDoc, Ben
         retries,
         injected,
         exhausted,
+        deployed_us: rig.deployed_us,
     };
-    row_of(args, parts)
+    Ok((row_of(args, parts)?, rig.deployed_us))
 }
 
 /// One run to decide after the restart.
@@ -569,8 +583,15 @@ struct Parked {
     key: String,
 }
 
-/// One round: park, kill the server, restart it, approve everything, check.
-fn round(index: u32, args: &Args, root: &Path, clock: &Clock) -> Result<(u32, u64, u64), BenchError> {
+/// One round: park, kill the server, restart it, approve everything, check. The
+/// restart's microseconds to ready are pushed on `restarts`: a deploy sample.
+fn round(
+    index: u32,
+    args: &Args,
+    root: &Path,
+    clock: &Clock,
+    restarts: &mut Vec<u64>,
+) -> Result<(u32, u64, u64), BenchError> {
     let dir = root.join(format!("round-{index}"));
     std::fs::create_dir(&dir).map_err(|source| BenchError::Io {
         context: "making the round directory",
@@ -601,7 +622,7 @@ fn round(index: u32, args: &Args, root: &Path, clock: &Clock) -> Result<(u32, u6
         });
     }
     let clock_start = Instant::now();
-    rig.crash_and_restart()?;
+    restarts.push(rig.crash_and_restart()?);
     let pause = |gap| lgwks_bot::block_on(rig.clock.sleep(gap));
     pool_over(&parked, WORKERS, |run| {
         until("an approval after the restart", APPROVE_TRIES, GAP, &pause, || {
@@ -627,7 +648,9 @@ fn round(index: u32, args: &Args, root: &Path, clock: &Clock) -> Result<(u32, u6
     Ok((count, took, checked))
 }
 
-/// The Restate row's kill -9 recovery over `args.rounds` rounds under `root`.
+/// The Restate row's kill -9 recovery over `args.rounds` rounds under `root`, and
+/// the microseconds each round's server restart took to answer: one deploy sample
+/// per round, at most [`crate::args::MAX_ROUNDS`] of them.
 ///
 /// # Errors
 ///
@@ -637,10 +660,11 @@ pub(crate) fn recover(
     root: &Path,
     clock: &Clock,
     progress: &mut dyn FnMut(&str) -> Result<(), BenchError>,
-) -> Result<Recovery, BenchError> {
+) -> Result<(Recovery, Vec<u64>), BenchError> {
     let (mut parked_per_round, mut per_round, mut steps_checked) = (Vec::new(), Vec::new(), 0_u64);
+    let mut restarts = Vec::new();
     for index in 0..args.rounds {
-        let (parked, took, checked) = round(index, args, root, clock)?;
+        let (parked, took, checked) = round(index, args, root, clock, &mut restarts)?;
         progress(&format!(
             "restate round {} of {}: {parked} runs parked, {took} us from kill to done",
             index + 1,
@@ -651,7 +675,7 @@ pub(crate) fn recover(
         steps_checked = steps_checked.saturating_add(checked);
     }
     let mut sorted = per_round.clone();
-    Ok(Recovery {
+    let recovery = Recovery {
         rounds: per_round.len(),
         resumed_runs: parked_per_round.iter().map(|count| u64::from(*count)).sum(),
         parked_runs_per_round: parked_per_round,
@@ -659,7 +683,8 @@ pub(crate) fn recover(
         per_round_us: per_round,
         steps_checked,
         duplicate_step_executions: 0,
-    })
+    };
+    Ok((recovery, restarts))
 }
 
 /// Every row `args.rows` names, measured on the same workload, as one table.
@@ -685,9 +710,15 @@ pub(crate) fn rows(
             source,
         })?;
         progress(&format!("measuring the {} row: {} runs", row.name(), args.runs))?;
+        // The deploy samples of an engine with a server: its start, then each restart.
+        let mut deploys: Vec<u64> = Vec::new();
         let mut doc = match row {
             Row::Lgwks => RowDoc::of_lgwks(&measure::flow(args, &dir, clock.clone())?),
-            Row::Restate => flow(args, &dir, clock)?,
+            Row::Restate => {
+                let (started, deployed_us) = flow(args, &dir, clock)?;
+                deploys.push(deployed_us);
+                started
+            }
         };
         if recovering {
             let rounds = dir.join("recover");
@@ -697,8 +728,15 @@ pub(crate) fn rows(
             })?;
             doc.recovery = Some(match row {
                 Row::Lgwks => recover_lgwks(args, &rounds, clock.clone(), progress)?.recovery,
-                Row::Restate => recover(args, &rounds, clock, progress)?,
+                Row::Restate => {
+                    let (recovery, restarts) = recover(args, &rounds, clock, progress)?;
+                    deploys.extend(restarts);
+                    recovery
+                }
             });
+        }
+        if !deploys.is_empty() {
+            doc.deploy_us = Summary::of(&mut deploys);
         }
         table.push(doc);
     }
