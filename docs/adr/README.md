@@ -98,5 +98,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0060](0060-the-serve-keeps-its-request-hashes-and-pins-their-bytes.md) | The serve keeps its request hashes and pins their bytes |
 | [0061](0061-one-typed-error-per-layer.md) | One typed error per layer; a lower layer never names an upper one |
 | [0062](0062-test-builds-of-workspace-crates-are-incremental.md) | Test builds of workspace crates are incremental |
+| [0063](0063-the-durable-bench-rival-is-restate-in-the-bench-workspace.md) | The durable bench rival is Restate, in the bench workspace |
 
 New records go at the bottom of that table.

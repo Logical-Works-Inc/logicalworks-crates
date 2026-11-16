@@ -22,7 +22,7 @@ fn every_decision_record_is_in_the_record_index() -> Result<(), Box<dyn std::err
             seen = seen.saturating_add(1);
             assert!(
                 index.contains(&format!("]({name})")),
-                "{name} has no index row"
+                "{name} has no index row: add `| [NNNN]({name}) | <decision> |` at the bottom of the Index table in docs/adr/README.md"
             );
         }
     }
