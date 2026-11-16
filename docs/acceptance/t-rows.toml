@@ -232,7 +232,7 @@ row = "Permanent policy refusal plus repeated NotApplied does not yield unlimite
 state = "exercised"
 gap = ""
 tests = [
-  "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
+  "it::proposal::repair::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
   "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_across_runs",
   "it::proposal::repair::a_ledger_of_distinct_failures_reaches_its_own_intervention",
   "it::repair::the_root_budget_stays_charged_across_repair_and_resume_t13",
@@ -492,7 +492,7 @@ row = "Repeated unchanged failure reaches finite typed intervention, not infinit
 state = "exercised"
 gap = ""
 tests = [
-  "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
+  "it::proposal::repair::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
   "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_across_runs",
   "it::proposal::new_evidence_does_not_erase_root_spend",
   "it::proposal::a_plan_budget_bounds_repair_across_runs",
@@ -609,7 +609,7 @@ row = "Process exit zero with invalid result, model says done without evidence, 
 state = "exercised"
 gap = ""
 tests = [
-  "it::proposal::the_three_untrue_successes_report_distinct_outcomes_t35",
+  "it::proposal::outcomes::the_three_untrue_successes_report_distinct_outcomes_t35",
   "it::sys_process_binding::verb::exit_zero_is_reported_as_zero_not_success",
   "it::rt_process::a_command_that_exits_zero_is_reported_completed",
   "it::pr_review_journey::lost_response::a_non_zero_exit_is_not_a_published_review",

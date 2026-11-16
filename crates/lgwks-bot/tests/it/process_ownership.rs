@@ -5,8 +5,7 @@
     feature = "rt",
     feature = "time",
     feature = "sync",
-    feature = "process",
-    feature = "fs"
+    feature = "process"
 ))]
 
 use crate::scratch::Scratch;
@@ -50,18 +49,15 @@ fn is_alive(pid: &str) -> bool {
     alive
 }
 
-/// The pid the shell recorded in `path`, read through the async file API until
-/// a whole one is there, within [`BUDGET`].
+/// The pid the shell recorded in `path`, read until a whole one is there,
+/// within [`BUDGET`]. The read is [`pid_now`], so the file needs no `fs`
+/// feature and runs in every lane that builds `process`.
 async fn pid(path: &Path) -> Option<String> {
     let clock = Clock::wall();
     let deadline = Instant::now().checked_add(BUDGET)?;
     loop {
-        match lgwks_bot::rt::fs::read_to_string(path).await {
-            Ok(text) if !text.trim().is_empty() => return Some(String::from(text.trim())),
-            Ok(_) => {}
-            Err(error) => {
-                lgwks_std::trace::debug!(%error, "pid: the record is not written yet");
-            }
+        if let Some(text) = pid_now(path) {
+            return Some(text);
         }
         if Instant::now() >= deadline {
             return None;

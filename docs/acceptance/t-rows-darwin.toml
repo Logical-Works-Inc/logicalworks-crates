@@ -163,7 +163,7 @@ row = "Permanent policy refusal plus repeated NotApplied does not yield unlimite
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 4 of the 8 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
+  "it::proposal::repair::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
   "it::repair::the_root_budget_stays_charged_across_repair_and_resume_t13",
   "it::t_rows_default::a_repair_charges_the_root_budget_and_never_resets_it_t13",
   "it::sim_t_rows_default::repairs_charge_exactly_their_spend_for_every_seed_t13",
@@ -343,7 +343,7 @@ row = "Repeated unchanged failure reaches finite typed intervention, not infinit
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 17 of the 20 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
+  "it::proposal::repair::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
   "it::sim_repeat_ceiling::unchanged_failure_reaches_a_finite_intervention_band_00_t29",
   "it::sim_repeat_ceiling::unchanged_failure_reaches_a_finite_intervention_band_01_t29",
   "it::sim_repeat_ceiling::unchanged_failure_reaches_a_finite_intervention_band_02_t29",
@@ -430,7 +430,7 @@ row = "Process exit zero with invalid result, model says done without evidence, 
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 4 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::proposal::the_three_untrue_successes_report_distinct_outcomes_t35",
+  "it::proposal::outcomes::the_three_untrue_successes_report_distinct_outcomes_t35",
 ]
 
 [[row]]
