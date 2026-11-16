@@ -30,7 +30,7 @@ fn journey() -> bool {
     let scope = Scope::root(tenant);
     let good: Value = json!({"action": "read"});
     let bad: Value = json!({"action": "delete"});
-    let admitted = lgwks_bot::block_on(admits(&scope, &validator, &good));
-    let refused = lgwks_bot::block_on(admits(&scope, &validator, &bad));
+    let admitted = lgwks_bot::script::block_on(admits(&scope, &validator, &good));
+    let refused = lgwks_bot::script::block_on(admits(&scope, &validator, &bad));
     matches!((admitted, refused), (Ok(true), Ok(false)))
 }

@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use lgwks_bot::block_on;
+use lgwks_bot::rt::runtime::block_on;
 use lgwks_bot::effect::RunId;
 use lgwks_bot::script::ApprovalDecision;
 use lgwks_bot::task::Host;

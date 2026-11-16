@@ -28,9 +28,11 @@ use std::time::Duration;
 
 use lgwks_bot::cap::{Cap, is_credential_status};
 use lgwks_bot::clock::Clock;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
+use lgwks_bot::error::RetryClass;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::spec::{Need, upstream_credential_rejection};
-use lgwks_bot::{EcsError, GrantSet, RetryClass};
 
 use crate::sim::Sim;
 

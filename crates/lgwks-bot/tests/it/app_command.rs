@@ -8,10 +8,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use lgwks_bot::Cap;
 use lgwks_bot::app::{
     App, CommandLimits, Effect, EffectResult, Method, OnInput, Principal, Provider, ReplyTag,
 };
+use lgwks_bot::cap::Cap;
 
 use crate::app::{JourneyFailed, serve_app};
 

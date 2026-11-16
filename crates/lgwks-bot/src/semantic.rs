@@ -10,9 +10,9 @@
 //!
 //! # The deterministic tiers stay authoritative
 //!
-//! This tier is consulted only when the lexicon returns [`Resolution::Absent`] —
+//! This tier is consulted only when the lexicon returns [`Resolution::Absent`](crate::session::Resolution::Absent) —
 //! when every option was considered and none fit. A lexicon verdict, including
-//! [`Resolution::Ambiguous`], is returned verbatim and never rescored. Two
+//! [`Resolution::Ambiguous`](crate::session::Resolution::Ambiguous), is returned verbatim and never rescored. Two
 //! reasons, and the second is the load-bearing one:
 //!
 //! - A deterministic verdict is reproducible from the input alone, and the
@@ -22,19 +22,19 @@
 //!   outvote an exact match it would eventually do so, and an exact match is the
 //!   one verdict that cannot be wrong.
 //!
-//! The consequence is that this module can only ever turn an [`Resolution::Absent`]
+//! The consequence is that this module can only ever turn an [`Resolution::Absent`](crate::session::Resolution::Absent)
 //! into something else. It cannot change a verdict the lexicon already reached,
 //! so adding it is not a behaviour change for any utterance that already
 //! resolved — which is what makes it safe to introduce into a running system.
 //!
 //! # The embedder is injected, and its identity is recorded
 //!
-//! [`Embedder`] is a seam, not a dependency. This crate carries no model, no
+//! [`Embedder`](crate::semantic::Embedder) is a seam, not a dependency. This crate carries no model, no
 //! tensor library and no tokenizer: the weights are not source, and a crate that
 //! compiled one in would make every consumer pay for it. A consumer that has a
 //! model supplies it.
 //!
-//! What the seam *does* require is [`Embedder::identity`], because a verdict a
+//! What the seam *does* require is [`Embedder::identity`](crate::semantic::Embedder::identity), because a verdict a
 //! model produced is only declarable if the model is named. "The semantic tier
 //! resolved this" is not an audit record; "`all-MiniLM-L6-v2`, digest `ab12…`,
 //! 384 dimensions, resolved this" is. The digest is supplied by the embedder
@@ -42,7 +42,7 @@
 //! know them.
 //!
 //! The identity travels out on the verdict itself, as
-//! [`Provenance::model`], and not only into
+//! [`Provenance::model`](crate::session::Provenance::model), and not only into
 //! this resolver's own accessor. `resolve` calls `identity()` once per decision
 //! and the caller holds the result: a caller that resolved through a trait
 //! object has no way back to `embedder_identity`, and `embedder_identity` is a
@@ -53,7 +53,7 @@
 //! An embedder can fail, and a failed embedder must not be reported as *nothing
 //! matched*. The two need different repairs — rephrase, versus restore the
 //! dependency — and they would otherwise render identically. This tier therefore
-//! returns [`Resolution::Degraded`], and a caller that does not distinguish it
+//! returns [`Resolution::Degraded`](crate::session::Resolution::Degraded), and a caller that does not distinguish it
 //! still re-asks, which is the safe direction.
 //!
 //! A degraded verdict still names its model, deliberately. The model is what was
@@ -69,7 +69,7 @@
 //! — the utterance's or a competitor's — degrades the whole verdict rather than
 //! dropping the candidate. Dropping it would let a survivor claim a lead over a
 //! competitor nobody measured, and scoring it as zero would assert a similarity
-//! that was never observed. There is no [`Resolution`] variant carrying partial
+//! that was never observed. There is no [`Resolution`](crate::session::Resolution) variant carrying partial
 //! evidence, and a partial result is not worth inventing one for.
 //!
 //! This module does not log. It reports. The cause travels to the caller in the
@@ -78,7 +78,7 @@
 //! [`Journal`](crate::session::Journal) — rather than a session transcript,
 //! which is a rendering of what was said and not of what was decided. A log line
 //! would be a second, unmanaged copy of the same fact, and this crate has no
-//! logging edge to write one through. An [`Embedder`] that fails is expected to
+//! logging edge to write one through. An [`Embedder`](crate::semantic::Embedder) that fails is expected to
 //! describe its own failure — it owns its error type and the context around it —
 //! while the resolver's job is the closed verdict the flow can route on.
 //!
@@ -89,7 +89,7 @@
 //! deliberate for a first landing: the option list is authored and short, a
 //! local model embeds a short phrase in microseconds, and a cache is a second
 //! piece of state that needs a bound, an eviction policy, and a test for both.
-//! The seam it would go behind is [`Embedder`], so adding one is a change here
+//! The seam it would go behind is [`Embedder`](crate::semantic::Embedder), so adding one is a change here
 //! and not a change to any caller.
 
 use std::fmt;

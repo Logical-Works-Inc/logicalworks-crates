@@ -99,7 +99,7 @@ pub(crate) fn check(
     let scope = Tenant::new("acme")
         .map(Scope::root)
         .map_err(|cause| AppsError::Setup(format!("the acme tenant is refused: {cause}")))?;
-    let lines = lgwks_bot::block_on(run_app(&scope, apps, edge.id.as_str()))
+    let lines = lgwks_bot::script::block_on(run_app(&scope, apps, edge.id.as_str()))
         .map_err(|cause| AppsError::Exchange(format!("the library run failed: {cause}")))?;
     let printed: Vec<String> = lines
         .iter()

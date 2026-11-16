@@ -27,7 +27,7 @@ fn the_step_that_reaches_is_the_step_that_blocks() -> TestResult {
     let polls = Polls::shared();
     let declared = first_step_task(declared_needs.clone())?;
 
-    let report = lgwks_bot::block_on(host.run(
+    let report = lgwks_bot::script::block_on(host.run(
         &declared,
         input_needing(Arc::clone(&polls), 7, declared_needs.clone()),
     ));
@@ -92,7 +92,7 @@ fn a_wide_need_set_costs_one_analysis() -> TestResult {
         let declared = shared::journey_task()?;
         let needs: Vec<Cap> = whole.iter().take(reach).cloned().collect();
 
-        let report = lgwks_bot::block_on(host.run(
+        let report = lgwks_bot::script::block_on(host.run(
             &declared,
             input_needing(Arc::clone(&polls), 7, needs.clone()),
         ));
@@ -150,7 +150,7 @@ fn a_repaired_run_survives_a_reopened_host() -> TestResult {
     let polls = Polls::shared();
     let declared = shared::journey_task()?;
 
-    let blocked = lgwks_bot::block_on(first.run(
+    let blocked = lgwks_bot::script::block_on(first.run(
         &declared,
         input_needing(Arc::clone(&polls), 7, shared::default_needs()),
     ));
@@ -171,7 +171,7 @@ fn a_repaired_run_survives_a_reopened_host() -> TestResult {
          ticket is still answerable by a host that was never running"
     );
 
-    let repaired = lgwks_bot::block_on(second.repair(
+    let repaired = lgwks_bot::script::block_on(second.repair(
         &ticket,
         &GrantSet::empty().grant(Cap::new(Cap::NET)),
         &declared,
@@ -216,7 +216,7 @@ fn a_custom_capability_is_refused_at_every_width() -> TestResult {
         let bytes = ledger_bytes(&host)?;
 
         let smuggled = exact_grant(reach).grant(Cap::new("vendor.payments.charge"));
-        match lgwks_bot::block_on(case.host.repair(
+        match lgwks_bot::script::block_on(case.host.repair(
             &case.ticket,
             &smuggled,
             &case.declared,
@@ -276,14 +276,14 @@ fn a_ticket_never_names_another_tenants_run() -> TestResult {
 
     // The wide shortfall: a ticket naming every candidate, so the refusal cannot be
     // a grant check that happened to pass.
-    let report = lgwks_bot::block_on(mine.run(
+    let report = lgwks_bot::script::block_on(mine.run(
         &declared,
         input_needing(Polls::shared(), 7, candidate_needs()),
     ));
     let ticket = shared::ticket_of(&report)?.clone();
     let run = shared::run_of(&report)?;
 
-    match lgwks_bot::block_on(theirs.repair(
+    match lgwks_bot::script::block_on(theirs.repair(
         &ticket,
         &exact_grant(candidate_needs().len()),
         &declared,
@@ -352,7 +352,7 @@ fn a_mixed_decision_order_pins_each_arm() -> TestResult {
                 Action::OverWide => wide_grant(plan.reach),
                 Action::Inspect => continue,
             };
-            let outcome = lgwks_bot::block_on(host.repair(
+            let outcome = lgwks_bot::script::block_on(host.repair(
                 ticket,
                 &grant,
                 declared,

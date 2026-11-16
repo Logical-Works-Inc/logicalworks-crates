@@ -172,7 +172,7 @@ pub(crate) trait ObserveAny {
         &'a self,
         grants: &'a GrantSet,
         previous: Option<&'a Erased>,
-    ) -> crate::BoxFuture<'a, Result<Option<Erased>, EcsError>>;
+    ) -> crate::verb::BoxFuture<'a, Result<Option<Erased>, EcsError>>;
 }
 
 /// The blanket impl carries `PartialEq` on the output because the comparison
@@ -209,7 +209,7 @@ where
         &'a self,
         grants: &'a GrantSet,
         previous: Option<&'a Erased>,
-    ) -> crate::BoxFuture<'a, Result<Option<Erased>, EcsError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Option<Erased>, EcsError>> {
         Box::pin(async move {
             let auth: Auth = grants.issue(crate::verb::Observe::required_caps(self))?;
             let value = self.poll((auth, ())).await?;
@@ -290,7 +290,7 @@ pub(crate) trait ExecuteAny {
         &'a self,
         grants: &'a GrantSet,
         input: &'a Erased,
-    ) -> crate::BoxFuture<'a, Result<Box<dyn Any>, EcsError>>;
+    ) -> crate::verb::BoxFuture<'a, Result<Box<dyn Any>, EcsError>>;
 
     /// [`ExecuteAny::run_any`] on the clock of the flow that runs the action.
     ///
@@ -308,7 +308,7 @@ pub(crate) trait ExecuteAny {
         _clock: &'a crate::clock::Clock,
         grants: &'a GrantSet,
         input: &'a Erased,
-    ) -> crate::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
         self.run_any(grants, input)
     }
 }
@@ -344,7 +344,7 @@ where
         clock: Option<&'a crate::clock::Clock>,
         grants: &'a GrantSet,
         input: &'a Erased,
-    ) -> crate::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
         Box::pin(async move {
             match input.as_any().downcast_ref::<A::Input>() {
                 Some(typed) => {
@@ -395,7 +395,7 @@ where
         &'a self,
         grants: &'a GrantSet,
         input: &'a Erased,
-    ) -> crate::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
         self.execute_erased(None, grants, input)
     }
 
@@ -405,7 +405,7 @@ where
         clock: &'a crate::clock::Clock,
         grants: &'a GrantSet,
         input: &'a Erased,
-    ) -> crate::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
         self.execute_erased(Some(clock), grants, input)
     }
 }

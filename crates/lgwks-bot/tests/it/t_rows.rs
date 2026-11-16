@@ -358,14 +358,14 @@ fn one_request_key_serves_one_payload_t30() -> TestResult {
     let work = request::counting_task(Rc::clone(&counter))?;
     let key = RequestKey::new("weekly-report")?;
 
-    let first = lgwks_bot::block_on(host.submit(&key, &work, 1_u32))?;
+    let first = lgwks_bot::script::block_on(host.submit(&key, &work, 1_u32))?;
     assert!(
         first.report().is_some(),
         "the first payload under this key is accepted"
     );
     assert_eq!(counter.get(), 1, "and its body ran exactly once");
 
-    let duplicate = lgwks_bot::block_on(host.submit(&key, &work, 1_u32))?;
+    let duplicate = lgwks_bot::script::block_on(host.submit(&key, &work, 1_u32))?;
     assert!(
         duplicate.report().is_some(),
         "the same key with the same payload reattaches to the recorded run"
@@ -376,7 +376,7 @@ fn one_request_key_serves_one_payload_t30() -> TestResult {
         "a reattach runs no second body: the work already happened once"
     );
 
-    let error = lgwks_bot::block_on(host.submit(&key, &work, 2_u32))
+    let error = lgwks_bot::script::block_on(host.submit(&key, &work, 2_u32))
         .err()
         .ok_or("a different payload under one key must be refused")?;
     match error {
@@ -401,7 +401,7 @@ fn one_request_key_serves_one_payload_t30() -> TestResult {
         key, other,
         "two names derive two keys: a store that collapsed them would merge two reports"
     );
-    lgwks_bot::block_on(host.submit(&other, &work, 3_u32))?;
+    lgwks_bot::script::block_on(host.submit(&other, &work, 3_u32))?;
     assert_eq!(
         counter.get(),
         2,

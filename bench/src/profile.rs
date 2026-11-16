@@ -17,7 +17,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::{TickProfile, TickStage};
+use lgwks_bot::ecs::{TickProfile, TickStage};
 
 use crate::error::BenchError;
 use crate::scenarios::Scenario;

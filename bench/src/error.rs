@@ -12,7 +12,9 @@ use std::path::PathBuf;
 
 use lgwks_bot::broker::BrokerError;
 use lgwks_bot::effect::{DigestError, IdError};
-use lgwks_bot::{BotError, EcsError, KernelError};
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::KernelError;
 use lgwks_std::trace::DebugInstallError;
 
 /// Why the rig stopped.

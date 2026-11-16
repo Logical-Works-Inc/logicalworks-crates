@@ -93,7 +93,7 @@ type FanOut = fn(&Probe, NonZeroUsize, &[Body]) -> Result<Vec<usize>, FlowError>
 /// The shipped `each`, for tenant `prop`.
 fn shipped(probe: &Probe, limit: NonZeroUsize, bodies: &[Body]) -> Result<Vec<usize>, FlowError> {
     let scope = Scope::root(Tenant::new("prop")?);
-    lgwks_bot::block_on(each(
+    lgwks_bot::script::block_on(each(
         &scope,
         "fan",
         Some(limit),

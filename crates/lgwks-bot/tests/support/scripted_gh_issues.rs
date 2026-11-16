@@ -51,7 +51,8 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use lgwks_bot::domain::gh::{Gh, IssueDraft, OpenIssue, Repository};
-use lgwks_bot::{Action, EcsError};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::registry::Action;
 
 /// Why the script's directory could not be installed, kept as text because the
 /// install runs once and every later caller reads the same answer.

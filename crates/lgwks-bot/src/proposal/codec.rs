@@ -101,13 +101,6 @@ impl PlanLimits {
         self
     }
 
-    /// These limits with the value ceiling replaced.
-    #[must_use]
-    pub const fn with_max_field_bytes(mut self, max_field_bytes: usize) -> Self {
-        self.max_field_bytes = max_field_bytes;
-        self
-    }
-
     /// These limits with the field-count ceiling replaced.
     #[must_use]
     pub const fn with_max_fields(mut self, max_fields: u32) -> Self {

@@ -43,8 +43,8 @@
 //! gives no deduplication at all. A GUI click has no such contract in any form,
 //! which is why it can never reach this disjunct.
 //!
-//! [`RetryClass`]: crate::RetryClass
-//! [`DispatchCertainty`]: crate::DispatchCertainty
+//! [`RetryClass`]: crate::error::RetryClass
+//! [`DispatchCertainty`]: crate::error::DispatchCertainty
 
 use core::fmt;
 use core::time::Duration;
@@ -400,7 +400,7 @@ impl fmt::Display for RetryDecision {
 /// optional, so a caller that sets only what it knows gets a refusal rather
 /// than an accidental retry.
 ///
-/// [`DispatchCertainty`]: crate::DispatchCertainty
+/// [`DispatchCertainty`]: crate::error::DispatchCertainty
 #[derive(Debug, Clone)]
 pub struct RetryFacts {
     /// The declared budget.

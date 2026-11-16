@@ -346,9 +346,13 @@ mod backpressure {
     use std::time::Duration;
 
     use super::{EdgeStop, serve};
+    use crate::cap::{Auth, Cap};
+    use crate::ecs::EcsError;
     use crate::ecs::{Request, RequestFeed, Response};
+    use crate::gate::GrantSet;
+    use crate::spec::Bot;
     use crate::spec::EffectScope;
-    use crate::{Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe};
+    use crate::verb::{Cadence, Observe};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 

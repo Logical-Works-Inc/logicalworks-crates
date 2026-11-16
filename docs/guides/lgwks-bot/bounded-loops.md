@@ -36,13 +36,14 @@ owns the token ends.
 
 `rt::task::join_all_bounded(limit, futures)` (feature `sync`) spawns and awaits
 at most `limit` tasks at once, spawning the next pending input as each completes
-(`crates/lgwks-bot/src/rt/task.rs:170`). Result `i` is the output of input `i`,
+(`crates/lgwks-bot/src/rt/task.rs:195`). Result `i` is the output of input `i`,
 whichever completes first, which is the property `JoinSet::join_next` does not
 give you.
 
 The retained `JoinSet` never exceeds `limit` entries. Only the output vector
 grows with input length, so fanning out over thousands of inputs needs no manual
-chunking.
+chunking. A panicking input comes back as `Err(FanOutError::Panicked)`, never a
+shorter vector, so the call ends in `?`.
 
 ## `spawn_blocking`: a bounded pool
 

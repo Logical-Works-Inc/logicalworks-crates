@@ -148,7 +148,7 @@ fn store_subject(dir: &Path) -> Result<Subject, Box<dyn Error>> {
     let host = Host::builder("bench")?.run_store(dir)?.build()?;
     let work = tail_task()?;
     for ordinal in 0..FRAMES {
-        let report = lgwks_bot::block_on(host.run(&work, ordinal));
+        let report = lgwks_bot::script::block_on(host.run(&work, ordinal));
         report
             .disposition()
             .is_success()

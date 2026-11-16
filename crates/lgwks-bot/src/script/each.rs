@@ -57,7 +57,7 @@ use super::{FlowError, MAX_IN_FLIGHT, POLL_BUDGET, Scope};
 ///
 /// # fn main() -> Result<(), FlowError> {
 /// let scope = Scope::root(Tenant::new("acme")?);
-/// let doubled = lgwks_bot::block_on(double_all(&scope, vec![3, 1, 2]))?;
+/// let doubled = lgwks_bot::script::block_on(double_all(&scope, vec![3, 1, 2]))?;
 /// assert_eq!(doubled, vec![6, 2, 4]);
 /// # Ok(())
 /// # }

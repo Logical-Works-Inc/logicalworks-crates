@@ -44,6 +44,7 @@ use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use lgwks_bot::rt::time::Clock;
 use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Disposition, Host, task};
 
@@ -168,7 +169,7 @@ fn run_child_branch() -> TestResult {
     // panics inside `rt::time`. The runtime's work still happens *on this
     // thread*, so the body occupies the thread that runs it; having a reactor
     // around it does not make the body reclaimable.
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     // The marker is written before the run is driven, so the parent's "did it
     // start" is established by this process rather than inferred from a poll that
     // may never have been reached.
@@ -208,7 +209,7 @@ fn a_non_yielding_callback_is_detected_from_outside_and_not_preempted() -> TestR
         return run_child_branch();
     }
 
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let scratch = child_scratch("t03-non-yielding")?;
     let marker = scratch.join("started");
     let sibling_marker = scratch.join("sibling.pid");
@@ -257,7 +258,7 @@ fn a_non_yielding_callback_is_detected_from_outside_and_not_preempted() -> TestR
 
     // The outside clock. Nothing in the child can pause it, reach it, or be
     // scheduled around it, which is the whole reason it is a separate process.
-    std::thread::park_timeout(DETECT_AFTER);
+    lgwks_bot::script::block_on(Clock::wall().sleep(DETECT_AFTER));
     let still_running = child.0.try_wait()?;
     assert!(
         still_running.is_none(),
@@ -292,7 +293,7 @@ fn a_non_yielding_callback_is_detected_from_outside_and_not_preempted() -> TestR
     // The load-bearing statement of scope. This test killed a process; it did not
     // stop a poll, and nothing in this crate can. A future reader who mistakes
     // this green run for a preemption guarantee is reading more than it proves.
-    let _ = runtime;
+    drop(runtime);
     Ok(())
 }
 
@@ -329,17 +330,29 @@ fn child_scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
     Ok(path)
 }
 
+/// Whether `path` exists and is non-empty; a path that cannot be read is not
+/// there yet, and the reason is traced.
+fn has_content(path: &std::path::Path) -> bool {
+    match path.metadata() {
+        Ok(meta) => meta.len() > 0,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "t03: the marker is not readable yet");
+            false
+        }
+    }
+}
+
 /// Wait until `path` exists and is non-empty, up to `budget`.
 fn wait_for(path: &std::path::Path, budget: Duration) -> bool {
     let started = std::time::Instant::now();
     loop {
-        if path.metadata().is_ok_and(|meta| meta.len() > 0) {
+        if has_content(path) {
             return true;
         }
         if started.elapsed() >= budget {
-            return path.metadata().is_ok_and(|meta| meta.len() > 0);
+            return has_content(path);
         }
-        std::thread::park_timeout(POLL);
+        lgwks_bot::script::block_on(Clock::wall().sleep(POLL));
     }
 }
 
@@ -351,11 +364,17 @@ fn read_pid(path: &std::path::Path) -> Option<i32> {
 
 /// Whether `pid` is still running, asked through `kill -0`, which sends nothing.
 fn pid_is_alive(pid: i32) -> bool {
-    std::process::Command::new("kill")
+    match std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
         .status()
-        .is_ok_and(|status| status.success())
+    {
+        Ok(status) => status.success(),
+        Err(error) => {
+            lgwks_std::trace::warn!(%error, pid, "t03: could not ask whether the pid is alive");
+            false
+        }
+    }
 }
 
 /// The control the child branch needs: a host admits and reports an ordinary run.
@@ -376,7 +395,7 @@ fn the_same_front_door_admits_a_callback_that_does_yield() -> TestResult {
         lgwks_bot::rt::task::yield_now().await;
         Ok::<(), FlowError>(())
     })?;
-    let report = lgwks_bot::block_on(host.run(&yielding, ()));
+    let report = lgwks_bot::script::block_on(host.run(&yielding, ()));
     assert_eq!(
         report.disposition(),
         Disposition::Succeeded,

@@ -99,5 +99,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0061](0061-one-typed-error-per-layer.md) | One typed error per layer; a lower layer never names an upper one |
 | [0062](0062-test-builds-of-workspace-crates-are-incremental.md) | Test builds of workspace crates are incremental |
 | [0063](0063-the-durable-bench-rival-is-restate-in-the-bench-workspace.md) | The durable bench rival is Restate, in the bench workspace |
+| [0064](0064-the-crate-root-exports-the-supported-surface.md) | The crate root exports the supported surface; `kernel` gains `task`, `cap` and `sealed` (refines 0021) |
 
 New records go at the bottom of that table.

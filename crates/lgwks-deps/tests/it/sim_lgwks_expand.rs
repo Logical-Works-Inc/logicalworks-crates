@@ -80,8 +80,10 @@ fn template_pins_match(dir: &Path, name: &str) -> TestResult {
 }
 
 /// Expanding twice answers the same text, carrying the flow and the map.
-fn expand_replays(trace: &mut Trace, rng: &mut Rng, seed: u64) -> TestResult {
-    let _ = rng;
+///
+/// The family signature hands every family the seeded stream; this one draws
+/// nothing, because the seed alone names the app.
+fn expand_replays(trace: &mut Trace, _rng: &mut Rng, seed: u64) -> TestResult {
     let scratch = Scratch::fresh("expand").map_err(|error| format!("no scratch: {error}"))?;
     let name = format!("expand{seed}");
     let reference = reference_app(scratch.dir(), name.as_str())?;
@@ -136,7 +138,7 @@ fn expanded_app_passes_clippy() -> Result<(), Box<dyn Error>> {
         Some(expanded) => expanded,
         None => return Err("the expansion carries no expanded text".into()),
     };
-    let shim = "\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let scope = lgwks_bot::script::Scope::root(lgwks_bot::script::Tenant::new(\"clippy\")?);\n    let _ = lgwks_bot::block_on(drafts(&scope, 9000))?;\n    Ok(())\n}\n";
+    let shim = "\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let scope = lgwks_bot::script::Scope::root(lgwks_bot::script::Tenant::new(\"clippy\")?);\n    let _ = lgwks_bot::script::block_on(drafts(&scope, 9000))?;\n    Ok(())\n}\n";
     let mut main = expanded.to_owned();
     main.push_str(shim);
     std::fs::write(dir.join("app.rs"), main.as_str())

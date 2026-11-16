@@ -1,8 +1,9 @@
 //! The estate smoke's doubles, its error type and its two directory helpers.
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::rt::estate::EstateError;
-use lgwks_bot::verb::{Execute, Observe};
-use lgwks_bot::{Auth, Cap, EcsError, EffectLifetime};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 /// A source that answers once and requires `bot.net`, so the grant-replacement
 /// arm (live revocation) has an authority to withdraw mid-run.

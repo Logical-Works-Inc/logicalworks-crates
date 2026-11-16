@@ -117,7 +117,8 @@ impl GrantSet {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Cap, GrantSet};
+    /// use lgwks_bot::cap::Cap;
+    /// use lgwks_bot::gate::GrantSet;
     ///
     /// let grants = GrantSet::empty().grant(Cap::net());
     /// assert!(grants.admit(&[Cap::net()]).is_ok());
@@ -142,7 +143,8 @@ impl GrantSet {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Cap, GrantSet};
+    /// use lgwks_bot::cap::Cap;
+    /// use lgwks_bot::gate::GrantSet;
     ///
     /// let grants = GrantSet::empty().grant(Cap::fs());
     /// let auth = grants.issue(&[Cap::fs()])?;
@@ -172,7 +174,8 @@ impl GrantSet {
     /// ```
     /// use std::time::Duration;
     /// use lgwks_bot::clock::Clock;
-    /// use lgwks_bot::{Cap, GrantSet};
+    /// use lgwks_bot::cap::Cap;
+    /// use lgwks_bot::gate::GrantSet;
     ///
     /// let clock = Clock::virtual_at(Duration::ZERO);
     /// let auth = GrantSet::empty()

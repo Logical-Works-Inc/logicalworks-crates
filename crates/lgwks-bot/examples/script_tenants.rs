@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use lgwks_bot::rt::task::join_all_bounded;
-use lgwks_bot::rt::time::{sleep, timeout};
+use lgwks_bot::rt::time::{Clock, timeout};
 use lgwks_bot::script::{FlowError, Scope, StepKey, Tenant};
 
 #[path = "../tests/support/lock.rs"]
@@ -37,18 +37,40 @@ const PAGES: u32 = 10_000;
 /// core. The hand-written crawl is given the same number so the comparison is
 /// of the orchestration, not of the bound.
 fn machine_bound() -> usize {
-    std::thread::available_parallelism()
-        .map_or(1, std::num::NonZeroUsize::get)
+    let cores = match std::thread::available_parallelism() {
+        Ok(count) => count.get(),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "the core count is unknown, so one core is assumed");
+            1
+        }
+    };
+    cores
         .saturating_mul(64)
         .min(lgwks_bot::script::MAX_IN_FLIGHT)
 }
 
 /// A remote site that deduplicates requests by idempotency key.
-#[derive(Default)]
 struct Site {
     /// What the site has seen, behind one lock never held across an await.
     state: Mutex<SiteState>,
+    /// The clock the site's latency and the hand-written retry wait run on.
+    clock: Clock,
 }
+
+impl Default for Site {
+    fn default() -> Self {
+        Self {
+            state: Mutex::default(),
+            clock: Clock::wall(),
+        }
+    }
+}
+
+/// How long one page takes.
+const PAGE_LATENCY: Duration = Duration::from_millis(1);
+
+/// How long the hand-written crawl waits between attempts.
+const RETRY_WAIT: Duration = Duration::from_millis(5);
 
 /// The site's ledger.
 #[derive(Default)]
@@ -69,7 +91,7 @@ impl Site {
     /// Fetch `page` under `key`: one millisecond, a transient failure on the
     /// first attempt of every 97th page, and a key seen before is a duplicate.
     async fn fetch(&self, key: StepKey, page: u32) -> Result<u64, FlowError> {
-        sleep(Duration::from_millis(1)).await;
+        self.clock.sleep(PAGE_LATENCY).await;
         let mut state = take_unpoisoned(&self.state);
         if page.is_multiple_of(97) && state.failed_once.insert(page) {
             state.transient = state.transient.saturating_add(1);
@@ -141,12 +163,15 @@ async fn crawl_by_hand(site: Arc<Site>, tenant: &str, pages: Vec<u32>) -> Result
                     lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "crawl_by_hand: returning an error to the caller");
                     return refusal;
                 }
-                sleep(Duration::from_millis(5)).await;
+                site.clock.sleep(RETRY_WAIT).await;
             }
         }
     });
     let mut total: u64 = 0;
-    for outcome in join_all_bounded(machine_bound(), futures).await {
+    let outcomes = join_all_bounded(machine_bound(), futures)
+        .await
+        .map_err(|why| FlowError::failed(why.to_string()))?;
+    for outcome in outcomes {
         total = total.saturating_add(outcome?);
     }
     Ok(total)
@@ -176,7 +201,7 @@ fn rate_field(elapsed: Duration) -> String {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let mut out = std::io::stdout().lock();
     let pages: Vec<u32> = (0..PAGES).collect();
     let expected: u64 = pages.iter().map(|&page| u64::from(page)).sum();

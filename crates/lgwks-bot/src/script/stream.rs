@@ -377,7 +377,7 @@ mod tests {
                 .collect(),
         );
         let seen: RefCell<Vec<u32>> = RefCell::new(Vec::new());
-        let report: PumpReport = crate::block_on(pump(
+        let report: PumpReport = crate::rt::runtime::block_on(pump(
             &scope,
             "prices",
             &mut gate,

@@ -1,6 +1,6 @@
 //! The four verbs on a `bevy_ecs` substrate.
 //!
-//! [`Bot`] executes a spec by polling every source on every tick and
+//! `Bot` executes a spec by polling every source on every tick and
 //! evaluating every condition on the freshly polled value. That is correct and
 //! it re-derives an answer it already had: a source that did not move is
 //! evaluated anyway. This module keeps the same four verbs and the same
@@ -15,7 +15,7 @@
 //! | `Observe` | a `Chains` entry, polled by the `observe_fold` system |
 //! | `Evaluate::check` | `Changed<Revision>` on the source entity |
 //! | `Execute::execute_action` | the `fire_plan` system, whose effects run between schedule steps |
-//! | `Bot::tick()` | [`EcsBot::tick_async`], one `Schedule::run` between two awaited phases |
+//! | `Bot::tick()` | `EcsBot::tick_async`, one `Schedule::run` between two awaited phases |
 //!
 //! # One execution path, and who drives it
 //!
@@ -31,16 +31,16 @@
 //!    caller's executor.
 //! 4. **report** — the count and the first failure are written back.
 //!
-//! [`EcsBot::tick_async`] is the whole of it, and it is the way to run a bot
+//! `EcsBot::tick_async` is the whole of it, and it is the way to run a bot
 //! from async code: the verb futures are awaited *by* the caller's runtime, so
 //! a source that waits on a timer, a socket, or a sibling task has a driver
-//! making progress underneath it. [`EcsBot::tick`] is a synchronous adapter
+//! making progress underneath it. `EcsBot::tick` is a synchronous adapter
 //! over the same four phases for verbs that need no reactor; it is refused,
 //! not hung, when an async runtime is already driving the calling thread.
 //!
 //! # One semantic delta, stated rather than discovered
 //!
-//! [`Bot::tick`] evaluates a condition on **every** tick.
+//! `Bot::tick` evaluates a condition on **every** tick.
 //! `EcsBot::tick` evaluates it only on a tick where the observed value
 //! **moved**. For a condition that stays true ("status is 500" while the
 //! endpoint stays down) the first fires on every tick and the second fires
@@ -87,18 +87,18 @@
 //!
 //! # A restart continues the record rather than the process
 //!
-//! [`EcsBot::tick`] is not a boundary the run has to survive: the journal is.
+//! `EcsBot::tick` is not a boundary the run has to survive: the journal is.
 //! Every dispatch appends `IntentAdmitted` and `DispatchPrepared` *before* the
 //! effect exists to hand over, so a process that dies mid-attempt leaves a
 //! record of an attempt with no outcome behind it — and
-//! [`EcsBot::into_journal`] is how a host carries that record into the next
+//! `EcsBot::into_journal` is how a host carries that record into the next
 //! process. Assembly folds in every attempt the record names, and the three
 //! decisions it takes are deliberately different from one another:
 //!
 //! - **Outcome unknown** — nothing established whether the bytes arrived, so
 //!   the action is *held*. The walk stops at it rather than beginning another
 //!   attempt, the tick reports
-//!   [`EcsError::PendingTransition`], and
+//!   [`EcsError::PendingTransition`](crate::ecs::EcsError::PendingTransition), and
 //!   the key a caller settles by is on the report.
 //! - **Outcome landed** — the effect is done for the generation its key names,
 //!   so the walk retires the entry rather than dispatching it again. That

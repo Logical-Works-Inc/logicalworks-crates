@@ -46,7 +46,7 @@ fn attempt(
     needs: Vec<Cap>,
 ) -> Result<Report<u32>, Box<dyn Error>> {
     let declared = shared::journey_task()?;
-    Ok(lgwks_bot::block_on(host.run(
+    Ok(lgwks_bot::script::block_on(host.run(
         &declared,
         input_needing(Arc::clone(polls), 7, needs),
     )))
@@ -61,7 +61,13 @@ fn repair(
     spend: u64,
     polls: &Arc<Polls>,
 ) -> Result<Report<u32>, RepairError> {
-    lgwks_bot::block_on(host.repair(ticket, &grant, declared, input(Arc::clone(polls), 7), spend))
+    lgwks_bot::script::block_on(host.repair(
+        ticket,
+        &grant,
+        declared,
+        input(Arc::clone(polls), 7),
+        spend,
+    ))
 }
 
 /// A blocked run that reached for `needs`, with everything a caller needs to
@@ -587,7 +593,7 @@ fn the_root_budget_stays_charged_across_repair_and_resume_t13() -> TestResult {
 
     // The next resume of the same run is the budget's last attempt, and the one
     // after it is refused — a finite refusal, not an unbounded retry loop.
-    let again = lgwks_bot::block_on(host.resume(run, &declared, input(polls, 7)));
+    let again = lgwks_bot::script::block_on(host.resume(run, &declared, input(polls, 7)));
     assert!(
         again.disposition() != lgwks_bot::task::Disposition::Refused,
         "a resume within the budget still runs: {:?}",
@@ -601,7 +607,8 @@ fn the_root_budget_stays_charged_across_repair_and_resume_t13() -> TestResult {
         3,
         "the run is now at its budget"
     );
-    let refused = lgwks_bot::block_on(host.resume(run, &declared, input(Polls::shared(), 7)));
+    let refused =
+        lgwks_bot::script::block_on(host.resume(run, &declared, input(Polls::shared(), 7)));
     assert_eq!(
         refused.disposition(),
         Disposition::Refused,

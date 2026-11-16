@@ -1,8 +1,8 @@
 //! The subject of a review: a moved head, isolation between identities, the
 //! adapter's capability, and coverage (diff, rename, sandbox; T31).
 
-use lgwks_bot::EcsError;
 use lgwks_bot::domain::gh::{CommitId, Gh, PullRequest, Repository};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
 use lgwks_bot::review::{ReviewOutcome, ReviewRequest};
 use lgwks_bot::script::Scope;
@@ -130,11 +130,11 @@ fn the_adapter_refuses_without_its_capability_before_starting_anything() -> Test
     // A grant of the wrong capability: notification delivery, not process
     // control or the network. The adapter requires both of the latter, so the
     // check names every one of them that is missing.
-    let auth = lgwks_bot::GrantSet::empty()
-        .grant(lgwks_bot::Cap::notify())
+    let auth = lgwks_bot::gate::GrantSet::empty()
+        .grant(lgwks_bot::cap::Cap::notify())
         .issue(&[])?;
-    let denied = lgwks_bot::Runtime::new()?
-        .block_on(async { lgwks_bot::Query::query(&query, (auth, &())).await })
+    let denied = lgwks_bot::rt::runtime::Runtime::new()?
+        .block_on(async { lgwks_bot::verb::Query::query(&query, (auth, &())).await })
         .err()
         .ok_or("a query without bot.sys and bot.net must be denied")?;
     match denied {
@@ -145,7 +145,7 @@ fn the_adapter_refuses_without_its_capability_before_starting_anything() -> Test
                 .collect();
             assert_eq!(
                 missing,
-                vec![lgwks_bot::Cap::SYS, lgwks_bot::Cap::NET],
+                vec![lgwks_bot::cap::Cap::SYS, lgwks_bot::cap::Cap::NET],
                 "the denial names every capability the GitHub binding needs"
             );
         }

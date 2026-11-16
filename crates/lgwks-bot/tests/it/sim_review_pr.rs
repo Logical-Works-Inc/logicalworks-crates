@@ -569,7 +569,7 @@ fn argument_vectors_r64() -> TestResult {
 /// to.
 #[test]
 fn certainty_classification_r64() -> TestResult {
-    use lgwks_bot::EcsError;
+    use lgwks_bot::ecs::EcsError;
     use lgwks_bot::error::{DispatchCertainty, KernelError};
 
     let mut hashes = Vec::new();

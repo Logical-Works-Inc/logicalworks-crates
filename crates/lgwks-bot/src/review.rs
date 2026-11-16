@@ -172,12 +172,6 @@ impl ReviewRequest {
     pub fn marker(&self) -> &str {
         &self.marker
     }
-
-    /// How long each step of the run may take.
-    #[must_use]
-    pub const fn step_budget(&self) -> Duration {
-        self.step_deadline
-    }
 }
 
 // ── The outcome ─────────────────────────────────────────────────────────────
@@ -354,12 +348,6 @@ impl ReviewOutcome {
     #[must_use]
     pub const fn is_pending(&self) -> bool {
         matches!(self, Self::Pending { .. })
-    }
-
-    /// Whether a submitted review landed with only part of its comments.
-    #[must_use]
-    pub const fn is_partial(&self) -> bool {
-        matches!(self, Self::Partial { .. })
     }
 
     /// Whether the subject's coverage could not be completed.

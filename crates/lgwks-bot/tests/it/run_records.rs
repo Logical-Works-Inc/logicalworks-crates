@@ -25,7 +25,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use lgwks_bot::GrantSet;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::DurabilityPromise;
 use lgwks_bot::script::run_store::conformance::{self, Conformance, Opened};
 use lgwks_bot::script::{FlowError, RunRecords, Scope};
@@ -100,8 +100,8 @@ fn an_ephemeral_store_refuses_an_external_action() -> TestResult {
     let posting = task("posting", |scope: Scope, value: u16| async move {
         post(&scope, "channel", value).await
     })?;
-    let _ = take_trace();
-    let report = lgwks_bot::block_on(host.run(&posting, 7));
+    drop(take_trace());
+    let report = lgwks_bot::script::block_on(host.run(&posting, 7));
     let refused = report.error().and_then(|error| match *error {
         FlowError::Store { ref source, .. } => Some(&**source),
         _ => None,

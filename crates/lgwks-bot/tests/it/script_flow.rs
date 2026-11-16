@@ -14,17 +14,23 @@ use std::time::Duration;
 
 use lgwks_bot::rt::supervise::{Supervisor, TaskOutcome};
 use lgwks_bot::rt::sync::CancellationToken;
-use lgwks_bot::rt::time::sleep;
+use lgwks_bot::rt::time::Clock;
 use lgwks_bot::script::{FlowError, Scope, StepKind, Tenant};
 
 /// A test's result: an error fails it with the error's text.
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// Wait `length` on the wall clock. These flows exist to run on real timers, so
+/// the wait goes through the clock a caller injects rather than an ambient sleep.
+async fn real_wait(length: Duration) {
+    Clock::wall().sleep(length).await;
+}
+
 lgwks_bot::script! {
     /// Wait `pause`, but give up after 20 milliseconds.
     flow patient(pause: Duration) -> &'static str:
         within 20ms:
-            sleep(pause).await
+            real_wait(pause).await
             "arrived"
 
     /// Two branches that interleave, recording the order they ran in.
@@ -71,7 +77,7 @@ lgwks_bot::script! {
     /// Sleep a millisecond per item on real timers, 256 at a time.
     flow timers(count: u32) -> usize:
         let done = each item in 0..count:
-            sleep(Duration::from_millis(1)).await
+            real_wait(Duration::from_millis(1)).await
             item
         give back done.len()
 
@@ -81,7 +87,7 @@ lgwks_bot::script! {
         let done = each item in 0..count:
             retry up to 3 times, waiting 1ms:
                 within 1s:
-                    sleep(Duration::from_millis(1)).await
+                    real_wait(Duration::from_millis(1)).await
                     item
         give back done.len()
 
@@ -89,14 +95,14 @@ lgwks_bot::script! {
     flow stop_from_body(count: u32) -> usize:
         let done = each item in 0..count:
             if item == 3 { scope.cancel(); }
-            sleep(Duration::from_secs(30)).await
+            real_wait(Duration::from_secs(30)).await
             item
         give back done.len()
 
     /// Wait until stopped: the shape of a long-running loop under a supervisor.
     flow until_stopped() -> ():
         within 1h:
-            sleep(Duration::from_secs(3_600)).await
+            real_wait(Duration::from_secs(3_600)).await
 }
 
 /// A root scope for tenant `acme`.
@@ -107,13 +113,13 @@ fn acme() -> Result<Scope, FlowError> {
 #[test]
 fn a_deadline_that_passes_fails_the_step_as_timed_out() -> TestResult {
     let scope = acme()?;
-    let quick = lgwks_bot::block_on(patient(&scope, Duration::ZERO))?;
+    let quick = lgwks_bot::script::block_on(patient(&scope, Duration::ZERO))?;
     assert_eq!(
         quick, "arrived",
         "a body inside its deadline returns its value"
     );
 
-    let slow = lgwks_bot::block_on(patient(&scope, Duration::from_secs(5)));
+    let slow = lgwks_bot::script::block_on(patient(&scope, Duration::from_secs(5)));
     let Err(FlowError::TimedOut { ref at, after }) = slow else {
         return Err(format!("expected a timeout, got {slow:?}").into());
     };
@@ -137,7 +143,7 @@ fn a_deadline_that_passes_fails_the_step_as_timed_out() -> TestResult {
 fn together_runs_its_branches_concurrently_and_binds_each_result() -> TestResult {
     let scope = acme()?;
     let log = RefCell::new(Vec::new());
-    let total = lgwks_bot::block_on(interleaved(&scope, &log))?;
+    let total = lgwks_bot::script::block_on(interleaved(&scope, &log))?;
     assert_eq!(total, 2, "each branch's value is bound to its name");
     let order = log.take();
     assert_eq!(order.len(), 4, "both branches ran to their end");
@@ -154,12 +160,12 @@ fn together_runs_its_branches_concurrently_and_binds_each_result() -> TestResult
 #[test]
 fn two_runs_of_one_flow_in_one_scope_get_distinct_stable_keys() -> TestResult {
     let scope = acme()?;
-    let (first, second) = lgwks_bot::block_on(twice(&scope))?;
+    let (first, second) = lgwks_bot::script::block_on(twice(&scope))?;
     assert_ne!(
         first, second,
         "a second call is a second step, not a duplicate of the first"
     );
-    let (again_first, again_second) = lgwks_bot::block_on(twice(&scope))?;
+    let (again_first, again_second) = lgwks_bot::script::block_on(twice(&scope))?;
     assert_eq!(
         (first, second),
         (again_first, again_second),
@@ -171,7 +177,7 @@ fn two_runs_of_one_flow_in_one_scope_get_distinct_stable_keys() -> TestResult {
 #[test]
 fn every_iteration_of_a_for_runs_in_its_own_scope() -> TestResult {
     let scope = acme()?;
-    let paths = lgwks_bot::block_on(ladder(&scope, 3))?;
+    let paths = lgwks_bot::script::block_on(ladder(&scope, 3))?;
     assert_eq!(
         paths,
         [
@@ -187,9 +193,12 @@ fn every_iteration_of_a_for_runs_in_its_own_scope() -> TestResult {
 #[test]
 fn branches_choose_the_value_and_a_refusing_branch_fails_the_flow() -> TestResult {
     let scope = acme()?;
-    assert_eq!(lgwks_bot::block_on(classify(&scope, 0))?, "zero");
-    assert_eq!(lgwks_bot::block_on(classify(&scope, 7))?, "positive");
-    let refused = lgwks_bot::block_on(classify(&scope, -1));
+    assert_eq!(lgwks_bot::script::block_on(classify(&scope, 0))?, "zero");
+    assert_eq!(
+        lgwks_bot::script::block_on(classify(&scope, 7))?,
+        "positive"
+    );
+    let refused = lgwks_bot::script::block_on(classify(&scope, -1));
     let Err(error) = refused else {
         return Err("a negative value is refused".into());
     };
@@ -208,7 +217,7 @@ fn branches_choose_the_value_and_a_refusing_branch_fails_the_flow() -> TestResul
 #[test]
 fn a_fan_out_over_real_timers_finishes_and_yields_to_its_executor() -> TestResult {
     let scope = acme()?;
-    let finished = lgwks_bot::block_on(lgwks_bot::rt::time::timeout(
+    let finished = lgwks_bot::script::block_on(lgwks_bot::rt::time::timeout(
         Duration::from_secs(8),
         timers(&scope, 10_000),
     ));
@@ -223,7 +232,7 @@ fn a_fan_out_over_real_timers_finishes_and_yields_to_its_executor() -> TestResul
 /// this file does not compile if a flow stops being `Send`.
 #[test]
 fn a_flow_nesting_every_block_is_send_and_runs_spawned_per_tenant() -> TestResult {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let counts = runtime.block_on(async {
         let mut tenants = lgwks_bot::rt::task::JoinSet::new();
         for name in ["acme", "globex"] {
@@ -254,7 +263,7 @@ fn a_flow_nesting_every_block_is_send_and_runs_spawned_per_tenant() -> TestResul
 fn cancelling_inside_a_body_stops_the_whole_fan_out() -> TestResult {
     let scope = acme()?;
     let started = std::time::Instant::now();
-    let stopped = lgwks_bot::block_on(stop_from_body(&scope, 100));
+    let stopped = lgwks_bot::script::block_on(stop_from_body(&scope, 100));
     let Err(ref error) = stopped else {
         return Err(format!("expected a stop, got {stopped:?}").into());
     };
@@ -271,7 +280,7 @@ fn cancelling_inside_a_body_stops_the_whole_fan_out() -> TestResult {
 
 #[test]
 fn a_supervisor_owns_a_flow_and_its_shutdown_stops_it() -> TestResult {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let outcomes = runtime.block_on(async {
         let mut supervisor = Supervisor::new(4);
         supervisor

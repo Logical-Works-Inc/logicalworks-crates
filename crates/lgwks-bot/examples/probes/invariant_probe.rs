@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // work and hands the caller something it can drop. There is nothing left to
     // demonstrate: what replaces it is the only shape the API has, and it is
     // owned from the first line to the last.
-    let rt = lgwks_bot::Runtime::new()?;
+    let rt = lgwks_bot::rt::runtime::Runtime::new()?;
     rt.block_on(async {
         let mut supervisor = lgwks_bot::rt::supervise::Supervisor::default();
         supervisor.spawn(|_token| async {}).await;

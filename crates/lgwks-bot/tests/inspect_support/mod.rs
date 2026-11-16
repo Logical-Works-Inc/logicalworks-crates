@@ -15,11 +15,16 @@ use std::error::Error;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::domain::inspect::Subject;
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::inspect::Inspection;
 use lgwks_bot::journal::MemoryJournal;
+use lgwks_bot::registry::Action;
 use lgwks_bot::spec::{Bot, BotSpec, EffectScope};
-use lgwks_bot::{Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, domains};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 
 /// A test result that may carry an `EcsError`, an id error or an I/O error.
 pub type TestResult<T> = Result<T, Box<dyn Error>>;

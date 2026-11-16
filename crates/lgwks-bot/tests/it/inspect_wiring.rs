@@ -17,12 +17,13 @@ use std::error::Error;
 use inspect_support::{
     INSPECT_DOMAINS, TestResult, artifact_for, observe_once, scope, spec_for, tick_once,
 };
+use lgwks_bot::cap::Cap;
 use lgwks_bot::domain::inspect::{InspectionJob, Inspector, inspection_task};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::inspect::{InspectRequest, Inspection, inspect};
-use lgwks_bot::spec::Bot;
+use lgwks_bot::spec::{Admission, Bot, Need};
 use lgwks_bot::task::Host;
 use lgwks_bot::verb::Query;
-use lgwks_bot::{Admission, Cap, GrantSet, Need};
 
 #[test]
 fn both_entry_points_produce_the_identical_inspection() -> TestResult<()> {

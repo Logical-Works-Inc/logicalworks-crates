@@ -729,8 +729,8 @@ mod tests {
             GraphNode::new("beside", &[], |_| Box::pin(async { Ok(()) })),
         ];
         let scope = Scope::root(Tenant::new("acme").map_err(|error| error.to_string())?);
-        let report =
-            crate::block_on(graph(&scope, "ship", 4, nodes)).map_err(|error| error.to_string())?;
+        let report = crate::rt::runtime::block_on(graph(&scope, "ship", 4, nodes))
+            .map_err(|error| error.to_string())?;
         assert_eq!(
             report.failed(),
             vec!["broken"],

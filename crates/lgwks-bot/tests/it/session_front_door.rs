@@ -7,9 +7,9 @@
 use std::collections::BTreeMap;
 
 use lgwks_bot::session::{
-    FlowBounds, FlowSpec, MatchTier, NodeKind, Question, Resolution, Session, Terminal, VarType,
+    CompiledTemplate, FlowBounds, FlowSpec, MatchTier, NodeKind, Question, Resolution, Resolver,
+    ResourceAxis, ResourceLimits, Session, SessionError, Terminal, VarScope, VarType,
 };
-use lgwks_bot::{CompiledTemplate, Resolver, ResourceAxis, ResourceLimits, SessionError, VarScope};
 
 /// What every fallible test here returns.
 type TestResult = Result<(), Box<dyn std::error::Error>>;

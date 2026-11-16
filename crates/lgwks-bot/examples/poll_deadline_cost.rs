@@ -24,7 +24,11 @@
 use std::io::Write;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::{Auth, Bot, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 #[path = "support/measure.rs"]
 mod measure;

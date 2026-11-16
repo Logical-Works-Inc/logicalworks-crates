@@ -89,7 +89,7 @@ fn run_fan_out(
     list: Vec<Item>,
     limit: usize,
 ) -> Result<Vec<u64>, FanOutError<Refused>> {
-    lgwks_bot::block_on(FanOut::new(list).at_most(limit).run(|item| async move {
+    lgwks_bot::script::block_on(FanOut::new(list).at_most(limit).run(|item| async move {
         let live = probe.enter();
         Turns(item.turns).await;
         if item.fails {
@@ -200,7 +200,7 @@ fn fan_out_deadline(band: Band) -> TestResult {
         let limit = seeded_limit(sim, 8)?;
         let deadline = Duration::from_millis(20);
         let probe = Probe::default();
-        let outcome = lgwks_bot::block_on(
+        let outcome = lgwks_bot::script::block_on(
             FanOut::new(0..count)
                 .at_most(limit)
                 .within(deadline)
@@ -238,7 +238,8 @@ fn fan_out_refusals_and_drop(band: Band) -> TestResult {
         let probe = Probe::default();
         let body = |value: u32| stalled(&probe, value);
         for refused in [0, MAX_IN_FLIGHT.saturating_add(1)] {
-            let outcome = lgwks_bot::block_on(FanOut::new(0..3_u32).at_most(refused).run(body));
+            let outcome =
+                lgwks_bot::script::block_on(FanOut::new(0..3_u32).at_most(refused).run(body));
             assert!(
                 matches!(
                     outcome,

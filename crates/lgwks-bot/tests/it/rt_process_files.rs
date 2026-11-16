@@ -17,8 +17,8 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;

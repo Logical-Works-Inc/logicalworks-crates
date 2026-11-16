@@ -10,9 +10,10 @@
 //! no-default-features documentation build.
 //! A consumer hosting flows has one more supported path, [`kernel`], for the clock,
 //! journal, broker, lease, gate, effect and retry parts underneath them (#845).
-//! Every other module and root re-export is `#[doc(hidden)]` support, still
-//! reachable by this crate's own tests and by the expansion, and kept out of the
-//! documented surface by #526.
+//! The crate root exports `script!`, `try_join!`, `script`, `kernel` and `app`
+//! and nothing else (#1016). Every other module is `#[doc(hidden)]` support,
+//! named by its full path in this crate's own tests and in the expansion, and
+//! kept out of the documented surface by #526.
 //!
 //! Bots are assembled from `(condition, action)` chains that bind observed
 //! sources to side effects. Authority is proof-carrying: every `poll`,
@@ -76,8 +77,8 @@
 //! carries a given symbol is in the changelog (`CHANGELOG.md` in the repository,
 //! with the 3.0.0 migration notes under `docs/changelog/`); check it before
 //! relying on a symbol. Everything outside `script!`, `try_join!`, the
-//! `script` module and [`kernel`] is `#[doc(hidden)]` support code with no
-//! compatibility promise (#526).
+//! `script` module, `app` and [`kernel`] is `#[doc(hidden)]` support code with
+//! no compatibility promise (#526).
 //!
 //! # Quick start
 //!
@@ -102,7 +103,7 @@
 //! // Every flow takes a scope first; it carries the tenant, the step path and
 //! // the cancellation token.
 //! let scope = Scope::root(Tenant::new("acme")?);
-//! let total = lgwks_bot::block_on(squares(&scope, vec![1, 2, 3]))?;
+//! let total = lgwks_bot::script::block_on(squares(&scope, vec![1, 2, 3]))?;
 //! assert_eq!(total, 14);
 //!
 //! // The block also emitted a map of what it declared.
@@ -146,20 +147,6 @@
 #[doc = include_str!("../README-script.md")]
 struct ReadmeExamples;
 
-use std::future::Future;
-use std::pin::Pin;
-
-/// A boxed, non-`Send` future used to type-erase the async verbs behind the
-/// `Bot`'s dynamic chains and behind [`domain::flow::PipelineStep`]. The public
-/// verb traits declare return-position `impl Future`, so a domain still writes
-/// `async fn` in its impl and only the erasure boundary boxes — which is what
-/// avoids an `async-trait` dependency.
-///
-/// Public because it appears in the public `PipelineStep` signature: an
-/// implementer must be able to name the return type.
-#[doc(hidden)]
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
-
 /// The environment broker: which environments a run owns, which generation each
 /// is at, and the authority to hand one exact attempt to one of them.
 ///
@@ -179,7 +166,7 @@ pub mod cap_token;
 ///
 /// [`CasWrite`](crate::domain::cas::CasWrite) applies a write only when the
 /// record still holds the version the writer saw; a late write is the typed
-/// [`KernelError::Conflict`] outcome — recorded in the
+/// [`KernelError::Conflict`](crate::error::KernelError::Conflict) outcome — recorded in the
 /// store's bounded conflict log, never retried blindly (issue #278, row 5).
 #[doc(hidden)]
 pub mod cas;
@@ -213,9 +200,10 @@ pub mod domain {
 }
 #[cfg(feature = "edge")]
 pub mod app;
-/// The app layer's error: a sum of the layer errors, re-exported as
-/// [`BotError`]. Private: the root re-export is the one path to it (#990).
-mod app_error;
+/// The app layer's error: a sum of the layer errors. Public under its own path
+/// since #1016 took the root re-export away (#990).
+#[doc(hidden)]
+pub mod app_error;
 /// Sequential per-tenant execution cells: the request system's thread-per-core
 /// host, its command logs and its effect seam (issue #790). Private: it is the
 /// implementation behind [`RequestFeed`](crate::ecs::RequestFeed), not a second
@@ -246,11 +234,13 @@ pub mod dist_lease;
 /// directory. Private: `cas`, the `tenant_store` snapshot and the journal's seal
 /// are its callers, so the order of those calls is decided once (#910).
 mod durable;
-/// The `bevy_ecs` substrate the verbs execute on. Private: it is the
-/// implementation, not a second way to run a bot. Its substrate submodules are
-/// gated behind `ecs` inside, so a process-only consumer never compiles them
-/// (#687); the pending-work vocabulary they report in is built everywhere.
-mod ecs;
+/// The `bevy_ecs` substrate the verbs execute on, and the one path to the types
+/// it reports in, since #1016 took the crate-root copies away. Its substrate
+/// submodules are gated behind `ecs` inside, so a process-only consumer never
+/// compiles them (#687); the pending-work vocabulary they report in is built
+/// everywhere.
+#[doc(hidden)]
+pub mod ecs;
 /// Durable effect identity: the exact key a settlement is a statement about.
 ///
 /// The ledger already refuses a contradicting settlement; this supplies the
@@ -260,7 +250,7 @@ mod ecs;
 /// moment the ledger accepts one. See [`EffectKey`](effect::EffectKey).
 #[doc(hidden)]
 pub mod effect;
-/// The kernel's typed errors: [`KernelError`], and the retry vocabulary every
+/// The kernel's typed errors: [`KernelError`](crate::error::KernelError), and the retry vocabulary every
 /// layer's error answers in.
 #[doc(hidden)]
 pub mod error;
@@ -366,15 +356,15 @@ pub mod language;
 pub mod proposal;
 /// The `domain_id -> constructor` registry: what a spec's strings resolve to.
 ///
-/// Private, with curated re-exports beside `BotSpec` below, because the registry
-/// is one concern — which identifiers a binary can run — rather than a second
-/// namespace to learn.
-mod registry;
+/// One concern, which identifiers a binary can run, named by its own path since
+/// #1016 took the crate-root copies away.
+#[doc(hidden)]
+pub mod registry;
 /// Whether a failed attempt may be tried again.
 ///
-/// The vocabulary lives in [`error`]: [`RetryClass`] says
-/// what a failure permits and [`DispatchCertainty`] says
-/// what it established. What this module adds is RQ-009's decision rule, which
+/// The vocabulary lives in [`error`]: [`RetryClass`](crate::error::RetryClass)
+/// says what a failure permits and
+/// [`DispatchCertainty`](crate::error::DispatchCertainty) says what it established. What this module adds is RQ-009's decision rule, which
 /// composes those with the budget, the authority, the intent and any remote
 /// deduplication contract.
 #[doc(hidden)]
@@ -424,7 +414,11 @@ pub mod script;
 /// (crypto-erasure, NIST SP 800-88); reads fold a destroyed key to a tombstone,
 /// a missing key to an error, and a transient provider fault to a retryable
 /// error that neither resurrects nor drops the record.
+///
+/// Supported through [`kernel`] as `kernel::sealed` since #1016; this path is
+/// the support path to the same items.
 #[cfg(feature = "sealed")]
+#[doc(hidden)]
 pub mod sealed;
 /// The semantic tier: resolving an utterance a lexicon cannot reach.
 #[doc(hidden)]
@@ -455,7 +449,7 @@ mod sim_world;
 /// [`SkewBound`](crate::skew::SkewBound) is how far two honest clocks may disagree;
 /// [`MonoDeadline`](crate::skew::MonoDeadline) and [`WallStamp`](crate::skew::WallStamp) keep
 /// the deadline a lease carries apart from the timestamp a record shows. Wired
-/// rather than offered: [`Auth::check_remote`] judges
+/// rather than offered: [`Auth::check_remote`](crate::cap::Auth::check_remote) judges
 /// a proof minted on one clock against a foreign reading within the bound
 /// (issue #278, row 2).
 #[doc(hidden)]
@@ -463,11 +457,11 @@ pub mod skew;
 /// The serializable spec contract, the materializer that walks one against a
 /// registry, and the builder that assembles bots.
 ///
-/// `Bot::from_spec` (under `ecs`) is the materializer: a [`BotSpec`] plus a
-/// `DomainRegistry` plus the caller's [`GrantSet`] produces a runnable
+/// `Bot::from_spec` (under `ecs`) is the materializer: a [`BotSpec`](spec::BotSpec)
+/// plus a `DomainRegistry` plus the caller's [`GrantSet`](gate::GrantSet) produces a runnable
 /// `Bot` through the same `assemble`/`build` path a native bot uses, with no
 /// second interpreter and no second execution path. It is all-or-nothing: an
-/// unmet need is reported as a complete, attributed [`NeedSet`] and nothing is
+/// unmet need is reported as a complete, attributed [`NeedSet`](spec::NeedSet) and nothing is
 /// built, and admission validates a registry with a duplicate identifier rather
 /// than letting lookup depend on declaration order.
 ///
@@ -491,7 +485,7 @@ pub mod spec;
 /// value a reader gets out of that is one nobody on the system ever held. This
 /// module is the discipline commercial automation applies to it with: two
 /// independent reads must agree, and a reading that cannot be confirmed is
-/// reported as [`EcsError::UnstableObservation`] — pending, never a change.
+/// reported as `EcsError::UnstableObservation`: pending, never a change.
 ///
 /// Wired rather than offered: [`domain::data::JsonStore`] reads through
 /// [`stability::read_stable_file`], so every poll of a JSON-backed store is
@@ -528,71 +522,6 @@ pub mod verb;
 #[cfg(all(test, feature = "wire"))]
 mod world;
 
-#[doc(hidden)]
-pub use app_error::BotError;
-#[doc(hidden)]
-pub use cap::{Auth, Cap, Deficit, Demand, Shortage};
-#[doc(hidden)]
-pub use ecs::EcsError;
-#[doc(hidden)]
-#[cfg(feature = "ecs")]
-pub use ecs::WakeHandle;
-#[doc(hidden)]
-#[cfg(feature = "ecs")]
-pub use ecs::{
-    DEFAULT_POLL_DEADLINE, ForcedRefresh, MAX_POLL_DEADLINE, RunCounts, RunFeed, RunOutcome,
-    SettledRun, StalledSource, SupersededObservation, TickReport,
-};
-#[cfg(all(feature = "ecs", feature = "wire"))]
-pub use ecs::{ProjectionError, RecordFold, RecordProjection};
-#[doc(hidden)]
-#[cfg(feature = "edge")]
-pub use ecs::{Request, RequestCounts, RequestFeed, Response};
-/// The per-stage tick profiler (feature `profile`): six named stages and the
-/// measured time each spent.
-///
-/// A measurement instrument rather than a capability, so it is default-off and
-/// re-exported on its own line rather than inside the four-verb list — the same
-/// reason [`RefreshReason`] is. `bench/` is the caller: the ratio it publishes
-/// against a hand-rolled loop is only readable once someone says which stage the
-/// ratio is made of.
-#[cfg(feature = "profile")]
-#[doc(hidden)]
-pub use ecs::{TickProfile, TickStage};
-#[doc(hidden)]
-pub use effect::{EventId, InputIdentity};
-#[doc(hidden)]
-pub use error::{DispatchCertainty, KernelError, RetryClass};
-#[doc(hidden)]
-pub use gate::GrantSet;
-#[doc(hidden)]
-pub use language::{Alias, LanguageResolver};
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-#[doc(hidden)]
-pub use registry::{Action, ActionCtor, Condition, DomainRegistry, Source, SourceCtor};
-#[cfg(feature = "rt")]
-#[doc(hidden)]
-pub use rt::runtime::{Builder, Handle, Runtime, block_on};
-#[doc(hidden)]
-pub use semantic::{Embedder, EmbedderIdentity, SemanticError, SemanticPolicy, SemanticResolver};
-#[doc(hidden)]
-pub use session::{
-    AnswerDomain, AnswerRejection, ChoiceArm, CompiledTemplate, DecisionReceipt, DegradedReason,
-    Disposition, EffectLedger, FlowBounds, FlowEdge, FlowNodeKind, FlowSpec, Interpolate, Journal,
-    JournalError, MAX_FLOW_BYTES, MAX_FLOW_SPEC_BYTES, MAX_RECORD_BYTES, MAX_SESSION_BYTES,
-    MAX_UTTERANCE_BYTES, MAX_VALUE_BYTES, MatchTier, MemoryJournal, NodeId, NodeKind, Outcome,
-    PolicyVersion, Predicate, Provenance, Question, RECEIPT_VERSION, ReceiptAcceptance,
-    RecordedDecision, Resolution, Resolver, ResourceAxis, ResourceLimits, Session, SessionError,
-    SessionId, TemplateInterpolator, TemplatePart, Terminal, TranscriptEntry, Value, ValueExpr,
-    VarScope, VarType, Verdict,
-};
-/// The live bot itself, behind `ecs` like the substrate it executes on.
-#[cfg(feature = "ecs")]
-#[doc(hidden)]
-pub use spec::Bot;
-#[doc(hidden)]
-pub use spec::{Admission, BotSpec, Need, NeedSet};
-
 /// Write orchestration as indented blocks that expand to bounded,
 /// deadline-carrying, tenant-keyed flows over [`script`](mod@script), plus an
 /// `ARCHITECTURE` map of what was declared. The language is documented on
@@ -617,54 +546,12 @@ pub use spec::{Admission, BotSpec, Need, NeedSet};
 ///
 /// # fn main() -> Result<(), FlowError> {
 /// let scope = Scope::root(Tenant::new("acme")?);
-/// assert_eq!(lgwks_bot::block_on(total(&scope, vec![1, 2, 3]))?, 9);
+/// assert_eq!(lgwks_bot::script::block_on(total(&scope, vec![1, 2, 3]))?, 9);
 /// # Ok(())
 /// # }
 /// ```
 #[cfg(feature = "script")]
 pub use lgwks_macros::script;
-/// When the world polls a source ([`Observe::cadence`]); not a verb either.
-#[doc(hidden)]
-pub use verb::Cadence;
-#[doc(hidden)]
-pub use verb::EffectLifetime;
-/// Why a source cannot be trusted to answer "has this changed?" this tick, and the
-/// statement it makes through [`Observe::cache_state`].
-///
-/// Re-exported on its own line rather than inside the four-verb list below,
-/// because it is not a verb. `verb::tests::the_crate_root_reexports_exactly_those_four_verbs`
-/// reads that list as the four verbs and nothing else, so a fifth name beside them
-/// would make the invariant it guards fail for a type that is not a verb.
-#[doc(hidden)]
-pub use verb::RefreshReason;
-#[doc(hidden)]
-pub use verb::{Evaluate, Execute, Observe, Query};
-
-/// Typed in-process structural inspection (feature `inspect`).
-///
-/// [`Verdict`](inspect::Verdict) stays under `inspect::` because the session
-/// surface already exports a `Verdict` at the crate root; the two are unrelated
-/// and one name cannot mean two things.
-#[cfg(feature = "inspect")]
-#[doc(hidden)]
-pub use inspect::{
-    Budgets, Finding, InspectRequest, Inspection, RuleCoverage, RuleSet, UnsupportedReason, inspect,
-};
-
-/// Wait for all of a set of futures, returning their outputs in input order.
-///
-/// Re-exported from the crate-owned driver so callers never name it. For a
-/// fan-out that must be bounded, prefer `rt::task::join_all_bounded`.
-#[cfg(all(feature = "rt", feature = "macros"))]
-#[doc(hidden)]
-pub use lgwks_deps::tokio::join;
-
-/// Race a set of futures, running the first branch that becomes ready.
-///
-/// Re-exported from the crate-owned driver so callers never name it.
-#[cfg(all(feature = "rt", feature = "macros"))]
-#[doc(hidden)]
-pub use lgwks_deps::tokio::select;
 
 /// Wait for all of a set of fallible futures, short-circuiting on the first
 /// error. Re-exported from the crate-owned driver so callers never name it.
@@ -689,7 +576,7 @@ pub use lgwks_deps::tokio::select;
 ///
 /// # fn main() -> Result<(), FlowError> {
 /// let scope = Scope::root(Tenant::new("acme")?);
-/// assert_eq!(lgwks_bot::block_on(pair(&scope, 10))?, 50);
+/// assert_eq!(lgwks_bot::script::block_on(pair(&scope, 10))?, 50);
 /// # Ok(())
 /// # }
 /// ```

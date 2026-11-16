@@ -33,10 +33,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::proposal::{Shape, StubModel};
 use lgwks_bot::script::{AskRequest, FetchOptions, FlowError, Scope};
 use lgwks_bot::task::task;
-use lgwks_bot::{Cap, GrantSet};
 
 use crate::effect_policy::allowing;
 use crate::outside_support::{Behavior, OutsideError, StubMailer, Upstream};
@@ -110,7 +111,7 @@ fn sim_fetch_refuses_every_body_bound_outside_its_range() -> TestResult {
                 get(&scope, &url, &FetchOptions::default().max_body_bytes(bound)).await
             },
         )?;
-        let report = lgwks_bot::block_on(host.run(&fetching, (upstream.url(), bound)));
+        let report = lgwks_bot::script::block_on(host.run(&fetching, (upstream.url(), bound)));
         let hits = upstream.hits();
         upstream.join();
         let Some(&FlowError::InvalidBound { value, max, .. }) = report.error() else {
@@ -138,7 +139,7 @@ fn sim_fetch_word_refuses_an_attempt_count_outside_one_to_a_thousand() -> TestRe
             let options = FetchOptions::default().attempts(attempts);
             get(&scope, "http://127.0.0.1:9/", &options).await
         })?;
-        let refused = lgwks_bot::block_on(host.run(&fetching, attempts));
+        let refused = lgwks_bot::script::block_on(host.run(&fetching, attempts));
         match refused.error() {
             Some(&FlowError::InvalidBound { value, .. }) if value == u64::from(attempts) => {
                 sim.record(&format!("attempts:{attempts}"));
@@ -201,7 +202,7 @@ fn sim_fetch_refuses_a_zero_deadline_whatever_its_budget() -> TestResult {
                 .deadline(Duration::ZERO);
             lgwks_bot::script::fetch(&scope, "deadline", &url, &zero).await
         })?;
-        let report = lgwks_bot::block_on(host.run(&fetching, url));
+        let report = lgwks_bot::script::block_on(host.run(&fetching, url));
         let hits = upstream.hits();
         upstream.join();
         let refused = matches!(
@@ -233,7 +234,7 @@ fn sim_fetch_without_the_net_grant_is_blocked_and_dials_nothing() -> TestResult 
         let fetching = task("net", |scope: Scope, url: String| async move {
             get(&scope, &url, &FetchOptions::default()).await
         })?;
-        let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+        let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
         let hits = upstream.hits();
         upstream.join();
         let Some(blocked) = report.error() else {
@@ -267,9 +268,9 @@ fn sim_send_refuses_a_resumed_payload_under_another_intent() -> TestResult {
         let host = host_on(scratch.path(), "acme", outside_grants())?;
         mailer.fail_next_read();
         let crashed =
-            lgwks_bot::block_on(allowing(host.run(&sending, (Arc::clone(&mailer), first))));
+            lgwks_bot::script::block_on(allowing(host.run(&sending, (Arc::clone(&mailer), first))));
         let run = run_of(&crashed)?;
-        let resumed = lgwks_bot::block_on(allowing(host.resume(
+        let resumed = lgwks_bot::script::block_on(allowing(host.resume(
             run,
             &sending,
             (Arc::clone(&mailer), other),
@@ -297,14 +298,15 @@ fn sim_send_after_a_refused_dispatch_dispatches_again_once() -> TestResult {
             },
         )?;
         mailer.refuse_next_dispatch();
-        let refused = lgwks_bot::block_on(allowing(
+        let refused = lgwks_bot::script::block_on(allowing(
             host.run(&sending, (Arc::clone(&mailer), payload.clone())),
         ));
         if refused.error().is_none() || mailer.calls() != 1 {
             return fail("a refused dispatch fails the run after one attempt");
         }
-        let again =
-            lgwks_bot::block_on(allowing(host.run(&sending, (Arc::clone(&mailer), payload))));
+        let again = lgwks_bot::script::block_on(allowing(
+            host.run(&sending, (Arc::clone(&mailer), payload)),
+        ));
         match again.output() {
             Some(outcome) if is_applied(outcome) && mailer.calls() == 2 => {
                 sim.record(&format!("refused:{name}"));
@@ -353,13 +355,13 @@ fn sim_send_without_the_notify_grant_is_blocked_while_its_peer_sends() -> TestRe
             },
         )?;
         let payload = sim.rng().below(1_000).to_be_bytes().to_vec();
-        let blocked = lgwks_bot::block_on(allowing(
+        let blocked = lgwks_bot::script::block_on(allowing(
             blocked_host.run(&sending, (Arc::clone(&mailer), payload.clone())),
         ));
         let named = blocked.error().is_some_and(|error| {
             matches!(error, FlowError::Blocked { .. }) && error.to_string().contains("bot.notify")
         });
-        let sent = lgwks_bot::block_on(allowing(
+        let sent = lgwks_bot::script::block_on(allowing(
             granted_host.run(&sending, (Arc::clone(&mailer), payload)),
         ));
         let settled = sent.output().is_some_and(is_applied);

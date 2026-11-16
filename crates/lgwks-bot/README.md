@@ -55,7 +55,7 @@ lgwks_bot::script! {
 
 fn main() -> Result<(), FlowError> {
     let scope = Scope::root(Tenant::new("acme")?);
-    let total = lgwks_bot::block_on(squares(&scope, vec![1, 2, 3]))?;
+    let total = lgwks_bot::script::block_on(squares(&scope, vec![1, 2, 3]))?;
     assert_eq!(total, 14);
     assert!(ARCHITECTURE.to_string().contains("each number in numbers"));
     Ok(())

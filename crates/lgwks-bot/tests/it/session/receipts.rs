@@ -10,9 +10,8 @@
 
 use std::cell::Cell;
 
-use lgwks_bot::{
-    DegradedReason, MatchTier, RECEIPT_VERSION, SemanticPolicy, SemanticResolver, Session, Value,
-};
+use lgwks_bot::semantic::{SemanticPolicy, SemanticResolver};
+use lgwks_bot::session::{DegradedReason, MatchTier, RECEIPT_VERSION, Session, Value};
 
 use super::*;
 

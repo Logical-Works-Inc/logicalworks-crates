@@ -4,7 +4,9 @@ use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::rc::Rc;
 
-use lgwks_bot::{Bot, GrantSet, RefreshReason};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::RefreshReason;
 
 use crate::declarable::Declarable;
 use crate::effects::memory_scope;

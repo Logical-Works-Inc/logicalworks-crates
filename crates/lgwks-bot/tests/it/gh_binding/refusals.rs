@@ -22,7 +22,7 @@ fn a_renamed_repository_is_a_typed_move_naming_both_names() -> TestResult {
     script.configure(Scenario::new(HEAD).repository_moved())?;
     let gh = script.binding("acme/widgets", 64 * 1024)?;
 
-    let error = lgwks_bot::Runtime::new()?
+    let error = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(gh.snapshot(&pull()?))
         .err()
         .ok_or("a renamed repository must be refused, not silently followed")?;
@@ -55,7 +55,7 @@ fn a_permission_refusal_is_a_typed_unauthorized_not_a_transport_failure() -> Tes
     script.configure(Scenario::new(HEAD).deny_reads())?;
     let gh = script.binding("acme/widgets", 64 * 1024)?;
 
-    let error = lgwks_bot::Runtime::new()?
+    let error = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(gh.read_reviews(&pull()?))
         .err()
         .ok_or("a denied read must be refused")?;
@@ -83,7 +83,7 @@ fn a_failure_naming_no_status_stays_a_transport_failure() -> TestResult {
     script.configure(Scenario::new(HEAD).fail_reads(1))?;
     let gh = script.binding("acme/widgets", 64 * 1024)?;
 
-    let error = lgwks_bot::Runtime::new()?
+    let error = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(gh.read_reviews(&pull()?))
         .err()
         .ok_or("a refused read must be an error")?;
@@ -108,7 +108,7 @@ fn a_diff_past_its_file_ceiling_is_a_typed_coverage_refusal() -> TestResult {
     script.configure(Scenario::new(HEAD).with_filler_files(over))?;
     let gh = script.binding("acme/widgets", 4 * 1024 * 1024)?;
 
-    let error = lgwks_bot::Runtime::new()?
+    let error = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(gh.read_diff(&pull()?))
         .err()
         .ok_or("a diff past the file ceiling must be refused")?;
@@ -135,7 +135,7 @@ fn an_unavailable_diff_is_a_typed_coverage_refusal() -> TestResult {
     script.configure(Scenario::new(HEAD).diff_unavailable())?;
     let gh = script.binding("acme/widgets", 64 * 1024)?;
 
-    let error = lgwks_bot::Runtime::new()?
+    let error = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(gh.read_diff(&pull()?))
         .err()
         .ok_or("an unavailable diff must be refused")?;
@@ -161,7 +161,7 @@ fn a_changed_file_inventory_is_read_as_data() -> TestResult {
     script.configure(Scenario::new(HEAD).hostile_build_script())?;
     let gh = script.binding("acme/widgets", 64 * 1024)?;
 
-    let diff = lgwks_bot::Runtime::new()?.block_on(gh.read_diff(&pull()?))?;
+    let diff = lgwks_bot::rt::runtime::Runtime::new()?.block_on(gh.read_diff(&pull()?))?;
     assert_eq!(
         diff.number(),
         7,
@@ -190,7 +190,7 @@ fn a_changed_file_inventory_is_read_as_data() -> TestResult {
     let bare = ScriptedGh::install("inventory-empty", HEAD)?;
     bare.configure(Scenario::new(HEAD))?;
     let gh = bare.binding("acme/widgets", 64 * 1024)?;
-    let empty = lgwks_bot::Runtime::new()?.block_on(gh.read_diff(&pull()?))?;
+    let empty = lgwks_bot::rt::runtime::Runtime::new()?.block_on(gh.read_diff(&pull()?))?;
     assert!(
         empty.is_empty(),
         "a pull request with no changed files is an empty inventory"
@@ -209,9 +209,11 @@ fn a_changed_file_inventory_is_read_as_data() -> TestResult {
 fn a_refused_credential_reaches_the_observe_verb_as_its_repair() -> TestResult {
     use lgwks_bot::cap::Cap;
     use lgwks_bot::domain::gh::PrSnapshotSource;
+    use lgwks_bot::ecs::EcsError;
+    use lgwks_bot::error::RetryClass;
+    use lgwks_bot::gate::GrantSet;
     use lgwks_bot::spec::NeedSet;
     use lgwks_bot::verb::Observe;
-    use lgwks_bot::{EcsError, GrantSet, RetryClass};
 
     let script = ScriptedGh::install("credential", HEAD)?;
     script.configure(Scenario::new(HEAD).deny_credential(401))?;
@@ -222,7 +224,7 @@ fn a_refused_credential_reaches_the_observe_verb_as_its_repair() -> TestResult {
         .grant(Cap::sys())
         .issue(source.required_caps())?;
 
-    let polled = lgwks_bot::Runtime::new()?.block_on(source.poll((auth, ())));
+    let polled = lgwks_bot::rt::runtime::Runtime::new()?.block_on(source.poll((auth, ())));
     let Err(rejection) = polled else {
         return Err(format!("a refused credential must not read a snapshot: {polled:?}").into());
     };

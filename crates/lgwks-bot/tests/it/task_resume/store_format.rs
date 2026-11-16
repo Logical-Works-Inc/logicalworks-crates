@@ -10,7 +10,7 @@ fn a_torn_final_record_is_dropped_and_earlier_ones_survive() -> TestResult {
     let host = stored_host("acme", &store_dir)?;
     let input = scratch.path().to_path_buf();
 
-    let report = lgwks_bot::block_on(host.run(&three_step_task()?, input.clone()));
+    let report = lgwks_bot::script::block_on(host.run(&three_step_task()?, input.clone()));
     let run = report.run_id().ok_or("a stored run must name its run id")?;
     let path = host
         .run_store()
@@ -35,7 +35,7 @@ fn a_torn_final_record_is_dropped_and_earlier_ones_survive() -> TestResult {
         2,
         "the torn tail is dropped and the two whole records survive"
     );
-    let resumed = lgwks_bot::block_on(reopened.resume(run, &three_step_task()?, input));
+    let resumed = lgwks_bot::script::block_on(reopened.resume(run, &three_step_task()?, input));
     assert_eq!(resumed.output(), Some(&10));
     assert_eq!(ran(scratch.path(), "gamma")?, 2);
     Ok(())
@@ -85,7 +85,8 @@ fn a_pre_version_store_is_refused_naming_both_versions() -> TestResult {
     let scratch = Scratch::new("format")?;
     let store_dir = scratch.path().join("store");
     let host = stored_host("acme", &store_dir)?;
-    let report = lgwks_bot::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
+    let report =
+        lgwks_bot::script::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
     assert_eq!(
         report.disposition(),
         Disposition::Succeeded,
@@ -184,7 +185,8 @@ fn a_store_corrupt_before_the_tail_is_refused_not_trimmed() -> TestResult {
     let scratch = Scratch::new("corrupt")?;
     let store_dir = scratch.path().join("store");
     let host = stored_host("acme", &store_dir)?;
-    let report = lgwks_bot::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
+    let report =
+        lgwks_bot::script::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
     assert!(report.run_id().is_some());
     let path = host
         .run_store()
@@ -228,7 +230,7 @@ fn an_oversized_record_is_refused_naming_the_ceiling() -> TestResult {
         })
         .await
     })?;
-    let report = lgwks_bot::block_on(host.run(&huge, scratch.path().to_path_buf()));
+    let report = lgwks_bot::script::block_on(host.run(&huge, scratch.path().to_path_buf()));
     assert_eq!(report.disposition(), Disposition::Failed);
     let text = format!("{:?}", report.error());
     assert!(

@@ -220,17 +220,19 @@ impl<R: Durable> RecordJournal<R> {
     ///
     /// ```
     /// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
-    /// use lgwks_bot::journal::{ContinuationPolicy, RecordJournal, successor_path};
+    /// use lgwks_bot::journal::{ContinuationPolicy, RecordJournal};
     ///
     /// let path = std::env::temp_dir().join(format!("record-doc-seal-{}", std::process::id()));
+    /// // The first successor of a base journal is `<base>.cont/000001`.
+    /// let next = std::path::PathBuf::from(format!("{}.cont", path.display())).join("000001");
     /// # drop(std::fs::remove_file(&path));
-    /// # drop(std::fs::remove_file(successor_path(&path)));
+    /// # drop(std::fs::remove_file(&next));
     /// let mut journal = RecordJournal::<u64>::open_continuing(&path, ContinuationPolicy::declared())?;
     /// journal.compare_and_append(journal.tail(), &1)?;
     /// let successor = journal.continue_with(&100)?;
     /// assert_eq!(successor.map(|next| next.committed()), Some(1));
     /// # drop(journal);
-    /// # drop(std::fs::remove_file(successor_path(&path)));
+    /// # drop(std::fs::remove_file(&next));
     /// # drop(std::fs::remove_file(&path));
     /// # Ok(())
     /// # }

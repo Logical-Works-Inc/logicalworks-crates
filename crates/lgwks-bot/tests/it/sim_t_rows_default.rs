@@ -157,7 +157,7 @@ fn repairs_charge_exactly_their_spend_for_every_seed_t13() -> TestResult {
                 Ok(value)
             })?;
             let spend = 1 + seed;
-            let report: Report<u32> = lgwks_bot::block_on(host.run(&declared, 7u32));
+            let report: Report<u32> = lgwks_bot::script::block_on(host.run(&declared, 7u32));
             assert_eq!(
                 report.disposition(),
                 Disposition::Blocked,
@@ -175,7 +175,7 @@ fn repairs_charge_exactly_their_spend_for_every_seed_t13() -> TestResult {
                 .ok_or("a blocked run has a control state")?;
             let grant = GrantSet::empty().grant(Cap::new(Cap::NET));
             let repaired: Report<u32> =
-                lgwks_bot::block_on(host.repair(&ticket, &grant, &declared, 7u32, spend))?;
+                lgwks_bot::script::block_on(host.repair(&ticket, &grant, &declared, 7u32, spend))?;
             assert_eq!(
                 repaired.disposition(),
                 Disposition::Succeeded,
@@ -227,14 +227,14 @@ fn resumes_replay_or_refuse_drift_for_every_seed_t15() -> TestResult {
                 .with_codec(CODEC);
             let counted = crate::t_rows_default::counted_u32_task!("replay-me", &entered)?;
             let first: Report<u32> =
-                lgwks_bot::block_on(host.run_under(&declared, &counted, value));
+                lgwks_bot::script::block_on(host.run_under(&declared, &counted, value));
             assert_eq!(first.disposition(), Disposition::Succeeded);
             let run_id = first.run_id().ok_or("a stored run names its run")?;
             assert_eq!(entered.get(), 1);
             drop(host);
             let host = Host::builder("acme")?.run_store(scratch.path())?.build()?;
             let replayed: Report<u32> =
-                lgwks_bot::block_on(host.resume_under(run_id, &declared, &counted, value));
+                lgwks_bot::script::block_on(host.resume_under(run_id, &declared, &counted, value));
             assert_eq!(replayed.disposition(), Disposition::Succeeded);
             assert_eq!(replayed.output(), Some(&value));
             assert_eq!(
@@ -250,8 +250,12 @@ fn resumes_replay_or_refuse_drift_for_every_seed_t15() -> TestResult {
                 1,
             )
             .with_codec(CODEC);
-            let drifted: Report<u32> =
-                lgwks_bot::block_on(host.resume_under(run_id, &drifted_input, &counted, value));
+            let drifted: Report<u32> = lgwks_bot::script::block_on(host.resume_under(
+                run_id,
+                &drifted_input,
+                &counted,
+                value,
+            ));
             assert_eq!(
                 crate::t_rows_default::incompatible_axis(drifted.error())?,
                 "input",
@@ -286,7 +290,7 @@ fn dropped_waiters_settle_under_the_same_run_for_every_seed_t17() -> TestResult 
                 Box::pin(host.submit(&key, &parking, 9u32)),
                 &entered,
             );
-            let uncertain = lgwks_bot::block_on(host.submit(&key, &parking, 9u32))?;
+            let uncertain = lgwks_bot::script::block_on(host.submit(&key, &parking, 9u32))?;
             assert!(
                 uncertain.report().is_none(),
                 "seed {seed}: an in-flight submission carries no report"
@@ -303,7 +307,7 @@ fn dropped_waiters_settle_under_the_same_run_for_every_seed_t17() -> TestResult 
             let settled_count = Rc::new(Cell::new(0_u32));
             let settler = crate::t_rows_default::counted_u32_task!("settler", &settled_count)?;
             let settled_report: Report<u32> =
-                lgwks_bot::block_on(host.resume(in_flight, &settler, 9u32));
+                lgwks_bot::script::block_on(host.resume(in_flight, &settler, 9u32));
             assert_eq!(settled_report.disposition(), Disposition::Succeeded);
             assert_eq!(settled_report.output(), Some(&9));
             assert_eq!(settled_report.run_id(), Some(in_flight));
@@ -375,7 +379,7 @@ fn shortfalls_name_exactly_the_seeded_subset_for_every_seed_t23() -> TestResult 
                 Ok(value)
             })?
             .requiring(&wanted);
-            let report: Report<u32> = lgwks_bot::block_on(host.run(&blunt, 3u32));
+            let report: Report<u32> = lgwks_bot::script::block_on(host.run(&blunt, 3u32));
             assert_eq!(report.disposition(), Disposition::Blocked);
             let shortfall = report.needs().ok_or("a blocked run names its shortfall")?;
             let named: Vec<String> = shortfall
@@ -421,7 +425,7 @@ fn tickets_apply_once_for_every_seed_t24() -> TestResult {
                     Ok(value.saturating_add(bonus))
                 },
             )?;
-            let report: Report<u32> = lgwks_bot::block_on(host.run(&declared, 7u32));
+            let report: Report<u32> = lgwks_bot::script::block_on(host.run(&declared, 7u32));
             assert_eq!(
                 report.disposition(),
                 Disposition::Blocked,
@@ -441,10 +445,11 @@ fn tickets_apply_once_for_every_seed_t24() -> TestResult {
                 .grant(Cap::new(first_need))
                 .grant(Cap::new(second_need));
             let settled: Report<u32> =
-                lgwks_bot::block_on(host.repair(&ticket, &exact, &declared, 7u32, 1))?;
+                lgwks_bot::script::block_on(host.repair(&ticket, &exact, &declared, 7u32, 1))?;
             assert_eq!(settled.disposition(), Disposition::Succeeded);
             assert_eq!(settled.output(), Some(&7u32.saturating_add(bonus)));
-            let dupe = lgwks_bot::block_on(host.repair(&ticket, &exact, &declared, 7u32, 1));
+            let dupe =
+                lgwks_bot::script::block_on(host.repair(&ticket, &exact, &declared, 7u32, 1));
             assert!(
                 matches!(
                     dupe,
@@ -454,7 +459,8 @@ fn tickets_apply_once_for_every_seed_t24() -> TestResult {
             );
             // A grant covering only half the pair is denied, not half-applied.
             let half = GrantSet::empty().grant(Cap::new(first_need));
-            let denied = lgwks_bot::block_on(host.repair(&ticket, &half, &declared, 7u32, 1));
+            let denied =
+                lgwks_bot::script::block_on(host.repair(&ticket, &half, &declared, 7u32, 1));
             assert!(
                 matches!(denied, Err(RepairError::NotAuthorized { .. })),
                 "seed {seed}: a partial grant is denied"
@@ -556,18 +562,19 @@ fn keys_reattach_conflict_and_isolate_for_every_seed_t30() -> TestResult {
             let work = crate::t_rows_default::counted_u32_task!("counted", &entered)?;
             let key = RequestKey::new(&format!("s30-key-{seed}"))?;
             let value = u32::try_from(seed)?.saturating_add(500);
-            let first = lgwks_bot::block_on(alpha.submit(&key, &work, value))?;
+            let first = lgwks_bot::script::block_on(alpha.submit(&key, &work, value))?;
             assert!(matches!(first, Submission::Executed(_)));
             let run_id = first.run_id().ok_or("a submission names a run")?;
-            let dupe = lgwks_bot::block_on(alpha.submit(&key, &work, value))?;
+            let dupe = lgwks_bot::script::block_on(alpha.submit(&key, &work, value))?;
             assert!(matches!(dupe, Submission::Reattached(_)));
             assert_eq!(dupe.run_id(), Some(run_id));
-            let conflict = lgwks_bot::block_on(alpha.submit(&key, &work, value.saturating_add(1)));
+            let conflict =
+                lgwks_bot::script::block_on(alpha.submit(&key, &work, value.saturating_add(1)));
             assert!(
                 matches!(conflict, Err(RequestError::Conflict(_))),
                 "seed {seed}: a different payload under one key conflicts"
             );
-            let theirs = lgwks_bot::block_on(beta.submit(&key, &work, value))?;
+            let theirs = lgwks_bot::script::block_on(beta.submit(&key, &work, value))?;
             assert!(matches!(theirs, Submission::Executed(_)));
             assert!(
                 theirs.run_id() != Some(run_id),
@@ -603,16 +610,17 @@ fn runnerless_calls_refuse_norunner_for_every_seed_t31() -> TestResult {
             #[cfg(not(feature = "process"))]
             {
                 let adapter = Gh::new(pull.repository().clone());
-                let snapshot = lgwks_bot::block_on(adapter.snapshot(&pull));
+                let snapshot = lgwks_bot::script::block_on(adapter.snapshot(&pull));
                 assert!(
                     matches!(snapshot, Err(GhError::NoRunner)),
                     "seed {seed}: nothing executes without a runner"
                 );
             }
             #[cfg(feature = "process")]
-            {
-                let _ = &pull;
-            }
+            lgwks_std::trace::debug!(
+                ?pull,
+                "t-rows: the runner-backed adapter is exercised by its own rows"
+            );
             trace.push(format!("{seed}:validated"));
         }
         Ok(trace)

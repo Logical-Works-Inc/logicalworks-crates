@@ -52,10 +52,12 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Barrier;
 
-use lgwks_bot::error::KernelError;
-use lgwks_bot::spec::EffectScope;
-use lgwks_bot::verb::{Execute, Observe};
-use lgwks_bot::{Auth, Bot, Cap, DispatchCertainty, EcsError, EffectLifetime, GrantSet};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{DispatchCertainty, KernelError};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::{Bot, EffectScope};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use crate::effects;
 use crate::poll::admit_poll;

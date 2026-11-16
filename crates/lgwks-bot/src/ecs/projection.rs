@@ -38,7 +38,7 @@ const CATCH_UP_PAGE: usize = 1_024;
 ///
 /// ```
 /// use lgwks_bot::journal::RecordEntry;
-/// use lgwks_bot::RecordFold;
+/// use lgwks_bot::ecs::RecordFold;
 ///
 /// /// Counts each tenant's records: the high half of a record names the tenant.
 /// #[derive(Default)]
@@ -108,7 +108,7 @@ pub trait RecordFold<R> {
 /// # Examples
 ///
 /// ```
-/// use lgwks_bot::ProjectionError;
+/// use lgwks_bot::ecs::ProjectionError;
 ///
 /// let refused = ProjectionError::<std::convert::Infallible>::RowLimit { limit: 8 };
 /// assert_eq!(refused.to_string(), "the view holds its limit of 8 rows");
@@ -164,7 +164,7 @@ struct Held<T: Send + Sync + 'static>(T);
 /// ```
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use lgwks_bot::journal::{RecordEntry, RecordJournal};
-/// use lgwks_bot::{RecordFold, RecordProjection};
+/// use lgwks_bot::ecs::{RecordFold, RecordProjection};
 ///
 /// #[derive(Default)]
 /// struct Tally;
@@ -234,7 +234,7 @@ impl<R: Durable, F: RecordFold<R>> RecordProjection<R, F> {
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use lgwks_bot::journal::{RecordEntry, RecordJournal};
-    /// use lgwks_bot::{RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{RecordFold, RecordProjection};
     ///
     /// struct Empty;
     ///
@@ -285,7 +285,7 @@ impl<R: Durable, F: RecordFold<R>> RecordProjection<R, F> {
     ///
     /// ```
     /// use lgwks_bot::journal::RecordJournal;
-    /// use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{ProjectionError, RecordFold, RecordProjection};
     ///
     /// fn folded<F: RecordFold<u64>>(
     ///     view: &mut RecordProjection<u64, F>,
@@ -330,7 +330,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{RecordFold, RecordProjection};
     ///
     /// fn fresh<F: RecordFold<u64>>(fold: F) -> bool {
     ///     let view: RecordProjection<u64, F> = RecordProjection::empty(fold, 16);
@@ -373,7 +373,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use lgwks_bot::journal::RecordEntry;
-    /// use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{ProjectionError, RecordFold, RecordProjection};
     ///
     /// struct Tally;
     ///
@@ -510,7 +510,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// ```
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use lgwks_bot::journal::RecordEntry;
-    /// use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{ProjectionError, RecordFold, RecordProjection};
     ///
     /// /// Counts each key's records, and refuses the value zero.
     /// struct NoZero;
@@ -572,7 +572,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{RecordFold, RecordProjection};
     ///
     /// fn holds<F: RecordFold<u64>>(view: &RecordProjection<u64, F>, key: &F::Key) -> bool {
     ///     view.row(key).is_some()
@@ -590,7 +590,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{RecordFold, RecordProjection};
     ///
     /// fn count<F: RecordFold<u64>>(view: &RecordProjection<u64, F>) -> usize {
     ///     view.rows().count()
@@ -608,7 +608,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{RecordFold, RecordProjection};
     ///
     /// fn routes<F: RecordFold<u64>>(view: &RecordProjection<u64, F>, record: &u64) -> bool {
     ///     view.fold().route(record).is_some()
@@ -624,7 +624,7 @@ impl<R, F: RecordFold<R>> RecordProjection<R, F> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{RecordFold, RecordProjection};
+    /// use lgwks_bot::ecs::{RecordFold, RecordProjection};
     ///
     /// fn started<F: RecordFold<u64>>(view: &RecordProjection<u64, F>) -> bool {
     ///     view.applied().is_some()

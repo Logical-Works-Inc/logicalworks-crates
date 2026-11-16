@@ -33,11 +33,15 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::Duration;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::DispatchCertainty;
 use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::rt::clock::Clock;
 use lgwks_bot::spec::{AbandonReason, Bot, RetryPolicy, TransitionHold};
-use lgwks_bot::{Auth, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, GrantSet};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 
 use sim::Band;
 use sim::rig::{FixedSource, identity, is_value, scope};

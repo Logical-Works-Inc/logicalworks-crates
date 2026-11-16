@@ -171,8 +171,8 @@ fn park_settle(
     lgwks_std::trace::debug!("resume race: parking one job for a decision");
     let settling = settling()?;
     let report = match adopt {
-        Some(run) => lgwks_bot::block_on(host.resume(run, &settling, job.clone())),
-        None => lgwks_bot::block_on(host.run(&settling, job.clone())),
+        Some(run) => lgwks_bot::script::block_on(host.resume(run, &settling, job.clone())),
+        None => lgwks_bot::script::block_on(host.run(&settling, job.clone())),
     };
     if !matches!(report.disposition(), Disposition::Parked) {
         return Err(ApprovalSimError::Setup {
@@ -301,7 +301,8 @@ impl Lane {
     /// Resume the run once more, alone, and require the model's output.
     fn resume_alone(&self) -> TestResult {
         let settling = settling()?;
-        let report = lgwks_bot::block_on(self.host.resume(self.run, &settling, self.job.clone()));
+        let report =
+            lgwks_bot::script::block_on(self.host.resume(self.run, &settling, self.job.clone()));
         require(
             verdict(&report, self.run, &self.expected) == Verdict::Done,
             "a resume after the race finishes with the model's output",
@@ -334,7 +335,7 @@ fn spawn_racer(
                 return Verdict::Odd;
             };
             barrier.wait();
-            let report = lgwks_bot::block_on(host.resume(run, &settling, job));
+            let report = lgwks_bot::script::block_on(host.resume(run, &settling, job));
             verdict(&report, run, &expected)
         })
         .map_err(|error| {
@@ -533,7 +534,7 @@ fn pulled_plug(sim: &mut Sim) -> TestResult {
     let job = Job::new(payload_for(sim, "plug"), steps);
     let run = park_decided(&host, None, &job)?;
     let lane = Lane::new(&host, run, &job, 1)?;
-    let report = lgwks_bot::block_on(cut_then_resume(&lane, cut, probes))?;
+    let report = lgwks_bot::script::block_on(cut_then_resume(&lane, cut, probes))?;
     require(
         verdict(&report, run, &lane.expected) == Verdict::Done,
         "the resume after the cut finishes the run",
@@ -617,10 +618,10 @@ fn saturation(sim: &mut Sim) -> TestResult {
         let job = Job::new(payload_for(sim, &format!("sat{index}")), steps);
         runs.push((park_decided(&host, None, &job)?, job));
     }
-    lgwks_bot::block_on(saturate(&host, &runs, ceiling, over))?;
+    lgwks_bot::script::block_on(saturate(&host, &runs, ceiling, over))?;
     for (index, &(run, ref job)) in runs.iter().enumerate() {
         let settling = settling()?;
-        let report = lgwks_bot::block_on(host.resume(run, &settling, job.clone()));
+        let report = lgwks_bot::script::block_on(host.resume(run, &settling, job.clone()));
         require(
             verdict(&report, run, &job.expected()?) == Verdict::Done,
             "every run finishes once the live ones settle",

@@ -55,7 +55,7 @@
 //! - **Vocabulary.** New slang, a house term, an abbreviation, an inside joke.
 //!   `"the usual"` cannot be derived from `"Repeat last order"` by any amount of
 //!   string distance. This is a *property of the group's usage*, so it is
-//!   handled by [`LanguageResolver::learn`], which records an alias when a
+//!   handled by [`LanguageResolver::learn`](crate::language::LanguageResolver::learn), which records an alias when a
 //!   resolution is confirmed.
 //!
 //! The second is deliberately a **count-free, readable table** rather than a

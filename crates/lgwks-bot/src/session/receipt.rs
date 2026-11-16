@@ -325,18 +325,6 @@ impl MemoryJournal {
     pub fn receipts(&self) -> &[DecisionReceipt] {
         &self.receipts
     }
-
-    /// Consume the journal and return its records.
-    #[must_use]
-    pub fn into_records(self) -> Vec<TranscriptEntry> {
-        self.records
-    }
-
-    /// Consume the journal and return its decision receipts.
-    #[must_use]
-    pub fn into_receipts(self) -> Vec<DecisionReceipt> {
-        self.receipts
-    }
 }
 
 impl Journal for MemoryJournal {

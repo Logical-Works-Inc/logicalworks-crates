@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::error::Error;
 use std::rc::Rc;
 
-use lgwks_bot::EcsError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::effect::EffectKey;
 use lgwks_bot::error::KernelError;
 use lgwks_bot::journal::{AttemptStatus, MemoryJournal};

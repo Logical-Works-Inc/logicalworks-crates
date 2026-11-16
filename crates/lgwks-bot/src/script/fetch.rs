@@ -223,7 +223,7 @@ impl FetchResponse {
 ///
 /// # fn main() -> Result<(), lgwks_bot::script::FlowError> {
 /// let scope = lgwks_bot::script::Scope::root(lgwks_bot::script::Tenant::new("acme")?);
-/// let refused = lgwks_bot::block_on(probe(&scope, "not a url"));
+/// let refused = lgwks_bot::script::block_on(probe(&scope, "not a url"));
 /// assert!(refused.is_err(), "a malformed URL is refused before any socket opens");
 /// # Ok(())
 /// # }

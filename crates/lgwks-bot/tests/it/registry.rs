@@ -5,9 +5,11 @@
 //! binary declares is the list it runs — no more and no fewer — and that a
 //! document naming something outside it is refused with the name it used.
 
-use lgwks_bot::{
-    Action, Auth, Cap, DomainRegistry, EcsError, EffectLifetime, Execute, Observe, Source, domains,
-};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::registry::{Action, DomainRegistry, Source};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 /// A test result that names its own failure: these tests cross `EcsError` and the
 /// document parser, and neither converts into the other.

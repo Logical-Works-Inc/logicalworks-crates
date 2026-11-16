@@ -144,7 +144,7 @@ pub trait RunRecords: Send + Sync {
     fn append_async<'a>(
         &'a self,
         record: StagedRecord<'a>,
-    ) -> crate::BoxFuture<'a, Result<Appended, FlowError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Appended, FlowError>> {
         self.append_send(record)
     }
 
@@ -471,7 +471,7 @@ pub enum Appended {
 }
 
 /// A boxed future that is `Send`, for the host's request-key door: it runs on
-/// the driver's worker threads, which a non-`Send` [`crate::BoxFuture`] cannot
+/// the driver's worker threads, which a non-`Send` [`crate::verb::BoxFuture`] cannot
 /// cross.
 pub(crate) type SendFuture<'a, T> =
     std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
@@ -566,7 +566,7 @@ impl Records {
         path: &'a str,
         definition: &'a DefinitionIdentity,
         bytes: Vec<u8>,
-    ) -> crate::BoxFuture<'a, Result<(), FlowError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<(), FlowError>> {
         Box::pin(async move {
             let appended = self
                 .0

@@ -42,12 +42,14 @@ use std::error::Error;
 use std::rc::Rc;
 
 use lgwks_bot::broker::Broker;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::{EffectIdentity, EffectScope};
-use lgwks_bot::{
-    Auth, Bot, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe, RefreshReason,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe, RefreshReason};
 
 use sim::Rng;
 

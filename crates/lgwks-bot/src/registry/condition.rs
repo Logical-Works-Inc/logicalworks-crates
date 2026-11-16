@@ -22,7 +22,7 @@ use crate::verb::{Evaluate, Observe};
 /// # Examples
 ///
 /// ```
-/// use lgwks_bot::Condition;
+/// use lgwks_bot::registry::Condition;
 ///
 /// let loud = Condition::new::<u16, _>(|value: &u16| *value >= 500);
 /// assert_eq!(format!("{loud:?}"), "Condition");
@@ -35,7 +35,7 @@ impl Condition {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::Condition;
+    /// use lgwks_bot::registry::Condition;
     ///
     /// let always = Condition::new::<String, _>(|_: &String| true);
     /// assert_eq!(format!("{always:?}"), "Condition");

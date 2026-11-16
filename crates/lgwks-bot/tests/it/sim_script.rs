@@ -289,7 +289,7 @@ lgwks_bot::script! {
 
 /// Drive a flow to its end on the crate's runtime.
 pub(crate) fn drive<T>(flow: impl Future<Output = Result<T, FlowError>>) -> Result<T, FlowError> {
-    lgwks_bot::block_on(flow)
+    lgwks_bot::script::block_on(flow)
 }
 
 /// Clone what `guard` holds, or fail the sweep on a poisoned lock.

@@ -23,8 +23,10 @@ use std::collections::BTreeMap;
 use std::error::Error;
 
 use lgwks_bot::language::LanguageResolver;
-use lgwks_bot::session::{MatchTier, Question, Resolution, Session, Terminal};
-use lgwks_bot::{CompiledTemplate, Resolver, ResourceAxis, ResourceLimits, SessionError, VarScope};
+use lgwks_bot::session::{
+    CompiledTemplate, MatchTier, Question, Resolution, Resolver, ResourceAxis, ResourceLimits,
+    Session, SessionError, Terminal, VarScope,
+};
 
 use crate::session_front_door::size_flow;
 use crate::sim;

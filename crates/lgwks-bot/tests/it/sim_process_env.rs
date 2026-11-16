@@ -28,8 +28,8 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::num::NonZeroUsize;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::{EnvDelta, ProcessSpec};
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 
 use sim::Band;
@@ -237,7 +237,7 @@ fn tenants_never_cross(tenants: usize) -> TestResult {
             let mut supervisor = Supervisor::new(1);
             supervisor.run_process(&spec).await
         }),
-    ));
+    ))?;
     assert_eq!(runs.len(), tenants, "every tenant's child ran");
     for (tenant, run) in runs.into_iter().enumerate() {
         let run = run?;

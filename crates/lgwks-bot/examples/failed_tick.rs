@@ -9,11 +9,13 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{DispatchCertainty, KernelError};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::{AbandonReason, TransitionHold};
-use lgwks_bot::{
-    Auth, Bot, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, GrantSet, KernelError,
-    Observe,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 /// Why the program failed.
 #[derive(Debug)]

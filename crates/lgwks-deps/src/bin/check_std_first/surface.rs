@@ -133,16 +133,21 @@ pub(super) fn baseline(
     repo: &Path,
     source: &[PathBuf],
     out: &mut impl Write,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), AuditError> {
+    let written = |cause: std::io::Error| AuditError::Io {
+        path: PathBuf::from("the surface baseline output"),
+        cause,
+    };
     writeln!(
         out,
         "# The public-surface ceiling (#526): per library file, how many `pub` items it\n\
          # declares. Exact, so a ceiling may fall and a rise is a visible change here.\n\
          # `check-std-first --surface-baseline` prints the table the tree implies."
-    )?;
-    writeln!(out, "[{}]", SURFACE.table)?;
+    )
+    .map_err(written)?;
+    writeln!(out, "[{}]", SURFACE.table).map_err(written)?;
     for (file, count) in counts(repo, source)? {
-        writeln!(out, "\"{file}\" = {count}")?;
+        writeln!(out, "\"{file}\" = {count}").map_err(written)?;
     }
     Ok(())
 }
@@ -313,6 +318,51 @@ mod tests {
         assert!(
             says(&stale, "crates/demo/src/extra.rs", "declares no `pub` item"),
             "a ceiling for a file that stopped declaring is stale: {stale:?}"
+        );
+        Ok(())
+    }
+
+    /// Requirement #896 (the cross-file half of #526): `#[doc(hidden)]` on `mod x;`
+    /// hides that one line, not the file `x` declares, so a new `pub` item inside a
+    /// hidden module is refused by the hidden file's own ceiling.
+    #[test]
+    fn a_new_pub_item_inside_a_hidden_module_is_refused_by_its_own_file() -> TestResult {
+        let scratch = Scratch::new()?;
+        let root = &scratch.root;
+        put(
+            root,
+            "crates/demo/src/lib.rs",
+            "#[doc(hidden)]\npub mod support;\n",
+        )?;
+        put(root, "crates/demo/src/support.rs", "pub fn kept() {}\n")?;
+        put(
+            root,
+            CONTRACT,
+            "[ceilings]\n\"crates/demo/src/support.rs\" = 1\n",
+        )?;
+        assert!(
+            judged(root)?.is_empty(),
+            "the hidden line is not counted and the hidden file holds its ceiling"
+        );
+
+        put(
+            root,
+            "crates/demo/src/support.rs",
+            "pub fn kept() {}\npub fn added() {}\n",
+        )?;
+        let refused = judged(root)?;
+        assert_eq!(
+            refused.len(),
+            1,
+            "one rise, in the hidden file: {refused:?}"
+        );
+        assert!(
+            says(
+                &refused,
+                "crates/demo/src/support.rs",
+                "2 public declaration(s), ceiling 1"
+            ),
+            "the hidden module's file is refused by its own ceiling: {refused:?}"
         );
         Ok(())
     }

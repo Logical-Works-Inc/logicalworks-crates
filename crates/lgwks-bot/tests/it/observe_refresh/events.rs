@@ -4,7 +4,8 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use lgwks_bot::effect::EventId;
-use lgwks_bot::{Bot, GrantSet};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
 
 use crate::declarable::Declarable;
 use crate::effects::memory_scope;

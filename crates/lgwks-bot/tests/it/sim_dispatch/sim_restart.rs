@@ -1,6 +1,6 @@
 //! What a restart does with what it finds: hold, retire, retry, continue.
 
-use lgwks_bot::EcsError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
 use lgwks_bot::journal::EventKind;
 use lgwks_bot::spec::{Bot, EffectEvidence};

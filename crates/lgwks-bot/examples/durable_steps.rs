@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let started = Instant::now();
     for input in 0..RUNS {
         let at = Instant::now();
-        let report = lgwks_bot::block_on(host.run(&work, input));
+        let report = lgwks_bot::script::block_on(host.run(&work, input));
         samples.push(at.elapsed().as_micros());
         if !report.disposition().is_success() {
             let refusal = Err(format!("run {input} failed: {:?}", report.error()).into());

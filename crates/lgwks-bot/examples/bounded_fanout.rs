@@ -21,15 +21,21 @@ use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::time::Instant;
 
 use lgwks_bot::rt::task::join_all_bounded;
-use lgwks_bot::rt::time::{Duration, sleep};
+use lgwks_bot::rt::time::{Clock, Duration};
 
 /// Number of tasks fanned out under each concurrency ceiling. `usize` so the
 /// count and the output vector's length are the same type and no lossy
 /// conversion sits between the workload and the assertion on it.
 const TASKS: usize = 512;
 
+/// How long each task holds its slot: the work the ceiling is measured against.
+const WORK: Duration = Duration::from_millis(1);
+
 fn main() -> std::io::Result<()> {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
+    // The work is a wait on the clock the harness owns: real time here, so the
+    // printed wall time is the bounded fan-out's, and no time under a virtual one.
+    let clock = Clock::wall();
     let mut stdout = std::io::stdout();
     for &(label, limit) in &[("limit=4", 4usize), ("limit=64", 64), ("uncapped", 1024)] {
         let current = Arc::new(AtomicUsize::new(0));
@@ -39,19 +45,22 @@ fn main() -> std::io::Result<()> {
         let futures = (0..TASKS).map(|index| {
             let current = Arc::clone(&current);
             let peak = Arc::clone(&peak);
+            let clock = clock.clone();
             async move {
                 // Bound: at most `limit` of these run at once and only
                 // `TASKS` exist in total, so the previous count cannot
                 // approach `usize::MAX` and the counter stays exact.
                 let now = current.fetch_add(1, SeqCst).saturating_add(1);
                 peak.fetch_max(now, SeqCst);
-                sleep(Duration::from_millis(1)).await;
+                clock.sleep(WORK).await;
                 current.fetch_sub(1, SeqCst);
                 index
             }
         });
 
-        let outputs = runtime.block_on(join_all_bounded(limit, futures));
+        let outputs = runtime
+            .block_on(join_all_bounded(limit, futures))
+            .map_err(std::io::Error::other)?;
         assert_eq!(
             outputs.len(),
             TASKS,

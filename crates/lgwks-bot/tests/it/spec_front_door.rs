@@ -6,11 +6,12 @@
 
 use std::error::Error;
 
+use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::domain::eval::Above;
-use lgwks_bot::spec::{ActionSpec, ChainSpec};
-use lgwks_bot::{
-    Auth, Bot, BotSpec, Cap, EcsError, EffectLifetime, Evaluate, Execute, GrantSet, Observe,
-};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::{ActionSpec, Bot, BotSpec, ChainSpec};
+use lgwks_bot::verb::{EffectLifetime, Evaluate, Execute, Observe};
 
 /// What every fallible test here returns.
 type TestResult = Result<(), Box<dyn Error>>;

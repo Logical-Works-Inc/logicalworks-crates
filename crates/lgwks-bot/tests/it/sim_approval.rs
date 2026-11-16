@@ -120,7 +120,7 @@ fn tend_approval(
     let host = hosts.get(tenant).ok_or(ApprovalSimError::Setup {
         what: "the tenant has a host",
     })?;
-    let report = lgwks_bot::block_on(host.run(&shipping, payload.clone()));
+    let report = lgwks_bot::script::block_on(host.run(&shipping, payload.clone()));
     if !matches!(report.disposition(), Disposition::Parked) {
         return Err(ApprovalSimError::Setup {
             what: "a first run parks",
@@ -157,7 +157,8 @@ fn tend_approval(
     let outcome = match fate {
         Fate::Approve => {
             decider.decide(&id, ApprovalDecision::approve("sim", digest))?;
-            let resumed = lgwks_bot::block_on(decider.resume(run, &shipping, payload.clone()));
+            let resumed =
+                lgwks_bot::script::block_on(decider.resume(run, &shipping, payload.clone()));
             if !matches!(resumed.disposition(), Disposition::Succeeded)
                 || resumed.output() != Some(&payload)
             {
@@ -169,7 +170,7 @@ fn tend_approval(
         }
         Fate::Deny => {
             decider.decide(&id, ApprovalDecision::deny("sim", digest))?;
-            let resumed = lgwks_bot::block_on(decider.resume(run, &shipping, payload));
+            let resumed = lgwks_bot::script::block_on(decider.resume(run, &shipping, payload));
             if !matches!(
                 resumed.error(),
                 Some(error) if matches!(*error, FlowError::ApprovalDenied { .. })
@@ -190,7 +191,7 @@ fn tend_approval(
                         what: "the virtual clock advances",
                     }
                 })?;
-            let resumed = lgwks_bot::block_on(decider.resume(run, &shipping, payload));
+            let resumed = lgwks_bot::script::block_on(decider.resume(run, &shipping, payload));
             if !matches!(
                 resumed.error(),
                 Some(error) if matches!(*error, FlowError::ApprovalExpired { .. })
@@ -212,7 +213,7 @@ fn tend_approval(
             "expired"
         }
         Fate::Leave => {
-            let parked = lgwks_bot::block_on(decider.resume(run, &shipping, payload));
+            let parked = lgwks_bot::script::block_on(decider.resume(run, &shipping, payload));
             if !matches!(parked.disposition(), Disposition::Parked) {
                 return Err(ApprovalSimError::Setup {
                     what: "an undecided resume parks again",
@@ -315,7 +316,7 @@ fn replay_seed(sim: &mut sim::Sim) -> Result<(), ApprovalSimError> {
     for (tenant, verdict) in [("acme", true), ("zenith", false)] {
         let host = host_on(scratch.path(), tenant)?;
         let payload = format!("{tenant}-{}", sim.seed).into_bytes();
-        let report = lgwks_bot::block_on(host.run(&shipping, payload.clone()));
+        let report = lgwks_bot::script::block_on(host.run(&shipping, payload.clone()));
         let id = {
             let Some(error) = report.error() else {
                 return Err(ApprovalSimError::Setup {
@@ -348,7 +349,7 @@ fn replay_seed(sim: &mut sim::Sim) -> Result<(), ApprovalSimError> {
             ApprovalDecision::deny("sim", digest)
         };
         host.decide(&id, decision)?;
-        let resumed = lgwks_bot::block_on(host.resume(run, &shipping, payload.clone()));
+        let resumed = lgwks_bot::script::block_on(host.resume(run, &shipping, payload.clone()));
         sim.record(&format!(
             "{tenant}:{}:{}",
             sim.seed,

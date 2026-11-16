@@ -5,7 +5,7 @@
 //! codec arrives: that the notation changes the *spelling* only, and never
 //! which documents are acceptable.
 
-use lgwks_bot::{FlowSpec, SessionError};
+use lgwks_bot::session::{FlowSpec, SessionError};
 
 /// A minimal valid flow, in each notation.
 const RON: &str = r#"FlowSpec(
@@ -141,10 +141,10 @@ fn an_unknown_node_kind_is_refused_by_name() {
 /// notation.
 #[test]
 fn an_oversized_document_is_refused() {
-    let padding = " ".repeat(lgwks_bot::MAX_FLOW_BYTES);
+    let padding = " ".repeat(lgwks_bot::session::MAX_FLOW_BYTES);
     let oversized_ron = format!("{RON}{padding}");
     let oversized_json = format!("{JSON}{padding}");
-    let limit = lgwks_bot::MAX_FLOW_BYTES;
+    let limit = lgwks_bot::session::MAX_FLOW_BYTES;
 
     assert_eq!(
         too_large(FlowSpec::from_ron(&oversized_ron)),

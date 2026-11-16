@@ -25,11 +25,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use lgwks_bot::BoxFuture;
 use lgwks_bot::proposal::{Provenance, Source};
 use lgwks_bot::rt::sync::CancellationToken;
 use lgwks_bot::script::{Clock, FlowError, Gate, Generation, Readiness, Scope, Tenant, admit};
 use lgwks_bot::task::{Host, Task, task};
+use lgwks_bot::verb::BoxFuture;
 
 use crate::band_family;
 use crate::proposal_fixtures::{SHAPES, TENANT, gate};
@@ -120,7 +120,7 @@ fn remember_replays_on_resume(band: Band) -> TestResult {
         let work = answer_task()?;
         let host = host_for(&tenant, &dir)?;
         let identity = host.definition(TASK, 1, None, 1);
-        let first = lgwks_bot::block_on(host.run_under(&identity, &work, job.clone()));
+        let first = lgwks_bot::script::block_on(host.run_under(&identity, &work, job.clone()));
         assert_eq!(
             first.output(),
             Some(&value),
@@ -130,7 +130,8 @@ fn remember_replays_on_resume(band: Band) -> TestResult {
         drop(first);
         drop(host);
         let reopened = host_for(&tenant, &dir)?;
-        let replayed = lgwks_bot::block_on(reopened.resume_under(run, &identity, &work, job));
+        let replayed =
+            lgwks_bot::script::block_on(reopened.resume_under(run, &identity, &work, job));
         assert_eq!(
             replayed.output(),
             Some(&value),
@@ -249,7 +250,7 @@ fn ready_released_or_timed_out(band: Band) -> TestResult {
         if matches!(actor, Actor::Before) {
             db.ready(Generation::FIRST, value)?;
         }
-        let outcome = lgwks_bot::block_on(async {
+        let outcome = lgwks_bot::script::block_on(async {
             lgwks_bot::try_join!(query(&scope, &db), act(&db, &clock, actor, value))
         });
         match (actor, outcome) {

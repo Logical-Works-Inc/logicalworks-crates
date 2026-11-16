@@ -23,6 +23,9 @@
 //! both make the answer decidable from the bytes on the disk rather than from a
 //! pointer somebody has to keep in step.
 //!
+//! The module holds the checkpoint record itself; `watermark` decides *when* a
+//! journal continues and `naming` decides *where* its successor lives.
+//!
 //! # One frame grammar, one writer thread
 //!
 //! The checkpoint is a **second record type in the same chain**, framed by
@@ -82,7 +85,6 @@
 //! `examples/journal_continuation.rs`.
 
 use core::fmt;
-use std::path::PathBuf;
 
 #[cfg(feature = "wire")]
 use lgwks_std::wire::WireError;
@@ -94,6 +96,17 @@ use super::{
     AttemptStatus, EventKind, JournalError, JournalLimitKind, JournalPosition, Verification,
 };
 
+// Naming and the measured watermark serve only the file journal, so they build with it.
+#[cfg(feature = "wire")]
+mod naming;
+#[cfg(all(test, feature = "wire"))]
+mod sim_naming;
+mod watermark;
+
+#[cfg(feature = "wire")]
+pub(crate) use naming::{generation_of, is_generation_path, refuse_ambiguous_base, successor_path};
+pub use watermark::{ContinuationPolicy, ContinuationWatermark};
+
 /// The prefix that marks a frame payload as a checkpoint rather than an event.
 ///
 /// Padded to a multiple of eight so the archived record behind it starts on the
@@ -104,19 +117,6 @@ use super::{
 /// into the archived record would make a checkpoint's own first field part of the
 /// discriminator.
 pub(crate) const CHECKPOINT_MAGIC: &[u8; 32] = b"lgwks.journal.checkpoint.v1\0\0\0\0\0";
-
-/// Eight tenths of either ceiling: the declared continuation watermark.
-///
-/// A constant rather than a parameter because the point of it is that the
-/// decision is made *before* anything depends on it. One fifth of each ceiling is
-/// left as settlement headroom, so an attempt already handed to the outside world
-/// can always record its outcome: the ladder's third rung is admitted at the
-/// watermark and refused only at the hard cap, and a continuation happens before
-/// either.
-pub const CONTINUATION_WATERMARK_NUMERATOR: u64 = 8;
-
-/// The denominator of [`CONTINUATION_WATERMARK_NUMERATOR`].
-pub const CONTINUATION_WATERMARK_DENOMINATOR: u64 = 10;
 
 /// The most unresolved attempts one checkpoint may carry.
 ///
@@ -140,27 +140,6 @@ pub const MAX_CHECKPOINT_UNRESOLVED: usize = 128;
 /// 90,208 bytes: a count no checkpoint could reach, refused by the frame as a
 /// storage fault instead of by the count it names.
 pub const MAX_CHECKPOINT_SETTLED: usize = 160;
-
-/// The suffix that turns one journal's file name into the directory its
-/// successors live in.
-const GENERATION_DIRECTORY_SUFFIX: &str = ".cont";
-
-/// The fixed width of a generation's file name inside that directory.
-///
-/// Fixed rather than appended, and that is the whole reason the naming uses a
-/// directory at all: a chain that grew its name by one token per generation passes
-/// 255 characters after fifty continuations, so a run meant to last weeks would
-/// stop for a reason that has nothing to do with its journal. A fixed-width ordinal
-/// inside a per-journal directory costs the same six characters at generation one
-/// and at generation 999,999.
-const GENERATION_DIGITS: usize = 6;
-
-/// The highest generation a name can hold.
-///
-/// The width above, so it is a stated bound rather than a wrap: a chain that
-/// reaches it is refused by the open rather than pointed at a name that already
-/// exists, because "the successor is this file" is not an answer a caller can act on.
-const MAX_GENERATION_NAME: u64 = 999_999;
 
 /// How far along a continuation may be driven, for a harness that must kill the
 /// process exactly there.
@@ -221,224 +200,6 @@ impl SealPause {
 impl fmt::Display for SealPause {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
-    }
-}
-
-/// The watermark count for a ceiling of `limit` events or bytes.
-///
-/// Integer arithmetic in the declared order, so the watermark is the same number
-/// on every host: `limit * 8 / 10`, with the multiplication first because it is
-/// exact for every ceiling this crate declares. The `checked_div` arm is
-/// unreachable for the constant denominator above; it is here rather than an
-/// `unwrap` because the crate forbids both.
-const fn watermark_of(limit: u64) -> u64 {
-    match limit
-        .saturating_mul(CONTINUATION_WATERMARK_NUMERATOR)
-        .checked_div(CONTINUATION_WATERMARK_DENOMINATOR)
-    {
-        Some(at) => at,
-        None => limit,
-    }
-}
-
-/// Where one journal continues.
-///
-/// Declared rather than derived from the file, so the trigger is a policy a host
-/// can state, read back and measure against rather than a constant buried in a
-/// comparison. [`ContinuationPolicy::declared`] is the shipped default — eight
-/// tenths of each ceiling — and it is the one an unattended run should use; the
-/// constructor exists because a host with a shorter retention budget than this
-/// crate's defaults, and a simulation that has to reach a hundred continuations
-/// inside a test's wall clock, both need to move the trigger rather than fake the
-/// ceilings.
-///
-/// Moving it is always *earlier*. A policy past a ceiling would ask a journal to
-/// continue when it already cannot admit another event, so the constructor
-/// refuses rather than clamping: a silently clamped trigger is indistinguishable
-/// from the one the caller asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ContinuationPolicy {
-    /// The committed event count at which a continuation is due.
-    events_at: u64,
-    /// The acknowledged byte length at which a continuation is due.
-    bytes_at: u64,
-}
-
-impl ContinuationPolicy {
-    /// The shipped policy: eight tenths of each ceiling, which leaves the
-    /// remaining fifth as the settlement headroom #143 asked for.
-    #[must_use]
-    pub const fn declared() -> Self {
-        Self {
-            events_at: watermark_of(SHIPPED_EVENT_CEILING),
-            bytes_at: watermark_of(SHIPPED_BYTE_CEILING),
-        }
-    }
-
-    /// A policy with explicit trigger points.
-    ///
-    /// # Errors
-    ///
-    /// [`JournalError::CapacityExceeded`] when either point is at or past its
-    /// ceiling, because such a policy would ask for a continuation the journal
-    /// could not afford to perform.
-    pub fn new(events_at: u64, bytes_at: u64) -> Result<Self, JournalError> {
-        if events_at >= SHIPPED_EVENT_CEILING || bytes_at >= SHIPPED_BYTE_CEILING {
-            let requested = events_at.max(bytes_at);
-            let refusal = Err(JournalError::CapacityExceeded {
-                resource: JournalLimitKind::ContinuationWatermark,
-                limit: SHIPPED_EVENT_CEILING,
-                requested,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ContinuationPolicy::new: returning an error to the caller");
-            return refusal;
-        }
-        Ok(Self {
-            events_at,
-            bytes_at,
-        })
-    }
-
-    /// The committed event count at which a continuation is due.
-    #[must_use]
-    pub const fn events_at(&self) -> u64 {
-        self.events_at
-    }
-
-    /// The acknowledged byte length at which a continuation is due.
-    #[must_use]
-    pub const fn bytes_at(&self) -> u64 {
-        self.bytes_at
-    }
-}
-
-impl Default for ContinuationPolicy {
-    fn default() -> Self {
-        Self::declared()
-    }
-}
-
-/// The event ceiling a policy is measured against.
-const SHIPPED_EVENT_CEILING: u64 = 100_000;
-
-/// The byte ceiling a policy is measured against.
-const SHIPPED_BYTE_CEILING: u64 = 64 * 1024 * 1024;
-
-/// How much of each ceiling a journal has used, and whether it continues.
-///
-/// The question a caller asks before an append, and the answer is a measurement
-/// rather than a guess: it is read from the journal's own committed count and
-/// acknowledged byte length, both of which the append fence already keeps exact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ContinuationWatermark {
-    /// Whether this journal continues at all.
-    continuing: bool,
-    /// Committed events and the ceiling they are measured against.
-    events: u64,
-    /// The event ceiling this journal was opened against.
-    events_limit: u64,
-    /// Committed bytes and the ceiling they are measured against.
-    bytes: u64,
-    /// The byte ceiling this journal was opened against.
-    bytes_limit: u64,
-    /// The event count at which this journal's watermark falls.
-    events_at: u64,
-    /// The byte length at which this journal's watermark falls.
-    bytes_at: u64,
-}
-
-impl ContinuationWatermark {
-    /// A watermark for a journal that does not continue.
-    ///
-    /// The answer every adapter but the continuing file journal gives. It is a
-    /// real measurement of a real journal with `continuing` false rather than a
-    /// zeroed placeholder: "this journal will not continue" is the answer, and a
-    /// sentinel would be a measurement nobody took.
-    #[must_use]
-    pub const fn inert(events: u64, events_limit: u64, bytes: u64, bytes_limit: u64) -> Self {
-        Self {
-            continuing: false,
-            events,
-            events_limit,
-            bytes,
-            bytes_limit,
-            events_at: 0,
-            bytes_at: 0,
-        }
-    }
-
-    /// A watermark for a journal that continues at its declared policy's two
-    /// trigger points.
-    #[must_use]
-    pub const fn measured(
-        events: u64,
-        events_limit: u64,
-        bytes: u64,
-        bytes_limit: u64,
-        policy: ContinuationPolicy,
-    ) -> Self {
-        Self {
-            continuing: true,
-            events,
-            events_limit,
-            bytes,
-            bytes_limit,
-            events_at: policy.events_at,
-            bytes_at: policy.bytes_at,
-        }
-    }
-
-    /// Whether this journal continues at the watermark rather than refusing.
-    #[must_use]
-    pub const fn continues(&self) -> bool {
-        self.continuing
-    }
-
-    /// Whether a continuation is due now.
-    ///
-    /// `false` for a journal that does not continue, which is what leaves every
-    /// non-continuing adapter's behaviour exactly as it was: the append after
-    /// this question is the append that always happened.
-    #[must_use]
-    pub const fn is_due(&self) -> bool {
-        self.continuing && (self.events >= self.events_at || self.bytes >= self.bytes_at)
-    }
-
-    /// Committed events and the ceiling they are measured against.
-    #[must_use]
-    pub const fn events(&self) -> (u64, u64) {
-        (self.events, self.events_limit)
-    }
-
-    /// Committed bytes and the ceiling they are measured against.
-    #[must_use]
-    pub const fn bytes(&self) -> (u64, u64) {
-        (self.bytes, self.bytes_limit)
-    }
-
-    /// The event count at which the watermark falls.
-    #[must_use]
-    pub const fn events_watermark(&self) -> u64 {
-        self.events_at
-    }
-
-    /// The byte length at which the watermark falls.
-    #[must_use]
-    pub const fn bytes_watermark(&self) -> u64 {
-        self.bytes_at
-    }
-
-    /// Events still admissible before the hard cap, which is the settlement
-    /// headroom a continuation leaves behind.
-    #[must_use]
-    pub const fn event_headroom(&self) -> u64 {
-        self.events_limit.saturating_sub(self.events)
-    }
-
-    /// Bytes still admissible before the hard cap.
-    #[must_use]
-    pub const fn byte_headroom(&self) -> u64 {
-        self.bytes_limit.saturating_sub(self.bytes)
     }
 }
 
@@ -817,118 +578,6 @@ impl Continuation {
             }
         }
     }
-}
-
-/// Where one journal's continuation lives.
-///
-/// A successor path is a *property of the file*, not of the run that happens to be
-/// holding it: a restarting controller that only has the original path has to be
-/// able to find the live journal by following it, and a name derived from anything
-/// the process was doing would make that a guess.
-///
-/// So the rule is two fixed shapes and no counter anybody keeps: a base journal
-/// continues into `<name>.cont/000001`, and a generation continues into the next
-/// six-digit name beside it. Two tenants sharing one directory therefore keep two
-/// directories apart, and a chain of any length keeps names of the same width.
-#[must_use]
-pub fn successor_path(path: &std::path::Path) -> std::path::PathBuf {
-    // A path with a file name always has a parent (`""` for a bare name), so the
-    // one shape that has neither is a root or an empty path, which names no
-    // journal and continues into itself.
-    let (Some(name), Some(parent)) = (path.file_name(), path.parent()) else {
-        return path.to_path_buf();
-    };
-    if let Some(number) = name_number(name) {
-        let next = number.saturating_add(1).min(MAX_GENERATION_NAME);
-        return parent.join(format!("{next:0GENERATION_DIGITS$}"));
-    }
-    let mut directory = path.as_os_str().to_os_string();
-    directory.push(GENERATION_DIRECTORY_SUFFIX);
-    PathBuf::from(directory).join(format!("{:0GENERATION_DIGITS$}", 1))
-}
-
-/// The journal generation a path names, counted from the base journal.
-///
-/// One for a base journal. Derived from the name rather than stored, so there is no
-/// second place a generation is written down and nothing for two continuations to
-/// disagree about.
-#[must_use]
-pub fn generation_of(path: &std::path::Path) -> u64 {
-    // The base journal is generation one and its first successor, `000001`, is
-    // generation two: the name counts continuations, the generation counts files.
-    // Read from the name alone, `000001` would be generation one, and its own
-    // successor's checkpoint would claim the generation it already holds.
-    match path.file_name().and_then(name_number) {
-        Some(number) if is_generation_path(path) => number.saturating_add(1),
-        Some(_) | None => 1,
-    }
-}
-
-/// The number a generation name spells, or `None` for any other name.
-///
-/// A fold rather than a parse: [`is_generation_name`] admitted exactly six ASCII
-/// digits, so there is no failure left for a parse to report.
-fn name_number(name: &std::ffi::OsStr) -> Option<u64> {
-    if !is_generation_name(name) {
-        return None;
-    }
-    let number = name.to_string_lossy().bytes().fold(0_u64, |number, digit| {
-        number
-            .saturating_mul(10)
-            .saturating_add(u64::from(digit.saturating_sub(b'0')))
-    });
-    Some(number)
-}
-
-/// Whether a name is one this scheme generates.
-///
-/// Six ASCII digits, exactly. A base journal whose own file name happens to look
-/// like a generation is refused by the continuing constructors rather than
-/// tolerated, because a name that can be read two ways is a name whose successor
-/// cannot be derived.
-fn is_generation_name(name: &std::ffi::OsStr) -> bool {
-    let text = name.to_string_lossy();
-    text.len() == GENERATION_DIGITS && text.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-/// Whether a path is one this scheme generated rather than a base journal.
-///
-/// A generation is a six-digit name **inside a `.cont` directory**, and both halves
-/// are load-bearing: the directory is what a base journal cannot already be, so a
-/// base named `000123` beside its journal's files is still a base and is refused,
-/// while the successor `bot.jrnl.cont/000001` is this scheme's own.
-#[must_use]
-pub fn is_generation_path(path: &std::path::Path) -> bool {
-    let named = path.file_name().is_some_and(is_generation_name);
-    let in_directory = path
-        .parent()
-        .and_then(std::path::Path::file_name)
-        .is_some_and(|name| {
-            name.to_string_lossy()
-                .ends_with(GENERATION_DIRECTORY_SUFFIX)
-        });
-    named && in_directory
-}
-
-/// Refuse a base journal whose name could be read as a generation.
-///
-/// The alternative is a chain that quietly continues into a neighbouring number,
-/// and "which file is authoritative?" must have exactly one answer.
-#[cfg(feature = "wire")]
-pub(crate) fn refuse_ambiguous_base(path: &std::path::Path) -> Result<(), JournalError> {
-    let Some(number) = path.file_name().and_then(name_number) else {
-        return Ok(());
-    };
-    if is_generation_path(path) {
-        return Ok(());
-    }
-    let refusal = Err(JournalError::CapacityExceeded {
-        resource: JournalLimitKind::Generation,
-        limit: MAX_GENERATION_NAME,
-        requested: number,
-    });
-    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "refuse_ambiguous_base: this name could be read as a generation");
-    refusal
 }
 
 #[cfg(test)]

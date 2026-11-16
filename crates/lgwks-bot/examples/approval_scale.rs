@@ -50,7 +50,13 @@ fn peak_rss_kib() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     for line in status.lines() {
         if let Some(rest) = line.strip_prefix("VmHWM:") {
-            return rest.split_whitespace().next()?.parse::<u64>().ok();
+            return match rest.split_whitespace().next()?.parse::<u64>() {
+                Ok(kib) => Some(kib),
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, "VmHWM is not a number, so no peak is reported");
+                    None
+                }
+            };
         }
     }
     None
@@ -96,7 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for index in 0..PARKS {
         let payload = format!("scale-{index:05}").into_bytes();
         let started = Instant::now();
-        let report = lgwks_bot::block_on(host.run(&shipping, payload));
+        let report = lgwks_bot::script::block_on(host.run(&shipping, payload));
         samples.push(started.elapsed().as_micros());
         check_parked(index, &report)?;
     }

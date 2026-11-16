@@ -118,7 +118,7 @@ fn input_digest(input: u32) -> lgwks_std::hash::Digest {
 fn first_attempt(dir: &Path, work: &OneStep) -> Result<(Host, RunId), Box<dyn Error>> {
     let host = host_in(dir)?;
     let declared = identity(&host);
-    let report = lgwks_bot::block_on(host.run_under(&declared, work, INPUT));
+    let report = lgwks_bot::script::block_on(host.run_under(&declared, work, INPUT));
     assert_eq!(
         report.disposition(),
         Disposition::Succeeded,
@@ -190,7 +190,7 @@ fn an_unreadable_store_is_refused_as_itself_and_not_as_a_drift() -> TestResult {
     store.fail_next_index_read();
 
     let before = constructions();
-    let refused = lgwks_bot::block_on(reopened.resume_under(
+    let refused = lgwks_bot::script::block_on(reopened.resume_under(
         seeded.run,
         &identity(&reopened),
         &seeded.work,
@@ -244,7 +244,7 @@ fn the_fault_is_one_shot_and_the_step_after_it_replays() -> TestResult {
     let store = reopened.run_store().ok_or("a stored host keeps a store")?;
     store.fail_next_index_read();
 
-    let first = lgwks_bot::block_on(reopened.resume_under(
+    let first = lgwks_bot::script::block_on(reopened.resume_under(
         seeded.run,
         &identity(&reopened),
         &seeded.work,
@@ -258,7 +258,7 @@ fn the_fault_is_one_shot_and_the_step_after_it_replays() -> TestResult {
     // The store is ordinary again: the records were never touched, so this is the
     // compatible replay the third row proves, and it must run no body.
     let before = constructions();
-    let second = lgwks_bot::block_on(reopened.resume_under(
+    let second = lgwks_bot::script::block_on(reopened.resume_under(
         seeded.run,
         &identity(&reopened),
         &seeded.work,
@@ -293,7 +293,7 @@ fn a_compatible_resume_still_replays_after_no_fault() -> TestResult {
     let seeded = seeded(&scratch)?;
     let reopened = resume_over_reopened(&seeded.dir)?;
     let before = constructions();
-    let replayed = lgwks_bot::block_on(reopened.resume_under(
+    let replayed = lgwks_bot::script::block_on(reopened.resume_under(
         seeded.run,
         &identity(&reopened),
         &seeded.work,

@@ -67,7 +67,7 @@ fn every_placed_task_is_joined_once(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let plan = plan(sim.rng())?;
         let work = Arc::new(AtomicU64::new(0));
-        let runtime = lgwks_bot::Runtime::new()?;
+        let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
         let (stats, retained) = runtime.block_on(async {
             let mut supervisor = Supervisor::new(plan.bound);
             for &turns in &plan.yields {

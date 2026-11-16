@@ -264,7 +264,10 @@ async fn plain_ingress(
                 .into_response();
         }
     };
-    let _ = body;
+    debug_assert!(
+        body.len() <= 1_048_576,
+        "the body read is bounded by the ceiling it was read under"
+    );
     let mut counts = match counts.lock() {
         Ok(counts) => counts,
         Err(_) => {
@@ -387,7 +390,7 @@ fn main() -> Result<(), String> {
                     lgwks_std::trace::debug!(error = ?error, "serve-load: the plain listener is refused");
                     return Err(format!("the plain listener is refused: {error}"));
                 }
-                lgwks_bot::block_on(async move {
+                lgwks_bot::script::block_on(async move {
                     let listener = lgwks_deps::tokio::net::TcpListener::from_std(listener)
                         .map_err(|error| format!("the plain listener is refused: {error}"))?;
                     if let Err(error) = lgwks_deps::axum::serve(listener, router)

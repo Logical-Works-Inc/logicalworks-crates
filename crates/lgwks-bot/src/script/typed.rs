@@ -133,7 +133,7 @@ mod tests {
     fn an_undeclared_typed_domain_is_the_domain_error() -> TestResult {
         let scope = Scope::root(Tenant::new("acme").map_err(|error| error.to_string())?);
         let observed: Result<u16, DomainFailed> =
-            crate::block_on(observe_typed::<Missing>(&scope, "target"));
+            crate::rt::runtime::block_on(observe_typed::<Missing>(&scope, "target"));
         let Err(DomainFailed(message)) = observed else {
             return Err(String::from("an undeclared source must fail typed"));
         };
@@ -142,7 +142,7 @@ mod tests {
             "the domain error names the identifier: {message}"
         );
         let acted: Result<u16, DomainFailed> =
-            crate::block_on(act_typed::<Vanished>(&scope, "target", 1_u16));
+            crate::rt::runtime::block_on(act_typed::<Vanished>(&scope, "target", 1_u16));
         assert!(
             acted.is_err(),
             "an undeclared action must fail typed as well"

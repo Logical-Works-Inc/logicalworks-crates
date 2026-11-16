@@ -164,7 +164,8 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
 
     let host = host_for(tenant, &dir)?;
     let identity = identity_for(&host, steps)?;
-    let first = lgwks_bot::block_on(host.run_under(&identity, &staged_task()?, plan.clone()));
+    let first =
+        lgwks_bot::script::block_on(host.run_under(&identity, &staged_task()?, plan.clone()));
     assert_eq!(
         first.disposition(),
         Disposition::Succeeded,
@@ -188,7 +189,7 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     // recorded value without entering a body.
     for replay in 0..warm {
         let replaying = host_for(tenant, &dir)?;
-        let report = lgwks_bot::block_on(replaying.resume_under(
+        let report = lgwks_bot::script::block_on(replaying.resume_under(
             run,
             &identity,
             &staged_task()?,
@@ -209,8 +210,12 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
         .run_store()
         .ok_or("a stored host keeps a store")?
         .fail_next_index_read();
-    let refused =
-        lgwks_bot::block_on(armed.resume_under(run, &identity, &staged_task()?, plan.clone()));
+    let refused = lgwks_bot::script::block_on(armed.resume_under(
+        run,
+        &identity,
+        &staged_task()?,
+        plan.clone(),
+    ));
     assert_eq!(
         refused.disposition(),
         Disposition::Failed,
@@ -239,7 +244,8 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
 
     // The reopen: a fresh handle over the untouched bytes replays.
     let recovered = host_for(tenant, &dir)?;
-    let after = lgwks_bot::block_on(recovered.resume_under(run, &identity, &staged_task()?, plan));
+    let after =
+        lgwks_bot::script::block_on(recovered.resume_under(run, &identity, &staged_task()?, plan));
     assert_eq!(
         after.disposition(),
         Disposition::Succeeded,
@@ -326,7 +332,7 @@ fn second_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
 
     let host = host_for(tenant, &dir)?;
     let identity = identity_for(&host, steps)?;
-    let first = lgwks_bot::block_on(host.run_under(&identity, &staged_task()?, plan));
+    let first = lgwks_bot::script::block_on(host.run_under(&identity, &staged_task()?, plan));
     assert_eq!(
         first.disposition(),
         Disposition::Succeeded,

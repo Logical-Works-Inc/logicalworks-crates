@@ -10,8 +10,8 @@
 
 use std::process::Output;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{Supervisor, TaskOutcome};
 use lgwks_bot::rt::time::{Instant, sleep};
 

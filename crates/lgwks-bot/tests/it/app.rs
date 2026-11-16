@@ -13,8 +13,8 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use lgwks_bot::Cap;
 use lgwks_bot::app::{App, AppError, Effect, EffectResult, Method, Provider, ReplyTag};
+use lgwks_bot::cap::Cap;
 use lgwks_bot::rt::edge::EdgeStop;
 use lgwks_std::json::Value;
 

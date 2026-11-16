@@ -110,7 +110,7 @@ pub(crate) fn park_child(
     )?;
     let fleet = Fleet::open(dir.path(), Arc::new(world))?;
     let flags = pool(args.runs, WORKERS, |ordinal| {
-        match lgwks_bot::block_on(start(fleet.rig(ordinal), ordinal))? {
+        match lgwks_bot::rt::runtime::block_on(start(fleet.rig(ordinal), ordinal))? {
             Started::Parked(parking) => {
                 let line = format!(
                     "{} {ordinal} {}",
@@ -438,7 +438,7 @@ fn round(index: u32, args: &Args, root: &Path, clock: Clock) -> Result<Round, Be
     let fleet = Fleet::open(&dir, world)?;
     let jobs = jobs_of(&fleet, &parked)?;
     pool_over(&jobs, WORKERS, |job| {
-        lgwks_bot::block_on(grant_and_resume(
+        lgwks_bot::rt::runtime::block_on(grant_and_resume(
             job.rig,
             job.ordinal,
             &job.parking,

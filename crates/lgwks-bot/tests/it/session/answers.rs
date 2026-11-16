@@ -2,7 +2,7 @@
 //! number is a value, a label is a label, and an option the variable cannot
 //! hold is refused when the document loads.
 
-use lgwks_bot::{AnswerRejection, MatchTier, Session, TranscriptEntry, Value};
+use lgwks_bot::session::{AnswerRejection, MatchTier, Session, TranscriptEntry, Value};
 
 use super::*;
 

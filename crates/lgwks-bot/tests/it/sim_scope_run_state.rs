@@ -26,14 +26,17 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{DispatchCertainty, KernelError};
+use lgwks_bot::registry::Action;
 use lgwks_bot::rt::task::join_all_bounded;
 use lgwks_bot::script::{
     EffectDisposition, EffectPolicy, FlowError, Scope, act, remember, with_effect_policy,
 };
 use lgwks_bot::task::{Disposition, Host, StoreError, task};
-use lgwks_bot::verb::EffectLifetime;
-use lgwks_bot::{Action, Auth, Cap, EcsError, Execute, domains};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 use lgwks_std::task::try_spawn_blocking;
 
 use crate::memory_records::MemoryRecords;
@@ -82,7 +85,7 @@ async fn spawned_acts(scope: Scope, width: usize, action: &'static str) -> Resul
         let scope = scope.clone();
         async move {
             on_a_spawned_thread(move || {
-                lgwks_bot::block_on(async move {
+                lgwks_bot::script::block_on(async move {
                     let child = scope.item("act", index)?;
                     act(&child, action, "label", 1_u16).await.map(drop)
                 })
@@ -92,6 +95,7 @@ async fn spawned_acts(scope: Scope, width: usize, action: &'static str) -> Resul
     });
     join_all_bounded(FAN_LIMIT, steps)
         .await
+        .map_err(|why| FlowError::failed(why.to_string()))?
         .into_iter()
         .collect::<Result<Vec<()>, FlowError>>()
         .map(drop)
@@ -124,7 +128,7 @@ fn a_spawned_act_over_an_ephemeral_store_is_refused() -> TestResult {
         let child = scope.enter("act")?;
         act(&child, "test::page", "label", 1_u16).await.map(drop)
     })?;
-    let direct = lgwks_bot::block_on(ephemeral()?.run(&body, ()));
+    let direct = lgwks_bot::script::block_on(ephemeral()?.run(&body, ()));
     assert!(
         promise_unmet(direct.error()),
         "an unspawned act over an ephemeral store is refused: {:?}",
@@ -134,7 +138,7 @@ fn a_spawned_act_over_an_ephemeral_store_is_refused() -> TestResult {
     let fanned = task(TASK, |scope: Scope, width: usize| async move {
         spawned_acts(scope, width, "test::page").await
     })?;
-    let report = lgwks_bot::block_on(ephemeral()?.run(&fanned, WIDTH));
+    let report = lgwks_bot::script::block_on(ephemeral()?.run(&fanned, WIDTH));
     assert!(
         promise_unmet(report.error()),
         "a spawned act over an ephemeral store must be refused exactly as the \
@@ -156,7 +160,7 @@ fn a_spawned_remember_records_and_replays() -> TestResult {
                 let calls = Arc::clone(&calls);
                 async move {
                     on_a_spawned_thread(move || {
-                        lgwks_bot::block_on(async move {
+                        lgwks_bot::script::block_on(async move {
                             let child = scope.item("remembered", index)?;
                             remember(&child, "value", || async move {
                                 calls.fetch_add(1, Ordering::SeqCst);
@@ -171,6 +175,7 @@ fn a_spawned_remember_records_and_replays() -> TestResult {
             });
             let values = join_all_bounded(FAN_LIMIT, steps)
                 .await
+                .map_err(|why| FlowError::failed(why.to_string()))?
                 .into_iter()
                 .collect::<Result<Vec<u32>, FlowError>>()?;
             Ok(values
@@ -181,7 +186,8 @@ fn a_spawned_remember_records_and_replays() -> TestResult {
 
     let host = Host::builder(TENANT)?.run_store(scratch.path())?.build()?;
     let identity = host.definition(TASK, 1, None, 1);
-    let first = lgwks_bot::block_on(host.run_under(&identity, &work, (Arc::clone(&calls), WIDTH)));
+    let first =
+        lgwks_bot::script::block_on(host.run_under(&identity, &work, (Arc::clone(&calls), WIDTH)));
     assert_eq!(
         first.disposition(),
         Disposition::Succeeded,
@@ -199,7 +205,7 @@ fn a_spawned_remember_records_and_replays() -> TestResult {
     drop(host);
 
     let reopened = Host::builder(TENANT)?.run_store(scratch.path())?.build()?;
-    let replayed = lgwks_bot::block_on(reopened.resume_under(
+    let replayed = lgwks_bot::script::block_on(reopened.resume_under(
         run,
         &identity,
         &work,
@@ -292,7 +298,7 @@ fn a_spawned_step_keeps_a_custom_effect_policy() -> TestResult {
     let fanned = task(TASK, |scope: Scope, width: usize| async move {
         spawned_acts(scope, width, "test::local_page").await
     })?;
-    let report = lgwks_bot::block_on(with_effect_policy(
+    let report = lgwks_bot::script::block_on(with_effect_policy(
         GateEveryLifetime,
         host.run(&fanned, WIDTH),
     ));

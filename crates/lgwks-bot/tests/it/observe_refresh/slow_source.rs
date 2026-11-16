@@ -6,7 +6,10 @@ use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use lgwks_bot::{Bot, DEFAULT_POLL_DEADLINE, EcsError, GrantSet, MAX_POLL_DEADLINE, RefreshReason};
+use lgwks_bot::ecs::{DEFAULT_POLL_DEADLINE, EcsError, MAX_POLL_DEADLINE};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::RefreshReason;
 
 use crate::effects::memory_scope;
 

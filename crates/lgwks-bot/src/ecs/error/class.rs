@@ -64,7 +64,8 @@ impl EcsError {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{EcsError, KernelError, RetryClass};
+    /// use lgwks_bot::ecs::EcsError;
+    /// use lgwks_bot::error::{KernelError, RetryClass};
     ///
     /// // A wrapped kernel failure keeps the class the kernel gave it.
     /// let lost = EcsError::from(KernelError::EffectIndeterminate {

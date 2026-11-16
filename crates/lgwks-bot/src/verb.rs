@@ -1,8 +1,8 @@
 //! `verb` owns the four fixed verb traits and enforces INV-BOT-FOUR-VERBS:
 //! Observe, Evaluate, Execute, Query. No fifth verb without a crate-level change.
 //!
-//! [`RefreshReason`] is not a verb. It is the typed statement a source makes
-//! about its own caching through [`Observe::cache_state`], and it exists because
+//! [`RefreshReason`](crate::verb::RefreshReason) is not a verb. It is the typed statement a source makes
+//! about its own caching through [`Observe::cache_state`](crate::verb::Observe::cache_state), and it exists because
 //! the substrate's "unchanged, so do not look again" shortcut is only sound
 //! while the value it compares against is too.
 
@@ -12,7 +12,19 @@ use crate::clock::Clock;
 use lgwks_std::hash::Digest;
 use std::fmt;
 use std::future::Future;
+use std::pin::Pin;
 use std::time::Duration;
+
+/// A boxed, non-`Send` future used to type-erase the async verbs behind the
+/// `Bot`'s dynamic chains and behind [`PipelineStep`](crate::domain::flow::PipelineStep). The public
+/// verb traits declare return-position `impl Future`, so a domain still writes
+/// `async fn` in its impl and only the erasure boundary boxes — which is what
+/// avoids an `async-trait` dependency.
+///
+/// Public because it appears in the public `PipelineStep` signature: an
+/// implementer must be able to name the return type.
+#[doc(hidden)]
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 // ── Torn reads ─────────────────────────────────────────────────────────────
 
@@ -652,24 +664,6 @@ mod tests {
         names
     }
 
-    /// Collects the names re-exported from `verb` by the crate root.
-    ///
-    /// A fifth verb reaches consumers through this list, so the list is where
-    /// "without a crate-level change" is either kept or broken.
-    fn reexported_from_crate_root(lib: &str) -> Vec<&str> {
-        let Some((_, after)) = lib.split_once("pub use verb::{") else {
-            return Vec::new();
-        };
-        let Some((names, _)) = after.split_once('}') else {
-            return Vec::new();
-        };
-        names
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .collect()
-    }
-
     #[test]
     fn the_module_declares_exactly_the_four_reviewed_verbs() {
         let declared = declared_traits(include_str!("verb.rs"));
@@ -679,16 +673,20 @@ mod tests {
         );
     }
 
+    /// #1016: the crate root exports `script!`, `try_join!`, `script`, `kernel`
+    /// and `app`, so the verbs have one path, this module, and a fifth verb can
+    /// only arrive where `the_module_declares_exactly_the_four_reviewed_verbs`
+    /// reads.
     #[test]
-    fn the_crate_root_reexports_exactly_those_four_verbs() {
-        let mut reexported = reexported_from_crate_root(include_str!("lib.rs"));
-        reexported.sort_unstable();
-        let mut expected = VERBS;
-        expected.sort_unstable();
-        assert_eq!(
-            reexported, expected,
-            "the crate root is the surface a fifth verb would arrive through"
-        );
+    fn the_crate_root_reexports_no_verb() {
+        let lib = include_str!("lib.rs");
+        for verb in VERBS {
+            assert!(
+                !lib.lines()
+                    .any(|line| line.trim_start().starts_with("pub use") && line.contains(verb)),
+                "the crate root re-exports {verb}; the verbs have one path, `verb`"
+            );
+        }
     }
 
     #[test]

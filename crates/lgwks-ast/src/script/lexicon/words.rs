@@ -133,7 +133,7 @@ pub(super) const WITHIN: Word = Word {
         axis: Axis::Hyperscale,
         claim: "a deadline, on the scope's clock",
         evidence: Evidence::Sim {
-            file: "crates/lgwks-bot/tests/it/sim_clock_wiring.rs",
+            file: "crates/lgwks-bot/tests/it/sim_clock_wiring/sim_within.rs",
             test: "a_within_budget_is_refused_by_an_advance_with_no_real_wait",
         },
     }],

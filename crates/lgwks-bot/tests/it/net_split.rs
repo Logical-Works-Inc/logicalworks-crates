@@ -12,9 +12,9 @@
 use std::error::Error;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::io::{AsyncBufReadExt as _, AsyncRead, AsyncWriteExt as _, BufReader};
 use lgwks_bot::rt::net::{TcpListener, TcpStream, tcp};
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::time::timeout;
 
 /// A test's result: an error fails it with the error's text.
@@ -42,7 +42,7 @@ async fn tcp_pair() -> Result<(TcpStream, TcpStream), Box<dyn Error>> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let (client, accepted) = timeout(STEP, async {
-        lgwks_bot::join!(TcpStream::connect(address), listener.accept())
+        lgwks_bot::rt::join!(TcpStream::connect(address), listener.accept())
     })
     .await?;
     Ok((client?, accepted?.0))
@@ -102,9 +102,9 @@ fn borrowed_tcp_halves_are_named_through_the_facade() -> TestResult {
 mod unix_socket {
     use std::error::Error;
 
-    use lgwks_bot::Runtime;
     use lgwks_bot::rt::io::AsyncWriteExt as _;
     use lgwks_bot::rt::net::{UnixListener, UnixStream, unix};
+    use lgwks_bot::rt::runtime::Runtime;
     use lgwks_bot::rt::time::timeout;
 
     use super::{STEP, TestResult, receive_line};
@@ -122,7 +122,7 @@ mod unix_socket {
         let socket = scratch.path().join("s");
         let listener = UnixListener::bind(&socket)?;
         let (client, accepted) = timeout(STEP, async {
-            lgwks_bot::join!(UnixStream::connect(&socket), listener.accept())
+            lgwks_bot::rt::join!(UnixStream::connect(&socket), listener.accept())
         })
         .await?;
         Ok((client?, accepted?.0))

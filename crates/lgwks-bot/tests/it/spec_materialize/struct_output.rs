@@ -1,10 +1,12 @@
 //! A source whose output is a struct.
 
-use lgwks_bot::spec::{Bot, BotSpec};
-use lgwks_bot::{
-    Action, Admission, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Need, Observe,
-    Source, domains,
-};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::{Action, Source};
+use lgwks_bot::spec::{Admission, Bot, BotSpec, Need};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use super::{TestResult, record, scope, tick_and_trace};
 

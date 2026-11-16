@@ -22,9 +22,12 @@ use std::cell::Cell;
 use std::error::Error;
 use std::rc::Rc;
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::DispatchCertainty;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::{EffectEvent, EffectEvidence};
 use lgwks_bot::spec::{Bot, EffectScope};
-use lgwks_bot::{BotError, DispatchCertainty, EcsError, GrantSet};
 
 use crate::sim;
 

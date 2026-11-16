@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 
-use lgwks_bot::block_on;
+use lgwks_bot::rt::runtime::block_on;
 use lgwks_bot::effect::RunId;
 use lgwks_bot::script::ApprovalDecision;
 

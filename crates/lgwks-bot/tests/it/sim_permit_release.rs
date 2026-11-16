@@ -52,7 +52,7 @@ const MOST_CEILING: u32 = 4;
 const MOST_WAITING: u32 = 3;
 
 /// What a parked body would return, were it ever to finish.
-type ParkFuture = lgwks_bot::BoxFuture<'static, Result<u32, FlowError>>;
+type ParkFuture = lgwks_bot::verb::BoxFuture<'static, Result<u32, FlowError>>;
 
 /// A task whose body never returns.
 type ParkingTask = Task<fn(Scope, u32) -> ParkFuture>;
@@ -186,7 +186,7 @@ fn dropped_runs_return_their_permits(band: Band) -> TestResult {
             "seed {seed}: the high-water mark reached the ceiling and never passed it"
         );
 
-        let report: Report<u32> = lgwks_bot::block_on(host.run(&quick, 7));
+        let report: Report<u32> = lgwks_bot::script::block_on(host.run(&quick, 7));
         assert_eq!(
             report.disposition(),
             Disposition::Succeeded,

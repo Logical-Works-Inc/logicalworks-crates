@@ -95,7 +95,7 @@ async fn trace_each(
 /// key their tenants with.
 fn key_under(tenant_name: &str) -> Result<String, Box<dyn Error>> {
     let scope = Scope::root(Tenant::new(tenant_name)?);
-    let values = lgwks_bot::block_on(each(
+    let values = lgwks_bot::script::block_on(each(
         &scope,
         "page",
         None,
@@ -118,7 +118,7 @@ fn each_body_scopes_carry_the_root_tenant() -> TestResult {
     for tenant_name in ["acme", "globex"] {
         let scope = Scope::root(Tenant::new(tenant_name)?);
         let records: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let values = lgwks_bot::block_on(trace_each(&scope, &records));
+        let values = lgwks_bot::script::block_on(trace_each(&scope, &records));
         let values = match values {
             Ok(values) => values,
             Err(error) => return Err(format!("{tenant_name}'s fan-out failed: {error}").into()),
@@ -159,7 +159,7 @@ fn retry_attempts_share_one_tenant_and_key() -> TestResult {
     let attempts = 3_u32
         .try_into()
         .map_err(|refusal| format!("3 is an attempt count: {refusal}"))?;
-    let outcome = lgwks_bot::block_on(retry(
+    let outcome = lgwks_bot::script::block_on(retry(
         &scope,
         "send",
         attempts,
@@ -213,7 +213,7 @@ fn a_scoped_fan_out_runs_under_the_caller_scope() -> TestResult {
     // A failing item is the body's own error at its position: the fan-out
     // entered the scope it was given and ran there.
     let scope = Scope::root(Tenant::new("acme")?);
-    let outcome: Result<Vec<u32>, FanOutError<String>> = lgwks_bot::block_on(
+    let outcome: Result<Vec<u32>, FanOutError<String>> = lgwks_bot::script::block_on(
         FanOut::new(0..4_u32).run_in(&scope, "doubled", |id| async move {
             if id == 2 {
                 Err(String::from("the third item failed"))
@@ -246,11 +246,11 @@ fn a_scoped_fan_out_runs_under_the_caller_scope() -> TestResult {
         Tenant::new("acme")?,
         Clock::virtual_at(Duration::from_secs(10)),
     );
-    let outcome: Result<Vec<u32>, FanOutError<String>> = lgwks_bot::block_on(
+    let outcome: Result<Vec<u32>, FanOutError<String>> = lgwks_bot::script::block_on(
         FanOut::new(0..4_u32)
             .within(Duration::from_millis(50))
             .run_in(&spent, "doubled", |id| async move {
-                let _ = std::future::pending::<()>().await;
+                std::future::pending::<()>().await;
                 Ok::<u32, String>(id)
             }),
     );
@@ -277,7 +277,7 @@ fn a_scoped_fan_out_runs_under_the_caller_scope() -> TestResult {
         Err(error) => return Err(format!("entering the flow step failed: {error}").into()),
     };
     flow.cancel();
-    let outcome: Result<Vec<u32>, FanOutError<String>> = lgwks_bot::block_on(
+    let outcome: Result<Vec<u32>, FanOutError<String>> = lgwks_bot::script::block_on(
         FanOut::new(0..4_u32).run_in(&flow, "doubled", |id| async move { Ok::<u32, String>(id) }),
     );
     match outcome {
@@ -305,7 +305,7 @@ fn a_scoped_fan_out_runs_under_the_caller_scope() -> TestResult {
 /// not silently become any caller's, and any caller's did not leak into it.
 #[test]
 fn a_standalone_fan_out_keeps_its_reserved_tenant() -> TestResult {
-    let outcome = lgwks_bot::block_on(
+    let outcome = lgwks_bot::script::block_on(
         FanOut::new(1_u32..=4).run(|id| async move { Ok::<u32, String>(id.saturating_mul(2)) }),
     );
     let outcome = match outcome {
@@ -327,7 +327,7 @@ fn the_same_scope_trace_replays() -> TestResult {
     let trace_once = || -> Result<Vec<String>, Box<dyn Error>> {
         let scope = Scope::root(Tenant::new("acme")?);
         let records: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let values = lgwks_bot::block_on(trace_each(&scope, &records));
+        let values = lgwks_bot::script::block_on(trace_each(&scope, &records));
         match values {
             Ok(values) => {
                 if values != vec![0, 1, 2, 3] {
@@ -339,7 +339,7 @@ fn the_same_scope_trace_replays() -> TestResult {
         let attempts = 2_u32
             .try_into()
             .map_err(|refusal| format!("2 is an attempt count: {refusal}"))?;
-        let outcome = lgwks_bot::block_on(retry(
+        let outcome = lgwks_bot::script::block_on(retry(
             &scope,
             "send",
             attempts,

@@ -13,7 +13,7 @@ you to discover.
   the provider stack is `lgwks_deps::storefront::genai`.
 - **No sandbox.** Capability gating "stops confused-deputy calls and accidental
   ungated use; it is not a sandbox, since in-process code can always dial out
-  directly" (`crates/lgwks-bot/src/cap.rs:15`). See [authority](authority.md).
+  directly" (`crates/lgwks-bot/src/cap.rs:16`). See [authority](authority.md).
 - **No revocable `GrantSet`.** It has no `revoke`, and a built bot holds a clone
   of the set it was admitted with. `EcsBot::replace_grants` narrows a running bot,
   and a broker's fence withdraws a reach (INV-FENCE-1). See [authority](authority.md).
@@ -26,7 +26,7 @@ you to discover.
   `always`, `threshold::above(<n>)`, `threshold::below(<n>)`); anything the
   document cannot express stays on the builder chain.
 - **No `#[tokio::main]` equivalent.** Entry to the async surface is
-  `Runtime::block_on`, or `lgwks_bot::block_on` for a flow.
+  `Runtime::block_on`, or `lgwks_bot::script::block_on` for a flow.
 - **No exactly-once delivery.** An action that may have taken effect after its
   request was sent fails as `BotError::EffectIndeterminate`, and reconciling
   that is your decision. See [failures](failures.md). The durable dispatch and

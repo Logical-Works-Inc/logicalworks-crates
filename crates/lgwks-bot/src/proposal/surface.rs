@@ -196,12 +196,6 @@ impl SurfaceBuilder {
         self
     }
 
-    /// Declare that this run holds the four shipped capabilities.
-    #[must_use]
-    pub fn holding_all_shipped(self) -> Self {
-        self.holding(&[Cap::net(), Cap::fs(), Cap::sys(), Cap::notify()])
-    }
-
     /// Install the surface.
     #[must_use]
     pub fn build(self) -> Surface {

@@ -54,7 +54,8 @@
 //!   each request from its tenant's state (feature `edge`, ADR 0006 R4).
 //! - `process`, `fs`, `signal` — opt-in drivers.
 //! - `select!`, `join!`, `try_join!` — the driver's `macro_rules!` combinators,
-//!   re-exported at the crate root so a consumer never names the driver. They are
+//!   re-exported (`rt::select!`, `rt::join!`, and `try_join!` at the crate root)
+//!   so a consumer never names the driver. They are
 //!   the spelling for branches already owned by the awaiting task; work that must
 //!   outlive the call belongs on a `Supervisor` or in `join_all_bounded`, never in
 //!   a bare combinator.
@@ -105,6 +106,13 @@ pub mod task;
 /// driver's `task_local!` needs only the `rt` feature this module already
 /// requires, and a `pub use` of a macro is what keeps that true.
 pub use lgwks_deps::tokio::task_local;
+
+/// The driver's `join!` and `select!` combinators, re-exported here so a
+/// caller names `rt::join!` and `rt::select!` and never the driver. `try_join!`
+/// stays at the crate root (#1016).
+#[cfg(all(feature = "rt", feature = "macros"))]
+#[doc(hidden)]
+pub use lgwks_deps::tokio::{join, select};
 
 #[cfg(all(feature = "script", feature = "edge"))]
 #[path = "apps/mod.rs"]

@@ -22,13 +22,15 @@ use std::cell::RefCell;
 use std::error::Error;
 
 use lgwks_bot::broker::Broker;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
-use lgwks_bot::spec::{Bot, BotSpec, EffectIdentity, EffectScope};
-use lgwks_bot::{
-    Action, Admission, Auth, Cap, EcsError, EffectLifetime, Evaluate, Execute, GrantSet, Observe,
-    Source, domains,
-};
+use lgwks_bot::registry::{Action, Source};
+use lgwks_bot::spec::{Admission, Bot, BotSpec, EffectIdentity, EffectScope};
+use lgwks_bot::verb::{EffectLifetime, Evaluate, Execute, Observe};
 
 mod concurrency;
 mod needs;
@@ -66,7 +68,7 @@ pub(crate) fn take_trace() -> Vec<String> {
 
 /// Forget whatever an earlier run on this thread recorded, so a test reads only
 /// its own operations.
-fn clear_trace() {
+pub(crate) fn clear_trace() {
     drop(take_trace());
 }
 

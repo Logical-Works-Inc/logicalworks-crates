@@ -33,8 +33,11 @@ use std::cell::Cell;
 use std::error::Error;
 use std::rc::Rc;
 
+use lgwks_bot::cap::Cap;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
-use lgwks_bot::{Bot, Cap, EcsError, GrantSet};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
 
 use crate::authority::{Counted, Script, test_effects};
 

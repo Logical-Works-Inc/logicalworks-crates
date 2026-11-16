@@ -718,7 +718,7 @@ impl RunStore {
     fn commit_async<'a>(
         &'a self,
         staged: Staged,
-    ) -> crate::BoxFuture<'a, Result<Appended, StoreError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Appended, StoreError>> {
         Box::pin(self.commit_send(staged))
     }
 

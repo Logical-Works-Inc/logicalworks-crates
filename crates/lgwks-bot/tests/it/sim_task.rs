@@ -340,10 +340,10 @@ fn build(host: &Host, plan: &Plan, observed: Rc<Observed>) -> Result<Tree, Box<d
     let run: Box<Runner> = Box::new(move |host: &Host, input: u32| {
         let step = (input, depth);
         match depth {
-            1 => lgwks_bot::block_on(host.run(&level_1, step)),
-            2 => lgwks_bot::block_on(host.run(&level_2, step)),
-            3 => lgwks_bot::block_on(host.run(&level_3, step)),
-            _ => lgwks_bot::block_on(host.run(&level_4, step)),
+            1 => lgwks_bot::script::block_on(host.run(&level_1, step)),
+            2 => lgwks_bot::script::block_on(host.run(&level_2, step)),
+            3 => lgwks_bot::script::block_on(host.run(&level_3, step)),
+            _ => lgwks_bot::script::block_on(host.run(&level_4, step)),
         }
     });
     Ok(Tree {

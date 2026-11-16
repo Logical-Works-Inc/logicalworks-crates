@@ -43,8 +43,8 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 
 use process_probe::{describe_group, group_is_gone, wait_for_pid};

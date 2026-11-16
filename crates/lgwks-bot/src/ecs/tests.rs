@@ -37,10 +37,10 @@ use super::work::PendingWork;
 use super::work::TransitionHold;
 use super::work::WorkId;
 use super::work::identify_output;
-use crate::EventId;
 use crate::broker::{Broker, DispatchError};
 use crate::cap::{Auth, Cap, Demand};
 use crate::clock::Clock;
+use crate::effect::EventId;
 use crate::effect::InputIdentity;
 use crate::effect::{
     ActionDigest, ActionId, AttemptId, EffectIdentity, EffectKey, EnvironmentEpoch, FlowRevision,

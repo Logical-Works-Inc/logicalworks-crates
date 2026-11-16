@@ -30,7 +30,7 @@
 //! # Starting work, at a glance
 //!
 //! - **One future, and you need its value.** Run it: `join_all_bounded(1,
-//!   [work()]).await` returns a one-element vector, or await the future
+//!   [work()]).await?` returns a one-element vector, or await the future
 //!   directly. There is no handle in either form, so there is nothing to drop.
 //! - **One task now, read later.** Build a [`JoinSet`], [`JoinSet::spawn`] into
 //!   it, and `join_next` when you want the result. Dropping the set aborts
@@ -44,7 +44,7 @@
 //!
 //! Every verb in this crate is deliberately **not** `Send`, so a bot's own
 //! futures cannot be placed on another worker thread — that is why
-//! [`BoxFuture`](crate::BoxFuture) is unconstrained. A non-`Send` future is
+//! [`BoxFuture`](crate::verb::BoxFuture) is unconstrained. A non-`Send` future is
 //! driven by awaiting it, by [`Host::run`](crate::task::Host::run) whose bodies
 //! are polled on the calling task and need not be `Send`, or by
 //! [`lgwks_std::task::join_all`], which polls many
@@ -162,12 +162,40 @@ impl<T: Send + 'static> Default for JoinSet<T> {
 /// # Cancellation and failure
 ///
 /// Dropping the returned future drops the [`JoinSet`], which aborts every task
-/// that has not finished. A panicking input is resumed on the *awaiting* task,
-/// matching `join_all`: it is not converted into a [`JoinError`], and it does
-/// not abort the process. The remaining tasks are then aborted as the set
-/// drops. A completed input is never silently dropped from the result vector.
+/// that has not finished. A panicking input is returned to the *awaiting* task
+/// as [`FanOutError::Panicked`], carrying its [`JoinError`] (whose
+/// `into_panic` hands back the payload); it does not abort
+/// the process, and the remaining tasks are aborted as the set drops. A
+/// completed input is never silently dropped from the result vector: a slot
+/// that was never filled is [`FanOutError::Lost`], not a shorter vector.
+///
+/// # Errors
+///
+/// [`FanOutError::Panicked`] when an input panicked, [`FanOutError::Cancelled`]
+/// when a task ended without a value, and [`FanOutError::Lost`] when an input's
+/// slot was never filled.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> std::io::Result<()> {
+/// use lgwks_bot::rt::runtime::Runtime;
+/// use lgwks_bot::rt::task::join_all_bounded;
+///
+/// let runtime = Runtime::new()?;
+/// let work = (0..6_u32).map(|n| async move { n * 2 });
+/// let doubled = runtime
+///     .block_on(join_all_bounded(2, work))
+///     .map_err(std::io::Error::other)?;
+/// assert_eq!(doubled, vec![0, 2, 4, 6, 8, 10], "input order, two at a time");
+/// # Ok(())
+/// # }
+/// ```
 #[cfg(feature = "sync")]
-pub async fn join_all_bounded<F, T>(limit: usize, futures: impl IntoIterator<Item = F>) -> Vec<T>
+pub async fn join_all_bounded<F, T>(
+    limit: usize,
+    futures: impl IntoIterator<Item = F>,
+) -> Result<Vec<T>, FanOutError>
 where
     F: Future<Output = T> + Send + 'static,
     T: Send + 'static,
@@ -216,24 +244,30 @@ where
         }
     }
     if total == 0 {
-        return Vec::new();
+        return Ok(Vec::new());
     }
 
     while let Some(joined) = set.join_next().await {
         match joined {
-            Ok((index, output)) => slots[index] = Some(output),
-            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-            Err(_cancelled) => {
-                // Not reachable here: nothing aborts this set while it is
-                // awaited. A shrink would break the INV-RT-BOUNDED-FANOUT
-                // guarantee, so fail on the awaiter rather than fabricate a
-                // slot. `resume_unwind` rather than `panic!`: this is the
-                // crate's form for a documented, unavoidable panic
-                // (`lgwks_std::task::JoinHandle` uses it for the same reason):
-                // it reports on the awaiting task and never aborts the process.
-                std::panic::resume_unwind(Box::new(
-                    "join_all_bounded: a task was cancelled before it produced a value",
-                ))
+            Ok((index, output)) => match slots.get_mut(index) {
+                Some(slot) => *slot = Some(output),
+                None => {
+                    lgwks_std::trace::warn!(index, "join_all_bounded: an output has no slot");
+                    return Err(FanOutError::Lost { index });
+                }
+            },
+            // The set drops as this returns, aborting every task still running,
+            // so one failed input ends the fan-out without leaving work behind.
+            Err(error) if error.is_panic() => {
+                lgwks_std::trace::warn!(%error, "join_all_bounded: an input panicked");
+                return Err(FanOutError::Panicked(error));
+            }
+            // Nothing aborts this set while it is awaited, so a cancelled task
+            // is a driver shutdown under the caller; a shorter vector would
+            // break INV-RT-BOUNDED-FANOUT, so the caller is told instead.
+            Err(error) => {
+                lgwks_std::trace::warn!(%error, "join_all_bounded: a task was cancelled");
+                return Err(FanOutError::Cancelled(error));
             }
         }
         match inputs.next() {
@@ -245,17 +279,80 @@ where
             }
         }
     }
-    slots
-        .into_iter()
-        .map(|slot| match slot {
-            Some(output) => output,
-            // Same reasoning as the cancellation arm: every spawned input fills
-            // exactly one slot, so a `None` here means the replenishment loop
-            // lost a value. Fail on the awaiter instead of dropping the element
-            // and returning a short vector.
-            None => std::panic::resume_unwind(Box::new(
-                "join_all_bounded: every input produces exactly one output",
-            )),
-        })
-        .collect()
+    // Every spawned input fills exactly one slot, so an empty one means the
+    // replenishment loop lost a value: name it rather than return a short vector.
+    let mut outputs = Vec::with_capacity(slots.len());
+    for (index, slot) in slots.into_iter().enumerate() {
+        match slot {
+            Some(output) => outputs.push(output),
+            None => {
+                lgwks_std::trace::warn!(index, "join_all_bounded: a slot was never filled");
+                return Err(FanOutError::Lost { index });
+            }
+        }
+    }
+    Ok(outputs)
+}
+
+/// Why [`join_all_bounded`] returned no vector.
+///
+/// One variant per way the fan-out can end short, so a caller matches the case
+/// rather than reading a message. The panic payload stays inside the
+/// [`JoinError`]: `into_panic` hands it back to a caller that wants to re-raise.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> std::io::Result<()> {
+/// use lgwks_bot::rt::runtime::Runtime;
+/// use lgwks_bot::rt::task::{FanOutError, join_all_bounded};
+///
+/// let runtime = Runtime::new()?;
+/// let work = (0..3_u32).map(|n| async move {
+///     assert!(n != 1, "input one is hostile");
+///     n
+/// });
+/// match runtime.block_on(join_all_bounded(3, work)) {
+///     Err(FanOutError::Panicked(error)) => assert!(error.is_panic(), "the panic comes back typed"),
+///     other => return Err(std::io::Error::other(format!("expected a panic, got {other:?}"))),
+/// }
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "sync")]
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum FanOutError {
+    /// An input panicked. The set aborted every other task as it dropped.
+    Panicked(JoinError),
+    /// A task ended without a value, which only a runtime shutting down under
+    /// the caller does: nothing aborts the set while it is awaited.
+    Cancelled(JoinError),
+    /// Input `index` produced no output. Every input fills one slot, so this
+    /// names a lost value rather than shortening the vector.
+    Lost {
+        /// The input whose output is missing.
+        index: usize,
+    },
+}
+
+#[cfg(feature = "sync")]
+impl std::fmt::Display for FanOutError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Panicked(ref error) => write!(f, "a fanned-out input panicked: {error}"),
+            Self::Cancelled(ref error) => write!(f, "a fanned-out task was cancelled: {error}"),
+            Self::Lost { index } => write!(f, "fanned-out input {index} produced no output"),
+        }
+    }
+}
+
+#[cfg(feature = "sync")]
+impl std::error::Error for FanOutError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::Panicked(ref error) | Self::Cancelled(ref error) => Some(error),
+            Self::Lost { .. } => None,
+        }
+    }
 }

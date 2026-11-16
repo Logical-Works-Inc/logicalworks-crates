@@ -7,7 +7,11 @@ use std::rc::Rc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use lgwks_bot::{Auth, Bot, Cap, EcsError, GrantSet, Observe, RefreshReason};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::{Observe, RefreshReason};
 
 use super::{ChainHandles, Tenant, domain_of, logs, seeded_refusal, tenant_scope};
 

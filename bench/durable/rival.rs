@@ -243,7 +243,7 @@ fn spawn_server(name: &str, config: &Path, dir: &Path) -> Result<Owned, BenchErr
 impl Rig {
     /// Wait for both doors of the server.
     fn await_health(&self) -> Result<(), BenchError> {
-        let pause = |gap| lgwks_bot::block_on(self.clock.sleep(gap));
+        let pause = |gap| lgwks_bot::rt::runtime::block_on(self.clock.sleep(gap));
         until("the server's health", HEALTH_TRIES, GAP, &pause, || {
             self.wire.healthy()
         })
@@ -314,7 +314,7 @@ impl Rig {
             deployed_us: 0,
         };
         rig.await_health()?;
-        let pause = |gap| lgwks_bot::block_on(rig.clock.sleep(gap));
+        let pause = |gap| lgwks_bot::rt::runtime::block_on(rig.clock.sleep(gap));
         until("registering the worker", REGISTER_TRIES, GAP, &pause, || {
             rig.wire.register().map(|()| true)
         })
@@ -450,7 +450,7 @@ fn one_run(rig: &Rig, ordinal: u32, delay: Duration) -> Result<Sample, BenchErro
     let (key, outcome) = submit(rig, ordinal)?;
     let finish = match outcome {
         Outcome::Parked => {
-            lgwks_bot::block_on(rig.clock.sleep(delay));
+            lgwks_bot::rt::runtime::block_on(rig.clock.sleep(delay));
             rig.wire
                 .approve(&key, ordinal)
                 .map_err(|source| BenchError::Rival { source })?;
@@ -623,7 +623,7 @@ fn round(
     }
     let clock_start = Instant::now();
     restarts.push(rig.crash_and_restart()?);
-    let pause = |gap| lgwks_bot::block_on(rig.clock.sleep(gap));
+    let pause = |gap| lgwks_bot::rt::runtime::block_on(rig.clock.sleep(gap));
     pool_over(&parked, WORKERS, |run| {
         until("an approval after the restart", APPROVE_TRIES, GAP, &pause, || {
             rig.wire.approve(&run.key, run.ordinal).map(|()| true)

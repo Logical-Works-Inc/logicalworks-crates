@@ -4,10 +4,12 @@
 //! versions and empty configuration. Each failure goes up the real chain and is
 //! held to the table in the parent.
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{DispatchCertainty, KernelError, RetryClass};
 use lgwks_bot::script::FlowError;
+use lgwks_bot::session::SessionError;
 use lgwks_bot::task::StoreError;
-use lgwks_bot::{BotError, EcsError, SessionError};
 
 use super::{DRAWS, Fields, Hash, Kind, LIMIT, Route, Spec, TestResult, replays};
 use crate::sim::{Rng, Trace};

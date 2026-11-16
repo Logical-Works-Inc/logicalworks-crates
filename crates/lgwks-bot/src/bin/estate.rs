@@ -9,12 +9,17 @@
 
 use std::io::Write as _;
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::cap::Cap;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::KernelError;
 use lgwks_bot::gate::GrantReplacement;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::estate::{Estate, EstateError, EstateReport};
 use lgwks_bot::rt::supervise::TaskId;
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::task::{Disposition, task};
-use lgwks_bot::{Bot, BotError, Cap, EcsError, GrantSet, KernelError};
 
 /// The script vocabulary on the shipped binary: what each runtime answers
 /// through the public interface. A submodule rather than inline code, so the

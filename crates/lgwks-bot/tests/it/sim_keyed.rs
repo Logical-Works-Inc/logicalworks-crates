@@ -62,7 +62,7 @@ pub(crate) fn drive<T>(clock: &Clock, work: impl Future<Output = T>) -> T {
     let finished = lgwks_bot::rt::sync::CancellationToken::new();
     let work_finished = finished.clone();
     let driver_clock = clock.clone();
-    lgwks_bot::block_on(async {
+    lgwks_bot::script::block_on(async {
         let run = async {
             let answer = work.await;
             // A driver parked on `wait_for_waiter` is woken by the stop, so
@@ -75,7 +75,7 @@ pub(crate) fn drive<T>(clock: &Clock, work: impl Future<Output = T>) -> T {
                 if !driver_clock.has_waiters() {
                     // Nothing waits on the clock: park rather than spin, and
                     // wake when a wait registers.
-                    lgwks_bot::select! {
+                    lgwks_bot::rt::select! {
                         () = driver_clock.wait_for_waiter() => {}
                         () = finished.cancelled() => {}
                     }
@@ -87,7 +87,7 @@ pub(crate) fn drive<T>(clock: &Clock, work: impl Future<Output = T>) -> T {
                 }
             }
         };
-        let (answer, ()) = lgwks_bot::join!(run, advance);
+        let (answer, ()) = lgwks_bot::rt::join!(run, advance);
         answer
     })
 }

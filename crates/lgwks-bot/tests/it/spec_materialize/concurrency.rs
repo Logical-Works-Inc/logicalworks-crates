@@ -2,7 +2,7 @@
 
 #![cfg(feature = "rt")]
 
-use lgwks_bot::GrantSet;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::spec::{Bot, BotSpec};
 use lgwks_std::task::try_spawn_blocking;
 
@@ -19,7 +19,7 @@ const CONCURRENT_SPEC: &str = r#"{"version":1,"name":"concurrent","chains":[
 
 #[test]
 fn a_thousand_materializations_across_tenants_are_independent() -> TestResult<()> {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
 
     // Each job owns its run identity and its scope, and builds, ticks and drops
     // its bot entirely on its own thread. Nothing is shared, so nothing can

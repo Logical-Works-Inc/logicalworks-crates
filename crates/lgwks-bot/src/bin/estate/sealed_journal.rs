@@ -234,7 +234,7 @@ pub(crate) fn prove_sweeper(
         .advance(Duration::from_secs(10))
         .map_err(|error| refused("the virtual clock")(error.to_string()))?;
     let watched = store;
-    let erased = lgwks_bot::block_on(async move {
+    let erased = lgwks_bot::script::block_on(async move {
         let sweeper = Sweeper::spawn(watched.clone(), clock, Duration::from_millis(5));
         let seen = lgwks_bot::rt::time::timeout(Duration::from_secs(5), async {
             loop {

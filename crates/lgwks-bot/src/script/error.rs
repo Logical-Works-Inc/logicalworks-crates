@@ -428,7 +428,7 @@ impl FlowError {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::RetryClass;
+    /// use lgwks_bot::error::RetryClass;
     /// use lgwks_bot::script::FlowError;
     ///
     /// assert_eq!(FlowError::transient("the peer hung up").retry_class(), RetryClass::Safe);

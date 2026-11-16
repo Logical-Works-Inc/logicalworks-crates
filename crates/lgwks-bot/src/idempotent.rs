@@ -19,7 +19,7 @@
 //! ledger writes it down as a fact (#910 defect 3):
 //!
 //! - a 2xx is the effect applied;
-//! - a 401/403/404 is [`EcsError::CredentialRejected`] carrying its
+//! - a 401/403/404 is [`EcsError::CredentialRejected`](crate::ecs::EcsError::CredentialRejected) carrying its
 //!   [`NeedSet`](crate::spec::NeedSet) repair, the credential row's vocabulary
 //!   reused rather than redeclared;
 //! - a 408, 425 or 429 is the receiver saying it did not process the request:
@@ -27,7 +27,7 @@
 //! - any other 4xx is the receiver refusing the effect: `Refused`;
 //! - a 5xx, a 409 (the key is in use), an unfollowed 3xx, and every transport
 //!   failure after the request may have left are
-//!   [`KernelError::EffectIndeterminate`]: the effect may have landed, so the
+//!   [`KernelError::EffectIndeterminate`](crate::error::KernelError::EffectIndeterminate): the effect may have landed, so the
 //!   ledger records no outcome and holds the key as a barrier;
 //! - a failure to resolve, connect or handshake sent nothing: `NotDelivered`.
 //!

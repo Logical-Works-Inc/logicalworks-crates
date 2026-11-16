@@ -6,24 +6,24 @@
 //!
 //! # Resource bounds
 //!
-//! Validation bounds the *shape* of a document and [`FlowBounds`] bounds the
+//! Validation bounds the *shape* of a document and [`FlowBounds`](crate::session::FlowBounds) bounds the
 //! number of *steps* a session takes. Neither bounds bytes, and the two are
 //! independent: `${value}` written a hundred thousand times is a
 //! two-hundred-kilobyte document that interpolates to ten gigabytes, and a
 //! step budget of two hundred and fifty-six does not notice, because a single
 //! `say` node performs one step however much text it renders.
 //!
-//! [`ResourceLimits`] is the byte bound, and it is enforced in four places:
+//! [`ResourceLimits`](crate::session::ResourceLimits) is the byte bound, and it is enforced in four places:
 //!
-//! - [`MAX_UTTERANCE_BYTES`] — one answer, checked at the ingress of
-//!   [`Session::answer`] before the utterance is resolved, stored, or recorded;
-//! - [`MAX_VALUE_BYTES`] — one stored value, checked when an answer is assigned
+//! - [`MAX_UTTERANCE_BYTES`](crate::session::MAX_UTTERANCE_BYTES) — one answer, checked at the ingress of
+//!   [`Session::answer`](crate::session::Session::answer) before the utterance is resolved, stored, or recorded;
+//! - [`MAX_VALUE_BYTES`](crate::session::MAX_VALUE_BYTES) — one stored value, checked when an answer is assigned
 //!   and again when the document names a candidate no session could store;
-//! - [`MAX_RECORD_BYTES`] — one rendered record payload, checked against the
+//! - [`MAX_RECORD_BYTES`](crate::session::MAX_RECORD_BYTES) — one rendered record payload, checked against the
 //!   compiled template's *computed* expansion before that expansion is
-//!   allocated ([`CompiledTemplate::expanded_bytes`]) and against the built
+//!   allocated ([`CompiledTemplate::expanded_bytes`](crate::session::CompiledTemplate::expanded_bytes)) and against the built
 //!   prompt's computed size before the prompt is built;
-//! - [`MAX_SESSION_BYTES`] — every record and every visited node id a session
+//! - [`MAX_SESSION_BYTES`](crate::session::MAX_SESSION_BYTES) — every record and every visited node id a session
 //!   retains, checked before either sink is written.
 //!
 //! Every one of them refuses rather than truncates: a record cut in half is a
@@ -32,9 +32,9 @@
 //! entry behind.
 //!
 //! These are the *operator's* ceilings. A document may ask for tighter ones in
-//! its [`FlowBounds`], and an embedding application may ask for tighter ones on
-//! a session ([`Session::with_limits`]); neither may ask for looser, and a
-//! request above the ceiling is [`SessionError::ResourceLimitAboveCeiling`] rather
+//! its [`FlowBounds`](crate::session::FlowBounds), and an embedding application may ask for tighter ones on
+//! a session ([`Session::with_limits`](crate::session::Session::with_limits)); neither may ask for looser, and a
+//! request above the ceiling is [`SessionError::ResourceLimitAboveCeiling`](crate::session::SessionError::ResourceLimitAboveCeiling) rather
 //! than a silently applied bound. The two requests combine by taking the
 //! smaller value on each axis.
 

@@ -23,7 +23,7 @@ refused token this way on its `Observe` verb and in every flow.
 ## The grant set is a snapshot, narrowed only through `replace_grants`
 
 This is the part that surprises people. `EcsBot::assemble` clones the set into
-the world (`crates/lgwks-bot/src/ecs/builder.rs:594`):
+the world (`crates/lgwks-bot/src/ecs/builder.rs:599`):
 
 ```rust
 world.insert_resource(Grants(grants.clone()));
@@ -53,7 +53,7 @@ The consequences, stated plainly:
 
 ## It is not a sandbox
 
-`crates/lgwks-bot/src/cap.rs:15` states the ceiling in the module documentation:
+`crates/lgwks-bot/src/cap.rs:16` states the ceiling in the module documentation:
 
 > This stops confused-deputy calls and accidental ungated use; it is not a
 > sandbox, since in-process code can always dial out directly, so the guarantee
@@ -75,7 +75,7 @@ from there — is **not implemented, and the reason is not effort. An action
 cannot be denied for want of a capability at run time.** Two facts make that so:
 
 - `EcsBot::assemble` admits every declared requirement before the world is built
-  (`crates/lgwks-bot/src/ecs/builder.rs:571`), so a bot whose declared requirements are
+  (`crates/lgwks-bot/src/ecs/builder.rs:576`), so a bot whose declared requirements are
   not granted does not exist to run.
 - Every per-call proof is minted from **the same list**. `run_any` and
   `run_any_on` share `execute_erased`, which calls

@@ -18,7 +18,7 @@ struct Refused(u32);
 
 #[test]
 fn the_first_failing_item_stops_the_fan_out_with_its_index_and_its_own_error() -> TestResult {
-    let outcome = lgwks_bot::block_on(
+    let outcome = lgwks_bot::script::block_on(
         FanOut::new(1_u32..=8)
             .at_most(4)
             .within(Duration::from_secs(5))
@@ -46,7 +46,7 @@ fn the_first_failing_item_stops_the_fan_out_with_its_index_and_its_own_error() -
 #[test]
 fn a_scoped_fan_out_returns_every_value_in_input_order() -> TestResult {
     let scope = Scope::root(Tenant::new("acme")?);
-    let doubled = match lgwks_bot::block_on(FanOut::new(1_u32..=8).at_most(4).run_in(
+    let doubled = match lgwks_bot::script::block_on(FanOut::new(1_u32..=8).at_most(4).run_in(
         &scope,
         "doubled",
         |id| async move { Ok::<u32, String>(id.saturating_mul(2)) },
@@ -65,7 +65,7 @@ fn a_scoped_fan_out_returns_every_value_in_input_order() -> TestResult {
 #[test]
 fn a_remembered_step_returns_its_value_with_no_store_installed() -> TestResult {
     let scope = Scope::root(Tenant::new("acme")?);
-    let fetched = lgwks_bot::block_on(remember(&scope, "fetch", || async {
+    let fetched = lgwks_bot::script::block_on(remember(&scope, "fetch", || async {
         Ok::<_, FlowError>(41u32)
     }))?;
     assert_eq!(fetched, 41);

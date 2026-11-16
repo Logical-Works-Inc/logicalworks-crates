@@ -7,6 +7,10 @@
 
 use std::time::Duration;
 
+/// The consumer-shaped half of #1016: a flow and an app built through the supported paths only.
+#[path = "supported_surface.rs"]
+mod supported_surface;
+
 use lgwks_bot::kernel::broker::Broker;
 use lgwks_bot::kernel::clock::{Clock, ClockError, EpochClock, RecordedInstant};
 use lgwks_bot::kernel::dist_lease::HostId;
@@ -68,4 +72,43 @@ fn every_promised_module_has_a_named_type() {
         std::any::type_name::<RetryDecision>(),
     ];
     assert!(names.iter().all(|name| name.starts_with("lgwks_bot::")));
+}
+
+/// #1016: the crate root stopped exporting `Cap`, `Host` and `RunStore`, so the
+/// kernel carries them. A consumer granting an app a capability and hosting a
+/// task names both through here, and each is the support path's one type.
+#[cfg(feature = "script")]
+#[test]
+fn the_kernel_carries_the_task_door_and_the_capabilities_the_root_gave_up() {
+    use lgwks_bot::kernel::cap::Cap;
+    use lgwks_bot::kernel::task::{Host, Report, RunStore, Task};
+
+    fn support_cap(cap: lgwks_bot::cap::Cap) -> lgwks_bot::cap::Cap {
+        cap
+    }
+    let cap: Cap = support_cap(Cap::net());
+    assert_eq!(cap.as_str(), Cap::NET);
+    let names = [
+        std::any::type_name::<Host>(),
+        std::any::type_name::<RunStore>(),
+        std::any::type_name::<Report<()>>(),
+        std::any::type_name::<Task<()>>(),
+    ];
+    assert!(
+        names
+            .iter()
+            .all(|name| name.starts_with("lgwks_bot::task::")),
+        "a kernel path is the support path's type, never a copy: {names:?}"
+    );
+}
+
+/// #1016 moved `sealed` under the kernel: the sealed-at-rest key seam is named here.
+#[cfg(feature = "sealed")]
+#[test]
+fn the_kernel_carries_the_sealed_records() {
+    let name = std::any::type_name::<dyn lgwks_bot::kernel::sealed::keys::KeyProvider>();
+    assert!(
+        name.contains("lgwks_bot::sealed::keys::KeyProvider"),
+        "{name}"
+    );
 }

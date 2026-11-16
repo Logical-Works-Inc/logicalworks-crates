@@ -47,7 +47,7 @@ pub(crate) fn step_definition(scope: &Scope, step: &str) -> Arc<DefinitionIdenti
 /// use lgwks_bot::script::{FlowError, Scope, Tenant, remember};
 ///
 /// let scope = Scope::root(Tenant::new("acme")?);
-/// let fetched = lgwks_bot::block_on(remember(&scope, "fetch", || async {
+/// let fetched = lgwks_bot::script::block_on(remember(&scope, "fetch", || async {
 ///     Ok::<_, FlowError>(41u32)
 /// }))?;
 /// assert_eq!(fetched, 41);

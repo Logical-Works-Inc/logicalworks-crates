@@ -19,8 +19,8 @@
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::{ProcessRunError, ProcessSpec, StdioPolicy};
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 
 use crate::scratch::Scratch;

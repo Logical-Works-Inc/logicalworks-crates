@@ -182,7 +182,7 @@ impl Watch {
 /// Run `scenario` and return its outcome with what the bodies observed.
 fn run(scenario: &Scenario) -> (Result<Vec<u64>, FanOutError<Refused>>, Watch) {
     let watch = Watch::default();
-    let outcome = lgwks_bot::block_on(
+    let outcome = lgwks_bot::script::block_on(
         scenario
             .fan_out()
             .run(|(index, item)| watch.body(scenario, index, item)),
@@ -377,11 +377,12 @@ fn sim_run_in_agrees_with_run() -> TestResult {
         tenant_number = tenant_number.saturating_add(1);
         let scope = Scope::root(Tenant::new(&format!("tenant-{tenant_number}"))?);
         let watch = Watch::default();
-        let scoped =
-            lgwks_bot::block_on(scenario.fan_out().run_in(&scope, "fan", |(index, item)| {
-                watch.body(scenario, index, item)
-            }))
-            .map_err(|error| format!("seed {seed:#x}: {error}"))?;
+        let scoped = lgwks_bot::script::block_on(scenario.fan_out().run_in(
+            &scope,
+            "fan",
+            |(index, item)| watch.body(scenario, index, item),
+        ))
+        .map_err(|error| format!("seed {seed:#x}: {error}"))?;
         let (plain, _) = run(scenario);
         let plain = plain.map_err(|error| format!("seed {seed:#x}: {error}"))?;
         assert_eq!(scoped, plain, "seed {seed:#x}: scoped and standalone agree");
@@ -487,7 +488,7 @@ fn sim_concurrent_roots_complete_in_order() -> TestResult {
         let mut handles = Vec::with_capacity(ROOTS);
         for _ in 0..ROOTS {
             handles.push(scope.spawn(|| {
-                let outcome = lgwks_bot::block_on(
+                let outcome = lgwks_bot::script::block_on(
                     FanOut::new(items.clone().into_iter().enumerate())
                         .run(|(_index, item)| watch.shared_body(item)),
                 );

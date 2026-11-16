@@ -33,12 +33,16 @@ use std::io::Write;
 use std::num::NonZeroUsize;
 use std::time::Instant;
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::domain::sys::Process;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::estate::Estate;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::script::{FlowError, Scope, Tenant};
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{Auth, Cap, Execute, GrantSet};
+use lgwks_bot::verb::Execute;
 
 #[path = "support/measure.rs"]
 mod measure;
@@ -119,7 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // width once here: a count this host cannot address is a refusal, not a
     // wrapped index.
     let run_count = u64::try_from(runs)?;
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = Runtime::new()?;
 
     // One Host::run of an immediately-ready body.
     let host = Host::builder("analysis")?
@@ -149,7 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut block_on_samples = Vec::with_capacity(runs);
     for input in 0..run_count {
         let started = Instant::now();
-        let answered = lgwks_bot::block_on(async move { input });
+        let answered = lgwks_bot::script::block_on(async move { input });
         block_on_samples.push(started.elapsed().as_nanos());
         assert_eq!(
             answered, input,
@@ -211,7 +215,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             process_samples.push(started.elapsed().as_micros());
             assert_eq!(state.exit_code, Some(0), "the measured child exited zero");
         }
-        Ok::<(), lgwks_bot::BotError>(())
+        Ok::<(), BotError>(())
     })?;
     report("process_run", Unit::Micros, process_samples)?;
 
@@ -228,7 +232,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             pinned_samples.push(started.elapsed().as_micros());
             assert_eq!(state.exit_code, Some(0), "the measured child exited zero");
         }
-        Ok::<(), lgwks_bot::BotError>(())
+        Ok::<(), BotError>(())
     })?;
     report("process_run_pinned_path", Unit::Micros, pinned_samples)?;
     Ok(())

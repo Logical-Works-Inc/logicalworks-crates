@@ -9,22 +9,25 @@
 use std::time::Duration;
 
 use ai_task_support::{FetchError, Fetcher};
-use lgwks_bot::rt::task::join_all_bounded;
+use lgwks_bot::rt::task::{FanOutError, join_all_bounded};
 
 #[derive(Debug)]
 pub enum SolveError {
     Fetch { id: u32 },
     Deadline,
-    Cancelled,
+    FanOut(FanOutError),
 }
 
-pub async fn solve(ids: Vec<u32>, fetch: Fetcher, deadline: Duration) -> Result<u64, SolveError> {
-    let _ = deadline;
+/// The deadline is accepted for the shared signature and ignored on purpose:
+/// ignoring it is part of what makes this the wrong solution.
+pub async fn solve(ids: Vec<u32>, fetch: Fetcher, _deadline: Duration) -> Result<u64, SolveError> {
     let futures = ids.into_iter().map(|id| {
         let fetcher = fetch.clone();
         async move { fetcher.fetch(id).await }
     });
-    let results = join_all_bounded(usize::MAX, futures).await;
+    let results = join_all_bounded(usize::MAX, futures)
+        .await
+        .map_err(SolveError::FanOut)?;
     let mut sum: u64 = 0;
     for result in results {
         sum = sum.saturating_add(result.map_err(|error| SolveError::Fetch { id: error.id() })?);

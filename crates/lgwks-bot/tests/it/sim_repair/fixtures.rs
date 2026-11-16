@@ -172,8 +172,9 @@ pub(super) fn block_with(host: &Host, reach: usize) -> Result<Case, Box<dyn Erro
     let declared = shared::journey_task()?;
     let polls = Polls::shared();
     let needs: Vec<Cap> = candidate_needs().into_iter().take(reach).collect();
-    let report =
-        lgwks_bot::block_on(host.run(&declared, input_needing(Arc::clone(&polls), 7, needs)));
+    let report = lgwks_bot::script::block_on(
+        host.run(&declared, input_needing(Arc::clone(&polls), 7, needs)),
+    );
     if report.disposition() != Disposition::Blocked {
         let refusal = Err(format!(
             "the run must block before any decision: {:?}",
@@ -268,8 +269,13 @@ pub(super) fn decide(
             });
         }
     };
-    match lgwks_bot::block_on(host.repair(ticket, &grant, declared, input(Arc::clone(polls), 7), 1))
-    {
+    match lgwks_bot::script::block_on(host.repair(
+        ticket,
+        &grant,
+        declared,
+        input(Arc::clone(polls), 7),
+        1,
+    )) {
         Ok(report) => Ok(match report.disposition() {
             Disposition::Succeeded => "succeeded",
             other => {

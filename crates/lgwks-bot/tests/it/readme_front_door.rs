@@ -9,10 +9,12 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use lgwks_bot::verb::{Execute, Observe};
-use lgwks_bot::{
-    Admission, Auth, Bot, BotSpec, Cap, DomainRegistry, EcsError, EffectLifetime, GrantSet,
-};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::DomainRegistry;
+use lgwks_bot::spec::{Admission, Bot, BotSpec};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use crate::effects::memory_scope;
 

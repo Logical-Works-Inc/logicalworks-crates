@@ -21,7 +21,10 @@ use std::error::Error;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use lgwks_bot::{Admission, Bot, BotSpec, Cap, DomainRegistry, GrantSet};
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::DomainRegistry;
+use lgwks_bot::spec::{Admission, Bot, BotSpec};
 
 use crate::effects::memory_scope;
 use crate::readme_front_door::{PageOnCall, QueueDepth};

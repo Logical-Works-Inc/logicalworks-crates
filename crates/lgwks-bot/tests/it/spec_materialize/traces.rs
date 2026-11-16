@@ -1,8 +1,9 @@
 //! T25: a native bot and a materialized spec leave one trace.
 
+use lgwks_bot::cap::Cap;
 use lgwks_bot::domain::eval::{Above, Changed};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::spec::Bot;
-use lgwks_bot::{Cap, GrantSet};
 
 use super::{
     Counter, Page, TestResult, both_runs, both_runs_with, materialize, native_one,

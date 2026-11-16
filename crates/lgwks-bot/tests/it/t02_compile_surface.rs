@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok::<u32, FlowError>(len)
         }
     })?;
-    let report = lgwks_bot::block_on(host.run(&work, b"abc".as_slice()));
+    let report = lgwks_bot::script::block_on(host.run(&work, b"abc".as_slice()));
     assert!(report.disposition().is_success());
     Ok(())
 }
@@ -63,7 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// A typed chain whose condition reads `String` against a source that yields
 /// `u32`: the `.on` bound cannot hold.
 const MISMATCHED_CHAIN: &str = r#"
-use lgwks_bot::{Auth, Bot, BotError, Cap, EffectLifetime, Evaluate, Execute, Observe};
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::{EffectLifetime, Evaluate, Execute, Observe};
 
 struct Source;
 impl Observe for Source {
@@ -100,7 +103,11 @@ fn main() {
 /// An action whose `Input` is `u32` after a source that yields `u16`: the `.on` bound
 /// `A: Execute<Input = S::Output>` cannot hold.
 const MISMATCHED_ACTION: &str = r#"
-use lgwks_bot::{Auth, Bot, BotError, Cap, Execute, GrantSet, Observe};
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::{Execute, Observe};
 
 struct Source;
 impl Observe for Source {
@@ -220,7 +227,7 @@ fn a_local_borrowed_non_send_body_runs_on_the_host() -> TestResult {
     })?;
 
     let input: Vec<u8> = vec![1, 2, 3];
-    let report: Report<u32> = lgwks_bot::block_on(host.run(&work, input.as_slice()));
+    let report: Report<u32> = lgwks_bot::script::block_on(host.run(&work, input.as_slice()));
     assert_eq!(
         report.disposition(),
         Disposition::Succeeded,

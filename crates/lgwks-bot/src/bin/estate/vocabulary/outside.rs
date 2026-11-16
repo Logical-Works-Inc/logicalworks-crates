@@ -13,8 +13,8 @@ use std::net::{Ipv4Addr, TcpListener};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use lgwks_bot::GrantSet;
 use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::EffectEvidence;
 use lgwks_bot::proposal::StubModel;
 use lgwks_bot::rt::runtime::Handle;

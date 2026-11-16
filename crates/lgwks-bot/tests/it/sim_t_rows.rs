@@ -40,10 +40,12 @@ use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::rc::Rc;
 
-use lgwks_bot::error::KernelError;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{DispatchCertainty, KernelError};
 use lgwks_bot::journal::{EffectEvent, EffectJournal, MemoryJournal};
 use lgwks_bot::spec::{Bot, EffectScope};
-use lgwks_bot::{Auth, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, RefreshReason};
+use lgwks_bot::verb::{EffectLifetime, Execute, RefreshReason};
 
 use sim::rig::{identity, scope};
 

@@ -298,6 +298,9 @@ required-features = ["script"]
 name = "queue_watch"
 path = "examples/queue_watch.rs"
 required-features = ["script"]
+# The getting-started guide follows this program, so the suite runs it: its
+# `tests::the_getting_started_program_runs` calls `main` (#896).
+test = true
 
 [[example]]
 name = "inspect_scale"

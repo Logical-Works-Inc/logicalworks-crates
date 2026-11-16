@@ -103,7 +103,7 @@ pub(crate) fn fail<T>(what: &'static str) -> Result<T, OutsideError> {
 pub(crate) fn host_on(
     dir: &std::path::Path,
     tenant: &str,
-    grants: lgwks_bot::GrantSet,
+    grants: lgwks_bot::gate::GrantSet,
 ) -> Result<lgwks_bot::task::Host, OutsideError> {
     Ok(lgwks_bot::task::Host::builder(tenant)?
         .run_store(dir)?
@@ -119,7 +119,7 @@ pub(crate) fn host_on(
 /// checked against a real grant.
 pub(crate) fn hosted<O, F, Fut>(
     tenant: &str,
-    grants: lgwks_bot::GrantSet,
+    grants: lgwks_bot::gate::GrantSet,
     body: F,
 ) -> Result<Result<O, lgwks_bot::script::FlowError>, OutsideError>
 where
@@ -132,7 +132,7 @@ where
     let run = lgwks_bot::task::task("hosted", move |scope: lgwks_bot::script::Scope, (): ()| {
         body(scope)
     })?;
-    Ok(lgwks_bot::block_on(host.run(&run, ())).into_result())
+    Ok(lgwks_bot::script::block_on(host.run(&run, ())).into_result())
 }
 
 /// One `ask` of `model` at `step`, run by a host for `acme` that grants
@@ -148,7 +148,7 @@ where
 {
     hosted(
         "acme",
-        lgwks_bot::GrantSet::empty().grant(lgwks_bot::Cap::new("bot.model")),
+        lgwks_bot::gate::GrantSet::empty().grant(lgwks_bot::cap::Cap::new("bot.model")),
         |scope: lgwks_bot::script::Scope| async move {
             lgwks_bot::script::ask(&scope, step, model, request).await
         },
@@ -156,9 +156,9 @@ where
 }
 
 /// Grants for the three outside capabilities.
-pub(crate) fn outside_grants() -> lgwks_bot::GrantSet {
-    use lgwks_bot::Cap;
-    lgwks_bot::GrantSet::empty()
+pub(crate) fn outside_grants() -> lgwks_bot::gate::GrantSet {
+    use lgwks_bot::cap::Cap;
+    lgwks_bot::gate::GrantSet::empty()
         .grant(Cap::net())
         .grant(Cap::new("bot.model"))
         .grant(Cap::notify())
@@ -312,7 +312,10 @@ impl StubMailer {
     pub(crate) fn land_applied(&self) {
         let key = match self.last_key.lock() {
             Ok(held) => held.clone(),
-            Err(_) => None,
+            Err(poisoned) => {
+                lgwks_std::trace::debug!(%poisoned, "stub mailer: the last key is poisoned, so nothing lands");
+                None
+            }
         };
         if let Some(key) = key
             && let Ok(mut held) = self.landed.lock()
@@ -482,7 +485,11 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
     let mut chunk = [0_u8; 1024];
     loop {
         let read = match stream.read(&mut chunk) {
-            Ok(0) | Err(_) => return,
+            Ok(0) => return,
+            Err(failed) => {
+                lgwks_std::trace::debug!(error = ?failed, "probe server: read failed");
+                return;
+            }
             Ok(read) => read,
         };
         received.extend_from_slice(&chunk[..read]);
@@ -516,7 +523,10 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
             let bell = std::sync::Condvar::new();
             let held = match gate.lock() {
                 Ok(held) => held,
-                Err(_) => return,
+                Err(poisoned) => {
+                    lgwks_std::trace::debug!(%poisoned, "probe server: the gate is poisoned");
+                    return;
+                }
             };
             if bell.wait_timeout_while(held, delay, |open| !*open).is_err() {
                 return;

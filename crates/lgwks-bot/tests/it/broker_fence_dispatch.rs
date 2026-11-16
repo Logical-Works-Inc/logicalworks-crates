@@ -7,8 +7,8 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use lgwks_bot::GrantSet;
 use lgwks_bot::broker::Broker;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::spec::{Bot, EffectScope};
 

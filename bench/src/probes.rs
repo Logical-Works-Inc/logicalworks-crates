@@ -10,7 +10,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::{Cap, GrantSet};
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 
 use crate::error::BenchError;
 use crate::scenarios::Scenario;

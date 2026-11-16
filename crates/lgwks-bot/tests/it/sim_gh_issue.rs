@@ -43,8 +43,8 @@ use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use lgwks_bot::EcsError;
 use lgwks_bot::domain::gh::{IssueDraft, Settlement};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
 use lgwks_bot::rt::clock::Clock;
 

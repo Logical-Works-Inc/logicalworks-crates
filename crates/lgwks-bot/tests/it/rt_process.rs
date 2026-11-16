@@ -29,8 +29,8 @@ use std::io::ErrorKind;
 use std::path::Path;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{ShutdownReport, Supervisor, TaskOutcome};
 use lgwks_bot::rt::time::{Instant, sleep};
 

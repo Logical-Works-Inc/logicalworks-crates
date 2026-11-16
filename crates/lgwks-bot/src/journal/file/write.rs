@@ -1,5 +1,7 @@
 //! The write path: the fence, framing, the byte and event bounds, and the synced write both append paths share.
 
+use std::collections::hash_map::Entry;
+
 #[cfg(feature = "wire")]
 use super::EffectJournal;
 #[cfg(not(feature = "sealed"))]
@@ -140,7 +142,12 @@ impl FileJournal {
             return super::sealed_impl::frame_sealed(self, event, from, expires_at)
                 .map(|(position, framed, pending)| (position, framed, Some(pending)));
         }
-        let _ = expires_at;
+        if let Some(expiry) = expires_at {
+            lgwks_std::trace::debug!(
+                ?expiry,
+                "frame_with_expiry: an unsealed journal frames no expiry"
+            );
+        }
         self.frame(event, from)
     }
 
@@ -245,14 +252,14 @@ impl FileJournal {
                     };
                     let record =
                         SettledAttempt::new(attempt.key(), rung, status, attempt.verification());
-                    match folded_at.get(&record.action()) {
-                        Some(at) => {
-                            if let Some(slot) = settled.get_mut(*at) {
+                    match folded_at.entry(record.action()) {
+                        Entry::Occupied(at) => {
+                            if let Some(slot) = settled.get_mut(*at.get()) {
                                 *slot = record;
                             }
                         }
-                        None => {
-                            let _ = folded_at.insert(record.action(), settled.len());
+                        Entry::Vacant(at) => {
+                            at.insert(settled.len());
                             settled.push(record);
                         }
                     }
@@ -270,7 +277,7 @@ impl FileJournal {
     pub(super) fn write_and_sync_async<'a>(
         &'a mut self,
         frames: Vec<u8>,
-    ) -> crate::BoxFuture<'a, Result<(), JournalError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<(), JournalError>> {
         let expected = self.disk_len;
         Box::pin(async move {
             self.storage
@@ -337,7 +344,10 @@ impl FileJournal {
             state.frames = state.frames.saturating_add(1);
         }
         #[cfg(not(feature = "sealed"))]
-        let _ = pending;
+        debug_assert!(
+            pending.is_none(),
+            "an unsealed journal frames no sealed slot"
+        );
     }
 
     /// Everything one append checks and frames before the disk is touched.

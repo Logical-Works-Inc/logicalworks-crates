@@ -22,11 +22,10 @@
 
 use std::error::Error;
 use std::io::Write as _;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::Runtime;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 use lgwks_bot::rt::tenancy::TenancyPolicy;
 use lgwks_bot::script::Tenant;
@@ -57,7 +56,13 @@ fn sample_resident_kb() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     for line in status.lines() {
         if let Some(rest) = line.strip_prefix("VmHWM:") {
-            return rest.split_whitespace().next()?.parse().ok();
+            return match rest.split_whitespace().next()?.parse() {
+                Ok(kib) => Some(kib),
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, "tenancy_scale: VmHWM was not a number");
+                    None
+                }
+            };
         }
     }
     None
@@ -89,8 +94,9 @@ fn sample_resident_kb() -> Option<u64> {
 /// The peak resident set observed while the tier runs, sampled every
 /// [`RSS_QUANTUM`].
 struct RssPeak {
-    /// Tells the sampler to stop; joined before the peak is read.
-    stop: Arc<AtomicBool>,
+    /// Tells the sampler to stop, by a message or by being dropped; the
+    /// sampler is joined before the peak is read.
+    stop: mpsc::SyncSender<()>,
     /// The sampler's thread, joined exactly once.
     sampler: Option<std::thread::JoinHandle<u64>>,
 }
@@ -101,38 +107,54 @@ const RSS_QUANTUM: Duration = Duration::from_millis(5);
 impl RssPeak {
     /// Start sampling the resident set.
     fn start() -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let sampler_stop = Arc::clone(&stop);
-        // `park_timeout`, not `sleep`: the sampler owns its thread and waits
-        // for nothing but the next sample, which is what the sync replacement
-        // is for.
-        let sampler = std::thread::Builder::new()
+        // One slot: the only message ever sent is the single stop, so the
+        // bound is never reached.
+        let (stop, stopped) = mpsc::sync_channel::<()>(1);
+        // The sampler waits on the stop message itself, with one quantum as the
+        // longest it waits for it: a timeout is the cue for the next sample and
+        // a message (or the sender dropping) is the cue to finish.
+        let spawned = std::thread::Builder::new()
             .name(String::from("tenancy-scale-rss"))
             .spawn(move || {
                 let mut peak = 0_u64;
-                while !sampler_stop.load(Ordering::Relaxed) {
+                loop {
                     if let Some(kib) = sample_resident_kb() {
                         peak = peak.max(kib);
                     }
-                    std::thread::park_timeout(RSS_QUANTUM);
+                    match stopped.recv_timeout(RSS_QUANTUM) {
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
                 }
                 if let Some(kib) = sample_resident_kb() {
                     peak = peak.max(kib);
                 }
                 peak
-            })
-            .ok();
+            });
+        let sampler = match spawned {
+            Ok(handle) => Some(handle),
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, "tenancy_scale: the RSS sampler did not start");
+                None
+            }
+        };
         Self { stop, sampler }
     }
 
     /// Stop sampling and report the peak in kilobytes, or `None` when nothing
     /// reported a number for the whole tier.
     fn stop(mut self) -> Option<u64> {
-        self.stop.store(true, Ordering::Relaxed);
+        if self.stop.try_send(()).is_err() {
+            lgwks_std::trace::debug!("tenancy_scale: the sampler had already stopped");
+        }
         match self.sampler.take() {
             Some(sampler) => match sampler.join() {
                 Ok(peak) if peak > 0 => Some(peak),
-                Ok(_) | Err(_) => None,
+                Ok(_) => None,
+                Err(_panic) => {
+                    lgwks_std::trace::warn!("tenancy_scale: the RSS sampler panicked");
+                    None
+                }
             },
             None => None,
         }

@@ -12,7 +12,7 @@
 
 /// Drive one future to completion on a fresh current-thread runtime.
 pub(crate) fn drive<T>(future: impl std::future::Future<Output = T>) -> T {
-    lgwks_bot::block_on(future)
+    lgwks_bot::script::block_on(future)
 }
 
 /// Poll `future` once and report whether it is still pending.

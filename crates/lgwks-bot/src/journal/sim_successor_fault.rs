@@ -15,9 +15,9 @@
 
 use std::path::{Path, PathBuf};
 
+use super::continuation::successor_path;
 use super::{
     ContinuationPolicy, EffectEvent, EffectJournal as _, FileJournal, JournalError, RecordJournal,
-    successor_path,
 };
 use crate::effect::{
     ActionDigest, ActionId, AttemptId, EffectIdentity, EffectKey, EffectKeyError, EnvironmentEpoch,

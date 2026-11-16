@@ -2,7 +2,7 @@
 //!
 //! A `send` hands bytes to a receiver — mail, a webhook, a payment — through
 //! a [`SendPort`], and the port is the only thing that dispatches: the word
-//! never dials out itself, so the tests install a stub and no test can send a
+//! never dials out itself, so the tests install a double and no test can send a
 //! real effect. Two records make it once-only, both written once and never
 //! updated, so every replay is idempotent:
 //!
@@ -50,7 +50,7 @@ use super::{FlowError, Scope, Site};
 
 /// The receiver a `send` dispatches through.
 ///
-/// Implemented by the effect's real receiver in production and by a stub in
+/// Implemented by the effect's real receiver in production and by a double in
 /// the tests. `find` answers what the receiver holds under `key`; `dispatch`
 /// hands `payload` over once under that key and answers what the receiver
 /// reports. `may_have_landed` says whether the port's error leaves the effect
@@ -190,7 +190,7 @@ fn intent_digest(payload: &[u8]) -> Digest {
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use lgwks_bot::task::{Host, task};
-/// use lgwks_bot::{Cap, GrantSet};
+/// use lgwks_bot::{cap::Cap, gate::GrantSet};
 ///
 /// // A host granting `bot.notify`, built with no run store.
 /// let host = Host::builder("acme")?
@@ -199,7 +199,7 @@ fn intent_digest(payload: &[u8]) -> Digest {
 /// let mailing = task("mail", |scope: lgwks_bot::script::Scope, (): ()| async move {
 ///     mail(&scope, &StubMailer).await
 /// })?;
-/// let report = lgwks_bot::block_on(host.run(&mailing, ()));
+/// let report = lgwks_bot::script::block_on(host.run(&mailing, ()));
 /// assert!(
 ///     matches!(report.error(), Some(FlowError::Store { .. })),
 ///     "a send with nowhere durable to record its intent is refused"

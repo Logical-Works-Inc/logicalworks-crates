@@ -12,10 +12,11 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use lgwks_bot::{
-    DecisionReceipt, Embedder, EmbedderIdentity, FlowBounds, FlowSpec, Journal, JournalError,
-    MemoryJournal, NodeKind, PolicyVersion, Provenance, Question, ReceiptAcceptance, Resolution,
-    Resolver, SessionError, Terminal, VarType, Verdict,
+use lgwks_bot::semantic::{Embedder, EmbedderIdentity};
+use lgwks_bot::session::{
+    DecisionReceipt, FlowBounds, FlowSpec, Journal, JournalError, MemoryJournal, NodeKind,
+    PolicyVersion, Provenance, Question, ReceiptAcceptance, Resolution, Resolver, SessionError,
+    Terminal, VarType, Verdict,
 };
 
 mod answers;

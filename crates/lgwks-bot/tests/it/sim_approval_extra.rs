@@ -151,7 +151,7 @@ pub(crate) fn park_one(
 ) -> Result<(lgwks_bot::effect::RunId, String, lgwks_std::hash::Digest), ApprovalSimError> {
     lgwks_std::trace::debug!("extra: parking one payload for a decision");
     let shipping = shipping()?;
-    let report = lgwks_bot::block_on(host.run(&shipping, payload));
+    let report = lgwks_bot::script::block_on(host.run(&shipping, payload));
     if !matches!(report.disposition(), Disposition::Parked) {
         return Err(ApprovalSimError::Setup {
             what: "a first run parks",
@@ -179,7 +179,7 @@ fn sim_deny_then_resume_denied(band: sim::Band) -> TestResult {
         let (run, id, digest) = park_one(&host, b"deny-me".to_vec())?;
         host.decide(&id, ApprovalDecision::deny("sim", digest))?;
         let shipping = shipping()?;
-        let resumed = lgwks_bot::block_on(host.resume(run, &shipping, b"deny-me".to_vec()));
+        let resumed = lgwks_bot::script::block_on(host.resume(run, &shipping, b"deny-me".to_vec()));
         if !matches!(
             resumed.error(),
             Some(error) if matches!(*error, FlowError::ApprovalDenied { .. })
@@ -202,7 +202,8 @@ fn sim_expire_then_decide_reports_expired(band: sim::Band) -> TestResult {
         let (run, id, digest) = park_one(&host, b"lapse-me".to_vec())?;
         lapse(&host)?;
         let shipping = shipping()?;
-        let resumed = lgwks_bot::block_on(host.resume(run, &shipping, b"lapse-me".to_vec()));
+        let resumed =
+            lgwks_bot::script::block_on(host.resume(run, &shipping, b"lapse-me".to_vec()));
         if !lapsed(&resumed) {
             return Err(ApprovalSimError::Setup {
                 what: "a lapse fails the resume typed",
@@ -262,8 +263,7 @@ fn sim_decide_racing_at_each_append_point(band: sim::Band) -> TestResult {
         let host = std::sync::Arc::new(host_on(scratch.path(), "acme")?);
         for round in 0..5u32 {
             let payload = format!("race-{round}-{}", sim.seed).into_bytes();
-            let (run, id, digest) = park_one(&host, payload.clone())?;
-            let _ = run;
+            let (_parked_run, id, digest) = park_one(&host, payload.clone())?;
             let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
             let first = racer(&host, &id, digest, &barrier, "a")?;
             let second = racer(&host, &id, digest, &barrier, "b")?;
@@ -359,7 +359,7 @@ fn sim_ceiling_at_exactly_n_and_n_plus_one(band: sim::Band) -> TestResult {
             });
         }
         let shipping = shipping()?;
-        let over = lgwks_bot::block_on(
+        let over = lgwks_bot::script::block_on(
             host.run(&shipping, format!("n-plus-one-{}", sim.seed).into_bytes()),
         );
         let Some(failed) = over.error() else {

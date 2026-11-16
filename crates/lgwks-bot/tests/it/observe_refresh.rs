@@ -47,8 +47,11 @@ use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::rc::Rc;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
-use lgwks_bot::{Auth, Bot, Cap, EcsError, EffectLifetime, Execute, Observe, RefreshReason};
+use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe, RefreshReason};
 
 mod events;
 mod forced_refresh;

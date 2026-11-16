@@ -8,9 +8,10 @@
 //! binary and pin the byte arithmetic a shipped ceiling applies to the same
 //! shape, so the amplification is exercised rather than described.
 
-use lgwks_bot::{
-    FlowEdge, LanguageResolver, MAX_RECORD_BYTES, MAX_UTTERANCE_BYTES, MAX_VALUE_BYTES,
-    ResourceAxis, ResourceLimits, Session, Value,
+use lgwks_bot::language::LanguageResolver;
+use lgwks_bot::session::{
+    FlowEdge, MAX_RECORD_BYTES, MAX_UTTERANCE_BYTES, MAX_VALUE_BYTES, ResourceAxis, ResourceLimits,
+    Session, Value,
 };
 
 use super::*;

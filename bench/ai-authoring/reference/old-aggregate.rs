@@ -7,14 +7,14 @@
 use std::time::Duration;
 
 use ai_task_support::{FetchError, Fetcher};
-use lgwks_bot::rt::task::join_all_bounded;
+use lgwks_bot::rt::task::{FanOutError, join_all_bounded};
 use lgwks_bot::rt::time;
 
 #[derive(Debug)]
 pub enum SolveError {
     Fetch { id: u32 },
     Deadline,
-    Cancelled,
+    FanOut(FanOutError),
 }
 
 pub async fn solve(ids: Vec<u32>, fetch: Fetcher, deadline: Duration) -> Result<u64, SolveError> {
@@ -30,7 +30,9 @@ pub async fn solve(ids: Vec<u32>, fetch: Fetcher, deadline: Duration) -> Result<
                     async move { fetcher.fetch(id).await }
                 })
                 .collect();
-            let results = join_all_bounded(4, futures).await;
+            let results = join_all_bounded(4, futures)
+                .await
+                .map_err(SolveError::FanOut)?;
             next = end;
             for result in results {
                 sum = sum.saturating_add(result.map_err(|error| SolveError::Fetch { id: error.id() })?);

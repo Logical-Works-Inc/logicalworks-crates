@@ -21,10 +21,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{NextAction, Supervisor, TaskOutcome, TaskState};
 use lgwks_bot::rt::sync::Semaphore;
-use lgwks_bot::rt::time::sleep;
+use lgwks_bot::rt::time::{Clock, timeout};
 
 /// A gate a body blocks on, so a test can observe a *running* task rather than
 /// a finished one.
@@ -45,6 +45,11 @@ struct Gate {
     permits: Arc<Semaphore>,
     entered: Arc<AtomicU64>,
     exited: Arc<AtomicU64>,
+    /// One permit per body that has announced itself: the event a test waiting
+    /// on [`Gate::await_arrivals`] sleeps on, stored if it comes before the wait.
+    arrivals: Arc<Semaphore>,
+    /// One permit per body that has finished, the same event for exits.
+    exits: Arc<Semaphore>,
 }
 
 impl Gate {
@@ -54,6 +59,8 @@ impl Gate {
             permits: Arc::new(Semaphore::new(0)),
             entered: Arc::new(AtomicU64::new(0)),
             exited: Arc::new(AtomicU64::new(0)),
+            arrivals: Arc::new(Semaphore::new(0)),
+            exits: Arc::new(Semaphore::new(0)),
         }
     }
 
@@ -69,6 +76,8 @@ impl Gate {
             permits: Arc::new(Semaphore::new(1_000)),
             entered: Arc::new(AtomicU64::new(0)),
             exited: Arc::new(AtomicU64::new(0)),
+            arrivals: Arc::new(Semaphore::new(0)),
+            exits: Arc::new(Semaphore::new(0)),
         }
     }
 
@@ -85,11 +94,33 @@ impl Gate {
         // The announcement precedes the await, so a test that waits for
         // `arrived` knows every counted body has at least begun.
         self.entered.fetch_add(1, Ordering::SeqCst);
+        self.arrivals.add_permits(1);
         let Ok(permit) = self.permits.acquire().await else {
             return;
         };
         permit.forget();
         self.exited.fetch_add(1, Ordering::SeqCst);
+        self.exits.add_permits(1);
+    }
+
+    /// Wait on `events` until `count` reads at least `expected`.
+    ///
+    /// Each body adds one permit after it bumps its counter, so a permit left
+    /// over from an earlier body only costs the loop one more read of the
+    /// counter, and a body that finishes between the read and the wait is
+    /// not lost: its permit is stored. Bounded by [`PATIENCE`]; the counter, not
+    /// the wait, is what the caller asserts on.
+    async fn await_count(&self, events: &Semaphore, count: &AtomicU64, expected: u64) -> bool {
+        let reached = timeout(PATIENCE, async {
+            while count.load(Ordering::SeqCst) < expected {
+                let Ok(permit) = events.acquire().await else {
+                    return;
+                };
+                permit.forget();
+            }
+        })
+        .await;
+        reached.is_ok() && count.load(Ordering::SeqCst) >= expected
     }
 
     /// Let `count` waiters through.
@@ -112,15 +143,11 @@ impl Gate {
     /// The exit-side counterpart of [`Gate::await_arrivals`], bounded the same
     /// way and for the same reason.
     async fn await_exits(&self, expected: u64) {
-        let started = std::time::Instant::now();
-        while self.exited() < expected {
-            assert!(
-                within_patience(started),
-                "only {} of {expected} bodies finished within {PATIENCE:?}",
-                self.exited()
-            );
-            sleep(Duration::from_millis(1)).await;
-        }
+        assert!(
+            self.await_count(&self.exits, &self.exited, expected).await,
+            "only {} of {expected} bodies finished within {PATIENCE:?}",
+            self.exited()
+        );
     }
 
     /// Wait until `expected` bodies have announced themselves.
@@ -130,15 +157,12 @@ impl Gate {
     /// `yield_now` reschedules only the yielding task, so a loop of them never
     /// lets the task under observation run at all. A real timer does.
     async fn await_arrivals(&self, expected: u64) {
-        let started = std::time::Instant::now();
-        while self.arrived() < expected {
-            assert!(
-                within_patience(started),
-                "only {} of {expected} bodies announced themselves within {PATIENCE:?}",
-                self.arrived()
-            );
-            sleep(Duration::from_millis(1)).await;
-        }
+        assert!(
+            self.await_count(&self.arrivals, &self.entered, expected)
+                .await,
+            "only {} of {expected} bodies announced themselves within {PATIENCE:?}",
+            self.arrived()
+        );
     }
 }
 
@@ -149,6 +173,9 @@ impl Gate {
 /// A test that cannot reach its state in this long has a real defect, and
 /// failing to say so is the alternative.
 const PATIENCE: Duration = Duration::from_secs(5);
+
+/// How often [`await_until`] reads a condition that carries no event.
+const POLL_STEP: Duration = Duration::from_millis(1);
 
 /// Whether a wait that started at `started` is still inside its patience budget.
 ///
@@ -172,13 +199,16 @@ fn within_patience(started: std::time::Instant) -> bool {
 /// supervisor's *counters* rather than for its bodies, and a copy of the loop at
 /// each call site would drift.
 async fn await_until(mut condition: impl FnMut() -> bool) {
+    // The counters this waits on are the supervisor's own and carry no event, so
+    // the wait runs on a clock the test owns rather than on a bare timer.
+    let clock = Clock::wall();
     let started = std::time::Instant::now();
     while !condition() {
         assert!(
             within_patience(started),
             "the awaited condition never became true within {PATIENCE:?}"
         );
-        sleep(Duration::from_millis(1)).await;
+        clock.sleep(POLL_STEP).await;
     }
 }
 
@@ -592,13 +622,14 @@ fn a_bounded_repeating_task_reports_exhaustion_not_a_hang() -> Result<(), Box<dy
             std::num::NonZeroU64::new(4).ok_or("a repeating budget of zero iterations")?;
         let ran = Arc::new(AtomicU64::new(0));
         let ran_clone = Arc::clone(&ran);
+        let clock = Clock::wall();
         supervisor
-            .spawn_repeating(Budget::Iterations(iterations), move |tick| {
+            .spawn_repeating(Budget::Iterations(iterations), move |_tick| {
                 let ran = Arc::clone(&ran_clone);
+                let clock = clock.clone();
                 async move {
-                    let _ = tick;
                     ran.fetch_add(1, Ordering::SeqCst);
-                    sleep(Duration::from_millis(1)).await;
+                    clock.sleep(POLL_STEP).await;
                 }
             })
             .await;

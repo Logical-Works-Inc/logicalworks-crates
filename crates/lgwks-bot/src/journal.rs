@@ -102,9 +102,8 @@ pub(crate) mod owner;
 pub mod continuation;
 
 pub use continuation::{
-    CONTINUATION_WATERMARK_DENOMINATOR, CONTINUATION_WATERMARK_NUMERATOR, Continuation,
-    ContinuationPolicy, ContinuationWatermark, MAX_CHECKPOINT_SETTLED, MAX_CHECKPOINT_UNRESOLVED,
-    SealPause, SettledAttempt, UnresolvedAttempt, is_generation_path, successor_path,
+    Continuation, ContinuationPolicy, ContinuationWatermark, MAX_CHECKPOINT_SETTLED,
+    MAX_CHECKPOINT_UNRESOLVED, SealPause, SettledAttempt, UnresolvedAttempt,
 };
 
 /// The file-backed journal, re-exported from the private `file` module beside

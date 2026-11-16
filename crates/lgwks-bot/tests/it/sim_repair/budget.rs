@@ -24,7 +24,7 @@ fn a_reopen_reads_back_the_charged_budget() -> TestResult {
             let polls = Polls::shared();
             let case = block(TENANTS[0], &dir, 1)?;
             let spend = u64::from(sim.rng().below(4));
-            let outcome = lgwks_bot::block_on(case.host.repair(
+            let outcome = lgwks_bot::script::block_on(case.host.repair(
                 &case.ticket,
                 &exact_grant(1),
                 &case.declared,
@@ -115,7 +115,7 @@ fn every_repair_charges_the_root_budget_once() -> TestResult {
         for index in 0..deliveries {
             let before = charged(host, run)?;
             let spend = u64::from(sim.rng().below(4));
-            let outcome = lgwks_bot::block_on(host.repair(
+            let outcome = lgwks_bot::script::block_on(host.repair(
                 ticket,
                 &exact_grant(plan.reach),
                 declared,
@@ -236,8 +236,11 @@ fn a_spent_budget_refuses_every_later_attempt() -> TestResult {
         let mut arm = "succeeded";
         for index in 0..ceiling.saturating_add(2) {
             let before = charged(&host, case.run)?;
-            let report =
-                lgwks_bot::block_on(host.resume(case.run, &declared, input(Polls::shared(), 7)));
+            let report = lgwks_bot::script::block_on(host.resume(
+                case.run,
+                &declared,
+                input(Polls::shared(), 7),
+            ));
             arm = disposition_arm(report.disposition());
             let after = charged(&host, case.run)?;
             if arm == "refused-at-budget" {
@@ -286,8 +289,11 @@ fn a_spent_budget_refuses_every_later_attempt() -> TestResult {
         // Two more attempts of the same run: the refusal is stable, not a single
         // lucky tick, and neither moves a counter.
         for _ in 0..2 {
-            let again =
-                lgwks_bot::block_on(host.resume(case.run, &declared, input(Polls::shared(), 7)));
+            let again = lgwks_bot::script::block_on(host.resume(
+                case.run,
+                &declared,
+                input(Polls::shared(), 7),
+            ));
             assert_eq!(
                 disposition_arm(again.disposition()),
                 "refused-at-budget",
@@ -351,7 +357,7 @@ fn a_host_spent_on_one_run_still_repairs_the_next() -> TestResult {
     // ceiling rather than at a hand-written count.
     let mut admitted = 1_usize;
     let mut arm = disposition_arm(
-        lgwks_bot::block_on(host.resume(second.run, &declared, input(Polls::shared(), 7)))
+        lgwks_bot::script::block_on(host.resume(second.run, &declared, input(Polls::shared(), 7)))
             .disposition(),
     );
     // A resume of a run with no authority is still `Blocked`, not admitted: the
@@ -365,8 +371,12 @@ fn a_host_spent_on_one_run_still_repairs_the_next() -> TestResult {
              would be no bound at all"
         );
         arm = disposition_arm(
-            lgwks_bot::block_on(host.resume(second.run, &declared, input(Polls::shared(), 7)))
-                .disposition(),
+            lgwks_bot::script::block_on(host.resume(
+                second.run,
+                &declared,
+                input(Polls::shared(), 7),
+            ))
+            .disposition(),
         );
     }
     assert_eq!(
@@ -400,7 +410,7 @@ fn a_host_spent_on_one_run_still_repairs_the_next() -> TestResult {
     );
 
     // The other run, blocked at the same time and sharing the directory, still closes.
-    let repaired = lgwks_bot::block_on(reopened.repair(
+    let repaired = lgwks_bot::script::block_on(reopened.repair(
         &first.ticket,
         &exact_grant(candidate_needs().len()),
         &declared,
@@ -428,7 +438,7 @@ fn a_host_spent_on_one_run_still_repairs_the_next() -> TestResult {
 
     // And a run started after the refusal is still repairable.
     let third = block_with(&reopened, candidate_needs().len())?;
-    let closed = lgwks_bot::block_on(reopened.repair(
+    let closed = lgwks_bot::script::block_on(reopened.repair(
         &third.ticket,
         &exact_grant(candidate_needs().len()),
         &declared,
@@ -474,7 +484,7 @@ fn a_bounded_sweep_repairs_every_ticket_once() -> TestResult {
         let mut refused = 0_usize;
         for (index, entry) in runs.iter().enumerate() {
             let run = entry.0;
-            let repaired = lgwks_bot::block_on(host.repair(
+            let repaired = lgwks_bot::script::block_on(host.repair(
                 &entry.1,
                 &grants,
                 &declared,

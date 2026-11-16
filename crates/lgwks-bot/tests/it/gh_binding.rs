@@ -28,8 +28,8 @@
 
 use std::time::Duration;
 
-use lgwks_bot::EcsError;
 use lgwks_bot::domain::gh::{Gh, GhOutcome};
+use lgwks_bot::ecs::EcsError;
 
 use crate::scripted_gh::{BindingError, ScriptedGh};
 
@@ -89,12 +89,12 @@ impl LossyQuery for Gh {
         let required = self.required_caps().to_vec();
         let grants = required
             .iter()
-            .fold(lgwks_bot::GrantSet::empty(), |set, cap| {
+            .fold(lgwks_bot::gate::GrantSet::empty(), |set, cap| {
                 set.grant(cap.clone())
             });
         Box::pin(async move {
             let auth = grants.issue(&required)?;
-            lgwks_bot::Query::query(&query, (auth, &())).await
+            lgwks_bot::verb::Query::query(&query, (auth, &())).await
         })
     }
 }

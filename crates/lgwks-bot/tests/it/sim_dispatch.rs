@@ -42,8 +42,8 @@ use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::rc::Rc;
 
-use lgwks_bot::GrantSet;
 use lgwks_bot::effect::EffectKey;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::{EffectEvent, EventKind, MemoryJournal};
 use lgwks_bot::spec::Bot;
 
@@ -96,7 +96,7 @@ impl Run {
     /// fence wiring to drift.
     fn bot_with<A>(&self, action: A) -> Result<Bot, Box<dyn Error>>
     where
-        A: lgwks_bot::Execute<Input = u32, Output = ()> + 'static,
+        A: lgwks_bot::verb::Execute<Input = u32, Output = ()> + 'static,
     {
         Ok(Bot::builder(NAME)
             .observe(FixedSource)

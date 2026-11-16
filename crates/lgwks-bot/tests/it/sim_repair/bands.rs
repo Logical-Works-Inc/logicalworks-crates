@@ -229,7 +229,7 @@ pub(super) fn tenants_keep_their_own_tickets_and_budgets(band: Band) -> TestResu
 
         // Cross-tenant: one tenant's ticket is refused by the other tenant's host.
         let (mine, theirs) = (&runs[0], &runs[1]);
-        match lgwks_bot::block_on(theirs.host.repair(
+        match lgwks_bot::script::block_on(theirs.host.repair(
             &mine.ticket,
             &exact_grant(plan.reach),
             &mine.declared,
@@ -310,7 +310,7 @@ pub(super) fn saturation_applies_each_ticket_once(band: Band) -> TestResult {
         let mut tickets = Vec::with_capacity(tier);
         for _ in 0..tier {
             let polls = Polls::shared();
-            let report = lgwks_bot::block_on(host.run(
+            let report = lgwks_bot::script::block_on(host.run(
                 &declared,
                 input_needing(Arc::clone(&polls), 7, candidate_needs()),
             ));
@@ -360,7 +360,7 @@ pub(super) fn saturation_applies_each_ticket_once(band: Band) -> TestResult {
                 ref polls,
                 ..
             } = entry;
-            let report = lgwks_bot::block_on(host.repair(
+            let report = lgwks_bot::script::block_on(host.repair(
                 ticket,
                 &grants,
                 &declared,
@@ -390,7 +390,7 @@ pub(super) fn saturation_applies_each_ticket_once(band: Band) -> TestResult {
 
         // One more delivery of every ticket: all refused, nothing re-applied.
         for (index, entry) in tickets.iter().enumerate() {
-            match lgwks_bot::block_on(host.repair(
+            match lgwks_bot::script::block_on(host.repair(
                 &entry.ticket,
                 &grants,
                 &declared,

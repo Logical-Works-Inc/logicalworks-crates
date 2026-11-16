@@ -8,10 +8,10 @@ use crate::sim::{self, Band};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use lgwks_bot::GrantSet;
-use lgwks_bot::RefreshReason;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::spec::Bot;
+use lgwks_bot::verb::RefreshReason;
 
 use super::{Acting, CAUSES, Expect, TestResult, record_values, scope_of, tick_as};
 

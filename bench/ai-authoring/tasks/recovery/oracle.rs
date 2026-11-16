@@ -57,31 +57,44 @@ fn world(seed: u64) -> World {
     (0..WIDTH).fold(base, |world, index| world.delay(index, SLOW))
 }
 
-/// The total a successful attempt reports, or a message naming the refusal.
+/// Why a clause failed, one variant per way it can.
 ///
-/// `RecoveryError` is the *solution's* error type, so the oracle cannot ask the
-/// compiler to convert it into a `Box<dyn Error>`: the oracle must not require
-/// an implementation the task prompt never asked for. The refusal is rendered
-/// through `Debug`, which the prompt does require.
+/// `RecoveryError` is the *solution's* error type and only `Debug` is promised for it, so the
+/// oracle carries it as a value rather than asking it to be an `Error`: the oracle must not
+/// require an implementation the task prompt never asked for. A test reports through `Debug`.
+#[derive(Debug)]
+enum OracleError {
+    /// The solution refused where the clause needed it to finish.
+    Refused(RecoveryError),
+    /// The run ended in another way than the clause names.
+    Unexpected(Result<u64, RecoveryError>),
+    /// The scratch directory could not be made.
+    Scratch(std::io::Error),
+}
+
+/// A clause's result.
+type ClauseResult = Result<(), OracleError>;
+
+/// The total a successful attempt reports, or the refusal it ended with.
 fn finished<F: std::future::Future<Output = Result<u64, RecoveryError>>>(
     attempt: F,
-) -> Result<u64, Box<dyn std::error::Error>> {
-    lgwks_bot::block_on(attempt).map_err(|error| format!("expected Ok, got {error:?}").into())
+) -> Result<u64, OracleError> {
+    lgwks_bot::rt::runtime::block_on(attempt).map_err(OracleError::Refused)
 }
+
+/// Scratch directories made by this process so far, so two clauses never share one.
+static MADE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A scratch directory under the system temp root, named so two runs of this
 /// file can never collide: the store a run leaves behind would otherwise be a
-/// second ledger this file does not own, and a later test would reopen it.
-fn scratch(tag: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let since_epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
-    let unique = format!(
-        "lgwks-recovery-{tag}-{}-{:?}-{}",
-        std::process::id(),
-        std::thread::current().id(),
-        since_epoch.as_nanos()
-    );
+/// second ledger this file does not own, and a later test would reopen it. The
+/// process id separates runs and a per-process counter separates clauses, so no
+/// clock is read to name it.
+fn scratch(tag: &str) -> Result<PathBuf, OracleError> {
+    let ordinal = MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let unique = format!("lgwks-recovery-{tag}-{}-{ordinal}", std::process::id());
     let dir = std::env::temp_dir().join(unique);
-    std::fs::create_dir_all(&dir)?;
+    std::fs::create_dir_all(&dir).map_err(OracleError::Scratch)?;
     Ok(dir)
 }
 
@@ -112,7 +125,7 @@ fn interrupt_after<F: std::future::Future>(
     world: &World,
     after: u32,
 ) {
-    lgwks_bot::block_on(std::future::poll_fn(|context| {
+    lgwks_bot::rt::runtime::block_on(std::future::poll_fn(|context| {
         // One snapshot per poll rather than one per index: this loop runs on
         // every wake of the attempt it is interrupting, and each snapshot copies
         // the whole counter vector.
@@ -132,8 +145,12 @@ fn interrupt_after<F: std::future::Future>(
 }
 
 /// Let every cancelled unit body be counted out.
+///
+/// The grace is the task's declared [`SETTLE`], spent on the injected clock: clause 5 asserts what
+/// holds once that grace has passed, so the wait is the contract's own window, not a race.
 fn settle() {
-    lgwks_bot::block_on(time::sleep(SETTLE));
+    let clock = time::Clock::wall();
+    lgwks_bot::rt::runtime::block_on(clock.sleep(SETTLE));
 }
 
 /// Drive one `recover` attempt until it has recorded `after` unit bodies, drop
@@ -152,7 +169,7 @@ fn interrupt_recover(world: World, dir: PathBuf, after: u32) {
 
 /// Clause 1: with enough attempts the work completes and the total is right.
 #[test]
-fn a_first_attempt_completes() -> Result<(), Box<dyn std::error::Error>> {
+fn a_first_attempt_completes() -> ClauseResult {
     let dir = scratch("complete")?;
     let world = world(11);
     let total = finished(recover(world.clone(), dir.clone(), LONG))?;
@@ -175,7 +192,7 @@ fn a_first_attempt_completes() -> Result<(), Box<dyn std::error::Error>> {
 /// dropped after two unit bodies have recorded, and the resume must replay those
 /// two records rather than run them again.
 #[test]
-fn a_resume_does_not_rerun_a_completed_unit() -> Result<(), Box<dyn std::error::Error>> {
+fn a_resume_does_not_rerun_a_completed_unit() -> ClauseResult {
     let dir = scratch("rerun")?;
     let world = world(13);
     let interrupted = world.clone();
@@ -217,15 +234,20 @@ fn a_resume_does_not_rerun_a_completed_unit() -> Result<(), Box<dyn std::error::
 
 /// Clause 3: across any number of attempts the effect is applied exactly once.
 #[test]
-fn the_effect_is_applied_exactly_once() -> Result<(), Box<dyn std::error::Error>> {
+fn the_effect_is_applied_exactly_once() -> ClauseResult {
     let dir = scratch("effect")?;
     let world = world(17);
 
-    let _ = finished(recover(world.clone(), dir.clone(), LONG))?;
-    let _ = finished(recover(world.clone(), dir.clone(), LONG))?;
+    let first = finished(recover(world.clone(), dir.clone(), LONG))?;
+    let second = finished(recover(world.clone(), dir.clone(), LONG))?;
     let applies = world.ledger().applies();
     discard(&dir);
 
+    assert_eq!(
+        (first, second),
+        (expected_total(WIDTH), expected_total(WIDTH)),
+        "both calls report the finished run's total"
+    );
     assert_eq!(
         applies, 1,
         "the effect was applied once across two complete calls, not once per call"
@@ -235,19 +257,23 @@ fn the_effect_is_applied_exactly_once() -> Result<(), Box<dyn std::error::Error>
 
 /// Clause 4: the overall deadline is honoured and leaves no unit live.
 #[test]
-fn the_overall_deadline_is_honoured() -> Result<(), Box<dyn std::error::Error>> {
+fn the_overall_deadline_is_honoured() -> ClauseResult {
     let dir = scratch("deadline")?;
     // Every unit takes far longer than the budget, so the deadline is what ends
     // the attempt rather than the work finishing.
     let world = world(19);
 
-    let result = lgwks_bot::block_on(recover(world.clone(), dir.clone(), Duration::from_millis(80)));
+    let result = lgwks_bot::rt::runtime::block_on(recover(
+        world.clone(),
+        dir.clone(),
+        Duration::from_millis(80),
+    ));
     settle();
     discard(&dir);
 
     match result {
         Err(RecoveryError::Deadline) => {}
-        other => return Err(format!("expected Deadline, got {other:?}").into()),
+        other => return Err(OracleError::Unexpected(other)),
     }
     assert!(
         recovery::at_rest(&world),
@@ -258,7 +284,7 @@ fn the_overall_deadline_is_honoured() -> Result<(), Box<dyn std::error::Error>> 
 
 /// Clause 5: dropping the returned future mid-run leaves nothing live.
 #[test]
-fn dropping_the_future_leaves_no_unit_live() -> Result<(), Box<dyn std::error::Error>> {
+fn dropping_the_future_leaves_no_unit_live() -> ClauseResult {
     let dir = scratch("drop")?;
     let world = world(23);
     let observed = world.clone();

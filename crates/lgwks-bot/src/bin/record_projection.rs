@@ -10,8 +10,8 @@ use std::io::{BufRead as _, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
 
+use lgwks_bot::ecs::{ProjectionError, RecordFold, RecordProjection};
 use lgwks_bot::journal::{JournalError, RecordEntry, RecordJournal};
-use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
 
 /// The usage text, for a first-timer and for a misuse.
 const USAGE: &str = "usage: record-projection <journal> <max-rows>

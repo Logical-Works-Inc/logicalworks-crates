@@ -1,16 +1,17 @@
 //! `cap` owns the capability token for bot domains and enforces
 //! INV-BOT-CAP-DOTTED: the shipped capabilities are dotted string names drawn
 //! from the bot vocabulary, in the same shape as the capability model used
-//! across this project. [`Cap::new`] accepts any name by convention: custom
+//! across this project. [`Cap::new`](crate::cap::Cap::new) accepts any name by convention: custom
 //! capabilities are data-driven (`Cap::new("your.domain.cap")`), so the
 //! constructor cannot reject unknown names without breaking that path.
 //! Enforcement is by equality at the gate (`required ⊆ granted`): an unknown or
 //! misspelled name simply never matches a grant. Prefer the
-//! [`Cap::NET`]/[`Cap::FS`]/[`Cap::SYS`]/[`Cap::NOTIFY`] constants and their
-//! shorthand constructors for shipped capabilities.
+//! [`Cap::NET`](crate::cap::Cap::NET)/[`Cap::FS`](crate::cap::Cap::FS)/[`Cap::SYS`](crate::cap::Cap::SYS)/[`Cap::NOTIFY`](crate::cap::Cap::NOTIFY)
+//! constants and their shorthand constructors for shipped capabilities.
 //!
-//! Names ([`Cap`]) are forgeable labels; authority is the sealed [`Auth`]
-//! proof, minted only by [`GrantSet`]. Every
+//! Names ([`Cap`](crate::cap::Cap)) are forgeable labels; authority is the sealed
+//! [`Auth`](crate::cap::Auth) proof, minted only by
+//! [`GrantSet`](crate::gate::GrantSet). Every
 //! side-effecting verb takes `(Auth, input)` tuples and checks coverage
 //! before acting. This stops confused-deputy calls and accidental ungated
 //! use; it is not a sandbox, since in-process code can always dial out
@@ -572,7 +573,8 @@ impl Auth {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Cap, GrantSet};
+    /// use lgwks_bot::cap::Cap;
+    /// use lgwks_bot::gate::GrantSet;
     ///
     /// let auth = GrantSet::empty().grant(Cap::net()).issue(&[Cap::net()])?;
     /// assert!(auth.check(&[Cap::net()]).is_ok());
@@ -622,7 +624,8 @@ impl Auth {
     /// ```
     /// use std::time::Duration;
     /// use lgwks_bot::clock::Clock;
-    /// use lgwks_bot::{Cap, GrantSet};
+    /// use lgwks_bot::cap::Cap;
+    /// use lgwks_bot::gate::GrantSet;
     ///
     /// let clock = Clock::virtual_at(Duration::ZERO);
     /// let auth = GrantSet::empty()

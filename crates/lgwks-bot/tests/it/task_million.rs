@@ -88,7 +88,7 @@ fn more_than_a_million_admitted_runs_are_in_flight_at_once() -> TestResult {
     });
 
     let started = Instant::now();
-    let (admitted_at, mut outcomes) = lgwks_bot::block_on(async {
+    let (admitted_at, mut outcomes) = lgwks_bot::script::block_on(async {
         let mut set: JoinSet<(usize, u64, lgwks_bot::task::Report<Outcome>)> = JoinSet::new();
         for index in 0..total {
             let tenant = index % TENANTS;

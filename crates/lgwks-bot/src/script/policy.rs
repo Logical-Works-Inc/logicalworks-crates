@@ -648,7 +648,7 @@ mod pool_tests {
         let items = machine_ceiling().saturating_add(1);
         let tenant = Tenant::new("pool-nested").map_err(|error| error.to_string())?;
         let root = Scope::root(tenant);
-        let values = crate::block_on(each(
+        let values = crate::rt::runtime::block_on(each(
             &root,
             "outer",
             None,
@@ -688,11 +688,14 @@ mod pool_tests {
                     let tenant =
                         Tenant::new(&format!("pool-{root}")).map_err(|error| error.to_string())?;
                     let scope = Scope::root(tenant);
-                    let values =
-                        crate::block_on(each(&scope, "fan", None, 0..items, |_, index| {
-                            watch.body(index)
-                        }))
-                        .map_err(|error| format!("root {root} failed: {error}"))?;
+                    let values = crate::rt::runtime::block_on(each(
+                        &scope,
+                        "fan",
+                        None,
+                        0..items,
+                        |_, index| watch.body(index),
+                    ))
+                    .map_err(|error| format!("root {root} failed: {error}"))?;
                     if values == (0..items).collect::<Vec<_>>() {
                         Ok(())
                     } else {

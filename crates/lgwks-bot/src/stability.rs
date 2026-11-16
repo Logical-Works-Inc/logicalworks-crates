@@ -69,7 +69,7 @@
 //! "how big may this subject be" is the adapter's declaration rather than this
 //! module's guess.
 //!
-//! [`EcsError::UnstableObservation`]: crate::EcsError::UnstableObservation
+//! [`EcsError::UnstableObservation`]: crate::ecs::EcsError::UnstableObservation
 //! [`read_stable`]: crate::stability::read_stable
 //! [`Drift`]: crate::stability::Drift
 //! [`MAX_STABILITY_READS`]: crate::stability::MAX_STABILITY_READS
