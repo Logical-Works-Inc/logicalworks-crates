@@ -901,7 +901,7 @@ dependencies = [
  "indexmap 2.14.2",
  "serde",
  "smallvec",
- "smol_str",
+ "smol_str 0.2.2",
  "thiserror 2.0.21",
  "uuid",
  "variadics_please",
@@ -2060,10 +2060,34 @@ dependencies = [
  "rustc-hash 1.1.0",
  "rustybuzz 0.14.1",
  "self_cell",
- "smol_str",
+ "smol_str 0.2.2",
  "swash",
  "sys-locale",
  "ttf-parser 0.21.1",
+ "unicode-bidi",
+ "unicode-linebreak",
+ "unicode-script",
+ "unicode-segmentation",
+]
+
+[[package]]
+name = "cosmic-text"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be17b688510d934ce13f48a2beba700e11583e281e0fda99c22bb256a14eda73"
+dependencies = [
+ "bitflags 2.13.2",
+ "fontdb 0.23.0",
+ "harfrust",
+ "linebender_resource_handle",
+ "log",
+ "rangemap",
+ "rustc-hash 2.1.3",
+ "self_cell",
+ "skrifa 0.40.0",
+ "smol_str 0.3.7",
+ "swash",
+ "sys-locale",
  "unicode-bidi",
  "unicode-linebreak",
  "unicode-script",
@@ -3246,6 +3270,15 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "font-types"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b38ad915f6dadd993ced50848a8291a543bd41ca62bc10740d5e64e2ab4cfd7"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "font-types"
 version = "0.12.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "835ae9d781464a79026cde387f9cbc650c9a4909d7cf7e658b127e3c35d2f35d"
@@ -3811,7 +3844,7 @@ dependencies = [
  "core-graphics 0.24.0",
  "core-text",
  "core-video",
- "cosmic-text",
+ "cosmic-text 0.14.2",
  "ctor 0.4.3",
  "derive_more 0.99.20",
  "embed-resource",
@@ -4093,6 +4126,19 @@ dependencies = [
  "rand 0.9.5",
  "rand_distr",
  "zerocopy",
+]
+
+[[package]]
+name = "harfrust"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9da2e5ae821f6e96664977bf974d6d6a2d6682f9ccee23e62ec1d134246845f9"
+dependencies = [
+ "bitflags 2.13.2",
+ "bytemuck",
+ "core_maths",
+ "read-fonts 0.37.0",
+ "smallvec",
 ]
 
 [[package]]
@@ -5000,7 +5046,7 @@ dependencies = [
  "candle-transformers",
  "chacha20poly1305",
  "coset",
- "cosmic-text",
+ "cosmic-text 0.19.0",
  "ct-merkle",
  "genai",
  "gpui",
@@ -5123,6 +5169,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "linebender_resource_handle"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
 
 [[package]]
 name = "linux-raw-sys"
@@ -7252,12 +7304,23 @@ dependencies = [
 
 [[package]]
 name = "read-fonts"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b634fabf032fab15307ffd272149b622260f55974d9fad689292a5d33df02e5"
+dependencies = [
+ "bytemuck",
+ "core_maths",
+ "font-types 0.11.3",
+]
+
+[[package]]
+name = "read-fonts"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "046a7d674daf459825b32f5062056d6882db0d2f5a479fbd76ccfc870ac18709"
 dependencies = [
  "bytemuck",
- "font-types",
+ "font-types 0.12.7",
  "once_cell",
 ]
 
@@ -8317,12 +8380,22 @@ checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
 name = "skrifa"
+version = "0.40.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7fbdfe3d2475fbd7ddd1f3e5cf8288a30eb3e5f95832829570cd88115a7434ac"
+dependencies = [
+ "bytemuck",
+ "read-fonts 0.37.0",
+]
+
+[[package]]
+name = "skrifa"
 version = "0.44.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
- "read-fonts",
+ "read-fonts 0.41.0",
 ]
 
 [[package]]
@@ -8434,6 +8507,12 @@ checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "smol_str"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eeb7109d23f319619d4cc0de5464613c8b7b1a09db2774a58101459cf6be2f10"
 
 [[package]]
 name = "socket2"
@@ -8777,7 +8856,7 @@ version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c2499c2d826531388872b2268718aed907a39bd785ab0dcfe57fab26283f92e"
 dependencies = [
- "skrifa",
+ "skrifa 0.44.0",
  "yazi",
  "zeno",
 ]
@@ -11261,7 +11340,7 @@ dependencies = [
  "rustix 0.38.44",
  "sctk-adwaita",
  "smithay-client-toolkit 0.19.2",
- "smol_str",
+ "smol_str 0.2.2",
  "tracing",
  "unicode-segmentation",
  "wasm-bindgen",
