@@ -193,6 +193,9 @@ pub(crate) struct FlowDoc {
     pub(crate) samples: usize,
     /// End-to-end latency of a finished run, in microseconds.
     pub(crate) latency_us: Summary,
+    /// Microseconds from starting the rig, both tenants' hosts and run stores,
+    /// until it could take its first run.
+    pub(crate) deploy_us: Summary,
     /// Finished runs per second of wall time.
     pub(crate) throughput_runs_per_s: f64,
     /// Retries taken.
@@ -264,6 +267,7 @@ pub(crate) fn flow_text(doc: &FlowDoc) -> String {
     lines.push(workload_line(&doc.workload));
     lines.push(format!("samples: {}", doc.samples));
     lines.push(summary_line("latency_us", &doc.latency_us));
+    lines.push(summary_line("deploy_us", &doc.deploy_us));
     lines.push(format!(
         "throughput_runs_per_s: {}",
         doc.throughput_runs_per_s
@@ -336,9 +340,10 @@ pub(crate) struct RowDoc {
     pub(crate) exhausted_runs: u64,
     /// Lines of code in the flow.
     pub(crate) code_lines: usize,
-    /// Cold build time: never measured by this binary, and filled in by the doc
-    /// from a `cargo build` run once.
-    pub(crate) cold_build: Option<String>,
+    /// Microseconds from starting the engine until it could take its first run:
+    /// one sample per start, and per restart of the recovery rounds where the
+    /// engine has a server to restart.
+    pub(crate) deploy_us: Summary,
     /// The kill -9 recovery, when it was asked for.
     pub(crate) recovery: Option<Recovery>,
 }
@@ -362,7 +367,7 @@ impl RowDoc {
             throttled_runs: doc.throttled_runs,
             exhausted_runs: doc.exhausted_runs,
             code_lines: doc.flow_code_lines,
-            cold_build: None,
+            deploy_us: doc.deploy_us,
             recovery: None,
         }
     }
@@ -460,10 +465,10 @@ fn table_lines(doc: &TableDoc) -> Vec<(&'static str, Vec<String>)> {
             }),
         ),
         (
-            "cold build",
-            each(&|row| match row.cold_build.as_ref() {
-                Some(found) => found.clone(),
-                None => "not measured by this binary".to_owned(),
+            "deploy: start to ready (samples)",
+            each(&|row| {
+                let noun = if row.deploy_us.samples == 1 { "sample" } else { "samples" };
+                format!("{} ms p50 ({} {noun})", ms(row.deploy_us.p50), row.deploy_us.samples)
             }),
         ),
     ]
@@ -560,6 +565,7 @@ mod tests {
         let throttled_runs = draw(9)?;
         let exhausted_runs = draw(9)?;
         let resident = draw(1 << 30)?;
+        let deploy_us = Summary::of(&mut [draw(900_000)?]);
         Ok(FlowDoc {
             envelope,
             mode: "flow",
@@ -569,6 +575,7 @@ mod tests {
             workload: Workload::of(Latencies::WORKLOAD),
             samples: latency_us.samples,
             latency_us,
+            deploy_us,
             throughput_runs_per_s: centi_rate as f64 / 100.0,
             retries,
             failures_injected,
@@ -618,6 +625,10 @@ mod tests {
             let p99 = value["latency_us"]["p99"].as_u64().ok_or("no p99")?;
             let text_p99 = line("latency_us: ").ok_or("no latency line")?;
             assert!(text_p99.contains(&format!("p99={p99} ")), "{text_p99}");
+            let deployed = value["deploy_us"]["p50"].as_u64().ok_or("no deploy p50")?;
+            let text_deploy = line("deploy_us: ").ok_or("no deploy line")?;
+            assert!(text_deploy.starts_with("samples=1 "), "{text_deploy}");
+            assert!(text_deploy.contains(&format!("p50={deployed} ")), "{text_deploy}");
         }
         Ok(())
     }

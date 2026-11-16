@@ -42,6 +42,9 @@ pub(crate) struct Tally {
     pub(crate) staged: u64,
     /// Wall time from the first run's start to the last run's end.
     pub(crate) elapsed: Duration,
+    /// Microseconds, on the injected clock, from opening both tenants' hosts and
+    /// run stores until the fleet could take its first run.
+    pub(crate) deploy_us: u64,
 }
 
 /// How one timed run ended.
@@ -78,6 +81,7 @@ pub(crate) fn flow(args: &Args, dir: &Path, clock: Clock) -> Result<FlowDoc, Ben
     )?;
     let memory = resident()?;
     let latency_us = Summary::of(&mut tally.latencies_us);
+    let deploy_us = Summary::of(&mut [tally.deploy_us]);
     let seconds = tally.elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
     let per_second = f64::from(tally.finished) / seconds;
     Ok(FlowDoc {
@@ -89,6 +93,7 @@ pub(crate) fn flow(args: &Args, dir: &Path, clock: Clock) -> Result<FlowDoc, Ben
         workload: Workload::of(Latencies::WORKLOAD),
         samples: latency_us.samples,
         latency_us,
+        deploy_us,
         throughput_runs_per_s: (per_second * 100.0).round() / 100.0,
         retries: tally.retries,
         failures_injected: tally.injected,
@@ -118,8 +123,13 @@ pub(crate) fn measure(
     clock: Clock,
     steps: Option<AppendLog>,
 ) -> Result<Tally, BenchError> {
-    let world = Arc::new(World::plan(seed, runs, percent, latencies, clock, steps)?);
+    let world = Arc::new(World::plan(seed, runs, percent, latencies, clock.clone(), steps)?);
+    // The deploy is the fleet's start to ready: both tenants' hosts and run
+    // stores open, and nothing is planned or run yet. It is read off the injected
+    // clock, the one every wait of the run is made on.
+    let deploying = clock.now();
     let fleet = Fleet::open(store_dir, Arc::clone(&world))?;
+    let deploy_us = micros(clock.now().saturating_sub(deploying));
     let delay = world.latencies().approval;
     let started = Instant::now();
     let samples = pool(runs, WORKERS, |ordinal| {
@@ -154,5 +164,6 @@ pub(crate) fn measure(
         fsyncs,
         staged,
         elapsed,
+        deploy_us,
     })
 }

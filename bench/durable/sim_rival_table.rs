@@ -21,6 +21,9 @@ use crate::world::Latencies;
 /// The number of measure lines a table carries.
 const MEASURES: usize = 13;
 
+/// The label of the deploy line, as the doc and the Markdown table spell it.
+const DEPLOY: &str = "deploy: start to ready (samples)";
+
 /// A distribution drawn from seeded samples.
 fn summary(dice: &mut Dice) -> Result<Summary, String> {
     let mut samples: Vec<u64> = (0..=dice.pick(50)?)
@@ -57,6 +60,7 @@ fn row(dice: &mut Dice, name: &'static str, recovering: bool) -> Result<RowDoc, 
     let throttled_runs = dice.roll(90)?;
     let exhausted_runs = dice.roll(90)?;
     let code_lines = dice.pick(400)?;
+    let deploy_us = summary(dice)?;
     Ok(RowDoc {
         row: name,
         engine,
@@ -73,7 +77,7 @@ fn row(dice: &mut Dice, name: &'static str, recovering: bool) -> Result<RowDoc, 
         throttled_runs,
         exhausted_runs,
         code_lines,
-        cold_build: None,
+        deploy_us,
         recovery,
     })
 }
@@ -153,6 +157,14 @@ fn sim_table_text_markdown_and_json_agree_with_the_rows() -> TestResult {
             );
             assert_eq!(latency.get(at), Some(&want.as_str()), "seed {seed}");
             assert!(text.contains(&format!("{}={}", row.row, row.engine)), "seed {seed}");
+            let (deployed, count) = (row.deploy_us.p50, row.deploy_us.samples);
+            let noun = if count == 1 { "sample" } else { "samples" };
+            let want = format!("{} ms p50 ({count} {noun})", tenths_of_ms(deployed));
+            assert_eq!(cells(&markdown, DEPLOY)?.get(at), Some(&want.as_str()), "seed {seed}");
+            assert!(text.contains(&format!("{}={want}", row.row)), "seed {seed}: {text}");
+            assert_eq!(value["rows"][at]["deploy_us"]["p50"].as_u64(), Some(deployed), "seed {seed}");
+            assert_eq!(value["rows"][at]["deploy_us"]["samples"].as_u64(), u64::try_from(count).ok(), "seed {seed}");
+            assert!(value["rows"][at]["cold_build"].is_null(), "the old field is back, seed {seed}");
             let recovery = cells(&markdown, "step bodies run twice after recovery (checked)")?;
             match &row.recovery {
                 Some(found) => {
@@ -168,6 +180,44 @@ fn sim_table_text_markdown_and_json_agree_with_the_rows() -> TestResult {
         }
         assert_eq!(value["rows"].as_array().map(Vec::len), Some(doc.rows.len()));
         assert_eq!(value["mode"].as_str(), Some("table"));
+        assert!(!markdown.contains("cold build"), "seed {seed}: the cold build row is back");
+        assert!(!markdown.contains("not measured"), "seed {seed}");
+    }
+    Ok(())
+}
+
+/// The deploy cell is `<ms> ms p50 (<n> sample[s])` for fixed distributions
+/// written out by hand, and all three renderings carry the same two numbers.
+#[test]
+fn the_deploy_cell_reads_p50_and_the_sample_count() -> TestResult {
+    let table_of = |samples: usize, p50: u64| -> Result<TableDoc, String> {
+        let mut dice = Dice::new(5);
+        let mut one = row(&mut dice, "lgwks", false)?;
+        one.deploy_us = Summary { samples, p50, p95: p50, p99: p50, max: p50 };
+        Ok(TableDoc {
+            envelope: Envelope::new("c", 5, 1).map_err(|e| e.line())?,
+            mode: "table",
+            tenants: 2,
+            workers: 64,
+            workload: Workload::of(Latencies::WORKLOAD),
+            rows: vec![one],
+        })
+    };
+    for (samples, p50, cell) in [
+        (6, 412_345, "412.3 ms p50 (6 samples)"),
+        (1, 0, "0.0 ms p50 (1 sample)"),
+        (0, 0, "0.0 ms p50 (0 samples)"),
+        (2, 999, "0.9 ms p50 (2 samples)"),
+        (50, 1_000_000, "1000.0 ms p50 (50 samples)"),
+        (1, 59_999, "59.9 ms p50 (1 sample)"),
+    ] {
+        let doc = table_of(samples, p50)?;
+        assert_eq!(cells(&table_markdown(&doc), DEPLOY)?, vec![cell]);
+        assert!(table_text(&doc).contains(&format!("{DEPLOY}: lgwks={cell}")), "{cell}");
+        let value = lgwks_std::json::from_str::<Value>(&json(&doc).map_err(|e| e.line())?)
+            .map_err(|e| e.to_string())?;
+        assert_eq!(value["rows"][0]["deploy_us"]["p50"].as_u64(), Some(p50));
+        assert_eq!(value["rows"][0]["deploy_us"]["samples"].as_u64(), u64::try_from(samples).ok());
     }
     Ok(())
 }
@@ -220,12 +270,13 @@ fn sim_table_renderings_replay_from_one_seed() -> TestResult {
     Ok(())
 }
 
-/// The lgwks row of a table is the flow report's own numbers, and the cold build
-/// is left open for the doc.
+/// The lgwks row of a table is the flow report's own numbers, its deploy
+/// distribution included.
 #[test]
 fn the_lgwks_row_carries_the_flow_reports_numbers() -> TestResult {
     let mut dice = Dice::new(9);
     let latency_us = summary(&mut dice)?;
+    let deploy_us = Summary::of(&mut [4_321]);
     let flow = FlowDoc {
         envelope: Envelope::new("lgwks-bench-durable", 1, 77).map_err(|e| e.line())?,
         mode: "flow",
@@ -235,6 +286,7 @@ fn the_lgwks_row_carries_the_flow_reports_numbers() -> TestResult {
         workload: Workload::of(Latencies::WORKLOAD),
         samples: latency_us.samples,
         latency_us,
+        deploy_us,
         throughput_runs_per_s: 12.5,
         retries: 3,
         failures_injected: 4,
@@ -249,7 +301,8 @@ fn the_lgwks_row_carries_the_flow_reports_numbers() -> TestResult {
     assert_eq!((made.runs, made.samples, made.retries), (77, flow.samples, 3));
     assert_eq!((made.throttled_runs, made.exhausted_runs, made.code_lines), (5, 6, 99));
     assert_eq!(made.latency_us, flow.latency_us);
-    assert!(made.cold_build.is_none() && made.recovery.is_none());
+    assert_eq!((made.deploy_us.samples, made.deploy_us.p50), (1, 4_321));
+    assert!(made.recovery.is_none());
     Ok(())
 }
 
@@ -258,11 +311,11 @@ fn argv(words: &[&str]) -> Vec<OsString> {
     words.iter().map(OsString::from).collect()
 }
 
-/// What the flags mean, written plainly: the rows, the markdown switch and the
-/// server named, or `None` for a usage refusal.
-fn model(words: &[&str]) -> Option<(Vec<Row>, bool, String)> {
+/// What the flags mean, written plainly: the rows, the markdown switch, the
+/// server named and the doc named, or `None` for a usage refusal.
+fn model(words: &[&str]) -> Option<(Vec<Row>, bool, String, Option<String>)> {
     let (mut rows, mut markdown, mut server) = (Vec::new(), false, "restate-server".to_owned());
-    let (mut json, mut child, mut work_dir) = (false, false, false);
+    let (mut json, mut child, mut work_dir, mut doc) = (false, false, false, None);
     let mut cursor = words.iter();
     while let Some(word) = cursor.next() {
         match *word {
@@ -286,14 +339,16 @@ fn model(words: &[&str]) -> Option<(Vec<Row>, bool, String)> {
                 work_dir = true;
             }
             "--markdown" => markdown = true,
+            "--write-doc" => doc = Some((*cursor.next()?).to_owned()),
             "--json" => json = true,
             "--park-child" => child = true,
             "--recover" => {}
             _ => return None,
         }
     }
-    let refused = (child && !work_dir) || (markdown && (json || rows.is_empty())) || (child && !rows.is_empty());
-    (!refused).then_some((rows, markdown, server))
+    let wants_table = markdown || doc.is_some();
+    let refused = (child && !work_dir) || (markdown && json) || (wants_table && rows.is_empty()) || (child && !rows.is_empty());
+    (!refused).then_some((rows, markdown, server, doc))
 }
 
 /// Seeded command lines over the new flags parse as the model says, or are a
@@ -303,6 +358,7 @@ fn sim_rows_flags_parse_like_the_model() -> TestResult {
     let vocabulary = [
         "--rows", "lgwks", "restate", "lgwks,restate", "restate,lgwks", "lgwks,lgwks", "restate,", "",
         "--markdown", "--json", "--recover", "--restate-server", "elsewhere", "--park-child", "--work-dir", "w",
+        "--write-doc", "doc.md",
     ];
     let mut dice = Dice::new(61);
     let mut parsed = 0_u32;
@@ -312,8 +368,13 @@ fn sim_rows_flags_parse_like_the_model() -> TestResult {
             words.push(vocabulary.get(dice.pick(vocabulary.len())?).ok_or("draw")?);
         }
         match (parse(argv(&words)), model(&words)) {
-            (Ok(args), Some((rows, markdown, server))) => {
-                assert_eq!((args.rows, args.markdown, args.restate_server), (rows, markdown, server), "{words:?}");
+            (Ok(args), Some((rows, markdown, server, doc))) => {
+                let written = args.write_doc.as_deref().and_then(std::path::Path::to_str).map(str::to_owned);
+                assert_eq!(
+                    (args.rows, args.markdown, args.restate_server, written),
+                    (rows, markdown, server, doc),
+                    "{words:?}"
+                );
                 parsed += 1;
             }
             (Err(error), None) => assert_eq!(error.exit_code(), 2, "{words:?}"),

@@ -69,6 +69,13 @@ path = "durable/main.rs"
 name = "lgwks-bench-restate-worker"
 path = "restate/worker.rs"
 
+# `cargo bench --bench durable -- <args>` runs the built `lgwks-bench-durable`
+# with the same arguments: the harness is the binary's own report, not libtest's.
+[[bench]]
+name = "durable"
+path = "benches/durable.rs"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = true

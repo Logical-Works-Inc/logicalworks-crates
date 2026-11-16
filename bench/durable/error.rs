@@ -2,7 +2,7 @@
 //!
 //! Every arm is a real failure and keeps its cause, so a caller matches the
 //! variant and a reader of stderr gets one typed line, never a panic message.
-//! The first six arms are the usage class (exit 2); the rest are run failures
+//! The first seven arms are the usage class (exit 2); the rest are run failures
 //! (exit 1).
 
 use std::error::Error;
@@ -78,6 +78,39 @@ impl fmt::Display for ChildCause {
     }
 }
 
+/// Why a doc named by `--write-doc` cannot take the table: nothing is written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DocFault {
+    /// No line is the start marker outside a code fence.
+    StartMissing,
+    /// No line is the end marker outside a code fence.
+    EndMissing,
+    /// More than one line is the start marker.
+    StartRepeated,
+    /// More than one line is the end marker.
+    EndRepeated,
+    /// The end marker comes before the start marker.
+    OutOfOrder,
+    /// The doc is longer than [`crate::doc::MAX_DOC_BYTES`].
+    TooLarge,
+    /// The doc is not valid UTF-8.
+    NotUtf8,
+}
+
+impl fmt::Display for DocFault {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::StartMissing => write!(formatter, "no line is {}", crate::doc::START),
+            Self::EndMissing => write!(formatter, "no line is {}", crate::doc::END),
+            Self::StartRepeated => write!(formatter, "{} is on more than one line", crate::doc::START),
+            Self::EndRepeated => write!(formatter, "{} is on more than one line", crate::doc::END),
+            Self::OutOfOrder => formatter.write_str("the end marker comes before the start marker"),
+            Self::TooLarge => write!(formatter, "it is longer than {} bytes", crate::doc::MAX_DOC_BYTES),
+            Self::NotUtf8 => formatter.write_str("it is not valid UTF-8"),
+        }
+    }
+}
+
 /// Why a benchmark run failed.
 #[derive(Debug)]
 pub(crate) enum BenchError {
@@ -119,6 +152,13 @@ pub(crate) enum BenchError {
         path: PathBuf,
         /// What the filesystem said.
         source: io::Error,
+    },
+    /// The doc `--write-doc` names cannot take the table.
+    DocMarkers {
+        /// The doc as given.
+        path: PathBuf,
+        /// Why.
+        fault: DocFault,
     },
     /// A read or write the run needed failed.
     Io {
@@ -251,6 +291,7 @@ impl BenchError {
             Self::MalformedArgument { .. } => "MalformedArgument",
             Self::OutOfRange { .. } => "OutOfRange",
             Self::UnreadablePath { .. } => "UnreadablePath",
+            Self::DocMarkers { .. } => "DocMarkers",
             Self::Io { .. } => "Io",
             Self::ChildFailed { .. } => "ChildFailed",
             Self::Flow { .. } => "Flow",
@@ -284,6 +325,7 @@ impl BenchError {
                 | Self::MalformedArgument { .. }
                 | Self::OutOfRange { .. }
                 | Self::UnreadablePath { .. }
+                | Self::DocMarkers { .. }
         ) {
             EXIT_USAGE
         } else {
@@ -326,6 +368,9 @@ impl fmt::Display for BenchError {
             } => write!(formatter, "{flag} {value} is outside {min}..={max}"),
             Self::UnreadablePath { ref path, .. } => {
                 write!(formatter, "cannot use the work directory {path:?}")
+            }
+            Self::DocMarkers { ref path, fault } => {
+                write!(formatter, "the doc {path:?} cannot take the table: {fault}")
             }
             Self::Io { context, .. } => write!(formatter, "{context} failed"),
             Self::ChildFailed { ref cause } => {
