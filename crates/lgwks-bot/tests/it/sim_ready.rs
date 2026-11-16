@@ -587,13 +587,15 @@ fn a_failure_after_ready_reaches_every_running_dependant(band: Band) -> TestResu
             outcome.is_err(),
             "a readiness that failed after ready must not release a late dependant"
         );
-        let released = readiness
-            .released_at()
-            .ok_or("a readiness that was ready names the generation it released")?;
+        // The failure withdraws the release, so no generation is named any more.
+        assert_eq!(
+            readiness.released_at(),
+            None,
+            "a readiness that failed after ready names no released generation"
+        );
         sim.record(&format!(
-            "dependants={} released={} later=refused second=refused",
-            steps.len(),
-            released.get()
+            "dependants={} released=withdrawn later=refused second=refused",
+            steps.len()
         ));
         Ok(())
     })
