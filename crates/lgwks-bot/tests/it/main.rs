@@ -449,6 +449,8 @@ mod sim_gh_issue;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod sim_group_commit;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+mod sim_held;
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_inspect;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_inspect_wiring;

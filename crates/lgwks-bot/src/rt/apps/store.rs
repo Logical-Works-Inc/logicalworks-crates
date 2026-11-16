@@ -11,14 +11,9 @@ use crate::cap::Cap;
 use crate::proposal::{Refusal as ProposalRefusal, Surface, SurfaceError};
 use crate::script::{FlowError, Scope};
 
+use super::held::Held;
 use super::limits::PlanLimits;
 use super::refusal::{PlanRefusal, RefusalKind, order, refuse};
-
-/// The most plans one tenant may hold.
-const MAX_APPS_PER_TENANT: usize = 256;
-
-/// The most plans the store holds for every tenant together.
-const MAX_APPS_TOTAL: usize = 4_096;
 
 /// One operation a host runs: its handler behind shared ownership.
 type HandlerFn = Arc<
@@ -385,11 +380,19 @@ impl Outcome {
 }
 
 /// The admitted plans every tenant holds, bounded per tenant and in total.
+///
+/// A tenant holds at most 256 plans, and the store holds plans for at most
+/// 1,024 tenants and 8,192 plans in all. Every tenant can always hold 4 plans
+/// (its floor) whatever its neighbours hold, because the floors are reserved
+/// out of the total; plans past a tenant's floor draw on one shared pool of
+/// 4,096, so a neighbour group at its limits cannot refuse a new tenant's
+/// first plans (#889). Admission reads per-tenant counts kept as plans are
+/// held, so its cost does not grow with the store.
 pub struct AppStore {
     /// The ceilings admissions are measured against.
     limits: PlanLimits,
-    /// The plans by `(tenant, id)`.
-    inner: Mutex<HashMap<(String, String), StoredPlan>>,
+    /// The plans by `(tenant, id)` and the counts the bounds read.
+    inner: Mutex<Held>,
 }
 
 impl AppStore {
@@ -398,7 +401,7 @@ impl AppStore {
     pub fn new(limits: PlanLimits) -> Self {
         Self {
             limits,
-            inner: Mutex::new(HashMap::new()),
+            inner: Mutex::new(Held::default()),
         }
     }
 
@@ -408,7 +411,7 @@ impl AppStore {
     /// panicking holder left behind is not silently reused.
     pub(crate) fn plan(&self, tenant: &str, id: &str) -> Result<Option<StoredPlan>, ()> {
         match self.inner.lock() {
-            Ok(inner) => Ok(inner.get(&(tenant.to_owned(), id.to_owned())).cloned()),
+            Ok(inner) => Ok(inner.plan(tenant, id).cloned()),
             Err(_) => Err(()),
         }
     }
@@ -517,47 +520,18 @@ impl AppStore {
                 });
             }
         };
-        if !inner.contains_key(&key) {
-            if inner.len() >= MAX_APPS_TOTAL {
-                lgwks_std::trace::debug!("apps: the store is full");
-                return Outcome::Refused(Refused {
-                    refusals: vec![PlanRefusal::at(
-                        String::from("1:1"),
-                        order(1, 1),
-                        RefusalKind::BoundExceeded,
-                        format!(
-                            "the store holds {} plans, past the ceiling of {MAX_APPS_TOTAL}",
-                            inner.len()
-                        ),
-                    )],
-                });
-            }
-            let held = inner
-                .keys()
-                .filter(|key| key.0.as_str() == tenant.as_str())
-                .count();
-            if held >= MAX_APPS_PER_TENANT {
-                lgwks_std::trace::debug!(
-                    tenant = tenant.as_str(),
-                    "apps: the tenant holds too many plans"
-                );
-                return Outcome::Refused(Refused {
-                    refusals: vec![PlanRefusal::at(
-                        String::from("1:1"),
-                        order(1, 1),
-                        RefusalKind::BoundExceeded,
-                        format!(
-                            "tenant {tenant:?} holds {held} plans, past the ceiling of {MAX_APPS_PER_TENANT}"
-                        ),
-                    )],
-                });
-            }
-            inner.insert(
-                key,
-                StoredPlan {
-                    ops: lower(&ops, &execs, registry),
-                },
-            );
+        let admitted = inner.admit(key, || StoredPlan {
+            ops: lower(&ops, &execs, registry),
+        });
+        if let Err(denied) = admitted {
+            return Outcome::Refused(Refused {
+                refusals: vec![PlanRefusal::at(
+                    String::from("1:1"),
+                    order(1, 1),
+                    RefusalKind::BoundExceeded,
+                    denied.message(),
+                )],
+            });
         }
         Outcome::Admitted(Admitted {
             id,
