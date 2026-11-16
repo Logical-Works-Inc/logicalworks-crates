@@ -189,7 +189,7 @@ row = "Definition/input/order/schema drift during replay returns a typed incompa
 state = "present"
 gap = "The macOS rows run only the row-named `_tNN` tests (ADR 0042), so this receipt covers 1 of the 7 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::sim_replay_drift::every_axis_is_distinguishable_band_11_t15",
+  "it::sim_replay_drift::refusal::every_axis_is_distinguishable_band_11_t15",
 ]
 
 [[row]]
@@ -212,7 +212,7 @@ tests = [
   "it::request_key::a_dropped_client_leaves_the_request_in_flight_for_a_later_client_t17",
   "it::t_rows_default::a_dropped_waiter_leaves_uncertainty_and_a_later_client_settles_it_t17",
   "it::sim_t_rows_default::dropped_waiters_settle_under_the_same_run_for_every_seed_t17",
-  "it::t_rows_default::a_drained_host_reports_cleanup_and_uncertainty_as_two_facts_t17",
+  "it::t_rows_default::request::a_drained_host_reports_cleanup_and_uncertainty_as_two_facts_t17",
 ]
 
 [[row]]

@@ -9,7 +9,7 @@ boundary is worth reading before you design around it.
 ## Admission happens at build, and reports the whole shortfall
 
 `EcsBot::assemble` walks every source and every action before the world is built
-(`crates/lgwks-bot/src/ecs/builder.rs:571`):
+(`crates/lgwks-bot/src/ecs/builder.rs:576`):
 
 ```rust
 let mut shortages: Vec<Shortage> = Vec::new();
@@ -35,7 +35,7 @@ before it ever ticks. The same gate runs on both terminal builder calls
 `assemble`.
 
 **One refusal carries every unmet requirement.** `BotError::CapabilityDenied`
-holds a `Deficit` (`crates/lgwks-bot/src/cap.rs:205`) — the whole difference
+holds a `Deficit` (`crates/lgwks-bot/src/cap.rs:206`) — the whole difference
 between what the bot requires and what it was granted — rather than the first
 element of it. The shape matters more than it looks: a check that returns one
 missing capability at a time makes admission a loop where each pass reveals one
@@ -43,16 +43,16 @@ more word. A bot short of four capabilities then takes four refusals to
 diagnose, and the caller never holds the whole picture. Each `Shortage` also names the
 domain that declared it, because `bot.net` says what is missing and
 `gh::pr_status` says who is asking.
-`GrantSet::admit` (`crates/lgwks-bot/src/gate.rs:126`) is the same gate for a
+`GrantSet::admit` (`crates/lgwks-bot/src/gate.rs:127`) is the same gate for a
 single requirement list, and `GrantSet::uncovered`
 (`crates/lgwks-bot/src/gate.rs:106`) is the total form both are built on.
 
 ## The refusal derives its own repair
 
-A `Deficit` already names every capability that would close it, so the caller
-does not translate a diagnostic into a repair by hand:
-`Deficit::to_grant_set` (`crates/lgwks-bot/src/cap.rs:291`) returns exactly the
-set that closes the shortfall. `GrantSet::grant`
+A `Deficit` already names every capability that would close it. The caller does
+not translate a diagnostic into a repair by hand. The method
+`Deficit::to_grant_set` (`crates/lgwks-bot/src/cap.rs:292`) returns exactly the
+set that closes the shortfall. The method `GrantSet::grant`
 (`crates/lgwks-bot/src/gate.rs:59`) is consuming and de-duplicating, so folding
 it into a set the caller already holds is `held.grant(..)` per element and
 reaches a fixed point.
@@ -66,9 +66,9 @@ true.
 
 ## Every call presents a proof
 
-`GrantSet::issue` (`crates/lgwks-bot/src/gate.rs:153`) is the only path that
+`GrantSet::issue` (`crates/lgwks-bot/src/gate.rs:155`) is the only path that
 constructs an `Auth`. Its constructor is crate-private
-(`crates/lgwks-bot/src/cap.rs:451`), and `Auth` is not `Serialize`, so authority
+(`crates/lgwks-bot/src/cap.rs:452`), and `Auth` is not `Serialize`, so authority
 cannot round-trip through JSON.
 
 Each verb takes an `(Auth, input)` tuple. `poll`, `execute_action`, and `query`
@@ -77,7 +77,7 @@ does not, because it takes no `Auth` at all: it is a boolean over already-observ
 state with no side effect to gate.
 
 Coverage is exact set membership, not subsumption
-(`crates/lgwks-bot/src/cap.rs:582`). A proof scoped to `bot.fs` presented to a
+(`crates/lgwks-bot/src/cap.rs:584`). A proof scoped to `bot.fs` presented to a
 source requiring `bot.net` is denied. A proof covering nothing authorizes
 nothing. Both cases have tests in `crates/lgwks-bot/src/spec/tests.rs`
 (`wrong_scope_proof_is_denied_confused_deputy`, `call_with_empty_proof_is_denied_at_the_callee`).

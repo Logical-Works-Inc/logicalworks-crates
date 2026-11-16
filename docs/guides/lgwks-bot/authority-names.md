@@ -4,7 +4,7 @@ Pages of this guide: [admission](authority.md) · [proofs and grants](authority-
 
 ## Capability names
 
-Four capabilities ship (`crates/lgwks-bot/src/cap.rs:56`):
+Four capabilities ship (`crates/lgwks-bot/src/cap.rs:57`):
 
 | Constant | Name | Used for |
 |---|---|---|
@@ -15,7 +15,7 @@ Four capabilities ship (`crates/lgwks-bot/src/cap.rs:56`):
 
 `GrantSet::all_shipped()` grants all four. The `ask` word checks a fifth name,
 `Cap::new("bot.model")`, which a host grants by name. `Cap::new` accepts any name
-(`crates/lgwks-bot/src/cap.rs:67`), because custom capabilities are data-driven:
+(`crates/lgwks-bot/src/cap.rs:68`), because custom capabilities are data-driven:
 `Cap::new("your.domain.cap")` is a valid capability that nothing grants unless
 you grant it. Enforcement is equality at the gate, so a misspelled name is simply
 a capability that never matches, not an error at construction.

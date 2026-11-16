@@ -234,7 +234,7 @@ gap = ""
 tests = [
   "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_t29",
   "it::proposal::repeated_unchanged_failure_reaches_a_finite_intervention_across_runs",
-  "it::proposal::a_ledger_of_distinct_failures_reaches_its_own_intervention",
+  "it::proposal::repair::a_ledger_of_distinct_failures_reaches_its_own_intervention",
   "it::repair::the_root_budget_stays_charged_across_repair_and_resume_t13",
   "it::repair::a_denied_repair_costs_nothing",
   "it::sim_repair::budget::a_spent_budget_refuses_every_later_attempt",
@@ -268,11 +268,11 @@ row = "Definition/input/order/schema drift during replay returns a typed incompa
 state = "exercised"
 gap = ""
 tests = [
-  "it::sim_replay_drift::every_axis_is_distinguishable_band_11_t15",
-  "it::sim_replay_drift::drift_kinds_are_refused_typed_band_00",
-  "it::sim_replay_drift::every_axis_is_refused_with_its_exact_drift_band_20",
-  "it::sim_replay_drift::compatible_resume_replays_without_a_new_request_band_04",
-  "it::sim_replay_drift::a_refusal_leaves_the_store_byte_identical_band_12",
+  "it::sim_replay_drift::refusal::every_axis_is_distinguishable_band_11_t15",
+  "it::sim_replay_drift::refusal::drift_kinds_are_refused_typed_band_00",
+  "it::sim_replay_drift::refusal::every_axis_is_refused_with_its_exact_drift_band_20",
+  "it::sim_replay_drift::resume::compatible_resume_replays_without_a_new_request_band_04",
+  "it::sim_replay_drift::refusal::a_refusal_leaves_the_store_byte_identical_band_12",
   "it::sim_replay_drift::same_seed_same_trace_hash_band_14",
   "it::store_read_failure::an_unreadable_store_is_refused_as_itself_and_not_as_a_drift",
 ]
@@ -300,13 +300,13 @@ state = "exercised"
 gap = ""
 tests = [
   "it::request_key::a_dropped_client_leaves_the_request_in_flight_for_a_later_client_t17",
-  "it::request_key::a_host_stop_mid_run_leaves_the_request_resumable",
+  "it::request_key::stops::a_host_stop_mid_run_leaves_the_request_resumable",
   "it::durable_dispatch::recovery::a_restart_holds_an_uncertain_attempt_rather_than_resending_it",
   "it::sim_journal::recover_uncertain_r00",
   "it::sim_journal::recover_uncertain_r01",
   "it::t_rows_default::a_dropped_waiter_leaves_uncertainty_and_a_later_client_settles_it_t17",
   "it::sim_t_rows_default::dropped_waiters_settle_under_the_same_run_for_every_seed_t17",
-  "it::t_rows_default::a_drained_host_reports_cleanup_and_uncertainty_as_two_facts_t17",
+  "it::t_rows_default::request::a_drained_host_reports_cleanup_and_uncertainty_as_two_facts_t17",
 ]
 
 [[row]]
@@ -476,7 +476,7 @@ tests = [
   "it::t_rows::a_same_digest_artifact_stays_inside_its_tenant_t28",
   "it::proposal::two_tenants_on_one_digest_stay_isolated",
   "it::proposal::conflicting_writes_to_one_key_are_serialized_and_idempotent",
-  "it::proposal::concurrent_writers_of_one_key_commit_exactly_once_per_tenant",
+  "it::proposal::artifacts::concurrent_writers_of_one_key_commit_exactly_once_per_tenant",
   "it::sim_proposal::two_tenants_on_one_digest_stay_isolated_band_08",
   "it::sim_proposal::two_tenants_on_one_digest_stay_isolated_band_09",
   "it::sim_proposal::concurrent_readers_and_conflicting_writers_band_12",

@@ -13,25 +13,25 @@ crates/lgwks-ast/src/parser/feature_matrix_tests.rs:172	const DECLARED_GRAMMARS:
 crates/lgwks-ast/src/parser/feature_matrix_tests.rs:329	assert_eq!(
 crates/lgwks-ast/src/parser/feature_matrix_tests.rs:332	"the fixture table must cover every grammar the manifest declares"
 crates/lgwks-bot/src/app.rs:477	fn auto_workers() -> usize {
-crates/lgwks-bot/src/cap.rs:15	//! before acting. This stops confused-deputy calls and accidental ungated
-crates/lgwks-bot/src/cap.rs:56	pub const NET: &str = "bot.net";
-crates/lgwks-bot/src/cap.rs:67	pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
-crates/lgwks-bot/src/cap.rs:205	pub struct Deficit {
-crates/lgwks-bot/src/cap.rs:291	pub fn to_grant_set(&self) -> GrantSet {
-crates/lgwks-bot/src/cap.rs:451	pub(crate) fn new(mut caps: Vec<Cap>) -> Self {
-crates/lgwks-bot/src/cap.rs:582	pub fn check(&self, required: &[Cap]) -> Result<(), KernelError> {
+crates/lgwks-bot/src/cap.rs:16	//! before acting. This stops confused-deputy calls and accidental ungated
+crates/lgwks-bot/src/cap.rs:57	pub const NET: &str = "bot.net";
+crates/lgwks-bot/src/cap.rs:68	pub fn new(name: impl Into<Cow<'static, str>>) -> Self {
+crates/lgwks-bot/src/cap.rs:206	pub struct Deficit {
+crates/lgwks-bot/src/cap.rs:292	pub fn to_grant_set(&self) -> GrantSet {
+crates/lgwks-bot/src/cap.rs:452	pub(crate) fn new(mut caps: Vec<Cap>) -> Self {
+crates/lgwks-bot/src/cap.rs:584	pub fn check(&self, required: &[Cap]) -> Result<(), KernelError> {
 crates/lgwks-bot/src/cell.rs:543	type State: Clone + Default + Send + 'static;
 crates/lgwks-bot/src/cell/host.rs:16	use std::panic::{AssertUnwindSafe, catch_unwind};
-crates/lgwks-bot/src/domain/cas.rs:145	fn effect_lifetime(&self) -> verb::EffectLifetime {
+crates/lgwks-bot/src/domain/cas.rs:147	fn effect_lifetime(&self) -> verb::EffectLifetime {
 crates/lgwks-bot/src/domain/sys.rs:44	/// rest is drained and counted, never retained.
 crates/lgwks-bot/src/ecs.rs:231	pub(crate) use crate::cell::SubmitRefused;
 crates/lgwks-bot/src/ecs/admit.rs:345	RetryClass::Never => EntryState::Abandoned {
-crates/lgwks-bot/src/ecs/bot.rs:330	pub async fn tick_async(&mut self) -> Result<usize, EcsError> {
-crates/lgwks-bot/src/ecs/bot.rs:404	let (fired, failure) = self.run_steps(&steps, &mut failures, &retry).await;
-crates/lgwks-bot/src/ecs/bot.rs:553	pub fn tick(&mut self) -> Result<usize, EcsError> {
-crates/lgwks-bot/src/ecs/builder.rs:571	let mut shortages: Vec<Shortage> = Vec::new();
-crates/lgwks-bot/src/ecs/builder.rs:594	world.insert_resource(Grants(grants.clone()));
-crates/lgwks-bot/src/ecs/error.rs:159	/// the calling thread until its verb futures resolve, and the thread it was
+crates/lgwks-bot/src/ecs/bot.rs:331	pub async fn tick_async(&mut self) -> Result<usize, EcsError> {
+crates/lgwks-bot/src/ecs/bot.rs:405	let (fired, failure) = self.run_steps(&steps, &mut failures, &retry).await;
+crates/lgwks-bot/src/ecs/bot.rs:556	pub fn tick(&mut self) -> Result<usize, EcsError> {
+crates/lgwks-bot/src/ecs/builder.rs:576	let mut shortages: Vec<Shortage> = Vec::new();
+crates/lgwks-bot/src/ecs/builder.rs:599	world.insert_resource(Grants(grants.clone()));
+crates/lgwks-bot/src/ecs/error.rs:160	/// the calling thread until its verb futures resolve, and the thread it was
 crates/lgwks-bot/src/ecs/fold.rs:3	use lgwks_deps::bevy_ecs::{
 crates/lgwks-bot/src/ecs/fold.rs:68	pub(super) fn observe_fold(world: &mut World) {
 crates/lgwks-bot/src/ecs/fold.rs:141	// A domain failure stops the commit, as it always did: the tick's contract
@@ -51,8 +51,8 @@ crates/lgwks-bot/src/ecs/watchdog.rs:39	pub(super) const MAX_IN_FLIGHT_POLLS: us
 crates/lgwks-bot/src/gate.rs:14	pub struct GrantSet {
 crates/lgwks-bot/src/gate.rs:59	pub fn grant(mut self, cap: Cap) -> Self {
 crates/lgwks-bot/src/gate.rs:106	pub fn uncovered(&self, required: &[Cap], demand: &Demand) -> Vec<Shortage> {
-crates/lgwks-bot/src/gate.rs:126	pub fn admit(&self, required: &[Cap]) -> Result<(), KernelError> {
-crates/lgwks-bot/src/gate.rs:153	pub fn issue(&self, required: &[Cap]) -> Result<Auth, KernelError> {
+crates/lgwks-bot/src/gate.rs:127	pub fn admit(&self, required: &[Cap]) -> Result<(), KernelError> {
+crates/lgwks-bot/src/gate.rs:155	pub fn issue(&self, required: &[Cap]) -> Result<Auth, KernelError> {
 crates/lgwks-bot/src/idempotent.rs:230	fn effect_lifetime(&self) -> verb::EffectLifetime {
 crates/lgwks-bot/src/language.rs:1	//! Language understanding: turning what a person actually typed into a choice.
 crates/lgwks-bot/src/language.rs:76	/// The longest normalized input the shipped resolver will compare.
@@ -89,11 +89,11 @@ crates/lgwks-bot/src/rt/supervise/run.rs:134	pub async fn spawn_process_identifi
 crates/lgwks-bot/src/rt/supervise/run.rs:335	pub async fn run_process(&mut self, spec: &ProcessSpec) -> Result<ProcessRun, ProcessRunError> {
 crates/lgwks-bot/src/rt/supervise/supervisor.rs:250	pub fn new(max_in_flight: usize) -> Self {
 crates/lgwks-bot/src/rt/supervise/tests.rs:1	//! The supervisor's unit tests: the shared seams and helpers, and one module per concern.
-crates/lgwks-bot/src/rt/task.rs:170	pub async fn join_all_bounded<F, T>(limit: usize, futures: impl IntoIterator<Item = F>) -> Vec<T>
+crates/lgwks-bot/src/rt/task.rs:195	pub async fn join_all_bounded<F, T>(
 crates/lgwks-bot/src/script/serve.rs:8	pub use crate::rt::serve::{ServeError, ServeOptions, ServeReport};
 crates/lgwks-bot/src/sealed/runstore.rs:17	use crate::script::{StepKey, run_store::StoredValue};
 crates/lgwks-bot/src/sealed/sweep.rs:30	use crate::rt::task::JoinSet;
-crates/lgwks-bot/src/semantic.rs:13	//! This tier is consulted only when the lexicon returns [`Resolution::Absent`] —
+crates/lgwks-bot/src/semantic.rs:13	//! This tier is consulted only when the lexicon returns [`Resolution::Absent`](crate::session::Resolution::Absent) —
 crates/lgwks-bot/src/semantic.rs:117	pub trait Embedder {
 crates/lgwks-bot/src/semantic.rs:356	pub const DEFAULT: Self = Self {
 crates/lgwks-bot/src/session.rs:1	//! Validated declarative guidance flows and a synchronous session runner.

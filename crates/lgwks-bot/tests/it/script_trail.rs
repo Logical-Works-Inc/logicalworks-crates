@@ -91,10 +91,10 @@ fn a_run_through_a_retry_and_a_timeout_reads_back_line_by_line() -> TestResult {
         lines(&rendered),
         [
             "   - | fetching  -> timed out after 20ms",
-            "  27 |   flow fetch_then_wait(busy: &AtomicU32) -> u32  -> timed out after 20ms",
-            "  28 |     retry up to 3 times, waiting 1ms  -> retried 2, then ok",
-            "  32 |     step wait  -> timed out after 20ms",
-            "  33 |       within 20ms  -> timed out after 20ms",
+            "  26 |   flow fetch_then_wait(busy: &AtomicU32) -> u32  -> timed out after 20ms",
+            "  27 |     retry up to 3 times, waiting 1ms  -> retried 2, then ok",
+            "  31 |     step wait  -> timed out after 20ms",
+            "  32 |       within 20ms  -> timed out after 20ms",
         ],
         "each entered step, its line, its nesting and its outcome:\n{rendered}"
     );
@@ -108,7 +108,7 @@ fn a_run_through_a_retry_and_a_timeout_reads_back_line_by_line() -> TestResult {
     let site = retry.site().ok_or("a script line entered the retry")?;
     assert_eq!(
         (site.kind(), site.line(), site.text()),
-        (StepKind::Retry, 28, "retry up to 3 times, waiting 1ms"),
+        (StepKind::Retry, 27, "retry up to 3 times, waiting 1ms"),
         "the site is the word, the line and the text"
     );
     let paths: Vec<&str> = report.trail().iter().map(|entry| entry.path()).collect();
@@ -131,15 +131,15 @@ fn each_body_and_for_iteration_names_its_header_line_and_item() -> TestResult {
         lines(&rendered),
         [
             "   - | climbing  -> ok",
-            "  38 |   flow rungs() -> usize  -> ok",
-            "  40 |     for rung in 0..2 #0  -> ok",
-            "  41 |       each item in 0..2  -> ok",
-            "  41 |         each item in 0..2 #0  -> ok",
-            "  41 |         each item in 0..2 #1  -> ok",
-            "  40 |     for rung in 0..2 #1  -> ok",
-            "  41 |       each item in 0..2  -> ok",
-            "  41 |         each item in 0..2 #0  -> ok",
-            "  41 |         each item in 0..2 #1  -> ok",
+            "  37 |   flow rungs() -> usize  -> ok",
+            "  39 |     for rung in 0..2 #0  -> ok",
+            "  40 |       each item in 0..2  -> ok",
+            "  40 |         each item in 0..2 #0  -> ok",
+            "  40 |         each item in 0..2 #1  -> ok",
+            "  39 |     for rung in 0..2 #1  -> ok",
+            "  40 |       each item in 0..2  -> ok",
+            "  40 |         each item in 0..2 #0  -> ok",
+            "  40 |         each item in 0..2 #1  -> ok",
         ],
         "every body is its header's line with its item number:\n{rendered}"
     );
@@ -165,10 +165,10 @@ fn the_trail_stays_bounded_and_says_how_much_it_dropped() -> TestResult {
         lines(&rendered),
         [
             "     | (18 earlier steps not kept)",
-            "  48 | for rung in 0..count #8  -> ok",
-            "  49 |   step climb  -> ok",
-            "  48 | for rung in 0..count #9  -> ok",
-            "  49 |   step climb  -> ok",
+            "  47 | for rung in 0..count #8  -> ok",
+            "  48 |   step climb  -> ok",
+            "  47 | for rung in 0..count #9  -> ok",
+            "  48 |   step climb  -> ok",
         ],
         "a truncated trail is a suffix, and it says so first:\n{rendered}"
     );

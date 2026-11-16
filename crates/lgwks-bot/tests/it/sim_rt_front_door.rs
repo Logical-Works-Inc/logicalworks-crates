@@ -186,6 +186,8 @@ fn a_hostile_input_anywhere_in_a_fan_out_comes_back_as_its_own_typed_panic() -> 
 
 /// Two tenants fan out at once on one runtime and one of them holds a hostile input: the hostile
 /// tenant gets its own typed panic and the other tenant gets every one of its outputs, in order.
+/// `rt::join!` is the `macros` feature's, so the family is compiled where that feature is on.
+#[cfg(feature = "macros")]
 #[test]
 fn a_hostile_tenants_panic_never_reaches_the_other_tenants_fan_out() -> TestResult {
     let runtime = Runtime::new()?;

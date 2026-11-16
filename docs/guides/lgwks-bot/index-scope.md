@@ -13,7 +13,7 @@ you to discover.
   the provider stack is `lgwks_deps::storefront::genai`.
 - **No sandbox.** Capability gating "stops confused-deputy calls and accidental
   ungated use; it is not a sandbox, since in-process code can always dial out
-  directly" (`crates/lgwks-bot/src/cap.rs:15`). See [authority](authority.md).
+  directly" (`crates/lgwks-bot/src/cap.rs:16`). See [authority](authority.md).
 - **No revocable `GrantSet`.** It has no `revoke`, and a built bot holds a clone
   of the set it was admitted with. `EcsBot::replace_grants` narrows a running bot,
   and a broker's fence withdraws a reach (INV-FENCE-1). See [authority](authority.md).

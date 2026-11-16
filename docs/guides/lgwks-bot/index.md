@@ -43,10 +43,10 @@ There is one execution path, on the `bevy_ecs` substrate behind the default-on
 `ecs` feature. A process-only consumer opts out of it with
 `default-features = false` (#687, [ADR 0007](../../adr/0007-process-only-defaults.md)).
 
-The synchronous adapter is `Bot::tick` (`crates/lgwks-bot/src/ecs/bot.rs:553`). It
+The synchronous adapter is `Bot::tick` (`crates/lgwks-bot/src/ecs/bot.rs:556`). It
 drives the non-`Send` verb futures on a thread-parking executor, so there is
 nothing to await. The same tick awaited on the caller's executor is
-`Bot::tick_async` (`crates/lgwks-bot/src/ecs/bot.rs:330`), and it is the one to call from
+`Bot::tick_async` (`crates/lgwks-bot/src/ecs/bot.rs:331`), and it is the one to call from
 inside a runtime — `tick` refuses there with `EcsError::TickInsideRuntime`
 rather than park the thread that owns the reactor. Do not write
 `bot.tick().await`; that is `tick` returning `usize`, then a `usize` that is not

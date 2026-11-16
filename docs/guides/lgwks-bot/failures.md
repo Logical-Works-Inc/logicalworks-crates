@@ -3,8 +3,8 @@
 Pages of this guide: [polls and actions](failures.md) · [worked example](failures-example.md) · [uncertain effects](failures-effects.md) · [reporting order](failures-order.md)
 
 Both entry points return `Result<usize, EcsError>`: `Bot::tick` is the
-synchronous adapter (`crates/lgwks-bot/src/ecs/bot.rs:553`) and `Bot::tick_async` is
-the one to `await` from inside a runtime (`crates/lgwks-bot/src/ecs/bot.rs:330`).
+synchronous adapter (`crates/lgwks-bot/src/ecs/bot.rs:556`) and `Bot::tick_async` is
+the one to `await` from inside a runtime (`crates/lgwks-bot/src/ecs/bot.rs:331`).
 Four different things can produce an `Err`. Three are failures that mean
 different things for your data — the distinction is the difference between a
 retry and a duplicate — and the fourth is the adapter refusing to run a tick at
@@ -54,7 +54,7 @@ a transition, and a chain with a transition outstanding is walked whether or not
 it moved — and records one ordered `Step` per condition that held
 (`crates/lgwks-bot/src/ecs/fold.rs:378`). The `run_steps` pass then awaits those steps
 on the caller's executor in exactly that order
-(`crates/lgwks-bot/src/ecs/bot.rs:404`). It breaks on the first failure and records
+(`crates/lgwks-bot/src/ecs/bot.rs:405`). It breaks on the first failure and records
 it, and there is no rollback:
 
 ```rust,ignore

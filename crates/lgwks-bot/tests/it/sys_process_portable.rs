@@ -8,11 +8,15 @@
 //! compiling a cfg branch on a Unix host is not runtime evidence for it.
 #![cfg(all(not(unix), feature = "process"))]
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::domain::sys::Process;
+use lgwks_bot::error::DispatchCertainty;
 use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::process::{ProcessRunError, ProcessSpec};
 use lgwks_bot::rt::supervise::Supervisor;
-use lgwks_bot::{Auth, BotError, Cap, DispatchCertainty, Execute, GrantSet};
+use lgwks_bot::verb::Execute;
 
 /// An `Auth` covering `bot.sys`.
 fn sys_auth() -> Result<Auth, KernelError> {
