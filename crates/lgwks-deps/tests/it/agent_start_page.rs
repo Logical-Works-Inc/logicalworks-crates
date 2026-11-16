@@ -121,9 +121,13 @@ fn every_long_form_page_is_indexed_editable_and_names_no_deleted_script() -> Tes
 fn known() -> Result<Known, Box<dyn Error>> {
     let mut binaries = BTreeSet::new();
     let mut packages = BTreeSet::new();
+    // `bench/` is its own workspace root, so its binaries are declared there (#789).
+    let mut manifests = vec![page("bench/Cargo.toml")?];
     for directory in CRATES {
-        let text = manifest(directory)?;
+        manifests.push(manifest(directory)?);
         packages.insert(identity(directory)?.0);
+    }
+    for text in &manifests {
         for section in text.split("[[bin]]").skip(1) {
             binaries.extend(quoted_values(section, "name").into_iter().take(1));
         }

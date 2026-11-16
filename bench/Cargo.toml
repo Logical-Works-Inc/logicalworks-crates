@@ -44,6 +44,14 @@ lgwks_bot = { path = "../crates/lgwks-bot", default-features = false, features =
 # root, so the facade is a direct edge here rather than reached through the bot.
 # `trace` is default-on upstream, so nothing extra is selected here.
 lgwks_std = { path = "../crates/lgwks-std", features = ["http"] }
+# The rival row of `lgwks-bench-durable`: Restate's own Rust SDK, so the rival runs
+# the same ten steps as the code a Restate user writes. Only the worker binary
+# `lgwks-bench-restate-worker` calls it; the SDK is async-only and ships on tokio.
+# `rust_crypto` (a default feature) switches jsonwebtoken to the `rsa` and `p256` crates, which
+# carry RUSTSEC-2023-0071 and (through crypto-bigint 0.5) RUSTSEC-2026-0387. The worker verifies
+# no request identity, so it takes the http server and the `aws_lc_rs` backend and nothing else.
+restate-sdk = { version = "=0.13.0", default-features = false, features = ["http_server", "aws_lc_rs"] } # gap: Logical-Works-Inc/logicalworks-crates#1054
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] } # gap: Logical-Works-Inc/logicalworks-crates#1054
 
 [[bin]]
 name = "lgwks-bench"
@@ -56,6 +64,10 @@ path = "http-pool/main.rs"
 [[bin]]
 name = "lgwks-bench-durable"
 path = "durable/main.rs"
+
+[[bin]]
+name = "lgwks-bench-restate-worker"
+path = "restate/worker.rs"
 
 [profile.release]
 opt-level = 3

@@ -302,6 +302,205 @@ pub(crate) fn recover_text(doc: &RecoverDoc) -> String {
     lines.join("\n")
 }
 
+/// One engine's numbers in a table: the same measures for every row.
+#[derive(Debug, Clone, Serialize)]
+#[serde(crate = "lgwks_std::json::serde")]
+pub(crate) struct RowDoc {
+    /// The row's name, as `--rows` spells it.
+    pub(crate) row: &'static str,
+    /// The engine and its version.
+    pub(crate) engine: String,
+    /// How tenants are kept apart.
+    pub(crate) tenancy: String,
+    /// What the engine flushes.
+    pub(crate) durability: String,
+    /// Which processes the resident set covers.
+    pub(crate) rss_covers: &'static str,
+    /// The runs asked for.
+    pub(crate) runs: u32,
+    /// Runs that finished: the sample count of the latency distribution.
+    pub(crate) samples: usize,
+    /// End-to-end latency of a finished run, in microseconds.
+    pub(crate) latency_us: Summary,
+    /// Finished runs per second of wall time.
+    pub(crate) throughput_runs_per_s: f64,
+    /// The resident set, in bytes.
+    pub(crate) peak_rss_bytes: u64,
+    /// Retries taken.
+    pub(crate) retries: u64,
+    /// Failures injected.
+    pub(crate) failures_injected: u64,
+    /// Runs the engine's retry budget gave up.
+    pub(crate) throttled_runs: u64,
+    /// Runs in which every attempt of a call failed.
+    pub(crate) exhausted_runs: u64,
+    /// Lines of code in the flow.
+    pub(crate) code_lines: usize,
+    /// Cold build time: never measured by this binary, and filled in by the doc
+    /// from a `cargo build` run once.
+    pub(crate) cold_build: Option<String>,
+    /// The kill -9 recovery, when it was asked for.
+    pub(crate) recovery: Option<Recovery>,
+}
+
+impl RowDoc {
+    /// The lgwks row of a table, from the flow report of its own run.
+    pub(crate) fn of_lgwks(doc: &FlowDoc) -> Self {
+        Self {
+            row: "lgwks",
+            engine: format!("lgwks_bot {}", doc.envelope.lgwks_bot_version),
+            tenancy: "two tenants: a host and a run store each".to_owned(),
+            durability: format!("{}; {}", doc.durability.store, doc.durability.fsync),
+            rss_covers: "this process, ps after the run",
+            runs: doc.envelope.runs,
+            samples: doc.samples,
+            latency_us: doc.latency_us,
+            throughput_runs_per_s: doc.throughput_runs_per_s,
+            peak_rss_bytes: doc.peak_rss_bytes,
+            retries: doc.retries,
+            failures_injected: doc.failures_injected,
+            throttled_runs: doc.throttled_runs,
+            exhausted_runs: doc.exhausted_runs,
+            code_lines: doc.flow_code_lines,
+            cold_build: None,
+            recovery: None,
+        }
+    }
+}
+
+/// The report of a table: every row the command asked for, on one workload.
+#[derive(Debug, Clone, Serialize)]
+#[serde(crate = "lgwks_std::json::serde")]
+pub(crate) struct TableDoc {
+    /// What every number is read against.
+    #[serde(flatten)]
+    pub(crate) envelope: Envelope,
+    /// `table`.
+    pub(crate) mode: &'static str,
+    /// Tenants the runs were split over.
+    pub(crate) tenants: usize,
+    /// Runs in flight at once.
+    pub(crate) workers: u32,
+    /// What was run.
+    pub(crate) workload: Workload,
+    /// One row per engine, in the order asked.
+    pub(crate) rows: Vec<RowDoc>,
+}
+
+/// Milliseconds with one decimal, from microseconds.
+fn ms(us: u64) -> String {
+    format!("{}.{}", us / 1_000, us % 1_000 / 100)
+}
+
+/// Megabytes with one decimal, from bytes.
+fn mb(bytes: u64) -> String {
+    let tenths = bytes / 100_000;
+    format!("{}.{}", tenths / 10, tenths % 10)
+}
+
+/// The measures of a table, one line each: its label and one cell per row.
+fn table_lines(doc: &TableDoc) -> Vec<(&'static str, Vec<String>)> {
+    let each = |cell: &dyn Fn(&RowDoc) -> String| doc.rows.iter().map(cell).collect::<Vec<_>>();
+    let recovery = |cell: &dyn Fn(&Recovery) -> String| {
+        each(&|row| match row.recovery.as_ref() {
+            Some(found) => cell(found),
+            None => "not run".to_owned(),
+        })
+    };
+    vec![
+        ("engine", each(&|row| row.engine.clone())),
+        ("tenancy", each(&|row| row.tenancy.clone())),
+        ("durability", each(&|row| row.durability.clone())),
+        (
+            "runs asked, finished (samples)",
+            each(&|row| format!("{}, {}", row.runs, row.samples)),
+        ),
+        (
+            "throughput",
+            each(&|row| format!("{} runs/s", row.throughput_runs_per_s)),
+        ),
+        (
+            "latency p50 / p95 / p99 (max)",
+            each(&|row| {
+                let l = &row.latency_us;
+                format!("{} / {} / {} ms ({})", ms(l.p50), ms(l.p95), ms(l.p99), ms(l.max))
+            }),
+        ),
+        (
+            "peak RSS (ps, after the run)",
+            each(&|row| format!("{} MB ({})", mb(row.peak_rss_bytes), row.rss_covers)),
+        ),
+        (
+            "retries taken, failures injected",
+            each(&|row| format!("{}, {}", row.retries, row.failures_injected)),
+        ),
+        (
+            "runs given up: retry budget, every attempt failed",
+            each(&|row| format!("{}, {}", row.throttled_runs, row.exhausted_runs)),
+        ),
+        (
+            "application code lines of the flow",
+            each(&|row| row.code_lines.to_string()),
+        ),
+        (
+            "kill -9 to every run done, p50 over the rounds",
+            recovery(&|found| {
+                format!(
+                    "{} ms ({} rounds, {} runs parked in all)",
+                    ms(found.kill_to_done_us.p50),
+                    found.rounds,
+                    found.resumed_runs
+                )
+            }),
+        ),
+        (
+            "step bodies run twice after recovery (checked)",
+            recovery(&|found| {
+                format!("{} ({})", found.duplicate_step_executions, found.steps_checked)
+            }),
+        ),
+        (
+            "cold build",
+            each(&|row| match row.cold_build.as_ref() {
+                Some(found) => found.clone(),
+                None => "not measured by this binary".to_owned(),
+            }),
+        ),
+    ]
+}
+
+/// A table as text: the envelope, the workload, then one line per measure.
+pub(crate) fn table_text(doc: &TableDoc) -> String {
+    let mut lines = doc.envelope.lines("table");
+    lines.push(format!("tenants: {}", doc.tenants));
+    lines.push(format!("workers: {}", doc.workers));
+    lines.push(workload_line(&doc.workload));
+    let names: Vec<&str> = doc.rows.iter().map(|row| row.row).collect();
+    lines.push(format!("rows: {}", names.join(", ")));
+    for (label, cells) in table_lines(doc) {
+        let paired: Vec<String> = names
+            .iter()
+            .zip(&cells)
+            .map(|(name, cell)| format!("{name}={cell}"))
+            .collect();
+        lines.push(format!("{label}: {}", paired.join(" | ")));
+    }
+    lines.join("\n")
+}
+
+/// A table as a Markdown table: one column per row, one line per measure.
+pub(crate) fn table_markdown(doc: &TableDoc) -> String {
+    let names: Vec<&str> = doc.rows.iter().map(|row| row.row).collect();
+    let mut lines = vec![
+        format!("| measure | {} |", names.join(" | ")),
+        format!("|---|{}", "---|".repeat(names.len())),
+    ];
+    for (label, cells) in table_lines(doc) {
+        lines.push(format!("| {label} | {} |", cells.join(" | ")));
+    }
+    lines.join("\n")
+}
+
 /// One distribution as a text line.
 fn summary_line(name: &str, summary: &Summary) -> String {
     format!(

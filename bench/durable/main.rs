@@ -8,6 +8,10 @@
 //! `--recover` it is instead the time from `kill -9` of a process holding parked
 //! runs to every one of them done again.
 //!
+//! `--rows lgwks,restate` runs the same workload on `restate-server` too, through
+//! the `lgwks-bench-restate-worker` binary built beside this one, and prints one
+//! table; `--markdown` prints it as Markdown and `--json` as one document.
+//!
 //! The report goes to stdout, as text or, with `--json`, as one JSON document.
 //! Progress and the failure line go to stderr. The exit status is 0, 1 for a run
 //! failure, 2 for a usage failure and 3 when even the failure line could not be
@@ -20,6 +24,12 @@ mod flow;
 mod measure;
 mod recover;
 mod report;
+mod rival;
+mod rival_config;
+mod rival_error;
+mod rival_http;
+mod rival_proc;
+mod rival_wire;
 #[cfg(test)]
 mod sim;
 #[cfg(test)]
@@ -30,6 +40,12 @@ mod sim_edges;
 mod sim_fools;
 #[cfg(test)]
 mod sim_kit;
+#[cfg(test)]
+mod sim_rival_dump;
+#[cfg(test)]
+mod sim_rival_table;
+#[cfg(test)]
+mod sim_rival_wire;
 mod stats;
 mod workdir;
 mod world;
@@ -62,11 +78,34 @@ fn emit(text: &str) -> Result<(), BenchError> {
         })
 }
 
+/// The rows `--rows` named, measured on one workload and printed as one table:
+/// text, Markdown with `--markdown`, or one JSON document with `--json`.
+fn table(args: &Args, clock: &Clock) -> Result<(), BenchError> {
+    let work = Workdir::create(args.work_dir.as_deref())?;
+    let names: Vec<&str> = args.rows.iter().map(|row| row.name()).collect();
+    progress(&format!(
+        "measuring {} runs over two tenants on: {}",
+        args.runs,
+        names.join(", ")
+    ))?;
+    let doc = rival::rows(args, work.path(), clock, &mut progress)?;
+    emit(&if args.json {
+        report::json(&doc)?
+    } else if args.markdown {
+        report::table_markdown(&doc)
+    } else {
+        report::table_text(&doc)
+    })
+}
+
 /// Do what the command line asked.
 fn run() -> Result<(), BenchError> {
     let args: Args = args::parse(std::env::args_os().skip(1))?;
     // The live binary waits real time: the one wall clock every wait is made on.
     let clock = Clock::wall();
+    if !args.rows.is_empty() {
+        return table(&args, &clock);
+    }
     match args.mode {
         Mode::ParkChild => recover::park_child(
             &args,

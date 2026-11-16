@@ -16,6 +16,8 @@ use lgwks_bot::task::{HostError, StoreError};
 use lgwks_std::hash::DigestParseError;
 use lgwks_std::seeded::DrawError;
 
+use crate::rival_error::RivalError;
+
 /// The exit status of a usage failure.
 pub(crate) const EXIT_USAGE: u8 = 2;
 
@@ -232,6 +234,11 @@ pub(crate) enum BenchError {
         /// Why.
         reason: &'static str,
     },
+    /// The Restate row failed.
+    Rival {
+        /// Why.
+        source: RivalError,
+    },
 }
 
 impl BenchError {
@@ -262,6 +269,7 @@ impl BenchError {
             Self::WorkerPanicked { .. } => "WorkerPanicked",
             Self::OutsideJobList { .. } => "OutsideJobList",
             Self::MemoryReading { .. } => "MemoryReading",
+            Self::Rival { .. } => "Rival",
         }
     }
 
@@ -368,6 +376,7 @@ impl fmt::Display for BenchError {
             Self::MemoryReading { reason } => {
                 write!(formatter, "the resident set could not be read: {reason}")
             }
+            Self::Rival { .. } => formatter.write_str("the Restate row failed"),
         }
     }
 }
@@ -384,6 +393,7 @@ impl Error for BenchError {
             Self::Digest { ref source } => Some(source),
             Self::Draw { ref source } => Some(source),
             Self::Json { ref source } => Some(source),
+            Self::Rival { ref source } => Some(source),
             // The rest name a fact this binary observed: there is no deeper cause.
             _ => None,
         }

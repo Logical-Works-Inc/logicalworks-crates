@@ -43,6 +43,56 @@ pub(crate) enum Mode {
     ParkChild,
 }
 
+/// An engine the report can carry a row for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Row {
+    /// The `lgwks_bot` durable workflow engine.
+    Lgwks,
+    /// Restate, the rival.
+    Restate,
+}
+
+impl Row {
+    /// The name `--rows` spells it with.
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Lgwks => "lgwks",
+            Self::Restate => "restate",
+        }
+    }
+}
+
+/// The server name a `--restate-server` that is not given means: found on `PATH`.
+pub(crate) const DEFAULT_RESTATE_SERVER: &str = "restate-server";
+
+/// The most rows one command measures: each engine once.
+const MAX_ROWS: usize = 2;
+
+/// The row `--rows` spells `name`, or `None` for a name no row has.
+fn row_named(name: &str) -> Option<Row> {
+    match name {
+        "lgwks" => Some(Row::Lgwks),
+        "restate" => Some(Row::Restate),
+        _ => None,
+    }
+}
+
+/// The rows a `--rows` value names, each at most once, in the order typed.
+fn rows_of(text: &str) -> Result<Vec<Row>, BenchError> {
+    let mut rows = Vec::new();
+    for name in text.split(',') {
+        let fresh = row_named(name).filter(|row| !rows.contains(row) && rows.len() < MAX_ROWS);
+        let Some(row) = fresh else {
+            lgwks_std::trace::debug!(value = text, "--rows is not a list of known, distinct rows");
+            return Err(BenchError::UnknownArgument {
+                argument: format!("--rows {text}"),
+            });
+        };
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
 /// The parsed command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Args {
@@ -58,6 +108,13 @@ pub(crate) struct Args {
     pub(crate) mode: Mode,
     /// Recovery rounds.
     pub(crate) rounds: u32,
+    /// The engines to put in one table; empty is the lgwks row alone, as a
+    /// report of its own.
+    pub(crate) rows: Vec<Row>,
+    /// The Restate server: a name found on `PATH`, or a path.
+    pub(crate) restate_server: String,
+    /// The table as Markdown instead of text.
+    pub(crate) markdown: bool,
     /// The command line, as the report prints it.
     pub(crate) command: String,
 }
@@ -132,7 +189,8 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
         .join(" ");
     let (mut runs, mut rounds) = (u64::from(DEFAULT_RUNS), u64::from(DEFAULT_ROUNDS));
     let (mut work_dir, mut seed) = (None, DEFAULT_SEED);
-    let (mut json, mut recover, mut child) = (false, false, false);
+    let (mut json, mut recover, mut child, mut markdown) = (false, false, false, false);
+    let (mut rows, mut restate_server) = (Vec::new(), DEFAULT_RESTATE_SERVER.to_owned());
     let mut cursor = words.iter();
     while let Some(word) = cursor.next() {
         match word.as_str() {
@@ -152,6 +210,11 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
                 let found = value("--work-dir", cursor.next())?;
                 work_dir = Some(PathBuf::from(found));
             }
+            "--rows" => rows = rows_of(value("--rows", cursor.next())?)?,
+            "--restate-server" => {
+                value("--restate-server", cursor.next())?.clone_into(&mut restate_server);
+            }
+            "--markdown" => markdown = true,
             "--json" => json = true,
             "--recover" => recover = true,
             "--park-child" => child = true,
@@ -174,6 +237,12 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
         lgwks_std::trace::debug!("the recovery child was given no --work-dir");
         return Err(BenchError::MissingValue { flag: "--work-dir" });
     }
+    if (markdown && json) || (markdown && rows.is_empty()) || (!rows.is_empty() && child) {
+        lgwks_std::trace::debug!("--markdown wants --rows and excludes --json; --rows excludes --park-child");
+        return Err(BenchError::UnknownArgument {
+            argument: "--markdown or --rows used with a flag it excludes".to_owned(),
+        });
+    }
     let most = if mode == Mode::Flow {
         MAX_RUNS
     } else {
@@ -184,6 +253,9 @@ pub(crate) fn parse(items: impl IntoIterator<Item = OsString>) -> Result<Args, B
     Ok(Args {
         runs,
         rounds,
+        rows,
+        restate_server,
+        markdown,
         work_dir,
         seed,
         json,
