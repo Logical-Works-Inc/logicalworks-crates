@@ -28,7 +28,7 @@ So `lgwks_bot` wraps **tokio core** through the `lgwks_deps` storefront,
 and `tokio` is registered in `contract/APPROVED.toml` with
 `owner = "lgwks_deps"`. The gate refuses any other workspace crate that authors
 a `tokio` edge, so this facade is the single entry. The shape is a
-`lgwks_bot::Runtime` whose `block_on` awaits
+`lgwks_bot::rt::runtime::Runtime` whose `block_on` awaits
 `lgwks_bot::rt::task::join_all_bounded(4, ..)` over 64 futures that each
 `sleep` one millisecond (from `lgwks_bot::rt::time`) and return their index.
 
@@ -39,8 +39,8 @@ What `lgwks_bot` adds over importing `tokio` directly:
   `sync`, `net`, `process`, `fs`, and `signal` are opt-in features. No
   accidental feature pull-in.
 - **Bounded fan-out.** `join_all_bounded(limit, futures)` (feature `sync`) runs every input,
-  never exceeds `limit` in flight, returns results in input order, and surfaces
-  a panicking input by resuming its panic on the awaiting task instead of
+  never exceeds `limit` in flight, returns results in input order, and returns
+  a panicking input to the awaiting task as `FanOutError::Panicked` instead of
   aborting the process. A raw
   `JoinSet` gives completion order and no ceiling.
 - **Timers safe to build early.** tokio's `sleep`/`timeout` capture the runtime

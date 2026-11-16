@@ -17,11 +17,14 @@ use std::io::Write;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::{Action, Source};
 use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Host, HostError, task};
-use lgwks_bot::{
-    Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 /// Why the program failed, one variant per step.
 #[derive(Debug)]
@@ -183,7 +186,7 @@ fn run_at(host: &Host, depth: u32) -> Result<u32, WatchError> {
     let watching = task("watching", |scope: Scope, name: &'static str| async move {
         watch(&scope, name).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&watching, "jobs"));
+    let report = lgwks_bot::script::block_on(host.run(&watching, "jobs"));
     report
         .result()
         .copied()
@@ -218,4 +221,14 @@ fn main() -> Result<(), WatchError> {
     writeln!(out, "no grant: {refusal}")?;
     assert_eq!(pages, 1, "a refused page is not delivered");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// The guide's program, run as the guide shows it: three runs, the page
+    /// count asserted after each, and the ungranted host refused (#896).
+    #[test]
+    fn the_getting_started_program_runs() -> Result<(), super::WatchError> {
+        super::main()
+    }
 }

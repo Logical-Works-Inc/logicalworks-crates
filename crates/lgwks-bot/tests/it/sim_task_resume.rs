@@ -188,7 +188,7 @@ fn crash_then_resume(
     expected: &Outcome,
 ) -> TestResult {
     let crashed_host = host("sim", store_dir)?;
-    let report = lgwks_bot::block_on(crashed_host.run(&work_task()?, (crash_at, steps)));
+    let report = lgwks_bot::script::block_on(crashed_host.run(&work_task()?, (crash_at, steps)));
     assert_eq!(
         report.disposition(),
         Disposition::Cancelled,
@@ -210,7 +210,7 @@ fn crash_then_resume(
 
     // Resume that same run with no crash: the interrupted step runs once,
     // and the full output comes back.
-    let resumed = lgwks_bot::block_on(host("sim", store_dir)?.resume(
+    let resumed = lgwks_bot::script::block_on(host("sim", store_dir)?.resume(
         crashed_run,
         &work_task()?,
         (steps, steps),
@@ -238,7 +238,8 @@ fn crash_seed(rng: &mut Rng) -> TestResult {
     let expected = uninterrupted(steps)?;
 
     // One full run establishes the records a resume would find.
-    let seeded = lgwks_bot::block_on(host("sim", &store_dir)?.run(&work_task()?, (steps, steps)));
+    let seeded =
+        lgwks_bot::script::block_on(host("sim", &store_dir)?.run(&work_task()?, (steps, steps)));
     let run = seeded.run_id().ok_or("a stored run must name a run id")?;
     assert_eq!(
         seeded.output(),
@@ -255,7 +256,17 @@ fn crash_seed(rng: &mut Rng) -> TestResult {
         crash_then_resume(&store_dir, crash_at, steps, &expected)?;
     }
     // And the seeded run, never crashed, still resumes to the same output.
-    let _ = run;
+    let replayed = lgwks_bot::script::block_on(host("sim", &store_dir)?.resume(
+        run,
+        &work_task()?,
+        (steps, steps),
+    ));
+    assert_eq!(
+        replayed.output(),
+        Some(&expected),
+        "the finished run resumes to its own output, err {:?}",
+        replayed.error()
+    );
     Ok(())
 }
 
@@ -279,7 +290,7 @@ fn once_per_seed(rng: &mut Rng) -> TestResult {
     // The first attempt dies at the boundary; the resume completes it. The
     // interrupted step must run exactly once more, and no committed step a
     // second time.
-    let stopped = lgwks_bot::block_on(host.run(&work_task()?, (crash_at, steps)));
+    let stopped = lgwks_bot::script::block_on(host.run(&work_task()?, (crash_at, steps)));
     assert_eq!(
         stopped.disposition(),
         Disposition::Cancelled,
@@ -298,7 +309,7 @@ fn once_per_seed(rng: &mut Rng) -> TestResult {
         rng.below(u32::MAX)
     );
 
-    let resumed = lgwks_bot::block_on(host.resume(run, &work_task()?, (steps, steps)));
+    let resumed = lgwks_bot::script::block_on(host.resume(run, &work_task()?, (steps, steps)));
     let outcome = resumed.output().ok_or("the resume must succeed")?;
     assert_eq!(
         resumed.disposition(),
@@ -363,12 +374,13 @@ fn offer_run(
             "the owner must attribute its own run to itself"
         );
         assert_eq!(
-            lgwks_bot::block_on(asker.resume(run, &work_task()?, (steps, steps))).disposition(),
+            lgwks_bot::script::block_on(asker.resume(run, &work_task()?, (steps, steps)))
+                .disposition(),
             Disposition::Succeeded,
             "the owner must be able to resume its own run"
         );
     } else {
-        let foreign = lgwks_bot::block_on(asker.resume(run, &work_task()?, (steps, steps)));
+        let foreign = lgwks_bot::script::block_on(asker.resume(run, &work_task()?, (steps, steps)));
         assert_eq!(
             foreign.disposition(),
             Disposition::Refused,
@@ -402,7 +414,7 @@ fn tenant_runs_alone(
     let owned = Host::builder(&name)?
         .store(RunStore::open(shared_path)?)
         .build()?;
-    let report = lgwks_bot::block_on(owned.run(&work_task()?, (steps, steps)));
+    let report = lgwks_bot::script::block_on(owned.run(&work_task()?, (steps, steps)));
     assert_eq!(
         report.output(),
         Some(expected),
@@ -477,11 +489,12 @@ fn same_seed_replays(band: Band) -> TestResult {
         let store_dir = scratch.path().join("store");
         let crash_at = usize::try_from(sim_run.rng().below(u32::try_from(steps)?))?;
 
-        let stopped =
-            lgwks_bot::block_on(host("sim", &store_dir)?.run(&work_task()?, (crash_at, steps)));
+        let stopped = lgwks_bot::script::block_on(
+            host("sim", &store_dir)?.run(&work_task()?, (crash_at, steps)),
+        );
         record_output(stopped.output(), &mut sim_run.trace);
         let run = stopped.run_id().ok_or("a stored run must name a run id")?;
-        let resumed = lgwks_bot::block_on(host("sim", &store_dir)?.resume(
+        let resumed = lgwks_bot::script::block_on(host("sim", &store_dir)?.resume(
             run,
             &work_task()?,
             (steps, steps),

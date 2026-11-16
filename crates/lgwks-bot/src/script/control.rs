@@ -131,7 +131,7 @@ fn refuse_step<T>(site: &str, error: FlowError) -> Result<T, FlowError> {
 ///
 /// # fn main() -> Result<(), FlowError> {
 /// let scope = Scope::root(Tenant::new("acme")?);
-/// assert_eq!(lgwks_bot::block_on(lookup(&scope, 41))?, 42);
+/// assert_eq!(lgwks_bot::script::block_on(lookup(&scope, 41))?, 42);
 /// # Ok(())
 /// # }
 /// ```
@@ -399,7 +399,7 @@ where
 ///
 /// # fn main() -> Result<(), FlowError> {
 /// let scope = Scope::root(Tenant::new("acme")?);
-/// assert_eq!(lgwks_bot::block_on(fetch(&scope, 21))?, 42);
+/// assert_eq!(lgwks_bot::script::block_on(fetch(&scope, 21))?, 42);
 /// # Ok(())
 /// # }
 /// ```
@@ -578,24 +578,26 @@ mod tests {
     #[test]
     fn a_synchronous_stretch_is_not_preempted() -> TestResult {
         let scope = Scope::root(Tenant::new("acme").map_err(|error| error.to_string())?);
-        let unyielding = crate::block_on(within(&scope, "burn", Duration::from_millis(1), async {
-            let _ = burn();
-            Ok::<u64, FlowError>(7)
-        }));
+        let unyielding =
+            crate::rt::runtime::block_on(within(&scope, "burn", Duration::from_millis(1), async {
+                black_box(burn());
+                Ok::<u64, FlowError>(7)
+            }));
         assert_eq!(
             unyielding.map_err(|error| error.to_string())?,
             7,
             "a body that never yields runs past its deadline instead of being stopped inside it"
         );
-        let yielding = crate::block_on(within(&scope, "burn", Duration::from_millis(1), async {
-            let _ = burn();
-            // Yield control without waiting: nothing here wakes the body, so
-            // the deadline is what ends it. A sleep would also keep the body
-            // pending past the deadline, but the test must assert ordering,
-            // not timing, and a timer is exactly the race it refuses to run.
-            std::future::pending::<()>().await;
-            Ok::<u64, FlowError>(7)
-        }));
+        let yielding =
+            crate::rt::runtime::block_on(within(&scope, "burn", Duration::from_millis(1), async {
+                black_box(burn());
+                // Yield control without waiting: nothing here wakes the body, so
+                // the deadline is what ends it. A sleep would also keep the body
+                // pending past the deadline, but the test must assert ordering,
+                // not timing, and a timer is exactly the race it refuses to run.
+                std::future::pending::<()>().await;
+                Ok::<u64, FlowError>(7)
+            }));
         match yielding {
             Err(FlowError::TimedOut { .. }) => Ok(()),
             Err(error) => Err(format!("a yielding overrun must be TimedOut, got {error}")),
@@ -609,13 +611,13 @@ mod tests {
     fn within_on_names_its_clock_and_its_step() -> TestResult {
         let scope = Scope::root(Tenant::new("acme").map_err(|error| error.to_string())?);
         let clock = scope.clock().clone();
-        let unyielding = crate::block_on(within_on(
+        let unyielding = crate::rt::runtime::block_on(within_on(
             &clock,
             &scope,
             "burn",
             Duration::from_millis(1),
             async {
-                let _ = burn();
+                black_box(burn());
                 Ok::<u64, FlowError>(11)
             },
         ));

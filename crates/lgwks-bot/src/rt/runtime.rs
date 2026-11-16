@@ -448,11 +448,15 @@ mod one_driver_tests {
     use std::rc::Rc;
 
     use super::{block_on, built_here, driver};
+    use crate::cap::{Auth, Cap};
+    use crate::ecs::EcsError;
     use crate::ecs::tests::test_effects;
+    use crate::gate::GrantSet;
     use crate::rt::estate::Estate;
     use crate::rt::task::yield_now;
+    use crate::spec::Bot;
     use crate::task::task;
-    use crate::{Auth, Bot, Cap, EcsError, EffectLifetime, Execute, GrantSet, Observe};
+    use crate::verb::{EffectLifetime, Execute, Observe};
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
 

@@ -134,7 +134,7 @@ pub(crate) fn measure(
     let started = Instant::now();
     let samples = pool(runs, WORKERS, |ordinal| {
         let at = Instant::now();
-        let finish = lgwks_bot::block_on(complete(fleet.rig(ordinal), ordinal, delay))?;
+        let finish = lgwks_bot::rt::runtime::block_on(complete(fleet.rig(ordinal), ordinal, delay))?;
         Ok(Sample {
             micros: micros(at.elapsed()),
             finish,

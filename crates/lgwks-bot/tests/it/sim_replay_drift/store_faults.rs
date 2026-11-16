@@ -25,7 +25,7 @@ fn refused_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     let host = host_for(tenant, &dir.0)?;
     let work = drift_task()?;
     let identity = first_identity(&host, input, FIRST_CODEC)?;
-    let first = lgwks_bot::block_on(host.run_under(
+    let first = lgwks_bot::script::block_on(host.run_under(
         &identity,
         &work,
         Job {
@@ -121,7 +121,7 @@ fn replay_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
         input,
         dir: dir.0.clone(),
     };
-    let first = lgwks_bot::block_on(host.run_under(&identity, &work, job.clone()));
+    let first = lgwks_bot::script::block_on(host.run_under(&identity, &work, job.clone()));
     assert_eq!(
         first.disposition(),
         Disposition::Succeeded,
@@ -142,7 +142,7 @@ fn replay_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     }
 
     let before = constructions();
-    let refused = lgwks_bot::block_on(reopened.resume_under(run, &identity, &work, job));
+    let refused = lgwks_bot::script::block_on(reopened.resume_under(run, &identity, &work, job));
 
     if armed {
         let error = refused.error().ok_or_else(|| -> Box<dyn Error> {

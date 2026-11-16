@@ -26,9 +26,12 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::registry::Action;
 use lgwks_bot::script::{ApprovalDecision, Clock, DecisionError, FlowError, Scope};
 use lgwks_bot::task::{Disposition, Host, Report, RunStore, StoreError, StoreLimitKind, task};
-use lgwks_bot::{Action, Auth, Cap, EcsError, EffectLifetime, Execute};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 
 use crate::effect_policy::allowing;
 use crate::scratch::Scratch;
@@ -56,7 +59,7 @@ where
     F: Fn(Scope, Vec<u8>) -> Fut,
     Fut: std::future::Future<Output = Result<Vec<u8>, FlowError>>,
 {
-    let report = lgwks_bot::block_on(host.run(parking, payload.to_vec()));
+    let report = lgwks_bot::script::block_on(host.run(parking, payload.to_vec()));
     let id = parked_id(&report)?;
     let run = run_of(&report)?;
     let digest = listed_digest(host, &id)?;
@@ -236,7 +239,7 @@ fn a_first_run_parks_holding_no_task() -> Result<(), ApprovalTestError> {
         ship(&scope, payload).await
     })?;
     let payload = b"release-42".to_vec();
-    let report = lgwks_bot::block_on(host.run(&shipping, payload.clone()));
+    let report = lgwks_bot::script::block_on(host.run(&shipping, payload.clone()));
     if !matches!(report.disposition(), Disposition::Parked) {
         return Err(ApprovalTestError::Setup {
             what: "the first run parks",
@@ -272,7 +275,7 @@ fn a_restarted_host_decides_a_parked_approval() -> Result<(), ApprovalTestError>
     })?;
     let (run, id) = {
         let host = host_on(scratch.path(), "acme")?;
-        let report = lgwks_bot::block_on(host.run(&shipping, payload.clone()));
+        let report = lgwks_bot::script::block_on(host.run(&shipping, payload.clone()));
         let id = parked_id(&report)?;
         let run = report.run_id().ok_or(ApprovalTestError::Setup {
             what: "a parked run names its run",
@@ -297,7 +300,7 @@ fn a_restarted_host_decides_a_parked_approval() -> Result<(), ApprovalTestError>
             });
         }
     }
-    let resumed = lgwks_bot::block_on(reopened.resume(run, &shipping, payload.clone()));
+    let resumed = lgwks_bot::script::block_on(reopened.resume(run, &shipping, payload.clone()));
     if !matches!(resumed.disposition(), Disposition::Succeeded)
         || resumed.output() != Some(&payload)
     {
@@ -321,7 +324,7 @@ fn an_approval_without_a_store_is_refused() -> Result<(), ApprovalTestError> {
     let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
         ship(&scope, payload).await
     })?;
-    match lgwks_bot::block_on(bare.run(&shipping, b"nowhere".to_vec())).error() {
+    match lgwks_bot::script::block_on(bare.run(&shipping, b"nowhere".to_vec())).error() {
         Some(error) if matches!(*error, FlowError::Store { .. }) => {}
         _ => {
             return Err(ApprovalTestError::Setup {
@@ -343,7 +346,7 @@ fn an_approval_over_an_ephemeral_store_is_refused() -> Result<(), ApprovalTestEr
     let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
         ship(&scope, payload).await
     })?;
-    match lgwks_bot::block_on(ephemeral.run(&shipping, b"nowhere".to_vec())).error() {
+    match lgwks_bot::script::block_on(ephemeral.run(&shipping, b"nowhere".to_vec())).error() {
         Some(error) if matches!(*error, FlowError::Store { .. }) => Ok(()),
         _ => Err(ApprovalTestError::Setup {
             what: "a park over an ephemeral store is a store refusal",
@@ -358,10 +361,10 @@ fn a_decision_against_other_bytes_is_a_mismatch_and_runs_nothing() -> Result<(),
 {
     let (_scratch, host, guarding) = release_fixture("approval-mismatch")?;
     let payload = b"release-44".to_vec();
-    let report = lgwks_bot::block_on(host.run(&guarding, payload.clone()));
+    let report = lgwks_bot::script::block_on(host.run(&guarding, payload.clone()));
     let id = parked_id(&report)?;
     // A second park over other bytes: its digest is not this one's.
-    let other = lgwks_bot::block_on(host.run(&guarding, b"other-bytes".to_vec()));
+    let other = lgwks_bot::script::block_on(host.run(&guarding, b"other-bytes".to_vec()));
     let other_id = parked_id(&other)?;
     let other_digest = listed_digest(&host, &other_id)?;
     match host.decide(&id, ApprovalDecision::approve("mistaken", other_digest)) {
@@ -374,7 +377,7 @@ fn a_decision_against_other_bytes_is_a_mismatch_and_runs_nothing() -> Result<(),
     }
     let run = run_of(&report)?;
     // No decision was recorded, so the resume parks again under the same id.
-    let again = lgwks_bot::block_on(host.resume(run, &guarding, payload));
+    let again = lgwks_bot::script::block_on(host.resume(run, &guarding, payload));
     if !matches!(again.disposition(), Disposition::Parked) || parked_id(&again)? != id {
         return Err(ApprovalTestError::Setup {
             what: "a mismatched park is still undecided",
@@ -401,7 +404,7 @@ fn a_foreign_decision_is_refused_and_audited() -> Result<(), ApprovalTestError> 
     let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
         ship(&scope, payload).await
     })?;
-    let report = lgwks_bot::block_on(host_a.run(&shipping, b"release-45".to_vec()));
+    let report = lgwks_bot::script::block_on(host_a.run(&shipping, b"release-45".to_vec()));
     let id = parked_id(&report)?;
     match host_b.decide(
         &id,
@@ -440,7 +443,7 @@ fn a_lapsed_approval_fails_typed_and_decides_expired() -> Result<(), ApprovalTes
     let payload = b"release-46".to_vec();
     let (id, run, digest) = park_listed(&host, &shipping, &payload)?;
     lapse(&host)?;
-    match lgwks_bot::block_on(host.resume(run, &shipping, payload)).error() {
+    match lgwks_bot::script::block_on(host.resume(run, &shipping, payload)).error() {
         Some(error) if matches!(*error, FlowError::ApprovalExpired { .. }) => {}
         _ => {
             return Err(ApprovalTestError::Setup {
@@ -476,7 +479,7 @@ fn a_park_past_the_ceiling_is_refused_before_the_body_runs() -> Result<(), Appro
     let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
         ship(&scope, payload).await
     })?;
-    let first = lgwks_bot::block_on(host.run(&shipping, b"one".to_vec()));
+    let first = lgwks_bot::script::block_on(host.run(&shipping, b"one".to_vec()));
     if !matches!(first.disposition(), Disposition::Parked) {
         return Err(ApprovalTestError::Setup {
             what: "the first park lands",
@@ -486,7 +489,7 @@ fn a_park_past_the_ceiling_is_refused_before_the_body_runs() -> Result<(), Appro
     let second = task("ship", |scope: Scope, payload: Vec<u8>| async move {
         ship(&scope, payload).await
     })?;
-    let parked = lgwks_bot::block_on(host.run(&second, b"two".to_vec()));
+    let parked = lgwks_bot::script::block_on(host.run(&second, b"two".to_vec()));
     let Some(failed) = parked.error() else {
         return Err(ApprovalTestError::Setup {
             what: "a park past the ceiling is refused",
@@ -528,7 +531,7 @@ fn an_external_act_without_an_approval_is_refused() -> Result<(), ApprovalTestEr
     let acting = task("direct", |scope: Scope, payload: Vec<u8>| async move {
         direct(&scope, payload).await
     })?;
-    match lgwks_bot::block_on(host.run(&acting, b"unapproved".to_vec())).error() {
+    match lgwks_bot::script::block_on(host.run(&acting, b"unapproved".to_vec())).error() {
         Some(error) if matches!(*error, FlowError::NeedsApproval { .. }) => {}
         _ => {
             return Err(ApprovalTestError::Setup {
@@ -543,7 +546,7 @@ fn an_external_act_without_an_approval_is_refused() -> Result<(), ApprovalTestEr
     }
     // An explicit policy runs the stub without asking: the doubles are the
     // suite's own, so no decision is owed.
-    let allowed = lgwks_bot::block_on(allowing(host.run(&acting, b"allowed".to_vec())));
+    let allowed = lgwks_bot::script::block_on(allowing(host.run(&acting, b"allowed".to_vec())));
     if !matches!(allowed.disposition(), Disposition::Succeeded) {
         return Err(ApprovalTestError::Setup {
             what: "an explicit policy runs the stub",
@@ -560,7 +563,7 @@ fn an_approved_act_runs_once_on_the_approved_bytes() -> Result<(), ApprovalTestE
     let payload = b"release-47".to_vec();
     let (id, run, digest) = park_listed(&host, &guarding, &payload)?;
     host.decide(&id, ApprovalDecision::approve("opener", digest))?;
-    let resumed = lgwks_bot::block_on(host.resume(run, &guarding, payload.clone()));
+    let resumed = lgwks_bot::script::block_on(host.resume(run, &guarding, payload.clone()));
     if !matches!(resumed.disposition(), Disposition::Succeeded)
         || resumed.output() != Some(&payload)
     {
@@ -590,7 +593,7 @@ fn two_racing_decisions_record_exactly_one() -> Result<(), ApprovalTestError> {
     let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
         ship(&scope, payload).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&shipping, b"release-48".to_vec()));
+    let report = lgwks_bot::script::block_on(host.run(&shipping, b"release-48".to_vec()));
     let id = parked_id(&report)?;
     let pending = host.pending(100)?;
     let digest = *pending

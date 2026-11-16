@@ -12,7 +12,8 @@
 
 use std::cell::Cell;
 
-use lgwks_bot::{Auth, Cap, KernelError};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::error::KernelError;
 
 /// Refuse `auth` unless it covers `required`, then count the poll in `polls`.
 pub(crate) fn admit_poll(

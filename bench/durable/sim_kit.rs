@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use lgwks_bot::block_on;
+use lgwks_bot::rt::runtime::block_on;
 use lgwks_bot::clock::Clock;
 use lgwks_bot::rt::sync::CancellationToken;
 use lgwks_std::seeded::Seeded;

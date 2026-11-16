@@ -5,7 +5,7 @@
 
 use std::io;
 
-use lgwks_bot::BotError;
+use lgwks_bot::app_error::BotError;
 use lgwks_bot::error::{DispatchCertainty, RetryClass};
 use lgwks_bot::script::FlowError;
 use lgwks_bot::task::StoreError;

@@ -264,7 +264,7 @@ impl<R: Durable> RecordJournal<R> {
     /// let path = std::env::temp_dir().join(format!("record-doc-cont-{}", std::process::id()));
     /// # drop(std::fs::remove_file(&path));
     /// let journal = RecordJournal::<u64>::open_continuing(&path, ContinuationPolicy::declared())?;
-    /// assert!(journal.watermark().continues());
+    /// assert!(!journal.watermark().is_due(), "a fresh journal is far from its watermark");
     /// # drop(journal);
     /// # drop(std::fs::remove_file(&path));
     /// # Ok(())

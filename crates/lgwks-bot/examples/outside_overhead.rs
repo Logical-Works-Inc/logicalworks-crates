@@ -30,6 +30,8 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::EffectEvidence;
 use lgwks_bot::proposal::StubModel;
 use lgwks_bot::script::{
@@ -38,7 +40,6 @@ use lgwks_bot::script::{
 };
 use lgwks_bot::task::{Host, task};
 use lgwks_bot::verb::EffectLifetime;
-use lgwks_bot::{Cap, GrantSet};
 
 use lgwks_std::http::{BodyPolicy, Client, Options, PoolConfig};
 
@@ -222,7 +223,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let mut chunk = [0_u8; 1024];
             loop {
                 let read = match std::io::Read::read(&mut stream, &mut chunk) {
-                    Ok(0) | Err(_) => break,
+                    Ok(0) => break,
+                    Err(failed) => {
+                        lgwks_std::trace::debug!(error = ?failed, "bench server: read failed");
+                        break;
+                    }
                     Ok(read) => read,
                 };
                 head.extend_from_slice(&chunk[..read]);
@@ -280,7 +285,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let raw_micros = at.elapsed().as_micros();
         let at = Instant::now();
-        let worded = lgwks_bot::block_on(host.run(&fetch_word, url.clone()));
+        let worded = lgwks_bot::script::block_on(host.run(&fetch_word, url.clone()));
         let word_micros = at.elapsed().as_micros();
         if worded.output() != Some(&200_u16) {
             let message = format!("the word fetch failed: {:?}", worded.error());
@@ -294,7 +299,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut seed = 0_u64;
     let model = loop {
         let candidate = StubModel::from_seed(seed);
-        let probe = lgwks_bot::block_on(ModelPort::complete(&candidate, b"hi", 1_000))
+        let probe = lgwks_bot::script::block_on(ModelPort::complete(&candidate, b"hi", 1_000))
             .map_err(|failed| format!("the probe completion failed: {failed}"))?;
         if !probe.truncated() {
             break candidate;
@@ -315,7 +320,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     for _ in 0..SAMPLES {
         let prompt = b"steady".to_vec();
         let at = Instant::now();
-        let raw = lgwks_bot::block_on(model.complete(&prompt, 1_000))
+        let raw = lgwks_bot::script::block_on(model.complete(&prompt, 1_000))
             .map_err(|failed| format!("the raw completion failed: {failed}"))?;
         if raw.truncated() {
             let message = "the raw output was truncated".to_owned();
@@ -326,7 +331,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|failed| format!("the raw output was not text: {failed}"))?;
         let raw_micros = at.elapsed().as_micros();
         let at = Instant::now();
-        let worded = lgwks_bot::block_on(host.run(&ask_word, model.clone()));
+        let worded = lgwks_bot::script::block_on(host.run(&ask_word, model.clone()));
         let word_micros = at.elapsed().as_micros();
         if worded.output().map(String::as_str) != Some(raw_text) {
             let message = format!("the word ask failed: {:?}", worded.error());
@@ -354,12 +359,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let key = format!("bench-{index}").into_bytes();
         let payload = format!("payload-{index}").into_bytes();
         let at = Instant::now();
-        let raw = lgwks_bot::block_on(mailer.dispatch(&key, &payload))
+        let raw = lgwks_bot::script::block_on(mailer.dispatch(&key, &payload))
             .map_err(|failed| format!("the raw dispatch failed: {failed}"))?;
         applied(raw).map_err(|failed| format!("the raw dispatch failed: {failed}"))?;
         let raw_micros = at.elapsed().as_micros();
         let at = Instant::now();
-        let worded = lgwks_bot::block_on(lgwks_bot::script::with_effect_policy(
+        let worded = lgwks_bot::script::block_on(lgwks_bot::script::with_effect_policy(
             AllowBench,
             host.run(&send_word, (Shared::clone(&mailer), payload)),
         ));

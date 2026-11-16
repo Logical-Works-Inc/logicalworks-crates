@@ -1,8 +1,8 @@
 //! The seam every journal adapter implements: what a caller may ask of a run's record.
 
-#[cfg(feature = "wire")]
-use crate::BoxFuture;
 use crate::effect::EffectKey;
+#[cfg(feature = "wire")]
+use crate::verb::BoxFuture;
 
 use super::frame::SaturatingFrom;
 use super::{

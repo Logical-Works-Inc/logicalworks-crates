@@ -21,12 +21,15 @@
 use std::error::Error;
 use std::time::Duration;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::{Action, Source};
 use lgwks_bot::script::{FlowError, Scope, StepKind};
-use lgwks_bot::spec::{Bot, BotSpec};
+use lgwks_bot::spec::{Bot, BotSpec, Need};
 use lgwks_bot::task::{Host, Report, task};
-use lgwks_bot::{
-    Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Need, Observe, Source, domains,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use crate::effect_policy::allowing;
 use crate::effects::memory_scope;
@@ -275,7 +278,7 @@ fn a_flow_observes_the_stub_pull_request_domain() -> TestResult {
         open_pull_requests(&scope, repo).await
     })?;
     reset_trace();
-    let report = lgwks_bot::block_on(host.run(&checking, "acme/widgets"));
+    let report = lgwks_bot::script::block_on(host.run(&checking, "acme/widgets"));
     assert_eq!(report.result().ok().copied(), Some(4));
     assert_eq!(take_trace(), ["poll:github::pr_status:acme/widgets"]);
 
@@ -300,7 +303,7 @@ fn an_unknown_identifier_names_the_registry_and_the_nearest() -> TestResult {
         |scope: Scope, target: &'static str| async move { two_misspellings(&scope, target).await },
     )?;
     reset_trace();
-    let report = lgwks_bot::block_on(host.run(&checking, "3"));
+    let report = lgwks_bot::script::block_on(host.run(&checking, "3"));
     assert_eq!(
         undeclared(&report)?,
         [
@@ -327,7 +330,7 @@ fn the_flow_and_the_spec_leave_one_trace() -> TestResult {
         page_when_over(&scope, "3", 2, &labels).await
     })?;
     reset_trace();
-    let report = lgwks_bot::block_on(host.run(&paging, vec![String::from("a")]));
+    let report = lgwks_bot::script::block_on(host.run(&paging, vec![String::from("a")]));
     assert_eq!(report.result().ok().copied(), Some(3));
     let script_trace = take_trace();
 
@@ -358,7 +361,7 @@ fn admission_runs_before_the_first_step() -> TestResult {
         },
     )?;
     reset_trace();
-    let report = lgwks_bot::block_on(host.run(&checking, "3"));
+    let report = lgwks_bot::script::block_on(host.run(&checking, "3"));
     assert_eq!(
         undeclared(&report)?,
         [unknown_in_registry(
@@ -380,7 +383,7 @@ fn a_host_with_no_registry_refuses_naming_the_absence() -> TestResult {
     let checking = task("checking", |scope: Scope, repo: &'static str| async move {
         open_pull_requests(&scope, repo).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&checking, "acme/widgets"));
+    let report = lgwks_bot::script::block_on(host.run(&checking, "acme/widgets"));
     assert_eq!(
         undeclared(&report)?,
         [Need::UnknownDomain {
@@ -406,7 +409,7 @@ fn a_target_the_constructor_refuses_is_its_refusal() -> TestResult {
         open_pull_requests(&scope, repo).await
     })?;
     reset_trace();
-    let report = lgwks_bot::block_on(host.run(&checking, "not-a-repository"));
+    let report = lgwks_bot::script::block_on(host.run(&checking, "not-a-repository"));
     assert!(
         matches!(
             *bot_error(&report)?,
@@ -428,7 +431,7 @@ fn a_value_bound_as_another_type_is_a_type_mismatch() -> TestResult {
     let reading = task("reading", |scope: Scope, target: &'static str| async move {
         counter_as_text(&scope, target).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&reading, "3"));
+    let report = lgwks_bot::script::block_on(host.run(&reading, "3"));
     assert!(
         matches!(
             *bot_error(&report)?,
@@ -452,7 +455,7 @@ fn an_action_output_reads_back_as_its_own_type_only() -> TestResult {
         page_output(&scope, label).await
     })?;
     reset_trace();
-    let report = lgwks_bot::block_on(host.run(&paging, "b"));
+    let report = lgwks_bot::script::block_on(host.run(&paging, "b"));
     assert!(report.result().is_ok(), "{:?}", report.result());
     assert_eq!(take_trace(), ["execute:test::page:b:5"]);
 
@@ -460,7 +463,7 @@ fn an_action_output_reads_back_as_its_own_type_only() -> TestResult {
         "miscounting",
         |scope: Scope, label: &'static str| async move { page_output_as_count(&scope, label).await },
     )?;
-    let report = lgwks_bot::block_on(host.run(&miscounting, "b"));
+    let report = lgwks_bot::script::block_on(host.run(&miscounting, "b"));
     assert!(
         matches!(
             *bot_error(&report)?,
@@ -491,7 +494,7 @@ pub(crate) fn posts_once(host: &lgwks_bot::task::Host) -> TestResult {
         post(&scope, "channel", value).await
     })?;
     reset_trace();
-    let report = lgwks_bot::block_on(allowing(host.run(&posting, 7)));
+    let report = lgwks_bot::script::block_on(allowing(host.run(&posting, 7)));
     assert!(report.result().is_ok(), "{:?}", report.result());
     assert_eq!(
         take_trace(),
@@ -508,12 +511,12 @@ fn a_source_short_of_authority_blocks_naming_the_capability() -> TestResult {
         |scope: Scope, target: &'static str| async move { reach(&scope, target).await },
     )?;
     reset_trace();
-    let report = lgwks_bot::block_on(host("acme", GrantSet::empty())?.run(&reaching, "3"));
+    let report = lgwks_bot::script::block_on(host("acme", GrantSet::empty())?.run(&reaching, "3"));
     assert_eq!(blocked_on(&report)?, [Cap::net()]);
     assert!(take_trace().is_empty(), "the source was never polled");
 
     let granted = host("acme", GrantSet::empty().grant(Cap::net()))?;
-    let report = lgwks_bot::block_on(granted.run(&reaching, "3"));
+    let report = lgwks_bot::script::block_on(granted.run(&reaching, "3"));
     assert_eq!(report.result().ok().copied(), Some(3));
     assert_eq!(take_trace(), ["poll:test::counter"]);
     Ok(())

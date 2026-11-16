@@ -39,8 +39,8 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{CleanupReceipt, Supervisor};
 
 use process_probe::{drop_after_pid, wait_group_stopped};

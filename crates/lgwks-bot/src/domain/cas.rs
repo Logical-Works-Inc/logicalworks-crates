@@ -30,18 +30,20 @@ const DOMAIN: &str = "cas::store";
 /// use std::sync::Arc;
 /// use lgwks_bot::cas::{CasInput, RecordStore};
 /// use lgwks_bot::domain::cas::CasWrite;
-/// use lgwks_bot::{Cap, Execute, GrantSet};
+/// use lgwks_bot::cap::Cap;
+/// use lgwks_bot::gate::GrantSet;
+/// use lgwks_bot::verb::Execute;
 ///
 /// let path = std::env::temp_dir().join(format!("lgwks-cas-write-{}", std::process::id()));
 /// let adapter = CasWrite::new(Arc::new(RecordStore::open(&path)?));
 /// let auth = GrantSet::empty().grant(Cap::fs()).issue(&[Cap::fs()])?;
 ///
 /// let first = CasInput::new("draft", 0, "one");
-/// let output = lgwks_bot::block_on(adapter.execute_action((auth.clone(), &first)))?;
+/// let output = lgwks_bot::rt::runtime::block_on(adapter.execute_action((auth.clone(), &first)))?;
 /// assert_eq!(output.version(), 1);
 ///
 /// let stale = CasInput::new("draft", 0, "two");
-/// assert!(lgwks_bot::block_on(adapter.execute_action((auth, &stale))).is_err());
+/// assert!(lgwks_bot::rt::runtime::block_on(adapter.execute_action((auth, &stale))).is_err());
 /// if path.exists() {
 ///     std::fs::remove_file(&path)?;
 /// }

@@ -294,7 +294,7 @@ fn recorded(
 ) -> Result<RunId, Violation> {
     let opened = open_for(open, "the first run")?;
     let host = host_over(OWNER, &opened)?;
-    let report = crate::block_on(host.run(&counted(bodies)?, INPUT));
+    let report = crate::rt::runtime::block_on(host.run(&counted(bodies)?, INPUT));
     returned_input(&report, "the first run")?;
     run_of(&report, "the first run")
 }
@@ -305,7 +305,7 @@ fn append_is_durable(open: &mut dyn FnMut() -> Result<Opened, OpenError>) -> Res
     let run = recorded(open, &bodies)?;
     let reopened = open_for(open, "the resume through a fresh handle")?;
     let host = host_over(OWNER, &reopened)?;
-    let report = crate::block_on(host.resume(run, &counted(&bodies)?, INPUT));
+    let report = crate::rt::runtime::block_on(host.resume(run, &counted(&bodies)?, INPUT));
     returned_input(&report, "the resume through a fresh handle")?;
     ran_once(&bodies, "the resume through a fresh handle")
 }
@@ -320,10 +320,10 @@ fn read_failure_is_not_absence(
     let host = host_over(OWNER, &opened)?;
     let work = counted(&bodies)?;
     (opened.fail_next_read)();
-    let faulted = crate::block_on(host.resume(run, &work, INPUT));
+    let faulted = crate::rt::runtime::block_on(host.resume(run, &work, INPUT));
     refused(&faulted, "the resume whose step read failed")?;
     ran_once(&bodies, "the resume whose step read failed")?;
-    let after = crate::block_on(host.resume(run, &work, INPUT));
+    let after = crate::rt::runtime::block_on(host.resume(run, &work, INPUT));
     returned_input(&after, "the resume after the one-shot fault")?;
     ran_once(&bodies, "the resume after the one-shot fault")
 }
@@ -336,7 +336,7 @@ fn tenants_are_isolated(
     let run = recorded(open, &bodies)?;
     let opened = open_for(open, "the stranger's resume")?;
     let stranger = host_over(STRANGER, &opened)?;
-    let report = crate::block_on(stranger.resume(run, &counted(&bodies)?, INPUT));
+    let report = crate::rt::runtime::block_on(stranger.resume(run, &counted(&bodies)?, INPUT));
     refused(&report, "another tenant's resume of the owner's run")?;
     ran_once(&bodies, "another tenant's resume of the owner's run")?;
     let key = probe_key(STRANGER)?;
@@ -476,11 +476,11 @@ fn drift_is_reported(open: &mut dyn FnMut() -> Result<Opened, OpenError>) -> Res
     let host = host_over(OWNER, &opened)?;
     let work = counted(&bodies)?;
     let first = host.definition("conformance", 1, None, 1);
-    let report = crate::block_on(host.run_under(&first, &work, INPUT));
+    let report = crate::rt::runtime::block_on(host.run_under(&first, &work, INPUT));
     returned_input(&report, "the run under revision 1")?;
     let run = run_of(&report, "the run under revision 1")?;
     let revised = host.definition("conformance", 2, None, 1);
-    let resumed = crate::block_on(host.resume_under(run, &revised, &work, INPUT));
+    let resumed = crate::rt::runtime::block_on(host.resume_under(run, &revised, &work, INPUT));
     if !matches!(resumed.error(), Some(&FlowError::Incompatible { .. })) {
         return violated(Violation::Ended {
             during: "the resume under revision 2",

@@ -59,8 +59,7 @@ impl FileJournal {
     /// respect: the same frame grammar, the same chain, the same storage-owner
     /// thread, the same refusals. What it adds is that
     /// [`EffectJournal::continue_as_new`](crate::journal::EffectJournal::continue_as_new) seals this journal at
-    /// [`CONTINUATION_WATERMARK_NUMERATOR`](super::super::continuation::CONTINUATION_WATERMARK_NUMERATOR)
-    /// of either ceiling and hands back the
+    /// eight tenths of either ceiling and hands back the
     /// successor, so a bot that runs for weeks keeps acting instead of stopping
     /// safely at a ceiling.
     ///
@@ -215,12 +214,6 @@ impl FileJournal {
     #[must_use]
     pub fn checkpoint(&self) -> Option<&Continuation> {
         self.carried.as_ref()
-    }
-
-    /// This journal's own seal, when it has sealed itself.
-    #[must_use]
-    pub fn own_seal(&self) -> Option<&Continuation> {
-        self.seal.as_ref()
     }
 
     /// The predecessor's chain head, which is the position this journal's first
@@ -420,7 +413,6 @@ impl FileJournal {
             continuing: kind.continues(),
             continuation: kind.policy(),
             carried,
-            seal,
             base,
             chain_from,
             folded,

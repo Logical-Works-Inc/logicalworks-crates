@@ -402,8 +402,8 @@ pub fn run(args: &[String]) -> Result<(), ServeRefError> {
     let (armed, armed_seen) = std::sync::mpsc::sync_channel::<()>(1);
     let report = std::thread::scope(|scope| {
         let (watched, watch_done) = (stop.clone(), done.clone());
-        let watcher =
-            scope.spawn(move || lgwks_bot::block_on(watch_stop(watched, watch_done, armed)));
+        let watcher = scope
+            .spawn(move || lgwks_bot::script::block_on(watch_stop(watched, watch_done, armed)));
         if armed_seen.recv_timeout(ARM_DEADLINE).is_err() {
             done.cancel();
             let error = unarmed(watcher);

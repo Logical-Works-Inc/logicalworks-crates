@@ -11,19 +11,21 @@
 //!
 //! # One typed error per layer
 //!
-//! This module holds [`KernelError`] and nothing above it: its variants name
+//! This module holds [`KernelError`](crate::error::KernelError) and nothing above it: its variants name
 //! kernel and `std` types only, and no file under `error/` imports a module of
 //! a higher layer (`core_boundary` refuses it). Each higher layer defines the
 //! errors it raises where it raises them and wraps the layers below with a
 //! `From` impl, so `?` does the wrap: `EcsError::Kernel`, `SessionError::Kernel`
 //! and `FlowError::Bot` carry the kernel failure unchanged. The crate-wide
-//! [`BotError`](crate::BotError) for a consumer lives in the app layer and is a
+//! [`BotError`](crate::app_error::BotError) for a consumer lives in the app layer and is a
 //! sum of those layer errors, never a flat list of variants. A lower layer never
 //! names an upper error (ADR 0061).
 //!
 //! The vocabulary draws one distinction that a single failure variant cannot:
-//! **whether the effect happened**. [`KernelError::DomainError`] means the action
-//! did not take effect, so a retry is a retry. [`KernelError::EffectIndeterminate`]
+//! **whether the effect happened**.
+//! [`KernelError::DomainError`](crate::error::KernelError::DomainError) means the action
+//! did not take effect, so a retry is a retry.
+//! [`KernelError::EffectIndeterminate`](crate::error::KernelError::EffectIndeterminate)
 //! means it may have, so a retry is a possible duplicate. They are separate
 //! variants rather than one variant carrying a flag because a consumer's retry
 //! decision has to be readable from the type: a caller that must parse a cause
@@ -31,12 +33,12 @@
 //! price of getting it wrong is a duplicated merge, message, or process launch.
 //!
 //! "Did not take effect" is necessary but not sufficient for a retry decision,
-//! and the second half is what [`DispatchCertainty`] carries. A refusal that
+//! and the second half is what [`DispatchCertainty`](crate::error::DispatchCertainty) carries. A refusal that
 //! happened before dispatch and a connection that never opened are both "the
 //! effect did not happen", and they do not want the same answer: the first is
 //! permanent, the second is a plain retry. Every `DomainError` producer states
 //! which of the two it is, and `retry_class` is the single total map from each
-//! layer's vocabulary to [`RetryClass`] that a retry policy reads. Every wrapper
+//! layer's vocabulary to [`RetryClass`](crate::error::RetryClass) that a retry policy reads. Every wrapper
 //! variant delegates to the error it wraps, so a failure keeps its class through
 //! every layer. No retry decision in this crate inspects a rendered cause: a
 //! policy that turns on the wording of a diagnostic message is a policy that
@@ -61,7 +63,7 @@ use super::effect::ActionId;
 /// An effect that may or may not exist is never a plain retry.
 ///
 /// ```
-/// use lgwks_bot::{DispatchCertainty, KernelError, RetryClass};
+/// use lgwks_bot::error::{DispatchCertainty, KernelError, RetryClass};
 ///
 /// let lost = KernelError::EffectIndeterminate {
 ///     domain: String::from("gh::issue"),

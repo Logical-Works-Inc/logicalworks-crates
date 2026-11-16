@@ -38,11 +38,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::proposal::{Shape, StubModel};
 use lgwks_bot::script::{AskRequest, FetchOptions, FlowError, ModelOutput, ModelPort, PostBody};
 use lgwks_bot::script::{Scope, SendOutcome};
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Cap, GrantSet};
 
 use crate::effect_policy::allowing;
 use crate::outside_support::{ARCHITECTURE, calls, get, mail, mail_crash};
@@ -81,7 +82,7 @@ fn crash_once(
     let body: fn(Scope, CrashInput) -> CrashRun = crash_run;
     let crashing = task("crash", body)?;
     let first = host_on(dir, "acme", outside_grants())?;
-    let crashed = lgwks_bot::block_on(allowing(
+    let crashed = lgwks_bot::script::block_on(allowing(
         first.run(&crashing, (Arc::clone(mailer), b"hello".to_vec(), true)),
     ));
     if crashed.error().is_none() {
@@ -99,7 +100,7 @@ fn resume_crashed(
     mailer: &Arc<StubMailer>,
 ) -> Result<lgwks_bot::task::Report<SendOutcome>, OutsideError> {
     let host = host_on(dir, "acme", outside_grants())?;
-    Ok(lgwks_bot::block_on(allowing(host.resume(
+    Ok(lgwks_bot::script::block_on(allowing(host.resume(
         run,
         crashing,
         (Arc::clone(mailer), b"hello".to_vec(), false),
@@ -149,7 +150,7 @@ fn fetch_deadline_refuses_a_slow_upstream() -> TestResult {
         let options = FetchOptions::default().deadline(Duration::from_millis(300));
         get(&scope, &url, &options).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
     upstream.join();
     if !matches!(report.error(), Some(FlowError::TimedOut { .. })) {
         return fail("a slow upstream is a typed timeout");
@@ -168,7 +169,7 @@ fn fetch_reports_a_connection_dropped_mid_body() -> TestResult {
         let options = FetchOptions::default().attempts(2);
         get(&scope, &url, &options).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
     let hits = upstream.hits();
     upstream.join();
     if !matches!(
@@ -194,7 +195,7 @@ fn fetch_stops_a_5xx_storm_at_the_budget() -> TestResult {
         let options = FetchOptions::default().attempts(3);
         get(&scope, &url, &options).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
     let hits = upstream.hits();
     upstream.join();
     match report.error() {
@@ -225,7 +226,7 @@ fn fetch_refuses_an_oversize_body_while_streaming() -> TestResult {
         let options = FetchOptions::default().max_body_bytes(65_536);
         get(&scope, &url, &options).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
     upstream.join();
     match report.error() {
         Some(&FlowError::InvalidBound { max: 65_536, .. }) => {}
@@ -246,7 +247,7 @@ fn fetch_post_runs_under_an_allowing_policy_and_parks_under_the_default() -> Tes
         let answered = lgwks_bot::script::fetch(&scope, "post", &url, &options).await?;
         Ok::<u16, FlowError>(answered.status())
     })?;
-    let allowed = lgwks_bot::block_on(allowing(host.run(&posting, upstream.url())));
+    let allowed = lgwks_bot::script::block_on(allowing(host.run(&posting, upstream.url())));
     upstream.join();
     if allowed.into_result()? != 200 {
         return fail("an allowed POST answers its status");
@@ -258,7 +259,7 @@ fn fetch_post_runs_under_an_allowing_policy_and_parks_under_the_default() -> Tes
         GrantSet::empty().grant(Cap::net()),
     )?;
     let upstream_denied = Upstream::serve(Behavior::Ok, 0, Duration::ZERO)?;
-    let denied = lgwks_bot::block_on(gated.run(&posting, upstream_denied.url()));
+    let denied = lgwks_bot::script::block_on(gated.run(&posting, upstream_denied.url()));
     let denied_hits = upstream_denied.hits();
     upstream_denied.join();
     if !matches!(denied.error(), Some(FlowError::NeedsApproval { .. })) {
@@ -346,7 +347,7 @@ fn send_dispatches_exactly_once_across_an_intent_dispatch_crash() -> TestResult 
         },
     )?;
     mailer.fail_next_read();
-    let crashed = lgwks_bot::block_on(allowing(
+    let crashed = lgwks_bot::script::block_on(allowing(
         first.run(&sending, (Arc::clone(&mailer), b"hello".to_vec())),
     ));
     if crashed.error().is_none() {
@@ -358,7 +359,7 @@ fn send_dispatches_exactly_once_across_an_intent_dispatch_crash() -> TestResult 
     let run = run_of(&crashed)?;
     drop(first);
     let second = host_on(scratch.path(), "acme", outside_grants())?;
-    let resumed = lgwks_bot::block_on(allowing(second.resume(
+    let resumed = lgwks_bot::script::block_on(allowing(second.resume(
         run,
         &sending,
         (Arc::clone(&mailer), b"hello".to_vec()),
@@ -457,7 +458,7 @@ fn send_retries_after_a_refused_dispatch() -> TestResult {
             mail(&scope, &mailer, payload).await
         },
     )?;
-    let refused = lgwks_bot::block_on(allowing(
+    let refused = lgwks_bot::script::block_on(allowing(
         first.run(&sending, (Arc::clone(&mailer), b"hello".to_vec())),
     ));
     if !matches!(refused.error(), Some(FlowError::Failed { .. })) {
@@ -475,7 +476,7 @@ fn send_retries_after_a_refused_dispatch() -> TestResult {
             mail(&scope, &mailer, payload).await
         },
     )?;
-    let resumed = lgwks_bot::block_on(allowing(
+    let resumed = lgwks_bot::script::block_on(allowing(
         second.run(&sending, (Arc::clone(&mailer), b"hello".to_vec())),
     ));
     let Some(outcome) = resumed.output() else {
@@ -504,7 +505,8 @@ fn send_without_a_matching_approval_is_refused() -> TestResult {
             mail(&scope, &mailer, payload).await
         },
     )?;
-    let report = lgwks_bot::block_on(host.run(&sending, (Arc::clone(&mailer), b"hello".to_vec())));
+    let report =
+        lgwks_bot::script::block_on(host.run(&sending, (Arc::clone(&mailer), b"hello".to_vec())));
     if !matches!(report.error(), Some(FlowError::NeedsApproval { .. })) {
         return fail("an ungated send needs its approval");
     }
@@ -527,7 +529,8 @@ fn send_without_a_store_is_refused() -> TestResult {
             mail(&scope, &mailer, payload).await
         },
     )?;
-    let report = lgwks_bot::block_on(allowing(host.run(&sending, (mailer, b"hello".to_vec()))));
+    let report =
+        lgwks_bot::script::block_on(allowing(host.run(&sending, (mailer, b"hello".to_vec()))));
     if !matches!(report.error(), Some(FlowError::Store { .. })) {
         return fail("a storeless send is refused");
     }
@@ -550,7 +553,7 @@ fn capability_shortfall_is_refused_before_the_first_step_naming_every_grant() ->
             calls(&scope, &url, &model, &mailer, payload).await
         },
     )?;
-    let report = lgwks_bot::block_on(host.run(
+    let report = lgwks_bot::script::block_on(host.run(
         &calling,
         ("not a url".to_owned(), model, mailer, b"hello".to_vec()),
     ));
@@ -595,7 +598,7 @@ fn two_tenants_keep_separate_budgets() -> TestResult {
     })?;
     let mut throttled_at = None;
     for index in 0..13 {
-        let report = lgwks_bot::block_on(host_a.run(&storm, upstream.url()));
+        let report = lgwks_bot::script::block_on(host_a.run(&storm, upstream.url()));
         if matches!(report.error(), Some(FlowError::Throttled { .. })) {
             throttled_at = Some(index);
             break;
@@ -614,7 +617,7 @@ fn two_tenants_keep_separate_budgets() -> TestResult {
         return fail("twelve storms dial twice and the throttled one once");
     }
     let host_b = host_on(scratch_b.path(), "globex", grants())?;
-    let report = lgwks_bot::block_on(host_b.run(&storm, upstream.url()));
+    let report = lgwks_bot::script::block_on(host_b.run(&storm, upstream.url()));
     upstream.join();
     if !matches!(report.error(), Some(FlowError::Exhausted { .. })) {
         return fail("the other tenant's budget is untouched");

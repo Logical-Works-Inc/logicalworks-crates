@@ -63,9 +63,9 @@ Invariants (enforced by `crates/lgwks-bot/tests/it/rt_async_tier.rs` and
 - **INV-RT-SINGLE-ENTRY** — only `lgwks_deps` authors a `tokio` edge.
 - **INV-RT-BOUNDED-FANOUT** — `join_all_bounded` never exceeds its limit, still
   runs every input, and returns results in input order.
-- **INV-RT-PANIC-ISOLATION** — a panicking *input* is resumed on the awaiting
-  task (it does not abort the process); a panicking *spawned task* becomes a
-  `JoinError`.
+- **INV-RT-PANIC-ISOLATION** — a panicking *input* comes back to the awaiting
+  task as `FanOutError::Panicked` (it does not abort the process); a panicking
+  *spawned task* becomes a `JoinError`.
 - **INV-RT-NO-DETACH** — no public API starts a task or a process and returns a
   handle to it. Dropping a `JoinSet` aborts what it holds; dropping a
   `Supervisor` cancels and aborts everything it started. There is no

@@ -10,10 +10,11 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::Duration;
 
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::spec::{Bot, RetryPolicy};
-use lgwks_bot::{EcsError, GrantSet};
 
 use super::{Acting, Expect, TestResult, committed, scope_of, tick_as};
 

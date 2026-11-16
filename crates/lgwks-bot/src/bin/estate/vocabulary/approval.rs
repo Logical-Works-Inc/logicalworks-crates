@@ -5,14 +5,16 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use lgwks_bot::cap::Cap;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::registry::Action;
 use lgwks_bot::rt::runtime::Handle;
 use lgwks_bot::script::{
     ApprovalDecision, Approved, DefaultPolicy, EffectDisposition, EffectPolicy, FlowError, Scope,
     with_effect_policy,
 };
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Action, Auth, EcsError, EffectLifetime, Execute};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 
 use super::super::say;
 use super::{Section, VocabularyError, refuse};

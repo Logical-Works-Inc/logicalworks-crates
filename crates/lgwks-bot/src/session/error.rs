@@ -17,7 +17,7 @@ use crate::error::{DispatchCertainty, KernelError, RetryClass};
 /// # Examples
 ///
 /// ```
-/// use lgwks_bot::SessionError;
+/// use lgwks_bot::session::SessionError;
 ///
 /// let refusal = SessionError::SessionTerminated;
 /// assert!(!refusal.to_string().is_empty());
@@ -353,7 +353,7 @@ impl SessionError {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{RetryClass, SessionError};
+    /// use lgwks_bot::{error::RetryClass, session::SessionError};
     ///
     /// assert_eq!(SessionError::SessionTerminated.retry_class(), RetryClass::Never);
     /// ```

@@ -226,7 +226,8 @@ impl EcsBuilder {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Bot, GrantSet};
+    /// use lgwks_bot::gate::GrantSet;
+    /// use lgwks_bot::spec::Bot;
     /// # use lgwks_bot::broker::Broker;
     /// # use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
     /// # use lgwks_bot::journal::MemoryJournal;
@@ -371,7 +372,11 @@ impl<S: Observe> EcsObserveBuilder<S> {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Auth, Bot, Cap, EcsError, GrantSet, Observe};
+    /// use lgwks_bot::cap::{Auth, Cap};
+    /// use lgwks_bot::ecs::EcsError;
+    /// use lgwks_bot::gate::GrantSet;
+    /// use lgwks_bot::spec::Bot;
+    /// use lgwks_bot::verb::Observe;
     /// # use lgwks_bot::broker::Broker;
     /// # use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
     /// # use lgwks_bot::journal::MemoryJournal;

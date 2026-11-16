@@ -12,9 +12,11 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::effect::EventId;
-use lgwks_bot::error::KernelError;
-use lgwks_bot::{Auth, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, Observe};
+use lgwks_bot::error::{DispatchCertainty, KernelError};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use crate::poll::admit_poll;
 

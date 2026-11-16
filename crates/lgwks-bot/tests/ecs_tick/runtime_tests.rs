@@ -5,7 +5,7 @@ use super::*;
 /// Run `future` on a current-thread runtime built for this call: the runtime
 /// the defect deadlocked, where the calling thread is the driver.
 ///
-/// The free `lgwks_bot::block_on` drives the multi-thread process driver (ADR
+/// The free `lgwks_bot::rt::runtime::block_on` drives the multi-thread process driver (ADR
 /// 0006 R2), where a parked caller leaves the workers running and the
 /// deadlock cannot happen, so these bodies name the runtime they are about.
 /// The crate's builder keeps current-thread crate-private (`script!` is the one

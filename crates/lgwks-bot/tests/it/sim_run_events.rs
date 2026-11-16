@@ -31,12 +31,13 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use lgwks_bot::ecs::{RunFeed, RunOutcome, SettledRun};
 use lgwks_bot::journal::{
     DurabilityPromise, DurableAck, EffectEvent, EffectJournal, JournalError, JournalPosition,
     MemoryJournal,
 };
+use lgwks_bot::spec::Bot;
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Bot, RunFeed, RunOutcome, SettledRun};
 
 use sim::Band;
 
@@ -133,7 +134,7 @@ fn run_case(sim: &mut sim::Sim) -> TestResult {
                 let pick = usize::try_from(sim.rng().below(tenants))?;
                 let fail = sim.rng().chance(250);
                 let host = life.hosts.get(pick).ok_or("the drawn host exists")?;
-                let report = lgwks_bot::block_on(host.run(&probe, fail));
+                let report = lgwks_bot::script::block_on(host.run(&probe, fail));
                 let expected = if fail {
                     Disposition::Failed
                 } else {
@@ -212,7 +213,7 @@ fn settle_runs(feed: &RunFeed, count: u64) -> TestResult {
     let host = Host::builder("burst")?.runs(feed.clone()).build()?;
     let probe = task("probe", fallible)?;
     for _ in 0..count {
-        let report = lgwks_bot::block_on(host.run(&probe, false));
+        let report = lgwks_bot::script::block_on(host.run(&probe, false));
         assert_eq!(report.disposition(), Disposition::Succeeded, "a run ends");
     }
     Ok(())
@@ -306,7 +307,7 @@ fn outcomes_fire_in_settlement_order() -> TestResult {
         let mut expected = Vec::new();
         for _ in 0..sim.rng().between(1, 40) {
             let fail = sim.rng().chance(500);
-            lgwks_bot::block_on(host.run(&probe, fail));
+            lgwks_bot::script::block_on(host.run(&probe, fail));
             expected.push(if fail {
                 RunOutcome::Failed
             } else {

@@ -21,10 +21,10 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use lgwks_bot::EcsError;
 use lgwks_bot::cap::Cap;
 use lgwks_bot::cas::{CasInput, NO_VERSION, RecordStore};
 use lgwks_bot::domain::cas::CasWrite;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{KernelError, RetryClass};
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::verb::Execute;

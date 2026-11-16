@@ -26,8 +26,8 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use lgwks_bot::EcsError;
 use lgwks_bot::cap::Cap;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::idempotent::{IdempotentPost, PostInput};

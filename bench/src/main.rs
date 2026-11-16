@@ -51,7 +51,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::Bot;
+use lgwks_bot::spec::Bot;
 use lgwks_bot::journal::MAX_JOURNAL_EVENTS;
 use lgwks_std::trace::info;
 

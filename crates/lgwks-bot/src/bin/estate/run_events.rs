@@ -11,12 +11,14 @@ use std::fmt;
 use std::path::Path;
 use std::rc::Rc;
 
+use lgwks_bot::ecs::{RunCounts, RunFeed, RunOutcome, SettledRun};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::FileJournal;
 use lgwks_bot::rt::supervise::Supervisor;
 use lgwks_bot::script::{FlowError, Scope};
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::EffectScope;
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{Bot, GrantSet, RunCounts, RunFeed, RunOutcome, SettledRun};
 
 /// Runs the host makes, on inputs `0..HOST_RUNS`.
 const HOST_RUNS: u64 = 10;
@@ -110,9 +112,9 @@ pub(super) fn run(dir: &Path) -> Result<String, RunEventsError> {
         .map_err(setup("the fed host"))?;
     let probe = task("odd-fails", odd_fails).map_err(setup("the task"))?;
     for input in 0..HOST_RUNS {
-        lgwks_bot::block_on(host.run(&probe, input));
+        lgwks_bot::script::block_on(host.run(&probe, input));
     }
-    lgwks_bot::block_on(async {
+    lgwks_bot::script::block_on(async {
         let mut supervisor = Supervisor::new(4).with_runs(feed.clone());
         for _ in 0..TASKS {
             supervisor.spawn(|_token| async {}).await;

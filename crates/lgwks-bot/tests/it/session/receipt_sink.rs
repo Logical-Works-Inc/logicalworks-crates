@@ -1,7 +1,8 @@
 //! Where a decision record goes: a refused receipt is not an accepted answer,
 //! and the sink says whether a receipt outlives the process.
 
-use lgwks_bot::{SemanticResolver, Session, Value};
+use lgwks_bot::semantic::SemanticResolver;
+use lgwks_bot::session::{Session, Value};
 
 use super::receipts::{TestJournal, measured};
 use super::*;

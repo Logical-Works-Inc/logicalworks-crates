@@ -81,7 +81,7 @@ fn submit_all(
     })?);
     keys.iter()
         .map(|key| -> Result<Submission<u32>, Box<dyn Error>> {
-            Ok(lgwks_bot::block_on(host.submit(
+            Ok(lgwks_bot::script::block_on(host.submit(
                 &RequestKey::new(key)?,
                 &work,
                 1_u32,
@@ -133,9 +133,9 @@ fn sim_business_key_dedups_across_runs() -> TestResult {
         }
     })?);
 
-    lgwks_bot::block_on(acme.submit(&RequestKey::new("charge-1")?, &charge, 9001_u32))?;
-    lgwks_bot::block_on(acme.submit(&RequestKey::new("charge-2")?, &charge, 9001_u32))?;
-    lgwks_bot::block_on(globex.submit(&RequestKey::new("charge-1")?, &charge, 9001_u32))?;
+    lgwks_bot::script::block_on(acme.submit(&RequestKey::new("charge-1")?, &charge, 9001_u32))?;
+    lgwks_bot::script::block_on(acme.submit(&RequestKey::new("charge-2")?, &charge, 9001_u32))?;
+    lgwks_bot::script::block_on(globex.submit(&RequestKey::new("charge-1")?, &charge, 9001_u32))?;
 
     assert_eq!(
         site.served(),

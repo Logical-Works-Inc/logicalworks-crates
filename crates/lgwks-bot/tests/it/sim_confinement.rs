@@ -32,8 +32,8 @@ use std::error::Error;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::{Confinement, DenyBeneath, ProcessSpec, SandboxProfile};
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 
 /// What a scenario reports when a precondition did not hold.

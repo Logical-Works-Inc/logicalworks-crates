@@ -169,7 +169,7 @@ struct Served {
 fn a_child_printing_its_address_releases_the_dependants() -> TestResult {
     let readiness: Named = Readiness::new("db")?;
     let dependant = crate::ready::scope_of("acme")?.enter("use-db")?;
-    let served = lgwks_bot::block_on(serve(&readiness, &dependant, &announcing()))?;
+    let served = lgwks_bot::script::block_on(serve(&readiness, &dependant, &announcing()))?;
 
     assert_eq!(served.exit_code, Some(0), "the child ran to its own end");
     assert!(
@@ -208,7 +208,7 @@ fn a_child_printing_its_address_releases_the_dependants() -> TestResult {
 fn a_child_that_dies_without_printing_never_releases_the_dependants() -> TestResult {
     let readiness: Named = Readiness::new("db")?;
     let dependant = crate::ready::scope_of("acme")?.enter("use-db")?;
-    let served = lgwks_bot::block_on(serve(&readiness, &dependant, &dying()))?;
+    let served = lgwks_bot::script::block_on(serve(&readiness, &dependant, &dying()))?;
 
     assert_eq!(
         served.exit_code,
@@ -244,7 +244,7 @@ fn a_child_that_dies_without_printing_never_releases_the_dependants() -> TestRes
     readiness.fail(Generation::FIRST, "the child exited 3")?;
     let later = crate::ready::scope_of("acme")?.enter("use-db")?;
     let error = refused(
-        lgwks_bot::block_on(readiness.wait(&later, BUDGET)).map(|_ready| ()),
+        lgwks_bot::script::block_on(readiness.wait(&later, BUDGET)).map(|_ready| ()),
         "a dependant on a dead service must fail",
     )?;
     assert!(
@@ -267,7 +267,7 @@ fn a_child_that_dies_without_printing_never_releases_the_dependants() -> TestRes
 fn a_child_that_dies_after_announcing_stops_the_dependants() -> TestResult {
     let readiness: Named = Readiness::new("db")?;
     let dependant = crate::ready::scope_of("acme")?.enter("use-db")?;
-    let served = lgwks_bot::block_on(serve_and_depend(
+    let served = lgwks_bot::script::block_on(serve_and_depend(
         &readiness,
         &dependant,
         &announcing_then_dying(),
@@ -383,7 +383,7 @@ async fn serve_and_depend(
             .map_err(|error| format!("the child's exit could not be raised: {error}"))?;
         Ok::<_, String>(run)
     };
-    let (run, released) = lgwks_bot::join!(supervise, waiter);
+    let (run, released) = lgwks_bot::rt::join!(supervise, waiter);
     let run = run?;
     if let Err(error) = released.as_ref() {
         let refusal = Err(format!(

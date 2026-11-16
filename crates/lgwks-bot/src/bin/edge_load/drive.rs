@@ -109,7 +109,7 @@ pub(super) fn run(addr: &str, mix: Mix) -> Result<(), LoadError> {
         return refused(LoadError::Usage);
     };
     let started = Instant::now();
-    let measured = lgwks_bot::block_on(async move {
+    let measured = lgwks_bot::rt::runtime::block_on(async move {
         let mut set = JoinSet::new();
         for (conn, stream) in (0..mix.conns).zip(0_u64..) {
             set.spawn(connection(addr, conn, mix.seed.wrapping_add(stream), mix));

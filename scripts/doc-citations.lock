@@ -23,8 +23,6 @@ crates/lgwks-bot/src/cap.rs:582	pub fn check(&self, required: &[Cap]) -> Result<
 crates/lgwks-bot/src/cell.rs:543	type State: Clone + Default + Send + 'static;
 crates/lgwks-bot/src/cell/host.rs:16	use std::panic::{AssertUnwindSafe, catch_unwind};
 crates/lgwks-bot/src/domain/cas.rs:145	fn effect_lifetime(&self) -> verb::EffectLifetime {
-crates/lgwks-bot/src/domain/gh.rs:167	pub fn api_path(&self, suffix: &str) -> String {
-crates/lgwks-bot/src/domain/inspect.rs:97	pub fn with_language(mut self, language: lgwks_ast::Language) -> Self {
 crates/lgwks-bot/src/domain/sys.rs:44	/// rest is drained and counted, never retained.
 crates/lgwks-bot/src/ecs.rs:231	pub(crate) use crate::cell::SubmitRefused;
 crates/lgwks-bot/src/ecs/admit.rs:345	RetryClass::Never => EntryState::Abandoned {
@@ -56,8 +54,6 @@ crates/lgwks-bot/src/gate.rs:106	pub fn uncovered(&self, required: &[Cap], deman
 crates/lgwks-bot/src/gate.rs:126	pub fn admit(&self, required: &[Cap]) -> Result<(), KernelError> {
 crates/lgwks-bot/src/gate.rs:153	pub fn issue(&self, required: &[Cap]) -> Result<Auth, KernelError> {
 crates/lgwks-bot/src/idempotent.rs:230	fn effect_lifetime(&self) -> verb::EffectLifetime {
-crates/lgwks-bot/src/journal/continuation.rs:421	pub const fn events_watermark(&self) -> u64 {
-crates/lgwks-bot/src/journal/file/open.rs:222	pub fn own_seal(&self) -> Option<&Continuation> {
 crates/lgwks-bot/src/language.rs:1	//! Language understanding: turning what a person actually typed into a choice.
 crates/lgwks-bot/src/language.rs:76	/// The longest normalized input the shipped resolver will compare.
 crates/lgwks-bot/src/language.rs:85	/// receipt. `the_digest_input_bound_is_the_shipped_bound` asserts the two agree,
@@ -69,15 +65,10 @@ crates/lgwks-bot/src/language.rs:580	/// Creates a resolver pre-loaded with lear
 crates/lgwks-bot/src/language.rs:611	pub fn learn(&mut self, question: &str, utterance: &str, option: &str) -> Option<Alias> {
 crates/lgwks-bot/src/language.rs:616	.insert(alias.utterance.clone(), alias)
 crates/lgwks-bot/src/language.rs:649	pub fn aliases(&self) -> Vec<Alias> {
-crates/lgwks-bot/src/proposal/codec.rs:106	pub const fn with_max_field_bytes(mut self, max_field_bytes: usize) -> Self {
-crates/lgwks-bot/src/proposal/completion.rs:365	pub fn from_outcome(outcome: &Outcome) -> Self {
-crates/lgwks-bot/src/proposal/mod.rs:661	pub const fn is_spent(&self) -> bool {
-crates/lgwks-bot/src/proposal/surface.rs:201	pub fn holding_all_shipped(self) -> Self {
-crates/lgwks-bot/src/review.rs:178	pub const fn step_budget(&self) -> Duration {
 crates/lgwks-bot/src/rt/estate.rs:547	where
-crates/lgwks-bot/src/rt/mod.rs:85	//! This is not a scheduler with realtime guarantees. Future completion order
-crates/lgwks-bot/src/rt/mod.rs:115	#[cfg(feature = "sync")]
-crates/lgwks-bot/src/rt/mod.rs:131	#[cfg(all(feature = "signal", any(unix, windows)))]
+crates/lgwks-bot/src/rt/mod.rs:86	//! This is not a scheduler with realtime guarantees. Future completion order
+crates/lgwks-bot/src/rt/mod.rs:123	#[cfg(feature = "sync")]
+crates/lgwks-bot/src/rt/mod.rs:139	#[cfg(all(feature = "signal", any(unix, windows)))]
 crates/lgwks-bot/src/rt/process.rs:64	Capture(NonZeroUsize),
 crates/lgwks-bot/src/rt/process/confine.rs:83	pub struct SandboxProfile {
 crates/lgwks-bot/src/rt/process/confine.rs:295	pub struct LandlockRules {
@@ -85,7 +76,7 @@ crates/lgwks-bot/src/rt/process/run_result.rs:138	pub struct ProcessRun {
 crates/lgwks-bot/src/rt/process/run_result.rs:262	pub enum ProcessRunError {
 crates/lgwks-bot/src/rt/runtime.rs:213	let mut builder = lgwks_deps::tokio::runtime::Builder::new_current_thread();
 crates/lgwks-bot/src/rt/runtime.rs:216	if self.worker_threads.is_some() && workers.get() > MAX_WORKER_THREADS {
-crates/lgwks-bot/src/rt/runtime.rs:452	use crate::rt::estate::Estate;
+crates/lgwks-bot/src/rt/runtime.rs:455	use crate::rt::estate::Estate;
 crates/lgwks-bot/src/rt/supervise.rs:9	//! # Why a task cannot leak
 crates/lgwks-bot/src/rt/supervise.rs:58	//! cannot be written without a [`Budget`]. Every iteration races the
 crates/lgwks-bot/src/rt/supervise.rs:80	//! permits inside a task this supervisor owns can deadlock with itself. The
@@ -109,19 +100,16 @@ crates/lgwks-bot/src/session.rs:1	//! Validated declarative guidance flows and a
 crates/lgwks-bot/src/session/graph.rs:122	pub enum Disposition {
 crates/lgwks-bot/src/session/graph.rs:149	pub struct EffectLedger {
 crates/lgwks-bot/src/session/graph.rs:280	Refused {
-crates/lgwks-bot/src/session/graph.rs:371	pub const fn with_resources(mut self, resources: ResourceLimits) -> Self {
-crates/lgwks-bot/src/session/graph.rs:421	bounds,
-crates/lgwks-bot/src/session/graph.rs:455	/// Parse and validate a flow using the shared JSON facade.
+crates/lgwks-bot/src/session/graph.rs:414	bounds,
+crates/lgwks-bot/src/session/graph.rs:448	/// Parse and validate a flow using the shared JSON facade.
 crates/lgwks-bot/src/session/limits.rs:16	/// one costs memory for nothing.
 crates/lgwks-bot/src/session/receipt.rs:46	pub struct DecisionReceipt {
-crates/lgwks-bot/src/session/receipt.rs:331	pub fn into_records(self) -> Vec<TranscriptEntry> {
 crates/lgwks-bot/src/session/resolve.rs:27	fn resolve(&self, utterance: &str, question: &Question<'_>) -> Verdict;
 crates/lgwks-bot/src/session/resolve.rs:40	/// renderings, so two thresholds differing in the last bit are two versions and
 crates/lgwks-bot/src/session/resolve.rs:226	pub enum MatchTier {
 crates/lgwks-bot/src/session/resolve.rs:245	pub enum DegradedReason {
 crates/lgwks-bot/src/session/resolve.rs:256	/// not folded into it.
 crates/lgwks-bot/src/session/resolve.rs:282	/// journal could not write down.
-crates/lgwks-bot/src/session/runner.rs:196	pub fn current_node(&self) -> Option<&NodeKind> {
 crates/lgwks-bot/src/session/runner/record.rs:68	return refusal;
 crates/lgwks-bot/src/session/runner/record.rs:198	if bytes > record_bytes {
 crates/lgwks-bot/src/session/runner/record.rs:223	self.record(node_id, "resolver-degraded", &text)

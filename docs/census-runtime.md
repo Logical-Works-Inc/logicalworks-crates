@@ -92,16 +92,11 @@ emptied, 6 of them at least 12 characters, found in two modules. Two blocks pass
 The other 32 pairs share only bare `assert!(` openers.
 
 ## Delete: no caller
-Each item has no graph edge, no other tracked `.rs` file names it, and its own file names it once.
-
-- `crates/lgwks-bot/src/domain/gh.rs:167` `api_path`.
-- `crates/lgwks-bot/src/domain/inspect.rs:97`, `:104`, `:111`, `:118`: `with_language`, `with_language_version`, `with_rules`, `with_scope`.
-- `crates/lgwks-bot/src/journal/continuation.rs:421`, `:427`: `events_watermark`, `bytes_watermark`.
-- `crates/lgwks-bot/src/journal/file/open.rs:222` `own_seal`; `crates/lgwks-bot/src/proposal/codec.rs:106` `with_max_field_bytes`.
-- `crates/lgwks-bot/src/proposal/completion.rs:365` `from_outcome`; `crates/lgwks-bot/src/proposal/mod.rs:661` `is_spent`.
-- `crates/lgwks-bot/src/proposal/surface.rs:201` `holding_all_shipped`; `crates/lgwks-bot/src/review.rs:178`, `:361`: `step_budget`, `is_partial`.
-- `crates/lgwks-bot/src/session/graph.rs:371` `with_resources`; `crates/lgwks-bot/src/session/runner.rs:196` `current_node`.
-- `crates/lgwks-bot/src/session/receipt.rs:331`, `:337`: `into_records`, `into_receipts`.
+Each item had no graph edge, no other tracked `.rs` file named it, and its own file named it once. #1016 deleted
+all 18. They were `api_path`; `with_language`, `with_language_version`, `with_rules`, `with_scope`; `events_watermark`,
+`bytes_watermark`; `own_seal` and the field only it read; `with_max_field_bytes`; `from_outcome`; `is_spent`;
+`holding_all_shipped`; `step_budget`, `is_partial`; `with_resources`; `current_node`; `into_records`,
+`into_receipts`.
 
 ## Merge: same job twice
 - `genesis_head`, one signature, three copies: `crates/lgwks-bot/src/task/ledger.rs:85`,
@@ -114,6 +109,6 @@ Each file sits in its ADR 0052 planned crate and imports a crate that one may no
 
 - `crates/lgwks-bot/src/sealed/sweep.rs:30` (kernel) imports `rt::task`; lines 29 and 31 import `rt::sync` and `task`.
 - `crates/lgwks-bot/src/sealed/runstore.rs:17` (kernel) imports `script::run_store`.
-- `crates/lgwks-bot/src/rt/runtime.rs:452`, `:454` (rt) import `rt::estate` (app) and `task` (script).
+- `crates/lgwks-bot/src/rt/runtime.rs:455`, `:458` (rt) import `rt::estate` (app) and `task` (script).
 - `crates/lgwks-bot/src/script/serve.rs:8` (script) imports `rt::serve` (app).
 - `crates/lgwks-bot/src/ecs.rs:231`, `:246` (world) re-export `cell` and `ecs::requests` (app).

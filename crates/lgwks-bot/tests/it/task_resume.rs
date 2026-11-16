@@ -25,7 +25,7 @@
 //! finished step after the `SIGKILL` means the record really was on the disk and
 //! the resume really replayed it rather than re-running the body.
 
-#![cfg(all(feature = "script", feature = "ephemeral"))]
+#![cfg(all(feature = "script", feature = "ephemeral", feature = "fs"))]
 
 use crate::scratch::Scratch;
 
@@ -118,7 +118,7 @@ fn a_run_without_a_store_claims_no_durability() -> TestResult {
     let host = Host::builder("acme")?.build()?;
     let input = scratch.path().to_path_buf();
 
-    let report = lgwks_bot::block_on(host.run(&three_step_task()?, input.clone()));
+    let report = lgwks_bot::script::block_on(host.run(&three_step_task()?, input.clone()));
     assert_eq!(report.disposition(), Disposition::Succeeded);
     assert_eq!(report.output(), Some(&10));
     assert_eq!(
@@ -141,14 +141,15 @@ fn a_run_without_a_store_claims_no_durability() -> TestResult {
 
     // The same work again re-runs every step: at-least-once is the whole of the
     // claim when nothing is recorded.
-    let again = lgwks_bot::block_on(host.run(&three_step_task()?, input.clone()));
+    let again = lgwks_bot::script::block_on(host.run(&three_step_task()?, input.clone()));
     assert_eq!(again.output(), Some(&10));
     assert_eq!(ran(scratch.path(), "alpha")?, 2);
 
     // A *resume* on this host is refused before any step: running every step
     // again under a caller's belief that finished ones are kept is the silent
     // downgrade a resume exists to rule out.
-    let resumed = lgwks_bot::block_on(host.resume(RunId::mint()?, &three_step_task()?, input));
+    let resumed =
+        lgwks_bot::script::block_on(host.resume(RunId::mint()?, &three_step_task()?, input));
     assert_eq!(resumed.disposition(), Disposition::Refused);
     assert_eq!(resumed.run_id(), None);
     assert!(
@@ -170,11 +171,11 @@ fn a_recorded_step_returns_without_polling_its_future() -> TestResult {
     let host = stored_host("acme", &store)?;
     let input = scratch.path().to_path_buf();
 
-    let one = lgwks_bot::block_on(host.run(&three_step_task()?, input.clone()));
+    let one = lgwks_bot::script::block_on(host.run(&three_step_task()?, input.clone()));
     assert_eq!(one.output(), Some(&10));
     let run = one.run_id().ok_or("a stored run must name its run id")?;
 
-    let two = lgwks_bot::block_on(host.resume(run, &three_step_task()?, input.clone()));
+    let two = lgwks_bot::script::block_on(host.resume(run, &three_step_task()?, input.clone()));
     assert_eq!(two.output(), Some(&10));
     assert_eq!(
         ran(scratch.path(), "gamma")?,
@@ -185,7 +186,7 @@ fn a_recorded_step_returns_without_polling_its_future() -> TestResult {
     // A store reopened over the same file replays them too, which is the claim a
     // restart actually rests on.
     let reopened = stored_host("acme", &store)?;
-    let three = lgwks_bot::block_on(reopened.resume(run, &three_step_task()?, input));
+    let three = lgwks_bot::script::block_on(reopened.resume(run, &three_step_task()?, input));
     assert_eq!(three.output(), Some(&10));
     assert_eq!(ran(scratch.path(), "gamma")?, 1);
     Ok(())
@@ -237,7 +238,7 @@ fn a_killed_process_resumes_without_rerunning_finished_steps() -> TestResult {
     );
 
     let host = stored_host("acme", &store)?;
-    let report = lgwks_bot::block_on(host.resume(run, &three_step_task()?, work.clone()));
+    let report = lgwks_bot::script::block_on(host.resume(run, &three_step_task()?, work.clone()));
 
     assert_eq!(
         report.disposition(),
@@ -281,7 +282,9 @@ async fn three_steps(scope: Scope, dir: PathBuf, run_file: Arc<Path>) -> Result<
     let run = scope
         .run()
         .ok_or_else(|| FlowError::failed("a stored run must carry a run id"))?;
-    std::fs::write(&*run_file, run.id().to_hex()).map_err(FlowError::failed)?;
+    lgwks_bot::rt::fs::write(&*run_file, run.id().to_hex())
+        .await
+        .map_err(FlowError::failed)?;
     remember(&scope, "beta", || async { Ok::<_, FlowError>(3u32) }).await?;
     record_run(&dir, "beta")?;
     // Park here: this step's body starts, its record never lands, and the
@@ -316,7 +319,7 @@ fn child_body() -> TestResult {
         three_steps(scope, dir, run_file)
     })?;
 
-    let report = lgwks_bot::block_on(host.run(&body, work));
+    let report = lgwks_bot::script::block_on(host.run(&body, work));
     if report.disposition() != Disposition::Succeeded {
         let refusal = Err(format!("the child run did not succeed: {:?}", report.error()).into());
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "child_body: returning an error to the caller");
@@ -411,12 +414,12 @@ fn two_tenants_resuming_one_run_id_stay_isolated() -> TestResult {
     let alpha = Host::builder("alpha")?
         .store(RunStore::open(&shared)?)
         .build()?;
-    let seeded = lgwks_bot::block_on(alpha.run(&three_step_task()?, input.clone()));
+    let seeded = lgwks_bot::script::block_on(alpha.run(&three_step_task()?, input.clone()));
     assert_eq!(seeded.output(), Some(&10));
     let run = seeded.run_id().ok_or("a stored run must name its run id")?;
 
     // The owner replays its own records.
-    let mine = lgwks_bot::block_on(alpha.resume(run, &three_step_task()?, input.clone()));
+    let mine = lgwks_bot::script::block_on(alpha.resume(run, &three_step_task()?, input.clone()));
     assert_eq!(mine.output(), Some(&10));
 
     // A second tenant over the same bytes is refused, and the refusal names the
@@ -424,7 +427,7 @@ fn two_tenants_resuming_one_run_id_stay_isolated() -> TestResult {
     let beta = Host::builder("beta")?
         .store(RunStore::open(&shared)?)
         .build()?;
-    let theirs = lgwks_bot::block_on(beta.resume(run, &three_step_task()?, input));
+    let theirs = lgwks_bot::script::block_on(beta.resume(run, &three_step_task()?, input));
     assert_eq!(
         theirs.disposition(),
         Disposition::Refused,
@@ -470,7 +473,7 @@ fn a_recorded_step_replays_under_a_changed_body() -> TestResult {
     let first = task("value", |scope: Scope, n: u32| async move {
         remember(&scope, "the-step", || async move { Ok::<_, FlowError>(n) }).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&first, 1u32));
+    let report = lgwks_bot::script::block_on(host.run(&first, 1u32));
     assert_eq!(report.output(), Some(&1));
     let run = report.run_id().ok_or("a stored run must name its run id")?;
 
@@ -479,7 +482,7 @@ fn a_recorded_step_replays_under_a_changed_body() -> TestResult {
     let second = task("value", |scope: Scope, n: u32| async move {
         remember(&scope, "the-step", || async move { Ok::<_, FlowError>(n) }).await
     })?;
-    let replayed = lgwks_bot::block_on(host.resume(run, &second, 2u32));
+    let replayed = lgwks_bot::script::block_on(host.resume(run, &second, 2u32));
     assert_eq!(
         replayed.output(),
         Some(&1),
@@ -499,7 +502,7 @@ fn a_stopped_run_carries_a_ticket_that_names_where_it_stopped() -> TestResult {
         })
         .await
     })?;
-    let report = lgwks_bot::block_on(host.run(&failing, scratch.path().to_path_buf()));
+    let report = lgwks_bot::script::block_on(host.run(&failing, scratch.path().to_path_buf()));
 
     assert_eq!(report.disposition(), Disposition::Failed);
     let ticket = report
@@ -530,7 +533,8 @@ fn a_stopped_run_carries_a_ticket_that_names_where_it_stopped() -> TestResult {
     );
 
     // A succeeded run carries none: there is nothing to resume.
-    let ok = lgwks_bot::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
+    let ok =
+        lgwks_bot::script::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
     assert_eq!(ok.ticket(), None);
     Ok(())
 }
@@ -547,14 +551,17 @@ fn a_foreign_ticket_is_refused_before_any_step_runs() -> TestResult {
         })
         .await
     })?;
-    let report = lgwks_bot::block_on(alpha.run(&failing, scratch.path().to_path_buf()));
+    let report = lgwks_bot::script::block_on(alpha.run(&failing, scratch.path().to_path_buf()));
     let ticket = report
         .ticket()
         .ok_or("a stopped stored run must carry a ticket")?;
 
     let beta = stored_host("beta", &store_dir)?;
-    let refused =
-        lgwks_bot::block_on(beta.resume_ticket(ticket, &three_step_task()?, PathBuf::new()));
+    let refused = lgwks_bot::script::block_on(beta.resume_ticket(
+        ticket,
+        &three_step_task()?,
+        PathBuf::new(),
+    ));
     match refused {
         Err(error) => {
             let text = error.to_string();
@@ -582,13 +589,14 @@ fn a_foreign_ticket_is_refused_before_any_step_runs() -> TestResult {
 fn a_duplicate_append_of_the_same_record_is_a_no_op() -> TestResult {
     let scratch = Scratch::new("dupe")?;
     let host = stored_host("acme", &scratch.path().join("store"))?;
-    let once = lgwks_bot::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
+    let once =
+        lgwks_bot::script::block_on(host.run(&three_step_task()?, scratch.path().to_path_buf()));
     let run = once.run_id().ok_or("a stored run must name its run id")?;
     let store = host.run_store().ok_or("a stored host keeps a store")?;
     let before = store.committed_bytes();
 
     for _ in 0..3 {
-        let replay = lgwks_bot::block_on(host.resume(
+        let replay = lgwks_bot::script::block_on(host.resume(
             run,
             &three_step_task()?,
             scratch.path().to_path_buf(),

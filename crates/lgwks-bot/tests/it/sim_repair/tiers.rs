@@ -26,14 +26,14 @@ fn the_declared_repair_tiers_are_measured() -> TestResult {
         let mut answered = 0_usize;
         for _ in 0..tier {
             let polls = Polls::shared();
-            let report = lgwks_bot::block_on(host.run(
+            let report = lgwks_bot::script::block_on(host.run(
                 &declared,
                 input_needing(Arc::clone(&polls), 7, candidate_needs()),
             ));
             let Some(ticket) = report.repair() else {
                 break;
             };
-            let repaired = lgwks_bot::block_on(host.repair(
+            let repaired = lgwks_bot::script::block_on(host.repair(
                 ticket,
                 &grants,
                 &declared,

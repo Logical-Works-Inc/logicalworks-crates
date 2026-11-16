@@ -38,7 +38,7 @@ use std::time::{Duration, Instant};
 
 use lgwks_bot::rt::sync::{CancellationToken, Semaphore};
 use lgwks_bot::rt::task::{JoinSet, join_all_bounded};
-use lgwks_bot::rt::time::{sleep, timeout};
+use lgwks_bot::rt::time::{Clock, timeout};
 use lgwks_bot::script::{FlowError, Scope, Tenant, within};
 use lgwks_bot::task::{Host, task};
 
@@ -46,6 +46,10 @@ use lgwks_bot::task::{Host, task};
 mod lock;
 
 use lock::take_unpoisoned;
+
+/// How long after the run returns the bench waits before it counts the bodies
+/// still alive: a body that outlives its run shows up in that count.
+const LIVENESS_GRACE: Duration = Duration::from_millis(200);
 
 /// Which workload runs.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -178,6 +182,9 @@ struct Ctx {
     spec: Spec,
     /// The counters.
     probe: Arc<Probe>,
+    /// The clock every wait outside a step runs on: the upstream's latency, the
+    /// caller's cancel delay and the liveness grace.
+    clock: Clock,
 }
 
 impl Ctx {
@@ -195,7 +202,10 @@ impl Ctx {
             Scenario::Cancel => 50,
             Scenario::Deadline => 2_000,
         };
-        sleep(Duration::from_millis(pause)).await;
+        // The upstream's latency is a wait outside every step, so it runs on the
+        // clock the run owns: real time here, no time under a virtual clock.
+        let latency = Duration::from_millis(pause);
+        self.clock.sleep(latency).await;
         let mut served = take_unpoisoned(&self.probe.served);
         match self.spec.scenario {
             Scenario::Storm => {
@@ -258,7 +268,7 @@ async fn by_hand(ctx: Arc<Ctx>, tenant: Arc<str>, item: u32) -> Result<u64, Flow
             return Err(error);
         }
         attempt = attempt.saturating_add(1);
-        sleep(ctx.spec.wait).await;
+        ctx.clock.sleep(ctx.spec.wait).await;
     };
     live.finish();
     Ok(value)
@@ -272,7 +282,10 @@ async fn by_join_all(ctx: Arc<Ctx>, tenant: Arc<str>, items: Vec<u32>) -> Result
         .into_iter()
         .map(|item| by_hand(Arc::clone(&ctx), Arc::clone(&tenant), item));
     let mut total: u64 = 0;
-    for outcome in join_all_bounded(ctx.spec.bound, futures).await {
+    let outcomes = join_all_bounded(ctx.spec.bound, futures)
+        .await
+        .map_err(|why| FlowError::failed(why.to_string()))?;
+    for outcome in outcomes {
         total = total.saturating_add(outcome?);
     }
     Ok(total)
@@ -353,7 +366,7 @@ async fn host_item(host: Host, ctx: Arc<Ctx>, scope: Scope, item: u32) -> Result
                     return Err(error);
                 }
                 attempt = attempt.saturating_add(1);
-                sleep(ctx.spec.wait).await;
+                ctx.clock.sleep(ctx.spec.wait).await;
             }
         }
     };
@@ -514,8 +527,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = Arc::new(Ctx {
         spec: Spec::of(scenario),
         probe: Arc::new(Probe::default()),
+        clock: Clock::wall(),
     });
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let stop = CancellationToken::new();
     let started = Instant::now();
     let way: Arc<str> = Arc::from(way.as_str());
@@ -539,11 +553,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
             let cancel = async {
                 if let Some(after) = ctx.spec.cancel_after {
-                    sleep(after).await;
+                    ctx.clock.sleep(after).await;
                     stop.cancel();
                 }
             };
-            let ((), results) = lgwks_bot::join!(cancel, runs);
+            let ((), results) = lgwks_bot::rt::join!(cancel, runs);
             let mut total: u64 = 0;
             for outcome in results {
                 total = total.saturating_add(outcome?);
@@ -563,7 +577,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ));
         }
         if let Some(after) = ctx.spec.cancel_after {
-            sleep(after).await;
+            ctx.clock.sleep(after).await;
             stop.cancel();
         }
         let mut total: u64 = 0;
@@ -578,7 +592,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let probe = &ctx.probe;
     let live_at_return = probe.live.load(Ordering::Relaxed);
     let finished_at_return = probe.finished.load(Ordering::Relaxed);
-    runtime.block_on(sleep(Duration::from_millis(200)));
+    runtime.block_on(ctx.clock.sleep(LIVENESS_GRACE));
     let live_after_grace = probe.live.load(Ordering::Relaxed);
     let finished_after_return = probe
         .finished

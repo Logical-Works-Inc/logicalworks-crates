@@ -104,15 +104,15 @@ impl ModelOutput {
 impl From<(Vec<u8>, bool)> for ModelOutput {
     /// The output `bytes`, marked truncated as `truncated` says.
     ///
-    /// The one construction a caller outside the crate needs: the stub a
-    /// test installs answers a fixed output through it, and truncation is a
-    /// fact its port reports rather than a shape it assembles.
+    /// The one construction a caller outside the crate needs: the test
+    /// double a test installs answers a fixed output through it, and truncation is
+    /// a fact its port reports rather than a shape it assembles.
     fn from((bytes, truncated): (Vec<u8>, bool)) -> Self {
         Self { bytes, truncated }
     }
 }
 
-/// The provider behind an `ask`: a port the tests stub.
+/// The provider behind an `ask`: a port the tests replace with a double.
 ///
 /// Implemented by the model the run calls. The contract is total: `complete`
 /// answers the output for `prompt` within `max_tokens`, marking it truncated
@@ -153,7 +153,7 @@ where
 }
 
 impl ModelPort for StubModel {
-    /// The stub never fails: its output is a pure function of its seed.
+    /// This test double never fails: its output is a pure function of its seed.
     type Error = FlowError;
 
     /// The seed's output, cut at `max_tokens` and marked truncated when the
@@ -196,7 +196,7 @@ impl ModelPort for StubModel {
 ///
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use lgwks_bot::task::{Host, task};
-/// use lgwks_bot::{Cap, GrantSet};
+/// use lgwks_bot::{cap::Cap, gate::GrantSet};
 ///
 /// let host = Host::builder("acme")?
 ///     .grants(GrantSet::empty().grant(Cap::new("bot.model")))
@@ -204,7 +204,7 @@ impl ModelPort for StubModel {
 /// let drafting = task("draft", |scope: lgwks_bot::script::Scope, seed: u64| async move {
 ///     draft(&scope, &lgwks_bot::proposal::StubModel::from_seed(seed)).await
 /// })?;
-/// let report = lgwks_bot::block_on(host.run(&drafting, 0));
+/// let report = lgwks_bot::script::block_on(host.run(&drafting, 0));
 /// assert!(
 ///     matches!(report.error(), Some(lgwks_bot::script::FlowError::InvalidBound { .. })),
 ///     "a zero token budget is refused before the model is called"

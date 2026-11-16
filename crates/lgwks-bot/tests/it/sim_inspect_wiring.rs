@@ -12,12 +12,14 @@ use crate::inspect_support;
 
 use inspect_support::sim::{Rng, Trace};
 use inspect_support::{INSPECT_DOMAINS, TestResult, artifact_for, observe_once, scope};
+use lgwks_bot::cap::Cap;
 use lgwks_bot::domain::inspect::{InspectionJob, Inspector, inspection_task};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::inspect::{Budgets, IncompleteReason, InspectRequest, Inspection, Verdict, inspect};
 use lgwks_bot::spec::Bot;
+use lgwks_bot::spec::{Admission, Need};
 use lgwks_bot::task::Host;
 use lgwks_bot::verb::Query;
-use lgwks_bot::{Admission, Cap, GrantSet, Need};
 
 /// The call sites the generator may place, each paired with whether the shipped
 /// `rust/no-unwrap` rule matches it.

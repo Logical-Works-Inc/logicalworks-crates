@@ -25,7 +25,7 @@ const BUDGET: Duration = Duration::from_secs(10);
 
 #[test]
 fn run_process_reports_an_exit_code_and_a_signal_distinctly() -> TestResult {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
 
@@ -59,7 +59,7 @@ fn run_process_reports_an_exit_code_and_a_signal_distinctly() -> TestResult {
 
 #[test]
 fn run_process_captures_stdout_and_stderr_exactly_under_the_limit() -> TestResult {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         let run = supervisor
@@ -87,7 +87,7 @@ fn a_chatty_child_is_drained_and_truncated_within_its_ceiling() -> TestResult {
     // proves the child is drained while it runs rather than blocking on a full
     // pipe.
     let script = "head -c 52428800 /dev/zero; head -c 52428800 /dev/zero 1>&2";
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         let run = supervisor
@@ -181,7 +181,7 @@ fn a_flooding_child_is_drained_while_it_runs_not_after_it_exits() -> TestResult 
     spec.capture_stdout(NonZeroUsize::new(LIMIT).ok_or("a ceiling of at least one")?);
     spec.capture_stderr(NonZeroUsize::new(LIMIT).ok_or("a ceiling of at least one")?);
     spec.deadline(Duration::from_millis(DEADLINE_MS));
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let run = runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         supervisor.run_process(&spec).await
@@ -216,7 +216,7 @@ fn a_deadline_kill_is_reported_as_a_deadline_and_reaps_the_group() -> TestResult
     // command writes: at 200 ms a loaded host killed the shell before it ran
     // (`the shell never recorded its pid`, under seven concurrent builds).
     spec.deadline(Duration::from_secs(2));
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let (deadline_fired, cleanup, leader) = runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         let run = supervisor.run_process(&spec).await?;
@@ -252,7 +252,7 @@ fn a_zero_exit_reaps_a_living_descendant_before_claiming_cleanup() -> TestResult
         child_file.display(),
         shell_file.display()
     );
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let (exit_code, cleanup, leader, descendant) = runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         let run = supervisor.run_process(&shell(&script)).await?;
@@ -284,7 +284,7 @@ fn a_zero_exit_reaps_a_living_descendant_before_claiming_cleanup() -> TestResult
 
 #[test]
 fn a_program_that_cannot_start_is_a_typed_pre_fork_refusal() -> TestResult {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         match supervisor
@@ -310,7 +310,7 @@ fn a_program_that_cannot_start_is_a_typed_pre_fork_refusal() -> TestResult {
 
 #[test]
 fn a_cancelled_supervisor_refuses_before_starting_anything() -> TestResult {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         supervisor.cancel();
@@ -356,7 +356,7 @@ fn many_processes_stay_within_the_in_flight_bound() -> TestResult {
         seen = seen.path().join("").display(),
         done = done.path().join("").display(),
     );
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let (completed, succeeded) = runtime.block_on(async {
         let mut supervisor = Supervisor::new(BOUND);
         for _ in 0..PROCESSES {
@@ -405,7 +405,7 @@ fn dropping_a_run_future_after_the_fork_leaves_no_orphan() -> TestResult {
     // The descendant is forked before the pid is written, so the drop lands
     // after the fork (T20), never while one is in progress.
     let script = format!("sleep 60 & echo $$ > {}; wait", pid_file.display());
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     // The run future is dropped the moment its child reports its pid: the fork
     // has happened, the child is asleep, and the future goes away mid-flight.
     // The outer timeout only bounds a runner that never wakes again.

@@ -56,7 +56,7 @@ use crate::rt::supervise::Supervisor;
 /// executable is resolved through `PATH` by the operating system, which is the
 /// honest statement of what this adapter trusts: it does not verify the
 /// client's identity, and a caller who needs that must pin a path. The
-/// [`BotSpec`](crate::BotSpec) for a deployment declares that trust in the
+/// [`BotSpec`](crate::spec::BotSpec) for a deployment declares that trust in the
 /// adapter set rather than discovering it by running something.
 #[derive(Debug, Clone)]
 pub struct Gh {
@@ -160,12 +160,6 @@ impl Gh {
     #[must_use]
     pub fn repository(&self) -> &Repository {
         &self.repository
-    }
-
-    /// `gh api <path>` for a repository-scoped REST path.
-    #[must_use]
-    pub fn api_path(&self, suffix: &str) -> String {
-        format!("repos/{}{suffix}", self.repository.as_str())
     }
 
     /// One supervised `gh` call, or the typed failure of running it.

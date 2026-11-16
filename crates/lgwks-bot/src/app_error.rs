@@ -37,7 +37,8 @@ use crate::{
 /// A kernel failure rides in the `Kernel` arm and prints as the kernel's own line.
 ///
 /// ```
-/// use lgwks_bot::{BotError, KernelError};
+/// use lgwks_bot::app_error::BotError;
+/// use lgwks_bot::error::KernelError;
 ///
 /// let kernel = KernelError::EffectIndeterminate {
 ///     domain: String::from("gh::issue"),
@@ -70,7 +71,8 @@ impl BotError {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{BotError, DispatchCertainty, KernelError};
+    /// use lgwks_bot::app_error::BotError;
+    /// use lgwks_bot::error::{DispatchCertainty, KernelError};
     ///
     /// let failure = BotError::from(KernelError::EffectIndeterminate {
     ///     domain: String::from("gh::issue"),
@@ -98,7 +100,9 @@ impl BotError {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{BotError, EcsError, RetryClass};
+    /// use lgwks_bot::app_error::BotError;
+    /// use lgwks_bot::ecs::EcsError;
+    /// use lgwks_bot::error::RetryClass;
     ///
     /// let failure = BotError::from(EcsError::TickInsideRuntime);
     /// assert_eq!(failure.retry_class(), RetryClass::Never);

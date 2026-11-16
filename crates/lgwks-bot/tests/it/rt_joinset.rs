@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::sync::oneshot;
 use lgwks_bot::rt::task::JoinSet;
 use lgwks_bot::rt::time::timeout;

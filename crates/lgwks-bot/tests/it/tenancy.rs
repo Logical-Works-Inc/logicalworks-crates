@@ -21,10 +21,10 @@ use std::error::Error;
 use std::io::Write as _;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::Runtime;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{SpawnRefused, Supervisor};
 use lgwks_bot::rt::tenancy::TenancyPolicy;
-use lgwks_bot::rt::time::sleep;
+use lgwks_bot::rt::time::{Clock, sleep};
 use lgwks_bot::script::Tenant;
 
 use crate::tenancy_harness::{Gate, bounded, percentile, submit_parked, wide};
@@ -49,6 +49,9 @@ const QUIET_HOLD: Duration = Duration::from_millis(2);
 /// Wait until `predicate` holds, or the budget runs out. A bounded poll, so a
 /// defect that stops bodies from parking is a failure rather than a hang.
 async fn until(budget: Duration, mut predicate: impl FnMut() -> bool) -> Result<(), String> {
+    /// How long the poll waits between looks at the predicate.
+    const POLL_STEP: Duration = Duration::from_millis(1);
+    let clock = Clock::wall();
     let start = Instant::now();
     while !predicate() {
         if start.elapsed() >= budget {
@@ -56,7 +59,7 @@ async fn until(budget: Duration, mut predicate: impl FnMut() -> bool) -> Result<
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "until: returning an error to the caller");
             return refusal;
         }
-        sleep(Duration::from_millis(1)).await;
+        clock.sleep(POLL_STEP).await;
     }
     Ok(())
 }
@@ -487,7 +490,7 @@ fn a_tenant_that_submits_ten_thousand_tasks_cannot_starve_another() -> TestResul
         ))
     })?;
 
-    let (submitted, admitted, refused_tenant, refused_supervisor, rounds, peak, quiet_waits) =
+    let (submitted, admitted, refused_tenant, refused_supervisor, _rounds, peak, quiet_waits) =
         flooded;
     assert_eq!(
         submitted, LOUD_TOTAL,
@@ -551,8 +554,6 @@ fn a_tenant_that_submits_ten_thousand_tasks_cannot_starve_another() -> TestResul
          ({flood_p99:?}, p50 {flood_p50:?}) is more than twice the {base_p99:?} it \
          pays alone (ceiling {ceiling_p99:?})"
     );
-    let _ = base_p50;
-    let _ = rounds;
     Ok(())
 }
 
@@ -617,7 +618,13 @@ fn every_tenant_of_a_fleet_is_admitted_at_each_declared_in_flight_tier() -> Test
             admitted, FLEET,
             "at tier {tier} every one of {FLEET} tenants was admitted"
         );
-        let _ = (p50, p99, contested);
+        // The measured line the readiness section quotes.
+        let mut line = std::io::stdout().lock();
+        let _written = writeln!(
+            line,
+            "tier {tier}: tenants {FLEET} admitted {admitted} contested {contested} \
+             admission-wait p50 {p50:?} p99 {p99:?}",
+        );
     }
     Ok(())
 }

@@ -249,7 +249,7 @@ impl RunRecords for RunStore {
     fn append_async<'a>(
         &'a self,
         record: StagedRecord<'a>,
-    ) -> crate::BoxFuture<'a, Result<Appended, FlowError>> {
+    ) -> crate::verb::BoxFuture<'a, Result<Appended, FlowError>> {
         let staged = self.owned(record);
         Box::pin(async move { self.commit_async(staged).await.map_err(FlowError::from) })
     }

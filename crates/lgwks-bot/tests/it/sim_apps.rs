@@ -155,7 +155,7 @@ fn the_admitted_plan_matches_the_compiled_graph_trace() -> TestResult {
             }
         };
         let scope = Scope::root(Tenant::new("acme")?);
-        let lines = lgwks_bot::block_on(run_app(&scope, &store, admitted.id()))?;
+        let lines = lgwks_bot::script::block_on(run_app(&scope, &store, admitted.id()))?;
         // The compiled path: the same operations through the public graph.
         let scope = Scope::root(Tenant::new("acme")?);
         let mut nodes = Vec::with_capacity(ops.len());
@@ -175,7 +175,7 @@ fn the_admitted_plan_matches_the_compiled_graph_trace() -> TestResult {
                 },
             ));
         }
-        let report = lgwks_bot::block_on(graph(&scope, "plan", ops.len(), nodes))
+        let report = lgwks_bot::script::block_on(graph(&scope, "plan", ops.len(), nodes))
             .map_err(|error| seeded(sim.seed, format!("graph refused: {error}")))?;
         let mut expected = Vec::with_capacity(ops.len());
         for op in &ops {
@@ -228,7 +228,7 @@ fn the_admitted_plan_matches_the_compiled_graph_trace() -> TestResult {
                 return Err(seeded(sim.seed, "fixed plan refused with an unknown outcome"));
             }
         };
-        let fixed_lines = lgwks_bot::block_on(run_app(&scope, &store, fixed.id()))?;
+        let fixed_lines = lgwks_bot::script::block_on(run_app(&scope, &store, fixed.id()))?;
         let scope = Scope::root(Tenant::new("acme")?);
         let fetch = demo
             .get("fetch")
@@ -236,7 +236,7 @@ fn the_admitted_plan_matches_the_compiled_graph_trace() -> TestResult {
         let render = demo
             .get("render")
             .ok_or_else(|| "the demo registry lost render".to_owned())?;
-        let scripted = lgwks_bot::block_on(reference(&scope, fetch, render))?;
+        let scripted = lgwks_bot::script::block_on(reference(&scope, fetch, render))?;
         let printed: Vec<String> = fixed_lines
             .iter()
             .map(|line| String::from_utf8_lossy(line.as_slice()).into_owned())
@@ -470,7 +470,7 @@ fn two_tenants_admitting_one_plan_stay_isolated() -> TestResult {
             }
         };
         let other = Scope::root(Tenant::new("other")?);
-        match lgwks_bot::block_on(run_app(&other, &store, admitted.id())) {
+        match lgwks_bot::script::block_on(run_app(&other, &store, admitted.id())) {
             Err(error) if error.kind() == lgwks_bot::rt::apps::RunKind::UnknownApp => {}
             other => {
                 return Err(seeded(
@@ -498,7 +498,7 @@ fn two_tenants_admitting_one_plan_stay_isolated() -> TestResult {
         if admitted.id() != same.id() {
             return Err(seeded(sim.seed, "gave one plan two ids"));
         }
-        let lines = lgwks_bot::block_on(run_app(&other, &store, same.id()))?;
+        let lines = lgwks_bot::script::block_on(run_app(&other, &store, same.id()))?;
         if lines.len() != 1 {
             return Err(seeded(
                 sim.seed,

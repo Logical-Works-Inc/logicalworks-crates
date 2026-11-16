@@ -1,9 +1,7 @@
 # API sheet — the old surface: `lgwks_bot::rt`
 
-You may use only the items on this sheet plus `std` and `ai_task_support`.
-
-This is the low-level async surface. Every item below is a real public item of
-the crate. Signatures are given exactly as they are declared.
+You may use only the items on this sheet plus `std` and `ai_task_support`. This is the
+low-level async surface. Every item below is a real public item of the crate.
 
 ## Entering async
 
@@ -19,28 +17,21 @@ the crate. Signatures are given exactly as they are declared.
 
 ## Bounded fan-out
 
-- `lgwks_bot::rt::task::join_all_bounded`
-  ```rust
-  pub async fn join_all_bounded<F, T>(
-      limit: usize,
-      futures: impl IntoIterator<Item = F>,
-  ) -> Vec<T>
-  where
-      F: Future<Output = T> + Send + 'static,
-      T: Send + 'static;
-  ```
+- `pub async fn lgwks_bot::rt::task::join_all_bounded<F, T>(limit: usize, futures: impl IntoIterator<Item = F>) -> Result<Vec<T>, FanOutError>`
+  where `F: Future<Output = T> + Send + 'static, T: Send + 'static`.
   Runs every future, never more than `limit` at once, and returns their outputs
   in **input order**. Dropping the returned future aborts every unfinished task.
   It does **not** stop on the first error: inspect the results yourself.
+- `FanOutError` — `Panicked(JoinError)` (an input panicked), `Cancelled(JoinError)`,
+  `Lost { index }`; implements `std::error::Error`.
 - `lgwks_bot::rt::task::JoinSet<T>` — a task set that owns what it starts.
+  Dropping the set aborts its remaining tasks.
   - `fn new() -> JoinSet<T>`
   - `fn spawn<F>(&mut self, future: F) -> AbortHandle`
     where `F: Future<Output = T> + Send + 'static, T: 'static`
   - `async fn join_next(&mut self) -> Option<Result<T, JoinError>>`
   - `fn try_join_next(&mut self) -> Option<Result<T, JoinError>>`
-  - `fn abort_all(&mut self)`
-  - `fn is_empty(&self) -> bool`, `fn len(&self) -> usize`
-  Dropping the set aborts its remaining tasks.
+  - `fn abort_all(&mut self)`, `fn is_empty(&self) -> bool`, `fn len(&self) -> usize`
 - `JoinError`, `AbortHandle`, and `async fn yield_now()`.
 
 ## Supervision
@@ -52,12 +43,9 @@ the crate. Signatures are given exactly as they are declared.
   - `async fn spawn<F, Fut>(&mut self, body: F)`
     where `F: FnOnce(CancellationToken) -> Fut, Fut: Future<Output = ()> + Send + 'static`
   - `fn try_spawn<F, Fut>(&mut self, body: F) -> Result<(), TrySpawnRefusal>`
-  - `fn cancel(&self)`, `fn is_cancelled(&self) -> bool`
-  - `fn child_token(&self) -> CancellationToken`
-  - `fn stats(&self) -> Stats`
-  - `fn next_report(&mut self) -> Option<TaskOutcome>`
-  - `fn reap(&mut self) -> usize`
-  - `fn snapshot(&self) -> SupervisorSnapshot`
+  - `fn cancel(&self)`, `fn is_cancelled(&self) -> bool`, `fn child_token(&self) -> CancellationToken`
+  - `fn stats(&self) -> Stats`, `fn snapshot(&self) -> SupervisorSnapshot`
+  - `fn next_report(&mut self) -> Option<TaskOutcome>`, `fn reap(&mut self) -> usize`
   - `async fn shutdown(self) -> ShutdownReport`
 - `Stats` — public fields `spawned, completed, succeeded, failed, cancelled,
   aborted, panicked, refused, reports_dropped` (all `u64`), and
@@ -75,53 +63,38 @@ the crate. Signatures are given exactly as they are declared.
 ## Cancellation
 
 - `lgwks_bot::rt::cancel::CancellationToken`
-  - `fn new() -> CancellationToken`
-  - `fn cancel(&self)`, `fn is_cancelled(&self) -> bool`
-  - `async fn cancelled(&self)`
-  - `fn cancelled_owned(&self) -> impl Future<Output = ()> + Send + 'static`
-  - `fn child_token(&self) -> CancellationToken`
-  - `fn drop_guard(self) -> DropGuard`
+  - `fn new() -> CancellationToken`, `fn cancel(&self)`, `fn is_cancelled(&self) -> bool`
+  - `async fn cancelled(&self)`, `fn cancelled_owned(&self) -> impl Future<Output = ()> + Send + 'static`
+  - `fn child_token(&self) -> CancellationToken`, `fn drop_guard(self) -> DropGuard`
   - `async fn run_until_cancelled<F: Future>(&self, future: F) -> Option<F::Output>`
 
-## Time
+## Time and sync
 
-- `lgwks_bot::rt::time::sleep(duration: std::time::Duration)` —
-  `async fn`; the deadline is captured on first poll.
+- `lgwks_bot::rt::time::sleep(duration: std::time::Duration)` — `async fn`; the deadline is captured on first poll.
 - `lgwks_bot::rt::time::timeout<F: Future>(duration: Duration, future: F) -> Result<F::Output, Elapsed>`
 - `lgwks_bot::rt::time::{timeout_at, sleep_until, Instant}`.
-
-## Sync
-
 - `lgwks_bot::rt::sync::{mpsc, oneshot, broadcast, watch, Mutex, RwLock,
   Semaphore, Notify, Barrier}` — the engine's bounded channels and async locks,
   re-exported. Use `Semaphore` for a hand-built admission bound.
 
 ## A bounded fan-out in this API
-
 ```rust
 use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::task::join_all_bounded;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = Runtime::new()?;
-    let total: u64 = runtime.block_on(async {
-        let futures = (0u64..100).map(|value| async move { value * 2 });
-        join_all_bounded(8, futures).await.into_iter().sum()
-    });
+    let futures = (0u64..100).map(|value| async move { value * 2 });
+    let total: u64 = runtime.block_on(join_all_bounded(8, futures))?.into_iter().sum();
     assert_eq!(total, 9900, "0..100 doubled");
     Ok(())
 }
 ```
-
 ## Authority (per-call capabilities)
 
 - `lgwks_bot::cap::Cap` — `fn new(name: &str) -> Cap`. Shipped names:
-  `Cap::NET`, `Cap::FS`, `Cap::SYS`, `Cap::NOTIFY`; any other string is a
-  custom capability.
-- `lgwks_bot::gate::GrantSet` — `fn empty() -> GrantSet`,
-  `fn grant(mut self, cap: Cap) -> Self`.
-- `lgwks_bot::rt::cancel::CancellationToken` is above; authority is separate
-  from cancellation: a cancelled run stops, a refused run never starts.
+  `Cap::NET`, `Cap::FS`, `Cap::SYS`, `Cap::NOTIFY`; any other string is a custom capability.
+- `lgwks_bot::gate::GrantSet` — `fn empty() -> GrantSet`, `fn grant(mut self, cap: Cap) -> Self`.
+- Authority is separate from cancellation: a cancelled run stops, a refused run never starts.
 
 ## Supervised processes (`process` feature)
 
@@ -138,13 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Notes
 
-- There is no `spawn` that returns a droppable handle to a running task.
-  `JoinSet` owns what it starts, and dropping the set aborts.
-- `join_all_bounded` bounds concurrency but does not fail fast: to stop on the
-  first failure you must start work in bounded waves and check each wave.
-- There is no `join!` / `try_join!` on this surface, and that is deliberate
-  rather than an omission: the surface joins a *bounded set* of tasks
-  (`join_all_bounded`, `JoinSet`) or races against a deadline (`timeout`,
-  `run_until_cancelled`), and a two-future macro would be a third spelling of
-  the same bounds. A pair of futures is joined by awaiting both in one async
-  block, or by putting both in a `JoinSet` and reading the two reports.
+- There is no `spawn` that returns a droppable handle; to stop on the first
+  failure, start work in bounded waves and check each wave.
+- There is no `join!` / `try_join!`: join a bounded set (`join_all_bounded`,
+  `JoinSet`), race a deadline (`timeout`, `run_until_cancelled`), or await both
+  futures of a pair in one async block.

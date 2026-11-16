@@ -180,8 +180,7 @@ impl Session {
     ///
     /// ```
     /// use std::collections::BTreeMap;
-    /// use lgwks_bot::SessionError;
-    /// use lgwks_bot::session::{FlowBounds, FlowSpec, NodeKind, Session, Terminal, VarType};
+    /// use lgwks_bot::session::{FlowBounds, FlowSpec, NodeKind, Session, SessionError, Terminal, VarType};
     ///
     /// let options = vec!["small".to_owned(), "large".to_owned()];
     /// let vars = BTreeMap::from([("size".to_owned(), VarType::Choice(options.clone()))]);

@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn undos_run_in_reverse_order_once_on_failure() -> TestResult {
         let order = Arc::new(Mutex::new(Vec::new()));
-        let outcome = crate::block_on(run_with(Arc::clone(&order), Some("issue")));
+        let outcome = crate::rt::runtime::block_on(run_with(Arc::clone(&order), Some("issue")));
         match outcome {
             Err(error) => assert!(
                 error.to_string().contains("issue"),
@@ -315,7 +315,7 @@ mod tests {
         let paths: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let scope = Scope::root(Tenant::new("acme").map_err(|error| error.to_string())?);
         let recorded = Arc::clone(&paths);
-        let outcome = crate::block_on(compensated(
+        let outcome = crate::rt::runtime::block_on(compensated(
             &scope,
             "booking",
             |_scope, compensations| async move {
@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn a_stack_past_its_bound_is_refused() -> TestResult {
         let scope = Scope::root(Tenant::new("acme").map_err(|error| error.to_string())?);
-        let outcome = crate::block_on(compensated(
+        let outcome = crate::rt::runtime::block_on(compensated(
             &scope,
             "flood",
             |_scope, compensations| async move {
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn success_runs_no_compensation() -> TestResult {
         let order = Arc::new(Mutex::new(Vec::new()));
-        let ticket = crate::block_on(run_with(Arc::clone(&order), None))
+        let ticket = crate::rt::runtime::block_on(run_with(Arc::clone(&order), None))
             .map_err(|error| error.to_string())?;
         assert_eq!(ticket, "ticket", "the booking succeeds");
         assert!(order_of(&order)?.is_empty(), "success runs no compensation");

@@ -4,7 +4,7 @@
 //!
 //! The operation itself lives in [`crate::inspect`](mod@crate::inspect) and never executes the
 //! subject. This module is the *wiring*: it turns that operation into
-//! something a [`BotSpec`](crate::BotSpec) or a native bot can call through the
+//! something a [`BotSpec`](crate::spec::BotSpec) or a native bot can call through the
 //! same registry and admission path every other domain uses, and into a
 //! [`Task`](crate::task::Task) a [`Host`](crate::task::Host) can run. Both reach
 //! the one operation; neither reimplements it, so a report from one entry point
@@ -90,34 +90,6 @@ impl InspectionJob {
             scope: InspectScope::Structural,
             budgets: Budgets::default_budgets(),
         }
-    }
-
-    /// Declare the subject's language, overriding extension detection.
-    #[must_use]
-    pub fn with_language(mut self, language: lgwks_ast::Language) -> Self {
-        self.language = Some(language);
-        self
-    }
-
-    /// Declare the language version the subject is written against.
-    #[must_use]
-    pub fn with_language_version(mut self, version: impl Into<String>) -> Self {
-        self.language_version = Some(version.into());
-        self
-    }
-
-    /// Bind the job to a specific rule set.
-    #[must_use]
-    pub fn with_rules(mut self, rules: RuleSet) -> Self {
-        self.rules = rules;
-        self
-    }
-
-    /// Declare the scope to inspect.
-    #[must_use]
-    pub fn with_scope(mut self, scope: InspectScope) -> Self {
-        self.scope = scope;
-        self
     }
 
     /// Return the job with all six resource ceilings replaced by `budgets`; every other field is kept.
@@ -243,7 +215,7 @@ impl Subject {
     /// assert!(Subject::from_target("src/lib.rs").is_ok());
     /// assert!(Subject::from_target("").is_err());
     /// ```
-    pub fn from_target(target: &str) -> Result<crate::Source, EcsError> {
+    pub fn from_target(target: &str) -> Result<crate::registry::Source, EcsError> {
         if target.is_empty() {
             let refusal = Err(EcsError::IncompleteSpec {
                 field: "target",
@@ -252,7 +224,7 @@ impl Subject {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "from_target: returning an error to the caller");
             return refusal;
         }
-        Ok(crate::Source::new(Self::at(target)))
+        Ok(crate::registry::Source::new(Self::at(target)))
     }
 
     /// The artifact path this source reads.
@@ -359,7 +331,7 @@ pub type InspectionBody =
     fn(
         crate::script::Scope,
         InspectionJob,
-    ) -> crate::BoxFuture<'static, Result<Inspection, crate::script::FlowError>>;
+    ) -> crate::verb::BoxFuture<'static, Result<Inspection, crate::script::FlowError>>;
 
 /// A [`Task`](crate::task::Task) that inspects its input and returns the
 /// [`Inspection`].
@@ -385,6 +357,6 @@ pub fn inspection_task(
 fn inspection_body(
     _scope: crate::script::Scope,
     job: InspectionJob,
-) -> crate::BoxFuture<'static, Result<Inspection, crate::script::FlowError>> {
+) -> crate::verb::BoxFuture<'static, Result<Inspection, crate::script::FlowError>> {
     Box::pin(async move { Ok(job.inspect()) })
 }

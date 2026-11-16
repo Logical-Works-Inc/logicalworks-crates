@@ -1,6 +1,6 @@
 //! Ceremony reference app: request, model draft, approval, send.
-use lgwks_bot::Cap;
 use lgwks_bot::app::{App, Effect, Method, Provider, ReplyTag};
+use lgwks_bot::cap::Cap;
 use std::error::Error;
 
 /// The model and notifier stand-in behind the reference.

@@ -39,11 +39,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::proposal::{Shape, StubModel};
 use lgwks_bot::script::Scope;
 use lgwks_bot::script::{AskRequest, FetchOptions, FlowError, ModelOutput, ModelPort, PostBody};
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Cap, GrantSet};
 
 use crate::band_family::band_family;
 use crate::effect_policy::allowing;
@@ -133,7 +134,7 @@ fn tend_fetch(
             .max_body_bytes(bound);
         get(&scope, &url, &options).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
     let hits = upstream.hits();
     upstream.join();
     if hits != expect {
@@ -198,11 +199,8 @@ fn ask_truncation_refuses_typed_on_every_seed(band: Band) -> TestResult {
         };
         let request = AskRequest::default().max_tokens(budget);
         let refused: Result<String, FlowError> = ask_hosted("cut", &model, &request)?;
-        let truncated = model.shape() == Shape::Truncated
-            || match u64::try_from(model.output().len()) {
-                Ok(len) => len > u64::from(budget),
-                Err(_) => true,
-            };
+        let output_len = u64::try_from(model.output().len()).map_err(std::io::Error::other)?;
+        let truncated = model.shape() == Shape::Truncated || output_len > u64::from(budget);
         match (refused, truncated) {
             (Err(FlowError::InvalidBound { .. }), true) => {}
             (Ok(_), false) => {}
@@ -244,8 +242,9 @@ fn tend_send(
     })?;
     match fate {
         0 => {
-            let report =
-                lgwks_bot::block_on(allowing(host.run(&sending, (Arc::clone(mailer), payload))));
+            let report = lgwks_bot::script::block_on(allowing(
+                host.run(&sending, (Arc::clone(mailer), payload)),
+            ));
             let Some(outcome) = report.output() else {
                 return fail("a clean send settles");
             };
@@ -257,7 +256,7 @@ fn tend_send(
         }
         1 => {
             mailer.fail_next_read();
-            let crashed = lgwks_bot::block_on(allowing(
+            let crashed = lgwks_bot::script::block_on(allowing(
                 host.run(&sending, (Arc::clone(mailer), payload.clone())),
             ));
             if crashed.error().is_none() {
@@ -265,7 +264,7 @@ fn tend_send(
             }
             let run = run_of(&crashed)?;
             let host = restarted(hosts, dir, tenant)?;
-            let resumed = lgwks_bot::block_on(allowing(host.resume(
+            let resumed = lgwks_bot::script::block_on(allowing(host.resume(
                 run,
                 &sending,
                 (Arc::clone(mailer), payload),
@@ -281,7 +280,7 @@ fn tend_send(
         }
         2 => {
             mailer.lose_next_reply();
-            let crashed = lgwks_bot::block_on(allowing(
+            let crashed = lgwks_bot::script::block_on(allowing(
                 host.run(&crashing, (Arc::clone(mailer), payload.clone(), true)),
             ));
             if crashed.error().is_none() {
@@ -289,7 +288,7 @@ fn tend_send(
             }
             let run = run_of(&crashed)?;
             let host = restarted(hosts, dir, tenant)?;
-            let unknown = lgwks_bot::block_on(allowing(host.resume(
+            let unknown = lgwks_bot::script::block_on(allowing(host.resume(
                 run,
                 &crashing,
                 (Arc::clone(mailer), payload.clone(), false),
@@ -301,7 +300,7 @@ fn tend_send(
                 return fail("with no evidence the outcome stays unknown");
             }
             mailer.land_applied();
-            let settled = lgwks_bot::block_on(allowing(host.resume(
+            let settled = lgwks_bot::script::block_on(allowing(host.resume(
                 run,
                 &crashing,
                 (Arc::clone(mailer), payload, false),
@@ -317,8 +316,9 @@ fn tend_send(
         }
         _ => {
             mailer.forget();
-            let resumed =
-                lgwks_bot::block_on(allowing(host.run(&sending, (Arc::clone(mailer), payload))));
+            let resumed = lgwks_bot::script::block_on(allowing(
+                host.run(&sending, (Arc::clone(mailer), payload)),
+            ));
             let Some(outcome) = resumed.output() else {
                 return fail("a fresh send settles");
             };
@@ -373,7 +373,7 @@ fn sim_two_tenants_keep_separate_budgets(band: Band) -> TestResult {
             get(&scope, &url, &options).await
         })?;
         for _ in 0..2 {
-            let report = lgwks_bot::block_on(stormy.run(&storm, upstream.url()));
+            let report = lgwks_bot::script::block_on(stormy.run(&storm, upstream.url()));
             if !matches!(report.error(), Some(FlowError::Exhausted { .. })) {
                 upstream.join();
                 return fail("a storm exhausts its own attempts");
@@ -384,7 +384,7 @@ fn sim_two_tenants_keep_separate_budgets(band: Band) -> TestResult {
         let fetching = task("fetch", |scope: Scope, url: String| async move {
             get(&scope, &url, &FetchOptions::default()).await
         })?;
-        let report = lgwks_bot::block_on(quiet.run(&fetching, upstream_ok.url()));
+        let report = lgwks_bot::script::block_on(quiet.run(&fetching, upstream_ok.url()));
         upstream.join();
         upstream_ok.join();
         if report.output().copied() != Some(200) {
@@ -424,7 +424,7 @@ fn sim_capability_shortfall_names_every_grant(band: Band) -> TestResult {
                 calls(&scope, &url, &model, &mailer, payload).await
             },
         )?;
-        let report = lgwks_bot::block_on(host.run(
+        let report = lgwks_bot::script::block_on(host.run(
             &calling,
             ("not a url".to_owned(), model, mailer, b"hello".to_vec()),
         ));
@@ -467,7 +467,7 @@ fn sim_fetch_inherits_enclosing_retry_and_within(band: Band) -> TestResult {
             })
             .await
         })?;
-        let report = lgwks_bot::block_on(host.run(&retrying, upstream.url()));
+        let report = lgwks_bot::script::block_on(host.run(&retrying, upstream.url()));
         upstream.join();
         match report.error() {
             Some(&FlowError::Exhausted { attempts: 3, .. }) => {}
@@ -480,7 +480,7 @@ fn sim_fetch_inherits_enclosing_retry_and_within(band: Band) -> TestResult {
             })
             .await
         })?;
-        let report = lgwks_bot::block_on(host.run(&bounded, upstream_ok.url()));
+        let report = lgwks_bot::script::block_on(host.run(&bounded, upstream_ok.url()));
         upstream_ok.join();
         if report.output().copied() != Some(200) {
             return fail("the enclosing within lets the exchange answer");
@@ -517,13 +517,13 @@ fn sim_post_runs_gated(band: Band) -> TestResult {
             let answered = lgwks_bot::script::fetch(&scope, "post", &url, &options).await?;
             Ok::<u16, FlowError>(answered.status())
         })?;
-        let allowed = lgwks_bot::block_on(allowing(host.run(&posting, upstream.url())));
+        let allowed = lgwks_bot::script::block_on(allowing(host.run(&posting, upstream.url())));
         upstream.join();
         if allowed.into_result()? != 200 {
             return fail("an allowed POST answers its status");
         }
         let upstream_denied = Upstream::serve(Behavior::Ok, 0, Duration::ZERO)?;
-        let denied = lgwks_bot::block_on(host.run(&posting, upstream_denied.url()));
+        let denied = lgwks_bot::script::block_on(host.run(&posting, upstream_denied.url()));
         let hits = upstream_denied.hits();
         upstream_denied.join();
         if !matches!(denied.error(), Some(FlowError::NeedsApproval { .. })) {
@@ -644,7 +644,7 @@ fn replay_outside_seed(sim: &mut sim::Sim) -> Result<(), OutsideError> {
     let fetching = task("fetch", |scope: Scope, url: String| async move {
         get(&scope, &url, &FetchOptions::default()).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&fetching, upstream.url()));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, upstream.url()));
     upstream.join();
     if report.output().copied() != Some(200) {
         return fail("the replay fetch answers");
@@ -677,7 +677,8 @@ fn replay_outside_seed(sim: &mut sim::Sim) -> Result<(), OutsideError> {
             mail(&scope, &mailer, payload).await
         },
     )?;
-    let sent = lgwks_bot::block_on(allowing(host.run(&sending, (Arc::clone(&mailer), payload))));
+    let sent =
+        lgwks_bot::script::block_on(allowing(host.run(&sending, (Arc::clone(&mailer), payload))));
     let Some(outcome) = sent.output() else {
         return fail("the replay send settles");
     };

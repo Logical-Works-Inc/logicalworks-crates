@@ -2,8 +2,9 @@
 //! and may not raise them, and the aggregate ceiling bounds a looping
 //! conversation (issue 40).
 
-use lgwks_bot::{
-    LanguageResolver, MAX_SESSION_BYTES, MAX_UTTERANCE_BYTES, ResourceAxis, ResourceLimits, Session,
+use lgwks_bot::language::LanguageResolver;
+use lgwks_bot::session::{
+    MAX_SESSION_BYTES, MAX_UTTERANCE_BYTES, ResourceAxis, ResourceLimits, Session,
 };
 
 use super::limits::{retained_recorded_bytes, speak_back_flow};
@@ -60,7 +61,7 @@ fn loop_flow() -> Result<FlowSpec, SessionError> {
             (String::from("say"), say("tick")),
             (String::from("done"), NodeKind::End),
         ]),
-        vec![lgwks_bot::FlowEdge::next("say", "ask")],
+        vec![lgwks_bot::session::FlowEdge::next("say", "ask")],
         BTreeMap::new(),
         FlowBounds::new(64),
     )

@@ -7,8 +7,8 @@
 
 use std::collections::BTreeMap;
 
+use lgwks_bot::ecs::{ProjectionError, RecordFold, RecordProjection};
 use lgwks_bot::journal::{RecordEntry, RecordJournal};
-use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
 use lgwks_std::seeded::Seeded;
 
 use crate::sim::scratch_file::ScratchFile;

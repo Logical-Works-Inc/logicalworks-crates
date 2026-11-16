@@ -48,7 +48,7 @@ fn run_at(host: &Host, depth: u32) -> Result<u32, Box<dyn Error>> {
     let watching = task("watching", |scope: Scope, name: &'static str| async move {
         watch(&scope, name).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&watching, "jobs"));
+    let report = lgwks_bot::script::block_on(host.run(&watching, "jobs"));
     Ok(report.result().copied().map_err(ToString::to_string)?)
 }
 
@@ -75,7 +75,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 ```
-
 ## What it prints
 
 ```text
@@ -83,7 +82,6 @@ depth 3, pages delivered: 0
 depth 11, pages delivered: 1
 no grant: watching/watch/page: blocked: 1 ungranted: bot.notify
 ```
-
 Those three lines are the output of `cargo run -p lgwks_bot --example queue_watch`
 on the commit that added the example, and its three assertions hold the page
 counts (0, then 1, then still 1). Depth 3 is under ten, so the flow reads the

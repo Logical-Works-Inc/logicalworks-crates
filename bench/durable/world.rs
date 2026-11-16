@@ -18,7 +18,8 @@ use std::time::Duration;
 use lgwks_bot::clock::Clock;
 use lgwks_bot::error::KernelError;
 use lgwks_bot::script::FlowError;
-use lgwks_bot::{DispatchCertainty, EcsError};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::DispatchCertainty;
 use lgwks_std::seeded::Seeded;
 
 use crate::error::BenchError;
@@ -406,7 +407,7 @@ mod tests {
             .map_err(|error| error.line())?;
         assert!(world.planned(2).is_some());
         assert!(world.planned(3).is_none());
-        let refused = lgwks_bot::block_on(world.call(Call::Outside, 3, 1));
+        let refused = lgwks_bot::rt::runtime::block_on(world.call(Call::Outside, 3, 1));
         assert!(
             matches!(refused, Err(FlowError::Failed { .. })),
             "{refused:?}"
@@ -421,11 +422,11 @@ mod tests {
         let world =
             World::plan(5, 1, 100, Latencies::ZERO, clock(), None).map_err(|error| error.line())?;
         for attempt in 1..=ATTEMPTS.get() {
-            let refused = lgwks_bot::block_on(world.call(Call::Model, 0, attempt));
+            let refused = lgwks_bot::rt::runtime::block_on(world.call(Call::Model, 0, attempt));
             let error = refused.err().ok_or("a planned failure succeeded")?;
             assert!(error.is_retryable(), "{error:?}");
         }
-        let arrived = lgwks_bot::block_on(world.call(Call::Model, 0, ATTEMPTS.get() + 1))
+        let arrived = lgwks_bot::rt::runtime::block_on(world.call(Call::Model, 0, ATTEMPTS.get() + 1))
             .map_err(|error| format!("{error:?}"))?;
         assert_eq!(arrived, Call::Model.value(0));
         assert_eq!(world.injected(), u64::from(ATTEMPTS.get()));

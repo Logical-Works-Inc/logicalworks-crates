@@ -44,13 +44,15 @@ use lgwks_bot::app::{
     App, Effect, EffectResult, Method as AppMethod, OnInput, Principal, Provider, ReplyTag,
     RequestHeaders,
 };
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::{EcsError, RequestFeed, Response, WakeHandle};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::edge::{EdgeError, EdgeStop, MAX_BODY_BYTES, serve};
 use lgwks_bot::rt::serve::{RouteMethod, ServeOptions, TypedRoute};
 use lgwks_bot::rt::sync::CancellationToken;
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::EffectScope;
-use lgwks_bot::{
-    Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe, RequestFeed, Response, WakeHandle,
-};
+use lgwks_bot::verb::{Cadence, Observe};
 use lgwks_deps::axum::{
     Router,
     body::Bytes,
@@ -583,7 +585,7 @@ fn plain_axum() -> Result<(), LoadError> {
     until_stdin_then(
         move || watcher.cancel(),
         || {
-            lgwks_bot::block_on(async move {
+            lgwks_bot::rt::runtime::block_on(async move {
                 let listener = lgwks_bot::rt::net::TcpListener::from_std(listener)?;
                 lgwks_deps::axum::serve(listener, router)
                     .with_graceful_shutdown(stop.cancelled_owned())

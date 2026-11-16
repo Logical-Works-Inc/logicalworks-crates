@@ -534,7 +534,10 @@ where
     /// the owner when it is promoted back. The append itself is the same ordered
     /// step either way, so a caller choosing to await does not get a weaker write
     /// than one that chose to sit through it.
-    pub(crate) fn submit_async<F>(&self, job: F) -> crate::BoxFuture<'_, Result<A, SubmitError>>
+    pub(crate) fn submit_async<F>(
+        &self,
+        job: F,
+    ) -> crate::verb::BoxFuture<'_, Result<A, SubmitError>>
     where
         F: FnOnce(&mut File, &mut S) -> Result<Stage<A, S>, std::io::Error> + Send + 'static,
     {
@@ -545,7 +548,7 @@ where
     /// [`StorageOwner::submit_async`] without the type erasure, for a caller whose
     /// own future must be `Send`.
     ///
-    /// The erased form boxes into [`crate::BoxFuture`], which is deliberately not
+    /// The erased form boxes into [`crate::verb::BoxFuture`], which is deliberately not
     /// `Send`: a durable step awaits it from inside a task body, and a body is
     /// `Send` exactly when its author made it so. A caller on the *host's* own
     /// path has no such choice — its future must be `Send` whatever the author's

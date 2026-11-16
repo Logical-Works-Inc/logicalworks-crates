@@ -31,7 +31,7 @@ the spelling for branches already owned by the awaiting task; work that must
 outlive the call belongs on a `Supervisor` or in `join_all_bounded`, never in a
 bare combinator. There is deliberately **no attribute macro**: a re-exported
 proc-macro would expand to driver paths a consumer without a driver edge cannot
-resolve. Enter through `Runtime::block_on`, or `lgwks_bot::block_on` for a flow.
+resolve. Enter through `Runtime::block_on`, or `lgwks_bot::script::block_on` for a flow.
 
 ### Cancellation
 

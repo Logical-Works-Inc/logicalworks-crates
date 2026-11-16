@@ -364,7 +364,7 @@ where
     /// ```
     /// use std::time::Duration;
     ///
-    /// use lgwks_bot::Cap;
+    /// use lgwks_bot::cap::Cap;
     /// use lgwks_bot::app::{App, CommandLimits};
     ///
     /// let limits = CommandLimits::new(8, 64, 16, Duration::from_secs(5));

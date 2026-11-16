@@ -20,10 +20,12 @@ use std::process::{Child, Command, Stdio};
 
 use crate::scratch::Scratch;
 
+use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::domain::data::JsonStore;
-use lgwks_bot::error::KernelError;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{KernelError, RetryClass};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::verb::{Observe, Query};
-use lgwks_bot::{Cap, EcsError, GrantSet};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -64,7 +66,7 @@ fn refuse(cause: impl std::fmt::Display) -> Result<(), Box<dyn Error>> {
 
 /// Proof this store's poll is admitted with, minted the way a bot's build mints
 /// it.
-fn proof() -> Result<lgwks_bot::Auth, KernelError> {
+fn proof() -> Result<Auth, KernelError> {
     GrantSet::empty().grant(Cap::fs()).issue(&[Cap::fs()])
 }
 
@@ -670,7 +672,7 @@ fn an_unsettled_reading_is_pending_rather_than_a_committed_change() -> TestResul
         );
         assert_eq!(
             failure.retry_class(),
-            lgwks_bot::RetryClass::Safe,
+            RetryClass::Safe,
             "a refused reading is safe to retry precisely because it committed nothing"
         );
         assert!(

@@ -23,9 +23,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::Duration;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::Action;
 use lgwks_bot::script::{Clock, FlowError, Scope, Tenant, remember};
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{Action, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, domains};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 
 /// A stand-in for a record store having a bad minute: the first two reads
 /// answer "busy", later reads succeed. The read count lives on the store,
@@ -127,7 +132,7 @@ fn retry_demo() -> Result<(), Box<dyn Error>> {
         reads: AtomicU8::new(0),
     };
     let scope = Scope::root(Tenant::new("demo")?);
-    let total = lgwks_bot::block_on(fetch(&scope, &store, 3))?;
+    let total = lgwks_bot::script::block_on(fetch(&scope, &store, 3))?;
     writeln!(out, "fetched record: {total}")?;
     assert_eq!(total, 30, "key 3 answers 30 after two transient refusals");
     assert_eq!(
@@ -143,7 +148,7 @@ fn retry_demo() -> Result<(), Box<dyn Error>> {
 fn deadline_demo() -> Result<(), Box<dyn Error>> {
     let mut out = std::io::stdout().lock();
     let scope = Scope::with_clock(Tenant::new("demo")?, Clock::virtual_at(Duration::ZERO));
-    match lgwks_bot::block_on(slow_square(&scope, 7)) {
+    match lgwks_bot::script::block_on(slow_square(&scope, 7)) {
         Err(error @ FlowError::TimedOut { .. }) => {
             writeln!(out, "overrun: {error}")?;
             assert!(
@@ -184,7 +189,7 @@ fn refusal_demo(host: &Host) -> Result<(), Box<dyn Error>> {
     let publishing = task("publish", |scope: Scope, text: &'static str| async move {
         publish(&scope, text).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&publishing, "demo"));
+    let report = lgwks_bot::script::block_on(host.run(&publishing, "demo"));
     let refusal = match report.result() {
         Err(refusal) => Ok(refusal),
         Ok(_) => Err(format!(
@@ -235,7 +240,7 @@ fn resume_demo(host: &Host) -> Result<(), Box<dyn Error>> {
             .ok_or_else(|| FlowError::failed("step sum overflow"))
     })?;
 
-    let crashed = lgwks_bot::block_on(host.run(&resuming, true));
+    let crashed = lgwks_bot::script::block_on(host.run(&resuming, true));
     assert!(
         matches!(crashed.disposition(), Disposition::Cancelled),
         "the modelled crash cancels the run"
@@ -252,7 +257,7 @@ fn resume_demo(host: &Host) -> Result<(), Box<dyn Error>> {
     );
     writeln!(out, "killed run: {:?}", crashed.disposition())?;
 
-    let resumed = lgwks_bot::block_on(host.resume(run, &resuming, false));
+    let resumed = lgwks_bot::script::block_on(host.resume(run, &resuming, false));
     assert!(
         matches!(resumed.disposition(), Disposition::Succeeded),
         "the resumed run finishes"

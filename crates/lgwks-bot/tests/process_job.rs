@@ -55,16 +55,21 @@ use scratch::Scratch;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::{ProcessRunError, ProcessSpec};
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{CleanupReceipt, ContainmentMechanism, Supervisor, TaskOutcome};
-use lgwks_bot::rt::time::{Instant, sleep};
+use lgwks_bot::rt::time::{Clock, Instant};
 
 /// What a test reports when a precondition did not hold.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// How long a wait for the child's own marker, or for its report, may take.
 const BUDGET: Duration = Duration::from_secs(30);
+
+/// The gap between two looks at a marker file or the supervisor's reports. The child is a real
+/// `cmd.exe` tree that announces itself only through the file system, so there is no event to wait
+/// on; the gap is spent on the injected clock rather than a free sleep.
+const POLL: Duration = Duration::from_millis(5);
 
 /// A `cmd.exe` spec running `script`, from `dir` so a marker needs no quoting.
 fn cmd(script: &str, dir: &std::path::Path) -> ProcessSpec {
@@ -75,18 +80,20 @@ fn cmd(script: &str, dir: &std::path::Path) -> ProcessSpec {
 
 /// Wait for the file `name` under `dir` to exist.
 async fn marker(dir: &std::path::Path, name: &str) -> TestResult {
+    let clock = Clock::wall();
     let started = Instant::now();
     while started.elapsed() < BUDGET {
         if dir.join(name).exists() {
             return Ok(());
         }
-        sleep(Duration::from_millis(10)).await;
+        clock.sleep(POLL).await;
     }
     Err(format!("the child never wrote {name}").into())
 }
 
 /// The task's terminal outcome, reaped from `supervisor`.
 async fn outcome(supervisor: &mut Supervisor) -> Result<TaskOutcome, Box<dyn std::error::Error>> {
+    let clock = Clock::wall();
     let started = Instant::now();
     loop {
         supervisor.reap();
@@ -96,7 +103,7 @@ async fn outcome(supervisor: &mut Supervisor) -> Result<TaskOutcome, Box<dyn std
         if started.elapsed() >= BUDGET {
             break Err("the supervisor never reported the stopped job".into());
         }
-        sleep(Duration::from_millis(5)).await;
+        clock.sleep(POLL).await;
     }
 }
 
@@ -223,7 +230,7 @@ fn a_stop_before_the_manager_task_runs_still_stops_the_tree_t20() -> TestResult 
     // A current-thread runtime, and no await between starting the tree and
     // stopping it: the manager task that owns the job has not run when the stop
     // is requested, which is the state T20 names.
-    lgwks_bot::block_on(async {
+    lgwks_bot::rt::runtime::block_on(async {
         let mut supervisor = Supervisor::default();
         supervisor.spawn_process(&cmd(&script, dir.path())).await?;
         tree::up_without_yielding(dir.path())?;

@@ -15,17 +15,20 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use lgwks_bot::cap::Auth;
 use lgwks_bot::cap::Cap;
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::proposal::{Decoder, LedgerLimits, PlanBudget, PlanLimits, Surface};
+use lgwks_bot::registry::{Action, Source};
 use lgwks_bot::script::{
     EffectDisposition, EffectPolicy, FlowError, Gate, Generation, GraphNode, GraphReport, Justify,
     NodeOutcome, Overflow, PumpReport, Readiness, Scope, StreamGate, Tenant, TypedAction,
     TypedSource, act_typed, map_domain, observe_typed, with_effect_policy,
 };
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{
-    Action, Auth, EcsError, EffectLifetime, Execute, GrantSet, Observe, Source, domains,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 /// A check that fails the run with a readable reason, never a bare panic.
 fn check(what: bool, reason: &str) -> Result<(), String> {
@@ -69,7 +72,7 @@ impl DemoCounter {
 impl Observe for DemoCounter {
     type Output = u16;
 
-    fn required_caps(&self) -> &[lgwks_bot::Cap] {
+    fn required_caps(&self) -> &[lgwks_bot::cap::Cap] {
         &[]
     }
 
@@ -97,7 +100,7 @@ impl Execute for DemoPage {
     type Input = u16;
     type Output = ();
 
-    fn required_caps(&self) -> &[lgwks_bot::Cap] {
+    fn required_caps(&self) -> &[lgwks_bot::cap::Cap] {
         &[]
     }
 
@@ -258,7 +261,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         Arc::new(lgwks_bot::script::Allowance::new(2)),
         "poll-budget-spent",
     )]);
-    let blocked = lgwks_bot::block_on(capped_polls(&scope, &budget));
+    let blocked = lgwks_bot::script::block_on(capped_polls(&scope, &budget));
     check(
         matches!(blocked, Err(FlowError::Justified { .. })),
         "a stop must be justified",
@@ -273,21 +276,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map_err(|error| format!("the report was not written: {error}"))?;
     }
 
-    let ticket = lgwks_bot::block_on(booking(&scope, false)).map_err(|error| format!("{error}"))?;
+    let ticket =
+        lgwks_bot::script::block_on(booking(&scope, false)).map_err(|error| format!("{error}"))?;
     check(
         ticket == "ticket",
         "a booking that succeeds issues its ticket",
     )?;
     writeln!(out, "compensation: success runs no undo, ticket issued")
         .map_err(|error| format!("the report was not written: {error}"))?;
-    let refused = lgwks_bot::block_on(booking(&scope, true));
+    let refused = lgwks_bot::script::block_on(booking(&scope, true));
     check(refused.is_err(), "issuing must fail this run")?;
     if let Err(error) = refused {
         writeln!(out, "compensation: issuing failed the run as {error}")
             .map_err(|error| format!("the report was not written: {error}"))?;
     }
 
-    let report = lgwks_bot::block_on(lanes(&scope)).map_err(|error| format!("{error}"))?;
+    let report = lgwks_bot::script::block_on(lanes(&scope)).map_err(|error| format!("{error}"))?;
     check(report.is_ok(), "every lane ran to a value")?;
     check(
         report.succeeded() == vec!["fetch_a", "fetch_b", "merge", "publish"],
@@ -310,7 +314,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         .map_err(|error| format!("the report was not written: {error}"))?;
 
     let pending = Mutex::new(vec![vec![4, 5], vec![1, 2, 3]]);
-    let feed = lgwks_bot::block_on(prices(&scope, &pending)).map_err(|error| format!("{error}"))?;
+    let feed = lgwks_bot::script::block_on(prices(&scope, &pending))
+        .map_err(|error| format!("{error}"))?;
     check(feed.handled == 5, "every feed event was handled")?;
     check(feed.dropped == 0, "a feed inside the bound sheds nothing")?;
     check(feed.refused == 0, "a feed inside the bound refuses nothing")?;
@@ -322,21 +327,23 @@ fn main() -> Result<(), Box<dyn Error>> {
     .map_err(|error| format!("the report was not written: {error}"))?;
 
     let asked = AtomicU32::new(0);
-    let price = lgwks_bot::block_on(quote(&scope, &asked)).map_err(|error| format!("{error}"))?;
+    let price =
+        lgwks_bot::script::block_on(quote(&scope, &asked)).map_err(|error| format!("{error}"))?;
     check(price == 40, "the remembered step gives its value")?;
     check(asked.load(Ordering::SeqCst) == 1, "the block ran once")?;
     let gate = proposal_gate()?;
-    let wanted = lgwks_bot::block_on(proposal(&scope, &gate, b"op=read-report\n"))
+    let wanted = lgwks_bot::script::block_on(proposal(&scope, &gate, b"op=read-report\n"))
         .map_err(|error| format!("{error}"))?;
     check(wanted == 1, "the admitted plan wants its one operation")?;
-    let refused = lgwks_bot::block_on(proposal(&scope, &gate, b"op=install-dependency\n"));
+    let refused = lgwks_bot::script::block_on(proposal(&scope, &gate, b"op=install-dependency\n"));
     check(
         matches!(refused, Err(FlowError::Refused { .. })),
         "an unregistered operation is refused",
     )?;
     let db: Readiness<u32> = Readiness::new("pool")?;
     db.ready(Generation::FIRST, 8)?;
-    let size = lgwks_bot::block_on(pooled(&scope, &db)).map_err(|error| format!("{error}"))?;
+    let size =
+        lgwks_bot::script::block_on(pooled(&scope, &db)).map_err(|error| format!("{error}"))?;
     check(size == 8, "the wait is released with the pool")?;
     writeln!(
         out,
@@ -365,12 +372,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
     )
     .map_err(|error| format!("{error}"))?;
-    let count = lgwks_bot::block_on(host.run(&reading, String::from("7")))
+    let count = lgwks_bot::script::block_on(host.run(&reading, String::from("7")))
         .result()
         .ok()
         .copied();
     check(count == Some(7), "the typed source polls its count")?;
-    let paged = lgwks_bot::block_on(with_effect_policy(
+    let paged = lgwks_bot::script::block_on(with_effect_policy(
         AllowDemo,
         host.run(&paging, (String::from("oncall"), 2)),
     ));

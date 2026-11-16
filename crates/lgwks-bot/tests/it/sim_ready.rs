@@ -320,7 +320,8 @@ fn drive_plan(plan: &Plan, generations: &mut u64) -> Result<Observed, Box<dyn Er
             }
             Act::Dependant => {
                 let step_scope = tenant.scope.enter(&format!("use-{}", step.tenant))?;
-                let outcome = lgwks_bot::block_on(tenant.readiness.wait(&step_scope, BUDGET));
+                let outcome =
+                    lgwks_bot::script::block_on(tenant.readiness.wait(&step_scope, BUDGET));
                 observed.admitted = observed.admitted.saturating_add(1);
                 match outcome {
                     Ok(ready) => {
@@ -400,7 +401,11 @@ fn an_interleaving_never_releases_a_stale_generation(band: Band) -> TestResult {
         // accepted any label at all would pass if a stale signal had been
         // silently accepted, so the vocabulary is closed here.
         for label in &observed.refusals {
-            let arm = label.split_once(' ').map_or(label.as_str(), |(arm, _)| arm);
+            // A label with no detail is the arm's name on its own.
+            let arm = match label.split_once(' ') {
+                Some((arm, _detail)) => arm,
+                None => label.as_str(),
+            };
             assert!(
                 matches!(
                     arm,
@@ -476,7 +481,7 @@ fn a_duplicate_releases_once_in_every_interleaving(band: Band) -> TestResult {
             }
             if index == 0 {
                 for step in &steps {
-                    let ready = lgwks_bot::block_on(bound.readiness.wait(step, BUDGET))?;
+                    let ready = lgwks_bot::script::block_on(bound.readiness.wait(step, BUDGET))?;
                     assert_eq!(
                         ready.awaited(),
                         &expected,
@@ -535,7 +540,7 @@ fn a_failure_after_ready_reaches_every_running_dependant(band: Band) -> TestResu
             .map(|index| scope.enter(&format!("worker-{index}")))
             .collect::<Result<_, _>>()?;
         for step in &steps {
-            let ready = lgwks_bot::block_on(readiness.wait(step, BUDGET))?;
+            let ready = lgwks_bot::script::block_on(readiness.wait(step, BUDGET))?;
             assert_eq!(
                 ready.awaited(),
                 &expected,
@@ -577,15 +582,18 @@ fn a_failure_after_ready_reaches_every_running_dependant(band: Band) -> TestResu
         // A dependant arriving after the failure hears the failure, never a
         // release from the generation that died.
         let late = scope.enter("late")?;
-        let outcome = lgwks_bot::block_on(readiness.wait(&late, BUDGET));
+        let outcome = lgwks_bot::script::block_on(readiness.wait(&late, BUDGET));
         assert!(
             outcome.is_err(),
             "a readiness that failed after ready must not release a late dependant"
         );
+        let released = readiness
+            .released_at()
+            .ok_or("a readiness that was ready names the generation it released")?;
         sim.record(&format!(
             "dependants={} released={} later=refused second=refused",
             steps.len(),
-            readiness.released_at().map_or(0, Generation::get)
+            released.get()
         ));
         Ok(())
     })
@@ -662,7 +670,7 @@ fn saturation_admits_up_to_the_declared_cap() -> TestResult {
         let width = NonZeroUsize::new(tier)
             .ok_or("the tier must be at least one")?
             .get();
-        let reported = lgwks_bot::block_on(lgwks_bot::rt::task::join_all_bounded(
+        let reported = lgwks_bot::script::block_on(lgwks_bot::rt::task::join_all_bounded(
             width,
             steps.iter().map(|step| {
                 let gate = readiness.clone();
@@ -688,7 +696,7 @@ fn saturation_admits_up_to_the_declared_cap() -> TestResult {
                     }
                 }
             }),
-        ));
+        ))?;
         let served_count = reported.iter().filter(|outcome| **outcome == 1).count();
         served.store(served_count, Ordering::SeqCst);
         assert_eq!(
@@ -704,7 +712,7 @@ fn saturation_admits_up_to_the_declared_cap() -> TestResult {
 
         // One past the cap is refused, and the refusal charges nothing.
         let over = scope.enter("over-cap")?;
-        let over_refused = lgwks_bot::block_on(readiness.wait(&over, BUDGET)).is_err();
+        let over_refused = lgwks_bot::script::block_on(readiness.wait(&over, BUDGET)).is_err();
         assert!(
             over_refused,
             "a dependant past the cap of {tier} must be refused"
@@ -728,7 +736,6 @@ fn saturation_admits_up_to_the_declared_cap() -> TestResult {
             1,
             "exactly one dependant was past the cap"
         );
-        let _ = refused;
     }
     Ok(())
 }

@@ -89,7 +89,9 @@ fn walk(
         )
         .await
     })?;
-    Ok(lgwks_bot::block_on(host.run(&walker, (0..pages).collect())))
+    Ok(lgwks_bot::script::block_on(
+        host.run(&walker, (0..pages).collect()),
+    ))
 }
 
 /// A bounded walk keeps the newest `capacity` steps, counts the rest, and ends in

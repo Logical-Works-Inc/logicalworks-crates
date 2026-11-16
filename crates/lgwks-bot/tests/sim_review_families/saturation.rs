@@ -290,8 +290,8 @@ pub(super) fn run_saturation_tier(
             report
         }
     });
-    let reports = lgwks_bot::Runtime::new()?
-        .block_on(lgwks_bot::rt::task::join_all_bounded(in_flight, futures));
+    let reports = lgwks_bot::rt::runtime::Runtime::new()?
+        .block_on(lgwks_bot::rt::task::join_all_bounded(in_flight, futures))?;
     let elapsed = started.elapsed();
     // A poisoned recorder means a run panicked while timing itself; that is a
     // failed tier, not an empty sample set.

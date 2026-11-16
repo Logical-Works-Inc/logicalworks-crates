@@ -26,7 +26,7 @@ you to discover.
   `always`, `threshold::above(<n>)`, `threshold::below(<n>)`); anything the
   document cannot express stays on the builder chain.
 - **No `#[tokio::main]` equivalent.** Entry to the async surface is
-  `Runtime::block_on`, or `lgwks_bot::block_on` for a flow.
+  `Runtime::block_on`, or `lgwks_bot::script::block_on` for a flow.
 - **No exactly-once delivery.** An action that may have taken effect after its
   request was sent fails as `BotError::EffectIndeterminate`, and reconciling
   that is your decision. See [failures](failures.md). The durable dispatch and

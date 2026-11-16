@@ -30,10 +30,10 @@ use std::path::Path;
 #[cfg(target_os = "linux")]
 use std::path::PathBuf;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::{
     Confinement, LandlockRules, PathAccess, ProcessRunError, ProcessSpec,
 };
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::Supervisor;
 
 type TestResult = Result<(), Box<dyn Error>>;

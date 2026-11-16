@@ -231,7 +231,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut plain = Vec::with_capacity(step_slots);
     for index in 0..steps {
         let started = Instant::now();
-        let outcome = lgwks_bot::block_on(remember(&scope, "plain", || async move {
+        let outcome = lgwks_bot::script::block_on(remember(&scope, "plain", || async move {
             Ok::<_, FlowError>(index)
         }));
         plain.push(started.elapsed().as_micros());
@@ -250,7 +250,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stored = Vec::with_capacity(step_slots);
     for index in 0..steps {
         let started = Instant::now();
-        let report = lgwks_bot::block_on(host.run(&one_step_task()?, (0, index)));
+        let report = lgwks_bot::script::block_on(host.run(&one_step_task()?, (0, index)));
         stored.push(started.elapsed().as_micros());
         if report.disposition() != lgwks_bot::task::Disposition::Succeeded {
             let refusal =

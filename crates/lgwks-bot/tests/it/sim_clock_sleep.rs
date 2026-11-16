@@ -343,7 +343,7 @@ fn extremes(seed: u64) -> SimResult<u64> {
     require(again.poll(), || {
         format!("seed {seed}: a sleep of zero at the ceiling was pending")
     })?;
-    lgwks_bot::block_on(Clock::wall().sleep(Duration::ZERO));
+    lgwks_bot::rt::runtime::block_on(Clock::wall().sleep(Duration::ZERO));
     Ok(trace.hash())
 }
 
@@ -355,7 +355,7 @@ fn sim_clock_giant_and_empty_zero_ends_at_once_and_max_never_and_the_ceiling_hol
 /// The parked half of a sleep on another thread: it has not ended before the advance, nor after an
 /// advance that falls short, and it ends once an advance reaches its deadline.
 fn hold_until_deadline(clock: &Clock, span: Duration, finished: &AtomicBool) -> SimResult<()> {
-    lgwks_bot::block_on(clock.wait_for_waiter());
+    lgwks_bot::rt::runtime::block_on(clock.wait_for_waiter());
     require(!finished.load(Ordering::Acquire), || {
         "a sleep nobody advanced to its deadline completed".to_owned()
     })?;
@@ -379,7 +379,7 @@ fn double_click(seed: u64) -> SimResult<u64> {
     let finished = AtomicBool::new(false);
     std::thread::scope(|scope| {
         let sleeper = scope.spawn(|| {
-            lgwks_bot::block_on(clock.sleep(span));
+            lgwks_bot::rt::runtime::block_on(clock.sleep(span));
             finished.store(true, Ordering::Release);
         });
         let verdict = hold_until_deadline(&clock, span, &finished);

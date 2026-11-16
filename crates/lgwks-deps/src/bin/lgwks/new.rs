@@ -79,7 +79,7 @@ lgwks_bot::script! {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let port = port_from_env();
     let scope = Scope::root(Tenant::new(\"demo\")?);
-    let served = lgwks_bot::block_on(drafts(&scope, port))?;
+    let served = lgwks_bot::script::block_on(drafts(&scope, port))?;
     writeln!(std::io::stdout().lock(), \"served on {served}\")?;
     Ok(())
 }

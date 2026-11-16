@@ -3,7 +3,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use lgwks_bot::{FlowEdge, MatchTier, Predicate, Session};
+use lgwks_bot::session::{FlowEdge, MatchTier, Predicate, Session};
 
 use super::*;
 use crate::lock::take_unpoisoned;

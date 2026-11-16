@@ -191,12 +191,6 @@ impl Session {
         self.current.as_deref()
     }
 
-    /// Return the current node kind, or `None` once terminal.
-    #[must_use]
-    pub fn current_node(&self) -> Option<&NodeKind> {
-        self.current.as_deref().and_then(|id| self.flow.node(id))
-    }
-
     /// Return the typed variable scope.
     #[must_use]
     pub fn scope(&self) -> &VarScope {

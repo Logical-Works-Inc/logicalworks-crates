@@ -26,7 +26,8 @@ use crate::verb::Unstable;
 /// A kernel failure carried through `?` keeps its text.
 ///
 /// ```
-/// use lgwks_bot::{EcsError, KernelError};
+/// use lgwks_bot::ecs::EcsError;
+/// use lgwks_bot::error::KernelError;
 ///
 /// let kernel = KernelError::EffectIndeterminate {
 ///     domain: String::from("gh::issue"),

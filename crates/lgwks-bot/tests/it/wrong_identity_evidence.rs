@@ -48,13 +48,14 @@ use std::cell::{Cell, RefCell};
 use std::error::Error;
 use std::rc::Rc;
 
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::effect::{
     ActionDigest, ActionId, EffectKey, EnvironmentEpoch, EnvironmentId, FlowRevision, RunId,
 };
 use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
 use lgwks_bot::spec::{Bot, EffectIdentity};
-use lgwks_bot::{EcsError, GrantSet};
 
 use sim::rig::{FixedSource, NeverSettles, RUN_NAME, is_value, scope};
 

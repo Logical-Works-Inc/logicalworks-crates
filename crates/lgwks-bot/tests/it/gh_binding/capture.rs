@@ -17,8 +17,8 @@ fn a_chatty_client_is_truncated_at_its_ceiling_and_never_decoded() -> TestResult
     script.configure(Scenario::new(HEAD).floods(200))?;
     let gh = gh_for(&script, 1024, Duration::from_secs(10))?;
 
-    let outcome =
-        lgwks_bot::Runtime::new()?.block_on(gh.query_lossy("repos/acme/widgets/pulls/7"))?;
+    let outcome = lgwks_bot::rt::runtime::Runtime::new()?
+        .block_on(gh.query_lossy("repos/acme/widgets/pulls/7"))?;
 
     assert!(
         outcome.stdout_truncated(),
@@ -58,8 +58,8 @@ fn a_response_within_the_ceiling_is_parsed() -> TestResult {
     script.configure(Scenario::new(HEAD))?;
     let gh = gh_for(&script, 64 * 1024, Duration::from_secs(10))?;
 
-    let outcome =
-        lgwks_bot::Runtime::new()?.block_on(gh.query_lossy("repos/acme/widgets/pulls/7"))?;
+    let outcome = lgwks_bot::rt::runtime::Runtime::new()?
+        .block_on(gh.query_lossy("repos/acme/widgets/pulls/7"))?;
     assert!(
         !outcome.stdout_truncated(),
         "a small answer is not truncated"
@@ -84,8 +84,8 @@ fn a_hanging_client_is_stopped_as_a_whole_group_and_reports_no_exit_code() -> Te
     let gh = gh_for(&script, 64 * 1024, Duration::from_millis(400))?;
 
     let started = std::time::Instant::now();
-    let outcome =
-        lgwks_bot::Runtime::new()?.block_on(gh.query_lossy("repos/acme/widgets/pulls/7"))?;
+    let outcome = lgwks_bot::rt::runtime::Runtime::new()?
+        .block_on(gh.query_lossy("repos/acme/widgets/pulls/7"))?;
     let elapsed = started.elapsed();
 
     assert!(

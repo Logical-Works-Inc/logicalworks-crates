@@ -2,9 +2,9 @@
 //! re-asks without claiming absence, and an alias binds to the question it was
 //! confirmed at.
 
-use lgwks_bot::{
-    Alias, DegradedReason, LanguageResolver, SemanticResolver, Session, TranscriptEntry, Value,
-};
+use lgwks_bot::language::{Alias, LanguageResolver};
+use lgwks_bot::semantic::SemanticResolver;
+use lgwks_bot::session::{DegradedReason, Session, TranscriptEntry, Value};
 
 use super::*;
 

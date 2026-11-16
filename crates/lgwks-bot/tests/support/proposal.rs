@@ -221,7 +221,7 @@ pub fn poor_gate(tenant: &str) -> Result<Gate, Box<dyn Error>> {
 /// same way: a target that drove it differently could compare two runs that were
 /// never actually equivalent.
 pub fn drive<T>(future: impl std::future::Future<Output = T>) -> T {
-    lgwks_bot::block_on(future)
+    lgwks_bot::script::block_on(future)
 }
 
 /// A task body that admits `payload` through a gate and reports what happened.
@@ -236,7 +236,7 @@ pub fn drive<T>(future: impl std::future::Future<Output = T>) -> T {
 pub fn admitting_body(
     scope: Scope,
     (gate, payload): (Gate, Vec<u8>),
-) -> lgwks_bot::BoxFuture<'static, Result<String, lgwks_bot::script::FlowError>> {
+) -> lgwks_bot::verb::BoxFuture<'static, Result<String, lgwks_bot::script::FlowError>> {
     Box::pin(async move {
         let plan = lgwks_bot::script::admit(&scope, "plan", &gate, &payload, Source::Model).await?;
         Ok(plan.to_string())
@@ -246,7 +246,7 @@ pub fn admitting_body(
 /// What [`admitting_body`] returns, named so the coercion at
 /// [`admitting_task`] reads as a signature rather than a type expression.
 pub type AdmittingFuture =
-    lgwks_bot::BoxFuture<'static, Result<String, lgwks_bot::script::FlowError>>;
+    lgwks_bot::verb::BoxFuture<'static, Result<String, lgwks_bot::script::FlowError>>;
 
 /// The `Task` type [`admitting_body`] is built into.
 pub type AdmittingTask = lgwks_bot::task::Task<fn(Scope, (Gate, Vec<u8>)) -> AdmittingFuture>;

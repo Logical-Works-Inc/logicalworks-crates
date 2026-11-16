@@ -9,8 +9,10 @@ use std::cell::Cell;
 use std::error::Error;
 use std::rc::Rc;
 
+use lgwks_bot::ecs::{RunFeed, SettledRun};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::script::{FlowError, Scope};
-use lgwks_bot::{Bot, GrantSet, RunFeed, SettledRun};
+use lgwks_bot::spec::Bot;
 
 use crate::effects::memory_scope;
 

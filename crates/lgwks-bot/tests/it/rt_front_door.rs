@@ -8,13 +8,13 @@
 use std::error::Error;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::clock::Clock;
 use lgwks_bot::rt::runtime::Builder;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{Budget, NextAction, Supervisor};
 use lgwks_bot::rt::sync::{CancellationToken, oneshot};
 use lgwks_bot::rt::task::{JoinError, JoinSet, join_all_bounded};
-use lgwks_bot::rt::time::{Deadline, sleep};
+use lgwks_bot::rt::time::Deadline;
 
 /// What every fallible test here returns.
 type TestResult = Result<(), Box<dyn Error>>;
@@ -146,12 +146,12 @@ fn a_bounded_fan_out_runs_every_input() -> TestResult {
         join_all_bounded(
             4,
             (0..16).map(|index| async move {
-                sleep(Duration::from_millis(1)).await;
+                lgwks_bot::rt::task::yield_now().await;
                 index * index
             }),
         )
         .await
-    });
+    })?;
     assert_eq!(results.len(), 16, "every input produced a result");
     Ok(())
 }

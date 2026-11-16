@@ -1,3 +1,5 @@
+use super::naming::GENERATION_DIGITS;
+use super::watermark::{SHIPPED_BYTE_CEILING, SHIPPED_EVENT_CEILING, watermark_of};
 use super::*;
 use crate::effect::{
     ActionDigest, EffectIdentity, EnvironmentEpoch, EnvironmentId, FlowRevision, RunId,
@@ -42,7 +44,6 @@ fn the_watermark_leaves_a_fifth_of_each_ceiling() {
 #[test]
 fn a_journal_that_does_not_continue_is_never_due() -> TestResult {
     let mut watermark = ContinuationWatermark::inert(1, 2, 1, 2);
-    assert!(!watermark.continues());
     assert!(
         !watermark.is_due(),
         "an inert journal is never due, at any size"
@@ -52,8 +53,16 @@ fn a_journal_that_does_not_continue_is_never_due() -> TestResult {
         watermark.is_due(),
         "eighty percent of either ceiling is due"
     );
-    assert_eq!(watermark.event_headroom(), 20);
-    assert_eq!(watermark.byte_headroom(), 20);
+    assert_eq!(
+        watermark.events(),
+        (80, 100),
+        "the event count and its ceiling read back"
+    );
+    assert_eq!(
+        watermark.bytes(),
+        (80, 100),
+        "the byte count and its ceiling read back"
+    );
     Ok(())
 }
 

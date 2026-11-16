@@ -23,10 +23,12 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{DispatchCertainty, KernelError, RetryClass};
 use lgwks_bot::script::FlowError;
+use lgwks_bot::session::SessionError;
 use lgwks_bot::task::StoreError;
-use lgwks_bot::{BotError, EcsError, SessionError};
 
 use super::layer_errors::{hostile, layer_of};
 use crate::sim::Rng;

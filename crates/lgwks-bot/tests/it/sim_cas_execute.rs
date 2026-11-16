@@ -15,11 +15,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use lgwks_bot::EcsError;
 use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::cas::{CasInput, RecordStore};
 use lgwks_bot::clock::Clock;
 use lgwks_bot::domain::cas::CasWrite;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{DispatchCertainty, KernelError, RetryClass};
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::verb::Execute;

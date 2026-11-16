@@ -151,6 +151,10 @@ use std::time::Duration;
 // underlying module stays the single definition.
 use crate::rt::clock as rt_clock;
 
+/// Run a flow to completion on the crate-owned driver: the one way the supported
+/// surface drives a flow from synchronous code, since the crate root re-exports
+/// only `script!`, `try_join!`, `script`, `kernel` and `app` (#1016).
+pub use crate::rt::runtime::block_on;
 pub use admit::{
     Gate, RefusalRecord, admit, admit_at, intervention_of, provenance_of, read_refusal, refusal_of,
     refusal_record,

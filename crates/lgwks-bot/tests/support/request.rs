@@ -15,7 +15,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::task::Poll;
-use std::time::Instant;
 
 use lgwks_bot::clock::Clock;
 use lgwks_bot::script::{FlowError, Scope, remember};
@@ -134,7 +133,7 @@ pub fn parking_task(
 /// the flag says so to every caller that reads it afterwards rather than the loop spinning
 /// on a future that can make no further progress.
 pub fn drop_after_first_step<F: Future>(mut submit: Pin<Box<F>>, recorded: &AtomicBool) {
-    lgwks_bot::block_on(std::future::poll_fn(|context| {
+    lgwks_bot::script::block_on(std::future::poll_fn(|context| {
         if recorded.load(Ordering::SeqCst) {
             return Poll::Ready(());
         }
@@ -152,26 +151,20 @@ pub fn drop_after_first_step<F: Future>(mut submit: Pin<Box<F>>, recorded: &Atom
     drop(submit);
 }
 
-/// How long a stop thread waits for a body's first record before it gives up
-/// and stops the host anyway.
+/// Submit `work` under `key` and stop `host` once the body's first durable step
+/// is committed.
 ///
-/// A bound rather than an open wait, because a body that never records would
-/// otherwise park the whole suite until CI killed it with nothing to read. The
-/// ceiling is orders of magnitude above any observed run and costs the thread
-/// one clock read per turn.
-pub const STOP_THREAD_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Submit `work` under `key` while another OS thread stops `host` once the
-/// body's first durable step is committed.
-///
-/// The stop has to come from another OS thread — the body cannot stop its own
-/// host, or it would be cancelled before any step ran — and it waits on the
-/// body's *record* signal rather than on any step counter, because a step whose
-/// record has not landed is not a step a resume can replay.
+/// The stop comes from the driver between two polls of the submission — the
+/// body cannot stop its own host, or it would be cancelled before any step ran —
+/// and it waits on the body's *record* signal rather than on any step counter,
+/// because a step whose record has not landed is not a step a resume can
+/// replay. The wait is the submission itself: the loop ends when it settles, so
+/// a body that never records ends with its own outcome and no clock is read.
 ///
 /// # Errors
 ///
-/// Whatever the submission reported, or an explanation naming which side failed.
+/// Whatever the submission reported, or an explanation that the body settled
+/// before it recorded the step the stop follows.
 pub fn stop_mid_run<F>(
     host: &lgwks_bot::task::Host,
     key: &lgwks_bot::task::RequestKey,
@@ -182,42 +175,24 @@ pub fn stop_mid_run<F>(
 where
     F: Fn(Scope, u32) -> BodyFuture,
 {
-    let stopper_host = host.clone();
-    let stopper_recorded = Arc::clone(recorded);
-    let (reported, stopped) = std::thread::scope(|scope| {
-        let stopper = scope.spawn(move || {
-            let limit = Instant::now().checked_add(STOP_THREAD_LIMIT);
-            while !stopper_recorded.load(Ordering::SeqCst) {
-                if limit.is_none_or(|until| Instant::now() >= until) {
-                    // Bounded rather than open: a body that never records would
-                    // otherwise park the suite until CI killed it, with nothing
-                    // to read. Stopping here makes the run a seeded failure
-                    // instead, which names the seed.
-                    stopper_host.cancel();
-                    return false;
-                }
-                std::thread::park_timeout(std::time::Duration::from_millis(1));
-            }
-            stopper_host.cancel();
-            true
-        });
-        let reported = lgwks_bot::block_on(host.submit(key, work, input));
-        (reported, stopper.join())
-    });
-    match stopped {
-        Ok(true) => {}
-        Ok(false) => {
-            let refusal = Err(
-                "the body never recorded its first step, so the stop had nothing to follow".into(),
-            );
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "stop_mid_run: returning an error to the caller");
-            return refusal;
+    let mut submit = std::pin::pin!(host.submit(key, work, input));
+    let mut stopped = false;
+    let reported = lgwks_bot::script::block_on(std::future::poll_fn(|context| {
+        if !stopped && recorded.load(Ordering::SeqCst) {
+            host.cancel();
+            stopped = true;
         }
-        Err(_) => {
-            let refusal = Err("the thread that stopped the host panicked".into());
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "stop_mid_run: returning an error to the caller");
-            return refusal;
+        let polled = submit.as_mut().poll(context);
+        if polled.is_pending() {
+            context.waker().wake_by_ref();
         }
+        polled
+    }));
+    if !recorded.load(Ordering::SeqCst) {
+        let refusal =
+            Err("the body never recorded its first step, so the stop had nothing to follow".into());
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "stop_mid_run: returning an error to the caller");
+        return refusal;
     }
     reported.map_err(Into::into)
 }

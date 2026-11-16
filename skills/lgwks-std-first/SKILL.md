@@ -84,7 +84,7 @@ fan-out, deadlines and retries (`skills/lgwks-use-the-crates/SKILL.md`). Below i
 `tokio` is an optional feature of the `lgwks_deps` storefront, the bot reaches it
 through this single facade, and the gate refuses any other `tokio` consumer. There
 is no attribute macro, because it would expand to `::tokio` paths you cannot resolve
-without a `tokio` edge: enter through `lgwks_bot::block_on`.
+without a `tokio` edge: enter through `lgwks_bot::script::block_on`.
 
 Boundary: not a realtime scheduler, and worker completion order is
 nondeterministic. `net` does not apply the HTTP egress policy. A high-connection

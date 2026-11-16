@@ -6,7 +6,8 @@ use std::error::Error;
 use std::rc::Rc;
 use std::time::Duration;
 
-use lgwks_bot::{Bot, GrantSet};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
 
 use crate::effects::memory_scope;
 

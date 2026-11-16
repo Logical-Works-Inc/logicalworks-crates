@@ -7,14 +7,14 @@
 use std::time::Duration;
 
 use ai_task_support::{Artifact, Published, Stage, StageError, StageName};
-use lgwks_bot::rt::task::join_all_bounded;
+use lgwks_bot::rt::task::{FanOutError, join_all_bounded};
 use lgwks_bot::rt::time;
 
 #[derive(Debug)]
 pub enum PipelineError {
     Stage { name: StageName },
     Deadline,
-    Cancelled,
+    FanOut(FanOutError),
 }
 
 async fn run_stage(stage: Stage, name: StageName) -> Result<Artifact, PipelineError> {
@@ -36,7 +36,9 @@ pub async fn solve(stage: Stage, deadline: Duration) -> Result<Published, Pipeli
                 async move { run_stage(stage, name).await }
             })
             .collect();
-        let fetched = join_all_bounded(2, futures).await;
+        let fetched = join_all_bounded(2, futures)
+            .await
+            .map_err(PipelineError::FanOut)?;
         for result in fetched {
             result?;
         }

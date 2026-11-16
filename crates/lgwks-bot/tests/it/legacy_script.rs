@@ -34,7 +34,7 @@ fn a_script_flow_calls_the_ebcdic_codec_in_one_line() -> TestResult {
         "HELLO",
         &lgwks_std::legacy::limits::Limits::default(),
     )?;
-    let back = lgwks_bot::block_on(legacy_ebcdic_passthrough(&scope, bytes.clone()))?;
+    let back = lgwks_bot::script::block_on(legacy_ebcdic_passthrough(&scope, bytes.clone()))?;
     assert_eq!(
         back, bytes,
         "decode then encode through the flow must return the same bytes"
@@ -52,7 +52,7 @@ fn a_script_flow_calls_the_decimal_codec_in_one_line() -> TestResult {
         true,
         &lgwks_std::legacy::limits::Limits::default(),
     )?;
-    let back = lgwks_bot::block_on(legacy_decimal_passthrough(&scope, bytes.clone()))?;
+    let back = lgwks_bot::script::block_on(legacy_decimal_passthrough(&scope, bytes.clone()))?;
     assert_eq!(
         back, bytes,
         "decode then encode through the flow must return the same bytes"

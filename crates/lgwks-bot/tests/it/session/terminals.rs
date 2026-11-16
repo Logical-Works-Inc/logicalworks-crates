@@ -2,7 +2,7 @@
 //! its node is executed, and one that contradicts it is refused where it was
 //! authored.
 
-use lgwks_bot::{Disposition, EffectLedger, Session};
+use lgwks_bot::session::{Disposition, EffectLedger, Session};
 
 use super::*;
 

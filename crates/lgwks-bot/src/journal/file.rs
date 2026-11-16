@@ -235,8 +235,6 @@ pub struct FileJournal {
     /// whole rather than folded into the indexes beside it, because a fold is a
     /// report and the record behind it is the evidence.
     carried: Option<Continuation>,
-    /// This file's own seal, when it has sealed itself.
-    seal: Option<Continuation>,
     /// The position the committed events' chain starts from.
     ///
     /// The genesis for a base journal and the seal frame's own position for a

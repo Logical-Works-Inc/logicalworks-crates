@@ -656,12 +656,6 @@ impl PlanBudget {
         self.ceiling
     }
 
-    /// Whether the budget is spent.
-    #[must_use]
-    pub const fn is_spent(&self) -> bool {
-        self.remaining == 0
-    }
-
     /// Charge one admission, or refuse it.
     ///
     /// # Errors

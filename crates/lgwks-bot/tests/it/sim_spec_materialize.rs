@@ -21,10 +21,13 @@ use crate::spec_materialize::{Counter, parse_count};
 
 use std::error::Error;
 
-use lgwks_bot::spec::{ActionSpec, Bot, BotSpec, ChainSpec};
-use lgwks_bot::{
-    Action, Admission, Auth, Cap, EcsError, EffectLifetime, Execute, GrantSet, Need, domains,
-};
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::registry::Action;
+use lgwks_bot::spec::{ActionSpec, Admission, Bot, BotSpec, ChainSpec, Need};
+use lgwks_bot::verb::{EffectLifetime, Execute};
 
 use sim::{Band, Sim};
 

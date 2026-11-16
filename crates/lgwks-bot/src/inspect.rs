@@ -58,6 +58,10 @@
 //! [`Verdict::Incomplete`]: crate::inspect::Verdict::Incomplete
 //! [`Verdict::InfrastructureFailure`]: crate::inspect::Verdict::InfrastructureFailure
 //! [`ASSURANCE`]: crate::inspect::ASSURANCE
+//! [`Inspection::verdict`]: crate::inspect::Inspection::verdict
+//! [`Inspection::coverage`]: crate::inspect::Inspection::coverage
+//! [`Inspection::resources`]: crate::inspect::Inspection::resources
+//! [`Budgets`]: crate::inspect::Budgets
 //!
 //! # Example
 //!

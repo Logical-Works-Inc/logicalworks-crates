@@ -391,8 +391,9 @@ fn a_renamed_repository_is_refused_naming_both() -> TestResult {
 /// domain failure a retry policy would repeat, and never with a create.
 #[test]
 fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
-    use lgwks_bot::EcsError;
     use lgwks_bot::cap::Cap;
+    use lgwks_bot::ecs::EcsError;
+    use lgwks_bot::error::RetryClass;
     use lgwks_bot::script::FlowError;
     use lgwks_bot::spec::NeedSet;
 
@@ -450,7 +451,7 @@ fn a_refused_credential_stops_the_review_with_its_repair() -> TestResult {
         );
         assert_eq!(
             source.retry_class(),
-            lgwks_bot::RetryClass::Never,
+            RetryClass::Never,
             "seed {index} ({status}): the same credential is never retried"
         );
         reached.insert(status);

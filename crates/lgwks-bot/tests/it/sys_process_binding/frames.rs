@@ -13,7 +13,7 @@ const SMALL_CAPTURE: usize = 8;
 /// Run `script` once on a one-slot supervisor, capturing at most `capture` bytes
 /// of each stream.
 fn run_captured(script: &str, capture: usize) -> Result<ProcessRun, Box<dyn std::error::Error>> {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     Ok(runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         supervisor
@@ -42,7 +42,7 @@ fn ok_records(count: usize) -> String {
 fn a_framed_record_cut_off_mid_frame_is_a_typed_refusal() -> TestResult {
     // `[0,0,0,4]` then `done`, then `[0,0,0,8]` and only `part`.
     let script = "printf '\\000\\000\\000\\004done\\000\\000\\000\\010part'";
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let run = runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         supervisor.run_process(&captured_shell(script, 4096)).await
@@ -104,7 +104,7 @@ fn a_framed_record_cut_off_mid_frame_is_a_typed_refusal() -> TestResult {
 #[test]
 fn a_framed_stream_that_ends_cleanly_is_complete() -> TestResult {
     let script = "printf '\\000\\000\\000\\004done\\000\\000\\000\\002ok'";
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let run = runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         supervisor.run_process(&captured_shell(script, 4096)).await
@@ -299,7 +299,7 @@ fn a_reader_ceiling_over_a_truncated_capture_is_the_readers_own() -> TestResult 
 #[test]
 fn an_untruncated_capture_reports_the_child_own_truncation() -> TestResult {
     let script = "printf '\\000\\000\\000\\004done\\000\\000\\000\\010part'";
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     let run = runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         supervisor.run_process(&captured_shell(script, 4096)).await

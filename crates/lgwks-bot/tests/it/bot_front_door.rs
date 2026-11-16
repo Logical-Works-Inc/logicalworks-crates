@@ -10,7 +10,9 @@ use std::error::Error;
 use std::time::Duration;
 
 use lgwks_bot::dist_lease::AuthorityHandle;
-use lgwks_bot::{Bot, EcsError, GrantSet};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::Bot;
 
 use crate::effects::memory_scope;
 

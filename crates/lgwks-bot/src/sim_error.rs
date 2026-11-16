@@ -26,7 +26,7 @@
 use std::fmt::Write as _;
 use std::str::Chars;
 
-use crate::BotError;
+use crate::app_error::BotError;
 use crate::cap::{Cap, Demand};
 use crate::ecs::EcsError;
 use crate::error::{DispatchCertainty, Escaped, KernelError, RetryClass};

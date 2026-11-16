@@ -47,7 +47,7 @@ lgwks_bot::script! {
 
 fn main() -> Result<(), FlowError> {
     let scope = Scope::root(Tenant::new("acme")?);
-    let total = lgwks_bot::block_on(squares(&scope, vec![1, 2, 3]))?;
+    let total = lgwks_bot::script::block_on(squares(&scope, vec![1, 2, 3]))?;
     assert_eq!(total, 14);
     Ok(())
 }
@@ -62,7 +62,7 @@ Every flow takes a `Scope` first, carrying the tenant, the step path and the can
 - A flow's `Tenant` is its host's partition key, not an authenticated identity.
 - Capability gating is auditable authority, not a sandbox, because in-process code can always dial out.
 - Deadlines and stops are cooperative, taking effect at an `.await`, so a long synchronous stretch is not preempted.
-- There is no `#[tokio::main]` here. Entry is `lgwks_bot::block_on`.
+- There is no `#[tokio::main]` here. Entry is `lgwks_bot::script::block_on`.
 - Do not add `tokio`, `serde` or `regex` as direct edges: `skills/lgwks-std-first/SKILL.md` maps each to its owner.
 - A derive on a JSON type needs `#[serde(crate = "lgwks_std::json::serde")]`.
 

@@ -5,7 +5,8 @@
     feature = "rt",
     feature = "time",
     feature = "sync",
-    feature = "process"
+    feature = "process",
+    feature = "fs"
 ))]
 
 use crate::scratch::Scratch;
@@ -13,14 +14,29 @@ use crate::scratch::Scratch;
 use std::path::Path;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{
     GatedIdentifiedSpawn, Supervisor, SupervisorCancelled, TaskOutcome,
 };
-use lgwks_bot::rt::time::{Instant, sleep};
+use lgwks_bot::rt::time::{Clock, Instant, timeout};
 
 const BUDGET: Duration = Duration::from_secs(10);
+
+/// How often a wait on an outside process's state reads it again. The process
+/// is not ours to be told about, so the wait reads it on the run's clock.
+const RECHECK: Duration = Duration::from_millis(5);
+
+/// Read the pid `path` holds now, if a whole one is there.
+///
+/// Synchronous on purpose: `nonzero_exit_does_not_fabricate_tree_cleanup` must
+/// hold its executor thread without yielding, so its read may not be a future.
+fn pid_now(path: &Path) -> Option<String> {
+    let text = std::fs::read(path).ok()?;
+    let text = String::from_utf8(text).ok()?;
+    let text = text.trim();
+    (!text.is_empty()).then(|| String::from(text))
+}
 
 fn is_alive(pid: &str) -> bool {
     let mut alive = false;
@@ -34,47 +50,60 @@ fn is_alive(pid: &str) -> bool {
     alive
 }
 
+/// The pid the shell recorded in `path`, read through the async file API until
+/// a whole one is there, within [`BUDGET`].
 async fn pid(path: &Path) -> Option<String> {
+    let clock = Clock::wall();
     let deadline = Instant::now().checked_add(BUDGET)?;
     loop {
-        if let Ok(text) = std::fs::read_to_string(path) {
-            let text = text.trim();
-            if !text.is_empty() {
-                return Some(String::from(text));
+        match lgwks_bot::rt::fs::read_to_string(path).await {
+            Ok(text) if !text.trim().is_empty() => return Some(String::from(text.trim())),
+            Ok(_) => {}
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, "pid: the record is not written yet");
             }
         }
         if Instant::now() >= deadline {
             return None;
         }
-        sleep(Duration::from_millis(5)).await;
+        clock.sleep(RECHECK).await;
     }
 }
 
+/// The supervisor's next report, once its one task has ended: `wait_idle` is
+/// the event, and [`BUDGET`] bounds it.
 async fn outcome(supervisor: &mut Supervisor) -> Result<TaskOutcome, std::io::Error> {
-    let deadline = Instant::now()
-        .checked_add(BUDGET)
-        .ok_or_else(|| std::io::Error::other("clock deadline overflowed"))?;
-    loop {
-        supervisor.reap();
-        if let Some(outcome) = supervisor.next_report() {
-            return Ok(outcome);
-        }
-        if Instant::now() >= deadline {
-            let refusal = Err(std::io::Error::other("process outcome did not arrive"));
+    supervisor.reap();
+    if let Some(outcome) = supervisor.next_report() {
+        return Ok(outcome);
+    }
+    if timeout(BUDGET, supervisor.wait_idle()).await.is_err() {
+        let refusal = Err(std::io::Error::other("process outcome did not arrive"));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "outcome: returning an error to the caller");
+        return refusal;
+    }
+    match supervisor.next_report() {
+        Some(outcome) => Ok(outcome),
+        None => {
+            let refusal = Err(std::io::Error::other(
+                "the supervisor went idle with no report",
+            ));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "outcome: returning an error to the caller");
-            return refusal;
+            refusal
         }
-        sleep(Duration::from_millis(5)).await;
     }
 }
 
+/// Whether `pid` is gone within [`BUDGET`]. The process is the init system's to
+/// reap once our tree is cleaned, so the wait reads it on the run's clock.
 async fn gone(pid: &str) -> bool {
+    let clock = Clock::wall();
     let deadline = Instant::now().checked_add(BUDGET);
     while deadline.is_some_and(|value| Instant::now() < value) {
         if !is_alive(pid) {
             return true;
         }
-        sleep(Duration::from_millis(5)).await;
+        clock.sleep(RECHECK).await;
     }
     !is_alive(pid)
 }
@@ -175,11 +204,8 @@ fn nonzero_exit_does_not_fabricate_tree_cleanup() -> Result<(), Box<dyn std::err
         // machine and reports a missing descendant that is merely late.
         let deadline = std::time::Instant::now() + BUDGET;
         let child = loop {
-            if let Ok(text) = std::fs::read_to_string(&child_file) {
-                let text = text.trim();
-                if !text.is_empty() {
-                    break String::from(text);
-                }
+            if let Some(text) = pid_now(&child_file) {
+                break text;
             }
             if std::time::Instant::now() >= deadline {
                 return Err(std::io::Error::other("descendant pid was not recorded"));

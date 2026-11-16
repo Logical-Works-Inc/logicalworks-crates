@@ -27,21 +27,18 @@ Part of [production readiness](../production-readiness.md), §4, nine axes.
   The `lgwks_macros` crate carries the same table in its own crate documentation. A page
   that drifts from the lexicon, or a `lib.rs` that does not begin with the include,
   fails `lexicon_docs::every_front_page_opens_with_the_lexicon`: INV-FRONT-1, #526.
-  The `lgwks_ast` root was measured once, when it was hidden: its all-features
-  rustdoc fell from 172 pages to three (`cargo doc -p lgwks_ast --all-features`,
-  commit `725a3c88`). No test holds that count, and #896 owns it.
 - The `lgwks_bot` getting-started guide runs a `script!` program: its pages follow
-  `crates/lgwks-bot/examples/queue_watch.rs`, which CI builds with every
-  example and which was run once for the pages (three printed lines, three
-  asserted page counts). No test runs it, and #896 owns that too. The example
-  ceilings for the guide's `index.md`, `getting-started-pieces.md` and
+  `crates/lgwks-bot/examples/queue_watch.rs`, which is a test target (`test = true`):
+  `queue_watch::tests::the_getting_started_program_runs` runs its `main`, three
+  runs and three asserted page counts, under nextest (#896). The example ceilings
+  for the guide's `index.md`, `getting-started-pieces.md` and
   `getting-started-program.md` fell to zero (INV-EXAMPLE-1).
-- The registry and front-door examples hold a flow too: the `task` module's
-  front-door doctest, `task::task` and `DomainRegistry` compile one and pass
-  with the other 45 under `cargo test --doc -p lgwks_bot` (48 of 48), and the
-  `domains.md` block was built and run once (`open prs: 0`). The ceilings for
-  `registry.rs`, `task.rs`, `domains.md` and `authority-names.md` fell to zero
-  (INV-EXAMPLE-1). No doctest runs those flows, and #896 owns that.
+- The registry and front-door flows run as tests, not doctests. The same
+  `queue_watch` test runs a flow over a `domains!` registry on a granted and an
+  ungranted host. `kernel_surface::supported_surface` builds a durable two-step flow
+  through `kernel::task` alone, runs it, and resumes it on a fresh host without
+  rerunning the first step (#1016). The ceilings for `registry.rs`, `task.rs`,
+  `domains.md` and `authority-names.md` fell to zero (INV-EXAMPLE-1).
 - The poll watchdog gives a source the reaper owes a turn that turn. The `WavePoll::turn`
   call decides a stall from the expiry it read at the start of the turn, so a deadline that
   passes while a poll runs no longer cuts off a poll whose waker was installed before it
@@ -57,11 +54,13 @@ others. A source tag is not a registry upload; `docs/releasing.md` says what pro
 one. The surface table fixes today's surface and
 every root has shrunk. The modules and re-exports of `lgwks_bot`, `lgwks_std`,
 `lgwks_deps` and `lgwks_ast` sit behind `#[doc(hidden)]`. So the `lgwks_bot` rustdoc
-lists `script!`, `try_join!` and the `script` module, the `lgwks_ast` rustdoc lists the
+lists `script!`, `try_join!`, the `script` module, `kernel` and `app`, and its root
+re-exports nothing else (#1016, ADR 0064); the `lgwks_ast` rustdoc lists the
 `script` module, and the other two list prose only. The `README.md`
 and `parser.md` of `lgwks_ast` carry the
 direct-use examples, so they are no longer its front page: they stay compiled on a
 hidden item at its root, which keeps their examples running as doctests. A
 `#[doc(hidden)]` on `mod x;` hides that line only, so the files of a
 hidden module keep their own ceilings and a new `pub` item inside one is still
-refused; no test asserts the cross-file half, and #896 owns it.
+refused: `a_new_pub_item_inside_a_hidden_module_is_refused_by_its_own_file` in
+`check-std-first` holds it (#896).

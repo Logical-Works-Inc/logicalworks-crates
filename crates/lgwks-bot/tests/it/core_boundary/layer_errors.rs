@@ -8,9 +8,11 @@
 //! failure keeps its retry class, its dispatch certainty and its rendered line
 //! across every hop. The simulations draw the failure and the hop from a seed.
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{DispatchCertainty, KernelError, RetryClass};
 use lgwks_bot::script::FlowError;
-use lgwks_bot::{BotError, EcsError, SessionError};
+use lgwks_bot::session::SessionError;
 
 use crate::sim::{Rng, Trace};
 

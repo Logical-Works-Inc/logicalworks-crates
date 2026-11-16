@@ -40,13 +40,13 @@ use lgwks_std::json::{self, Deserialize, Serialize};
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
 use super::Repository;
 use super::{Gh, GhError, stage_input};
-#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-use crate::Action;
 use crate::cap::{Auth, Cap};
 use crate::clock::Clock;
 use crate::ecs::EcsError;
 pub use crate::keyed::Settlement;
 use crate::keyed::{self, CreateFailure, KeyedReceiver};
+#[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
+use crate::registry::Action;
 use crate::verb;
 
 /// The capability that lets a run open an issue, beyond running `gh` at all.

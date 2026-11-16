@@ -246,7 +246,7 @@ fn document(words: &[String]) -> Result<Value, CliError> {
         "docs" => docs(rest.first()),
         "ink" => {
             let parsed = flags(rest)?;
-            let runs = lgwks_bot::block_on(ink_effects(
+            let runs = lgwks_bot::script::block_on(ink_effects(
                 &scope()?,
                 parsed.seed,
                 parsed.frames,
@@ -261,7 +261,7 @@ fn document(words: &[String]) -> Result<Value, CliError> {
         }
         "present" => {
             let parsed = flags(rest)?;
-            Ok(lgwks_bot::block_on(residency(
+            Ok(lgwks_bot::script::block_on(residency(
                 &scope()?,
                 parsed.seed,
                 parsed.frames,

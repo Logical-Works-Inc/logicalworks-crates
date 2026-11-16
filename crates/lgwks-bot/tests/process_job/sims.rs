@@ -96,7 +96,7 @@ fn natural_exit(seed: u64) -> Result<String, Box<dyn Error>> {
         &tree::script(held, &tree::exit_after_a_second(code)),
         dir.path(),
     );
-    let (stopped, released) = lgwks_bot::block_on(async {
+    let (stopped, released) = lgwks_bot::rt::runtime::block_on(async {
         let mut supervisor = Supervisor::default();
         supervisor.spawn_process(&spec).await?;
         let stopped = outcome(&mut supervisor).await?;
@@ -141,7 +141,7 @@ fn before_the_manager_runs(seed: u64) -> Result<String, Box<dyn Error>> {
     };
     let dir = Scratch::new("sim-pre-poll")?;
     let spec = cmd(&tree::script(held, tree::STAY), dir.path());
-    let (receipt, released) = lgwks_bot::block_on(async {
+    let (receipt, released) = lgwks_bot::rt::runtime::block_on(async {
         let mut supervisor = Supervisor::default();
         supervisor.spawn_process(&spec).await?;
         tree::up_without_yielding(dir.path())?;
@@ -190,7 +190,7 @@ fn many_trees(seed: u64) -> Result<String, Box<dyn Error>> {
         .zip(&held)
         .map(|(dir, count)| cmd(&tree::script(*count, tree::STAY), dir.path()))
         .collect::<Vec<_>>();
-    let (receipts, released) = lgwks_bot::block_on(async {
+    let (receipts, released) = lgwks_bot::rt::runtime::block_on(async {
         let mut supervisor = Supervisor::default();
         for spec in &specs {
             supervisor.spawn_process(spec).await?;
@@ -251,7 +251,7 @@ fn unrelated(seed: u64) -> Result<String, Box<dyn Error>> {
     };
     let spec_a = cmd(&tree::script(held_a, &tail_a), dir_a.path());
     let spec_b = cmd(&tree::script(held_b, tree::STAY), dir_b.path());
-    let receipts = lgwks_bot::block_on(async {
+    let receipts = lgwks_bot::rt::runtime::block_on(async {
         let mut tree_a = Supervisor::default();
         let mut tree_b = Supervisor::default();
         tree_a.spawn_process(&spec_a).await?;

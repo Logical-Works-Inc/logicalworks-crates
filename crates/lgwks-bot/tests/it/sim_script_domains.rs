@@ -24,10 +24,11 @@
 
 use std::error::Error;
 
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::script::{FlowError, Scope, TypedAction, TypedSource, act_typed, observe_typed};
 use lgwks_bot::spec::{Bot, BotSpec};
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{Cap, GrantSet};
 
 use crate::effect_policy::allowing;
 use crate::effects::memory_scope;
@@ -36,7 +37,7 @@ use crate::script_domains::{
     two_misspellings, undeclared, unknown_in_registry,
 };
 use crate::sim::{self, Band, Sim};
-use crate::spec_materialize::take_trace;
+use crate::spec_materialize::{clear_trace, take_trace};
 
 /// The domain's own error type: what a typed call maps a refusal into.
 #[derive(Debug, PartialEq)]
@@ -136,8 +137,9 @@ fn trace_seed(host: &Host, sim: &mut Sim) -> SimResult {
             page_when_over(&scope, &target, over, &labels).await
         },
     )?;
-    let _ = take_trace();
-    let report = lgwks_bot::block_on(host.run(&paging, (count.to_string(), over, labels.clone())));
+    clear_trace();
+    let report =
+        lgwks_bot::script::block_on(host.run(&paging, (count.to_string(), over, labels.clone())));
     assert_eq!(
         report.result().ok().copied(),
         Some(count),
@@ -177,14 +179,14 @@ fn admission_seed(hosts: &[Host; 2], sim: &mut Sim) -> SimResult {
     let tenant = usize::from(below(sim, 2)?);
     let target = below(sim, 10)?.to_string();
     let host = hosts.get(tenant).ok_or("two hosts")?;
-    let _ = take_trace();
+    clear_trace();
     let (flow, report) = if sim.rng().below(2) == 0 {
         let checking = task("checking", |scope: Scope, target: String| async move {
             page_then_misspelled_source(&scope, &target).await
         })?;
         (
             "page-then-misspelled",
-            lgwks_bot::block_on(host.run(&checking, target)),
+            lgwks_bot::script::block_on(host.run(&checking, target)),
         )
     } else {
         let checking = task("checking", |scope: Scope, target: String| async move {
@@ -192,7 +194,7 @@ fn admission_seed(hosts: &[Host; 2], sim: &mut Sim) -> SimResult {
         })?;
         (
             "two-misspellings",
-            lgwks_bot::block_on(host.run(&checking, target)),
+            lgwks_bot::script::block_on(host.run(&checking, target)),
         )
     };
     let source = unknown_in_registry("source", "test::countr", "test::counter");
@@ -237,8 +239,8 @@ fn authority_seed(bare: &Host, granted: &Host, sim: &mut Sim) -> SimResult {
     };
     for (host, holds_net) in order {
         let count = below(sim, 10)?;
-        let _ = take_trace();
-        let report = lgwks_bot::block_on(host.run(&reaching, count.to_string()));
+        clear_trace();
+        let report = lgwks_bot::script::block_on(host.run(&reaching, count.to_string()));
         let trace = take_trace();
         if holds_net {
             assert_eq!(
@@ -277,8 +279,8 @@ fn effect_seed(hosts: &[Host; 2], sim: &mut Sim) -> SimResult {
         "posting",
         |scope: Scope, (target, value): (String, u16)| async move { post(&scope, &target, value).await },
     )?;
-    let _ = take_trace();
-    let report = lgwks_bot::block_on(allowing(host.run(&posting, (target.clone(), value))));
+    clear_trace();
+    let report = lgwks_bot::script::block_on(allowing(host.run(&posting, (target.clone(), value))));
     assert!(
         report.result().is_ok(),
         "seed {}: {:?}",
@@ -329,16 +331,16 @@ fn typed_seed(bare: &Host, granted: &Host, sim: &mut Sim) -> SimResult {
             .await
             .map_err(FlowError::failed)
     })?;
-    let _ = take_trace();
-    let report = lgwks_bot::block_on(bare.run(&reading, count.to_string()));
+    clear_trace();
+    let report = lgwks_bot::script::block_on(bare.run(&reading, count.to_string()));
     assert_eq!(
         report.result().ok().copied(),
         Some(count),
         "seed {}",
         sim.seed
     );
-    let _ = take_trace();
-    let stepped = lgwks_bot::block_on(bare.run(&paging, (label.clone(), value)));
+    clear_trace();
+    let stepped = lgwks_bot::script::block_on(bare.run(&paging, (label.clone(), value)));
     assert!(
         stepped.result().is_ok(),
         "seed {}: {:?}",
@@ -352,16 +354,16 @@ fn typed_seed(bare: &Host, granted: &Host, sim: &mut Sim) -> SimResult {
         "seed {}: the typed action ran once with the flow's value",
         sim.seed
     );
-    let _ = take_trace();
-    let held = lgwks_bot::block_on(granted.run(&counting, count.to_string()));
+    clear_trace();
+    let held = lgwks_bot::script::block_on(granted.run(&counting, count.to_string()));
     assert_eq!(
         held.result().ok().copied(),
         Some(count),
         "seed {}: the granted typed source polls",
         sim.seed
     );
-    let _ = take_trace();
-    let short = lgwks_bot::block_on(bare.run(&counting, count.to_string()));
+    clear_trace();
+    let short = lgwks_bot::script::block_on(bare.run(&counting, count.to_string()));
     let blocked = match short.result() {
         Err(error) => error.to_string(),
         Ok(value) => {

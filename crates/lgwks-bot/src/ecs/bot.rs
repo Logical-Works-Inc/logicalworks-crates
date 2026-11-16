@@ -305,7 +305,8 @@ impl EcsBot {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Bot, GrantSet};
+    /// use lgwks_bot::gate::GrantSet;
+    /// use lgwks_bot::spec::Bot;
     /// # use lgwks_bot::broker::Broker;
     /// # use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
     /// # use lgwks_bot::journal::MemoryJournal;
@@ -324,7 +325,7 @@ impl EcsBot {
     /// let mut bot = Bot::builder("idle")
     ///     .with_effects(scope)
     ///     .build(&GrantSet::empty())?;
-    /// assert_eq!(lgwks_bot::block_on(bot.tick_async())?, 0);
+    /// assert_eq!(lgwks_bot::rt::runtime::block_on(bot.tick_async())?, 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub async fn tick_async(&mut self) -> Result<usize, EcsError> {
@@ -471,12 +472,13 @@ impl EcsBot {
     ///
     /// ```
     /// use lgwks_bot::spec::EffectScope;
-    /// use lgwks_bot::{Bot, GrantSet};
+    /// use lgwks_bot::gate::GrantSet;
+    /// use lgwks_bot::spec::Bot;
     ///
     /// let mut bot = Bot::builder("idle")
     ///     .with_effects(EffectScope::ephemeral()?)
     ///     .build(&GrantSet::empty())?;
-    /// let (outcome, _profile) = lgwks_bot::block_on(bot.tick_profiled());
+    /// let (outcome, _profile) = lgwks_bot::rt::runtime::block_on(bot.tick_profiled());
     /// assert_eq!(outcome?, 0);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
@@ -528,7 +530,8 @@ impl EcsBot {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Bot, GrantSet};
+    /// use lgwks_bot::gate::GrantSet;
+    /// use lgwks_bot::spec::Bot;
     /// # use lgwks_bot::broker::Broker;
     /// # use lgwks_bot::effect::{EnvironmentId, FlowRevision, RunId};
     /// # use lgwks_bot::journal::MemoryJournal;

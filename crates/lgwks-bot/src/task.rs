@@ -457,7 +457,7 @@ impl<O> Report<O> {
     /// let doubling = task("doubling", |scope: Scope, value: u32| async move {
     ///     double(&scope, value).await
     /// })?;
-    /// let report = lgwks_bot::block_on(host.run(&doubling, 21));
+    /// let report = lgwks_bot::script::block_on(host.run(&doubling, 21));
     /// assert_eq!(report.result().ok().copied(), Some(42));
     /// let rendered = report.script_trail().to_string();
     /// assert!(rendered.contains("flow double(value: u32) -> u32  -> ok"), "{rendered}");

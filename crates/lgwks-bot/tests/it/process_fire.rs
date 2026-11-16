@@ -52,8 +52,8 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::time::Duration;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::rt::process::ProcessSpec;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::supervise::{CleanupReceipt, Supervisor, TaskOutcome};
 use lgwks_bot::rt::time::{Instant, sleep};
 

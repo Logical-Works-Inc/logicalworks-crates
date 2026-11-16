@@ -31,10 +31,14 @@ use std::io::Write;
 use std::process::ExitCode;
 use std::time::Duration;
 
+use lgwks_bot::cap::Cap;
 use lgwks_bot::domain::gh::{ISSUE_CREATE, IssueDraft, OpenIssue, OpenedIssue};
+use lgwks_bot::domains;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::task::{Host, task};
-use lgwks_bot::{Cap, EcsError, GrantSet, KernelError, domains};
 use lgwks_std::json::{self, Serialize};
 
 /// What the command line takes.
@@ -125,7 +129,7 @@ fn run() -> Result<ExitCode, Box<dyn std::error::Error>> {
             open_issue(&scope, &repo, draft).await
         },
     )?;
-    let report = lgwks_bot::block_on(host.run(&opening, (args.repo.clone(), draft)));
+    let report = lgwks_bot::script::block_on(host.run(&opening, (args.repo.clone(), draft)));
     let mut out = std::io::stdout().lock();
     let (answer, code) = match report.result() {
         Ok(issue) => (

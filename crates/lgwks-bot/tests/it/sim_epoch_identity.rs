@@ -35,14 +35,15 @@ use std::error::Error;
 use std::rc::Rc;
 
 use lgwks_bot::broker::{Broker, BrokerError};
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::effect::{
     ActionDigest, ActionId, EffectIdentity, EffectKey, EnvironmentEpoch, EnvironmentId,
     FlowRevision, RunId,
 };
 use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::{EffectEvent, EffectJournal, FileJournal, MemoryJournal};
 use lgwks_bot::spec::{Bot, EffectEvidence as Settled};
-use lgwks_bot::{EcsError, GrantSet};
 
 use sim::rig::{self, FixedSource, NeverSettles, RUN_NAME, attempt_key, is_value, recorded, scope};
 

@@ -1,7 +1,8 @@
 //! Registry and shape refusals, and the `NeedSet` helpers.
 
-use lgwks_bot::spec::{Bot, BotSpec};
-use lgwks_bot::{Admission, EcsError, GrantSet, Need, NeedSet};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::{Admission, Bot, BotSpec, Need, NeedSet};
 
 use super::{DUPLICATE_DOMAINS, SPEC_DOMAINS, TestResult, scope};
 

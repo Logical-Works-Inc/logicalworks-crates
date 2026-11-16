@@ -2,8 +2,8 @@
 //!
 //! These exercise the SDK the way a consumer does, through `lgwks_bot` and never
 //! `tokio`, and assert the invariants that justify the facade: bounded fan-out
-//! never exceeds its limit and preserves input order, a panicking input is
-//! resumed on the awaiter (not converted to a `JoinError`), abort is
+//! never exceeds its limit and preserves input order, a panicking input comes
+//! back to the awaiter as a typed `FanOutError::Panicked`, abort is
 //! cancellation, and nothing this crate hands out can be started and then
 //! forgotten.
 //!
@@ -42,11 +42,11 @@ use std::time::Duration;
 
 use lgwks_bot::rt::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, BufWriter, duplex};
 use lgwks_bot::rt::runtime::MAX_WORKER_THREADS;
+use lgwks_bot::rt::runtime::{Builder, Runtime};
 use lgwks_bot::rt::supervise::{Supervisor, TaskOutcome};
 use lgwks_bot::rt::sync::{CancellationToken, mpsc};
-use lgwks_bot::rt::task::{JoinError, JoinSet, join_all_bounded};
+use lgwks_bot::rt::task::{FanOutError, JoinError, JoinSet, join_all_bounded};
 use lgwks_bot::rt::time::{sleep, timeout};
-use lgwks_bot::{Builder, Runtime};
 
 /// What a test reports when its precondition did not hold.
 ///
@@ -56,21 +56,20 @@ use lgwks_bot::{Builder, Runtime};
 /// rather than an unwind that reports only that something unwound.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-/// Panic on the calling task, carrying `message` as the payload.
+/// Fail the calling task's assertion, carrying `message`.
 ///
-/// `resume_unwind` and not `panic!`: the workspace forbids `panic` outright with
-/// no suppression path, and this is the documented form for a
-/// deliberate panic: it reports on the task that observes it and never aborts
-/// the process. Declared to return `()` rather than leaving its body to diverge,
-/// so a future that calls it keeps a concrete output type instead of inferring
-/// the never type into the handle it returns.
+/// The failure is the subject of the tests that call it: it must reach the
+/// task that observes it. It rides a deliberately false assertion, the estate
+/// form (`lgwks_std` `spawn_blocking_panic_resumes_on_joiner`), because the
+/// workspace forbids `panic` with no test carve-out. Declared to return `()` so
+/// a future that calls it keeps a concrete output type.
 fn explode(message: &'static str) {
-    std::panic::resume_unwind(Box::new(message));
+    assert!(message.is_empty(), "{message}");
 }
 
 #[test]
 fn free_block_on_runs_a_future() {
-    assert_eq!(lgwks_bot::block_on(async { 3u8 }), 3);
+    assert_eq!(lgwks_bot::script::block_on(async { 3u8 }), 3);
 }
 
 #[test]
@@ -104,10 +103,10 @@ fn runtime_spawns_and_joins_a_task() -> TestResult {
 fn select_picks_the_ready_branch() -> TestResult {
     let runtime = Runtime::new()?;
     let picked = runtime.block_on(async {
-        lgwks_bot::select! {
+        lgwks_bot::rt::select! {
             biased;
             value = async { 9u8 } => value,
-            _ = sleep(Duration::from_millis(50)) => 0,
+            () = std::future::pending::<()>() => 0,
         }
     });
     assert_eq!(picked, 9);
@@ -117,7 +116,7 @@ fn select_picks_the_ready_branch() -> TestResult {
 #[test]
 fn join_resolves_every_branch() -> TestResult {
     let runtime = Runtime::new()?;
-    let pair = runtime.block_on(async { lgwks_bot::join!(async { 1u8 }, async { 2u8 }) });
+    let pair = runtime.block_on(async { lgwks_bot::rt::join!(async { 1u8 }, async { 2u8 }) });
     assert_eq!(pair, (1, 2));
     Ok(())
 }
@@ -127,7 +126,7 @@ fn timeout_distinguishes_elapsed_from_value() -> TestResult {
     let runtime = Runtime::new()?;
     let elapsed = runtime.block_on(timeout(
         Duration::from_millis(10),
-        sleep(Duration::from_secs(30)),
+        std::future::pending::<()>(),
     ));
     assert!(elapsed.is_err(), "an expired deadline must be an error");
 
@@ -139,7 +138,10 @@ fn timeout_distinguishes_elapsed_from_value() -> TestResult {
 #[test]
 fn a_sleep_built_before_the_runtime_still_fires() -> TestResult {
     // tokio's own `sleep` panics here; the facade defers construction to poll.
-    let timer = sleep(Duration::from_millis(10));
+    // A zero wait: the property is where the deadline is captured, not how long
+    // it is, so the test spends no real time and races nothing.
+    const NO_WAIT: Duration = Duration::ZERO;
+    let timer = sleep(NO_WAIT);
     let runtime = Runtime::new()?;
     runtime.block_on(timer);
     Ok(())
@@ -207,7 +209,7 @@ fn fan_out(
             }
         });
         join_all_bounded(limit, futures).await
-    });
+    })?;
     Ok((outputs, peak.load(SeqCst)))
 }
 
@@ -238,7 +240,7 @@ fn bounded_fanout_limit_one_is_sequential() -> TestResult {
 fn bounded_fanout_with_empty_input_resolves_immediately() -> TestResult {
     let runtime = Runtime::new()?;
     let outputs: Vec<u8> =
-        runtime.block_on(join_all_bounded(4, Vec::<std::future::Ready<u8>>::new()));
+        runtime.block_on(join_all_bounded(4, Vec::<std::future::Ready<u8>>::new()))?;
     assert!(
         outputs.is_empty(),
         "no inputs must resolve to no outputs, not to a blocked fan-out"
@@ -298,7 +300,7 @@ fn builder_accepts_a_blocking_pool_bound_and_still_drives_tasks() -> TestResult 
 #[test]
 fn bounded_fanout_treats_limit_zero_as_one() -> TestResult {
     let runtime = Runtime::new()?;
-    let outputs = runtime.block_on(join_all_bounded(0, (0..4u32).map(std::future::ready)));
+    let outputs = runtime.block_on(join_all_bounded(0, (0..4u32).map(std::future::ready)))?;
     assert_eq!(outputs, vec![0, 1, 2, 3]);
     Ok(())
 }
@@ -311,30 +313,38 @@ fn bounded_fanout_clamps_a_limit_above_max_permits() -> TestResult {
     let outputs = runtime.block_on(join_all_bounded(
         usize::MAX,
         (0..4u32).map(std::future::ready),
-    ));
+    ))?;
     assert_eq!(outputs, vec![0, 1, 2, 3]);
     Ok(())
 }
 
+/// A failing input comes back to the awaiting task as a typed
+/// `FanOutError::Panicked` carrying its payload, and never vanishes with the
+/// input. The non-failing path through the same call is
+/// `bounded_fanout_treats_limit_zero_as_one`.
 #[test]
-fn bounded_fanout_resumes_a_panicking_input_on_the_awaiter() -> TestResult {
+fn bounded_fanout_returns_a_panicking_input_to_the_awaiter() -> TestResult {
     let runtime = Runtime::new()?;
-    let resumed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        runtime.block_on(join_all_bounded(
-            2,
-            (0..2u8).map(|_| async {
-                explode("input exploded");
-            }),
-        ));
-    }));
-    assert!(
-        resumed.is_err(),
-        "a panicking input must resume its panic on the awaiting task"
+    let outcome = runtime.block_on(join_all_bounded(
+        2,
+        (0..2u8).map(|_| async {
+            explode("input exploded");
+        }),
+    ));
+    let error = match outcome {
+        Err(FanOutError::Panicked(error)) => error,
+        other => return Err(format!("a panicking input is Panicked, got {other:?}").into()),
+    };
+    let payload = error.into_panic();
+    let message = payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str));
+    assert_eq!(
+        message,
+        Some("input exploded"),
+        "the payload is the input's own"
     );
-
-    // A non-panicking run through the same path is unaffected.
-    let ok = runtime.block_on(join_all_bounded(2, (0..3u32).map(std::future::ready)));
-    assert_eq!(ok, vec![0, 1, 2]);
     Ok(())
 }
 
@@ -344,24 +354,38 @@ fn bounded_fanout_resumes_a_panicking_input_on_the_awaiter() -> TestResult {
 /// (`dropping a JoinHandle detaches rather than cancels`) — the handle that
 /// behaved that way no longer exists. The property still worth pinning is the
 /// opposite one, because it is what makes the set a safe container: a caller who
-/// lets the set go does not leave work running behind them. The task below would
-/// set `ran` at 20 ms if it were detached, and never reaches it.
+/// lets the set go does not leave work running behind them. The task below is
+/// released only after the set is dropped, so a detached task would set `ran`;
+/// the wait is on the task's own end (its `done` sender dropping), never a timer.
 #[test]
 fn dropping_a_tracked_set_cancels_its_tasks() -> TestResult {
     let runtime = Runtime::new()?;
     let ran = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&ran);
     runtime.block_on(async move {
+        let (started_tx, mut started) = mpsc::channel::<()>(1);
+        let (done_tx, mut done) = mpsc::channel::<()>(1);
+        let release = CancellationToken::new();
+        let released = release.clone();
         let mut tasks = JoinSet::new();
         tasks.spawn(async move {
-            sleep(Duration::from_millis(20)).await;
+            let _held_until_the_task_ends = done_tx;
+            if started_tx.send(()).await.is_err() {
+                return;
+            }
+            released.cancelled_owned().await;
             flag.store(true, SeqCst);
         });
+        if started.recv().await.is_none() {
+            return Err("the task ended before it reported its start");
+        }
         drop(tasks);
-        // Well past the deadline the task would have needed, so a detach would
-        // be observable rather than a race.
-        sleep(Duration::from_millis(80)).await;
-    });
+        release.cancel();
+        // `None` once the task's future is gone: dropped by the cancel, or run
+        // to its end by a detach. `ran` then tells the two apart.
+        while done.recv().await.is_some() {}
+        Ok(())
+    })?;
     assert!(
         !ran.load(SeqCst),
         "dropping a JoinSet must cancel its tasks, not detach them"
@@ -374,9 +398,7 @@ fn abort_is_cancellation() -> TestResult {
     let runtime = Runtime::new()?;
     let joined = runtime.block_on(async {
         let mut tasks = JoinSet::new();
-        let handle = tasks.spawn(async {
-            sleep(Duration::from_secs(30)).await;
-        });
+        let handle = tasks.spawn(std::future::pending::<()>());
         handle.abort();
         tasks.join_next().await
     });
@@ -438,26 +460,33 @@ fn a_cancelled_token_stops_every_task_in_a_join_set() -> TestResult {
         // `token` is moved in rather than cloned: the supervisor owns it, and no
         // handle outside this block needs it afterwards.
         async move {
+            let (parked_tx, mut parked) = mpsc::channel::<()>(TASKS);
             let mut tasks = JoinSet::new();
             for _ in 0..TASKS {
                 let waiting = token.clone();
                 let counter = Arc::clone(&finished);
+                let parked_tx = parked_tx.clone();
                 tasks.spawn(async move {
                     // `cancelled_owned` and not `cancelled`: a spawned task must
                     // own everything it captures and outlive this scope, and
-                    // `cancelled` borrows the token.
-                    //
-                    // The 50 ms below is long enough that the cancel provably
-                    // arrives while these are parked, not after they returned.
-                    waiting.cancelled_owned().await;
+                    // `cancelled` borrows the token. The wait exists before
+                    // the task reports, so the cancel arrives while it is held.
+                    let wait = waiting.cancelled_owned();
+                    if parked_tx.send(()).await.is_ok() {
+                        wait.await;
+                    }
                     counter.fetch_add(1, SeqCst);
                 });
             }
+            drop(parked_tx);
 
-            // Let every task reach its wait, then cancel from the same runtime
-            // but a different task than any waiter — which is the shape a
-            // supervisor actually has.
-            sleep(Duration::from_millis(50)).await;
+            // Every task has reached its wait; cancel from the same runtime but
+            // a different task than any waiter — the shape a supervisor has.
+            for _ in 0..TASKS {
+                if parked.recv().await.is_none() {
+                    break;
+                }
+            }
             token.cancel();
 
             while let Some(joined) = tasks.join_next().await {
@@ -493,18 +522,27 @@ fn cancelling_one_child_leaves_its_sibling_running() -> TestResult {
         // `parent` is moved rather than cloned: it is needed only inside this
         // block, to release the sibling once the claim has been asserted.
         async move {
+            let (parked_tx, mut parked) = mpsc::channel::<()>(2);
+            let stopped_parked = parked_tx.clone();
             let mut tasks = JoinSet::new();
             tasks.spawn(async move {
-                stopped.cancelled_owned().await;
+                let wait = stopped.cancelled_owned();
+                if stopped_parked.send(()).await.is_ok() {
+                    wait.await;
+                }
                 "stopped"
             });
             tasks.spawn(async move {
-                surviving.cancelled_owned().await;
+                let wait = surviving.cancelled_owned();
+                if parked_tx.send(()).await.is_ok() {
+                    wait.await;
+                }
                 ran_to_completion.store(true, SeqCst);
                 "survivor"
             });
 
-            sleep(Duration::from_millis(50)).await;
+            // Both children hold their waits before the one cancel lands.
+            while parked.recv().await.is_some() {}
             // Only the one child: a supervisor abandoning a single subtask must
             // not take its siblings with it.
             controller.cancel();

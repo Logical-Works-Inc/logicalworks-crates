@@ -1,7 +1,8 @@
 //! The supported surface for a consumer building its own durable runtime.
 //!
 //! `script!` is the way to write a flow. A consumer that hosts flows needs the parts
-//! underneath them, and it is these eight modules, which carry the same
+//! underneath them, and it is these modules (eight since #845; `task`, `cap` and
+//! `sealed` joined with #1016, when the crate root stopped exporting them), which carry the same
 //! compatibility promise as `script!`: a removal or a changed signature is a major
 //! release of this crate. An item marked `#[doc(hidden)]` inside one of them stays
 //! outside that promise, and so does every other module of the crate.
@@ -49,4 +50,22 @@ pub mod effect {
 /// Whether a failed attempt may be tried again.
 pub mod retry {
     pub use crate::retry::*;
+}
+
+/// The task front door: a `Host` runs a `Task` over a `RunStore` and returns a
+/// `Report` (feature `script`).
+#[cfg(feature = "script")]
+pub mod task {
+    pub use crate::task::*;
+}
+
+/// Capabilities and the proofs that carry them: what `App::grant` takes.
+pub mod cap {
+    pub use crate::cap::*;
+}
+
+/// Records sealed at rest under fresh data keys (feature `sealed`, #785).
+#[cfg(feature = "sealed")]
+pub mod sealed {
+    pub use crate::sealed::*;
 }

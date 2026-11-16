@@ -82,7 +82,7 @@ impl From<EcsError> for Admission {
 ///
 /// ```
 /// use lgwks_bot::spec::upstream_credential_rejection;
-/// use lgwks_bot::{Cap, EcsError, RetryClass};
+/// use lgwks_bot::{cap::Cap, ecs::EcsError, error::RetryClass};
 ///
 /// let refusal = upstream_credential_rejection("net::probe", 401, &[Cap::net()]);
 /// assert!(matches!(refusal, EcsError::CredentialRejected { status: 401, .. }));

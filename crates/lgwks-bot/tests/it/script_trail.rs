@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use lgwks_bot::rt::time::sleep;
 use lgwks_bot::script::{FlowError, Outcome, Scope, StepKind, Tenant, attempts, retry};
 use lgwks_bot::task::{Disposition, Host, task};
 
@@ -31,7 +30,7 @@ lgwks_bot::script! {
             7
         step wait:
             within 20ms:
-                sleep(Duration::from_secs(5)).await
+                std::future::pending::<()>().await
         give back fetched
 
     /// Two sequential rungs, each with a fan-out of two.
@@ -84,7 +83,7 @@ fn a_run_through_a_retry_and_a_timeout_reads_back_line_by_line() -> TestResult {
         "fetching",
         |scope: Scope, busy: Arc<AtomicU32>| async move { fetch_then_wait(&scope, &busy).await },
     )?;
-    let report = lgwks_bot::block_on(host.run(&fetching, Arc::new(AtomicU32::new(0))));
+    let report = lgwks_bot::script::block_on(host.run(&fetching, Arc::new(AtomicU32::new(0))));
     assert_eq!(report.disposition(), Disposition::DeadlineExceeded);
 
     let rendered = report.script_trail().to_string();
@@ -125,7 +124,7 @@ fn each_body_and_for_iteration_names_its_header_line_and_item() -> TestResult {
         "climbing",
         |scope: Scope, ()| async move { rungs(&scope).await },
     )?;
-    let report = lgwks_bot::block_on(host.run(&climbing, ()));
+    let report = lgwks_bot::script::block_on(host.run(&climbing, ()));
     assert_eq!(report.result().ok().copied(), Some(4));
     let rendered = report.script_trail().to_string();
     assert_eq!(
@@ -154,7 +153,7 @@ fn the_trail_stays_bounded_and_says_how_much_it_dropped() -> TestResult {
     let climbing = task("climbing", |scope: Scope, count: u32| async move {
         ladder(&scope, count).await
     })?;
-    let report = lgwks_bot::block_on(host.run(&climbing, 10));
+    let report = lgwks_bot::script::block_on(host.run(&climbing, 10));
     assert_eq!(report.result().ok().copied(), Some(10));
     // Entered: the task step, the flow, then a rung and a climb for each of
     // ten iterations, 22 in all; the ring keeps the last four.
@@ -181,7 +180,7 @@ fn the_trail_stays_bounded_and_says_how_much_it_dropped() -> TestResult {
 #[test]
 fn a_script_step_keys_as_its_path_entered_by_hand() -> TestResult {
     let tenant = Tenant::new("acme")?;
-    let written = lgwks_bot::block_on(keyed(&Scope::root(tenant.clone())))?;
+    let written = lgwks_bot::script::block_on(keyed(&Scope::root(tenant.clone())))?;
     let by_hand = Scope::root(tenant).enter("keyed")?.enter("inner")?.key();
     assert_eq!(written, by_hand.to_hex());
     Ok(())
@@ -196,7 +195,7 @@ fn a_hosts_runs_share_one_retry_budget_and_a_spent_one_is_throttled() -> TestRes
     let busy = task("busy", |scope: Scope, busy: Arc<AtomicU32>| async move {
         always_busy(&scope, &busy).await
     })?;
-    let first = lgwks_bot::block_on(host.run(&busy, Arc::new(AtomicU32::new(0))));
+    let first = lgwks_bot::script::block_on(host.run(&busy, Arc::new(AtomicU32::new(0))));
     assert!(
         matches!(
             first.error(),
@@ -205,7 +204,7 @@ fn a_hosts_runs_share_one_retry_budget_and_a_spent_one_is_throttled() -> TestRes
         "the first run spent its allowance: {:?}",
         first.error()
     );
-    let second = lgwks_bot::block_on(host.run(&busy, Arc::new(AtomicU32::new(0))));
+    let second = lgwks_bot::script::block_on(host.run(&busy, Arc::new(AtomicU32::new(0))));
     assert!(
         matches!(
             second.error(),
@@ -227,7 +226,7 @@ fn a_retry_attempts_share_one_step_key() -> TestResult {
     let served: Rc<Cell<u32>> = Rc::new(Cell::new(0));
     let key_log = Rc::clone(&keys);
     let served_count = Rc::clone(&served);
-    let outcome = lgwks_bot::block_on(retry(
+    let outcome = lgwks_bot::script::block_on(retry(
         &scope,
         "attempt",
         attempts(3)?,

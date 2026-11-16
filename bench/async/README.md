@@ -86,5 +86,5 @@ baseline's 2,595 at a million concurrent tasks.
   in `bench/src/alloc_count.rs` rather than left inside a number.
 - Nothing here measures durability, restart cost, or history scaling. Those are
   different layers and a number from this rig would not speak to them.
-- `lgwks_bot::Bot::tick` (the ECS path) is not measured here; that is the
+- `lgwks_bot::spec::Bot::tick` (the ECS path) is not measured here; that is the
   synchronous rig in `bench/`.

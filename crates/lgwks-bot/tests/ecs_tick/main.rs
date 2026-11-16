@@ -37,16 +37,19 @@ use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{DispatchCertainty, KernelError};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::rt::runtime::Builder;
 use lgwks_bot::rt::sync::{Mutex, mpsc};
 use lgwks_bot::rt::task::JoinSet;
 use lgwks_bot::rt::time::{sleep, timeout};
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::{
     AbandonReason, EffectEvidence, EffectKey, PendingWork, RetryPolicy, TransitionHold,
 };
-use lgwks_bot::{
-    Auth, Bot, Builder, Cap, DispatchCertainty, EcsError, EffectLifetime, Execute, GrantSet,
-    KernelError, Observe,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 #[path = "../support/effects.rs"]
 mod effects;

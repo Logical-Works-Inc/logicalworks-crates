@@ -22,7 +22,7 @@ fn sys_auth() -> Result<Auth, KernelError> {
 /// A non-Unix `run_process` is a typed pre-fork refusal, and nothing is spawned.
 #[test]
 fn a_non_unix_run_process_is_a_typed_pre_fork_refusal() -> Result<(), Box<dyn std::error::Error>> {
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
     runtime.block_on(async {
         let mut supervisor = Supervisor::new(1);
         match supervisor.run_process(&ProcessSpec::new("unused")).await {
@@ -51,9 +51,11 @@ fn a_non_unix_run_process_is_a_typed_pre_fork_refusal() -> Result<(), Box<dyn st
 #[test]
 fn the_sys_domain_refuses_without_a_runner() -> Result<(), Box<dyn std::error::Error>> {
     let process = Process::new("unused");
-    let error = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })
-        .err()
-        .ok_or("a non-Unix process must be refused rather than run")?;
+    let error = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })
+    .err()
+    .ok_or("a non-Unix process must be refused rather than run")?;
     let shown = error.to_string();
     assert_eq!(
         BotError::from(error).dispatch_certainty(),

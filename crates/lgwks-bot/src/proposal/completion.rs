@@ -24,7 +24,7 @@
 use crate::journal::frame::SaturatingFrom;
 use std::fmt;
 
-use super::{Intervention, Outcome, Provenance, Refusal};
+use super::{Intervention, Provenance, Refusal};
 
 /// The most evidence references one completion claim may name.
 ///
@@ -357,27 +357,6 @@ impl CompletionOutcome {
                 coverage: *coverage,
             },
             Self::Intervention(ref intervention) => Self::Intervention(intervention.clone()),
-        }
-    }
-
-    /// Build the outcome for a payload that was refused before it became a claim.
-    #[must_use]
-    pub fn from_outcome(outcome: &Outcome) -> Self {
-        match *outcome {
-            Outcome::Refused {
-                ref refusal,
-                ref provenance,
-            } => Self::NotEvidenced {
-                refusal: refusal.clone(),
-                provenance: Some(provenance.clone()),
-            },
-            Outcome::Intervention(ref intervention) => Self::Intervention(intervention.clone()),
-            Outcome::Admitted { .. } => Self::Incomplete {
-                coverage: Coverage::Partial {
-                    covered: 0,
-                    asked: 1,
-                },
-            },
         }
     }
 }

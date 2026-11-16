@@ -5,9 +5,11 @@
 
 use std::time::Duration;
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::{DispatchCertainty, RetryClass};
 use lgwks_bot::script::FlowError;
-use lgwks_bot::{BotError, EcsError, JournalError, SessionError};
+use lgwks_bot::session::{JournalError, SessionError};
 
 use super::{DRAWS, Hash, TestResult, arms, hostile, layer_of, path, reading, refuse, replays};
 use crate::sim::{Rng, Trace};

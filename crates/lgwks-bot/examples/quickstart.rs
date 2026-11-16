@@ -52,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let flaky = Flaky(AtomicU8::new(0));
     let scope = Scope::root(Tenant::new("demo")?);
-    let total = lgwks_bot::block_on(squares(&scope, &flaky, vec![3]))?;
+    let total = lgwks_bot::script::block_on(squares(&scope, &flaky, vec![3]))?;
     writeln!(out, "sum of squares: {total}")?;
     assert_eq!(total, 9, "3 squared after two transient refusals");
     assert_eq!(flaky.0.load(Ordering::Relaxed), 3, "three attempts");

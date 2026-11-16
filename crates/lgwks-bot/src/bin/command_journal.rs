@@ -29,11 +29,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
-use lgwks_bot::Cap;
 use lgwks_bot::app::{
     App, CommandLimits, Effect, EffectResult, Method, OnInput, Principal, Provider, ReplyTag,
     RequestHeaders,
 };
+use lgwks_bot::cap::Cap;
 use lgwks_bot::journal::{JournalError, RecordJournal};
 use lgwks_bot::rt::edge::EdgeStop;
 
@@ -259,7 +259,10 @@ impl Stall {
         while !*stopping {
             stopping = match self.bell.wait(stopping) {
                 Ok(woke) => woke,
-                Err(_) => return,
+                Err(poisoned) => {
+                    lgwks_std::trace::warn!(%poisoned, "command-journal: the stall bell is poisoned, so the held writer goes on");
+                    return;
+                }
             };
         }
     }
@@ -433,7 +436,7 @@ impl From<lgwks_bot::app::AppError> for Stopped {
 /// Serve `directory` until stdin closes.
 fn run(directory: PathBuf, stall_key: Option<String>) -> Result<(), Stopped> {
     std::fs::create_dir_all(&directory)?;
-    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
     let mut out = std::io::stdout().lock();
     writeln!(out, "listening {}", listener.local_addr()?)?;
     out.flush()?;

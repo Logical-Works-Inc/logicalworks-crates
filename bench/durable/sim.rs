@@ -10,7 +10,7 @@ use std::ffi::OsString;
 use std::sync::Arc;
 use std::time::Duration;
 
-use lgwks_bot::block_on;
+use lgwks_bot::rt::runtime::block_on;
 use lgwks_bot::script::ApprovalDecision;
 use lgwks_std::json::Value;
 use lgwks_std::seeded::Seeded;

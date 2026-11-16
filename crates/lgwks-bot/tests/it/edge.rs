@@ -11,12 +11,12 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::{EcsError, Request, RequestFeed, Response, WakeHandle};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::edge::{EdgeStop, MAX_BODY_BYTES, serve};
-use lgwks_bot::spec::EffectScope;
-use lgwks_bot::{
-    Auth, Bot, Cadence, Cap, EcsError, GrantSet, Observe, Request, RequestFeed, Response,
-    WakeHandle,
-};
+use lgwks_bot::spec::{Bot, EffectScope};
+use lgwks_bot::verb::{Cadence, Observe};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 

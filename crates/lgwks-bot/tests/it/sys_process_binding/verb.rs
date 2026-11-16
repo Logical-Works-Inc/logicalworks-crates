@@ -6,12 +6,14 @@ use crate::scratch::Scratch;
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
+use lgwks_bot::app_error::BotError;
+use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::domain::sys::{DEFAULT_CAPTURE_LIMIT, DEFAULT_DEADLINE, Process};
-use lgwks_bot::error::KernelError;
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{DispatchCertainty, KernelError};
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::process::{FrameRead, ProcessSpec, StdioPolicy};
-use lgwks_bot::{
-    Auth, BotError, Cap, DispatchCertainty, EcsError, Execute, GrantSet, Observe, Query,
-};
+use lgwks_bot::verb::{Execute, Observe, Query};
 
 use super::{TestResult, shell};
 
@@ -39,7 +41,9 @@ fn empty_auth() -> Result<Auth, KernelError> {
 #[test]
 fn execute_reports_the_exit_code_and_the_captured_streams() -> TestResult {
     let process = process_for("printf out; printf err >&2; exit 3");
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert_eq!(
         state.exit_code,
         Some(3),
@@ -58,7 +62,9 @@ fn execute_reports_the_exit_code_and_the_captured_streams() -> TestResult {
 #[test]
 fn exit_zero_is_reported_as_zero_not_success() -> TestResult {
     let process = process_for("exit 0");
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert_eq!(
         state.exit_code,
         Some(0),
@@ -70,7 +76,9 @@ fn exit_zero_is_reported_as_zero_not_success() -> TestResult {
 #[test]
 fn a_signal_death_is_reported_in_the_state() -> TestResult {
     let process = process_for("kill -TERM $$");
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert_eq!(state.exit_code, None, "a signal has no exit code");
     assert_eq!(state.signal, Some(15), "the signal is reported");
     Ok(())
@@ -83,7 +91,9 @@ fn a_deadline_is_reported_in_the_state() -> TestResult {
     spec.capture_stderr(DEFAULT_CAPTURE_LIMIT);
     spec.deadline(Duration::from_millis(200));
     let process = Process::from_spec(spec);
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert!(state.deadline_fired, "the deadline stop is reported");
     assert_eq!(
         state.exit_code, None,
@@ -95,7 +105,7 @@ fn a_deadline_is_reported_in_the_state() -> TestResult {
 #[test]
 fn the_observed_and_query_forms_run_the_command() -> TestResult {
     let process = process_for("exit 0");
-    let (observed, queried) = lgwks_bot::block_on(async {
+    let (observed, queried) = lgwks_bot::rt::runtime::block_on(async {
         let observed = process.poll((sys_auth()?, ())).await?;
         let queried = process.query((sys_auth()?, &())).await?;
         Ok::<_, EcsError>((observed, queried))
@@ -116,9 +126,11 @@ fn the_observed_and_query_forms_run_the_command() -> TestResult {
 #[test]
 fn a_missing_program_is_a_refusal_with_nothing_run() -> TestResult {
     let process = Process::from_spec(ProcessSpec::new("/nonexistent/lgwks-bot-probe"));
-    let error = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })
-        .err()
-        .ok_or_else(|| std::io::Error::other("a missing program must be refused"))?;
+    let error = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })
+    .err()
+    .ok_or_else(|| std::io::Error::other("a missing program must be refused"))?;
     let shown = error.to_string();
     assert_eq!(
         BotError::from(error).dispatch_certainty(),
@@ -133,9 +145,11 @@ fn a_missing_capability_is_refused_before_any_spawn() -> TestResult {
     let dir = Scratch::new("cap")?;
     let marker = dir.path().join("marker");
     let process = process_for(&format!("touch {}", marker.display()));
-    let error = lgwks_bot::block_on(async { process.execute_action((empty_auth()?, &())).await })
-        .err()
-        .ok_or_else(|| std::io::Error::other("the capability check must deny"))?;
+    let error = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((empty_auth()?, &())).await
+    })
+    .err()
+    .ok_or_else(|| std::io::Error::other("the capability check must deny"))?;
     assert!(
         matches!(
             error,
@@ -157,7 +171,9 @@ fn a_missing_capability_is_refused_before_any_spawn() -> TestResult {
 #[test]
 fn the_default_constructor_runs_a_real_child() -> TestResult {
     let process = Process::new("true");
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert_eq!(
         state.exit_code,
         Some(0),
@@ -191,7 +207,7 @@ fn concurrent_calls_on_one_process_share_its_ceiling() -> TestResult {
     let process = process_for(&script)
         .max_concurrent(NonZeroUsize::new(CEILING).ok_or("the ceiling admits at least one call")?);
     let auth = sys_auth()?;
-    let states = lgwks_bot::block_on(lgwks_std::task::join_all(
+    let states = lgwks_bot::rt::runtime::block_on(lgwks_std::task::join_all(
         (0..CALLS).map(|_| process.execute_action((auth.clone(), &()))),
     ));
     let mut highest = 0_usize;
@@ -267,7 +283,9 @@ fn framing_process(
 fn the_execute_verb_reports_stdout_frames_two_records_and_a_cut_third() -> TestResult {
     let script = "printf '\\000\\000\\000\\004done\\000\\000\\000\\002ok\\000\\000\\000\\010part'";
     let process = framing_process(script, DEFAULT_CAPTURE_LIMIT)?;
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert_eq!(
         state.exit_code,
         Some(0),
@@ -319,7 +337,9 @@ fn the_execute_verb_reports_the_capture_ceiling_when_the_child_overruns_it() -> 
     const CAPTURE: usize = 8;
     let script = "printf '\\000\\000\\000\\002ok\\000\\000\\000\\002ok\\000\\000\\000\\002ok'";
     let process = framing_process(script, NonZeroUsize::new(CAPTURE).ok_or("a ceiling")?)?;
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert!(
         state.stdout_truncated,
         "ten bytes into an {CAPTURE}-byte capture must report that the capture cut the stream"
@@ -346,7 +366,9 @@ fn the_execute_verb_reports_the_capture_ceiling_when_the_child_overruns_it() -> 
 #[test]
 fn a_domain_without_frame_stdout_reports_no_frames_and_unchanged_stdout() -> TestResult {
     let process = process_for("printf out");
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     assert!(
         state.stdout_frames().is_none(),
         "a domain with no frame_stdout must not invent a framed reading"
@@ -369,7 +391,9 @@ fn a_domain_without_frame_stdout_reports_no_frames_and_unchanged_stdout() -> Tes
 fn a_binary_record_round_trips_through_frames_while_stdout_is_lossy() -> TestResult {
     let script = "printf '\\000\\000\\000\\002\\377\\376'";
     let process = framing_process(script, DEFAULT_CAPTURE_LIMIT)?;
-    let state = lgwks_bot::block_on(async { process.execute_action((sys_auth()?, &())).await })?;
+    let state = lgwks_bot::rt::runtime::block_on(async {
+        process.execute_action((sys_auth()?, &())).await
+    })?;
     let frames = state.stdout_frames().ok_or_else(|| {
         std::io::Error::other("a domain built with frame_stdout must report frames")
     })?;

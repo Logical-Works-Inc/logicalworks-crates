@@ -153,7 +153,7 @@ fn every_placed_task_reports_exactly_once(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let plan = plan(sim.rng())?;
         let tasks = u64::try_from(plan.shapes.len())?;
-        let runtime = lgwks_bot::Runtime::new()?;
+        let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
         let outcome = runtime.block_on(async {
             let mut supervisor = Supervisor::new(plan.bound);
             let mut placed: BTreeSet<TaskId> = BTreeSet::new();

@@ -23,7 +23,7 @@ fn a_review_list_past_the_ceiling_is_refused_not_truncated() -> TestResult {
     script.configure(Scenario::new(HEAD).with_filler_reviews(over))?;
     let gh = gh_for(&script, 4 * 1024 * 1024, HANG_BOUND)?;
 
-    let refused = lgwks_bot::Runtime::new()?
+    let refused = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(async {
             gh.read_reviews(&PullRequest::new(Repository::new("acme/widgets")?, 7))
                 .await
@@ -77,7 +77,7 @@ fn a_review_list_exactly_at_the_ceiling_is_read() -> TestResult {
     script.configure(Scenario::new(HEAD).with_filler_reviews(at))?;
     let gh = gh_for(&script, 4 * 1024 * 1024, HANG_BOUND)?;
 
-    let reviews = lgwks_bot::Runtime::new()?.block_on(async {
+    let reviews = lgwks_bot::rt::runtime::Runtime::new()?.block_on(async {
         gh.read_reviews(&PullRequest::new(Repository::new("acme/widgets")?, 7))
             .await
     })?;
@@ -114,7 +114,7 @@ fn a_paginated_review_list_is_read_across_every_page_t31() -> TestResult {
     )?;
     let gh = gh_for(&script, 4 * 1024 * 1024, HANG_BOUND)?;
     let pull = PullRequest::new(Repository::new("acme/widgets")?, 7);
-    let runtime = lgwks_bot::Runtime::new()?;
+    let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
 
     let reviews = runtime.block_on(gh.read_reviews(&pull))?;
     assert_eq!(
@@ -171,7 +171,7 @@ fn a_record_still_being_appended_is_not_read_back() -> TestResult {
     )?;
     let gh = gh_for(&script, 64 * 1024, Duration::from_secs(10))?;
 
-    let reviews = lgwks_bot::Runtime::new()?.block_on(async {
+    let reviews = lgwks_bot::rt::runtime::Runtime::new()?.block_on(async {
         gh.read_reviews(&PullRequest::new(Repository::new("acme/widgets")?, 7))
             .await
     })?;
@@ -190,7 +190,7 @@ fn a_malformed_review_list_is_refused_rather_than_decoded_into_a_partial_answer(
         script.configure(Scenario::new(HEAD).answers_reviews_with(shape))?;
         let gh = gh_for(&script, 64 * 1024, Duration::from_secs(10))?;
 
-        let refused = lgwks_bot::Runtime::new()?
+        let refused = lgwks_bot::rt::runtime::Runtime::new()?
             .block_on(async {
                 gh.read_reviews(&PullRequest::new(Repository::new("acme/widgets")?, 7))
                     .await

@@ -22,9 +22,9 @@
 
 use std::error::Error;
 
-use lgwks_bot::Runtime;
 use lgwks_bot::cap::{Cap, Deficit};
 use lgwks_bot::gate::GrantSet;
+use lgwks_bot::rt::runtime::Runtime;
 use lgwks_bot::rt::task::join_all_bounded;
 use lgwks_bot::script::{FlowError, Scope, Tenant};
 use lgwks_bot::task::{Disposition, Host, Report, task};
@@ -157,6 +157,7 @@ fn reach(
             });
             join_all_bounded(FAN_LIMIT, steps)
                 .await
+                .map_err(|why| FlowError::failed(why.to_string()))?
                 .into_iter()
                 .collect::<Result<Vec<()>, FlowError>>()
                 .map(drop)

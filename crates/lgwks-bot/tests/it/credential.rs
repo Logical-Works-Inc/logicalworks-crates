@@ -24,10 +24,12 @@ use lgwks_bot::cap::Cap;
 use lgwks_bot::clock::Clock;
 use lgwks_bot::domain::data::JsonStore;
 use lgwks_bot::domain::gh::GhError;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::error::KernelError;
+use lgwks_bot::error::RetryClass;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::spec::{Need, NeedSet, upstream_credential_rejection};
 use lgwks_bot::verb::Observe;
-use lgwks_bot::{EcsError, GrantSet, RetryClass};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -47,7 +49,7 @@ fn real_store(tag: &str) -> Result<(Scratch, JsonStore), Box<dyn Error>> {
 }
 
 /// Poll a store with `auth`, keeping the error rather than its classification.
-async fn poll_with(store: &JsonStore, auth: &lgwks_bot::Auth) -> Result<String, EcsError> {
+async fn poll_with(store: &JsonStore, auth: &lgwks_bot::cap::Auth) -> Result<String, EcsError> {
     Observe::poll(store, (auth.clone(), ()))
         .await
         .map(|state| state.raw().to_owned())

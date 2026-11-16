@@ -24,9 +24,8 @@ fn sim_restart_after_every_record_type(band: sim::Band) -> TestResult {
         let mut kinds = Vec::new();
         {
             let host = host_on(scratch.path(), "acme")?;
-            let (run_pending, id_pending, _) =
+            let (_run_pending, id_pending, _digest) =
                 park_one(&host, format!("pending-{}", sim.seed).into_bytes())?;
-            let _ = run_pending;
             kinds.push(id_pending);
         }
         {
@@ -40,7 +39,7 @@ fn sim_restart_after_every_record_type(band: sim::Band) -> TestResult {
             host.decide(&id, ApprovalDecision::approve("sim", digest))?;
             kinds.push(id);
             let reopened = host_on(scratch.path(), "acme")?;
-            let resumed = lgwks_bot::block_on(reopened.resume(
+            let resumed = lgwks_bot::script::block_on(reopened.resume(
                 run,
                 &shipping,
                 format!("approved-{}", sim.seed).into_bytes(),
@@ -57,7 +56,7 @@ fn sim_restart_after_every_record_type(band: sim::Band) -> TestResult {
             host.decide(&id, ApprovalDecision::deny("sim", digest))?;
             kinds.push(id);
             let reopened = host_on(scratch.path(), "acme")?;
-            let resumed = lgwks_bot::block_on(reopened.resume(
+            let resumed = lgwks_bot::script::block_on(reopened.resume(
                 run,
                 &shipping,
                 format!("denied-{}", sim.seed).into_bytes(),
@@ -75,7 +74,7 @@ fn sim_restart_after_every_record_type(band: sim::Band) -> TestResult {
             let host = host_on(scratch.path(), "acme")?;
             let (run, id, digest) = park_one(&host, format!("lapsed-{}", sim.seed).into_bytes())?;
             lapse(&host)?;
-            let resumed = lgwks_bot::block_on(host.resume(
+            let resumed = lgwks_bot::script::block_on(host.resume(
                 run,
                 &shipping,
                 format!("lapsed-{}", sim.seed).into_bytes(),
@@ -181,7 +180,7 @@ fn sim_sixty_four_tenants_sweep(band: sim::Band) -> TestResult {
             let payload = format!("scale-{tenant}-{seed}", seed = sim.seed).into_bytes();
             let (run, id, digest) = park_one(&host, payload.clone())?;
             host.decide(&id, ApprovalDecision::approve("sim", digest))?;
-            let resumed = lgwks_bot::block_on(host.resume(run, &shipping, payload));
+            let resumed = lgwks_bot::script::block_on(host.resume(run, &shipping, payload));
             if !matches!(resumed.disposition(), Disposition::Succeeded) {
                 return Err(ApprovalSimError::Setup {
                     what: "every tenant resumes approved",
@@ -215,7 +214,7 @@ fn sim_read_fault_on_pending_lookup_is_store(band: sim::Band) -> TestResult {
             .clone();
         store.fail_next_index_read();
         let shipping = shipping()?;
-        let refused = lgwks_bot::block_on(host.resume(
+        let refused = lgwks_bot::script::block_on(host.resume(
             run,
             &shipping,
             format!("fault-lookup-{}", sim.seed).into_bytes(),
@@ -279,7 +278,7 @@ fn sim_pending_bound_smaller_than_count(band: sim::Band) -> TestResult {
         let scratch = scratch("approval-extra-bound")?;
         let host = host_on(scratch.path(), "acme")?;
         for index in 0..5u32 {
-            let _ = park_one(&host, format!("bound-{index}-{}", sim.seed).into_bytes())?;
+            park_one(&host, format!("bound-{index}-{}", sim.seed).into_bytes())?;
         }
         let two = host.pending(2)?;
         let all = host.pending(10)?;
@@ -302,12 +301,12 @@ fn sim_park_twice_on_same_step_key_replays(band: sim::Band) -> TestResult {
         let host = host_on(scratch.path(), "acme")?;
         let payload = format!("twice-{}", sim.seed).into_bytes();
         let shipping = shipping()?;
-        let first = lgwks_bot::block_on(host.run(&shipping, payload.clone()));
+        let first = lgwks_bot::script::block_on(host.run(&shipping, payload.clone()));
         let first_id = parked_id_of(&first)?;
         let run = first.run_id().ok_or(ApprovalSimError::Setup {
             what: "a parked run names its run",
         })?;
-        let second = lgwks_bot::block_on(host.resume(run, &shipping, payload));
+        let second = lgwks_bot::script::block_on(host.resume(run, &shipping, payload));
         if !matches!(second.disposition(), Disposition::Parked) {
             return Err(ApprovalSimError::Setup {
                 what: "an undecided resume parks again",
@@ -335,7 +334,7 @@ fn sim_resume_decided_run_without_store_is_promise_unmet(band: sim::Band) -> Tes
         host.decide(&id, ApprovalDecision::approve("sim", digest))?;
         let bare = Host::builder("acme")?.build()?;
         let shipping = shipping()?;
-        let resumed = lgwks_bot::block_on(bare.resume(run, &shipping, payload));
+        let resumed = lgwks_bot::script::block_on(bare.resume(run, &shipping, payload));
         if !matches!(resumed.disposition(), Disposition::Refused) {
             return Err(ApprovalSimError::Setup {
                 what: "a storeless resume is refused before admission",
@@ -367,7 +366,7 @@ fn sim_same_seed_same_trace_across_rebuild(band: sim::Band) -> TestResult {
             let (run, id, digest) = park_one(&host, payload.clone())?;
             host.decide(&id, ApprovalDecision::approve("sim", digest))?;
             let shipping = shipping()?;
-            let resumed = lgwks_bot::block_on(host.resume(run, &shipping, payload));
+            let resumed = lgwks_bot::script::block_on(host.resume(run, &shipping, payload));
             if !matches!(resumed.disposition(), Disposition::Succeeded) {
                 return Err(ApprovalSimError::Setup {
                     what: "each generation resumes approved",

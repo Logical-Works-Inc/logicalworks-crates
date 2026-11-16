@@ -22,10 +22,10 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use lgwks_bot::ecs::{RunCounts, RunFeed, RunOutcome, SettledRun};
 use lgwks_bot::journal::{FileJournal, MemoryJournal};
 use lgwks_bot::rt::supervise::Supervisor;
 use lgwks_bot::task::{Disposition, Host, task};
-use lgwks_bot::{RunCounts, RunFeed, RunOutcome, SettledRun};
 
 use crate::run_world::{fallible, fire};
 use crate::scratch::Scratch;
@@ -60,7 +60,7 @@ fn a_hundred_host_runs_fire_the_bound_system_a_hundred_times_and_a_restart_none(
     let host = Host::builder("acme")?.runs(feed.clone()).build()?;
     let probe = task("probe", |_scope, input: u64| async move { Ok(input) })?;
     for input in 0..100_u64 {
-        let report = lgwks_bot::block_on(host.run(&probe, input));
+        let report = lgwks_bot::script::block_on(host.run(&probe, input));
         assert_eq!(report.disposition(), Disposition::Succeeded, "run {input}");
     }
     assert_eq!(
@@ -97,7 +97,7 @@ fn a_hundred_host_runs_fire_the_bound_system_a_hundred_times_and_a_restart_none(
     assert!(fire(&restarted)?.is_empty(), "and refires nothing");
 
     let host = Host::builder("acme")?.runs(restarted.clone()).build()?;
-    let report = lgwks_bot::block_on(host.run(&probe, 7));
+    let report = lgwks_bot::script::block_on(host.run(&probe, 7));
     assert_eq!(
         report.disposition(),
         Disposition::Succeeded,
@@ -118,7 +118,7 @@ fn a_hundred_supervised_tasks_enter_the_world_the_same_way() -> TestResult {
     let path = scratch.path().join("runs.jrnl");
     let feed = feed_at(&path)?;
     let work = Arc::new(AtomicU32::new(0));
-    lgwks_bot::block_on(async {
+    lgwks_bot::script::block_on(async {
         let mut supervisor = Supervisor::new(8).with_runs(feed.clone());
         for _ in 0..100 {
             let work = Arc::clone(&work);
@@ -153,7 +153,7 @@ fn a_run_the_world_never_handled_fires_once_after_a_restart() -> TestResult {
     let host = Host::builder("acme")?.runs(feed.clone()).build()?;
     let probe = task("probe", fallible)?;
     for fail in [true, false] {
-        lgwks_bot::block_on(host.run(&probe, fail));
+        lgwks_bot::script::block_on(host.run(&probe, fail));
     }
     drop((host, feed));
 
@@ -185,7 +185,7 @@ fn a_feed_that_cannot_record_refuses_the_run_rather_than_hiding_it() -> TestResu
     let mut refused = None;
     // Bounded by the ceiling itself: every admitted run writes at least one rung.
     for input in 0..=ceiling {
-        let report = lgwks_bot::block_on(host.run(&probe, input));
+        let report = lgwks_bot::script::block_on(host.run(&probe, input));
         if report.disposition() != Disposition::Succeeded {
             refused = Some(report);
             break;
@@ -221,7 +221,7 @@ fn run_events_kill_probe() -> TestResult {
     let host = Host::builder("acme")?.runs(feed).build()?;
     let probe = task("probe", |_scope, input: u64| async move { Ok(input) })?;
     for input in 0..50_u64 {
-        let report = lgwks_bot::block_on(host.run(&probe, input));
+        let report = lgwks_bot::script::block_on(host.run(&probe, input));
         assert_eq!(report.disposition(), Disposition::Succeeded, "run {input}");
     }
     std::fs::write(path.with_extension("marker"), b"50")?;

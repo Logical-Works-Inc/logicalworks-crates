@@ -365,13 +365,6 @@ impl FlowBounds {
             None => SHIPPED_LIMITS,
         }
     }
-
-    /// Return these bounds with a declared byte-ceiling request attached.
-    #[must_use]
-    pub const fn with_resources(mut self, resources: ResourceLimits) -> Self {
-        self.resources = Some(resources);
-        self
-    }
 }
 
 impl Default for FlowBounds {

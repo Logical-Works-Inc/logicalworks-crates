@@ -7,10 +7,10 @@
 use std::collections::BTreeMap;
 use std::convert::Infallible;
 
+use lgwks_bot::ecs::{ProjectionError, RecordFold, RecordProjection};
 use lgwks_bot::journal::{
     ContinuationPolicy, JournalError, JournalLimitKind, RecordEntry, RecordJournal,
 };
-use lgwks_bot::{ProjectionError, RecordFold, RecordProjection};
 use lgwks_std::seeded::Seeded;
 
 use crate::sim::scratch_file::ScratchFile;
@@ -636,9 +636,10 @@ fn sim_record_projection_saboteur_a_sealed_journal_admits_nothing() -> Outcome {
     let successor = successor.ok_or("a continuing journal sealed into no successor")?;
     successor.admits(&vec![2; 8])?;
     drop(successor);
-    drop(std::fs::remove_file(lgwks_bot::journal::successor_path(
-        scratch.path(),
-    )));
+    // The first successor of a base journal is `<base>.cont/000001`.
+    let successor_file =
+        std::path::PathBuf::from(format!("{}.cont", scratch.path().display())).join("000001");
+    std::fs::remove_file(successor_file)?;
     Ok(())
 }
 

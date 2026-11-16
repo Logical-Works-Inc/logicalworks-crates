@@ -11,14 +11,18 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use lgwks_bot::cap::is_credential_status;
+use lgwks_bot::cap::{Cap, is_credential_status};
 use lgwks_bot::cas::{CasInput, NO_VERSION, RecordStore};
 use lgwks_bot::domain::cas::CasWrite;
-use lgwks_bot::session::{FlowBounds, FlowSpec, NodeKind, Session, Terminal, VarType};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::error::{KernelError, RetryClass};
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::session::{
+    FlowBounds, FlowSpec, NodeKind, Session, SessionError, Terminal, VarType,
+};
 use lgwks_bot::spec::{Need, upstream_credential_rejection};
 use lgwks_bot::stability::{MAX_STABILITY_READS, Reading, read_stable};
 use lgwks_bot::verb::{Execute, Unstable};
-use lgwks_bot::{Cap, EcsError, GrantSet, KernelError, RetryClass, SessionError};
 
 /// What one door proved, or the deviation it found.
 type Door = Result<String, Deviation>;

@@ -1,10 +1,10 @@
 //! The `domain_id -> constructor` registry: what a spec's strings resolve to.
 //!
-//! A [`BotSpec`] carries identifiers, not code. A chain's
+//! A [`BotSpec`](crate::spec::BotSpec) carries identifiers, not code. A chain's
 //! `source` and an action's `domain` are strings such as `"github::pr_status"`,
 //! and the `target` beside each is a parameter whose meaning the domain itself
 //! defines. Something has to turn those strings back into a running
-//! [`Observe`] or [`Execute`], and
+//! [`Observe`](crate::verb::Observe) or [`Execute`](crate::verb::Execute), and
 //! that is this module.
 //!
 //! # One list, in one place
@@ -14,13 +14,13 @@
 //! `static`, built at compile time, with no constructor to call and no global to
 //! mutate, so two components cannot race to register a domain and the set a
 //! binary can run is readable from its source rather than from its behaviour.
-//! [`DomainRegistry`] carries the worked example.
+//! `DomainRegistry` carries the worked example.
 //!
 //! # What the registry does not decide
 //!
 //! A registry answers *which constructor* an identifier names. It never decides
 //! what a bot is permitted to reach: authority still comes from the
-//! [`GrantSet`] the caller holds, and every erased verb checks
+//! [`GrantSet`](crate::gate::GrantSet) the caller holds, and every erased verb checks
 //! its own caps at the call site. A spec therefore cannot grant itself anything
 //! by naming a domain, which is what makes it safe to accept a spec from wire
 //! data at all.
@@ -30,17 +30,17 @@
 //! Identifiers are expected to be unique within a role, and the boundary
 //! between "refused" and "first wins" is exactly this:
 //!
-//! - **Construction is validated.** [`DomainRegistry::validate`] refuses a
+//! - **Construction is validated.** `DomainRegistry::validate` refuses a
 //!   registry that declares one identifier twice in the same role, naming both
-//!   positions, and every build path — [`DomainRegistry::build_source`],
-//!   [`DomainRegistry::build_action`] and the `domains!` macro — goes through
+//!   positions, and every build path — `DomainRegistry::build_source`,
+//!   `DomainRegistry::build_action` and the `domains!` macro — goes through
 //!   it, so no registry with a duplicate can be constructed. Letting the first
 //!   declaration win would make dispatch depend on declaration order.
-//! - **The lookup accessors refuse ambiguity too.** [`DomainRegistry::source`]
-//!   and [`DomainRegistry::action`] return `None` for an identifier declared
+//! - **The lookup accessors refuse ambiguity too.** `DomainRegistry::source`
+//!   and `DomainRegistry::action` return `None` for an identifier declared
 //!   more than once in their list, exactly as they do for an absent one; neither
 //!   ever resolves to "whichever constructor was declared first", so a caller
-//!   that skips [`DomainRegistry::validate`] still cannot reach an ambiguous
+//!   that skips `DomainRegistry::validate` still cannot reach an ambiguous
 //!   constructor. They are the accessors, not an alternative construction path.
 //!
 //! The two roles are checked independently: one identifier appearing once as a
@@ -114,7 +114,7 @@ impl Role {
 /// # Examples
 ///
 /// ```
-/// use lgwks_bot::{EcsError, SourceCtor};
+/// use lgwks_bot::{ecs::EcsError, registry::SourceCtor};
 ///
 /// let ctor: SourceCtor = |target| Err(EcsError::UnregisteredDomain { domain: target.to_owned() });
 /// assert!(ctor("ghost").is_err());
@@ -129,7 +129,7 @@ pub type SourceCtor = fn(&str) -> Result<Source, EcsError>;
 /// # Examples
 ///
 /// ```
-/// use lgwks_bot::{ActionCtor, EcsError};
+/// use lgwks_bot::{ecs::EcsError, registry::ActionCtor};
 ///
 /// let ctor: ActionCtor = |target| Err(EcsError::UnregisteredDomain { domain: target.to_owned() });
 /// assert!(ctor("ghost").is_err());
@@ -270,7 +270,7 @@ impl Source {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{Auth, Cap, EcsError, Observe, Source};
+    /// use lgwks_bot::{cap::{Auth, Cap}, ecs::EcsError, registry::Source, verb::Observe};
     ///
     /// struct Five;
     /// impl Observe for Five {
@@ -379,7 +379,7 @@ impl std::fmt::Debug for Action {
 /// Built by [`domains!`](crate::domains), which is the only entry point:
 ///
 /// ```rust
-/// use lgwks_bot::{Auth, EcsError, Cap, Observe, Source, domains};
+/// use lgwks_bot::{cap::{Auth, Cap}, domains, ecs::EcsError, registry::Source, verb::Observe};
 ///
 /// /// A source that reports an open pull request count.
 /// struct GithubPrStatus;
@@ -551,7 +551,7 @@ impl DomainRegistry {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{DomainRegistry, EcsError, Source, SourceCtor};
+    /// use lgwks_bot::{ecs::EcsError, registry::{DomainRegistry, Source, SourceCtor}};
     ///
     /// fn none(_: &str) -> Result<Source, EcsError> {
     ///     Err(EcsError::UnregisteredDomain { domain: String::new() })
@@ -595,7 +595,7 @@ impl DomainRegistry {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{DomainRegistry, EcsError};
+    /// use lgwks_bot::{ecs::EcsError, registry::DomainRegistry};
     ///
     /// let refused = DomainRegistry::empty().build_source("ghost", "acme/widgets");
     /// assert!(matches!(refused, Err(EcsError::UnregisteredDomain { .. })));
@@ -615,7 +615,7 @@ impl DomainRegistry {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::{DomainRegistry, EcsError};
+    /// use lgwks_bot::{ecs::EcsError, registry::DomainRegistry};
     ///
     /// let refused = DomainRegistry::empty().build_action("ghost", "acme/widgets");
     /// assert!(matches!(refused, Err(EcsError::UnregisteredDomain { .. })));
@@ -742,10 +742,10 @@ macro_rules! domains {
         }
     ) => {
         $(#[$meta])*
-        $vis static $name: $crate::DomainRegistry = $crate::DomainRegistry::named(
+        $vis static $name: $crate::registry::DomainRegistry = $crate::registry::DomainRegistry::named(
             ::core::stringify!($name),
-            &[ $( ($source_id, $source_ctor as $crate::SourceCtor) ),* ],
-            &[ $( ($action_id, $action_ctor as $crate::ActionCtor) ),* ],
+            &[ $( ($source_id, $source_ctor as $crate::registry::SourceCtor) ),* ],
+            &[ $( ($action_id, $action_ctor as $crate::registry::ActionCtor) ),* ],
         );
     };
 }

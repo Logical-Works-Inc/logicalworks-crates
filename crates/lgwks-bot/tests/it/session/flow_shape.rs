@@ -1,7 +1,7 @@
 //! What a flow document may contain: every node kind, the terminals a session
 //! reaches, and the load-time refusals of a malformed shape.
 
-use lgwks_bot::{FlowEdge, Predicate, Session, Value, ValueExpr};
+use lgwks_bot::session::{FlowEdge, Predicate, Session, Value, ValueExpr};
 
 use super::*;
 

@@ -68,7 +68,7 @@ use super::ecs::EcsError;
 
 /// The serializable bot contract: what an AI emits and what a manifest
 /// contains. `from_json` validates its shape; capability validation happens at
-/// build time from a [`GrantSet`](crate::GrantSet), not from a spec.
+/// build time from a [`GrantSet`](crate::gate::GrantSet), not from a spec.
 ///
 /// `#[non_exhaustive]`: this is a wire contract, so a new field is additive for
 /// the crate and a compile error for a consumer that built the struct
@@ -414,7 +414,7 @@ impl BotSpec {
     /// # Examples
     ///
     /// ```
-    /// use lgwks_bot::EcsError;
+    /// use lgwks_bot::ecs::EcsError;
     /// use lgwks_bot::spec::{BotSpec, MAX_SPEC_BYTES};
     ///
     /// assert!(matches!(BotSpec::from_json("{}"), Err(EcsError::MalformedSpec { .. })));

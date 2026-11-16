@@ -67,14 +67,16 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use lgwks_bot::broker::Broker;
+use lgwks_bot::cap::{Auth, Cap};
+use lgwks_bot::ecs::{DEFAULT_POLL_DEADLINE, EcsError, MAX_POLL_DEADLINE};
 use lgwks_bot::effect::{EnvironmentId, EventId, FlowRevision, RunId};
+use lgwks_bot::error::DispatchCertainty;
 use lgwks_bot::error::KernelError;
+use lgwks_bot::gate::GrantSet;
 use lgwks_bot::journal::MemoryJournal;
+use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::{BotBuilder, EffectEvidence, EffectIdentity, EffectScope};
-use lgwks_bot::{
-    Auth, Bot, Cap, DEFAULT_POLL_DEADLINE, DispatchCertainty, EcsError, EffectLifetime, Execute,
-    GrantSet, MAX_POLL_DEADLINE, Observe, RefreshReason,
-};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe, RefreshReason};
 
 use sim::Band;
 use sim::Rng;

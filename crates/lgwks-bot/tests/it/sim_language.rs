@@ -22,8 +22,8 @@ use crate::sim;
 
 use std::error::Error;
 
-use lgwks_bot::language::normalize;
-use lgwks_bot::{Alias, LanguageResolver, Question, Resolution, Resolver, Verdict};
+use lgwks_bot::language::{Alias, LanguageResolver, normalize};
+use lgwks_bot::session::{Question, Resolution, Resolver, Verdict};
 
 use sim::{Band, Rng};
 

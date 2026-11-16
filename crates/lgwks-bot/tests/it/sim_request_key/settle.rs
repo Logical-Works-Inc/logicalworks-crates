@@ -61,7 +61,7 @@ fn settle_request(
         Box::pin(host_on(tenant, reopen(scratch)?)?.submit(&key, &parked, payload)),
         &recorded,
     );
-    let run = match lgwks_bot::block_on(
+    let run = match lgwks_bot::script::block_on(
         host_on(tenant, reopen(scratch)?)?.submit(&key, &parked, payload),
     )? {
         Submission::InFlight(in_flight) => in_flight.run(),
@@ -78,7 +78,8 @@ fn settle_request(
 
     // The settle: a resume whose verdict is too large for one record.
     let settler = host_on(tenant, reopen(scratch)?)?;
-    let settled = lgwks_bot::block_on(settler.resume(run, &oversize_failure_task()?, payload));
+    let settled =
+        lgwks_bot::script::block_on(settler.resume(run, &oversize_failure_task()?, payload));
     assert_eq!(
         settled.disposition(),
         Disposition::Failed,
@@ -103,7 +104,8 @@ fn settle_request(
 
     // Nothing was recorded, so a reopen still sees the request unsettled.
     let reopened = host_on(tenant, reopen(scratch)?)?;
-    let after = lgwks_bot::block_on(reopened.submit(&key, &oversize_failure_task()?, payload))?;
+    let after =
+        lgwks_bot::script::block_on(reopened.submit(&key, &oversize_failure_task()?, payload))?;
     match after {
         Submission::InFlight(_) => {}
         other => {

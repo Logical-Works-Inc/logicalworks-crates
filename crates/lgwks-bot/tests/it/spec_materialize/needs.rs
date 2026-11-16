@@ -1,6 +1,8 @@
 //! T23: one complete `NeedSet`, and nothing runs.
 
-use lgwks_bot::{Admission, Cap, GrantSet, Need};
+use lgwks_bot::cap::Cap;
+use lgwks_bot::gate::GrantSet;
+use lgwks_bot::spec::{Admission, Need};
 
 use super::{TestResult, admit, clear_trace, scope, take_trace};
 
