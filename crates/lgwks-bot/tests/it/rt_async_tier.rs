@@ -541,8 +541,14 @@ fn cancelling_one_child_leaves_its_sibling_running() -> TestResult {
                 "survivor"
             });
 
-            // Both children hold their waits before the one cancel lands.
-            while parked.recv().await.is_some() {}
+            // Both children hold their waits before the one cancel lands. Two
+            // signals, counted: each child keeps its sender until it ends, so
+            // waiting for the channel to close would wait on the cancel below.
+            for _ in 0..2 {
+                if parked.recv().await.is_none() {
+                    break;
+                }
+            }
             // Only the one child: a supervisor abandoning a single subtask must
             // not take its siblings with it.
             controller.cancel();
