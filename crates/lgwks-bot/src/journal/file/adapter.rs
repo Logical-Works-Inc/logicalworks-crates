@@ -133,7 +133,8 @@ impl EffectJournal for FileJournal {
         &'a mut self,
         expected_tail: JournalPosition,
         event: &'a EffectEvent,
-    ) -> crate::verb::BoxFuture<'a, Result<DurableAck, JournalError>> {
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<DurableAck, JournalError>> + 'a>>
+    {
         Box::pin(async move {
             let (position, frame, pending) = self.prepare_append(expected_tail, event)?;
             self.write_and_sync_async(frame.clone()).await?;

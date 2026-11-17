@@ -126,12 +126,12 @@ pub use request::{
     InFlight, InputDigest, MAX_REQUEST_KEY_BYTES, RequestConflict, RequestError, RequestKey,
     Submission,
 };
-#[cfg(feature = "sealed")]
-pub use store::SealedAppend;
 pub use store::{
     CompositeSink, DurableSink, MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES, RunStore,
     START_PROBE_FILE, SinkRefusal, StoreError, StoreLimitKind, StoreSink,
 };
+#[cfg(feature = "sealed")]
+pub use store::{SealedAppend, SealedStepRead, ShredOutcome};
 
 /// The most top-level runs one host admits at once.
 ///

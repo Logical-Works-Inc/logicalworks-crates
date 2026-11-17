@@ -153,6 +153,8 @@ mod records;
 #[cfg(feature = "sealed")]
 mod sealed_impl;
 #[cfg(feature = "sealed")]
+mod sealed_read;
+#[cfg(feature = "sealed")]
 mod sealed_shred;
 mod sink;
 #[cfg(test)]
@@ -160,6 +162,8 @@ mod tests;
 use append::{Staged, append_on_owner};
 pub use error::{StoreError, StoreLimitKind};
 use record::{Stored, StoredDefinition, replay};
+#[cfg(feature = "sealed")]
+pub use sealed_read::{SealedStepRead, ShredOutcome};
 pub use sink::{CompositeSink, DurableSink, START_PROBE_FILE, SinkRefusal, StoreSink};
 
 // ── The store ───────────────────────────────────────────────────────────────

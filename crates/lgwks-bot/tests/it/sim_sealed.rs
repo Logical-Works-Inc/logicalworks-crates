@@ -137,7 +137,7 @@ fn torn_shreds_keep_live_or_erased(band: Band) -> TestResult {
         let shred_count = sim.rng().between(1, 8);
         let appended = seeded_appends(sim, &store, "acme", run, shred_count, 256, "shred")?;
         let pick = usize::try_from(sim.rng().below(u32::try_from(appended.len())?))?;
-        let Some((id, expected)) = appended.get(pick).cloned() else {
+        let Some((id, _)) = appended.get(pick).cloned() else {
             lgwks_std::trace::debug!(
                 seed = sim.seed,
                 "torn_shreds_keep_live_or_erased: the seeded pick names no appended record"
@@ -145,7 +145,7 @@ fn torn_shreds_keep_live_or_erased(band: Band) -> TestResult {
             return Err("the seeded pick names no appended record".into());
         };
         match store.shred_record("acme", run, id)? {
-            lgwks_bot::sealed::runstore::ShredOutcome::Shredded { .. } => {}
+            lgwks_bot::task::ShredOutcome::Shredded { .. } => {}
             _ => {
                 lgwks_std::trace::debug!(
                     seed = sim.seed,
@@ -174,10 +174,10 @@ fn torn_shreds_keep_live_or_erased(band: Band) -> TestResult {
             };
             let reopened = open_store(&dir, reader)?;
             match reopened.read_sealed("acme", run, id) {
-                Ok(lgwks_bot::sealed::runstore::SealedStepRead::Erased { .. }) => {
+                Ok(lgwks_bot::task::SealedStepRead::Erased { .. }) => {
                     sim.trace.record_number("shred-erased", 1);
                 }
-                Ok(lgwks_bot::sealed::runstore::SealedStepRead::Live { .. }) => {
+                Ok(lgwks_bot::task::SealedStepRead::Live { .. }) => {
                     // The tear took the record frame too: only whole live
                     // records read live, and this one is whole only when the
                     // cut kept it.
@@ -190,7 +190,6 @@ fn torn_shreds_keep_live_or_erased(band: Band) -> TestResult {
                     sim.trace.record_number("shred-other", 1);
                 }
             }
-            let _ = expected;
             assert_store_chain(&reopened)?;
             drop(reopened);
         }
@@ -305,7 +304,7 @@ fn erased_and_unknown_fold_typed(band: Band) -> TestResult {
             let expected = &live_entry.1;
             if index.rem_euclid(2) == 0 {
                 match store.shred_record("acme", run, key)? {
-                    lgwks_bot::sealed::runstore::ShredOutcome::Shredded { .. } => {}
+                    lgwks_bot::task::ShredOutcome::Shredded { .. } => {}
                     _ => {
                         lgwks_std::trace::debug!(
                             seed = sim.seed,
@@ -376,7 +375,7 @@ fn many_tenants_stay_isolated(band: Band) -> TestResult {
                 for live_entry in appended.iter() {
                     let key = live_entry.0;
                     match store.shred_record(name, run, key)? {
-                        lgwks_bot::sealed::runstore::ShredOutcome::Shredded { .. } => {}
+                        lgwks_bot::task::ShredOutcome::Shredded { .. } => {}
                         _ => {
                             lgwks_std::trace::debug!(
                                 seed = sim.seed,
@@ -393,7 +392,7 @@ fn many_tenants_stay_isolated(band: Band) -> TestResult {
                 }
             }
             if u32::try_from(index)?.rem_euclid(3) == 0 {
-                let _ = store.erase_tenant_records(name)?;
+                store.erase_tenant_records(name)?;
             }
         }
         let mut live = 0_u64;
@@ -521,7 +520,7 @@ fn erasure_by_tenant_and_record(band: Band) -> TestResult {
                     let expected = &live_entry.1;
                     if sim.rng().below(2) == 0 {
                         match store.shred_record(&name, run, key)? {
-                            lgwks_bot::sealed::runstore::ShredOutcome::Shredded { .. } => {
+                            lgwks_bot::task::ShredOutcome::Shredded { .. } => {
                                 erased_count = erased_count.saturating_add(1);
                             }
                             _ => {
@@ -566,7 +565,7 @@ fn destroy_is_irreversible_and_reprovisioning_is_refused(band: Band) -> TestResu
         for live_entry in appended.iter() {
             let key = live_entry.0;
             match store.shred_record("acme", run, key)? {
-                lgwks_bot::sealed::runstore::ShredOutcome::Shredded { .. } => {}
+                lgwks_bot::task::ShredOutcome::Shredded { .. } => {}
                 _ => {
                     lgwks_std::trace::debug!(
                         seed = sim.seed,
@@ -585,7 +584,7 @@ fn destroy_is_irreversible_and_reprovisioning_is_refused(band: Band) -> TestResu
             let key = live_entry.0;
             erased_step(&reopened, "acme", run, key)?;
             match reopened.shred_record("acme", run, key)? {
-                lgwks_bot::sealed::runstore::ShredOutcome::AlreadyErased { .. } => {}
+                lgwks_bot::task::ShredOutcome::AlreadyErased { .. } => {}
                 _ => {
                     lgwks_std::trace::debug!(
                         seed = sim.seed,

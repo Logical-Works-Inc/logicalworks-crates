@@ -537,7 +537,7 @@ where
     pub(crate) fn submit_async<F>(
         &self,
         job: F,
-    ) -> crate::verb::BoxFuture<'_, Result<A, SubmitError>>
+    ) -> core::pin::Pin<Box<dyn core::future::Future<Output = Result<A, SubmitError>> + '_>>
     where
         F: FnOnce(&mut File, &mut S) -> Result<Stage<A, S>, std::io::Error> + Send + 'static,
     {

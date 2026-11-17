@@ -89,7 +89,7 @@ fn expect_reads(
     store: &RunStore,
     checks: &[(Step<'_>, Expect, &str)],
 ) -> Result<(), SealedError> {
-    use lgwks_bot::sealed::runstore::SealedStepRead;
+    use lgwks_bot::task::SealedStepRead;
     for &((tenant, run, key), expect, line) in checks {
         let read = store.read_sealed(tenant, run, key);
         let held = matches!(
@@ -229,7 +229,11 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
     let shredded = store
         .shred_record("acme", acme_run, acme_key)
         .map_err(|error| refused("the acme shred")(error.to_string()))?;
-    let _ = shredded;
+    if !matches!(shredded, lgwks_bot::task::ShredOutcome::Shredded { .. }) {
+        let refusal = SealedError::Refused(format!("the acme shred answered {shredded:?}"));
+        lgwks_std::trace::debug!(error = ?refusal, "estate-sealed: the first shred did not shred");
+        return Err(refusal);
+    }
     expect_reads(
         out,
         &store,

@@ -277,7 +277,7 @@ impl FileJournal {
     pub(super) fn write_and_sync_async<'a>(
         &'a mut self,
         frames: Vec<u8>,
-    ) -> crate::verb::BoxFuture<'a, Result<(), JournalError>> {
+    ) -> core::pin::Pin<Box<dyn core::future::Future<Output = Result<(), JournalError>> + 'a>> {
         let expected = self.disk_len;
         Box::pin(async move {
             self.storage
