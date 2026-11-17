@@ -4,7 +4,7 @@ name: logical_ci
 # public repository call a private reusable workflow: the `uses:` call failed in
 # 0 s on every run. The job below is logical_ci's own gate.yml at
 # Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
-# step for step on its macos-arm64 asset, re-pinned to
+# step for step on its linux-arm64 asset, re-pinned to
 # pin the signed v0.4.3 release: its ci/property-and-loom builds only the targets that hold a
 # property test (5 of this workspace's 51 test binaries) and the packages that model loom,
 # where a whole-workspace build ran A02 out of its 397.9 s lane (runs 43244596498, 43278464658).
@@ -26,8 +26,10 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.4.3 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
-    runs-on: macos-latest
+    # Hosted Linux, free for this public repository: logical_ci v0.4.3 publishes a linux-arm64 pair, and the pins are of those bytes.
+    # On Linux lanes run uncontained (logical_ci#85), which leaves A08 UNMEASURED; the policy gates A02 alone (ADR 0029).
+    # A 3-slot hosted Mac ran A02's lane 397 s and killed the loom build at 123.7 s (run 44143365086).
+    runs-on: ubuntu-24.04-arm
     # Warm, the job is setup, a prebuild that compiles nothing and a 99 s
     # lane. Cold (its rust-cache entry evicted) the prebuild took 7 m 46 s on
     # a slow hosted Mac and 10 minutes cancelled the lane mid-run (run
@@ -60,7 +62,7 @@ jobs:
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: '2a8ad3bb200aed08ef0227f286c617f38a70d51103aab1aa156be1549f7207f0'
+      LCI_VERIFIER_SHA256: '72254abe174b6fa5f5484159dd6dfe62023fda79e0db0016d89cf0cf374bc255'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -124,9 +126,9 @@ jobs:
           # when one it names is absent (v0.4.1 with the macOS pair alone), so
           # every binary the release holds is downloaded.
           gh release download "$LCI_RELEASE" --repo Logical-Works-Inc/logical_ci --pattern "logical_ci-*" --pattern "lci-verify-*" --pattern "release.blake3" --pattern "release.sig" --clobber --dir "$LCI_DIST"
-          chmod +x "$LCI_DIST/logical_ci-macos-arm64" "$LCI_DIST/lci-verify-macos-arm64"
+          chmod +x "$LCI_DIST/logical_ci-linux-arm64" "$LCI_DIST/lci-verify-linux-arm64"
       - name: Pin the verifier
-        run: echo "$LCI_VERIFIER_SHA256  $RUNNER_TEMP/lci/lci-verify-macos-arm64" | shasum -a 256 -c -
+        run: echo "$LCI_VERIFIER_SHA256  $RUNNER_TEMP/lci/lci-verify-linux-arm64" | shasum -a 256 -c -
       - name: Verify release plan and seal
         env:
           LCI_VERIFY_OP: verify
@@ -135,11 +137,11 @@ jobs:
           LCI_VERIFY_PUBKEY: ${{ env.LCI_RELEASE_PUBKEY }}
         run: |
           export LCI_VERIFY_DIR="$RUNNER_TEMP/lci"
-          "$LCI_VERIFY_DIR/lci-verify-macos-arm64"
+          "$LCI_VERIFY_DIR/lci-verify-linux-arm64"
       - name: Write subject plan when absent
-        run: test -f .logical_ci/plan.json || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" plan --new
+        run: test -f .logical_ci/plan.json || "$RUNNER_TEMP/lci/logical_ci-linux-arm64" plan --new
       - name: Init tenant policy (idempotent by policy version)
-        run: '"$RUNNER_TEMP/lci/logical_ci-macos-arm64" init --tenant "$LCI_TENANT" --gates "$LCI_GATES" --hardness "$LCI_HARDNESS"'
+        run: '"$RUNNER_TEMP/lci/logical_ci-linux-arm64" init --tenant "$LCI_TENANT" --gates "$LCI_GATES" --hardness "$LCI_HARDNESS"'
       # The lane's own targets, built before the engine runs. Cold on a 3-slot
       # hosted Mac, v0.4.3's narrowed lane was still compiling when its 392.8 s
       # cap killed it (run 43315235672). A `--no-run` naming no target compiled
@@ -153,7 +155,7 @@ jobs:
         continue-on-error: true
         run: |
           LCI_RECORD="$RUNNER_TEMP/logical_ci-record.json"
-          set +e; "$RUNNER_TEMP/lci/logical_ci-macos-arm64" ci --tenant "$LCI_TENANT" --json > "$LCI_RECORD"; code=$?; set -e
+          set +e; "$RUNNER_TEMP/lci/logical_ci-linux-arm64" ci --tenant "$LCI_TENANT" --json > "$LCI_RECORD"; code=$?; set -e
           echo "exit=$code" | tee -a "$GITHUB_OUTPUT"; cat "$LCI_RECORD"
       # The sealed record keeps each lane's output by digest alone, so a lane
       # that ran out of time named no step (run 43273499037). `show` prints
@@ -166,7 +168,7 @@ jobs:
         run: |
           test -f "$RUNNER_TEMP/logical_ci-record.json" || exit 0
           run_id="$(jq -r '.run_id // empty' "$RUNNER_TEMP/logical_ci-record.json")"
-          test -z "$run_id" || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" show "$run_id" --tenant "$LCI_TENANT"
+          test -z "$run_id" || "$RUNNER_TEMP/lci/logical_ci-linux-arm64" show "$run_id" --tenant "$LCI_TENANT"
       - name: Upload sealed record
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

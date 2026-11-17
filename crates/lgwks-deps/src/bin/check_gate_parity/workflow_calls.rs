@@ -86,7 +86,7 @@ mod tests {
             (
                 "ADR 0029's runner line",
                 adr,
-                format!("runs on `macos-latest`: {tag} ships"),
+                format!("runs on `ubuntu-24.04-arm`: {tag} ships"),
             ),
         ];
         for (place, text, phrase) in named {
@@ -246,7 +246,11 @@ mod tests {
             4,
             "a tag moved without its header, comment and both ADR lines is named four times"
         );
-        let stale = adr.replacen("runs on `macos-latest`: v", "runs on `macos-latest`: v9", 1);
+        let stale = adr.replacen(
+            "runs on `ubuntu-24.04-arm`: v",
+            "runs on `ubuntu-24.04-arm`: v9",
+            1,
+        );
         assert_ne!(stale, adr, "the ADR text the control mutates must exist");
         assert_eq!(
             inline_gate_problems(&gate, &stale).len(),
@@ -283,7 +287,7 @@ mod tests {
         );
         let partial = gate.replacen(
             "--pattern \"lci-verify-*\"",
-            "--pattern \"lci-verify-macos-arm64\"",
+            "--pattern \"lci-verify-linux-arm64\"",
             1,
         );
         assert_eq!(
