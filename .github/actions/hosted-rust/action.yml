@@ -91,12 +91,12 @@ runs:
           esac
         done
     # On the nightly every pull request builds with the parallel front end, one
-    # thread per core (nightly defaults to 2), and dev builds of workspace crates
-    # with cranelift; dependencies keep LLVM, which sccache and rust-cache hold
-    # anyway. Test profiles stay on LLVM: a cranelift build on aarch64-apple-darwin
-    # did not unwind a caught panic, and `should_panic` tests rely on it. Cranelift
-    # has no Windows backend, so Windows takes the threads alone (ADR 0066).
-    - name: Set up the nightly's parallel front end and cranelift
+    # thread per core (nightly defaults to 2). Cranelift is off: on these arm64
+    # runners a cranelift crate leaves `fp-armv8` off where LLVM's std has it on,
+    # so rustc warned "mixing target features will cause an ABI mismatch" on
+    # every job, and a caught panic aborted (SIGABRT) because the test profile
+    # inherits `[profile.dev]` (run 44384552848, ADR 0066).
+    - name: Set up the nightly's parallel front end
       if: startsWith(inputs.toolchain, 'nightly-')
       shell: bash
       run: |
@@ -105,10 +105,6 @@ runs:
         config="${CARGO_HOME:-$HOME/.cargo}/config.toml"
         mkdir -p "$(dirname "${config}")"
         printf '[target.%s]\nrustflags = ["-Zthreads=%s"]\n' "'cfg(all())'" "${cores}" >> "${config}"
-        if [ "${{ runner.os }}" != "Windows" ]; then
-          rustup component add rustc-codegen-cranelift-preview --toolchain "${{ inputs.toolchain }}"
-          printf '[unstable]\ncodegen-backend = true\n[profile.dev]\ncodegen-backend = "cranelift"\n[profile.dev.package."*"]\ncodegen-backend = "llvm"\n' >> "${config}"
-        fi
         echo "front-end threads ${cores}"; cat "${config}"
     # `.cargo/config.toml` links macOS builds with /opt/homebrew/bin/ld64.lld.
     # The pinned toolchain ships the same linker as `rust-lld`, which takes the

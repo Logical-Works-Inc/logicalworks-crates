@@ -63,22 +63,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// A typed chain whose condition reads `String` against a source that yields
 /// `u32`: the `.on` bound cannot hold.
 const MISMATCHED_CHAIN: &str = r#"
-use lgwks_bot::app_error::BotError;
 use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::spec::Bot;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::verb::{EffectLifetime, Evaluate, Execute, Observe};
 
+// Every verb returns the traits' own `EcsError`, so the only refusals are the
+// `.on` bounds: a wrong return type is E0053 or E0271 of its own, and nightly
+// reports those in place of the bound.
 struct Source;
 impl Observe for Source {
     type Output = u32;
     fn required_caps(&self) -> &[Cap] { &[] }
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> { call.0.check(&[])?; Ok(0) }
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> { call.0.check(&[])?; Ok(0) }
     fn domain_id(&self) -> &str { "probe::source" }
 }
 
 struct ReadsText;
 impl Evaluate<String> for ReadsText {
-    fn check(&self, _value: &String) -> Result<bool, BotError> { Ok(true) }
+    fn check(&self, _value: &String) -> Result<bool, EcsError> { Ok(true) }
     fn condition_id(&self) -> &str { "probe::reads_text" }
 }
 
@@ -88,7 +91,7 @@ impl Execute for WritesText {
     type Output = ();
     fn required_caps(&self) -> &[Cap] { &[] }
     fn effect_lifetime(&self) -> EffectLifetime { EffectLifetime::Local }
-    async fn execute_action(&self, call: (Auth, &String)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &String)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         Ok(())
     }
@@ -176,8 +179,11 @@ fn a_correct_local_borrowed_non_send_consumer_compiles() -> TestResult {
 fn a_source_condition_action_mismatch_is_refused_t02() -> TestResult {
     let output = compile_probe("t02-chain-mismatch", "", MISMATCHED_CHAIN)?;
     // The condition reads `String` while the source yields `u32`, so the
-    // `Evaluate<S::Output>` bound is unsatisfied: E0277 naming the trait.
-    assert_refused_for(&output, "E0277", "Evaluate");
+    // `Evaluate<S::Output>` bound is unsatisfied. Stable names it E0277; the
+    // nightly reaches it through the closure blanket impl and names it E0271,
+    // "required for `ReadsText` to implement `Evaluate<u32>`" (ADR 0066).
+    let nightly = String::from_utf8_lossy(&output.stderr).contains("error[E0271]");
+    assert_refused_for(&output, if nightly { "E0271" } else { "E0277" }, "Evaluate");
     Ok(())
 }
 

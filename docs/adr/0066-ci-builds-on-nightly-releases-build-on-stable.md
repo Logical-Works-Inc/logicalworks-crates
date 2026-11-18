@@ -13,8 +13,8 @@ Elements and relations: `rust-toolchain.toml`, the `[toolchain]` table of `scrip
 
 ## Context
 
-Every job built on stable 1.99.1, and stable 1.100.0 shipped. Stable has no parallel front end and no cranelift
-backend. Nightly has both: `-Zthreads` runs the parallel front end. A crate a
+Every job built on stable 1.99.1, and stable 1.100.0 shipped. Stable has no parallel front end; nightly's
+`-Zthreads` runs it. A crate a
 consumer installs is still built by their stable compiler, so a release must prove itself there.
 
 ## Decision
@@ -24,19 +24,23 @@ consumer installs is still built by their stable compiler, so a release must pro
 2. `[toolchain] release` is stable, `1.100.0`. Package smoke, the docs and release gates, Pages and the consumer
    gate pin it. `hosted-rust` exports `RUSTUP_TOOLCHAIN` for that pin, which rustup reads before
    `rust-toolchain.toml`. A release publishes with `cargo +1.100.0 publish --locked`.
-3. On a nightly job, `hosted-rust` writes the speed settings into the runner's `$CARGO_HOME/config.toml`:
-   `-Zthreads` at the runner's core count, and on Linux and macOS cranelift for dev builds of workspace crates,
-   with LLVM for dependencies. The repository config holds none of them, so a stable build reads no nightly key.
-4. Rule 4 of `check-gate-parity` accepts a pin of `rust` or of `release`, and names any third version.
-5. The Linux container images move to `rust:1.100.0-trixie`. They carry rustup, and `hosted-rust` installs the pin.
+3. On a nightly job, `hosted-rust` writes `-Zthreads` at the runner's core count into the runner's
+   `$CARGO_HOME/config.toml`. The repository config holds no nightly key, so a stable build reads none.
+4. The docs.rs lane runs `cargo doc` with no `+toolchain`, so it documents on the dated pin. `+nightly` outranks
+   `rust-toolchain.toml`; the runner holds only the pin, so rustup fetched an undated nightly with no backend.
+5. Rule 4 of `check-gate-parity` accepts a pin of `rust` or of `release`, and names any third version.
+6. The Linux container images move to `rust:1.100.0-trixie`. They carry rustup, and `hosted-rust` installs the pin.
 
 ## Alternatives rejected
 
-- **Stable 1.100.0 everywhere.** Supported, but no parallel front end and no cranelift: CI keeps full LLVM codegen.
+- **Stable 1.100.0 everywhere.** Supported, but no parallel front end: CI keeps a sequential front end.
 - **A floating `nightly`.** A new nightly can red every pull request with no change here. The date moves in one
   commit.
-- **Cranelift for test profiles.** On aarch64-apple-darwin a cranelift build did not unwind a caught out-of-bounds
-  panic (probe exit 101). `should_panic` tests rely on unwinding, so tests stay on LLVM.
+- **Cranelift for workspace crates.** Tried in run 44384552848. On the arm64 runners a cranelift crate has
+  `fp-armv8` off where LLVM's std has it on: rustc warned "mixing target features will cause an ABI mismatch" on
+  every job. The test profile inherits `[profile.dev]`, so caught panics aborted (SIGABRT) in `sim_app_edge` and
+  `sim_command_faults`. Reverse when a cranelift build on aarch64 prints no ABI-mismatch warning and the
+  caught-panic sims pass.
 - **Cranelift for dependencies.** They come from rust-cache and sccache, so it saves nothing, and some use
   intrinsics cranelift does not lower.
 
@@ -62,3 +66,5 @@ Refines ADR 0028, the budget the toolchain serves, and ADR 0029, whose job now p
   `a_release_pin_is_accepted_and_a_third_pin_is_refused`; a drifted nightly pin is named by
   `one_drifted_job_pin_fails` and `a_toolchain_mismatch_fails`.
 - `hosted-rust` fails a job whose pin is neither `rust-toolchain.toml`'s channel nor `[toolchain] release`.
+- The docs.rs lane plans no `+toolchain`: `sim_docsrs_plans_name_no_toolchain_and_follow_the_manifest` and
+  `sim_docsrs_plans_of_this_repository_name_no_toolchain`.
