@@ -12,6 +12,11 @@
 //! (`store_conformance/memory_records.rs`) is the shape a developer copies to put
 //! their own database behind durable steps.
 //!
+//! Built with `sealed` too (`--features full`), it adds a `keys` row: the sealed
+//! key-provider kit (`lgwks_bot::sealed::conformance`, #1060) against the shipped
+//! software provider over `KEY_SEEDS` seeds, then concurrent mints that must stay
+//! distinct and a foreign tenant that must be refused every key.
+//!
 //! Output is written through locked `std::io` handles rather than `println!`
 //! because `clippy::print_stdout` is forbidden workspace-wide.
 
@@ -43,7 +48,22 @@ enum RunError {
     Output(std::io::Error),
     /// A violation could not be encoded as JSON.
     Encode(String),
+    /// The key provider under test could not be opened or asked.
+    #[cfg(feature = "sealed")]
+    Keys(lgwks_bot::sealed::keys::KeyError),
 }
+
+/// Seeds the `keys` row runs the sealed provider kit for.
+#[cfg(feature = "sealed")]
+const KEY_SEEDS: u64 = 16;
+
+/// Threads the `keys` row mints from at once.
+#[cfg(feature = "sealed")]
+const KEY_THREADS: u8 = 4;
+
+/// Keys each of those threads mints.
+#[cfg(feature = "sealed")]
+const KEYS_PER_THREAD: usize = 64;
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,6 +72,8 @@ impl std::fmt::Display for RunError {
             Self::Scratch(ref cause) => write!(f, "could not create a scratch directory: {cause}"),
             Self::Output(ref cause) => write!(f, "could not write the report: {cause}"),
             Self::Encode(ref cause) => write!(f, "could not encode a violation: {cause}"),
+            #[cfg(feature = "sealed")]
+            Self::Keys(ref cause) => write!(f, "the key provider refused: {cause}"),
         }
     }
 }
@@ -116,6 +138,107 @@ fn report(
     Ok(conformed)
 }
 
+/// The `keys` row: each check's name and, when it failed, what it found.
+#[cfg(feature = "sealed")]
+fn keys(scratch: &Scratch) -> Result<Vec<(String, Option<String>)>, RunError> {
+    use lgwks_bot::sealed::conformance::{self as kit, mint_ids, try_unwrap};
+    use lgwks_bot::sealed::keys::{KeyError, KeyId, KeyProvider, SoftwareProvider};
+
+    let mut rows = Vec::new();
+    for seed in 0..KEY_SEEDS {
+        let dir = scratch.0.join(format!("keys-{seed}"));
+        let mut open = || -> Result<Arc<dyn KeyProvider>, KeyError> {
+            Ok(Arc::new(SoftwareProvider::open(&dir)?))
+        };
+        let found = kit::check(&mut open, seed);
+        let failed = (!found.passed()).then(|| format!("{:?}", found.violations()));
+        rows.push((format!("kit seed {seed}"), failed));
+    }
+
+    let provider: Arc<dyn KeyProvider> =
+        Arc::new(SoftwareProvider::open(&scratch.0.join("keys-mint")).map_err(RunError::Keys)?);
+    let minted: Vec<Result<Vec<KeyId>, KeyError>> = std::thread::scope(|scope| {
+        // Every thread starts before the first join, so the mints race.
+        let mut workers = Vec::with_capacity(usize::from(KEY_THREADS));
+        for thread in 0..KEY_THREADS {
+            let provider = Arc::clone(&provider);
+            workers.push(scope.spawn(move || {
+                mint_ids(
+                    provider.as_ref(),
+                    &format!("tenant-{thread}"),
+                    KEYS_PER_THREAD,
+                )
+            }));
+        }
+        workers
+            .into_iter()
+            .map(|worker| match worker.join() {
+                Ok(batch) => batch,
+                Err(_panic) => {
+                    lgwks_std::trace::error!("store-conformance: a minting thread panicked");
+                    Err(KeyError::Transient {
+                        reason: "a minting thread panicked",
+                    })
+                }
+            })
+            .collect()
+    });
+    let mut seen = std::collections::HashSet::new();
+    let mut ids = Vec::new();
+    for batch in minted {
+        for id in batch.map_err(RunError::Keys)? {
+            seen.insert(id.id());
+            ids.push(id);
+        }
+    }
+    let twice = ids.len().saturating_sub(seen.len());
+    rows.push((
+        "concurrent mints are distinct".to_owned(),
+        (twice > 0).then(|| format!("{twice} identities were minted twice")),
+    ));
+
+    let mut leaked = 0_usize;
+    for id in &ids {
+        let wrapped = provider.wrap_key(id).map_err(RunError::Keys)?;
+        let foreign = KeyId::new(format!("{}-foreign", id.tenant()), id.id());
+        match try_unwrap(provider.as_ref(), &foreign, &wrapped) {
+            Ok(()) => leaked = leaked.saturating_add(1),
+            Err(refused) => {
+                lgwks_std::trace::debug!(error = %refused, "store-conformance: a foreign tenant was refused");
+            }
+        }
+    }
+    rows.push((
+        "a foreign tenant opens no key".to_owned(),
+        (leaked > 0).then(|| format!("{leaked} keys opened for another tenant")),
+    ));
+    Ok(rows)
+}
+
+/// Write the `keys` row, one line per check, and say whether every check held.
+#[cfg(feature = "sealed")]
+fn report_keys(
+    out: &mut impl Write,
+    rows: &[(String, Option<String>)],
+    json: bool,
+) -> Result<bool, RunError> {
+    for row in rows {
+        let check = &row.0;
+        let line = match row.1.as_deref() {
+            None if json => format!(r#"{{"store":"keys","check":"{check}","pass":true}}"#),
+            None => format!("keys: {check}: pass"),
+            Some(found) if json => {
+                let text = lgwks_std::json::to_string(found)
+                    .map_err(|refused| RunError::Encode(refused.to_string()))?;
+                format!(r#"{{"store":"keys","check":"{check}","pass":false,"violation":{text}}}"#)
+            }
+            Some(found) => format!("keys: {check}: VIOLATION: {found}"),
+        };
+        writeln!(out, "{line}").map_err(RunError::Output)?;
+    }
+    Ok(rows.iter().filter(|row| row.1.is_some()).count() == 0)
+}
+
 /// Run the suite against both stores.
 fn run(json: bool) -> Result<bool, RunError> {
     let scratch = Scratch::new()?;
@@ -139,12 +262,23 @@ fn run(json: bool) -> Result<bool, RunError> {
     let double = conformance::check(&mut open_memory);
 
     let mut out = std::io::stdout().lock();
-    let file_conformed = report(&mut out, "file", &file, json)?;
-    let memory_conformed = report(&mut out, "memory", &double, json)?;
-    if file_conformed && memory_conformed && !json {
-        writeln!(out, "both stores conform").map_err(RunError::Output)?;
+    let mut verdicts = vec![
+        report(&mut out, "file", &file, json)?,
+        report(&mut out, "memory", &double, json)?,
+    ];
+    #[cfg(feature = "sealed")]
+    verdicts.push(report_keys(&mut out, &keys(&scratch)?, json)?);
+    // Counted, not folded with `&&`: a conforming run then shows each verdict
+    // in its exit code, and `--json` output stays one object per line.
+    let failed = verdicts.iter().filter(|conformed| !**conformed).count();
+    if failed == 0 {
+        if json {
+            lgwks_std::trace::debug!("store-conformance: every store conforms");
+        } else {
+            writeln!(out, "every store conforms").map_err(RunError::Output)?;
+        }
     }
-    Ok(file_conformed && memory_conformed)
+    Ok(failed == 0)
 }
 
 fn main() -> ExitCode {
