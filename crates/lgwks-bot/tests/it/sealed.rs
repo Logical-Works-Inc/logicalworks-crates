@@ -38,6 +38,13 @@ use crate::sealed_harness::{
     live_step_bytes, test_definition, test_key, test_run,
 };
 
+#[cfg(feature = "ephemeral")]
+#[path = "sealed_pending_fault.rs"]
+mod pending_fault;
+#[cfg(feature = "ephemeral")]
+#[path = "sim_sealed_pending.rs"]
+mod sim_pending;
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Open a sealed run store over `dir/store.runstore` with `provider`.
@@ -250,8 +257,8 @@ fn a_torn_shred_leaves_live_or_erased_never_readable_without_a_key() -> TestResu
             return Err(format!("a shredded record never reads as live at cut {cut}").into());
         }
         // The unshredded record reads whole while its frame survives, and
-        // as a refusal once the tear took it — never as erased, which only
-        // a destruction folds to.
+        // as absent once the tear took it, as on a plain store (ADR 0065):
+        // never as erased, which only a destruction folds to.
         match reopened.lookup("acme", run, second) {
             Ok(Some(bytes)) => {
                 assert_eq!(
@@ -260,7 +267,10 @@ fn a_torn_shred_leaves_live_or_erased_never_readable_without_a_key() -> TestResu
                 );
             }
             Ok(None) => {
-                return Err(format!("a sealed lookup never answers absence at cut {cut}").into());
+                assert!(
+                    cut < full,
+                    "a whole file never reads its unshredded record as absent"
+                );
             }
             Err(FlowError::Store { .. }) => {}
             Err(other) => {

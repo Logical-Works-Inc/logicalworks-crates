@@ -98,17 +98,22 @@ fn torn_appends_keep_live_or_erased(band: Band) -> TestResult {
                         );
                         live = live.saturating_add(1);
                     }
+                    // A tear that took the record reads as absent, as on a
+                    // plain store (ADR 0065), or as a store refusal.
                     Err(_) => {
+                        gone = gone.saturating_add(1);
+                    }
+                    Ok(None) if cut < file_bytes.len() => {
                         gone = gone.saturating_add(1);
                     }
                     Ok(None) => {
                         lgwks_std::trace::debug!(
                             seed = sim.seed,
                             cut = cut,
-                            "torn_appends_keep_live_or_erased: a sealed lookup never answers absence"
+                            "torn_appends_keep_live_or_erased: a whole file never reads a record absent"
                         );
                         return Err(format!(
-                            "seed {} cut at {cut}: a sealed lookup never answers absence",
+                            "seed {} cut at {cut}: a whole file never reads an appended record absent",
                             sim.seed
                         )
                         .into());
