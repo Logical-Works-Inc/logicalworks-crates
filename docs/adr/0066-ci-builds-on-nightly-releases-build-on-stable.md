@@ -39,6 +39,7 @@ consumer installs is still built by their stable compiler, so a release must pro
 8. The Linux workspace slices build under `ci-bot`, dependencies at opt-level 0. A bump changes rustc, so no cache
    holds the build: under `ci-it` each slice compiled 170 to 193 s cold and slice 3 was cancelled at 309 s (run
    44406065531). The `ci-bot` shards of that run compiled in 95 to 132 s. The budget holds on that cold run.
+   `ci-bot` builds `tree-sitter`, `curve25519-dalek` and `sha2` at opt-level 3, as it does `blake3`.
 
 ## Alternatives rejected
 
@@ -68,6 +69,9 @@ consumer installs is still built by their stable compiler, so a release must pro
   (#1089).
 - A nightly bump is one commit: `rust-toolchain.toml`, `[toolchain] rust` and every nightly `toolchain:` move
   together, and rule 4 refuses a half-done one.
+- At opt-level 0 the tests a dependency runs slowed. The hostile parse took 91.7 s against 24.0 s, and the run
+  wall read 307 s (run 44411709686). With the three crates at opt-level 3, on the Mac the hostile parse went
+  from 51.4 s to 18.5 s and the sign sim from 21.3 s to 6.2 s. The three crates cost 28 s of compile.
 - The job times before and after are in the pull request that lands this record.
 
 ## Correspondence
