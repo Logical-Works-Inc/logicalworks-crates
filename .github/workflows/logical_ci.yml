@@ -69,12 +69,13 @@ jobs:
       # `.cargo/config.toml` links macOS builds with /opt/homebrew/bin/ld64.lld,
       # which a bare runner lacks, so every compile the engine started failed
       # within 30 s and A02 sealed NO-GO (run 43242590489). This step is the
-      # repository's, not gate.yml's: it pins 1.99.1, links the toolchain's
-      # rust-lld there, and restores main's dependency build.
+      # repository's, not gate.yml's: it pins the nightly every pull request
+      # builds on (ADR 0066), links the toolchain's rust-lld there, and
+      # restores main's dependency build.
       - name: Prepare this repository's Rust
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: logical-ci
           nextest: "true"
       # ci-it's dependency levels for the test profile: `package."*"` has no

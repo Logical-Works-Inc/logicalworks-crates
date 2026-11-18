@@ -54,10 +54,9 @@ fn decimal_trace(seed: u64) -> u64 {
     let mut trace = initial_trace();
     for _ in 0..48 {
         let coefficient = draw_coefficient(&mut state);
-        let scale = match u32::try_from(below(&mut state, 5)) {
-            Ok(drawn) => drawn,
-            Err(_) => continue,
-        };
+        // Below 5, so the low byte is the whole draw: no conversion can fail.
+        let [drawn, ..] = below(&mut state, 5).to_le_bytes();
+        let scale = u32::from(drawn);
         let value = Decimal::new(coefficient, scale);
         if let Ok(packed) = encode_packed(value, 18, true, &BOUNDS) {
             let back = decode_packed(&packed, 18, scale, true, &BOUNDS);
@@ -260,7 +259,7 @@ fn sim_packed_digits_past_a_chunk_match_a_digit_by_digit_fold() {
                 "seed {seed}: {width} plain digits must parse as digit by digit"
             );
             let bad_at = below(&mut state, width);
-            let mut hostile = digits.clone();
+            let mut hostile = digits;
             if let Some(slot) = hostile.get_mut(bad_at) {
                 *slot = 0x0a;
             }

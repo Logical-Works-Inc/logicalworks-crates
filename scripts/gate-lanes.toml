@@ -45,8 +45,12 @@
 #             every CI job shares one machine, so lanes that build one feature
 #             set run in one job rather than each compiling it again.
 
+# `rust` builds every pull request and every local lane: a dated nightly, for the
+# parallel front end and cranelift. `release` is stable: the jobs that prove a
+# release build on it, as a consumer does (ADR 0066).
 [toolchain]
-rust = "1.99.1"
+rust = "nightly-2026-11-12"
+release = "1.100.0"
 
 # ── shared: one command, both surfaces ──────────────────────────────────────
 

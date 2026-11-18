@@ -66,6 +66,14 @@ use lgwks_ast::{AstGrep, Language, MAX_AST_NODES, MAX_SOURCE_BYTES, inspect_ast,
 mod measure;
 use measure::spread;
 
+/// The argument vector: flags, their values and the refusals of both.
+#[path = "parse_budget/options.rs"]
+mod options;
+
+/// The concurrency mode: one tier of checked parses across scoped workers.
+#[path = "parse_budget/tier.rs"]
+mod tier;
+
 /// What one grammar is measured on.
 ///
 /// `valid` is source the grammar accepts, used to tile the representative shape.
@@ -524,213 +532,6 @@ fn peak_rss_bytes() -> Option<u128> {
     })
 }
 
-/// One worker's share of a concurrency tier.
-struct TierWorker {
-    /// How many parses this worker was given.
-    assigned: u64,
-    /// Per-parse nanoseconds, in the order the worker took them.
-    samples: Vec<u128>,
-    /// How many of the answers were typed refusals.
-    refused: u64,
-}
-
-/// What one concurrency tier reports.
-struct TierRow {
-    /// Parses admitted.
-    level: u64,
-    /// Bytes per parse.
-    ///
-    /// A `u128` for the same reason as [`Measured::bytes`]: the throughput
-    /// column divides bytes by a nanosecond count, and widening here keeps the
-    /// arithmetic below single-width.
-    bytes: u128,
-    /// Workers admitted.
-    workers: usize,
-    /// Median parse latency.
-    p50: u128,
-    /// 99th-percentile parse latency.
-    p99: u128,
-    /// The slowest parse observed.
-    max: u128,
-    /// Parses answered with a typed refusal rather than a tree.
-    refused: u64,
-    /// Whole-run wall time.
-    wall_ns: u128,
-    /// The grammar this tier measured.
-    grammar: &'static str,
-}
-
-/// Run `level` checked parses of `source` across at most `threads` workers.
-///
-/// The index range is split at admission, so a worker owns its slice outright:
-/// no queue, no lock, and a worker's retained state is its own slice. Every
-/// worker is joined by the scope, so no handle outlives the run.
-fn measure_tier(
-    language: Language,
-    representative: &str,
-    level: u64,
-    bytes: usize,
-    threads: usize,
-) -> Result<TierRow, String> {
-    let workers = threads.max(1);
-    // The work count is at most sixty-four bits wide on every target, so this
-    // conversion refuses rather than assuming a worker count it cannot hold.
-    let workers_u64 = u64::try_from(workers)
-        .map_err(|error| format!("{workers} workers do not fit the tier's arithmetic: {error}"))?;
-    // `integer_division` is forbidden, so the split of the level across the
-    // workers is the checked one. `workers` is at least one by construction, so
-    // the refusal below is unreachable and states the invariant it rests on.
-    let share = level
-        .checked_div(workers_u64)
-        .ok_or("a tier with no workers cannot be split")?;
-    let tiled = tile(representative, bytes);
-    let sized = non_empty_tier(&tiled, bytes);
-    sized?;
-    let source = std::sync::Arc::new(tiled);
-    let mut reports: Vec<TierWorker> = Vec::with_capacity(workers);
-    let started = Instant::now();
-    let admitted = std::thread::scope(|scope| -> Result<(), String> {
-        let mut handles = Vec::with_capacity(workers);
-        for worker in 0..workers {
-            let owned = std::sync::Arc::clone(&source);
-            let at = u64::try_from(worker)
-                .map_err(|error| format!("worker {worker} does not fit its own index: {error}"))?;
-            let first = share.saturating_mul(at);
-            let count = if worker.saturating_add(1) == workers {
-                level.saturating_sub(first)
-            } else {
-                share
-            };
-            let handle = std::thread::Builder::new()
-                .name(format!("ast-tier-{worker}"))
-                .spawn_scoped(scope, move || -> Result<TierWorker, String> {
-                    let room = usize::try_from(count).map_err(|error| {
-                        format!("{count} parses do not fit this target's address space: {error}")
-                    })?;
-                    let mut samples = Vec::with_capacity(room);
-                    let mut refused = 0_u64;
-                    for _ in 0..count {
-                        let at = Instant::now();
-                        let answer = try_parse(&owned, language);
-                        samples.push(at.elapsed().as_nanos());
-                        if answer.is_err() {
-                            refused = refused.saturating_add(1);
-                        }
-                    }
-                    Ok(TierWorker {
-                        assigned: count,
-                        samples,
-                        refused,
-                    })
-                })
-                .map_err(|error| format!("a tier worker did not start: {error}"))?;
-            handles.push(handle);
-        }
-        for handle in handles {
-            match handle.join() {
-                Ok(Ok(report)) => reports.push(report),
-                // A worker's own refusal names the shortfall it hit rather than
-                // reporting a tier row over fewer parses than it admitted.
-                Ok(Err(shortfall)) => {
-                    let refusal = Err(shortfall);
-                    tracing::debug!(error = ?refusal.as_ref().err(), "tier: returning a worker's refusal to the caller");
-                    return refusal;
-                }
-                // A panicking worker reports zero, and the count check below
-                // turns that into a refusal naming the shortfall rather than a
-                // tier that silently measured fewer parses than it admitted.
-                Err(_) => reports.push(TierWorker {
-                    assigned: 0,
-                    samples: Vec::new(),
-                    refused: 0,
-                }),
-            }
-        }
-        Ok(())
-    });
-    admitted?;
-    let wall_ns = started.elapsed().as_nanos();
-
-    let assigned = reports
-        .iter()
-        .fold(0_u64, |total, row| total.saturating_add(row.assigned));
-    let complete = all_admitted(assigned, level);
-    complete?;
-    let refused = reports
-        .iter()
-        .fold(0_u64, |total, row| total.saturating_add(row.refused));
-    let mut samples: Vec<u128> = reports.iter().flat_map(|row| row.samples.clone()).collect();
-    let (p50, p99) = spread(&mut samples)?;
-    // The slowest parse observed is read off the sorted list rather than
-    // defaulted: a tier whose workers admitted nothing is already refused by
-    // `all_admitted`, so the list is never empty here.
-    let max = samples
-        .last()
-        .copied()
-        .ok_or("every admitted parse reported no elapsed time")?;
-    let bytes = width_of(source.len())?;
-    Ok(TierRow {
-        level: assigned,
-        bytes,
-        workers,
-        p50,
-        p99,
-        max,
-        refused,
-        wall_ns,
-        grammar: language.name(),
-    })
-}
-
-/// Refuse a tier source that holds nothing.
-///
-/// `tile` takes whole copies only, so a fragment longer than the tier size tiles
-/// to the empty string, and a tier of empty parses reports throughput nobody
-/// measured.
-fn non_empty_tier(source: &str, bytes: usize) -> Result<(), String> {
-    if source.is_empty() {
-        Err(format!(
-            "no whole copy of the fragment fits in {bytes} bytes, so the tier would parse nothing"
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-/// Refuse a tier whose workers admitted fewer parses than the level asked for.
-///
-/// A worker that panicked reports zero admitted, so a short count is the one
-/// place a lost worker becomes visible; a tier row over fewer parses than its
-/// level names would be a concurrency number nobody ran.
-fn all_admitted(assigned: u64, level: u64) -> Result<(), String> {
-    if assigned == level {
-        Ok(())
-    } else {
-        Err(format!("{assigned} of {level} parses were admitted"))
-    }
-}
-
-/// The line one tier row prints.
-fn tier_line(row: &TierRow) -> String {
-    // The tier's throughput is the bytes it parsed over the wall time: the level
-    // is a `u64` and the bytes a `u128`, so the widening is total and needs no
-    // stand-in for a conversion.
-    let parsed = u128::from(row.level).saturating_mul(row.bytes);
-    format!(
-        "tier\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
-        row.level,
-        row.bytes,
-        row.workers,
-        row.p50,
-        row.p99,
-        row.max,
-        row.wall_ns,
-        column(megabytes_per_second_milli(parsed, row.wall_ns)),
-        row.refused,
-        row.grammar,
-    )
-}
-
 /// What the argument vector asked for.
 struct Options {
     /// One grammar's stable name, or `None` for every compiled grammar.
@@ -753,93 +554,6 @@ struct Options {
     list: bool,
 }
 
-/// Parse the argument vector, or report why it is wrong.
-fn parse_options(args: &[String]) -> Result<Options, String> {
-    let mut options = Options {
-        grammar: None,
-        kind: None,
-        bytes: DEFAULT_BYTES,
-        shape_bytes: DEFAULT_BYTES,
-        rounds: DEFAULT_ROUNDS,
-        tiers: Vec::new(),
-        tier_bytes: 64 * 1024,
-        threads: 8,
-        list: false,
-    };
-    let mut rest = args.iter();
-    while let Some(flag) = rest.next() {
-        let applied = apply_flag(&mut options, flag, &mut rest);
-        applied?;
-    }
-    validated(options)
-}
-
-/// Apply one flag, taking its value from `rest` when it has one.
-///
-/// Every arm answers a `Result` rather than returning early, so the one caller
-/// propagates exactly one refusal per flag and a flag with no value, an
-/// unparseable value and an unknown flag are three distinct messages.
-fn apply_flag<'arg>(
-    options: &mut Options,
-    flag: &str,
-    rest: &mut impl Iterator<Item = &'arg String>,
-) -> Result<(), String> {
-    let mut value = || rest.next().ok_or(format!("{flag} needs a value"));
-    match flag {
-        "--grammar" => value().map(|raw| options.grammar = Some(raw.clone())),
-        "--shape" => value().map(|raw| options.kind = Some(raw.clone())),
-        "--bytes" => value()
-            .and_then(|raw| number(flag, raw))
-            .map(|bytes| options.bytes = bytes),
-        "--shape-bytes" => value()
-            .and_then(|raw| number(flag, raw))
-            .map(|bytes| options.shape_bytes = bytes),
-        "--rounds" => value()
-            .and_then(|raw| number::<usize>(flag, raw))
-            .map(|rounds| options.rounds = rounds.max(1)),
-        "--tier" => value()
-            .and_then(|raw| number(flag, raw))
-            .map(|level| options.tiers.push(level)),
-        "--tier-bytes" => value()
-            .and_then(|raw| number(flag, raw))
-            .map(|bytes| options.tier_bytes = bytes),
-        "--threads" => value()
-            .and_then(|raw| number::<usize>(flag, raw))
-            .map(|threads| options.threads = threads.max(1)),
-        "--list-grammars" => {
-            options.list = true;
-            Ok(())
-        }
-        other => Err(format!("unknown argument `{other}`")),
-    }
-}
-
-/// Parse one flag's numeric value, naming the flag in the refusal.
-fn number<T>(flag: &str, raw: &str) -> Result<T, String>
-where
-    T: std::str::FromStr,
-    T::Err: std::fmt::Display,
-{
-    raw.parse().map_err(|error| format!("{flag}: {error}"))
-}
-
-/// Refuse a byte budget of zero, and a concurrency level of zero.
-///
-/// A zero-byte source measures nothing and a tier of zero parses admits no
-/// worker, so both would print a row of throughput over no input; the tier row's
-/// percentiles are then percentiles of nothing.
-fn validated(options: Options) -> Result<Options, String> {
-    if options.bytes == 0 {
-        Err("--bytes must be at least one".to_owned())
-    } else if options.shape_bytes == 0 {
-        Err("--shape-bytes must be at least one".to_owned())
-    } else if options.tiers.contains(&0) {
-        Err("--tier must be at least one".to_owned())
-    } else {
-        Ok(options)
-    }
-}
-
 /// Report the measurement, or the refusal that stopped it.
 fn run(options: &Options) -> Result<(), String> {
     let mut out = std::io::stdout().lock();
@@ -849,10 +563,10 @@ fn run(options: &Options) -> Result<(), String> {
         }
         return Ok(());
     }
-    let kinds: Vec<String> = options.kind.as_deref().map_or_else(
-        || KINDS.iter().map(|one| (*one).to_owned()).collect(),
-        |one| vec![one.to_owned()],
-    );
+    let kinds: Vec<String> = match options.kind.as_deref() {
+        Some(one) => vec![one.to_owned()],
+        None => KINDS.iter().map(|one| (*one).to_owned()).collect(),
+    };
     let mut tally = Tally {
         rows: 0,
         grammars: 0,
@@ -911,21 +625,21 @@ fn measure_grammar(
         }
         emit(out, &measured_line(&row))?;
         tally.rows = tally.rows.saturating_add(1);
-        let count = tally.outcomes.entry(row.outcome.clone()).or_insert(0);
+        let count = tally.outcomes.entry(row.outcome).or_insert(0);
         *count = count.saturating_add(1);
     }
     for &level in &options.tiers {
         // The grammar's own fragment, not the 2 MiB representative: tiling a
         // source longer than the tier size fits no whole copy, and the tiers once
         // measured parses of the empty string that way.
-        let tier = measure_tier(
+        let row = tier::measure_tier(
             language,
             shape.valid,
             level,
             options.tier_bytes,
             options.threads,
         )?;
-        emit(out, &tier_line(&tier))?;
+        emit(out, &tier::tier_line(&row))?;
     }
     Ok(())
 }
@@ -978,6 +692,6 @@ impl Options {
 /// The measurement's own failure, reported rather than panicked on.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let options = parse_options(&args)?;
-    run(&options).map_err(|error| -> Box<dyn std::error::Error> { error.into() })
+    let parsed = options::parse_options(&args)?;
+    run(&parsed).map_err(|error| -> Box<dyn std::error::Error> { error.into() })
 }

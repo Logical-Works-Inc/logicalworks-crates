@@ -32,7 +32,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          # What ships builds on `[toolchain] release`, the stable (ADR 0066).
+          toolchain: "1.100.0"
           cache-key: pages
           # Main-only and off the wall: its build is no pull request's (ADR 0041).
           save-cache: "false"

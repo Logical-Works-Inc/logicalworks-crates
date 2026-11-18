@@ -286,7 +286,7 @@ fn expand_copies(
         };
         expanded.push(Statement {
             kind: StatementKind::Copy {
-                name: wanted.clone(),
+                name: wanted,
                 resolved: true,
             },
             lines: statement.lines,

@@ -75,7 +75,7 @@ fn sim_motion_patch_failure_leaves_the_accumulator_store_untouched() -> Result<(
             bad,
         ];
         let patch = MotionPatch::new(node_id(&mut random), id, ops, true);
-        match apply_patch(graph.clone(), &patch, &mut store) {
+        match apply_patch(graph, &patch, &mut store) {
             Ok(_) => return Err(format!("seed {seed}: the failing patch was applied")),
             Err(error) => ensure(
                 error.code() == expected,
@@ -225,7 +225,7 @@ fn sim_motion_patch_refusals_follow_the_documented_precedence() -> Result<(), St
             None
         };
         let patch = MotionPatch::new(node_id(&mut random), target, ops, random.below(2) == 0);
-        let outcome = apply_patch(graph.clone(), &patch, &mut AccumulatorStore::new());
+        let outcome = apply_patch(graph, &patch, &mut AccumulatorStore::new());
         match (outcome, expected) {
             (Ok(_), None) => {}
             (Err(error), Some(code)) => ensure(

@@ -6,6 +6,7 @@
 
 use std::error::Error;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use lgwks_ast::script::read_source;
 
@@ -199,7 +200,12 @@ fn a_file_the_language_refused_is_counted_and_never_read() -> TestResult {
         },
     ];
     let mut out = Vec::new();
-    write(&readings, 20, &mut out)?;
+    let code = write(&readings, 20, &mut out)?;
+    assert_eq!(
+        code,
+        ExitCode::SUCCESS,
+        "a census of refused files still succeeds"
+    );
     let printed = String::from_utf8(out)?;
     assert!(
         printed.starts_with("2 `script!` in 1 files, 2 flows;"),

@@ -557,7 +557,7 @@ fn keys_reattach_conflict_and_isolate_for_every_seed_t30() -> TestResult {
             let scratch = Scratch::new(&format!("s30-{pass}-{seed}"))?;
             let store = lgwks_bot::task::RunStore::open(scratch.path().join("store"))?;
             let alpha = Host::builder("alpha")?.store(store.clone()).build()?;
-            let beta = Host::builder("beta")?.store(store.clone()).build()?;
+            let beta = Host::builder("beta")?.store(store).build()?;
             let entered = Rc::new(Cell::new(0_u32));
             let work = crate::t_rows_default::counted_u32_task!("counted", &entered)?;
             let key = RequestKey::new(&format!("s30-key-{seed}"))?;

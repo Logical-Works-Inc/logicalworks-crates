@@ -272,10 +272,7 @@ fn drive_plan(plan: &Plan, generations: &mut u64) -> Result<Observed, Box<dyn Er
         match step.act {
             Act::SignalCurrent => {
                 let value = published(step.tenant, tenant.bound);
-                record(
-                    &mut observed,
-                    &tenant.readiness.ready(tenant.bound, value.clone()),
-                );
+                record(&mut observed, &tenant.readiness.ready(tenant.bound, value));
                 if tenant.readiness.released_at().is_some() {
                     observed.released.push(tenant.bound.get());
                 }
@@ -283,15 +280,12 @@ fn drive_plan(plan: &Plan, generations: &mut u64) -> Result<Observed, Box<dyn Er
             Act::SignalStale => {
                 let older = Generation::at(tenant.bound.get().saturating_sub(1));
                 let value = published(step.tenant, older);
-                record(&mut observed, &tenant.readiness.ready(older, value.clone()));
+                record(&mut observed, &tenant.readiness.ready(older, value));
             }
             Act::SignalForeign => {
                 let stranger = Generation::at(tenant.bound.get().saturating_add(1));
                 let value = published(step.tenant, stranger);
-                record(
-                    &mut observed,
-                    &tenant.readiness.ready(stranger, value.clone()),
-                );
+                record(&mut observed, &tenant.readiness.ready(stranger, value));
             }
             Act::Fail => {
                 record(

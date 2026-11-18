@@ -50,6 +50,9 @@ pub(super) struct Lane {
 pub(super) struct Manifest {
     /// `[toolchain] rust`, or empty when absent.
     pub(super) rust: String,
+    /// `[toolchain] release`, the stable toolchain release jobs pin, or empty
+    /// when absent.
+    pub(super) release: String,
     /// Every lane, in order.
     pub(super) lanes: Vec<Lane>,
 }
@@ -540,11 +543,12 @@ fn read_value(lines: &[&str], cursor: &mut usize, first: &str) -> Vec<String> {
     Vec::new()
 }
 
-/// Reads `[toolchain] rust` and every `[[lane]]` of the lane table.
+/// Reads `[toolchain] rust` and `release`, and every `[[lane]]` of the lane table.
 pub(super) fn read_manifest(text: &str) -> Manifest {
     let lines: Vec<&str> = text.lines().collect();
     let mut manifest = Manifest {
         rust: String::new(),
+        release: String::new(),
         lanes: Vec::new(),
     };
     let mut table = Table::Other;
@@ -588,6 +592,11 @@ pub(super) fn read_manifest(text: &str) -> Manifest {
             Table::Toolchain if key == "rust" => {
                 if let Some(rust) = first {
                     manifest.rust = rust;
+                }
+            }
+            Table::Toolchain if key == "release" => {
+                if let Some(release) = first {
+                    manifest.release = release;
                 }
             }
             Table::Lane => {

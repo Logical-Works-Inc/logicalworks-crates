@@ -137,7 +137,7 @@ fn grow(
         match draw.below(6)? {
             0 | 1 if level < LEVELS => {
                 std::fs::create_dir(&path)?;
-                grown.targets.push(path.clone());
+                grown.targets.push(path);
                 grown.dirs.push(name.clone());
                 grow(draw, root, outside, &name, level.saturating_add(1), grown)?;
             }

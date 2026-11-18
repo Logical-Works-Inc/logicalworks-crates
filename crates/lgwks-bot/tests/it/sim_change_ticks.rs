@@ -383,8 +383,8 @@ impl Subject {
     /// declares for one tick means, and what makes the report's `forced` rows
     /// attributable to a tick rather than to a window.
     fn clear_declarations(&self) {
-        for chain in 0..CHAINS {
-            self.declared[chain].set(None);
+        for declared in &self.declared {
+            declared.set(None);
         }
     }
 
@@ -394,8 +394,8 @@ impl Subject {
     /// an action runs: attributing a value to the tick it arrived would let a
     /// delayed action look like it fired early.
     fn drain_fired(&self, tick: usize, into: &mut Vec<(usize, usize, u64)>) {
-        for chain in 0..CHAINS {
-            let values = std::mem::take(&mut *self.tallies[chain].borrow_mut());
+        for (chain, tally) in self.tallies.iter().enumerate() {
+            let values = std::mem::take(&mut *tally.borrow_mut());
             for value in values {
                 into.push((tick, chain, value));
             }

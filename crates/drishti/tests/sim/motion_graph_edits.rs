@@ -66,7 +66,7 @@ fn sim_motion_graph_replace_refuses_a_missing_node() -> Result<(), String> {
             "the graph that was probed must not change",
         )?;
         if let Some(held) = live.iter().next().copied() {
-            let next = replaced(graph.clone(), tween_to(held, 7.0)?).map_err(describe)?;
+            let next = replaced(graph, tween_to(held, 7.0)?).map_err(describe)?;
             ensure(
                 next.node_count() == count && next.version() == version.saturating_add(1),
                 &format!(

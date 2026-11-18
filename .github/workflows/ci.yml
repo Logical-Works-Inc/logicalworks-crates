@@ -135,10 +135,10 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: workspace
       # `--timings` records what each unit costs, the measurement every cut to
       # the cold build is judged by. The job proves every target compiles and
@@ -181,7 +181,7 @@ jobs:
       contents: read
       actions: read
     container:
-      image: "rust:1.99.1-trixie"
+      image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
     timeout-minutes: 5
     env:
@@ -189,10 +189,10 @@ jobs:
       SIMULATION_LISTINGS: nextest-listing/nextest-listing-workspace-Linux/listing.json nextest-listing/nextest-listing-bot-rest-Linux/listing.json nextest-listing/nextest-listing-bot-it-scale-Linux/listing.json nextest-listing/nextest-listing-bot-it-surface-Linux/listing.json nextest-listing/nextest-listing-bot-it-refusals-Linux/listing.json nextest-listing/nextest-listing-bot-it-g1-Linux/listing.json nextest-listing/nextest-listing-bot-it-g2-Linux/listing.json nextest-listing/nextest-listing-bot-it-g3-Linux/listing.json nextest-listing/nextest-listing-bot-it-g4-Linux/listing.json nextest-listing/nextest-listing-bot-it-g5-Linux/listing.json nextest-listing/nextest-listing-bot-it-g6-Linux/listing.json nextest-listing/nextest-listing-bot-it-g7-Linux/listing.json nextest-listing/nextest-listing-bot-it-g8-Linux/listing.json
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: workspace
           nextest: "true"
       - name: Build the simulation lane
@@ -256,7 +256,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
     container:
-      image: "rust:1.99.1-trixie"
+      image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
     timeout-minutes: 5
     strategy:
@@ -344,10 +344,10 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: ${{ matrix.it_group && 'bot-it' || matrix.archive }}
           nextest: "true"
       # A group row compiles its workspace wrapper before any cargo call.
@@ -472,10 +472,10 @@ jobs:
       RUST_MIN_STACK: "8388608"
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: ${{ matrix.archive }}
           nextest: "true"
           # The group rows restore their whole dependency build from rust-cache.
@@ -526,10 +526,10 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: workspace
           nextest: "true"
       - name: Install the acceptance-receipts binary
@@ -573,11 +573,13 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      # The package a consumer installs is built by stable, so the smoke proves
+      # it on `[toolchain] release`, not the nightly (ADR 0066).
+      - name: Pin Rust stable for the release
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
-          cache-key: workspace
+          toolchain: "1.100.0"
+          cache-key: workspace-stable
       - name: Run package smoke test
         run: ./scripts/lgwks-std-package-smoke.sh
 
@@ -596,10 +598,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 2
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: gate
           save-cache: "false"
           sccache: "false"
@@ -725,10 +727,10 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: std-full
           sccache: "false"
           nextest: "true"
@@ -763,10 +765,10 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: bot-nodefault
           save-cache: "false"
           nextest: "true"
@@ -796,10 +798,10 @@ jobs:
         with:
           # The example rule reads the change against HEAD^1.
           fetch-depth: 2
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: clippy-${{ matrix.part }}
           # Every part checks within 107 s cold (run 43397802234), so none
           # sets the wall and none saves (ADR 0041).
@@ -889,10 +891,12 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      # docs.rs and `cargo doc` downstream run stable rustdoc, so the release
+      # gates build on `[toolchain] release` (ADR 0066).
+      - name: Pin Rust stable for the release
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "1.100.0"
           cache-key: docs
           save-cache: "false"
           sccache: "false"
@@ -938,10 +942,10 @@ jobs:
           - { part: consumers-6, os: ubuntu-24.04-arm, cache: storefront, partition: "slice:6/6" }
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: ${{ matrix.cache }}
           # The deps part compiles 48 s cold; the others pass 150 s (ADR 0041).
           save-cache: ${{ matrix.cache != 'storefront-deps' }}
@@ -998,10 +1002,10 @@ jobs:
           - x86_64-unknown-freebsd aarch64-linux-android aarch64-apple-ios
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: targets
           save-cache: "false"
       - name: Check lgwks-std across the declared target matrix
@@ -1031,10 +1035,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: timing
           save-cache: "false"
       - name: Digest constant-time equality (dudect)
@@ -1056,10 +1060,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: bench-async
       - name: Async fairness gate and concurrency ladder
         run: cargo test --locked --manifest-path bench/async/Cargo.toml --bin lgwks-bench-async && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --mutant-check && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --tiers && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --matrix
@@ -1084,10 +1088,10 @@ jobs:
           - part: lgwks-bot WASI
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: feature-${{ matrix.part }}
           # lgwks-ast and docs.rs pass 150 s cold; the lgwks-bot parts finish
           # within 145 s and save nothing (ADR 0041).
@@ -1169,10 +1173,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: appcui
           components: clippy
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --lib
@@ -1191,10 +1195,10 @@ jobs:
         os: [windows-latest, ubuntu-24.04-arm]
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: appcui
           # Windows compiles 275 s cold and saves; Linux, 130 s (ADR 0041).
           save-cache: ${{ runner.os == 'Windows' }}
@@ -1213,10 +1217,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: storefront-fixture-target
           sccache: "false"
       - name: Check GPUI Windows renderer fixture
@@ -1246,10 +1250,10 @@ jobs:
       CARGO_HOME: D:\cargo-home
     steps:
       - uses: actions/checkout@v7
-      - name: Pin Rust 1.99.1
+      - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
-          toolchain: "1.99.1"
+          toolchain: "nightly-2026-11-12"
           cache-key: process-windows-dev
           sccache: "false"
           nextest: "true"

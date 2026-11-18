@@ -263,7 +263,7 @@ fn sim_decide_racing_at_each_append_point(band: sim::Band) -> TestResult {
         let host = std::sync::Arc::new(host_on(scratch.path(), "acme")?);
         for round in 0..5u32 {
             let payload = format!("race-{round}-{}", sim.seed).into_bytes();
-            let (_parked_run, id, digest) = park_one(&host, payload.clone())?;
+            let (_parked_run, id, digest) = park_one(&host, payload)?;
             let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
             let first = racer(&host, &id, digest, &barrier, "a")?;
             let second = racer(&host, &id, digest, &barrier, "b")?;

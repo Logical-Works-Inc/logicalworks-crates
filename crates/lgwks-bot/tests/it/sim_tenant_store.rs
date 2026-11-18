@@ -503,10 +503,7 @@ fn step_lane(model: &mut Model, run: &str, lane: usize, dispatch: bool) -> TestR
         }
         return Ok(false);
     }
-    if lane_ended(slot) {
-        return Ok(false);
-    }
-    Ok(true)
+    Ok(!lane_ended(slot))
 }
 
 /// Record the modeled end of one lane.

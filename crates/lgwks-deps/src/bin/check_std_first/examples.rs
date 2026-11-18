@@ -241,15 +241,20 @@ pub(super) fn baseline(
     source: &[PathBuf],
     crates: &BTreeSet<String>,
     out: &mut impl Write,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), AuditError> {
+    let written = |cause: std::io::Error| AuditError::Io {
+        path: PathBuf::from("the example baseline output"),
+        cause,
+    };
     writeln!(
         out,
         "\n# The doc-example ceiling (#526): per documentation file, how many fenced Rust\n\
          # blocks name a workspace crate by path and hold no `script!`. Exact, like the one above."
-    )?;
-    writeln!(out, "[{}]", EXAMPLES.table)?;
+    )
+    .map_err(written)?;
+    writeln!(out, "[{}]", EXAMPLES.table).map_err(written)?;
     for (file, count) in counts(repo, source, crates)? {
-        writeln!(out, "\"{file}\" = {count}")?;
+        writeln!(out, "\"{file}\" = {count}").map_err(written)?;
     }
     Ok(())
 }

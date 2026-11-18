@@ -411,7 +411,7 @@ fn a_seed_replays_and_distinct_seeds_diverge() -> Result<(), Box<dyn Error>> {
             receipt_of(seed)?,
             "seed {seed:#x} replayed differently"
         );
-        if let Some(prior) = by_text.insert(program.text.clone(), first) {
+        if let Some(prior) = by_text.insert(program.text, first) {
             assert_eq!(prior, first, "seed {seed:#x}: one text, two receipts");
         }
     }

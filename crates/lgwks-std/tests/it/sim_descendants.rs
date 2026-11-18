@@ -26,7 +26,6 @@
 use std::error::Error;
 use std::io::ErrorKind;
 use std::process::Child;
-use std::time::{Duration, Instant};
 
 use lgwks_std::process::{
     MAX_CAPTURED_DESCENDANTS, capture_descendants, kill_process, kill_process_group,
@@ -50,15 +49,17 @@ const MAX_BREADTH: usize = 2;
 /// Scheduled operations per seeded sweep.
 const STEPS: usize = 12;
 
-/// How long a killed descendant may take to stop running.
+/// How many observations a killed descendant may take to stop running.
 ///
 /// The wait is for *running* to end, not for the id to disappear: a child killed
 /// while its parent is alive becomes an unreaped zombie first, and reaping it is
-/// the platform's work rather than this test's.
-const SETTLE: Duration = Duration::from_secs(10);
+/// the platform's work rather than this test's. A count, not a duration: the
+/// wall clock is not this simulation's to read, and a count replays. Each
+/// observation reads the process table on macOS, so this budget is the smaller.
+const SETTLE: u32 = 1 << 18;
 
-/// How long a freshly forked child may take to record its own pid.
-const RECORD: Duration = Duration::from_secs(10);
+/// How many reads of its pid file a freshly forked child may take to fill it.
+const RECORD: u32 = 1 << 20;
 
 /// The id no supported OS hands out, above every pid ceiling.
 const VACANT: i32 = i32::MAX;
@@ -197,32 +198,28 @@ fn escape_source(pid_file: &std::path::Path) -> Result<String, Box<dyn Error>> {
     ))
 }
 
-/// Run `probe` until it answers `Some` or `budget` is spent, and answer its last
-/// result.
+/// Run `probe` until it answers `Some` or `budget` probes are spent, and answer
+/// its last result.
 ///
 /// Each wait here watches the operating system for a fact about a process this
 /// test did not start (a pid file a grandchild wrote, a pid that stopped running),
 /// and the kernel offers no event for either. A park or a sleep between probes
 /// would be a delay guessed at, so the wait is the probe itself, repeated, and the
-/// budget is what ends it; `yield_now` hands the core to the process waited on.
+/// budget, a count of probes, is what ends it: no wall clock is read, so the bound
+/// is the same on every run. `yield_now` hands the core to the process waited on.
 /// The probe runs once more after the budget, so a fact that arrived during the
 /// last yield is not reported as absent.
 fn poll_within<T>(
-    budget: Duration,
+    budget: u32,
     mut probe: impl FnMut() -> Result<Option<T>, Box<dyn Error>>,
 ) -> Result<Option<T>, Box<dyn Error>> {
-    let deadline = Instant::now()
-        .checked_add(budget)
-        .ok_or("the poll deadline overflows the clock")?;
-    loop {
+    for _ in 0..budget {
         if let Some(found) = probe()? {
             return Ok(Some(found));
         }
-        if Instant::now() >= deadline {
-            return probe();
-        }
         std::thread::yield_now();
     }
+    probe()
 }
 
 /// The pid `file` holds, or `None` while it is absent or not yet a whole number.
@@ -343,7 +340,7 @@ fn sweep(seed: u64) -> Result<u64, Box<dyn Error>> {
                 let running = running_processes(&live)?;
                 assert_eq!(
                     running.iter().copied().collect::<Vec<i32>>(),
-                    live.clone(),
+                    live,
                     "{at}: every live pid the model holds must be reported running"
                 );
                 fold(&mut trace, 2);

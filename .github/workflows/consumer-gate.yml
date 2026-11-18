@@ -30,9 +30,9 @@ on:
         type: string
         default: origin/main
       toolchain:
-        description: Rust toolchain the clippy leg runs under.
+        description: Rust toolchain the clippy leg runs under; a consumer builds on stable.
         type: string
-        default: 1.99.1
+        default: 1.100.0
       lgwks-deps-version:
         description: lgwks_deps version to install; empty means the newest.
         type: string

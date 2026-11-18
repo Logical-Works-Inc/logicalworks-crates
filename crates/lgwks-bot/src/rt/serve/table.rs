@@ -242,7 +242,7 @@ mod tests {
             let key = built("the key", RequestKey::new(&format!("key-{number}")))?;
             let input = ServeInput {
                 body: text.as_bytes().to_vec(),
-                tenant: name.clone(),
+                tenant: name,
                 content_type: sent,
             };
             let first =
