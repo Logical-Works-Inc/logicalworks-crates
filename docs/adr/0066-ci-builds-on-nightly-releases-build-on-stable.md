@@ -36,6 +36,9 @@ consumer installs is still built by their stable compiler, so a release must pro
    path from `std::env::current_exe` navigated with `parent`, `with_file_name`, `pop` or `join`: read
    `NEXTEST_BIN_EXE_<name>` or `CARGO_BIN_EXE_<name>`. The platform test finds the suite rows by shape. t02 holds
    the `Evaluate` bound under any rustc code.
+8. The Linux workspace slices build under `ci-bot`, dependencies at opt-level 0. A bump changes rustc, so no cache
+   holds the build: under `ci-it` each slice compiled 170 to 193 s cold and slice 3 was cancelled at 309 s (run
+   44406065531). The `ci-bot` shards of that run compiled in 95 to 132 s. The budget holds on that cold run.
 
 ## Alternatives rejected
 
@@ -50,6 +53,8 @@ consumer installs is still built by their stable compiler, so a release must pro
 - **A clippy ban on `std::env::current_exe`.** Nine tests re-run their own binary, the one path it names
   exactly, and the guard refuses an inline `expect`. A ban would push them to `argv[0]`, which is weaker.
   Reverse if clippy gains a lint for a navigated `current_exe` path.
+- **More workspace slices under `ci-it`.** Each slice compiles the whole suite, so slices cut only the 50 s of
+  tests, never the 193 s compile. Reverse if a `ci-bot` slice's tests run past half the budget.
 - **Cranelift for dependencies.** They come from rust-cache and sccache, so it saves nothing, and some use
   intrinsics cranelift does not lower.
 

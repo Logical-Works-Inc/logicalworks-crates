@@ -246,9 +246,12 @@ jobs:
   # lgwks_bot full is two builds: its consolidated `it` binary, and every other
   # target. The workspace suite leaves lgwks_bot's test binaries out (the
   # `tests` lane filters `not package(lgwks_bot)` either way). Every shard
-  # builds through `ci-it`: the test profile's dependencies at opt-level 3 took
-  # 187 s cold before lgwks_bot began, and every shard was cancelled at the
-  # limit (run 41704600214, no cache). Partitions are cut finer for the slower
+  # builds through `ci-bot`, dependencies at opt-level 0: the test profile's
+  # dependencies at opt-level 3 took 187 s cold before lgwks_bot began (run
+  # 41704600214), and under `ci-it`, at opt-level 1, a toolchain bump that no
+  # cache holds compiled each workspace slice for 170 to 193 s and slice 3 was
+  # cancelled at 309 s (run 44406065531, ADR 0066), where the `ci-bot` bot
+  # shards compiled in 95 to 132 s. Partitions are cut finer for the slower
   # opt-level-0 workspace code.
   tests_linux:
     name: Tests on Linux (${{ matrix.archive }}, ${{ matrix.tier || matrix.partition }})
@@ -263,16 +266,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { suite: workspace, archive: workspace, partition: "slice:1/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:2/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:3/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:4/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:5/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:6/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:7/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:8/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:9/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
-          - { suite: workspace, archive: workspace, partition: "slice:10/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-it" }
+          - { suite: workspace, archive: workspace, partition: "slice:1/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:2/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:3/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:4/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:5/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:6/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:7/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:8/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:9/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
+          - { suite: workspace, archive: workspace, partition: "slice:10/10", build: "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:1/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:2/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-it-scale, it_group: scale, partition: "slice:3/4", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
