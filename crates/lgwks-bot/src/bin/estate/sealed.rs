@@ -226,10 +226,10 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
     say(out, "sealed: the acme chain verifies")?;
     // Shred the acme step: destroy-then-tombstone, idempotent across the
     // restart below.
-    let shredded = store
+    // Either outcome leaves the step erased; `expect_reads` below proves it.
+    store
         .shred_record("acme", acme_run, acme_key)
         .map_err(|error| refused("the acme shred")(error.to_string()))?;
-    let _ = shredded;
     expect_reads(
         out,
         &store,

@@ -198,7 +198,7 @@ fn workspace(repo: &Path) -> Result<BTreeMap<String, Member>, AuditError> {
         };
         let directory_name = match directory.file_name() {
             Some(found) => found.to_string_lossy().into_owned(),
-            None => entry.clone(),
+            None => entry,
         };
         members.insert(
             name,
@@ -564,12 +564,20 @@ fn justify(
     };
     writeln!(
         out,
-        "Admitted, not implemented ({POLICY_ONLY} {} of {} storefront-only edges):",
+        "Admitted, consumed by no crate yet ({POLICY_ONLY} {} of {} storefront-only edges):",
         policy_only.len(),
         audit.owned.len()
     )?;
     writeln!(out, "  {names}")?;
     writeln!(out)
+}
+
+/// The report could not be written to `handle`, named as the path the error shows.
+fn unwritten(handle: &'static str) -> impl Fn(io::Error) -> AuditError {
+    move |cause| AuditError::Io {
+        path: PathBuf::from(handle),
+        cause,
+    }
 }
 
 /// Runs the audit and reports; the exit code is the verdict.
@@ -578,15 +586,17 @@ fn execute(
     with_justify: bool,
     out: &mut impl Write,
     err: &mut impl Write,
-) -> Result<u8, Box<dyn std::error::Error>> {
+) -> Result<u8, AuditError> {
     let audit = audit_repository(root)?;
     if with_justify {
-        justify(out, &audit, &workspace(root)?, &register(root)?)?;
+        justify(out, &audit, &workspace(root)?, &register(root)?)
+            .map_err(unwritten("the justification output"))?;
     }
     if !audit.findings.is_empty() {
-        writeln!(err, "{} finding(s):", audit.findings.len())?;
+        writeln!(err, "{} finding(s):", audit.findings.len())
+            .map_err(unwritten("the findings output"))?;
         for finding in &audit.findings {
-            writeln!(err, "  {finding}")?;
+            writeln!(err, "  {finding}").map_err(unwritten("the findings output"))?;
         }
         return Ok(1);
     }
@@ -604,13 +614,14 @@ fn execute(
         audit.files,
         audit.reached.len(),
         unconsumed(&audit).len()
-    )?;
+    )
+    .map_err(unwritten("the verdict output"))?;
     Ok(0)
 }
 
 /// Prints the public-surface contract the tree implies (`--surface-baseline`): the
 /// `pub` ceilings, then the doc-example ceilings.
-fn record_surface(root: &Path, out: &mut impl Write) -> Result<u8, Box<dyn std::error::Error>> {
+fn record_surface(root: &Path, out: &mut impl Write) -> Result<u8, AuditError> {
     let source = files::source_files(root)?;
     let crates: BTreeSet<String> = workspace(root)?.into_keys().collect();
     surface::baseline(root, &source, out)?;

@@ -22,6 +22,7 @@ use crate::seeded_bytes;
 use crate::seeded_sweep;
 
 use std::borrow::Cow;
+use std::sync::LazyLock;
 
 use lgwks_std::pattern::{
     BoundedRegex, PatternConfig, PatternError, PatternErrorKind, PatternRunError, Regex,
@@ -75,6 +76,15 @@ fn draw_case(state: &mut Seeded) -> (&'static str, String) {
     (pattern, haystack)
 }
 
+/// The [`PATTERNS`] slot `pattern` sits in, which indexes every engine in
+/// [`Compiled`].
+fn slot(pattern: &str) -> Result<usize, String> {
+    PATTERNS
+        .iter()
+        .position(|entry| *entry == pattern)
+        .ok_or_else(|| format!("{pattern:?} is not a table pattern"))
+}
+
 /// Compiles `pattern` under `config`, the one door the bounded type has.
 ///
 /// `with_config` lives on `Regex` and returns the `BoundedRegex` it built, so
@@ -84,26 +94,79 @@ fn bounded_regex(pattern: &str, config: PatternConfig) -> Result<BoundedRegex, P
     Regex::with_config(pattern, config)
 }
 
+/// Every [`PATTERNS`] entry compiled once under the given ceilings, in table order.
+fn bounded_engines(
+    input_limit: usize,
+    output_limit: usize,
+) -> Result<Vec<BoundedRegex>, PatternError> {
+    PATTERNS
+        .iter()
+        .map(|pattern| bounded_regex(pattern, config(input_limit, output_limit)))
+        .collect()
+}
+
+/// The pattern table compiled by each engine a family compares, in table order.
+struct Compiled {
+    /// The engine's own compile, with no ceilings.
+    unbounded: Vec<Regex>,
+    /// Bounded with the output ceiling at the input ceiling: matching only.
+    narrow: Vec<BoundedRegex>,
+    /// Bounded as the trace sweep runs it: output at twice the input.
+    traced: Vec<BoundedRegex>,
+    /// Bounded with room for any replacement, split or span list a family
+    /// draws: output at eight times the input.
+    wide: Vec<BoundedRegex>,
+}
+
+/// The table, compiled once per test binary rather than once per case.
+static COMPILED: LazyLock<Result<Compiled, PatternError>> = LazyLock::new(|| {
+    Ok(Compiled {
+        unbounded: PATTERNS
+            .map(Regex::new)
+            .into_iter()
+            .collect::<Result<_, _>>()?,
+        narrow: bounded_engines(INPUT_LIMIT, INPUT_LIMIT)?,
+        traced: bounded_engines(INPUT_LIMIT, INPUT_LIMIT * 2)?,
+        wide: bounded_engines(INPUT_LIMIT, INPUT_LIMIT * 8)?,
+    })
+});
+
+/// The compiled table, or the refusal that stopped a table pattern compiling.
+fn compiled() -> Result<&'static Compiled, &'static PatternError> {
+    COMPILED.as_ref()
+}
+
 /// Runs the seeded bounded-versus-unbounded sweep and returns its trace.
 fn pattern_trace(seed: u64) -> u64 {
     let mut state = seeded_stream(seed);
     let mut trace = initial_trace();
+    // Every table pattern compiles in both engines and every haystack is inside
+    // the bound, so a refusal anywhere is a failure, never a skip: a sweep that
+    // skipped would pass with the comparison never made.
+    let table = compiled();
+    assert!(
+        table.is_ok(),
+        "seed {seed}: every table pattern must compile in both engines: {:?}",
+        table.err()
+    );
+    let Ok(table) = table else {
+        return trace;
+    };
 
     for _ in 0..32 {
-        let pattern = PATTERNS[below(&mut state, PATTERNS.len())];
+        let index = below(&mut state, PATTERNS.len());
         let length = below(&mut state, INPUT_LIMIT);
         let haystack = draw_haystack(&mut state, length);
 
-        let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT * 2)).ok();
-        let expected = Regex::new(pattern)
-            .map(|unbounded| unbounded.is_match(&haystack))
-            .ok();
-
-        if let Some((observed, expected)) = bounded.zip(expected).and_then(|(regex, expected)| {
-            regex.is_match(&haystack).ok().map(|seen| (seen, expected))
-        }) {
+        let observed = table.traced[index].is_match(&haystack);
+        assert!(
+            observed.is_ok(),
+            "seed {seed}: a {length}-byte haystack is inside the bound and must be searched"
+        );
+        if let Ok(observed) = observed {
             assert_eq!(
-                observed, expected,
+                observed,
+                table.unbounded[index].is_match(&haystack),
                 "seed {seed}: a {length}-byte haystack must match as the engine matches"
             );
             fold_usize(&mut trace, usize::from(observed));
@@ -124,8 +187,8 @@ fn a_bounded_match_agrees_with_the_unbounded_engine() -> Result<(), Box<dyn std:
         for _ in 0..48 {
             let (pattern, haystack) = draw_case(&mut state);
 
-            let expected = Regex::new(pattern)?.is_match(&haystack);
-            let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT))?;
+            let expected = compiled()?.unbounded[slot(pattern)?].is_match(&haystack);
+            let bounded = &compiled()?.narrow[slot(pattern)?];
             assert_eq!(
                 bounded.is_match(&haystack)?,
                 expected,
@@ -148,12 +211,12 @@ fn a_bounded_match_agrees_with_the_unbounded_engine() -> Result<(), Box<dyn std:
 /// and refused identically by every operation, so no door is the one that forgot.
 fn an_input_past_the_ceiling_is_refused_by_every_operation()
 -> Result<(), Box<dyn std::error::Error>> {
+    let bounded = bounded_regex("a", config(INPUT_LIMIT, INPUT_LIMIT * 2))?;
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..16 {
             let over = INPUT_LIMIT.saturating_add(1 + below(&mut state, 64));
             let haystack = draw_haystack(&mut state, over);
-            let bounded = bounded_regex("a", config(INPUT_LIMIT, INPUT_LIMIT * 2))?;
             let refused = PatternRunError::InputTooLarge {
                 limit: INPUT_LIMIT,
                 actual: over,
@@ -194,7 +257,7 @@ fn an_input_past_the_ceiling_is_refused_by_every_operation()
             );
             assert_eq!(
                 bounded.replace_all(&haystack, "x").err(),
-                Some(refused.clone()),
+                Some(refused),
                 "seed {seed}: replace_all must refuse the same way"
             );
         }
@@ -306,8 +369,8 @@ fn a_bounded_replacement_expands_exactly_like_the_engine() -> Result<(), Box<dyn
             let template_len = below(&mut state, 6);
             let template = next_text(&mut state, template_len);
 
-            let unbounded = Regex::new(pattern)?;
-            let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT * 8))?;
+            let unbounded = &compiled()?.unbounded[slot(pattern)?];
+            let bounded = &compiled()?.wide[slot(pattern)?];
             assert_eq!(
                 bounded.replace_all(&haystack, &template)?,
                 unbounded.replace_all(&haystack, &template),
@@ -334,12 +397,11 @@ fn a_bounded_find_all_yields_the_engines_spans_in_order() -> Result<(), Box<dyn 
         for _ in 0..32 {
             let (pattern, haystack) = draw_case(&mut state);
 
-            let unbounded: Vec<(usize, usize)> = Regex::new(pattern)?
+            let unbounded: Vec<(usize, usize)> = compiled()?.unbounded[slot(pattern)?]
                 .find_all(&haystack)
                 .map(|found| (found.start, found.end))
                 .collect();
-            let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT * 8))?;
-            let observed: Vec<(usize, usize)> = bounded
+            let observed: Vec<(usize, usize)> = compiled()?.wide[slot(pattern)?]
                 .find_all(&haystack)?
                 .map(|found| (found.start, found.end))
                 .collect();
@@ -369,9 +431,10 @@ fn a_bounded_split_yields_the_engines_pieces() -> Result<(), Box<dyn std::error:
         for _ in 0..32 {
             let (pattern, haystack) = draw_case(&mut state);
 
-            let unbounded: Vec<&str> = Regex::new(pattern)?.split(&haystack).collect();
-            let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT * 8))?;
-            let observed: Vec<&str> = bounded.split(&haystack)?.collect();
+            let unbounded: Vec<&str> = compiled()?.unbounded[slot(pattern)?]
+                .split(&haystack)
+                .collect();
+            let observed: Vec<&str> = compiled()?.wide[slot(pattern)?].split(&haystack)?.collect();
             assert_eq!(
                 observed, unbounded,
                 "seed {seed}: {pattern:?} must split as the engine splits"
@@ -392,16 +455,16 @@ fn a_bounded_split_yields_the_engines_pieces() -> Result<(), Box<dyn std::error:
 /// and one that matched empty (`Some("")`).
 fn a_bounded_capture_agrees_with_the_engines_group_by_group()
 -> Result<(), Box<dyn std::error::Error>> {
+    let pattern = r"(a)?(b)?";
+    let engine = Regex::new(pattern)?;
+    let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT))?;
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for length in 0..8_usize {
             let haystack = draw_haystack(&mut state, length);
-            let pattern = r"(a)?(b)?";
-            let unbounded = Regex::new(pattern)?.captures(&haystack);
-            let bounded = bounded_regex(pattern, config(INPUT_LIMIT, INPUT_LIMIT))?;
             assert_eq!(
                 bounded.captures(&haystack)?,
-                unbounded,
+                engine.captures(&haystack),
                 "seed {seed}: the captures of {pattern:?} on {haystack:?} must agree"
             );
         }
@@ -522,17 +585,17 @@ fn a_refusals_escape_the_pattern_text() -> Result<(), Box<dyn std::error::Error>
 /// that only ever checked the negative.
 fn a_hostile_haystack_is_answered_under_a_backtracking_pattern()
 -> Result<(), Box<dyn std::error::Error>> {
+    let bounded = bounded_regex(
+        r"a*a*a*a*a*b",
+        config(INPUT_LIMIT.saturating_add(1), INPUT_LIMIT * 2),
+    )?;
+    let unbounded = Regex::new(r"a*a*a*a*a*b")?;
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..8 {
             let length = below(&mut state, INPUT_LIMIT);
             // Many `a`s and one `b`: the shape that defeats a naive backtracker.
             let haystack = format!("{}b", "a".repeat(length));
-            let bounded = bounded_regex(
-                r"a*a*a*a*a*b",
-                config(INPUT_LIMIT.saturating_add(1), INPUT_LIMIT * 2),
-            )?;
-            let unbounded = Regex::new(r"a*a*a*a*a*b")?;
             assert_eq!(
                 bounded.is_match(&haystack)?,
                 unbounded.is_match(&haystack),

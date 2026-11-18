@@ -581,49 +581,39 @@ fn certainty_classification_r64() -> TestResult {
             0 => (GhError::NoRunner, true),
             1 => (
                 GhError::Staging {
-                    path: text.clone(),
+                    path: text,
                     source: String::from("no entropy"),
                 },
                 true,
             ),
-            2 => (
-                GhError::PayloadNotSent {
-                    reason: text.clone(),
-                },
-                true,
-            ),
-            3 => (
-                GhError::Event {
-                    event: text.clone(),
-                },
-                true,
-            ),
+            2 => (GhError::PayloadNotSent { reason: text }, true),
+            3 => (GhError::Event { event: text }, true),
             4 => (
                 GhError::Marker {
-                    marker: text.clone(),
+                    marker: text,
                     reason: "closes the comment",
                 },
                 true,
             ),
             5 => (
                 GhError::Transport {
-                    what: text.clone(),
+                    what: text,
                     exit_code: i32::try_from(index).ok(),
                     stderr: String::from("connection reset by peer"),
                 },
                 false,
             ),
-            6 => (GhError::Deadline { what: text.clone() }, false),
+            6 => (GhError::Deadline { what: text }, false),
             7 => (
                 GhError::MalformedResponse {
                     path: String::from("stdout"),
-                    source: text.clone(),
+                    source: text,
                 },
                 false,
             ),
             _ => (
                 GhError::Response {
-                    path: text.clone(),
+                    path: text,
                     reason: String::from("the created review has no id"),
                 },
                 false,

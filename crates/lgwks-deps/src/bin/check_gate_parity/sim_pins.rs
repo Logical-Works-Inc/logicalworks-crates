@@ -16,7 +16,7 @@ use std::path::Path;
 
 use lgwks_std::seeded::{DrawError, Seeded};
 
-use super::{MANIFEST_REL, PAGES_REL, WORKFLOW_REL, pin_problems, read_manifest};
+use super::{MANIFEST_REL, Manifest, PAGES_REL, WORKFLOW_REL, pin_problems, read_manifest};
 
 /// Why a simulation could not read or draw what it needs.
 #[derive(Debug)]
@@ -154,11 +154,11 @@ struct Verdict {
 }
 
 /// Everything one sweep observed, in seed order.
-fn sweep(rust: &str, workflows: &[Workflow]) -> Result<Vec<Verdict>, SimError> {
+fn sweep(manifest: &Manifest, workflows: &[Workflow]) -> Result<Vec<Verdict>, SimError> {
     let mut trace = Vec::new();
     for seed in 0..SEEDS {
         let case = drift(seed, workflows)?;
-        let problems = pin_problems(rust, case.workflow, &case.mutated);
+        let problems = pin_problems(manifest, case.workflow, &case.mutated);
         trace.push(Verdict {
             workflow: case.workflow,
             bogus: case.bogus,
@@ -170,11 +170,11 @@ fn sweep(rust: &str, workflows: &[Workflow]) -> Result<Vec<Verdict>, SimError> {
 
 #[test]
 fn sim_one_drifted_pin_in_either_workflow_is_named_and_the_other_stays_clean() -> TestResult {
-    let rust = read_manifest(&read_repo(MANIFEST_REL)?).rust;
+    let manifest = read_manifest(&read_repo(MANIFEST_REL)?);
     let workflows = workflows()?;
     for workflow in &workflows {
         assert_eq!(
-            pin_problems(&rust, workflow.name, &workflow.text),
+            pin_problems(&manifest, workflow.name, &workflow.text),
             Vec::<String>::new(),
             "the committed {} pins the manifest's toolchain",
             workflow.name
@@ -183,7 +183,7 @@ fn sim_one_drifted_pin_in_either_workflow_is_named_and_the_other_stays_clean() -
     let mut reached = BTreeSet::new();
     for seed in 0..SEEDS {
         let case = drift(seed, &workflows)?;
-        let problems = pin_problems(&rust, case.workflow, &case.mutated);
+        let problems = pin_problems(&manifest, case.workflow, &case.mutated);
         assert_eq!(
             problems.len(),
             1,
@@ -206,13 +206,41 @@ fn sim_one_drifted_pin_in_either_workflow_is_named_and_the_other_stays_clean() -
     Ok(())
 }
 
+/// ADR 0066: pull requests build on the nightly `rust`, the jobs that prove a
+/// release on the stable `release`. A workflow pinning either is clean; a third
+/// version is named, and only it.
+#[test]
+fn a_release_pin_is_accepted_and_a_third_pin_is_refused() -> TestResult {
+    let pins = read_manifest(&read_repo(MANIFEST_REL)?);
+    assert!(
+        !pins.release.is_empty() && pins.release != pins.rust,
+        "the lane table names a stable release toolchain beside the nightly"
+    );
+    let release_only = format!("{MARKER}{}\"\n", pins.release);
+    assert_eq!(
+        pin_problems(&pins, "pages.yml", &release_only),
+        Vec::<String>::new(),
+        "a release job's stable pin is accepted"
+    );
+    let third = format!("{release_only}{MARKER}0.0.0-third\"\n");
+    let problems = pin_problems(&pins, "pages.yml", &third);
+    assert_eq!(problems.len(), 1, "one drift, one problem: {problems:?}");
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.contains("0.0.0-third") && problem.contains("pages.yml")),
+        "{problems:?}"
+    );
+    Ok(())
+}
+
 #[test]
 fn sim_the_same_seed_replays_the_same_verdicts_and_distinct_seeds_draw_distinct_pins() -> TestResult
 {
-    let rust = read_manifest(&read_repo(MANIFEST_REL)?).rust;
+    let manifest = read_manifest(&read_repo(MANIFEST_REL)?);
     let workflows = workflows()?;
-    let first = sweep(&rust, &workflows)?;
-    let second = sweep(&rust, &workflows)?;
+    let first = sweep(&manifest, &workflows)?;
+    let second = sweep(&manifest, &workflows)?;
     assert_eq!(first, second, "one seed, one trace");
     let versions: BTreeSet<&String> = first.iter().map(|seen| &seen.bogus).collect();
     assert!(

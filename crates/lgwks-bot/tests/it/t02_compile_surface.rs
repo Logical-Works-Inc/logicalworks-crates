@@ -5,8 +5,7 @@
 //! | Test | What it pins |
 //! |---|---|
 //! | `a_correct_local_borrowed_non_send_consumer_compiles` | the probe harness can compile a valid consumer, so a negative probe cannot be a missing-dependency failure in disguise |
-//! | `a_source_condition_action_mismatch_is_refused_t02` | the typed chain builder refuses a condition/action that do not read the source's output |
-//! | `an_action_that_takes_another_type_is_refused_with_e0271` | an action whose `Input` is not the source's output is refused with `E0271` |
+//! | `a_source_condition_action_mismatch_is_refused_t02` | the typed chain builder refuses a condition/action that do not read the source's output |//! | `an_action_that_takes_another_type_is_refused_with_e0271` | an action whose `Input` is not the source's output is refused with `E0271` |
 //! | `a_cross_schema_result_binding_is_refused` | binding a `Report<T>` from one schema into a `Report<U>` is a type error |
 //! | `a_local_borrowed_non_send_body_runs_on_the_host` | an `Rc<RefCell<_>>`-holding body over a borrowed `&[u8]`, with an await in the middle, compiles and runs |
 //!
@@ -29,7 +28,7 @@ use lgwks_bot::task::{Disposition, Host, Report, task};
 // The compile-probe harness, shared with `t22_process_surface`.
 use crate::compile;
 
-use compile::{assert_compiles, assert_refused_for, compile_probe};
+use compile::{assert_bound_refused, assert_compiles, assert_refused_for, compile_probe};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -63,22 +62,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// A typed chain whose condition reads `String` against a source that yields
 /// `u32`: the `.on` bound cannot hold.
 const MISMATCHED_CHAIN: &str = r#"
-use lgwks_bot::app_error::BotError;
 use lgwks_bot::cap::{Auth, Cap};
 use lgwks_bot::spec::Bot;
+use lgwks_bot::ecs::EcsError;
 use lgwks_bot::verb::{EffectLifetime, Evaluate, Execute, Observe};
 
+// Every verb returns the traits' own `EcsError`, so the only refusals are the
+// `.on` bounds: a wrong return type is E0053 or E0271 of its own, and nightly
+// reports those in place of the bound.
 struct Source;
 impl Observe for Source {
     type Output = u32;
     fn required_caps(&self) -> &[Cap] { &[] }
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> { call.0.check(&[])?; Ok(0) }
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> { call.0.check(&[])?; Ok(0) }
     fn domain_id(&self) -> &str { "probe::source" }
 }
 
 struct ReadsText;
 impl Evaluate<String> for ReadsText {
-    fn check(&self, _value: &String) -> Result<bool, BotError> { Ok(true) }
+    fn check(&self, _value: &String) -> Result<bool, EcsError> { Ok(true) }
     fn condition_id(&self) -> &str { "probe::reads_text" }
 }
 
@@ -88,7 +90,7 @@ impl Execute for WritesText {
     type Output = ();
     fn required_caps(&self) -> &[Cap] { &[] }
     fn effect_lifetime(&self) -> EffectLifetime { EffectLifetime::Local }
-    async fn execute_action(&self, call: (Auth, &String)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &String)) -> Result<(), EcsError> {
         call.0.check(&[])?;
         Ok(())
     }
@@ -176,8 +178,10 @@ fn a_correct_local_borrowed_non_send_consumer_compiles() -> TestResult {
 fn a_source_condition_action_mismatch_is_refused_t02() -> TestResult {
     let output = compile_probe("t02-chain-mismatch", "", MISMATCHED_CHAIN)?;
     // The condition reads `String` while the source yields `u32`, so the
-    // `Evaluate<S::Output>` bound is unsatisfied: E0277 naming the trait.
-    assert_refused_for(&output, "E0277", "Evaluate");
+    // `Evaluate<S::Output>` bound is unsatisfied. Which code rustc files it
+    // under is the toolchain's choice (E0277 on stable, E0271 on the nightly),
+    // so the test holds the bound, not the code (ADR 0066).
+    assert_bound_refused(&output, "Evaluate");
     Ok(())
 }
 

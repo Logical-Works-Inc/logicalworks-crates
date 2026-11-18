@@ -18,8 +18,8 @@
 //!   3. Builtin agreement. A `builtin` lane that runs in CI must be invoked as
 //!      `cargo run --locked -p lgwks_deps --bin ci-local -- --lane <id>`, so the
 //!      text of the check exists once.
-//!   4. Toolchain agreement. The manifest's `toolchain.rust` is the version
-//!      every `toolchain:` pin in `ci.yml` and in `pages.yml` installs.
+//!   4. Toolchain agreement. Every `toolchain:` pin in `ci.yml` and `pages.yml`
+//!      is the manifest's `toolchain.rust` or `toolchain.release` (ADR 0066).
 //!   5. Hosted runners only. No `runs-on:` of any workflow names
 //!      `self-hosted`: the repository is public, so a self-hosted runner would
 //!      execute a fork's pull request on the machine that hosts it (province#9,
@@ -66,7 +66,7 @@ use std::process::ExitCode;
 
 use lane_split::split_problems;
 use partitions::partition_problems;
-use reader::{Step, read_manifest, read_workflow};
+use reader::{Manifest, Step, read_manifest, read_workflow};
 use workflow_calls::foreign_workflow_problems;
 
 /// The lane table, relative to the repository root.
@@ -102,6 +102,8 @@ enum ParityError {
         /// What the operating system said.
         cause: io::Error,
     },
+    /// The verdict could not be written to its handle.
+    Write(io::Error),
 }
 
 impl fmt::Display for ParityError {
@@ -111,11 +113,18 @@ impl fmt::Display for ParityError {
                 ref path,
                 ref cause,
             } => write!(formatter, "{}: {cause}", path.display()),
+            Self::Write(ref cause) => write!(formatter, "writing the verdict: {cause}"),
         }
     }
 }
 
 impl std::error::Error for ParityError {}
+
+impl From<io::Error> for ParityError {
+    fn from(cause: io::Error) -> Self {
+        Self::Write(cause)
+    }
+}
 
 /// Logs `error` at the site that produced it, then hands it back as the `Err`.
 fn fail<T>(error: ParityError, site: &'static str) -> Result<T, ParityError> {
@@ -226,20 +235,28 @@ fn toolchain_pins(workflow: &str) -> Vec<String> {
 }
 
 /// The rule-4 violations of one workflow: it pins no toolchain, or pins one that
-/// is not `rust`, the manifest's.
+/// is neither `toolchain.rust`, the nightly, nor `toolchain.release`, the stable
+/// (ADR 0066). A table that names no `rust` holds no workflow to a pin.
 ///
 /// Every pin, not any pin: one job left on an older toolchain builds a different
 /// compiler's output while the manifest names another.
-fn pin_problems(rust: &str, workflow: &str, text: &str) -> Vec<String> {
+fn pin_problems(manifest: &Manifest, workflow: &str, text: &str) -> Vec<String> {
+    let (rust, release) = (manifest.rust.as_str(), manifest.release.as_str());
     let mut problems = Vec::new();
+    if rust.is_empty() {
+        return problems;
+    }
     let pins = toolchain_pins(text);
     if pins.is_empty() {
         problems.push(format!("{workflow} installs no pinned toolchain"));
     }
-    let drifted: BTreeSet<&String> = pins.iter().filter(|pin| pin.as_str() != rust).collect();
+    let drifted: BTreeSet<&String> = pins
+        .iter()
+        .filter(|pin| pin.as_str() != rust && pin.as_str() != release)
+        .collect();
     if !drifted.is_empty() {
         problems.push(format!(
-            "toolchain.rust is {rust:?} but {workflow} also pins {drifted:?}"
+            "toolchain.rust is {rust:?} and toolchain.release {release:?}, but {workflow} also pins {drifted:?}"
         ));
     }
     problems
@@ -355,9 +372,7 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
         ));
     }
 
-    if !manifest.rust.is_empty() {
-        problems.extend(pin_problems(&manifest.rust, "ci.yml", workflow_text));
-    }
+    problems.extend(pin_problems(&manifest, "ci.yml", workflow_text));
     problems.extend(self_hosted_problems("ci.yml", workflow_text));
     problems.extend(foreign_workflow_problems("ci.yml", workflow_text));
     problems.extend(partition_problems("ci.yml", workflow_text));
@@ -367,19 +382,13 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
 }
 
 /// Runs the check over `root`, writing its verdict to the two handles.
-fn execute(
-    root: &Path,
-    out: &mut impl Write,
-    err: &mut impl Write,
-) -> Result<u8, Box<dyn std::error::Error>> {
+fn execute(root: &Path, out: &mut impl Write, err: &mut impl Write) -> Result<u8, ParityError> {
     let manifest_text = read(&root.join(MANIFEST_REL))?;
     let workflow_text = read(&root.join(WORKFLOW_REL))?;
     let pages_text = read(&root.join(PAGES_REL))?;
     let manifest = read_manifest(&manifest_text);
     let mut problems = check_parity(&manifest_text, &workflow_text);
-    if !manifest.rust.is_empty() {
-        problems.extend(pin_problems(&manifest.rust, "pages.yml", &pages_text));
-    }
+    problems.extend(pin_problems(&manifest, "pages.yml", &pages_text));
     problems.extend(self_hosted_problems("pages.yml", &pages_text));
     problems.extend(foreign_workflow_problems("pages.yml", &pages_text));
     for rel in OTHER_WORKFLOWS_REL {
@@ -659,11 +668,10 @@ mod tests {
     #[test]
     fn a_workflow_with_no_pin_is_refused_by_name() -> TestResult {
         let (manifest, workflow) = files()?;
-        let pin = pinned(&manifest)?;
         let stripped = workflow.replace("toolchain: \"", "tool-chain: \"");
         assert_ne!(stripped, workflow, "the mutation must remove every pin");
         assert_eq!(
-            pin_problems(&pin, "ci.yml", &stripped),
+            pin_problems(&super::read_manifest(&manifest), "ci.yml", &stripped),
             vec!["ci.yml installs no pinned toolchain".to_owned()],
             "a workflow with no pin is named, and nothing else is said"
         );

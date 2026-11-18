@@ -16,8 +16,8 @@ inputs:
       fetch-depth 0) or a directory.
     default: origin/main
   toolchain:
-    description: Rust toolchain the clippy leg runs under.
-    default: 1.99.1
+    description: Rust toolchain the clippy leg runs under; a consumer builds on stable.
+    default: 1.100.0
   lgwks-deps-version:
     description: >-
       lgwks_deps version to install; empty means the newest on crates.io.

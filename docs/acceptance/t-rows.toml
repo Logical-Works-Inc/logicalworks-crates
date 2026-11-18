@@ -249,11 +249,11 @@ row = "Crash before intent ack, after ack before dispatch, after dispatch before
 state = "exercised"
 gap = ""
 tests = [
-  "it::durable_crash_observation::a_kill_after_the_intent_ack_and_before_the_dispatch_recovers_as_prepared_t14",
+  "it::durable_crash_observation::boundary::a_kill_after_the_intent_ack_and_before_the_dispatch_recovers_as_prepared_t14",
   "it::durable_crash_observation::a_kill_between_prepare_and_outcome_recovers_a_barrier_not_an_answer",
-  "it::durable_crash_observation::a_kill_after_the_response_and_before_the_receipt_recovers_the_outcome",
-  "it::durable_crash_observation::a_kill_during_recovery_leaves_the_journal_exactly_as_it_was",
-  "it::durable_crash_observation::a_real_kill_mid_append_leaves_no_duplicate_and_no_lost_receipt",
+  "it::durable_crash_observation::boundary::a_kill_after_the_response_and_before_the_receipt_recovers_the_outcome",
+  "it::durable_crash_observation::boundary::a_kill_during_recovery_leaves_the_journal_exactly_as_it_was",
+  "it::durable_crash_observation::boundary::a_real_kill_mid_append_leaves_no_duplicate_and_no_lost_receipt",
   "it::durable_crash_observation::a_settlement_recorded_before_a_real_kill_is_the_recovered_answer",
   "it::effect_journal::e11_a_blind_resend_is_not_representable",
   "it::t_rows_default::request::a_recorded_answer_replays_without_a_new_request_t15",

@@ -71,10 +71,16 @@ runs:
         set -euo pipefail
         # The pin is stated three times (rust-toolchain.toml, the lane table's
         # `[toolchain]`, every `toolchain:` of the workflows) and the parity
-        # check holds the last two together; this holds the first to them.
+        # check holds the last two together; this holds the first to them. A
+        # release job pins `[toolchain] release`, the stable, instead (ADR 0066):
+        # rustup reads RUSTUP_TOOLCHAIN before rust-toolchain.toml, so every
+        # later step of the job builds on stable.
         pinned="$(awk -F'"' '/^channel/ { print $2 }' rust-toolchain.toml)"
-        if [ "${pinned}" != "${{ inputs.toolchain }}" ]; then
-          echo "::error::rust-toolchain.toml pins '${pinned}', the gate pins ${{ inputs.toolchain }}"
+        release="$(awk -F'"' '/^\[toolchain\]/ { on = 1; next } /^\[/ { on = 0 } on && /^release/ { print $2 }' scripts/gate-lanes.toml)"
+        if [ "${{ inputs.toolchain }}" = "${release}" ]; then
+          echo "RUSTUP_TOOLCHAIN=${release}" >> "${GITHUB_ENV}"
+        elif [ "${pinned}" != "${{ inputs.toolchain }}" ]; then
+          echo "::error::rust-toolchain.toml pins '${pinned}' and the release is '${release}', the gate pins ${{ inputs.toolchain }}"
           exit 1
         fi
         rustup default "${{ inputs.toolchain }}"
@@ -84,6 +90,22 @@ runs:
             *) rustup toolchain uninstall "${installed}" ;;
           esac
         done
+    # On the nightly every pull request builds with the parallel front end, one
+    # thread per core (nightly defaults to 2). Cranelift is off: on these arm64
+    # runners a cranelift crate leaves `fp-armv8` off where LLVM's std has it on,
+    # so rustc warned "mixing target features will cause an ABI mismatch" on
+    # every job, and a caught panic aborted (SIGABRT) because the test profile
+    # inherits `[profile.dev]` (run 44384552848, ADR 0066).
+    - name: Set up the nightly's parallel front end
+      if: startsWith(inputs.toolchain, 'nightly-')
+      shell: bash
+      run: |
+        set -euo pipefail
+        cores="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo "${NUMBER_OF_PROCESSORS:-2}")"
+        config="${CARGO_HOME:-$HOME/.cargo}/config.toml"
+        mkdir -p "$(dirname "${config}")"
+        printf '[target.%s]\nrustflags = ["-Zthreads=%s"]\n' "'cfg(all())'" "${cores}" >> "${config}"
+        echo "front-end threads ${cores}"; cat "${config}"
     # `.cargo/config.toml` links macOS builds with /opt/homebrew/bin/ld64.lld.
     # The pinned toolchain ships the same linker as `rust-lld`, which takes the
     # Mach-O flavour from the name it is called by, so a link to it stands in

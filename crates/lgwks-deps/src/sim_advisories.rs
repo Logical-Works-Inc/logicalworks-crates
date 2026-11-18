@@ -673,7 +673,7 @@ fn sim_advisories_fuzzy_match_sweep() -> Outcome {
                 crate::lock::parse(&lock_content).map_err(|err_val| format!("{err_val}"))?;
 
             // Evaluate lock against advisories
-            let report = evaluate_lock(&lock_packages, &advisories, digest_one.clone())
+            let report = evaluate_lock(&lock_packages, &advisories, digest_one)
                 .map_err(|err_val| format!("{err_val}"))?;
 
             // Verify loaded count and audited packages count

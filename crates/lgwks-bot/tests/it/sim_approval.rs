@@ -349,7 +349,7 @@ fn replay_seed(sim: &mut sim::Sim) -> Result<(), ApprovalSimError> {
             ApprovalDecision::deny("sim", digest)
         };
         host.decide(&id, decision)?;
-        let resumed = lgwks_bot::script::block_on(host.resume(run, &shipping, payload.clone()));
+        let resumed = lgwks_bot::script::block_on(host.resume(run, &shipping, payload));
         sim.record(&format!(
             "{tenant}:{}:{}",
             sim.seed,

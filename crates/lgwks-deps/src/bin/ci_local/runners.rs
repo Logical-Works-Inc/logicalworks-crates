@@ -14,6 +14,12 @@ use super::lanes::{RUN_BOUND, flag};
 use super::toml_subset::{list, read_tables, text};
 use super::{Context, GateError, Verdict, read};
 
+/// The seeded sim of the docs.rs plans, mounted here so it runs in this
+/// module's own path.
+#[cfg(test)]
+#[path = "sim_runners.rs"]
+mod sim_runners;
+
 /// A command line from string slices.
 fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|part| (*part).to_owned()).collect()
@@ -34,63 +40,70 @@ fn launch<'run>(
     }
 }
 
-/// Every `[package.metadata.docs.rs]` names a feature set that builds, on the
-/// nightly toolchain docs.rs uses. A runner's first nightly run compiles the
-/// whole dependency graph once (the step is cancelled at the job cap when the
-/// host is loaded); its target directory keeps the result, so later runs only
-/// document the workspace crates (70 s on a warm runner, run 39225993584).
-pub(super) fn docsrs_metadata(context: &Context<'_>) -> Result<Verdict, GateError> {
-    let mut commands: Vec<(String, Vec<String>)> = Vec::new();
-    for directory in crate_directories(context.root) {
-        let manifest = directory.join("Cargo.toml");
-        if !manifest.is_file() {
-            continue;
-        }
-        let tables = read_tables(&read(&manifest)?);
-        let Some(docs) = tables
-            .iter()
-            .find(|table| table.path == "package.metadata.docs.rs")
-        else {
-            continue;
-        };
-        let Some(name) = tables
-            .iter()
-            .find(|table| table.path == "package")
-            .and_then(|table| text(table, "name"))
-        else {
-            continue;
-        };
-        // docs.rs builds on nightly with the `--cfg docsrs` this lane sets, and the
-        // crate roots turn on `doc_cfg` under that cfg, which stable refuses.
-        let mut command = argv(&[
-            "cargo",
-            "+nightly",
-            "doc",
-            "--no-deps",
-            "--locked",
-            "-p",
-            name,
-        ]);
-        if flag(docs, "all-features") == Some(true) {
-            command.push("--all-features".to_owned());
-            commands.push((format!("{name}: all-features"), command));
-            continue;
-        }
-        let features = match list(docs, "features") {
-            Some(found) => found.join(","),
-            None => String::new(),
-        };
-        let label = if features.is_empty() {
-            "(defaults only)".to_owned()
-        } else {
-            features.clone()
-        };
-        if !features.is_empty() {
-            command.push("--features".to_owned());
-            command.push(features);
-        }
-        commands.push((format!("{name}: {label}"), command));
+/// The `cargo doc` a manifest's `[package.metadata.docs.rs]` asks for, with its
+/// label; `None` when the manifest declares no docs.rs table or no name.
+///
+/// docs.rs builds on nightly with the `--cfg docsrs` the lane sets, and the
+/// crate roots turn on `doc_cfg` under that cfg, which stable refuses. The plan
+/// names no toolchain: `rust-toolchain.toml` pins the dated nightly, and a
+/// `+nightly` here outranked it and asked for an undated nightly a hosted
+/// runner never installs (ADR 0066).
+fn doc_plan(manifest: &str) -> Option<(String, Vec<String>)> {
+    let tables = read_tables(manifest);
+    let docs = tables
+        .iter()
+        .find(|table| table.path == "package.metadata.docs.rs")?;
+    let name = tables
+        .iter()
+        .find(|table| table.path == "package")
+        .and_then(|table| text(table, "name"))?;
+    let mut command = argv(&["cargo", "doc", "--no-deps", "--locked", "-p", name]);
+    if flag(docs, "all-features") == Some(true) {
+        command.push("--all-features".to_owned());
+        return Some((format!("{name}: all-features"), command));
     }
+    let features = match list(docs, "features") {
+        Some(found) => found.join(","),
+        None => String::new(),
+    };
+    let label = if features.is_empty() {
+        "(defaults only)".to_owned()
+    } else {
+        features.clone()
+    };
+    if !features.is_empty() {
+        command.push("--features".to_owned());
+        command.push(features);
+    }
+    Some((format!("{name}: {label}"), command))
+}
+
+/// The docs.rs plan of every crate under `root` that declares one.
+///
+/// # Errors
+///
+/// [`GateError`] when a crate's manifest cannot be read.
+fn doc_plans(root: &Path) -> Result<Vec<(String, Vec<String>)>, GateError> {
+    let mut plans = Vec::new();
+    for directory in crate_directories(root) {
+        let manifest = directory.join("Cargo.toml");
+        if manifest.is_file()
+            && let Some(plan) = doc_plan(&read(&manifest)?)
+        {
+            plans.push(plan);
+        }
+    }
+    Ok(plans)
+}
+
+/// Every `[package.metadata.docs.rs]` names a feature set that builds, on the
+/// workspace's pinned nightly, the toolchain family docs.rs uses. A runner's
+/// first nightly run compiles the whole dependency graph once (the step is
+/// cancelled at the job cap when the host is loaded); its target directory
+/// keeps the result, so later runs only document the workspace crates (70 s on
+/// a warm runner, run 39225993584).
+pub(super) fn docsrs_metadata(context: &Context<'_>) -> Result<Verdict, GateError> {
+    let commands = doc_plans(context.root)?;
     if commands.is_empty() {
         return Ok(pass("no crate declares [package.metadata.docs.rs]"));
     }

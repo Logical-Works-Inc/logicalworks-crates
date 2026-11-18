@@ -79,6 +79,8 @@ mod sim_advisories_cli;
 mod sim_agent_start_page;
 /// The runtime census held to its own totals and to the source tree.
 mod sim_census_runtime;
+/// `check`'s report layer held fail-closed in both output modes.
+mod sim_check_report;
 #[cfg(unix)]
 mod sim_churn_slot;
 mod sim_dependency_policy;

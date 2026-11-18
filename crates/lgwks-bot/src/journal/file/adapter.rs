@@ -157,32 +157,43 @@ impl EffectJournal for FileJournal {
         /// [`JournalError::ReceiptUnavailable`] when `required` exceeds this
         /// journal's promise; [`JournalError::ReceiptMismatch`] when the position
         /// does not name this outcome as committed.
-        self, key, evidence, position, required, {
-        if !self.durability().meets(required) {
-            let refusal = Err(JournalError::ReceiptUnavailable { required });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "confirm_outcome: returning an error to the caller");
-            return refusal;
-        }
-        let settled = self
-            .committed
-            .iter()
-            .find(|entry| entry.position() == position)
-            .map(JournalEntry::event)
-            .copied();
-        match settled {
-            Some(EffectEvent::OutcomeObserved {
-                key: observed_key,
-                evidence: observed_evidence,
-            }) if observed_key == key && observed_evidence == evidence => {
-                Ok(DurableAck::new(position, self.durability()))
+        self,
+        key,
+        evidence,
+        position,
+        required,
+        {
+            if !self.durability().meets(required) {
+                let refusal = Err(JournalError::ReceiptUnavailable { required });
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "confirm_outcome: returning an error to the caller");
+                return refusal;
             }
-            _ => Err(JournalError::ReceiptMismatch {
-                expected: position,
-                actual: self.tail(),
-            }),
+            let settled = self
+                .committed
+                .iter()
+                .find(|entry| entry.position() == position)
+                .map(JournalEntry::event)
+                .copied();
+            match settled {
+                Some(EffectEvent::OutcomeObserved {
+                    key: observed_key,
+                    evidence: observed_evidence,
+                }) if observed_key == key && observed_evidence == evidence => {
+                    Ok(DurableAck::new(position, self.durability()))
+                }
+                _ => Err(JournalError::ReceiptMismatch {
+                    expected: position,
+                    actual: self.tail(),
+                }),
+            }
         }
-    });
+    );
 }
+
+/// The seeded receipt sim, mounted here so it runs in this module's own path.
+#[cfg(test)]
+#[path = "sim_adapter.rs"]
+mod sim_adapter;
 
 /// Cursor reset for the replay, spelled on the type so the call reads as
 /// intent rather than as a magic constant.

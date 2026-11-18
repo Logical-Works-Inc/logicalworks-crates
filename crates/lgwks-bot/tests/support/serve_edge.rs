@@ -498,31 +498,23 @@ impl Drop for ChildGuard {
 }
 
 /// Where the built command lives for the process test.
+///
+/// Nextest sets `NEXTEST_BIN_EXE_estate` at run time, remapped when an archive
+/// moves the build; cargo bakes `CARGO_BIN_EXE_estate` in at compile time. The
+/// nightly's build-dir layout puts test binaries apart from the bins, so no
+/// path beside the test binary is guessed (ADR 0066).
 pub fn estate_bin() -> Result<PathBuf, String> {
-    let test_bin = std::env::current_exe()
-        .map_err(|error| format!("the test binary path is refused: {error}"))?;
-    let mut dir = test_bin
-        .parent()
-        .ok_or_else(|| {
-            lgwks_std::trace::debug!("serve-test: the test binary has no directory");
-            String::from("the test binary has no directory")
-        })?
-        .to_path_buf();
-    if dir.file_name().is_some_and(|name| name == "deps") {
-        dir = dir
-            .parent()
-            .ok_or_else(|| {
-                lgwks_std::trace::debug!("serve-test: the target directory has no parent");
-                String::from("the target directory has no parent")
-            })?
-            .to_path_buf();
+    if let Some(path) = std::env::var_os("NEXTEST_BIN_EXE_estate") {
+        return Ok(PathBuf::from(path));
     }
-    let name = if cfg!(windows) {
-        "estate.exe"
-    } else {
-        "estate"
-    };
-    Ok(dir.join(name))
+    option_env!("CARGO_BIN_EXE_estate")
+        .map(PathBuf::from)
+        .ok_or_else(|| {
+            lgwks_std::trace::debug!("serve-test: no binary path names the estate command");
+            String::from(
+                "neither NEXTEST_BIN_EXE_estate nor CARGO_BIN_EXE_estate names the estate command",
+            )
+        })
 }
 
 /// A loopback port nothing holds yet.

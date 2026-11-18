@@ -256,3 +256,18 @@ opt-level = 1
 # bot-rest shard at opt-level 0, which put run 43237164800 at 330 s (ADR 0033).
 [profile.ci-bot.package.blake3]
 opt-level = 3
+
+# The same for the workspace slices (ADR 0066), each crate a test spends its
+# time in: tree-sitter's C runtime, which `cc` compiles at this opt-level, held
+# `hostile::every_adversarial_shape_answers_typed` at 91.7 s against 24.0 s at
+# opt-level 1, and ed25519's field and hash arithmetic held
+# `sim_adversary_sign_a_boundary_cannot_be_slid` at 42.8 s against 9.3 s (runs
+# 44411709686 and 44406065531).
+[profile.ci-bot.package.tree-sitter]
+opt-level = 3
+
+[profile.ci-bot.package.curve25519-dalek]
+opt-level = 3
+
+[profile.ci-bot.package.sha2]
+opt-level = 3

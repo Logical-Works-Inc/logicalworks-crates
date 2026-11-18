@@ -178,7 +178,7 @@ row = "Crash before intent ack, after ack before dispatch, after dispatch before
 state = "present"
 gap = "The Windows job runs only the row-named `_tNN` tests (its 5-minute bound), so this receipt covers 4 of the 10 tests `t-rows.toml` names for the row; the others are receipted on Linux."
 tests = [
-  "it::durable_crash_observation::a_kill_after_the_intent_ack_and_before_the_dispatch_recovers_as_prepared_t14",
+  "it::durable_crash_observation::boundary::a_kill_after_the_intent_ack_and_before_the_dispatch_recovers_as_prepared_t14",
   "it::t_rows_default::request::a_recorded_answer_replays_without_a_new_request_t15",
   "it::t_rows_default::request::a_compatible_resume_replays_while_a_revised_definition_is_a_typed_drift_t15",
   "it::sim_t_rows_default::resumes_replay_or_refuse_drift_for_every_seed_t15",

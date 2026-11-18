@@ -215,6 +215,23 @@ fn platform_problems(ci: &str, full: &str, darwin: &str) -> Vec<String> {
     problems
 }
 
+/// The first containered Linux job with a matrix: the suite rows, found by
+/// their shape and not by their image pin, so a toolchain bump never breaks
+/// the probe (ADR 0066).
+#[cfg(test)]
+fn suite_rows(ci: &str) -> Option<&str> {
+    const HEAD: &str = "    runs-on: ubuntu-24.04-arm\n    container:\n";
+    const STRATEGY: &str = "\n    strategy:";
+    ci.match_indices(HEAD).find_map(|found| {
+        let rest = ci.get(found.0..)?;
+        let end = rest.find(STRATEGY)?.checked_add(STRATEGY.len())?;
+        let rows = rest.get(..end)?;
+        rows.lines()
+            .all(|line| line.starts_with("    "))
+            .then_some(rows)
+    })
+}
+
 /// The committed workflow and maps keep the suites on Linux, the counter
 /// counts each runner form, and each way back onto macOS is named.
 #[test]
@@ -234,7 +251,7 @@ fn the_platform_rows_run_only_the_platform_gates() -> TestResult {
     );
     assert_ne!(listed, ci, "the AppCUI os list must exist");
     assert_eq!(macos_jobs(&listed), 12, "a list item on macos-15 is a job");
-    let suite_rows = "    runs-on: ubuntu-24.04-arm\n    container:\n      image: \"rust:1.99.1-trixie\"\n      options: \"--init --tmpfs /tmp:rw,exec,nosuid,size=6g\"\n    timeout-minutes: 5\n    strategy:";
+    let suite_rows = suite_rows(&ci).ok_or("the Linux suite rows must exist")?;
     let on_macos = ci.replacen(
         suite_rows,
         &suite_rows.replacen("ubuntu-24.04-arm", "macos-15", 1),

@@ -299,7 +299,7 @@ fn run_seed(seed: u64) -> TestResult<String> {
             let queue = model.queues.entry(hid).or_default();
             match set.hosts[hid].queue.try_push(item.clone()) {
                 Ok(()) => {
-                    queue.push_back(item.clone());
+                    queue.push_back(item);
                     observe(&mut hasher, "push", &format!("host-{hid}/ok"));
                 }
                 Err(refused) => {

@@ -260,7 +260,7 @@ fn whenever_tenants_never_share_a_key(band: Band) -> TestResult {
             let feed = feed_of(&batches);
             let scope = tenant_scope(tenant, CancellationToken::new())?;
             drive(refuse(&scope, &feed))?;
-            runs.push(locked(&feed.handled, "the event log was poisoned")?.clone());
+            runs.push(locked(&feed.handled, "the event log was poisoned")?);
         }
         let (Some(ours), Some(theirs)) = (runs.first(), runs.get(1)) else {
             return unexpected(String::from("a tenant's run left no log"));

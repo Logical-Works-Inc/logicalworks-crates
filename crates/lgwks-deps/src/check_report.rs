@@ -351,16 +351,12 @@ pub(crate) fn report_check(
 ) -> io::Result<ExitCode> {
     if json_output {
         print_check_json(outcome, None, out)?;
-        // A gate that could not reach a verdict is a refusal, and exits 2.
-        // This arm is first because the code below would otherwise *pass*: with
-        // no register, `enforce` defaults to true and `refusals` is empty, so
-        // `refusals.is_empty()` is satisfied and the gate would
+        // A gate that could not reach a verdict is a refusal, and exits 2: its
+        // `Err` arm below is never admitted. Read as "no refusals" it would
         // report success for a tree it never read. That is the one failure this
         // crate's fail-closed rule exists to prevent, and it was reachable only
         // through `--json`.
-        if outcome.audit.is_err() {
-            return Ok(ExitCode::from(2));
-        }
+        //
         // The verdict is the refusal count alone. `enforce = false` is no
         // longer consulted: an adoption-mode register on a violating tree is
         // itself refused by `audit_direct`, so it arrives here with a non-empty
@@ -368,7 +364,10 @@ pub(crate) fn report_check(
         // property `--json` must never lose.
         let admitted = match outcome.audit {
             Ok(verdict) => verdict.refusals().is_empty(),
-            Err(_) => false,
+            Err(message) => {
+                lgwks_std::trace::debug!(error = ?message, "report: --json reached no verdict");
+                false
+            }
         };
         return Ok(if admitted {
             ExitCode::SUCCESS
@@ -393,8 +392,8 @@ pub(crate) fn report_check(
         return refuse(message, err);
     };
     if verdict.refusals().is_empty() {
-        report_ok(named, verdict.register().entry_count(), out)?;
-        finish_verdict(outcome, out, ExitCode::SUCCESS)
+        let code = report_ok(named, verdict.register().entry_count(), out)?;
+        finish_verdict(outcome, out, code)
     } else {
         let code = report_refusals(named, verdict.register(), verdict.refusals(), err)?;
         finish_verdict(outcome, err, code)
@@ -431,7 +430,14 @@ pub(crate) fn print_check_json(
 ) -> io::Result<()> {
     use lgwks_std::json::{Map, Value};
 
-    let verdict = outcome.audit.ok();
+    // An unreached verdict is rendered, not dropped: `error` below carries it.
+    let verdict = match outcome.audit {
+        Ok(found) => Some(found),
+        Err(message) => {
+            lgwks_std::trace::debug!(error = ?message, "report: rendering an unreached verdict");
+            None
+        }
+    };
     let register = verdict.map(Verdict::register);
     let refusals: &[Refusal] = match verdict {
         Some(found) => found.refusals(),

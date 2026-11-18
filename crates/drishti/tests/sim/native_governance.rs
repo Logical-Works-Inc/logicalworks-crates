@@ -122,7 +122,7 @@ fn sim_governance_matches_the_model_over_random_operations() -> Result<(), Strin
                 if taken {
                     duplicates = duplicates.saturating_add(1);
                     ensure(
-                        outcome == Err(GovernanceError::Duplicate(signal.clone())),
+                        outcome == Err(GovernanceError::Duplicate(signal)),
                         &format!("seed {seed} step {step}: a repeat gave {outcome:?}"),
                     )?;
                 } else {
@@ -255,7 +255,7 @@ fn sim_governance_signal_ids_are_scoped_to_the_tenant() -> Result<(), String> {
             &format!("seed {seed}: a second tenant's id was refused or leaked as a duplicate"),
         )?;
         ensure(
-            store.append(&victim) == Err(GovernanceError::Duplicate(signal.clone())),
+            store.append(&victim) == Err(GovernanceError::Duplicate(signal)),
             "a repeat inside one tenant is still a duplicate",
         )?;
     }
