@@ -19,7 +19,7 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 ## Decision
 
 1. **The gate's steps run here.** `logical_ci.yml` carries logical_ci's gate.yml at
-   `d0daddd2` on its linux-arm64 asset, pinned to the signed logical_ci v0.4.3 release, and
+   `d0daddd2` on its macos-arm64 asset, pinned to the signed logical_ci v0.4.3 release, and
    installs cargo-nextest 0.9.149 unless the runner holds it (first `75a0a1f5` and v0.2.0, then
    `05cc9689` and v0.3.0, then v0.4.1 and v0.4.2). It keeps that file's release key pin,
    its verifier sha256 pin and its order: refuse an unpinned gate, download, check the verifier,
@@ -42,10 +42,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 
 - The inline copy drifts when logical_ci re-pins. The header names the commit it copies, and a
   re-pin changes `LCI_RELEASE` and both pins here in one commit.
-- The job runs on `ubuntu-24.04-arm`: v0.4.3 ships a linux-arm64 pair. Linux lanes run
-  uncontained until logical_ci#85, which leaves A08 UNMEASURED, and the policy gates A02 alone.
-  On `macos-latest` the slot count set the verdict: 5 slots held A02 in 121 s (run
-  43970726001), 3 slots ran it 397 s and killed the loom build (run 44143365086).
+- The job runs on `macos-latest`: v0.4.3 ships a linux-arm64 pair, but Linux refuses `ci` until
+  logical_ci#85 gives lanes containment. A move to `ubuntu-24.04-arm` sealed UNMEASURED before
+  any lane ran (run 44148839889); `the_logical_ci_gate_runs_where_the_engine_contains_lanes` refuses it.
 - v0.3.0's loom run built every member in release, though lgwks_std alone models loom. A02
   sealed UNMEASURED when its lane ended at 397.9 s (run 43244596498). v0.4.1 builds only the
   modelling packages, and on this tree its property-and-loom gate holds in 82.42 s, 2.46 GB peak.
