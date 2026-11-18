@@ -8,6 +8,8 @@
 //! so two correct providers give the same hash for the same seed.
 //!
 //! [`KeyProvider`]: crate::sealed::keys::KeyProvider
+//! [`check`]: crate::sealed::conformance::check
+//! [`Conformance::trace_hash`]: crate::sealed::conformance::Conformance::trace_hash
 
 use std::sync::Arc;
 
@@ -64,6 +66,23 @@ pub enum Violation {
     NoteRefused,
     /// A live key did not open after the restart.
     RestartLostKey,
+}
+
+impl core::fmt::Display for Violation {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(match *self {
+            Self::OpenRefused => "the provider could not be opened",
+            Self::ProvisionRefused => "provision refused a fresh key",
+            Self::DuplicateIdentity => "two provisions returned one identity",
+            Self::WrongTenant => "an identity came back for another tenant",
+            Self::RoundTripMismatch => "a wrapped key did not open its own seal",
+            Self::ForeignTenantOpens => "another tenant's identity opened a key",
+            Self::DestroyRefused => "destroy refused a key, or a second destroy was not a no-op",
+            Self::DestroyedStillOpens => "a destroyed key still opened",
+            Self::NoteRefused => "note_wrapped refused a key this provider wrapped",
+            Self::RestartLostKey => "a live key did not open after a restart",
+        })
+    }
 }
 
 /// What [`check`] found for one seed.
@@ -333,7 +352,7 @@ pub fn try_unwrap(provider: &dyn KeyProvider, id: &KeyId, wrapped: &[u8]) -> Res
 ///
 /// # Errors
 ///
-/// [`KeyError::Transient`] when `count` is past [`MINT_IDS_MAX`], and
+/// [`KeyError::Transient`] when `count` is past 4,096, and
 /// whatever the provider's `provision` reports.
 ///
 /// ```no_run

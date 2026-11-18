@@ -56,7 +56,7 @@
 //! [`journal`]: crate::sealed::journal
 //! [`sweep`]: crate::sealed::sweep
 //! [`KeyError`]: crate::sealed::keys::KeyError
-//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision
+//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision_with
 //! [`SweepTarget`]: crate::sealed::sweep::SweepTarget
 //! [`Clock`]: crate::clock::Clock
 

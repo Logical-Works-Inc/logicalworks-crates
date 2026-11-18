@@ -204,6 +204,43 @@ fn sim_conformance_a_refused_wrap_is_named_for_every_record() -> TestResult {
     Ok(())
 }
 
+/// Every rule the kit can name reads as its own plain sentence, so a person
+/// reading `store-conformance` or a provider's CI log learns which rule broke
+/// without knowing the enum: no two read alike and none is a Rust name.
+#[test]
+fn sim_conformance_each_violation_reads_as_a_sentence() -> TestResult {
+    let all = [
+        Violation::OpenRefused,
+        Violation::ProvisionRefused,
+        Violation::DuplicateIdentity,
+        Violation::WrongTenant,
+        Violation::RoundTripMismatch,
+        Violation::ForeignTenantOpens,
+        Violation::DestroyRefused,
+        Violation::DestroyedStillOpens,
+        Violation::NoteRefused,
+        Violation::RestartLostKey,
+    ];
+    let mut seen = std::collections::HashSet::new();
+    for violation in &all {
+        let sentence = violation.to_string();
+        assert!(
+            sentence.contains(' ') && !sentence.contains("::"),
+            "{violation:?} reads as a sentence, not a name: {sentence:?}"
+        );
+        assert_ne!(
+            sentence,
+            format!("{violation:?}"),
+            "{violation:?} is not its Debug name"
+        );
+        assert!(
+            seen.insert(sentence),
+            "{violation:?} reads unlike every other rule"
+        );
+    }
+    Ok(())
+}
+
 /// `mint_ids` asks the provider for up to 4,096 keys and refuses past that
 /// before the provider is asked at all. The provider refuses its first call,
 /// so the oracle is its own count of calls, never the kit's answer.

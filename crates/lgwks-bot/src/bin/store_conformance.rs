@@ -151,7 +151,10 @@ fn keys(scratch: &Scratch) -> Result<Vec<(String, Option<String>)>, RunError> {
             Ok(Arc::new(SoftwareProvider::open(&dir)?))
         };
         let found = kit::check(&mut open, seed);
-        let failed = (!found.passed()).then(|| format!("{:?}", found.violations()));
+        let failed = (!found.passed()).then(|| {
+            let named: Vec<String> = found.violations().iter().map(ToString::to_string).collect();
+            named.join("; ")
+        });
         rows.push((format!("kit seed {seed}"), failed));
     }
 
