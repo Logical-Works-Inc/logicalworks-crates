@@ -160,6 +160,29 @@ pub fn assert_refused_for(output: &Output, code: &str, symbol: &str) {
     );
 }
 
+/// The probe was refused by rustc for an unmet bound on `bound`, under
+/// whichever code the toolchain files it: stable says E0277, the nightly
+/// reaches the same bound through a blanket impl and says E0271 (ADR 0066).
+/// `error[E` proves rustc refused it, not cargo.
+///
+/// # Panics
+///
+/// When the probe compiled, or failed without a rustc error naming the bound.
+#[cfg(feature = "script")]
+pub fn assert_bound_refused(output: &Output, bound: &str) {
+    let text = rendered(output);
+    assert!(
+        !output.status.success(),
+        "the probe unexpectedly compiled:\n{text}"
+    );
+    assert!(
+        // The bound with its generics: stable prints `Evaluate<u32>`, the
+        // nightly the full path, `lgwks_bot::verb::Evaluate<u32>`.
+        text.contains("error[E") && text.contains(&format!("{bound}<")),
+        "the probe failed, but not with a rustc error naming the `{bound}` bound:\n{text}"
+    );
+}
+
 /// The probe was refused by the named lint, at error level, and not for some
 /// other reason. A lint error carries no `E` code, so the lint's own name in
 /// the diagnostic is what identifies it.

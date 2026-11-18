@@ -36,6 +36,10 @@ const WHY_SPAWN: &str = "an untracked thread; `lgwks_std::task` and the bot's `J
 const WHY_ENTROPY: &str = "entropy from outside `lgwks_std::random`; INV-RANDOM-1 admits one \
                            CSPRNG backend and `lgwks_std` owns it, see the `random` row of docs/catalog.md";
 
+mod guessed_path;
+
+use guessed_path::{WHY_GUESSED_PATH, guessed_path_offsets};
+
 /// The base64 alphabet, as it would be written out.
 /// Spelled in two pieces so this file does not contain the pattern it looks for.
 const BASE64_ALPHABET: &str = concat!(
@@ -229,6 +233,11 @@ pub(super) fn std_first_hits(text: &str) -> Vec<(usize, &'static str)> {
         entropy_offsets(text)
             .into_iter()
             .map(|offset| (offset, WHY_ENTROPY)),
+    );
+    hits.extend(
+        guessed_path_offsets(text)
+            .into_iter()
+            .map(|offset| (offset, WHY_GUESSED_PATH)),
     );
     hits
 }
@@ -615,6 +624,69 @@ mod tests {
             .into_iter()
             .map(|(_, why)| why)
             .collect()
+    }
+
+    /// ADR 0066: the nightly's build-dir layout moved test binaries away from
+    /// the bins, and a test that walked up from `current_exe` to find `estate`
+    /// lost it. Requirement: a binary path navigated from the running binary,
+    /// chained or through a binding, is a finding; re-running the binary itself
+    /// is not. Each form is split across a `concat!` so this file does not
+    /// contain what the audit looks for.
+    #[test]
+    fn a_binary_path_guessed_from_current_exe_is_a_finding() {
+        let guesses = [
+            concat!(
+                "let p = std::env::current",
+                "_exe()?.with_file_name(\"estate\");"
+            ),
+            concat!(
+                "let d = current",
+                "_exe()\n    .map_err(wrap)?\n    .parent()\n    .map(Path::to_path_buf);"
+            ),
+            concat!(
+                "fn f() {\n    let test_bin = std::env::current",
+                "_exe()?;\n    let dir = test_bin\n        .parent();\n}\n"
+            ),
+            concat!(
+                "let mut p = std::env::current",
+                "_exe()?;\np.pop();\np.push(\"estate\");"
+            ),
+            concat!(
+                "let p = std::env::current",
+                "_exe().map(|exe| exe.with_file_name(\"estate\"));"
+            ),
+        ];
+        for guess in guesses {
+            assert!(
+                reasons_of(guess).iter().any(|why| why.contains("guesses")),
+                "{guess:?} guesses another binary's path"
+            );
+        }
+        let own = [
+            concat!(
+                "let child = Command::new(std::env::current",
+                "_exe()?)\n    .args([name, \"--exact\"])\n    .spawn()?;"
+            ),
+            concat!(
+                "fn g() {\n    let binary = std::env::current",
+                "_exe()?;\n    Command::new(&binary).arg(dir.join(\"x\"));\n}\n"
+            ),
+            concat!(
+                "assert_eq!(c.get_program(), std::env::current",
+                "_exe()?.as_os_str());"
+            ),
+            concat!(
+                "Command::new(std::env::current",
+                "_exe()?).arg(dir.join(\"x\")).spawn()?;"
+            ),
+            "let not_it = my_current_exe_like();",
+        ];
+        for form in own {
+            assert!(
+                !reasons_of(form).iter().any(|why| why.contains("guesses")),
+                "{form:?} re-runs its own binary"
+            );
+        }
     }
 
     /// #911 item 9c: the pattern wanted a word character straight after the ABI

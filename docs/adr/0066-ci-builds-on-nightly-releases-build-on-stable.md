@@ -30,6 +30,12 @@ consumer installs is still built by their stable compiler, so a release must pro
    `rust-toolchain.toml`; the runner holds only the pin, so rustup fetched an undated nightly with no backend.
 5. Rule 4 of `check-gate-parity` accepts a pin of `rust` or of `release`, and names any third version.
 6. The Linux container images move to `rust:1.100.0-trixie`. They carry rustup, and `hosted-rust` installs the pin.
+7. No test depends on what a toolchain bump moves. The nightly broke three that did. A test found `estate` by
+   walking up from its own binary, and the build-dir layout moved it. A test held a `rust:1.99.1-trixie`
+   literal. t02 picked the expected error code from the output it checked. Now the `std-first` lane refuses a
+   path from `std::env::current_exe` navigated with `parent`, `with_file_name`, `pop` or `join`: read
+   `NEXTEST_BIN_EXE_<name>` or `CARGO_BIN_EXE_<name>`. The platform test finds the suite rows by shape. t02 holds
+   the `Evaluate` bound under any rustc code.
 
 ## Alternatives rejected
 
@@ -41,6 +47,9 @@ consumer installs is still built by their stable compiler, so a release must pro
   every job. The test profile inherits `[profile.dev]`, so caught panics aborted (SIGABRT) in `sim_app_edge` and
   `sim_command_faults`. Reverse when a cranelift build on aarch64 prints no ABI-mismatch warning and the
   caught-panic sims pass.
+- **A clippy ban on `std::env::current_exe`.** Nine tests re-run their own binary, the one path it names
+  exactly, and the guard refuses an inline `expect`. A ban would push them to `argv[0]`, which is weaker.
+  Reverse if clippy gains a lint for a navigated `current_exe` path.
 - **Cranelift for dependencies.** They come from rust-cache and sccache, so it saves nothing, and some use
   intrinsics cranelift does not lower.
 
@@ -66,5 +75,7 @@ Refines ADR 0028, the budget the toolchain serves, and ADR 0029, whose job now p
   `a_release_pin_is_accepted_and_a_third_pin_is_refused`; a drifted nightly pin is named by
   `one_drifted_job_pin_fails` and `a_toolchain_mismatch_fails`.
 - `hosted-rust` fails a job whose pin is neither `rust-toolchain.toml`'s channel nor `[toolchain] release`.
+- The `std-first` lane refuses a guessed binary path and passes a binary that re-runs itself:
+  `a_binary_path_guessed_from_current_exe_is_a_finding`.
 - The docs.rs lane plans no `+toolchain`: `sim_docsrs_plans_name_no_toolchain_and_follow_the_manifest` and
   `sim_docsrs_plans_of_this_repository_name_no_toolchain`.

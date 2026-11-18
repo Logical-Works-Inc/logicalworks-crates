@@ -5,8 +5,7 @@
 //! | Test | What it pins |
 //! |---|---|
 //! | `a_correct_local_borrowed_non_send_consumer_compiles` | the probe harness can compile a valid consumer, so a negative probe cannot be a missing-dependency failure in disguise |
-//! | `a_source_condition_action_mismatch_is_refused_t02` | the typed chain builder refuses a condition/action that do not read the source's output |
-//! | `an_action_that_takes_another_type_is_refused_with_e0271` | an action whose `Input` is not the source's output is refused with `E0271` |
+//! | `a_source_condition_action_mismatch_is_refused_t02` | the typed chain builder refuses a condition/action that do not read the source's output |//! | `an_action_that_takes_another_type_is_refused_with_e0271` | an action whose `Input` is not the source's output is refused with `E0271` |
 //! | `a_cross_schema_result_binding_is_refused` | binding a `Report<T>` from one schema into a `Report<U>` is a type error |
 //! | `a_local_borrowed_non_send_body_runs_on_the_host` | an `Rc<RefCell<_>>`-holding body over a borrowed `&[u8]`, with an await in the middle, compiles and runs |
 //!
@@ -29,7 +28,7 @@ use lgwks_bot::task::{Disposition, Host, Report, task};
 // The compile-probe harness, shared with `t22_process_surface`.
 use crate::compile;
 
-use compile::{assert_compiles, assert_refused_for, compile_probe};
+use compile::{assert_bound_refused, assert_compiles, assert_refused_for, compile_probe};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -179,11 +178,10 @@ fn a_correct_local_borrowed_non_send_consumer_compiles() -> TestResult {
 fn a_source_condition_action_mismatch_is_refused_t02() -> TestResult {
     let output = compile_probe("t02-chain-mismatch", "", MISMATCHED_CHAIN)?;
     // The condition reads `String` while the source yields `u32`, so the
-    // `Evaluate<S::Output>` bound is unsatisfied. Stable names it E0277; the
-    // nightly reaches it through the closure blanket impl and names it E0271,
-    // "required for `ReadsText` to implement `Evaluate<u32>`" (ADR 0066).
-    let nightly = String::from_utf8_lossy(&output.stderr).contains("error[E0271]");
-    assert_refused_for(&output, if nightly { "E0271" } else { "E0277" }, "Evaluate");
+    // `Evaluate<S::Output>` bound is unsatisfied. Which code rustc files it
+    // under is the toolchain's choice (E0277 on stable, E0271 on the nightly),
+    // so the test holds the bound, not the code (ADR 0066).
+    assert_bound_refused(&output, "Evaluate");
     Ok(())
 }
 

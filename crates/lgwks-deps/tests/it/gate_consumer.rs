@@ -234,6 +234,12 @@ fn assert_leg(document: &str, name: &str, verdict: &str, case: &str) -> TestResu
 /// An unregistered edge fails the admission leg, and the gate with it.
 fn sim_an_unregistered_edge_fails_the_gate() -> TestResult {
     let scratch = Scratch::make("itoa = \"1\"\n")?;
+    // The crate names the edge, so the nightly's unused_dependencies lint stays
+    // quiet and the clippy leg judges code, not the manifest (ADR 0066).
+    scratch.plant(
+        "src/lib.rs",
+        "use itoa as _;\n\npub fn f() -> u32 {\n    1\n}\n",
+    )?;
     let (code, document) = scratch.gate("", &[])?;
     assert_eq!(
         code, 1,
