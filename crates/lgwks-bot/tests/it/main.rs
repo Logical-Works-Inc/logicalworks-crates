@@ -197,6 +197,9 @@ mod cell_edge;
 mod ceremony_reference;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod clock_restart;
+// The layer scan reads `src/` through lgwks_ast's Rust grammar, which
+// `inspect` builds; its verdict reads source text, so one feature set holds it.
+#[cfg(feature = "inspect")]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g7"))]
 mod core_boundary;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g5"))]

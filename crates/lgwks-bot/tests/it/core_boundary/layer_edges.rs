@@ -10,9 +10,10 @@
 use std::error::Error;
 use std::path::Path;
 
+use super::test_cfg::read;
 use super::{
-    KERNEL, KERNEL_DRIVERS, KERNEL_SUPER, LAYERS, Rng, code_of, is_test_file, layer_index,
-    layer_of, names, opens_test_module, read_tree,
+    KERNEL, KERNEL_DRIVERS, KERNEL_SUPER, LAYERS, Rng, is_test_file, layer_index, layer_of, names,
+    read_tree,
 };
 
 /// Every upward import in the production code of one source file, as the line,
@@ -40,12 +41,8 @@ pub(super) fn upward_imports(relative: &str, text: &str) -> Vec<(usize, &'static
         refused.extend(KERNEL_DRIVERS.iter().map(|path| (*path).to_owned()));
         refused.extend(KERNEL_SUPER.iter().map(|path| (*path).to_owned()));
     }
-    let lines: Vec<&str> = text.lines().collect();
-    for (index, line) in lines.iter().enumerate() {
-        if opens_test_module(&lines, index) {
-            break;
-        }
-        let code = code_of(line);
+    let shipped = read(text).shipped;
+    for (index, code) in shipped.lines().enumerate() {
         for path in refused.iter().filter(|path| names(code, path)) {
             found.push((index.saturating_add(1), layer.name, path.clone()));
         }
@@ -113,7 +110,7 @@ pub(super) const LAYER_EXCEPTIONS: &[(&str, &str)] = &[
     // world: 2
     ("ecs.rs", "cell"),
     ("registry/condition.rs", "domain"),
-    // rt: 25
+    // rt: 22
     ("rt/apps/routes.rs", "script"),
     ("rt/apps/run.rs", "script"),
     ("rt/apps/store.rs", "proposal"),
@@ -123,9 +120,6 @@ pub(super) const LAYER_EXCEPTIONS: &[(&str, &str)] = &[
     ("rt/estate.rs", "script"),
     ("rt/estate.rs", "task"),
     ("rt/runtime.rs", "ecs"),
-    ("rt/runtime.rs", "spec"),
-    ("rt/runtime.rs", "task"),
-    ("rt/runtime.rs", "verb"),
     ("rt/serve.rs", "task"),
     ("rt/serve/hosts.rs", "task"),
     ("rt/serve/ingress.rs", "ecs"),
