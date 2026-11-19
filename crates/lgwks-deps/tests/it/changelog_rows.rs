@@ -120,6 +120,44 @@ fn the_newest_changelog_row_is_the_manifests() -> TestResult {
     Ok(())
 }
 
+/// Every `previousVersions` tag of `context7.json`, as written.
+fn context7_tags(json: &str) -> Vec<&str> {
+    json.lines()
+        .filter_map(|line| line.trim().strip_prefix("\"tag\": \""))
+        .filter_map(|rest| rest.strip_suffix('"'))
+        .collect()
+}
+
+/// The newest release row's crates are the tags `context7.json` lists: the
+/// release skill moves them by hand, and no test read them, so a cut that
+/// forgot them left the docs index on the previous release.
+#[test]
+fn context7_tags_the_newest_release() -> TestResult {
+    let changelog = page("CHANGELOG.md")?;
+    let newest = release_rows(&changelog)
+        .first()
+        .copied()
+        .ok_or("CHANGELOG.md has no release row")?;
+    let row = release_row(newest).ok_or("the newest row is not a release row")?;
+    let context7 = page("context7.json")?;
+    let tags = context7_tags(&context7);
+    for release in &row.released {
+        let tag = format!("{}-v{}", release.0, release.1);
+        assert!(
+            tags.contains(&tag.as_str()),
+            "context7.json lists no tag {tag}"
+        );
+    }
+    Ok(())
+}
+
+/// The tag reader keeps the `tag` lines and skips every other line.
+#[test]
+fn a_context7_tag_is_read_and_other_lines_are_not() {
+    let json = "{\n  \"previousVersions\": [\n    {\n      \"tag\": \"lgwks_std-v4.2.1\"\n    }\n  ],\n  \"projectTitle\": \"x\"\n}\n";
+    assert_eq!(context7_tags(json), ["lgwks_std-v4.2.1"]);
+}
+
 /// The row reader takes a row apart as a reader does, and refuses prose.
 #[test]
 fn a_release_row_reads_as_its_pairs_and_its_link() -> TestResult {
