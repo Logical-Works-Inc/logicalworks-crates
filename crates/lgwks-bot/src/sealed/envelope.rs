@@ -23,8 +23,18 @@
 use lgwks_deps::chacha20poly1305::aead::{Aead, KeyInit};
 use lgwks_deps::chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 
+use super::keys::{KeyError, KeyId, KeyProvider};
+
 /// How many bytes a data key holds: ChaCha20-Poly1305 takes a 256-bit key.
-pub(crate) const KEY_BYTES: usize = 32;
+///
+/// Public so a [`KeyProvider`](crate::sealed::keys::KeyProvider) written
+/// outside the crate can size the key it hands to [`KeyMint::key`].
+///
+/// ```
+/// use lgwks_bot::sealed::envelope::KEY_BYTES;
+/// assert_eq!(KEY_BYTES, 32, "a ChaCha20-Poly1305 key is 256 bits");
+/// ```
+pub const KEY_BYTES: usize = 32;
 
 /// How many bytes a seal nonce holds: the 96-bit ChaCha20-Poly1305 nonce.
 pub(crate) const NONCE_BYTES: usize = 12;
@@ -57,6 +67,132 @@ impl DataKey {
     #[must_use]
     pub(crate) fn bytes(&self) -> &[u8; KEY_BYTES] {
         &self.bytes
+    }
+}
+
+/// One store call's permission to build one [`DataKey`].
+///
+/// The store builds a mint and hands it to [`KeyProvider::provision_with`] or
+/// [`KeyProvider::unwrap_with`]; the provider spends it, by value, on exactly
+/// one key through [`KeyMint::key`]. Nothing outside the store can build a
+/// mint, so a data key never appears except as the answer to a call the store
+/// made: a provider cannot keep a key to hand out later, and no caller can
+/// forge one. Zero-sized, neither `Clone` nor `Copy`, and `Debug` prints
+/// `KeyMint`.
+///
+/// A mint cannot be spelled outside the crate:
+///
+/// ```compile_fail,E0451
+/// use lgwks_bot::sealed::envelope::KeyMint;
+/// let _forged = KeyMint { _sealed: () };
+/// ```
+///
+/// Nor can a key be built without one:
+///
+/// ```compile_fail,E0624
+/// use lgwks_bot::sealed::envelope::DataKey;
+/// let _forged = DataKey::from_bytes([0; 32]);
+/// ```
+///
+/// A provider written outside the crate spends the mint it is handed:
+///
+/// ```
+/// use lgwks_bot::sealed::envelope::{DataKey, KEY_BYTES, KeyMint};
+/// use lgwks_bot::sealed::keys::{KeyError, KeyId, KeyProvider};
+///
+/// /// A provider that holds no keys: it refuses to mint and to open.
+/// struct Empty;
+///
+/// /// Spend `mint` on the one key `bytes` names.
+/// fn spend(mint: KeyMint, bytes: [u8; KEY_BYTES]) -> DataKey {
+///     mint.key(bytes)
+/// }
+///
+/// impl KeyProvider for Empty {
+///     fn provision_with(&self, _tenant: &str, _mint: KeyMint) -> Result<(KeyId, DataKey), KeyError> {
+///         Err(KeyError::Transient { reason: "this sketch holds no keys" })
+///     }
+///     fn wrap_key(&self, id: &KeyId) -> Result<Vec<u8>, KeyError> {
+///         Err(KeyError::Missing { tenant: id.tenant().to_owned(), id: id.id() })
+///     }
+///     fn unwrap_with(&self, id: &KeyId, _wrapped: &[u8], _mint: KeyMint) -> Result<DataKey, KeyError> {
+///         Err(KeyError::Missing { tenant: id.tenant().to_owned(), id: id.id() })
+///     }
+///     fn destroy(&self, id: &KeyId) -> Result<(), KeyError> {
+///         Err(KeyError::Missing { tenant: id.tenant().to_owned(), id: id.id() })
+///     }
+///     fn note_wrapped(&self, id: &KeyId, _wrapped: &[u8]) -> Result<(), KeyError> {
+///         Err(KeyError::Missing { tenant: id.tenant().to_owned(), id: id.id() })
+///     }
+/// }
+/// # fn main() {
+/// #     let spender: fn(KeyMint, [u8; KEY_BYTES]) -> DataKey = spend;
+/// #     drop(spender);
+/// # }
+/// ```
+///
+/// [`KeyProvider::provision_with`]: crate::sealed::keys::KeyProvider::provision_with
+/// [`KeyProvider::unwrap_with`]: crate::sealed::keys::KeyProvider::unwrap_with
+pub struct KeyMint {
+    /// Keeps the struct literal private: no field is nameable outside the
+    /// crate, and a zero-sized unit adds no bytes to a call.
+    _sealed: (),
+}
+
+impl KeyMint {
+    /// One permission, for one store call. Crate-internal: only the store, and
+    /// the conformance kit that stands in for it, builds a mint.
+    #[must_use]
+    pub(crate) const fn new() -> Self {
+        Self { _sealed: () }
+    }
+
+    /// Spend this mint on the one key `bytes` hold.
+    ///
+    /// Takes `self` by value, so one mint builds one key: a provider that
+    /// wants a second key waits for the store's next call.
+    ///
+    /// ```
+    /// use lgwks_bot::sealed::envelope::{DataKey, KEY_BYTES, KeyMint};
+    /// fn spend(mint: KeyMint, bytes: [u8; KEY_BYTES]) -> DataKey {
+    ///     mint.key(bytes)
+    /// }
+    /// # let spender: fn(KeyMint, [u8; KEY_BYTES]) -> DataKey = spend;
+    /// # drop(spender);
+    /// ```
+    #[must_use]
+    pub fn key(self, bytes: [u8; KEY_BYTES]) -> DataKey {
+        DataKey::from_bytes(bytes)
+    }
+}
+
+/// The store's side of the mint: every store call reaches its provider through
+/// these two doors, which build one fresh [`KeyMint`] per call, so no store
+/// names the token and no call can spend a mint twice.
+impl dyn KeyProvider + '_ {
+    /// Provision a key for `tenant` with a fresh mint.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the provider's [`KeyProvider::provision_with`] reports.
+    pub(crate) fn provision(&self, tenant: &str) -> Result<(KeyId, DataKey), KeyError> {
+        KeyProvider::provision_with(self, tenant, KeyMint::new())
+    }
+
+    /// Unwrap `wrapped` for `id` with a fresh mint.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the provider's [`KeyProvider::unwrap_with`] reports.
+    pub(crate) fn unwrap_key(&self, id: &KeyId, wrapped: &[u8]) -> Result<DataKey, KeyError> {
+        KeyProvider::unwrap_with(self, id, wrapped, KeyMint::new())
+    }
+}
+
+impl core::fmt::Debug for KeyMint {
+    /// The type and nothing else.
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        formatter.write_str("KeyMint")
     }
 }
 
