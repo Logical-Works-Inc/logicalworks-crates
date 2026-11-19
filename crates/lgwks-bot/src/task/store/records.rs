@@ -47,24 +47,6 @@ fn sealed_erased<T>(run: RunId, key_hex: String) -> Result<T, FlowError> {
     .into())
 }
 
-/// Refuse an unknown sealed step, logging the refusal with it.
-///
-/// One definition because the missing run and the missing step refuse with
-/// the same typed answer, and two spellings would drift.
-#[cfg(feature = "sealed")]
-fn sealed_unknown<T>(run: RunId, key_hex: String) -> Result<T, FlowError> {
-    lgwks_std::trace::debug!(
-        run = run.id().to_hex(),
-        key = key_hex.as_str(),
-        "lookup: no sealed step names this key"
-    );
-    Err(StoreError::SealedUnknown {
-        run: run.id().to_hex(),
-        key: key_hex,
-    }
-    .into())
-}
-
 /// The store as the script module reaches it: a typed lookup and a typed append
 /// over archived bytes, with no `lgwks_bot::task` in its own surface.
 ///
@@ -90,27 +72,17 @@ impl RunRecords for RunStore {
                 return sealed_erased(run, key_hex);
             }
         }
+        // A step never recorded is `Ok(None)` on a sealed store too: the
+        // `RunRecords` contract a host runs a fresh step on. A shredded slot
+        // was refused above, so absence here never hides an erasure.
         let index = self.index();
         let Some(held) = index.runs.get(&run) else {
-            #[cfg(feature = "sealed")]
-            if self.inner.sealed.is_some() {
-                if let Some(erased) = index.erased.get(&(run, key_hex.clone()))
-                    && erased.tenant != tenant
-                {
-                    return foreign_tenant(erased.tenant.clone(), tenant.to_owned());
-                }
-                return sealed_unknown(run, key_hex);
-            }
             return Ok(None);
         };
         if held.tenant != tenant {
             return foreign_tenant(held.tenant.clone(), tenant.to_owned());
         }
         let Some(step) = held.steps.get(&key_hex) else {
-            #[cfg(feature = "sealed")]
-            if self.inner.sealed.is_some() {
-                return sealed_unknown(run, key_hex);
-            }
             return Ok(None);
         };
         #[cfg(feature = "sealed")]
@@ -303,11 +275,16 @@ impl RunStore {
     /// parked approval are cloned, so a store of large step values is not
     /// copied to list a few approvals. Sorted by key, so two hosts list the
     /// same approvals in the same order.
+    ///
+    /// # Errors
+    ///
+    /// The [`StoreError`] a sealed step's open returns: a key refusal fails
+    /// the whole listing, so a fault never hides a parked approval (#1085).
     pub(crate) fn pending_scan(
         &self,
         tenant: &str,
         limit: usize,
-    ) -> Vec<(RunId, String, String, Vec<u8>)> {
+    ) -> Result<Vec<crate::script::approval_records::PendingRow>, StoreError> {
         use crate::script::approval::{RecordClass, classify_record};
         #[cfg(feature = "sealed")]
         let provider = self.inner.sealed.as_ref().map(std::sync::Arc::clone);
@@ -343,7 +320,8 @@ impl RunStore {
                     let Some(provider) = provider.as_ref() else {
                         continue;
                     };
-                    let Some(value) = super::sealed_impl::pending_sealed_value(provider, sealed)
+                    // An erased step is absent; a refusal fails the scan (#1085).
+                    let Some(value) = super::sealed_impl::pending_sealed_value(provider, sealed)?
                     else {
                         continue;
                     };
@@ -361,7 +339,7 @@ impl RunStore {
             }
         }
         out.sort_by(|left, right| left.1.cmp(&right.1).then(left.2.cmp(&right.2)));
-        out
+        Ok(out)
     }
 }
 

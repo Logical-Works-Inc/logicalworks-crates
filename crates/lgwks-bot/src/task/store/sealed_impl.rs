@@ -551,21 +551,23 @@ impl RunStore {
 /// Open a sealed step's envelope to its archived value bytes: the live
 /// answer, or `None` when the provider folds the read to erased.
 ///
-/// `None` covers the destroyed key and every refusal: a torn provider
-/// answer never becomes bytes, and a missing frame never becomes a value.
-/// The caller classifies the bytes; this names only whether they open.
+/// Only a destroyed key is `None`. Every refusal, transient included, is the
+/// typed [`StoreError::SealedKey`] (or `Corrupt` for an envelope a live key
+/// cannot open), so a listing never mistakes "cannot answer now" for "gone"
+/// and drops a parked approval while the key service has a fault (#1085).
+///
+/// # Errors
+///
+/// [`StoreError::SealedKey`] when the provider refuses the unwrap, and
+/// [`StoreError::Corrupt`] when a live key does not open the frame.
 #[cfg(feature = "sealed")]
 pub(super) fn pending_sealed_value(
     provider: &Arc<dyn crate::sealed::keys::KeyProvider>,
     sealed: &SealedStep,
-) -> Option<Vec<u8>> {
-    match open_stored("pending_scan", provider, sealed) {
-        Ok(Opened::Live(stored)) => Some(stored.value),
-        Ok(Opened::Erased) => None,
-        Err(error) => {
-            lgwks_std::trace::debug!(error = ?error, "sealed: a pending step does not open");
-            None
-        }
+) -> Result<Option<Vec<u8>>, StoreError> {
+    match open_stored("pending_scan", provider, sealed)? {
+        Opened::Live(stored) => Ok(Some(stored.value)),
+        Opened::Erased => Ok(None),
     }
 }
 
