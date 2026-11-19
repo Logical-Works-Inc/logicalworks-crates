@@ -107,7 +107,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "7.2.0"
+version = "7.3.0"
 dependencies = [
  "lgwks_std",
  "tokio",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_std"
-version = "4.2.0"
+version = "4.2.1"
 dependencies = [
  "blake3",
  "getrandom",
