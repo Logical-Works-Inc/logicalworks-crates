@@ -27,8 +27,10 @@
 //!
 //! Comments are not code: a line is read up to its first `//`. Tests are not
 //! the core either: a test drives the core from above, the way the driver
-//! does, so a test file (`tests.rs`, a `tests/` directory, `sim_*`) and the
-//! `#[cfg(test)] mod` that closes a file are not read.
+//! does, so a test file (`tests.rs`, a `tests/` directory, `sim_*`) and an item
+//! under `#[test]` or a `cfg` no build without `test` satisfies are not read
+//! (#1096, `test_cfg`, through lgwks_ast's Rust grammar). The code after such an
+//! item is read, and a file the grammar refuses is named and read whole.
 
 use std::error::Error;
 use std::fs;
@@ -47,6 +49,16 @@ mod sim_error_layers;
 /// The upward imports still open outside the kernel, and the checks that keep
 /// that list shrinking.
 mod layer_edges;
+
+/// Which lines of a file are test code: an item under a `cfg` that needs `test`.
+mod test_cfg;
+
+/// Hostile seeded sweeps over that reader, against a reference model.
+mod sim_test_cfg;
+
+/// Hostile seeded sweeps over the shipped view: weird bytes, cut files, and
+/// timed-out parses on every thread.
+mod sim_shipped_view;
 
 /// The modules ADR 0006 names as the core.
 const CORE: [&str; 10] = [
@@ -182,14 +194,6 @@ fn names(code: &str, path: &str) -> bool {
     })
 }
 
-/// The code of one line: everything before its first `//`.
-fn code_of(line: &str) -> &str {
-    match line.split_once("//") {
-        Some((code, _)) => code,
-        None => line,
-    }
-}
-
 /// Whether `relative` is a test file rather than shipped code.
 fn is_test_file(relative: &str) -> bool {
     relative.split('/').any(|part| {
@@ -200,19 +204,6 @@ fn is_test_file(relative: &str) -> bool {
     })
 }
 
-/// Whether line `index` of `lines` opens a `#[cfg(test)]` module.
-fn opens_test_module(lines: &[&str], index: usize) -> bool {
-    let Some(line) = lines.get(index) else {
-        return false;
-    };
-    line.trim() == "#[cfg(test)]"
-        && lines
-            .iter()
-            .skip(index.saturating_add(1))
-            .find(|next| !next.trim().is_empty())
-            .is_some_and(|next| next.trim_start().starts_with("mod "))
-}
-
 /// Every boundary edge in one source file, as `path:line: reason`.
 fn edges(relative: &str, text: &str) -> Vec<String> {
     let core = CORE.iter().any(|name| in_module(relative, name));
@@ -221,13 +212,12 @@ fn edges(relative: &str, text: &str) -> Vec<String> {
     if is_test_file(relative) {
         return found;
     }
-    let lines: Vec<&str> = text.lines().collect();
-    for (index, line) in lines.iter().enumerate() {
-        if opens_test_module(&lines, index) {
-            break;
-        }
+    let reading = test_cfg::read(text);
+    if let Some(ref refusal) = reading.refused {
+        found.push(test_cfg::refusal_edge(relative, refusal));
+    }
+    for (index, code) in reading.shipped.lines().enumerate() {
         let number = index.saturating_add(1);
-        let code = code_of(line);
         if !ecs && code.contains("bevy") {
             found.push(format!("{relative}:{number}: names bevy outside ecs/"));
         }
@@ -249,19 +239,10 @@ fn edges(relative: &str, text: &str) -> Vec<String> {
     found
 }
 
-/// Whether the production part of `text`, above any closing test module,
-/// names `catch_unwind` in code.
+/// Whether the production code of `text`, outside every test module, names
+/// `catch_unwind` in code.
 fn catches_a_panic(text: &str) -> bool {
-    let lines: Vec<&str> = text.lines().collect();
-    for (index, line) in lines.iter().enumerate() {
-        if opens_test_module(&lines, index) {
-            return false;
-        }
-        if code_of(line).contains("catch_unwind") {
-            return true;
-        }
-    }
-    false
+    test_cfg::read(text).shipped.contains("catch_unwind")
 }
 
 /// Every `.rs` file under `dir`, recursively, in a stable order.
