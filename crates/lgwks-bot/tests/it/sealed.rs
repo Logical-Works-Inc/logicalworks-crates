@@ -137,11 +137,8 @@ fn sealed_records_are_unreadable_without_the_provider_and_verify() -> TestResult
     let stranger: Arc<dyn KeyProvider> = Arc::new(SoftwareProvider::open(
         &scratch.path().join("stranger-keys"),
     )?);
-    match open_store(scratch.path(), stranger) {
-        Err(_) => {}
-        Ok(_) => {
-            return Err("a provider that never held the keys must not open the sealed file".into());
-        }
+    if open_store(scratch.path(), stranger).is_ok() {
+        return Err("a provider that never held the keys must not open the sealed file".into());
     }
     Ok(())
 }
@@ -151,7 +148,7 @@ fn sealed_records_are_unreadable_without_the_provider_and_verify() -> TestResult
 /// (NIST SP 800-88 crypto-erase).
 #[test]
 fn shred_is_irreversible_and_idempotent_across_a_restart() -> TestResult {
-    use lgwks_bot::sealed::runstore::ShredOutcome;
+    use lgwks_bot::task::ShredOutcome;
     let scratch = Scratch::new("sealed")?;
     let provider: Arc<dyn KeyProvider> =
         Arc::new(SoftwareProvider::open(&scratch.path().join("keys"))?);
@@ -228,7 +225,7 @@ fn a_torn_shred_leaves_live_or_erased_never_readable_without_a_key() -> TestResu
         ("torn/two", b"a record past the shred".as_slice()),
     )?;
     // The shred lands both halves; the tears below cut the tombstone tail.
-    use lgwks_bot::sealed::runstore::ShredOutcome as Outcome;
+    use lgwks_bot::task::ShredOutcome as Outcome;
     match store.shred_record("acme", run, first)? {
         Outcome::Shredded { .. } => {}
         _ => return Err("a first shred shreds".into()),
@@ -247,7 +244,7 @@ fn a_torn_shred_leaves_live_or_erased_never_readable_without_a_key() -> TestResu
         let reopened = open_store(scratch.path(), Arc::clone(&provider))?;
         // The shredded record reads erased while its frame survives, and as
         // an unknown refusal once the tear took its frame.
-        if let Ok(lgwks_bot::sealed::runstore::SealedStepRead::Live { .. }) =
+        if let Ok(lgwks_bot::task::SealedStepRead::Live { .. }) =
             reopened.read_sealed("acme", run, first)
         {
             return Err(format!("a shredded record never reads as live at cut {cut}").into());

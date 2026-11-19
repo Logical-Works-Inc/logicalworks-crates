@@ -7,8 +7,9 @@
 //! | key wrapping, rotation and destruction | [`keys`] |
 //! | the AEAD envelope over one record | [`envelope`] |
 //! | the journal's sealed reads and shreds | [`journal`] |
-//! | the run store's sealed reads and shreds | [`runstore`] |
-//! | the owned TTL sweep task | [`sweep`] |
+//! | the run store's sealed reads and shreds | `RunStore` in the task layer's run store |
+//! | the TTL sweep port the driver runs | [`sweep`] |
+//! | the key provider's typed refusal | [`KeyError`] |
 //! | how a read folds a provider refusal | `fold` (crate-internal) |
 //! | one record's bytes | `record` (crate-internal) |
 //!
@@ -42,22 +43,20 @@
 //! # Erasure
 //!
 //! Shredding erases one record, tenant erasure shreds every live record of
-//! one tenant (GDPR Art. 17), and [`Sweeper`] shreds what a TTL
-//! passed, driven by the injected [`Clock`]. The
-//! background driver owns its one task in a
-//! [`JoinSet`] listening to one
-//! [`CancellationToken`].
+//! one tenant (GDPR Art. 17), and a TTL sweep shreds what a TTL
+//! passed, driven by the injected [`Clock`]. This module holds only the
+//! [`SweepTarget`] port; the driver that decides when a sweep runs, `Sweeper`,
+//! lives in the runtime layer above and owns its one task and its one
+//! cancellation token there.
 //!
 //! [`keys`]: crate::sealed::keys
 //! [`envelope`]: crate::sealed::envelope
 //! [`journal`]: crate::sealed::journal
-//! [`runstore`]: crate::sealed::runstore
 //! [`sweep`]: crate::sealed::sweep
+//! [`KeyError`]: crate::sealed::keys::KeyError
 //! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision
-//! [`Sweeper`]: crate::sealed::sweep::Sweeper
+//! [`SweepTarget`]: crate::sealed::sweep::SweepTarget
 //! [`Clock`]: crate::clock::Clock
-//! [`JoinSet`]: crate::rt::task::JoinSet
-//! [`CancellationToken`]: crate::rt::sync::CancellationToken
 
 /// The AEAD envelope over one sealed record: the zeroizing key handle and the
 /// seal/open step over ciphertext.
@@ -71,12 +70,8 @@ pub mod keys;
 /// shred did.
 pub mod journal;
 
-/// The run-store half of sealed records: what a sealed step read shows and
-/// what a shred did.
-pub mod runstore;
-
-/// The owned TTL driver: the `Sweeper` that sweeps expired records on the
-/// blocking pool under a cancellation token.
+/// The TTL sweep port: the `SweepTarget` trait a sealed store implements and
+/// the runtime layer's driver runs.
 pub mod sweep;
 
 /// How a sealed read folds a provider refusal: destroyed to a tombstone,

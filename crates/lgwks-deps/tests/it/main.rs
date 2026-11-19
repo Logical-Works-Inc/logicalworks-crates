@@ -59,6 +59,8 @@ mod lgwks_scratch;
 
 mod gate_consumer;
 mod gate_ownership;
+/// The `logical_ci` job's runner, held to where the engine contains lanes.
+mod gate_runner;
 mod identity_binding;
 #[cfg(feature = "lgwks")]
 mod lgwks_e2e;

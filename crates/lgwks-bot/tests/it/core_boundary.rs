@@ -20,6 +20,11 @@
 //! module (the lowest layer) that names the world, the session or the stability
 //! monitor is refused, so an error type cannot drift upward by an import.
 //!
+//! #991 widens it to every layer: a file names no module of a higher layer, and
+//! the kernel names no tokio or axum either. The edges still open outside the
+//! kernel are the named entries of `layer_edges::LAYER_EXCEPTIONS`, a new edge
+//! is refused, a stale entry is refused, and the kernel holds none.
+//!
 //! Comments are not code: a line is read up to its first `//`. Tests are not
 //! the core either: a test drives the core from above, the way the driver
 //! does, so a test file (`tests.rs`, a `tests/` directory, `sim_*`) and the
@@ -38,6 +43,10 @@ mod layer_errors;
 /// Hostile seeded sweeps over the same chain, one fool per family.
 #[cfg(feature = "script")]
 mod sim_error_layers;
+
+/// The upward imports still open outside the kernel, and the checks that keep
+/// that list shrinking.
+mod layer_edges;
 
 /// The modules ADR 0006 names as the core.
 const CORE: [&str; 10] = [
@@ -80,7 +89,6 @@ const LAYERS: [Layer; 7] = [
             "gate",
             "journal",
             "json",
-            "kernel",
             "retry",
             "sealed",
             "skew",
@@ -117,24 +125,21 @@ const LAYERS: [Layer; 7] = [
     },
     Layer {
         name: "app",
-        modules: &["app", "app_error", "cell"],
+        // `kernel` is the supported facade over the kernel modules and the
+        // task front door, so it sits above everything it re-exports (#991).
+        modules: &["app", "app_error", "cell", "kernel"],
     },
 ];
 
 /// The name of the lowest layer in [`LAYERS`].
 const KERNEL: &str = "kernel";
 
-/// What a kernel module may not name: the world, the session and the stability
-/// monitor, by absolute or relative path.
-const KERNEL_REFUSES: [&str; 7] = [
-    "crate::session",
-    "crate::ecs",
-    "crate::spec",
-    "crate::stability",
-    "crate::world",
-    "super::session",
-    "super::ecs",
-];
+/// What a kernel module may not name by a relative path, which a `super::` chain
+/// reaches without `crate::`: the session and the ECS engine.
+const KERNEL_SUPER: [&str; 2] = ["super::session", "super::ecs"];
+
+/// The drivers no kernel module may name.
+const KERNEL_DRIVERS: [&str; 2] = ["tokio", "axum"];
 
 /// The files that still catch a panic (ADR 0053 decision 5). The list only
 /// shrinks; the cell host's site leaves with the supervisor (W6, #1006).
@@ -149,11 +154,17 @@ fn in_module(relative: &str, name: &str) -> bool {
     relative == format!("{name}.rs") || relative.starts_with(&format!("{name}/"))
 }
 
-/// The layer `relative` belongs to, by its top-level module, if it has one.
-fn layer_of(relative: &str) -> Option<&'static str> {
+/// The position in [`LAYERS`] of the layer `relative` belongs to, if any.
+fn layer_index(relative: &str) -> Option<usize> {
     LAYERS
         .iter()
-        .find(|layer| layer.modules.iter().any(|name| in_module(relative, name)))
+        .position(|layer| layer.modules.iter().any(|name| in_module(relative, name)))
+}
+
+/// The layer `relative` belongs to, by its top-level module, if it has one.
+fn layer_of(relative: &str) -> Option<&'static str> {
+    layer_index(relative)
+        .and_then(|index| LAYERS.get(index))
         .map(|layer| layer.name)
 }
 
@@ -206,7 +217,6 @@ fn opens_test_module(lines: &[&str], index: usize) -> bool {
 fn edges(relative: &str, text: &str) -> Vec<String> {
     let core = CORE.iter().any(|name| in_module(relative, name));
     let ecs = in_module(relative, "ecs");
-    let kernel = layer_of(relative) == Some(KERNEL);
     let mut found = Vec::new();
     if is_test_file(relative) {
         return found;
@@ -226,13 +236,14 @@ fn edges(relative: &str, text: &str) -> Vec<String> {
                 found.push(format!("{relative}:{number}: core module names {driver}"));
             }
         }
-        if kernel {
-            for upper in KERNEL_REFUSES.iter().filter(|upper| names(code, upper)) {
-                found.push(format!("{relative}:{number}: kernel module names {upper}"));
-            }
-        }
         if code.contains("catch_unwind") && !UNWIND_SITES.contains(&relative) {
             found.push(format!("{relative}:{number}: {UNWIND_REFUSAL}"));
+        }
+    }
+    for (number, layer, path) in layer_edges::upward_imports(relative, text) {
+        // A core module that names the driver is already refused above.
+        if layer == KERNEL && !(core && DRIVER.contains(&path.as_str())) {
+            found.push(format!("{relative}:{number}: {layer} module names {path}"));
         }
     }
     found
@@ -268,22 +279,32 @@ fn sources(dir: &Path, into: &mut Vec<PathBuf>) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[test]
-/// The shipped tree holds the boundary: no edge in any source file.
-fn the_core_names_no_driver_and_only_ecs_names_bevy() -> Result<(), Box<dyn Error>> {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+/// Every source file of the crate as its `/`-separated path below `src/` and
+/// its text, in a stable order.
+fn read_tree(src: &Path) -> Result<Vec<(String, String)>, Box<dyn Error>> {
     let mut files = Vec::new();
-    sources(&src, &mut files)?;
+    sources(src, &mut files)?;
     assert!(files.len() > 100, "the walk found the crate's sources");
-    let mut found = Vec::new();
+    let mut tree = Vec::with_capacity(files.len());
     for file in &files {
         let relative = file
-            .strip_prefix(&src)?
+            .strip_prefix(src)?
             .components()
             .map(|part| part.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("/");
-        found.extend(edges(&relative, &fs::read_to_string(file)?));
+        tree.push((relative, fs::read_to_string(file)?));
+    }
+    Ok(tree)
+}
+
+#[test]
+/// The shipped tree holds the boundary: no edge in any source file.
+fn the_core_names_no_driver_and_only_ecs_names_bevy() -> Result<(), Box<dyn Error>> {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut found = Vec::new();
+    for (relative, text) in read_tree(&src)? {
+        found.extend(edges(&relative, &text));
     }
     for site in UNWIND_SITES {
         if !catches_a_panic(&fs::read_to_string(src.join(site))?) {
@@ -571,4 +592,144 @@ fn every_top_level_module_is_in_exactly_one_layer() -> Result<(), Box<dyn Error>
         problems.join("\n")
     );
     Ok(())
+}
+
+#[test]
+/// #991: whichever layer is drawn, a planted import of a module of a higher
+/// layer is refused with the exact message, a module of its own or a lower layer
+/// is not, and the kernel refuses the drivers as well.
+fn a_planted_upward_import_is_refused_in_every_layer() -> Result<(), Box<dyn Error>> {
+    use layer_edges::{pick, upward_refusals};
+    // One file list per layer below the last, kernel first. The kernel's list
+    // opens with the sweeper file whose upward edges #991 cut.
+    let files: [&[&str]; 6] = [
+        &[
+            "sealed/sweep.rs",
+            "sealed/keys.rs",
+            "journal/seam.rs",
+            "tenant_store/store.rs",
+            "broker/fence.rs",
+            "dist_lease/tcp.rs",
+        ],
+        &["rt/runtime.rs", "rt/sync.rs", "rt/task.rs"],
+        &["ecs/bot.rs", "registry/table.rs", "world/state.rs"],
+        &[
+            "session/runner.rs",
+            "interface/model.rs",
+            "language/lexicon.rs",
+        ],
+        &["script/error.rs", "task/host.rs", "proposal/plan.rs"],
+        &["domain/gh/verbs.rs", "review/pr.rs", "stability/monitor.rs"],
+    ];
+    let seeds = [
+        0x9910_A000_u64,
+        0x9910_A001,
+        0xFFFF_9910_A002,
+        0x1991_9910_A003,
+    ];
+    for seed in seeds {
+        let mut rng = Rng::new(seed);
+        for draw in 0..128_u32 {
+            let at = pick(&mut rng, &[0_usize, 1, 2, 3, 4, 5])?;
+            let layer = LAYERS
+                .get(at)
+                .ok_or_else(|| Box::<dyn Error>::from("the layer is not in the table"))?;
+            let owned = files
+                .get(at)
+                .ok_or_else(|| Box::<dyn Error>::from("the layer has no files"))?;
+            let file = pick(&mut rng, owned)?;
+            let higher: Vec<&str> = LAYERS
+                .iter()
+                .skip(at.saturating_add(1))
+                .flat_map(|upper| upper.modules.iter().copied())
+                .collect();
+            let upper = pick(&mut rng, &higher)?;
+            assert_eq!(
+                upward_refusals(file, &format!("use crate::{upper}::Thing;")),
+                vec![format!(
+                    "{file}:1: {} module names crate::{upper}",
+                    layer.name
+                )],
+                "seed {seed:#x} draw {draw}"
+            );
+            let own: Vec<&str> = LAYERS
+                .iter()
+                .take(at.saturating_add(1))
+                .flat_map(|same| same.modules.iter().copied())
+                .collect();
+            let lower = pick(&mut rng, &own)?;
+            assert!(
+                upward_refusals(file, &format!("use crate::{lower}::Thing;")).is_empty(),
+                "seed {seed:#x} draw {draw}: {file} may name crate::{lower}"
+            );
+        }
+    }
+    for driver in ["tokio", "axum"] {
+        let planted = format!("use lgwks_deps::{driver}::Thing;");
+        assert_eq!(
+            upward_refusals("sealed/sweep.rs", &planted),
+            vec![format!("sealed/sweep.rs:1: kernel module names {driver}")],
+        );
+        assert!(
+            upward_refusals("rt/runtime.rs", &planted).is_empty(),
+            "the driver layer names the driver"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+/// #991: every upward import the tree holds is a named exception, no exception
+/// is a kernel file, and the kernel names no upper layer at all.
+fn every_upward_import_is_a_named_exception_and_the_kernel_has_none() -> Result<(), Box<dyn Error>>
+{
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let found = layer_edges::in_tree(&src)?;
+    let kernel: Vec<String> = found
+        .iter()
+        .filter(|edge| edge.layer == KERNEL)
+        .map(|edge| format!("{}: the kernel names {}", edge.file, edge.module))
+        .collect();
+    assert!(
+        kernel.is_empty(),
+        "the kernel layer names an upper layer:\n{}",
+        kernel.join("\n")
+    );
+    let mut problems = layer_edges::kernel_entries(layer_edges::LAYER_EXCEPTIONS);
+    problems.extend(layer_edges::unlisted(layer_edges::LAYER_EXCEPTIONS, &found));
+    problems.extend(layer_edges::stale(layer_edges::LAYER_EXCEPTIONS, &found));
+    assert!(
+        problems.is_empty(),
+        "upward imports against LAYER_EXCEPTIONS:\n{}",
+        problems.join("\n")
+    );
+    Ok(())
+}
+
+#[test]
+/// #991: an exception whose edge the tree no longer has is refused by name, so
+/// the list only shrinks; a live entry and an unlisted edge answer correctly.
+fn a_stale_layer_exception_is_refused() {
+    let held = [layer_edges::Upward {
+        file: String::from("rt/sweep.rs"),
+        layer: "rt",
+        module: String::from("script"),
+    }];
+    let stale = layer_edges::stale(&[("rt/sweep.rs", "session")], &held);
+    assert_eq!(stale.len(), 1);
+    assert!(
+        stale
+            .iter()
+            .all(|message| message.contains("drop it from LAYER_EXCEPTIONS")),
+        "{stale:?}"
+    );
+    assert!(layer_edges::stale(&[("rt/sweep.rs", "script")], &held).is_empty());
+    let unlisted = layer_edges::unlisted(&[("rt/sweep.rs", "session")], &held);
+    assert_eq!(unlisted.len(), 1, "an edge no entry names is refused");
+    assert!(layer_edges::unlisted(&[("rt/sweep.rs", "script")], &held).is_empty());
+    assert_eq!(
+        layer_edges::kernel_entries(&[("sealed/sweep.rs", "rt"), ("rt/sweep.rs", "script")]).len(),
+        1,
+        "only the kernel file is refused as an exception"
+    );
 }

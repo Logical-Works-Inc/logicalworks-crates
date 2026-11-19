@@ -216,7 +216,7 @@
 "crates/lgwks-bot/src/rt/estate.rs" = 22
 "crates/lgwks-bot/src/rt/fs.rs" = 1
 "crates/lgwks-bot/src/rt/io.rs" = 1
-"crates/lgwks-bot/src/rt/mod.rs" = 17
+"crates/lgwks-bot/src/rt/mod.rs" = 18
 "crates/lgwks-bot/src/rt/net.rs" = 6
 "crates/lgwks-bot/src/rt/process.rs" = 31
 "crates/lgwks-bot/src/rt/process/confine.rs" = 25
@@ -235,6 +235,7 @@
 "crates/lgwks-bot/src/rt/supervise/run.rs" = 11
 "crates/lgwks-bot/src/rt/supervise/supervisor.rs" = 23
 "crates/lgwks-bot/src/rt/supervise/world.rs" = 1
+"crates/lgwks-bot/src/rt/sweep.rs" = 3
 "crates/lgwks-bot/src/rt/sync.rs" = 3
 "crates/lgwks-bot/src/rt/task.rs" = 13
 "crates/lgwks-bot/src/rt/tenancy.rs" = 33
@@ -276,9 +277,8 @@
 "crates/lgwks-bot/src/sealed/envelope.rs" = 1
 "crates/lgwks-bot/src/sealed/journal.rs" = 2
 "crates/lgwks-bot/src/sealed/keys.rs" = 10
-"crates/lgwks-bot/src/sealed/mod.rs" = 5
-"crates/lgwks-bot/src/sealed/runstore.rs" = 2
-"crates/lgwks-bot/src/sealed/sweep.rs" = 5
+"crates/lgwks-bot/src/sealed/mod.rs" = 4
+"crates/lgwks-bot/src/sealed/sweep.rs" = 1
 "crates/lgwks-bot/src/semantic.rs" = 21
 "crates/lgwks-bot/src/session.rs" = 10
 "crates/lgwks-bot/src/session/error.rs" = 2
@@ -303,9 +303,11 @@
 "crates/lgwks-bot/src/task/ledger.rs" = 15
 "crates/lgwks-bot/src/task/repair.rs" = 7
 "crates/lgwks-bot/src/task/request.rs" = 21
-"crates/lgwks-bot/src/task/store.rs" = 22
+"crates/lgwks-bot/src/task/store.rs" = 23
 "crates/lgwks-bot/src/task/store/error.rs" = 2
-"crates/lgwks-bot/src/task/store/sealed_impl.rs" = 11
+"crates/lgwks-bot/src/task/store/sealed_impl.rs" = 9
+"crates/lgwks-bot/src/task/store/sealed_read.rs" = 2
+"crates/lgwks-bot/src/task/store/sealed_shred.rs" = 2
 "crates/lgwks-bot/src/task/store/sink.rs" = 11
 "crates/lgwks-bot/src/task/submit.rs" = 2
 "crates/lgwks-bot/src/tenant_store.rs" = 3
@@ -525,6 +527,7 @@
 "crates/lgwks-bot/src/journal/wire_form.rs" = 1
 "crates/lgwks-bot/src/registry.rs" = 6
 "crates/lgwks-bot/src/registry/condition.rs" = 2
+"crates/lgwks-bot/src/rt/sweep.rs" = 3
 "crates/lgwks-bot/src/rt/task.rs" = 2
 "crates/lgwks-bot/src/rt/time.rs" = 1
 "crates/lgwks-bot/src/script/error.rs" = 2
@@ -542,6 +545,8 @@
 "crates/lgwks-bot/src/session/value.rs" = 1
 "crates/lgwks-bot/src/spec.rs" = 1
 "crates/lgwks-bot/src/spec/admission.rs" = 1
+"crates/lgwks-bot/src/task/store/sealed_read.rs" = 2
+"crates/lgwks-bot/src/task/store/sealed_shred.rs" = 2
 "crates/lgwks-bot/src/tenant_store/store.rs" = 2
 "crates/lgwks-bot/src/verb.rs" = 7
 "crates/lgwks-deps/src/agent_standards.rs" = 2

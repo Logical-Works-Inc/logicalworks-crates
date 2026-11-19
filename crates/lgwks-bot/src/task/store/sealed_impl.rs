@@ -17,16 +17,14 @@ use std::time::Duration;
 
 use crate::effect::RunId;
 use crate::script::StepKey;
-use crate::script::run_store::StoredValue;
+use crate::script::run_store::{Appended, RunRecords, StoredValue};
 use crate::sealed::fold::{Unwrapped, fold_unwrap};
 use crate::sealed::keys::{KeyId, KeyProvider};
-use crate::sealed::runstore::{SealedStepRead, ShredOutcome};
-use crate::sealed::sweep::{SweepError, SweepTarget};
 use lgwks_std::hash::Digest;
 
+use super::sealed_read::{SealedStepRead, ShredOutcome};
+use super::sealed_shred::{ShredJob, provider_destroy, shred_on_owner};
 use super::{RunStore, StoreError, StoreInner, record};
-use crate::script::run_store::Appended;
-use crate::script::run_store::RunRecords;
 
 /// Refuse a foreign tenant's sealed read, logging the refusal where it is made.
 ///
@@ -67,7 +65,7 @@ fn unknown_run<T>(run: RunId, tenant: String) -> Result<T, StoreError> {
 /// spellings would be five chances to name a different reason for one fact.
 /// The `what` names the operation the caller attempted, which is what tells
 /// five identical refusals apart in the log.
-fn sealed_provider(
+pub(super) fn sealed_provider(
     inner: &StoreInner,
     what: &'static str,
 ) -> Result<Arc<dyn KeyProvider>, StoreError> {
@@ -79,21 +77,6 @@ fn sealed_provider(
             });
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), op = what, "sealed: a plain handle cannot do sealed work");
             refusal
-        }
-    }
-}
-
-/// One ordered visit per run the index holds, by key hex.
-///
-/// One definition because the tenant erasure and the TTL sweep both walk the
-/// runs in key order before filtering to their own steps, and two spellings
-/// would be two chances to visit a different order for one index.
-fn each_run(index: &super::Index, mut visit: impl FnMut(RunId, &super::RunIndex)) {
-    let mut runs: Vec<RunId> = index.runs.keys().copied().collect();
-    runs.sort_by_key(|run| run.id().to_hex());
-    for run in runs {
-        if let Some(run_index) = index.runs.get(&run) {
-            visit(run, run_index);
         }
     }
 }
@@ -195,7 +178,6 @@ impl<'a> SealedAppend<'a> {
 }
 
 /// A shredded step the index remembers: the burn set's entry.
-///
 /// Filed by run and step key hex beside the live runs rather than in them,
 /// so a fully erased run reads as unwritten — compatible with a fresh
 /// resume — while any re-append under a burned slot is still refused.
@@ -208,6 +190,51 @@ pub(crate) struct ErasedSlot {
     pub(crate) tenant: String,
     /// When the record expired, as the frame stored it.
     pub(crate) expires_at: Option<Duration>,
+}
+
+/// The tombstone read of a burned slot, logged with its key's tenant and expiry.
+fn erased_read(erased: &ErasedSlot, run: RunId, key: StepKey) -> SealedStepRead {
+    lgwks_std::trace::debug!(key_tenant = erased.key_id.tenant(), expires_at = ?erased.expires_at, "read_sealed: a shredded step reads as erased");
+    SealedStepRead::Erased { run, key }
+}
+
+/// What a sealed step's envelope opened to.
+enum Opened {
+    /// The key is live and the envelope held this record.
+    Live(Box<record::Stored>),
+    /// The provider folded the read to erased.
+    Erased,
+}
+
+/// Open a sealed step's envelope, or report the provider folded it to erased.
+/// One definition for the read, the shred and the approval check, so a torn
+/// frame gets one answer; `op` names the caller in every event.
+fn open_stored(
+    op: &'static str,
+    provider: &Arc<dyn KeyProvider>,
+    sealed: &SealedStep,
+) -> Result<Opened, StoreError> {
+    use crate::sealed::envelope::open as envelope_open;
+    use lgwks_std::wire::{WireError, from_bytes};
+    match fold_unwrap(provider.unwrap_key(&sealed.key_id, &sealed.wrapped)) {
+        Ok(Unwrapped::Live(data_key)) => {
+            let archived = envelope_open(&data_key, &sealed.nonce, &sealed.ciphertext).map_err(|error| {
+                lgwks_std::trace::debug!(op, ordinal = sealed.ordinal, error = ?error, "sealed: a live key with an unopenable envelope");
+                StoreError::Corrupt { at: sealed.ordinal }
+            })?;
+            from_bytes::<record::Stored, WireError>(&archived)
+                .map(|stored| Opened::Live(Box::new(stored)))
+                .map_err(|error| {
+                    lgwks_std::trace::debug!(op, ordinal = sealed.ordinal, error = ?error, "sealed: a committed frame does not decode");
+                    StoreError::Corrupt { at: sealed.ordinal }
+                })
+        }
+        Ok(Unwrapped::Erased) => Ok(Opened::Erased),
+        Err(error) => {
+            lgwks_std::trace::debug!(op, error = ?error, "sealed: unwrapping the data key refused");
+            Err(StoreError::SealedKey { source: error })
+        }
+    }
 }
 
 impl RunStore {
@@ -261,28 +288,13 @@ impl RunStore {
         Self::open_sealed(dir.join(format!("{tenant}.runstore")), provider)
     }
 
-    /// Stage `record` with a sealed expiry: what
-    /// [`RunStore::append_with_expiry`](Self::append_with_expiry) seals.
+    /// One sealed append: the six record facts plus the expiry the TTL sweep
+    /// shreds. Public so bins and integration tests can seal without reaching
+    /// past the run-store's own surface into the script module's staging.
     ///
     /// The expiry travels beside the provider rather than in the record
     /// because the trait's append has no expiry: an unsealed append seals
     /// with no expiry, and a sealed append names one.
-    #[cfg(feature = "sealed")]
-    fn with_expiry(
-        &self,
-        record: crate::script::run_store::StagedRecord<'_>,
-        expires_at: Option<Duration>,
-    ) -> super::Staged {
-        let mut staged = self.owned(record);
-        if let Some(sealed) = staged.sealed.as_mut() {
-            sealed.expires_at = expires_at;
-        }
-        staged
-    }
-
-    /// One sealed append: the six record facts plus the expiry the TTL sweep
-    /// shreds. Public so bins and integration tests can seal without reaching
-    /// past the run-store's own surface into the script module's staging.
     #[cfg(feature = "sealed")]
     pub fn append_with_expiry(&self, append: SealedAppend<'_>) -> Result<Appended, StoreError> {
         sealed_provider(&self.inner, "a sealed append needs a sealed store")?;
@@ -295,10 +307,12 @@ impl RunStore {
             bytes,
             expires_at,
         } = append;
-        let staged = self.with_expiry(
-            RunRecords::stage(self, tenant, run, key, path, definition, bytes),
-            expires_at,
-        );
+        let mut staged = self.owned(RunRecords::stage(
+            self, tenant, run, key, path, definition, bytes,
+        ));
+        if let Some(sealed) = staged.sealed.as_mut() {
+            sealed.expires_at = expires_at;
+        }
         self.commit(staged)
     }
 
@@ -324,7 +338,6 @@ impl RunStore {
         run: RunId,
         key: StepKey,
     ) -> Result<SealedStepRead, StoreError> {
-        use crate::sealed::keys::KeyError as ProviderRefusal;
         self.step_readable()?;
         let key_hex = key.to_hex();
         let found = {
@@ -334,8 +347,7 @@ impl RunStore {
                     if erased.tenant != tenant {
                         return foreign_erased(erased.tenant.clone(), tenant.to_owned());
                     }
-                    let _ = (erased.key_id.tenant().len(), erased.expires_at);
-                    return Ok(SealedStepRead::Erased { run, key });
+                    return Ok(erased_read(erased, run, key));
                 }
                 return unknown_run(run, tenant.to_owned());
             };
@@ -348,8 +360,7 @@ impl RunStore {
                 return refusal;
             }
             if let Some(erased) = index.erased.get(&(run, key_hex.clone())) {
-                let _ = (erased.key_id.tenant().len(), erased.expires_at);
-                return Ok(SealedStepRead::Erased { run, key });
+                return Ok(erased_read(erased, run, key));
             }
             match run_index.steps.get(&key_hex) {
                 Some(step) => match step.sealed.clone() {
@@ -373,37 +384,12 @@ impl RunStore {
             }
         };
         let provider = sealed_provider(&self.inner, "a sealed read needs a sealed store")?;
-        match fold_unwrap(provider.unwrap_key(&found.key_id, &found.wrapped)) {
-            Ok(Unwrapped::Live(data_key)) => {
-                use crate::sealed::envelope::open as envelope_open;
-                use lgwks_std::wire::WireError;
-                use lgwks_std::wire::from_bytes as wire_from_bytes;
-                let plaintext = match envelope_open(&data_key, &found.nonce, &found.ciphertext) {
-                    Ok(plaintext) => plaintext,
-                    Err(error) => {
-                        lgwks_std::trace::debug!(ordinal = found.ordinal, error = ?error, "read_sealed: a live key with an unopenable envelope");
-                        return Err(StoreError::Corrupt { at: found.ordinal });
-                    }
-                };
-                let stored = match wire_from_bytes::<crate::task::store::Stored, WireError>(
-                    &plaintext,
-                ) {
-                    Ok(stored) => stored,
-                    Err(error) => {
-                        lgwks_std::trace::debug!(ordinal = found.ordinal, error = ?error, "read_sealed: a committed frame does not decode");
-                        return Err(StoreError::Corrupt { at: found.ordinal });
-                    }
-                };
-                Ok(SealedStepRead::Live {
-                    value: StoredValue::new(stored.path, stored.value),
-                })
-            }
-            Ok(Unwrapped::Erased) => Ok(SealedStepRead::Erased { run, key }),
-            Err(ProviderRefusal::Transient { reason }) => Err(StoreError::SealedKey {
-                source: ProviderRefusal::Transient { reason },
-            }),
-            Err(other) => Err(StoreError::SealedKey { source: other }),
-        }
+        Ok(match open_stored("read_sealed", &provider, &found)? {
+            Opened::Live(stored) => SealedStepRead::Live {
+                value: StoredValue::new(stored.path, stored.value),
+            },
+            Opened::Erased => SealedStepRead::Erased { run, key },
+        })
     }
 
     /// Shred one sealed step: destroy its data key in the provider, then
@@ -437,7 +423,7 @@ impl RunStore {
     /// sweep, the tenant erasure and the public shred all shred through, so
     /// the destroy-then-tombstone order cannot drift between them.
     #[cfg(feature = "sealed")]
-    fn shred_inner(
+    pub(super) fn shred_inner(
         &self,
         tenant: &str,
         run: RunId,
@@ -449,20 +435,14 @@ impl RunStore {
         // refusal leaves the step live.
         let (slot, was_pending) = {
             let index = self.index();
-            let run_index = match index.runs.get(&run) {
-                Some(run_index) => run_index,
-                None => {
-                    if let Some(erased) = index.erased.get(&(run, key_hex.to_owned())) {
-                        if erased.tenant != tenant {
-                            return foreign_erased(erased.tenant.clone(), tenant.to_owned());
-                        }
-                        return Ok(ShredOutcome::AlreadyErased {
-                            run,
-                            key: Self::key_of(key_hex)?,
-                        });
+            let Some(run_index) = index.runs.get(&run) else {
+                if let Some(erased) = index.erased.get(&(run, key_hex.to_owned())) {
+                    if erased.tenant != tenant {
+                        return foreign_erased(erased.tenant.clone(), tenant.to_owned());
                     }
-                    return unknown_run(run, tenant.to_owned());
+                    return Self::already_erased(run, key_hex);
                 }
+                return unknown_run(run, tenant.to_owned());
             };
             if run_index.tenant != tenant {
                 lgwks_std::trace::debug!(
@@ -476,65 +456,31 @@ impl RunStore {
                 });
             }
             if index.erased.contains_key(&(run, key_hex.to_owned())) {
-                return Ok(ShredOutcome::AlreadyErased {
-                    run,
-                    key: Self::key_of(key_hex)?,
-                });
+                return Self::already_erased(run, key_hex);
             }
-            let step = match run_index.steps.get(key_hex) {
-                Some(step) => step,
-                None => {
-                    lgwks_std::trace::debug!(
-                        run = run.id().to_hex(),
-                        "shred_record: a live run names no sealed step"
-                    );
-                    return Err(StoreError::SealedUnknown {
-                        run: run.id().to_hex(),
-                        key: key_hex.to_owned(),
-                    });
-                }
+            let Some(step) = run_index.steps.get(key_hex) else {
+                lgwks_std::trace::debug!(
+                    run = run.id().to_hex(),
+                    "shred_record: a live run names no sealed step"
+                );
+                return Err(StoreError::SealedUnknown {
+                    run: run.id().to_hex(),
+                    key: key_hex.to_owned(),
+                });
             };
-            let sealed = match step.sealed.as_ref() {
-                Some(sealed) => sealed.clone(),
-                None => {
-                    lgwks_std::trace::debug!("shred_record: a sealed shred meets a plain step");
-                    return Err(StoreError::Corrupt { at: 0 });
-                }
+            let Some(sealed) = step.sealed.clone() else {
+                lgwks_std::trace::debug!("shred_record: a sealed shred meets a plain step");
+                return Err(StoreError::Corrupt { at: 0 });
             };
             let provider = sealed_provider(&self.inner, "shredding needs a sealed store")?;
-            let value = match fold_unwrap(provider.unwrap_key(&sealed.key_id, &sealed.wrapped)) {
-                Ok(Unwrapped::Live(data_key)) => {
-                    use crate::sealed::envelope::open as envelope_open;
-                    match envelope_open(&data_key, &sealed.nonce, &sealed.ciphertext) {
-                        Ok(archived) => {
-                            use lgwks_std::wire::{WireError, from_bytes};
-                            match from_bytes::<super::record::Stored, WireError>(&archived) {
-                                Ok(stored) => stored.value,
-                                Err(error) => {
-                                    lgwks_std::trace::debug!(ordinal = sealed.ordinal, error = ?error, "shred_record: a committed frame does not decode");
-                                    return Err(StoreError::Corrupt { at: sealed.ordinal });
-                                }
-                            }
-                        }
-                        Err(error) => {
-                            lgwks_std::trace::debug!(ordinal = sealed.ordinal, error = ?error, "shred_record: a live key with an unopenable envelope");
-                            return Err(StoreError::Corrupt { at: sealed.ordinal });
-                        }
-                    }
-                }
-                Ok(Unwrapped::Erased) => {
-                    return Ok(ShredOutcome::AlreadyErased {
-                        run,
-                        key: Self::key_of(key_hex)?,
-                    });
-                }
-                Err(error) => {
-                    lgwks_std::trace::debug!(error = ?error, "shred_record: unwrapping the data key refused the shred");
-                    return Err(StoreError::SealedKey { source: error });
-                }
+            let value = match open_stored("shred_record", &provider, &sealed)? {
+                Opened::Live(stored) => stored.value,
+                Opened::Erased => return Self::already_erased(run, key_hex),
             };
-            let was_pending = matches!(classify_record(&value), RecordClass::Pending(_));
-            (sealed, was_pending)
+            (
+                sealed,
+                matches!(classify_record(&value), RecordClass::Pending(_)),
+            )
         };
         provider_destroy(&self.inner, &slot.key_id)?;
         let job = ShredJob {
@@ -555,109 +501,26 @@ impl RunStore {
         })
     }
 
+    /// The answer for a step that is already a tombstone: nothing destroyed,
+    /// nothing written.
+    fn already_erased(run: RunId, key_hex: &str) -> Result<ShredOutcome, StoreError> {
+        Ok(ShredOutcome::AlreadyErased {
+            run,
+            key: Self::key_of(key_hex)?,
+        })
+    }
+
     /// Rebuild a [`StepKey`] from its hex: the digest the store keys by.
     ///
     /// The hex came from [`StepKey::to_hex`], so a shape that does not parse
     /// is a file this store did not write and is refused as corrupt rather
     /// than guessed.
     fn key_of(key_hex: &str) -> Result<StepKey, StoreError> {
-        use lgwks_std::hash::Digest;
         let digest = Digest::from_hex(key_hex).map_err(|error| {
             lgwks_std::trace::debug!(key_hex, error = ?error, "shred_record: a key hex does not parse");
             StoreError::Corrupt { at: 0 }
         })?;
         Ok(StepKey::from_digest(digest))
-    }
-
-    /// Shred every live sealed step of `tenant` and report how many shredded.
-    ///
-    /// The tenant's right to erasure (GDPR Art. 17): each step shreds through
-    /// the shared shred door, so the destroy-then-tombstone order cannot
-    /// drift. Records shredded before a refusal stay shredded.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`RunStore::shred_record`] reports for the first step that
-    /// refuses; [`StoreError::Storage`] when the handle is plain rather than
-    /// sealed.
-    #[cfg(feature = "sealed")]
-    pub fn erase_tenant_records(&self, tenant: &str) -> Result<u64, StoreError> {
-        sealed_provider(&self.inner, "erasure needs a sealed store")?;
-        let live: Vec<(RunId, String)> = {
-            let index = self.index();
-            let mut out = Vec::new();
-            each_run(&index, |run, run_index| {
-                if run_index.tenant != tenant {
-                    return;
-                }
-                let mut keys: Vec<&String> = run_index.steps.keys().collect();
-                keys.sort();
-                for key_hex in keys {
-                    if index.erased.contains_key(&(run, key_hex.clone())) {
-                        continue;
-                    }
-                    out.push((run, key_hex.clone()));
-                }
-            });
-            out
-        };
-        let mut shredded = 0_u64;
-        for (run, key_hex) in live {
-            match self.shred_inner(tenant, run, &key_hex)? {
-                ShredOutcome::Shredded { .. } => {
-                    shredded = shredded.saturating_add(1);
-                }
-                ShredOutcome::AlreadyErased { .. } => {}
-            }
-        }
-        Ok(shredded)
-    }
-
-    /// Shred every live sealed step expired at `now`, on the injected clock,
-    /// and report how many shredded. Steps without an expiry never sweep.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`RunStore::shred_record`] reports for the first step that
-    /// refuses; [`StoreError::Storage`] when the handle is plain rather than
-    /// sealed.
-    #[cfg(feature = "sealed")]
-    pub fn sweep_once(&self, now: Duration) -> Result<u64, StoreError> {
-        sealed_provider(&self.inner, "a sweep needs a sealed store")?;
-        let due: Vec<(RunId, String, String)> = {
-            let index = self.index();
-            let mut out = Vec::new();
-            each_run(&index, |run, run_index| {
-                let tenant = run_index.tenant.clone();
-                let mut keys: Vec<&String> = run_index.steps.keys().collect();
-                keys.sort();
-                for key_hex in keys {
-                    if index.erased.contains_key(&(run, key_hex.clone())) {
-                        continue;
-                    }
-                    let Some(step) = run_index.steps.get(key_hex) else {
-                        continue;
-                    };
-                    let Some(sealed) = step.sealed.as_ref() else {
-                        continue;
-                    };
-                    if sealed.expires_at.is_some_and(|at| at <= now) {
-                        out.push((run, key_hex.clone(), tenant.clone()));
-                    }
-                }
-            });
-            out
-        };
-        let mut shredded = 0_u64;
-        for (run, key_hex, tenant) in due {
-            match self.shred_inner(&tenant, run, &key_hex)? {
-                ShredOutcome::Shredded { .. } => {
-                    shredded = shredded.saturating_add(1);
-                }
-                ShredOutcome::AlreadyErased { .. } => {}
-            }
-        }
-        Ok(shredded)
     }
 
     /// Verify the chain over the sealed file: every head recomputed from the
@@ -685,16 +548,6 @@ impl RunStore {
     }
 }
 
-impl SweepTarget for RunStore {
-    type Error = SweepError;
-
-    fn sweep_once(&self, now: Duration) -> Result<u64, Self::Error> {
-        RunStore::sweep_once(self, now).map_err(SweepError::from)
-    }
-}
-
-use super::sealed_shred::{ShredJob, provider_destroy, shred_on_owner};
-
 /// Open a sealed step's envelope to its archived value bytes: the live
 /// answer, or `None` when the provider folds the read to erased.
 ///
@@ -706,22 +559,14 @@ pub(super) fn pending_sealed_value(
     provider: &Arc<dyn crate::sealed::keys::KeyProvider>,
     sealed: &SealedStep,
 ) -> Option<Vec<u8>> {
-    let value = match fold_unwrap(provider.unwrap_key(&sealed.key_id, &sealed.wrapped)) {
-        Ok(Unwrapped::Live(data_key)) => {
-            match crate::sealed::envelope::open(&data_key, &sealed.nonce, &sealed.ciphertext) {
-                Ok(archived) => {
-                    use lgwks_std::wire::{WireError, from_bytes};
-                    match from_bytes::<record::Stored, WireError>(&archived) {
-                        Ok(stored) => stored.value,
-                        Err(_) => return None,
-                    }
-                }
-                Err(_) => return None,
-            }
+    match open_stored("pending_scan", provider, sealed) {
+        Ok(Opened::Live(stored)) => Some(stored.value),
+        Ok(Opened::Erased) => None,
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "sealed: a pending step does not open");
+            None
         }
-        Ok(Unwrapped::Erased) | Err(_) => return None,
-    };
-    Some(value)
+    }
 }
 
 /// The sealed duplicate answer for a live step: compare the digest, never
@@ -747,14 +592,13 @@ pub(super) fn refuse_if_burned(
     run: RunId,
     key_hex: &str,
 ) -> Option<StoreError> {
-    if index.erased.contains_key(&(run, key_hex.to_owned())) {
-        Some(StoreError::SealedErased {
+    index
+        .erased
+        .contains_key(&(run, key_hex.to_owned()))
+        .then(|| StoreError::SealedErased {
             run: run.id().to_hex(),
             key: key_hex.to_owned(),
         })
-    } else {
-        None
-    }
 }
 
 /// Frame `stored` over `previous`: seal under a fresh data key when `write`
