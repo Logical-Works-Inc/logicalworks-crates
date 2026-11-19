@@ -482,22 +482,27 @@ impl AuditLog {
     }
 }
 
+/// One raw approval record the pending scan hands up: run, key hex, path,
+/// bytes.
+pub(crate) type PendingRow = (RunId, String, String, Vec<u8>);
+
 /// The pending approvals one tenant holds.
 ///
 /// The listing [`Host::pending`](crate::task::Host::pending) answers: every
 /// undecided, unexpired pending record for `tenant`, up to `limit`, each with
 /// the id a decision names. `decided` probes the decision key beside each
 /// pending record, so a decision that lands mid-listing is not listed as
-/// pending.
+/// pending. A refused scan, a sealed key fault included, fails the listing as
+/// the store's own error rather than listing fewer approvals (#1085).
 pub(crate) fn pending_for(
-    scanned: Vec<(RunId, String, String, Vec<u8>)>,
+    scanned: Result<Vec<PendingRow>, crate::task::StoreError>,
     decide: &dyn Fn(RunId, &str) -> Result<bool, FlowError>,
     tenant: &str,
     limit: usize,
     now: Duration,
 ) -> Result<Vec<PendingApproval>, FlowError> {
     let mut out = Vec::new();
-    for (run, key_hex, path, bytes) in scanned {
+    for (run, key_hex, path, bytes) in scanned? {
         if out.len() >= limit {
             break;
         }
