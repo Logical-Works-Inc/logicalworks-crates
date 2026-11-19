@@ -18,7 +18,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use lgwks_bot::effect::RunId;
-use lgwks_bot::sealed::envelope::DataKey;
+use lgwks_bot::sealed::envelope::{DataKey, KeyMint};
 use lgwks_bot::sealed::keys::{KeyError, KeyId, KeyProvider, SoftwareProvider};
 use lgwks_bot::task::{DefinitionIdentity, RunStore, SealedAppend};
 
@@ -99,8 +99,8 @@ impl FaultingProvider {
 
 impl KeyProvider for FaultingProvider {
     /// Mint through the real provider: faults never touch provisioning.
-    fn provision(&self, tenant: &str) -> Result<(KeyId, DataKey), KeyError> {
-        self.inner.provision(tenant)
+    fn provision_with(&self, tenant: &str, mint: KeyMint) -> Result<(KeyId, DataKey), KeyError> {
+        self.inner.provision_with(tenant, mint)
     }
 
     /// Wrap through the real provider.
@@ -111,7 +111,7 @@ impl KeyProvider for FaultingProvider {
     /// Open the wrapped key, unless a fault says otherwise: a forgotten
     /// identity reads as missing, a transient arm reads as transient, and
     /// neither touches the real key.
-    fn unwrap_key(&self, id: &KeyId, wrapped: &[u8]) -> Result<DataKey, KeyError> {
+    fn unwrap_with(&self, id: &KeyId, wrapped: &[u8], mint: KeyMint) -> Result<DataKey, KeyError> {
         /// Whether this read reaches the real provider, or which refusal it
         /// takes instead.
         enum Decision {
@@ -145,7 +145,7 @@ impl KeyProvider for FaultingProvider {
             }),
         };
         match decision {
-            Decision::Delegate => self.inner.unwrap_key(id, wrapped),
+            Decision::Delegate => self.inner.unwrap_with(id, wrapped, mint),
             Decision::Refuse(refusal) => Err(refusal),
         }
     }

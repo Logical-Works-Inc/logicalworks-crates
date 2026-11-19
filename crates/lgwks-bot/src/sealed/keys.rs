@@ -1,7 +1,7 @@
 //! Wrapped data keys: the [`KeyProvider`] port, its typed refusals, and the
 //! software provider that ships behind it.
 //!
-//! A sealed record never shares its data key: [`KeyProvider::provision`] mints
+//! A sealed record never shares its data key: [`KeyProvider::provision_with`] mints
 //! a fresh 32-byte key per record, and the provider wraps each key for storage
 //! beside its ciphertext. Shredding is [`KeyProvider::destroy`]: the key is
 //! removed and zeroized, and its identity is appended to an owner-only
@@ -19,7 +19,7 @@
 //! does and does not promise.
 //!
 //! [`KeyProvider`]: crate::sealed::keys::KeyProvider
-//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision
+//! [`KeyProvider::provision_with`]: crate::sealed::keys::KeyProvider::provision_with
 //! [`KeyProvider::destroy`]: crate::sealed::keys::KeyProvider::destroy
 //! [`SoftwareProvider::page_lock_report`]: crate::sealed::keys::SoftwareProvider::page_lock_report
 
@@ -28,7 +28,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::envelope::{DataKey, KEY_BYTES, NONCE_BYTES, TAG_BYTES, open, seal};
+use super::envelope::{DataKey, KEY_BYTES, KeyMint, NONCE_BYTES, TAG_BYTES, open, seal};
 
 /// Restrict `path` to its owner: files `0o600`, directories `0o700`.
 ///
@@ -44,7 +44,7 @@ pub(crate) fn restrict_file(path: &Path) -> Result<(), std::io::Error> {
     }
     #[cfg(not(unix))]
     {
-        let _ = path;
+        lgwks_std::trace::debug!(path = ?path, "restrict_file: owner-only is a unix concept, so this is a no-op");
     }
     Ok(())
 }
@@ -59,7 +59,7 @@ pub(crate) fn restrict_dir(path: &Path) -> Result<(), std::io::Error> {
     }
     #[cfg(not(unix))]
     {
-        let _ = path;
+        lgwks_std::trace::debug!(path = ?path, "restrict_dir: owner-only is a unix concept, so this is a no-op");
     }
     Ok(())
 }
@@ -223,21 +223,35 @@ impl core::fmt::Display for KeyId {
 /// Mint, wrap, open and destroy per-record data keys.
 ///
 /// One fresh key per record, never shared across records or tenants: the
-/// store calls [`KeyProvider::provision`] once per append and never reuses
+/// store calls [`KeyProvider::provision_with`] once per append and never reuses
 /// the answer. `provision` hands the fresh key to the caller once — the
 /// caller seals under it, wraps it for storage, and drops it — while the
 /// provider keeps its own copy for later `unwrap_key` calls. Object-safe and
 /// shareable, because the sealed store holds it behind an `Arc` and the
 /// background sweeper reaches across threads through it.
+///
+/// # The mint
+///
+/// A provider can live outside this crate because [`KeyMint`] is the one
+/// door to a [`DataKey`]: the store hands each `provision` and `unwrap_key`
+/// call one mint, and the provider spends it, by value, on the one key that
+/// call returns (`mint.key(bytes)`). A key built for one record is never
+/// answered for another, and never across tenants: an identity the provider
+/// minted for one tenant opens for that tenant alone. A provider that refuses
+/// drops the mint. [`conformance::check`] runs these rules against a provider
+/// and reports each one it breaks.
+///
+/// [`conformance::check`]: crate::sealed::conformance::check
 pub trait KeyProvider: Send + Sync {
     /// Mint a fresh data key for `tenant`, returning its identity and the key
-    /// itself for the one seal it was minted for.
+    /// itself for the one seal it was minted for. `mint` is spent on that one
+    /// key.
     ///
     /// # Errors
     ///
     /// [`KeyError::Transient`] when entropy is unavailable, [`KeyError::Storage`]
     /// when the provider's device refused.
-    fn provision(&self, tenant: &str) -> Result<(KeyId, DataKey), KeyError>;
+    fn provision_with(&self, tenant: &str, mint: KeyMint) -> Result<(KeyId, DataKey), KeyError>;
 
     /// Export the key under `id`, sealed under the provider's master: the
     /// bytes the sealed frame stores beside its ciphertext.
@@ -249,7 +263,8 @@ pub trait KeyProvider: Send + Sync {
     /// seal step could not run.
     fn wrap_key(&self, id: &KeyId) -> Result<Vec<u8>, KeyError>;
 
-    /// Open `wrapped` for `id`, returning the live data key.
+    /// Open `wrapped` for `id`, returning the live data key. `mint` is spent
+    /// on that one key.
     ///
     /// # Errors
     ///
@@ -258,7 +273,7 @@ pub trait KeyProvider: Send + Sync {
     /// provider holds no such key, [`KeyError::Corrupt`] when the wrapped
     /// bytes do not decode, [`KeyError::Transient`] when the provider could
     /// not answer.
-    fn unwrap_key(&self, id: &KeyId, wrapped: &[u8]) -> Result<DataKey, KeyError>;
+    fn unwrap_with(&self, id: &KeyId, wrapped: &[u8], mint: KeyMint) -> Result<DataKey, KeyError>;
 
     /// Destroy the key under `id`: remove it, zeroize it, and record the
     /// destruction durably, so a restart still refuses to resurrect it.
@@ -292,6 +307,11 @@ pub trait KeyProvider: Send + Sync {
 /// How many bytes a wrapped key occupies: the seal nonce and the sealed
 /// 32-byte data key with its tag.
 const WRAPPED_BYTES: usize = NONCE_BYTES + KEY_BYTES + TAG_BYTES;
+
+/// How many identity draws one `provision` makes before it refuses: a draw
+/// that lands on a live or destroyed identity is repeated, and 256 repeats
+/// mean the entropy source is repeating itself.
+const PROVISION_DRAWS: u32 = 256;
 
 /// The master key file's name inside the provider directory.
 const MASTER_FILE: &str = "master.key";
@@ -588,23 +608,13 @@ impl SoftwareProvider {
 impl KeyProvider for SoftwareProvider {
     /// Mint a fresh 32-byte data key for `tenant`.
     ///
-    /// Draws until the identity is neither live nor destroyed, bounded at 256
-    /// draws: past that the entropy source is repeating itself, and a key
-    /// that reuses an identity would share across records, which this
-    /// provider never does.
-    fn provision(&self, tenant: &str) -> Result<(KeyId, DataKey), KeyError> {
+    /// Draws until the identity is neither live nor destroyed, bounded at
+    /// `PROVISION_DRAWS` (256) draws: past that the entropy source is repeating
+    /// itself, and a key that reuses an identity would share across records,
+    /// which this provider never does. `mint` is spent on the handed copy.
+    fn provision_with(&self, tenant: &str, mint: KeyMint) -> Result<(KeyId, DataKey), KeyError> {
         let mut state = self.lock()?;
-        let mut draws = 0_u32;
-        loop {
-            draws = draws.saturating_add(1);
-            if draws > 256 {
-                lgwks_std::trace::debug!(
-                    "provider-provision: the entropy source repeated past the draw bound"
-                );
-                return Err(KeyError::Transient {
-                    reason: "the entropy source repeated past the draw bound",
-                });
-            }
+        for _ in 0..PROVISION_DRAWS {
             let id = match lgwks_std::random::bytes::<16>() {
                 Ok(id) => id,
                 Err(error) => {
@@ -630,9 +640,15 @@ impl KeyProvider for SoftwareProvider {
             state
                 .keys
                 .insert(id, (tenant.clone(), DataKey::from_bytes(key)));
-            let handed = DataKey::from_bytes(key);
+            let handed = mint.key(key);
             return Ok((KeyId { tenant, id }, handed));
         }
+        lgwks_std::trace::debug!(
+            "provider-provision: the entropy source repeated past the draw bound"
+        );
+        Err(KeyError::Transient {
+            reason: "the entropy source repeated past the draw bound",
+        })
     }
 
     /// Seal the data key under the master, with a nonce derived from the key
@@ -667,11 +683,13 @@ impl KeyProvider for SoftwareProvider {
     }
 
     /// Open `wrapped` for `id`: destroyed first, so a shredded key reads as
-    /// destroyed however stale its wrapped bytes are.
-    fn unwrap_key(&self, id: &KeyId, wrapped: &[u8]) -> Result<DataKey, KeyError> {
+    /// destroyed however stale its wrapped bytes are. The opened key is
+    /// rebuilt through `mint` and the opened copy is dropped, which zeroizes it.
+    fn unwrap_with(&self, id: &KeyId, wrapped: &[u8], mint: KeyMint) -> Result<DataKey, KeyError> {
         let state = self.lock()?;
         state.live_key(id)?;
-        state.open_wrapped(wrapped)
+        let opened = state.open_wrapped(wrapped)?;
+        Ok(mint.key(*opened.bytes()))
     }
 
     /// Destroy the key: record the destruction on the device first, then
