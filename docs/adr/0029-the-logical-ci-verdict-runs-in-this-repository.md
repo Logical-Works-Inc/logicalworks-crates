@@ -43,7 +43,8 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - The inline copy drifts when logical_ci re-pins. The header names the commit it copies, and a
   re-pin changes `LCI_RELEASE` and both pins here in one commit.
 - The job runs on `macos-latest`: v0.4.3 ships a linux-arm64 pair, but Linux refuses `ci` until
-  logical_ci#85 gives lanes containment.
+  logical_ci#85 gives lanes containment. A move to `ubuntu-24.04-arm` sealed UNMEASURED before
+  any lane ran (run 44148839889); `the_logical_ci_gate_runs_where_the_engine_contains_lanes` refuses it.
 - v0.3.0's loom run built every member in release, though lgwks_std alone models loom. A02
   sealed UNMEASURED when its lane ended at 397.9 s (run 43244596498). v0.4.1 builds only the
   modelling packages, and on this tree its property-and-loom gate holds in 82.42 s, 2.46 GB peak.

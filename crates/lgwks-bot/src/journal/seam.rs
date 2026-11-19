@@ -1,8 +1,6 @@
 //! The seam every journal adapter implements: what a caller may ask of a run's record.
 
 use crate::effect::EffectKey;
-#[cfg(feature = "wire")]
-use crate::verb::BoxFuture;
 
 use super::frame::SaturatingFrom;
 use super::{
@@ -175,7 +173,8 @@ pub trait EffectJournal {
         &'a mut self,
         expected_tail: JournalPosition,
         event: &'a EffectEvent,
-    ) -> BoxFuture<'a, Result<DurableAck, JournalError>> {
+    ) -> core::pin::Pin<Box<dyn core::future::Future<Output = Result<DurableAck, JournalError>> + 'a>>
+    {
         Box::pin(async move { self.compare_and_append(expected_tail, event) })
     }
 

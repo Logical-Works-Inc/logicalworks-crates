@@ -7,7 +7,7 @@
 //! journey, exactly as in the run-store half (`sealed.rs`).
 //!
 //! [`FileJournal`]: lgwks_bot::journal::FileJournal
-//! [`Sweeper`]: lgwks_bot::sealed::sweep::Sweeper
+//! [`Sweeper`]: lgwks_bot::rt::sweep::Sweeper
 
 use std::io::Write;
 use std::path::Path;
@@ -15,9 +15,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use lgwks_bot::journal::{EffectEvent, EffectJournal as _, FileJournal};
+use lgwks_bot::rt::sweep::Sweeper;
 use lgwks_bot::sealed::journal::{SealedJournalRead, ShredOutcome};
 use lgwks_bot::sealed::keys::KeyProvider;
-use lgwks_bot::sealed::sweep::{SweepTarget, Sweeper};
+use lgwks_bot::sealed::sweep::SweepTarget;
 use lgwks_bot::task::RunStore;
 
 use super::sealed::{SealedError, refused, say};
@@ -185,8 +186,7 @@ pub(crate) fn prove_sweeper(
     use lgwks_bot::clock::Clock;
     use lgwks_bot::effect::RunId;
     use lgwks_bot::script::{Scope, Tenant};
-    use lgwks_bot::sealed::runstore::SealedStepRead;
-    use lgwks_bot::task::{DefinitionIdentity, SealedAppend};
+    use lgwks_bot::task::{DefinitionIdentity, SealedAppend, SealedStepRead};
 
     let store = RunStore::open_in_sealed(&dir.join("tenants"), "initech", Arc::clone(provider))
         .map_err(|error| refused("the initech store")(error.to_string()))?;

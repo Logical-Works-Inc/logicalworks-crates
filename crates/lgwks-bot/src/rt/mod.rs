@@ -140,6 +140,8 @@ pub mod serve;
 pub mod signal;
 #[cfg(feature = "sync")]
 pub mod supervise;
+#[cfg(all(feature = "sealed", feature = "sync"))]
+pub mod sweep;
 #[cfg(feature = "sync")]
 pub mod sync;
 #[cfg(all(feature = "sync", feature = "script"))]

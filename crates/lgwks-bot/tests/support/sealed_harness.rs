@@ -247,7 +247,7 @@ pub fn erased_step(
     run: RunId,
     key: lgwks_bot::script::StepKey,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use lgwks_bot::sealed::runstore::SealedStepRead;
+    use lgwks_bot::task::SealedStepRead;
     match store.read_sealed(tenant, run, key)? {
         SealedStepRead::Erased { .. } => Ok(()),
         SealedStepRead::Live { .. } => Err("the step reads as live, expected erased".into()),
