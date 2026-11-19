@@ -5,10 +5,12 @@ left in place, and how to report a flaw.
 
 ## Attack surface in scope
 
-These crates parse untrusted bytes and open sockets: `lgwks_std::json` /
-`ron` / `wire` deserialization, `lgwks_std::http` URL handling and response
-bodies, `lgwks_ast` tree-sitter parsing of hostile source files,
-`lgwks_bot::spec` manifest parsing with a 1 MiB cap. Documented boundaries:
+These crates parse untrusted bytes and open sockets. The parsers are
+`lgwks_std::json` / `ron` / `wire` deserialization, `lgwks_std::http` URL
+handling and response bodies, `lgwks_ast` tree-sitter parsing of hostile source
+files, and `lgwks_bot::spec` manifest parsing with a 1 MiB cap. `lgwks_bot::cap_token`
+decodes token bytes and resource names, and refuses every traversal spelling
+(ADR 0067). Documented boundaries:
 
 - Error diagnostics never echo untrusted URLs or field names raw (log-forging
   refusal is enforced in code, not convention).
@@ -72,16 +74,17 @@ The candle edges now resolve that merge commit, `9515d41`, through an
 **Reopen if** the pin is removed before a candle release requiring
 `zip >= 9.0.5` publishes.
 
-### Unmaintained transitive crates: ten default-off advisories behind `gpui` or Candle
+### Unmaintained transitive crates: twelve default-off advisories
 
 No advisory here has a patched version, so no bump clears one. Each is absent
 from the default graph and from every build that does not select the named
-feature (assessed 2026-10-20); the lockfile stays where `cargo update` leaves it.
+feature (assessed 2026-10-20, the last two rows 2026-11-19).
 
 | Crates and versions | Advisory ids | Reached by | Reopen if |
 |---|---|---|---|
 | `rustybuzz` 0.14.1, 0.20.1; `ttf-parser` 0.20.0, 0.21.1, 0.25.1 | RUSTSEC-2026-0206, -0192 | `gpui` → `cosmic-text`, `usvg` → `fontdb`, `rustybuzz`, `ttf-parser` | `gpui` moves to a maintained text stack (`harfrust`), or a shipped binary enables `gpui` |
-| `async-std` 1.13.2; `rustls-pemfile` 2.2.0 | RUSTSEC-2025-0052, -0134 | `gpui` → `gpui_http_client` → `zed-async-tar`, `zed-reqwest` | `gpui` ships, or its HTTP client leaves the Zed forks |
+| `async-std` 1.13.2; `rustls-pemfile` 2.2.0; `pin-utils` 0.1.1 | RUSTSEC-2025-0052, -0134, RUSTSEC-2026-0441 | `gpui` → `gpui_http_client` → `zed-async-tar`, `zed-reqwest`; `async-std` → `pin-utils` | `gpui` ships, or its HTTP client leaves the Zed forks |
+| `chrono` 0.4.45 | RUSTSEC-2026-0543 | `oauth2` → `oauth2 5.0.0`; `mcp` → `rmcp`; `appcui`; `gpui` → `schemars` | one of those features turns default-on, a shipped binary enables one, or `chrono` gains a maintained release |
 | `instant` 0.1.13; `proc-macro-error2` 2.0.1 | RUSTSEC-2024-0384, -0173 | `gpui` → `gpui_util` → `futures-lite` → `fastrand`; `gpui` → `stacksafe` → `stacksafe-macro` | `gpui` ships, or those parents drop them |
 | `zbus_names` 4.3.4; `zvariant` 5.15.0; `zvariant_derive` 5.15.0 | RUSTSEC-2026-0371, -0370, -0372 | `gpui` → `ashpd`, `oo7` → `zbus 5.19.0` → these three | `gpui` moves to `zbus` 6 (where these are modules), or ships |
 | `paste` 1.0.15 | RUSTSEC-2024-0436 | `gpui` → `image`, `metal`; `ml-candle` → `candle-core`, `gemm`, `pulp`; `ml-tokenizers` → `tokenizers 0.23.2` | any of the three features ships, or those parents drop `paste` |

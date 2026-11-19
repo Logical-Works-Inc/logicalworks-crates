@@ -121,7 +121,7 @@ const DRISHTI_PROTOCOL: &str = "the Canvas protocol's capability.revoked signal 
 /// R6): each mention is a requirement Drishti's blocked proof gates G01–G15 must
 /// meet, about Drishti's own sessions, so none states what `lgwks_bot` ships.
 ///
-/// The three `cap_token` entries are the same bargain for bearer tokens (#779):
+/// The five `cap_token` entries are the same bargain for bearer tokens (#779):
 /// an offline token-id ledger with an explicit tested verify, attenuate and
 /// decide surface is a different subject from `GrantSet` capability lifetime,
 /// which has no `revoke` and is what this scan protects. A mention there claims
@@ -138,7 +138,7 @@ const DRISHTI_PROTOCOL: &str = "the Canvas protocol's capability.revoked signal 
 /// broker's audited `Revoke` action for the handles it issued. Each name is a
 /// public identifier or a frozen protocol string, so the prose cannot dodge it;
 /// every other drishti mention was reworded (ADR 0058).
-const NOT_AUTHORITY_CLAIMS: [(&str, &str); 49] = [
+const NOT_AUTHORITY_CLAIMS: [(&str, &str); 51] = [
     (
         "crates/lgwks-bot/src/broker.rs",
         "the broker's refusals name its shipped withdrawal of an operation, not GrantSet",
@@ -293,6 +293,15 @@ const NOT_AUTHORITY_CLAIMS: [(&str, &str); 49] = [
     (
         "crates/lgwks-bot/src/bin/cap_token_cost.rs",
         "the measurement harness driving the bearer-token ledger above, not a capability claim",
+    ),
+    (
+        "crates/lgwks-bot/src/cap_token/policy.rs",
+        "the bearer-token decision walk, whose revocation rule reads the ledger above, \
+         not GrantSet capability revocation",
+    ),
+    (
+        "crates/lgwks-bot/tests/it/sim_cap_token_policy.rs",
+        "the simulation proof of the bearer-token ledger above, not a capability claim",
     ),
 ];
 

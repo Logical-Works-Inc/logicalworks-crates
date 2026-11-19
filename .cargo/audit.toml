@@ -8,12 +8,14 @@
 #
 # A vulnerability this list does not name still fails the lane: cargo-audit exits
 # non-zero for one whatever `--deny` says. The 13 unmaintained warnings of #637
-# are covered by the ten ids below, so the lane can now deny warnings as well.
+# and the two of 2026-11-19 are covered by the twelve unmaintained ids below, so
+# the lane denies warnings as well.
 
 [advisories]
 ignore = [
-  # SECURITY.md, "Unmaintained transitive crates": the ten ids behind `gpui` or
-  # the Candle features, all default-off, none with a patched version.
+  # SECURITY.md, "Unmaintained transitive crates": the twelve ids behind
+  # `gpui`, Candle and the OAuth, MCP and TUI features, all default-off, none
+  # with a patched version.
   # rustybuzz/ttf-parser: gpui -> cosmic-text, usvg; reopen if gpui moves to a
   # maintained text stack or a shipped binary enables gpui.
   "RUSTSEC-2026-0206",
@@ -22,6 +24,13 @@ ignore = [
   # if gpui ships or its HTTP client leaves those forks.
   "RUSTSEC-2025-0052",
   "RUSTSEC-2025-0134",
+  # pin-utils: gpui -> gpui_http_client -> zed-async-tar -> async-std; reopen
+  # with the async-std row above.
+  "RUSTSEC-2026-0441",
+  # chrono: oauth2, mcp (rmcp), appcui and gpui (schemars), none in the
+  # default graph; reopen if one of those features turns default-on or a
+  # shipped binary enables one, or chrono gains a maintained release.
+  "RUSTSEC-2026-0543",
   # instant/proc-macro-error2: gpui -> gpui_util (fastrand), stacksafe; reopen if
   # gpui ships or those parents drop them.
   "RUSTSEC-2024-0384",

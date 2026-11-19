@@ -12,4 +12,8 @@ ignore = [
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
+  # SECURITY.md, "Unmaintained transitive crates": the fixture selects `gpui`
+  # (pin-utils under async-std) and `oauth2`, `mcp`, `appcui` (chrono).
+  "RUSTSEC-2026-0441",
+  "RUSTSEC-2026-0543",
 ]

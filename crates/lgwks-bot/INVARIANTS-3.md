@@ -29,7 +29,7 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 2 is [`INVARIANTS-2.md`](INVARIANTS-2.
 - **INV-BOT-188** A model-written plan is admitted against the tenant's `Surface` and runs as compiled `script!` does. · why: #786 · enforced by: `tests/it/sim_apps.rs`
 - **INV-BOT-189** A dead durable sink refuses the start before anything is served. · why: #820 · enforced by: `tests/it/start_gate.rs`
 - **INV-BOT-190** The OpenAPI 3.1 document is emitted from the serve route registry. · why: #830 · enforced by: `tests/it/serve_openapi.rs`
-- **INV-BOT-191** Capability tokens verify offline and attenuate only narrower. · why: #779 · enforced by: `tests/it/cap_tokens.rs`
+- **INV-BOT-191** Capability tokens verify offline, attenuate only narrower, refuse a traversal resource segment, and end a denial at its rule. · why: #779, ADR 0067 · enforced by: `tests/it/cap_tokens.rs`, `tests/it/sim_cap_token_policy.rs`
 - **INV-BOT-192** `IdempotentPost` is applied only on a 2xx, never follows a redirect, and leaves a 5xx or a failure after sending unsettled. · why: #910 · enforced by: `idempotent::sim_answer`, `tests/it/retry_proxy.rs`
 - **INV-BOT-193** A whole-document store replace syncs the file before its rename and the directory after it. · why: #910 · enforced by: `durable::sim_durable`, `tests/it/sim_cas_disk.rs`
 - **INV-BOT-194** `Scope::require` fails closed: a scope no host admitted covers nothing, and a spawned step keeps its run's authority. · why: #909 · enforced by: `tests/it/sim_require_closed.rs`

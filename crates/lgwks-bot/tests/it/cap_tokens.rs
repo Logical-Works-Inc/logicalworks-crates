@@ -166,9 +166,18 @@ fn action_exceeds_grant_denies_with_trace() -> TestResult {
         !decision.allowed(),
         "a read-only token never permits a destructive action: {decision:?}"
     );
+    let last = decision
+        .trace()
+        .last()
+        .ok_or("a denial carries its trace")?;
+    assert_eq!(
+        last.rule(),
+        "action",
+        "the denial ends at its rule: {decision:?}"
+    );
     assert!(
-        decision.trace().iter().any(|step| step.rule() == "action"),
-        "the trace names the action rule: {decision:?}"
+        last.inputs().starts_with("grant=read "),
+        "the denying step names the grant the token holds: {decision:?}"
     );
     Ok(())
 }
@@ -189,12 +198,19 @@ fn cross_tenant_forgery_denied() -> TestResult {
         !decision.allowed(),
         "a token minted for one audience never covers another: {decision:?}"
     );
+    let rules: Vec<&str> = decision.trace().iter().map(|step| step.rule()).collect();
+    assert_eq!(
+        rules,
+        ["signature", "expiry", "revocation", "audience"],
+        "a foreign audience stops the walk before action and resource: {decision:?}"
+    );
+    let last = decision
+        .trace()
+        .last()
+        .ok_or("a denial carries its trace")?;
     assert!(
-        decision
-            .trace()
-            .iter()
-            .any(|step| step.rule() == "audience"),
-        "the trace names the audience rule: {decision:?}"
+        last.inputs().starts_with("grant=notes "),
+        "the denying step names the audience the token was minted for: {decision:?}"
     );
     Ok(())
 }
@@ -365,15 +381,42 @@ fn replay_after_revoke_is_refused() -> TestResult {
     Ok(())
 }
 
-/// Fuzzed malformed bytes never panic: truncations and corruptions of a valid
-/// token and raw seeded bytes are all typed refusals.
+/// A decode of hostile bytes answers one of the typed decode refusals, and a
+/// decode that parses still fails verification: no corrupted token verifies.
+fn refused_typed(
+    outcome: Result<BearerToken, TokenError>,
+    authority: &Authority,
+    clock: &Clock,
+) -> TestResult {
+    match outcome {
+        Ok(forged) => match authority.verify(&forged, &RevocationList::new(), clock) {
+            Err(TokenError::Tampered) => Ok(()),
+            other => Err(format!(
+                "a corrupted token that parses must verify tampered: {other:?}"
+            )),
+        },
+        Err(
+            TokenError::Malformed | TokenError::BadText { .. } | TokenError::TextTooLong { .. },
+        ) => Ok(()),
+        Err(other) => Err(format!("hostile bytes refuse as a decode error: {other:?}")),
+    }
+}
+
+/// Fuzzed malformed bytes never panic: truncations and raw seeded bytes are
+/// refused as malformed, and a one-byte corruption of a valid token is refused
+/// typed or fails verification as tampered.
 #[test]
 fn malformed_bytes_are_refused_never_panic() -> TestResult {
-    let (_, _, token) = setup(1_000)?;
+    let (clock, authority, token) = setup(1_000)?;
     let bytes = token.to_bytes().map_err(|cause| cause.to_string())?;
     for end in 0..bytes.len() {
         match BearerToken::from_bytes(&bytes[0..end]) {
-            Ok(_) | Err(_) => (),
+            Err(TokenError::Malformed) => (),
+            other => {
+                return Err(format!(
+                    "a {end}-byte prefix must refuse malformed: {other:?}"
+                ));
+            }
         }
     }
     let mut stream = Stream(0xC0FFEE);
@@ -389,7 +432,8 @@ fn malformed_bytes_are_refused_never_panic() -> TestResult {
             raw.push(narrowed);
         }
         match BearerToken::from_bytes(raw.as_slice()) {
-            Ok(_) | Err(_) => (),
+            Err(TokenError::Malformed) => (),
+            other => return Err(format!("seeded noise must refuse malformed: {other:?}")),
         }
         let pos = stream.below(at_limit)?;
         let at = usize::try_from(pos).map_err(|cause| cause.to_string())?;
@@ -400,9 +444,7 @@ fn malformed_bytes_are_refused_never_panic() -> TestResult {
         if let Some(slot) = cut.get_mut(at) {
             *slot = slot.wrapping_add(1);
         }
-        match BearerToken::from_bytes(cut.as_slice()) {
-            Ok(_) | Err(_) => (),
-        }
+        refused_typed(BearerToken::from_bytes(cut.as_slice()), &authority, &clock)?;
     }
     Ok(())
 }
@@ -645,26 +687,27 @@ fn bearer_tokens_verify_attenuate_monotonically_and_decide_with_trace() -> TestR
     authority
         .verify(&narrowed, &revocations, &clock)
         .map_err(|cause| cause.to_string())?;
-    let decision = decide_inbox(&authority, &narrowed, &clock)?;
+    let inbox =
+        Request::new("notes", "read", "/notes/alice/inbox").map_err(|cause| cause.to_string())?;
+    let decision = Policy::new()
+        .decide(&authority, &narrowed, &inbox, &revocations, &clock)
+        .map_err(|cause| cause.to_string())?;
     assert!(
         decision.allowed(),
         "the narrowed token still allows: {decision:?}"
     );
-    assert!(
-        !decision.trace().is_empty(),
-        "every allow carries its trace: {decision:?}"
-    );
+    let rules: Vec<&str> = decision.trace().iter().map(|step| step.rule()).collect();
     assert_eq!(
-        decision.trace().first().map(|step| step.rule()),
-        Some("signature"),
-        "the trace opens at the signature rule: {decision:?}"
-    );
-    assert!(
-        decision
-            .trace()
-            .iter()
-            .any(|step| step.rule() == "resource"),
-        "the trace closes at the resource rule: {decision:?}"
+        rules,
+        [
+            "signature",
+            "expiry",
+            "revocation",
+            "audience",
+            "action",
+            "resource"
+        ],
+        "an allow walks every rule from signature to resource: {decision:?}"
     );
     Ok(())
 }
