@@ -392,8 +392,10 @@ fn two_tenants_never_share_a_key_or_a_record() -> TestResult {
     }
     // Fresh provisions never reuse an identity, even for one tenant: the two
     // records hold different data keys by construction.
-    let (first_id, _) = provider.provision("acme")?;
-    let (second_id, _) = provider.provision("acme")?;
+    let ids = lgwks_bot::sealed::conformance::mint_ids(provider.as_ref(), "acme", 2)?;
+    let (Some(first_id), Some(second_id)) = (ids.first(), ids.get(1)) else {
+        return Err("two provisions minted two identities".into());
+    };
     assert_ne!(
         first_id.id(),
         second_id.id(),
@@ -711,10 +713,13 @@ fn a_plain_open_refuses_a_sealed_journal() -> TestResult {
 fn a_forgotten_identity_reads_as_missing_until_recalled() -> TestResult {
     let scratch = Scratch::new("sealed-forget")?;
     let faulty = FaultingProvider::open(scratch.path())?;
-    let (id, _key) = faulty.provision("acme")?;
+    use lgwks_bot::sealed::conformance::{mint_ids, try_unwrap};
+    let Some(id) = mint_ids(&faulty, "acme", 1)?.pop() else {
+        return Err("one provision minted one identity".into());
+    };
     let wrapped = faulty.wrap_key(&id)?;
     faulty.forget(&id);
-    match faulty.unwrap_key(&id, &wrapped) {
+    match try_unwrap(&faulty, &id, &wrapped) {
         Err(KeyError::Missing { .. }) => {}
         Err(other) => {
             return Err(format!("a forgotten identity reads as missing, not {other:?}").into());
@@ -722,6 +727,17 @@ fn a_forgotten_identity_reads_as_missing_until_recalled() -> TestResult {
         Ok(_) => return Err("a forgotten identity never opens".into()),
     }
     faulty.recall(&id);
-    faulty.unwrap_key(&id, &wrapped)?;
+    try_unwrap(&faulty, &id, &wrapped)?;
     Ok(())
 }
+
+/// A key provider written outside the crate, run through the conformance kit (#1060).
+#[path = "sealed_outside_provider.rs"]
+mod outside_provider;
+
+/// Hostile providers the conformance kit must name (#1060).
+#[path = "sim_sealed_conformance.rs"]
+mod sim_conformance;
+#[cfg(feature = "testing")]
+#[path = "store_conformance_keys.rs"]
+mod store_conformance_keys;

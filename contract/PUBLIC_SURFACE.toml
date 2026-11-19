@@ -274,10 +274,11 @@
 "crates/lgwks-bot/src/script/stream.rs" = 12
 "crates/lgwks-bot/src/script/trail.rs" = 11
 "crates/lgwks-bot/src/script/typed.rs" = 5
-"crates/lgwks-bot/src/sealed/envelope.rs" = 1
+"crates/lgwks-bot/src/sealed/conformance.rs" = 8
+"crates/lgwks-bot/src/sealed/envelope.rs" = 4
 "crates/lgwks-bot/src/sealed/journal.rs" = 2
 "crates/lgwks-bot/src/sealed/keys.rs" = 10
-"crates/lgwks-bot/src/sealed/mod.rs" = 4
+"crates/lgwks-bot/src/sealed/mod.rs" = 5
 "crates/lgwks-bot/src/sealed/sweep.rs" = 1
 "crates/lgwks-bot/src/semantic.rs" = 21
 "crates/lgwks-bot/src/session.rs" = 10
@@ -535,6 +536,8 @@
 "crates/lgwks-bot/src/script/run_store/step.rs" = 1
 "crates/lgwks-bot/src/script/scope.rs" = 1
 "crates/lgwks-bot/src/script/scope/identity.rs" = 6
+"crates/lgwks-bot/src/sealed/conformance.rs" = 8
+"crates/lgwks-bot/src/sealed/envelope.rs" = 5
 "crates/lgwks-bot/src/session.rs" = 1
 "crates/lgwks-bot/src/session/error.rs" = 2
 "crates/lgwks-bot/src/session/graph.rs" = 2

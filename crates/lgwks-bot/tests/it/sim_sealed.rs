@@ -604,13 +604,12 @@ fn destroy_is_irreversible_and_reprovisioning_is_refused(band: Band) -> TestResu
             }
         }
         // Fresh provisions never reuse a shredded identity.
-        let mut destroyed: Vec<[u8; 16]> = Vec::new();
-        for _ in 0..appended.len() {
-            let (key, _) = fresh.provision("acme")?;
-            destroyed.push(key.id());
-        }
-        for _ in 0..appended.len() {
-            let (key, _) = fresh.provision("acme")?;
+        use lgwks_bot::sealed::conformance::mint_ids;
+        let destroyed: Vec<[u8; 16]> = mint_ids(fresh.as_ref(), "acme", appended.len())?
+            .iter()
+            .map(lgwks_bot::sealed::keys::KeyId::id)
+            .collect();
+        for key in mint_ids(fresh.as_ref(), "acme", appended.len())? {
             assert!(
                 !destroyed.contains(&key.id()),
                 "seed {}: a provision never reuses an identity",

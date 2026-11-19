@@ -6,6 +6,7 @@
 //! |---|---|
 //! | key wrapping, rotation and destruction | [`keys`] |
 //! | the AEAD envelope over one record | [`envelope`] |
+//! | the kit a key provider crate runs against itself | [`conformance`] |
 //! | the journal's sealed reads and shreds | [`journal`] |
 //! | the run store's sealed reads and shreds | `RunStore` in the task layer's run store |
 //! | the TTL sweep port the driver runs | [`sweep`] |
@@ -51,10 +52,11 @@
 //!
 //! [`keys`]: crate::sealed::keys
 //! [`envelope`]: crate::sealed::envelope
+//! [`conformance`]: crate::sealed::conformance
 //! [`journal`]: crate::sealed::journal
 //! [`sweep`]: crate::sealed::sweep
 //! [`KeyError`]: crate::sealed::keys::KeyError
-//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision
+//! [`KeyProvider::provision`]: crate::sealed::keys::KeyProvider::provision_with
 //! [`SweepTarget`]: crate::sealed::sweep::SweepTarget
 //! [`Clock`]: crate::clock::Clock
 
@@ -65,6 +67,11 @@ pub mod envelope;
 /// Wrapped data keys: the `KeyProvider` port, its typed
 /// refusals, key identities, and the software provider.
 pub mod keys;
+
+/// The conformance kit a `KeyProvider` written outside the crate runs against
+/// itself: `check` replays the provider rules from one seed, and `mint_ids`
+/// provisions keys for a load test.
+pub mod conformance;
 
 /// The journal half of sealed records: what a sealed read shows and what a
 /// shred did.
