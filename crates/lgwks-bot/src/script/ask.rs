@@ -95,9 +95,34 @@ pub struct ModelOutput {
     bytes: Vec<u8>,
     /// Whether the output was cut before it ended.
     truncated: bool,
+    /// The tokens the provider billed for the call, prompt and output
+    /// together, when it reported them.
+    billed: Option<u64>,
 }
 
 impl ModelOutput {
+    /// The same output, billed `tokens` by the provider, prompt and output
+    /// together.
+    ///
+    /// What a `justify` token rule settles the call's reservation to. A port
+    /// that reports no bill leaves the whole token budget charged, because
+    /// only the provider knows what it billed and a guess low would let a
+    /// run spend past its allowance unseen.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::script::ModelOutput;
+    ///
+    /// let answered = ModelOutput::from((b"draft".to_vec(), false)).with_billed(412);
+    /// assert_eq!(answered.bytes(), b"draft");
+    /// ```
+    #[must_use]
+    pub fn with_billed(mut self, tokens: u64) -> Self {
+        self.billed = Some(tokens);
+        self
+    }
+
     /// The output bytes, whole or cut at the token budget.
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
@@ -118,7 +143,11 @@ impl From<(Vec<u8>, bool)> for ModelOutput {
     /// double a test installs answers a fixed output through it, and truncation is
     /// a fact its port reports rather than a shape it assembles.
     fn from((bytes, truncated): (Vec<u8>, bool)) -> Self {
-        Self { bytes, truncated }
+        Self {
+            bytes,
+            truncated,
+            billed: None,
+        }
     }
 }
 
@@ -177,7 +206,11 @@ impl ModelPort for StubModel {
             bytes.truncate(budget);
             truncated = true;
         }
-        Ok(ModelOutput { bytes, truncated })
+        Ok(ModelOutput {
+            bytes,
+            truncated,
+            billed: None,
+        })
     }
 }
 
@@ -325,7 +358,17 @@ where
     }
     let want = call_digest(request);
     let (asked, whole): Answered = remember_at(scope, scope.run(), definition, || async {
+        // Inside the step, so a replay neither asks the rules nor spends: the
+        // budget is reserved before the model is called, and stays charged
+        // whole when the call fails, since a provider may bill a call it never
+        // answered.
+        let reserved = u64::from(request.max_tokens);
+        scope.justified_costing(0, reserved).await?;
         let answered = call(scope, model, request).await?;
+        // A port that reports no bill leaves the whole reservation spent.
+        if let Some(billed) = answered.billed {
+            scope.settle_cost(reserved, billed);
+        }
         if answered.truncated {
             let got = u64::saturating_from(answered.bytes.len());
             let refusal = Err(FlowError::InvalidBound {
