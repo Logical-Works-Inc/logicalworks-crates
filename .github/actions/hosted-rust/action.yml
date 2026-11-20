@@ -57,11 +57,14 @@ inputs:
 runs:
   using: composite
   steps:
+    # `.cargo/config.toml` runs every build through clippy-driver, so every
+    # toolchain carries clippy whatever a caller passes: the stable Pages job
+    # passed none and cargo exited 1 with no message (check-gate-parity rule 10).
     - name: Pin Rust
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: ${{ inputs.toolchain }}
-        components: ${{ inputs.components }}
+        components: clippy${{ inputs.components != '' && ',' || '' }}${{ inputs.components }}
     # rust-cache hashes every installed toolchain, so one the image adds rotates
     # the key and throws the cache away (run 39379487172: image 20261018.339.1
     # added stable beside the pin and the std-full job compiled cold).
