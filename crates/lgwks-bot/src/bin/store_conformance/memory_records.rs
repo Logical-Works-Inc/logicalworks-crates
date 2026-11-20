@@ -213,27 +213,3 @@ impl RunRecords for MemoryRecords {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use lgwks_bot::effect::RunId;
-    use lgwks_bot::script::RunRecords;
-    use lgwks_bot::task::DefinitionIdentity;
-    use lgwks_std::hash::Digest;
-
-    use super::MemoryRecords;
-
-    /// A run the double holds nothing for is a first attempt, and a first
-    /// attempt is compatible with any definition, as the trait requires.
-    #[test]
-    fn memory_records_a_first_attempt_is_compatible() -> Result<(), Box<dyn std::error::Error>> {
-        let records = MemoryRecords::default();
-        let run = RunId::from_hex(&format!("6{}", "0".repeat(31)))?;
-        let definition = DefinitionIdentity::new("first", 1, Digest::from_bytes([4; 32]), 1);
-        assert!(
-            records.compatibility(run, &definition)?,
-            "a first attempt is compatible"
-        );
-        Ok(())
-    }
-}

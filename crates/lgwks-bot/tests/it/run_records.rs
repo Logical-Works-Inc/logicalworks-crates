@@ -95,6 +95,27 @@ fn an_in_memory_store_conforms() {
     conformed("the in-memory store", &conformance::check(&mut open));
 }
 
+/// A run the double holds nothing for is a first attempt, and a first attempt is
+/// compatible with any definition, as the trait requires. It lives here, not in the
+/// double's own file, because two targets compile that file and a test there runs
+/// twice under one name, which the acceptance receipts refuse (shards 10 and 14).
+#[test]
+fn memory_records_a_first_attempt_is_compatible() -> TestResult {
+    let records = MemoryRecords::default();
+    let run = lgwks_bot::effect::RunId::from_hex(&format!("6{}", "0".repeat(31)))?;
+    let definition = lgwks_bot::task::DefinitionIdentity::new(
+        "first",
+        1,
+        lgwks_std::hash::Digest::from_bytes([4; 32]),
+        1,
+    );
+    assert!(
+        records.compatibility(run, &definition)?,
+        "a first attempt is compatible"
+    );
+    Ok(())
+}
+
 /// A host for `acme` resolving the shared script domains over `records`.
 fn host_over(records: Arc<dyn RunRecords>) -> Result<Host, Box<dyn Error>> {
     Ok(Host::builder("acme")?
