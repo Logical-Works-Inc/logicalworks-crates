@@ -48,14 +48,11 @@ fn digit_value(byte: u8) -> Option<u8> {
 /// The canonical lowercase text of sixteen bytes.
 fn render(bytes: &[u8; 16]) -> String {
     let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
-    )
+    let (first, rest) = hex.split_at(8);
+    let (second, rest) = rest.split_at(4);
+    let (third, rest) = rest.split_at(4);
+    let (fourth, last) = rest.split_at(4);
+    format!("{first}-{second}-{third}-{fourth}-{last}")
 }
 
 /// The answer RFC 4122 gives for `text`: the bytes, or the first offending
@@ -91,11 +88,17 @@ fn reference_digit(at: usize, byte: u8) -> Result<Option<u8>, ParseError> {
             Err(ParseError::MissingHyphen { at })
         }
     } else {
-        let group = HYPHENS.iter().filter(|&&hyphen| hyphen < at).count();
-        digit_value(byte).map(Some).ok_or(ParseError::NotHexDigit {
-            group_at: GROUP_STARTS[group],
-            at,
-        })
+        // The first group starts at 0, so a start at or before `at` always
+        // exists; a table that lacked one would answer with a length fault the
+        // comparison against the shipped parser then reports.
+        let Some(&group_at) = GROUP_STARTS.iter().rev().find(|&&start| start <= at) else {
+            let refusal = Err(ParseError::WrongLength { len: at, at });
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "reference_digit: returning an error to the caller");
+            return refusal;
+        };
+        digit_value(byte)
+            .map(Some)
+            .ok_or(ParseError::NotHexDigit { group_at, at })
     }
 }
 
@@ -116,8 +119,7 @@ fn corrupted(text: &str, count: usize, attacker: &mut Attacker) -> String {
     let mut bytes = text.as_bytes().to_vec();
     for _ in 0..count {
         let at = attacker.below(bytes.len().max(1));
-        let glyph = *attacker.pick(PRINTABLE);
-        if let Some(slot) = bytes.get_mut(at) {
+        if let (Some(&glyph), Some(slot)) = (attacker.pick(PRINTABLE), bytes.get_mut(at)) {
             *slot = glyph;
         }
     }
@@ -406,7 +408,10 @@ fn sim_adversary_uuid_a_bad_digit_names_its_group() -> TestResult {
         let Some(group) = GROUP_STARTS.iter().position(|&start| start == group_at) else {
             return Err(format!("group start {group_at} is not a group").into());
         };
-        let in_span = at >= group_at && at < group_at.saturating_add(GROUP_WIDTHS[group]);
+        let Some(&width) = GROUP_WIDTHS.get(group) else {
+            return Err(format!("group {group} has no width").into());
+        };
+        let in_span = at >= group_at && at < group_at.saturating_add(width);
         let byte_is_bad = match hostile.as_bytes().get(at) {
             Some(&byte) => digit_value(byte).is_none(),
             None => false,

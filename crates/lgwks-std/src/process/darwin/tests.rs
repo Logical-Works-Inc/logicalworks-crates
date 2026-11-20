@@ -15,12 +15,12 @@ fn record(row: &KinfoRow) -> Vec<u8> {
             slot.copy_from_slice(value);
         }
     };
-    put(OFFSET_PID, &row.pid.to_ne_bytes());
-    put(OFFSET_PPID, &row.ppid.to_ne_bytes());
-    put(OFFSET_PGID, &row.pgid.to_ne_bytes());
+    put(OFFSET_PID, &row.pid.to_le_bytes());
+    put(OFFSET_PPID, &row.ppid.to_le_bytes());
+    put(OFFSET_PGID, &row.pgid.to_le_bytes());
     put(OFFSET_STAT, &[if row.zombie { SZOMB } else { 2 }]);
-    put(OFFSET_START_SEC, &row.start_sec.to_ne_bytes());
-    put(OFFSET_START_USEC, &row.start_usec.to_ne_bytes());
+    put(OFFSET_START_SEC, &row.start_sec.to_le_bytes());
+    put(OFFSET_START_USEC, &row.start_usec.to_le_bytes());
     bytes
 }
 

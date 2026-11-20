@@ -43,7 +43,13 @@ mod sim {
     /// Derive the stream script from `seed` alone.
     fn stream_script(seed: u64) -> StreamScript {
         let mut rng = Rng::new(seed);
-        let ceiling = CEILINGS[rng.below(CEILINGS.len())];
+        // The draw is below the table's length, so the last of the first
+        // `draw + 1` ceilings is the ceiling the draw names.
+        let draw = rng.below(CEILINGS.len());
+        let ceiling = CEILINGS
+            .iter()
+            .take(draw.saturating_add(1))
+            .fold(0, |_, &entry| entry);
         let body_len = match rng.below(5) {
             0 => ceiling,
             1 => ceiling.saturating_sub(1).max(1),

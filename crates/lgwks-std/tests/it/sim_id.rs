@@ -25,7 +25,7 @@ use crate::seeded_sweep;
 use lgwks_std::id::{ParseError, Uuid};
 
 use lgwks_std::seeded::Seeded;
-use seeded_bytes::{fold_bytes, next_array, reference_nibble};
+use seeded_bytes::{fold_bytes, next_array, reference_lower_pair, reference_nibble};
 use seeded_sweep::seeded_stream;
 use seeded_sweep::{
     SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays, fold, fold_usize,
@@ -67,18 +67,12 @@ fn reference_render(bytes: &[u8; 16]) -> String {
             .into_iter()
             .flatten()
         {
-            rendered.push(char::from(LOWER_HEX[usize::from(byte >> 4)]));
-            rendered.push(char::from(LOWER_HEX[usize::from(byte & 0x0f)]));
+            rendered.push_str(&reference_lower_pair(*byte));
         }
         cursor = cursor.saturating_add(byte_width);
     }
     rendered
 }
-
-/// The lowercase hex alphabet, indexed by nibble: the table is the documented
-/// rendering rather than a call into the shipped `Display`, so this reference
-/// cannot agree with it by construction.
-const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// The trace arm for a parsed value that reports no version at all, kept
 /// distinct from version zero so the two cannot fold alike.
@@ -106,11 +100,11 @@ fn version_arm(value: &Uuid) -> u64 {
 fn reference_group_starts() -> [usize; 5] {
     let mut starts = [0usize; 5];
     let mut cursor = 0usize;
-    for (index, &(char_width, _)) in GROUPS.iter().enumerate() {
+    for (slot, (index, &(char_width, _))) in starts.iter_mut().zip(GROUPS.iter().enumerate()) {
         if index > 0 {
             cursor = cursor.saturating_add(1);
         }
-        starts[index] = cursor;
+        *slot = cursor;
         cursor = cursor.saturating_add(char_width);
     }
     starts
@@ -144,8 +138,7 @@ fn reference_parse(text: &str) -> Result<[u8; 16], Reference> {
     let starts = reference_group_starts();
     let mut raw = [0u8; 16];
     let mut byte_cursor = 0usize;
-    for (index, &(_, byte_width)) in GROUPS.iter().enumerate() {
-        let hex_at = starts[index];
+    for (index, (&(_, byte_width), hex_at)) in GROUPS.iter().zip(starts).enumerate() {
         // The separator is consumed *before* a non-first group's hex, so it sits
         // one character earlier. Two different facts about two different
         // offsets: a missing separator is named at the separator's own

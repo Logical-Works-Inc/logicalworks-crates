@@ -299,7 +299,7 @@ fn sim_adversary_digest_streaming_equals_one_shot_at_every_length() -> TestResul
         let block = attacker.bytes(251);
         let data: Vec<u8> = block.iter().cycle().take(4_200).copied().collect();
         for len in 0..=4_200_usize {
-            let message = &data[..len];
+            let (message, _rest) = data.split_at(len);
             let whole = blake3(message);
             assert_eq!(
                 joined(&[message]),
@@ -307,17 +307,19 @@ fn sim_adversary_digest_streaming_equals_one_shot_at_every_length() -> TestResul
                 "seed {seed:#x}: {len} bytes whole"
             );
             let cut = attacker.below(len.saturating_add(1));
+            let (head, tail) = message.split_at(cut);
             assert_eq!(
-                joined(&[&message[..cut], &message[cut..]]),
+                joined(&[head, tail]),
                 whole,
                 "seed {seed:#x}: {len} bytes cut at {cut}"
             );
         }
         let mut hasher = Hasher::new();
-        for &byte in data.iter().take(2_100) {
+        let (fed, _unfed) = data.split_at(2_100);
+        for &byte in fed {
             hasher.update(&[byte]);
         }
-        assert_eq!(hasher.finalize(), blake3(&data[..2_100]), "byte by byte");
+        assert_eq!(hasher.finalize(), blake3(fed), "byte by byte");
         Ok(())
     })
 }
@@ -385,9 +387,10 @@ fn sim_adversary_digest_framing_separates_every_split() -> TestResult {
         let data = attacker.bytes(len);
         let mut framed_digests = BTreeSet::new();
         for cut in 0..=len {
-            framed_digests.insert(framed(&[&data[..cut], &data[cut..]]));
+            let (head, tail) = data.split_at(cut);
+            framed_digests.insert(framed(&[head, tail]));
             assert_eq!(
-                joined(&[&data[..cut], &data[cut..]]),
+                joined(&[head, tail]),
                 blake3(&data),
                 "seed {seed:#x} round {round}: plain split at {cut}"
             );
@@ -601,7 +604,9 @@ fn sim_adversary_digest_sixteen_megabytes_in_awkward_pieces() -> TestResult {
         }
         assert_eq!(hasher.finalize(), whole, "seed {seed:#x}: pieces of 4093");
         let mut damaged = data;
-        damaged[size.saturating_sub(1)] ^= 0x01;
+        if let Some(last) = damaged.last_mut() {
+            *last ^= 0x01;
+        }
         assert_ne!(blake3(&damaged), whole, "seed {seed:#x}: the last bit");
         Ok(())
     })

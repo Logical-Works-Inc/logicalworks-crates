@@ -108,7 +108,7 @@ mod probe {
     }
 
     /// Every labelled number the probe prints, keyed by label.
-    fn measurements(stdout: &str) -> Result<BTreeMap<String, u64>, Box<dyn std::error::Error>> {
+    fn measurements(stdout: &str) -> BTreeMap<String, u64> {
         let mut values = BTreeMap::new();
         for line in stdout.lines() {
             if let Some((key, rest)) = line.split_once(' ')
@@ -121,7 +121,7 @@ mod probe {
             !values.is_empty(),
             "probe printed no labelled measurements:\n{stdout}"
         );
-        Ok(values)
+        values
     }
 
     /// The public read path holds the ceiling, not the body, and the probe
@@ -129,7 +129,7 @@ mod probe {
     #[test]
     fn the_read_path_retains_the_ceiling_not_the_body() -> Result<(), Box<dyn std::error::Error>> {
         let stdout = crate::consumer_probe::build_and_run(&manifest(), PROBE_MAIN)?;
-        measurements(&stdout)?;
+        measurements(&stdout);
         let get = |key: &str| -> Result<u64, Box<dyn std::error::Error>> { value(&stdout, key) };
 
         // Body length and exact-ceiling completion.
@@ -465,7 +465,7 @@ fn measure(url: &str, options: &Options) -> Result<Measured, Box<dyn std::error:
         retained,
         peak,
         header_bytes,
-        cut: u8::from(response.truncation == Truncation::Cut),
+        cut: u8::from(response.truncation() == Truncation::Cut),
     })
 }
 

@@ -7,11 +7,15 @@ use std::fmt;
 
 // ── Encoding ────────────────────────────────────────────────────────────────
 
-/// The lowercase base-16 digit set, indexed by nibble value: the byte at index
-/// `nibble` is the ASCII character that represents it (`LOWER[0x0a] == b'a'`).
-/// Indexing is therefore always in bounds for `nibble <= 0x0f`, which is what
-/// the masked nibbles below guarantee.
-const LOWER: &[u8; 16] = b"0123456789abcdef";
+/// The lowercase base-16 digit for the low four bits of `nibble`: `0`-`9` for
+/// 0-9 and `a`-`f` for 10-15 (`lower_digit(0x0a) == 'a'`). The value is masked
+/// to a nibble, so every input maps to an ASCII digit.
+fn lower_digit(nibble: u8) -> char {
+    char::from(match nibble & 0x0f {
+        digit @ 0..=9 => b'0'.saturating_add(digit),
+        letter => b'a'.saturating_add(letter.saturating_sub(10)),
+    })
+}
 
 /// Encodes bytes as lowercase hex, two characters per input byte.
 pub fn encode(bytes: impl AsRef<[u8]>) -> String {
@@ -25,9 +29,9 @@ pub fn encode(bytes: impl AsRef<[u8]>) -> String {
     for &byte in bytes {
         // The high nibble is the top four bits; `char::from` on a `u8` is the
         // lossless, panic-free widening that the lint-required `as` removal
-        // demands, and every byte in `LOWER` is ASCII.
-        out.push(char::from(LOWER[usize::from(byte >> 4)]));
-        out.push(char::from(LOWER[usize::from(byte & 0x0f)]));
+        // demands, and every digit `lower_digit` yields is ASCII.
+        out.push(lower_digit(byte >> 4));
+        out.push(lower_digit(byte));
     }
     out
 }
@@ -186,8 +190,8 @@ pub fn decode_into(input: impl AsRef<[u8]>, output: &mut [u8]) -> Result<(), Dec
 #[cfg(any(feature = "random", feature = "hash"))]
 pub(crate) fn write_lowercase(bytes: &[u8], output: &mut impl fmt::Write) -> fmt::Result {
     for &byte in bytes {
-        output.write_char(char::from(LOWER[usize::from(byte >> 4)]))?;
-        output.write_char(char::from(LOWER[usize::from(byte & 0x0f)]))?;
+        output.write_char(lower_digit(byte >> 4))?;
+        output.write_char(lower_digit(byte))?;
     }
     Ok(())
 }

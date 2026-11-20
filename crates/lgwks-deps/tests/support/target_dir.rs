@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 /// gave a developer (or a gate lane) with its own target directory a second,
 /// cold copy. `CARGO_MANIFEST_DIR` is the including crate's, and every
 /// workspace crate sits two levels below the workspace root.
-pub fn workspace_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub(super) fn workspace_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     if let Some(configured) = std::env::var_os("CARGO_TARGET_DIR") {
         return Ok(PathBuf::from(configured));
     }
@@ -20,7 +20,7 @@ pub fn workspace_target_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
 }
 
 /// The workspace root: two levels above the including crate's manifest.
-pub fn workspace_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub(super) fn workspace_root() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)

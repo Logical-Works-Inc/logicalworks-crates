@@ -140,7 +140,11 @@ impl FileKind {
         if file_type.is_dir() {
             return Self::Directory;
         }
-        if file_type.is_file() {
+        // A regular file is exactly what is meant here: every other kind this
+        // platform names is tested below, and what none of them names is
+        // `Unknown`, so `!is_dir()` would misreport a socket as a file. The
+        // associated-function spelling states that the narrow test is chosen.
+        if fs::FileType::is_file(&file_type) {
             return Self::File;
         }
         #[cfg(unix)]
@@ -667,9 +671,15 @@ pub fn available_space(path: impl AsRef<Path>) -> io::Result<u64> {
 ///
 /// The `fs-raw` capability is Unix-only; other targets report
 /// [`io::ErrorKind::Unsupported`] rather than a fabricated value.
+///
+/// # Examples
+///
+/// ```no_run
+/// let refused = lgwks_std::fs::available_space(".");
+/// assert!(refused.is_err());
+/// ```
 #[cfg(all(not(unix), feature = "fs-raw"))]
-pub fn available_space(path: impl AsRef<Path>) -> io::Result<u64> {
-    let _ = path;
+pub fn available_space(_path: impl AsRef<Path>) -> io::Result<u64> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "fs-raw available_space is Unix-only",

@@ -77,17 +77,26 @@ pub fn validate_url(url: &str) -> Result<(), Error> {
     };
     // With no `/`, `?` or `#` after it, the authority is the whole remainder: a
     // URL may end at its authority, and refusing that would refuse a valid one.
-    let host_end = match authority.find(['/', '?', '#']) {
-        Some(end) => end,
-        None => authority.len(),
-    };
-    if authority[..host_end].is_empty() {
+    let (host, _) = split_before(authority, &['/', '?', '#']);
+    if host.is_empty() {
         let refusal = Err(Error::InvalidUrl);
         #[cfg(feature = "trace")]
         crate::trace::debug!(error = ?refusal.as_ref().err(), "validate_url: returning an error to the caller");
         return refusal;
     }
     Ok(())
+}
+
+/// Split `text` at the first of `delimiters`, keeping the delimiter at the
+/// front of the tail; with none present the head is the whole text.
+fn split_before<'text>(text: &'text str, delimiters: &[char]) -> (&'text str, &'text str) {
+    match text
+        .find(delimiters)
+        .and_then(|end| text.split_at_checked(end))
+    {
+        Some(parts) => parts,
+        None => (text, ""),
+    }
 }
 
 /// Build the agent for `options`, pooling idle connections per `pool`.
@@ -172,28 +181,16 @@ pub(super) fn sanitized_target(uri: &str) -> String {
     let Some((scheme, remainder)) = uri.split_once("://") else {
         return String::from("<invalid-target>");
     };
-    // Both spans below end at a delimiter this function found, or at the end of
-    // the remainder, so each is a slice of it rather than a lookup that could be
-    // absent.
-    let authority_end = match remainder.find(['/', '?', '#']) {
-        Some(end) => end,
-        None => remainder.len(),
-    };
-    let span = &remainder[..authority_end];
+    let (span, suffix) = split_before(remainder, &['/', '?', '#']);
     // Everything before the last `@` of the authority is userinfo and is dropped;
     // an authority with no `@` is kept whole.
     let authority = match span.rsplit_once('@') {
         Some((_userinfo, host)) => host,
         None => span,
     };
-    let suffix = &remainder[authority_end..];
     // The query and the fragment are dropped as well, so the path is the span
     // before the first of either, or the whole suffix when it has neither.
-    let path_end = match suffix.find(['?', '#']) {
-        Some(end) => end,
-        None => suffix.len(),
-    };
-    let path = &suffix[..path_end];
+    let (path, _) = split_before(suffix, &['?', '#']);
     let path = if path.is_empty() { "/" } else { path };
     format!("{scheme}://{authority}{path}")
 }
@@ -265,10 +262,10 @@ pub(super) fn stream_of(
     response: ureq::http::Response<ureq::Body>,
     options: &Options,
     redirect_chain: Vec<String>,
-) -> Result<super::StreamResponse, Error> {
+) -> super::StreamResponse {
     let (status, headers, header_bytes, final_target) = head_of(&response);
     let reader = response.into_body().into_reader();
-    Ok(super::StreamResponse::new(
+    super::StreamResponse::new(
         status,
         headers,
         header_bytes,
@@ -276,7 +273,7 @@ pub(super) fn stream_of(
         redirect_chain,
         options,
         reader,
-    ))
+    )
 }
 
 /// Read at most `options.max_body_bytes` from `reader`.
@@ -311,18 +308,26 @@ pub(super) fn read_bounded(
         if remaining == 0 {
             break probe_for_more(reader)?;
         }
-        // `wanted` is clamped to the chunk length, so this slice is in bounds
-        // for every ceiling: the window is what remains, or one chunk,
-        // whichever is smaller.
+        // `wanted` is clamped to the chunk length, so the window is what
+        // remains, or one chunk, whichever is smaller.
         let wanted = remaining.min(READ_CHUNK_BYTES);
+        let window = chunk.get_mut(..wanted).ok_or_else(window_error)?;
         let read = reader
-            .read(&mut chunk[..wanted])
-            .map_err(|read_error| map_read_error(read_error, FailureStage::Body))?;
+            .read(window)
+            .map_err(|read_error| map_read_error(&read_error, FailureStage::Body))?;
         if read == 0 {
             break Truncation::Complete;
         }
+        // A reader that reports more bytes than its window held is refused
+        // rather than trusted: a count past `wanted` would carry the body past
+        // its ceiling, whatever the chunk could hold.
+        if read > wanted {
+            #[cfg(feature = "trace")]
+            crate::trace::debug!("read_bounded: returning an error to the caller");
+            return Err(window_error());
+        }
         reserve_for(&mut body, read, ceiling)?;
-        body.extend_from_slice(&chunk[..read]);
+        body.extend_from_slice(chunk.get(..read).ok_or_else(window_error)?);
     };
     if options.body_policy == BodyPolicy::Whole && truncation == Truncation::Cut {
         let refusal = Err(Error::BodyTooLarge { limit: ceiling });
@@ -331,6 +336,16 @@ pub(super) fn read_bounded(
         return refusal;
     }
     Ok((body, truncation))
+}
+
+/// The refusal for a read window the chunk buffer cannot supply: a reader
+/// that reports more bytes than it was given.
+pub(super) fn window_error() -> Error {
+    failure(
+        FailureStage::Body,
+        FailureKind::Transport,
+        Some("a body read reported more bytes than its window".to_owned()),
+    )
 }
 
 /// Make room for `incoming` more bytes, growing geometrically up to `ceiling`.
@@ -377,7 +392,7 @@ fn probe_for_more(reader: &mut impl Read) -> Result<Truncation, Error> {
     let mut scratch = [0_u8; 1];
     let read = reader
         .read(&mut scratch)
-        .map_err(|read_error| map_read_error(read_error, FailureStage::EofProbe))?;
+        .map_err(|read_error| map_read_error(&read_error, FailureStage::EofProbe))?;
     Ok(if read == 0 {
         Truncation::Complete
     } else {
@@ -418,7 +433,7 @@ pub(super) fn failure(stage: FailureStage, kind: FailureKind, cause: Option<Stri
 }
 
 /// Classify a body-reader error by its typed source and I/O kind.
-pub(super) fn map_read_error(error: std::io::Error, stage: FailureStage) -> Error {
+pub(super) fn map_read_error(error: &std::io::Error, stage: FailureStage) -> Error {
     let ureq_timeout = error
         .get_ref()
         .and_then(|source| source.downcast_ref::<ureq::Error>())
@@ -486,7 +501,7 @@ pub(super) fn map_error(error: ureq::Error, is_tls: bool) -> Error {
                 }
                 _ => FailureStage::Request,
             };
-            map_read_error(cause, stage)
+            map_read_error(&cause, stage)
         }
         ureq::Error::Protocol(cause) => failure(
             FailureStage::Headers,

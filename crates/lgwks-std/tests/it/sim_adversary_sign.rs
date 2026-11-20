@@ -350,7 +350,10 @@ fn sim_adversary_sign_a_boundary_cannot_be_slid() -> TestResult {
         let (secret, public) = draw_key(attacker);
         let text = attacker.bytes(24);
         let seals: Vec<Signature> = (0..=text.len())
-            .map(|cut| sign(&secret, &text[..cut], &text[cut..]))
+            .map(|cut| {
+                let (tag, record) = text.split_at(cut);
+                sign(&secret, tag, record)
+            })
             .collect();
         let distinct: BTreeSet<[u8; 64]> = seals.iter().map(|seal| seal.to_bytes()).collect();
         assert_eq!(
@@ -360,7 +363,8 @@ fn sim_adversary_sign_a_boundary_cannot_be_slid() -> TestResult {
         );
         for (cut, seal) in seals.iter().enumerate() {
             for other in 0..=text.len() {
-                let opens = verify_strict(&public, &text[..other], &text[other..], seal).is_ok();
+                let (tag, record) = text.split_at(other);
+                let opens = verify_strict(&public, tag, record, seal).is_ok();
                 assert_eq!(
                     opens,
                     cut == other,
@@ -384,7 +388,8 @@ fn sim_adversary_sign_a_tag_extended_with_digest_bytes_does_not_open() -> TestRe
         let digest = lgwks_std::hash::blake3(&record);
         for take in 0..=32_usize {
             let mut extended = TAG.to_vec();
-            extended.extend_from_slice(&digest.as_bytes()[..take]);
+            let (prefix, _rest) = digest.as_bytes().split_at(take);
+            extended.extend_from_slice(prefix);
             for candidate in [record.clone(), Vec::new(), draw_record(attacker, 32)] {
                 let opens = verify_strict(&public, &extended, &candidate, &seal).is_ok();
                 assert!(
@@ -400,7 +405,7 @@ fn sim_adversary_sign_a_tag_extended_with_digest_bytes_does_not_open() -> TestRe
 /// An empty tag, an empty record and a megabyte of each all seal and open, and a
 /// bit flipped in the megabyte record breaks the seal.
 #[test]
-fn sim_adversary_sign_empty_and_huge_inputs_seal_and_open() -> TestResult {
+fn sim_adversary_sign_empty_and_huge_inputs_seal_and_open() {
     let (secret, public) = draw_key(&mut Attacker::new(SWEEP_SEEDS[0]));
     let big = vec![0x5a_u8; 1_048_576];
     for (tag, record) in [
@@ -425,7 +430,6 @@ fn sim_adversary_sign_empty_and_huge_inputs_seal_and_open() -> TestResult {
         Err(VerifyError::Mismatch),
         "one bit in the middle of a megabyte"
     );
-    Ok(())
 }
 
 /// The secret key never prints its seed: debug is the same redacted text for

@@ -29,7 +29,7 @@ use lgwks_std::pattern::{
 };
 
 use lgwks_std::seeded::Seeded;
-use seeded_bytes::{below, fold_bytes, next_byte, next_text};
+use seeded_bytes::{below, fold_bytes, next_byte, next_text, pick};
 use seeded_sweep::seeded_stream;
 use seeded_sweep::{
     SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays, fold_usize, initial_trace,
@@ -54,13 +54,19 @@ fn config(input_limit: usize, output_limit: usize) -> PatternConfig {
 /// A seeded haystack of `length` bytes drawn from a small alphabet, so
 /// catastrophic backtracking has something to be catastrophic over.
 fn draw_haystack(state: &mut Seeded, length: usize) -> String {
-    let alphabet = "aaaab";
     (0..length)
-        .map(|_| {
-            let index = usize::from(next_byte(state).rem_euclid(5));
-            char::from(alphabet.as_bytes()[index])
-        })
+        .map(|_| pick(&ALPHABET, usize::from(next_byte(state)), 'a'))
         .collect()
+}
+
+/// The glyphs a haystack is drawn from: four `a`s to one `b`.
+const ALPHABET: [char; 5] = ['a', 'a', 'a', 'a', 'b'];
+
+/// The engine of `engines` that was compiled from `pattern`.
+fn engine_of<'a, T>(engines: &'a [T], pattern: &str) -> Result<&'a T, Box<dyn std::error::Error>> {
+    engines
+        .get(slot(pattern)?)
+        .ok_or_else(|| format!("no engine is compiled for {pattern:?}").into())
 }
 
 /// Draws a (pattern, haystack) pair from one seed, for the families that
@@ -70,7 +76,7 @@ fn draw_haystack(state: &mut Seeded, length: usize) -> String {
 /// the same shape of case, and a draw written four times is four draws that can
 /// drift apart without anything noticing.
 fn draw_case(state: &mut Seeded) -> (&'static str, String) {
-    let pattern = PATTERNS[below(state, PATTERNS.len())];
+    let pattern = pick(&PATTERNS, below(state, PATTERNS.len()), r"\d+");
     let length = below(state, 64);
     let haystack = draw_haystack(state, length);
     (pattern, haystack)
@@ -158,7 +164,15 @@ fn pattern_trace(seed: u64) -> u64 {
         let length = below(&mut state, INPUT_LIMIT);
         let haystack = draw_haystack(&mut state, length);
 
-        let observed = table.traced[index].is_match(&haystack);
+        let engines = table.traced.get(index).zip(table.unbounded.get(index));
+        assert!(
+            engines.is_some(),
+            "seed {seed}: slot {index} is in every compiled table"
+        );
+        let Some((traced, plain)) = engines else {
+            return trace;
+        };
+        let observed = traced.is_match(&haystack);
         assert!(
             observed.is_ok(),
             "seed {seed}: a {length}-byte haystack is inside the bound and must be searched"
@@ -166,7 +180,7 @@ fn pattern_trace(seed: u64) -> u64 {
         if let Ok(observed) = observed {
             assert_eq!(
                 observed,
-                table.unbounded[index].is_match(&haystack),
+                plain.is_match(&haystack),
                 "seed {seed}: a {length}-byte haystack must match as the engine matches"
             );
             fold_usize(&mut trace, usize::from(observed));
@@ -187,8 +201,8 @@ fn a_bounded_match_agrees_with_the_unbounded_engine() -> Result<(), Box<dyn std:
         for _ in 0..48 {
             let (pattern, haystack) = draw_case(&mut state);
 
-            let expected = compiled()?.unbounded[slot(pattern)?].is_match(&haystack);
-            let bounded = &compiled()?.narrow[slot(pattern)?];
+            let expected = engine_of(&compiled()?.unbounded, pattern)?.is_match(&haystack);
+            let bounded = engine_of(&compiled()?.narrow, pattern)?;
             assert_eq!(
                 bounded.is_match(&haystack)?,
                 expected,
@@ -215,7 +229,7 @@ fn an_input_past_the_ceiling_is_refused_by_every_operation()
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..16 {
-            let over = INPUT_LIMIT.saturating_add(1 + below(&mut state, 64));
+            let over = INPUT_LIMIT.saturating_add(below(&mut state, 64).saturating_add(1));
             let haystack = draw_haystack(&mut state, over);
             let refused = PatternRunError::InputTooLarge {
                 limit: INPUT_LIMIT,
@@ -306,9 +320,9 @@ fn an_amplifying_replacement_is_refused_before_the_append() -> Result<(), Box<dy
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..24 {
-            let matches = below(&mut state, 16) + 1;
+            let matches = below(&mut state, 16).saturating_add(1);
             let haystack = "a".repeat(matches);
-            let per_match = below(&mut state, 8) + 2;
+            let per_match = below(&mut state, 8).saturating_add(2);
             let replacement = "x".repeat(per_match);
             let output_limit = matches.saturating_mul(2);
             let would_produce = matches.saturating_mul(per_match);
@@ -369,8 +383,8 @@ fn a_bounded_replacement_expands_exactly_like_the_engine() -> Result<(), Box<dyn
             let template_len = below(&mut state, 6);
             let template = next_text(&mut state, template_len);
 
-            let unbounded = &compiled()?.unbounded[slot(pattern)?];
-            let bounded = &compiled()?.wide[slot(pattern)?];
+            let unbounded = engine_of(&compiled()?.unbounded, pattern)?;
+            let bounded = engine_of(&compiled()?.wide, pattern)?;
             assert_eq!(
                 bounded.replace_all(&haystack, &template)?,
                 unbounded.replace_all(&haystack, &template),
@@ -397,11 +411,11 @@ fn a_bounded_find_all_yields_the_engines_spans_in_order() -> Result<(), Box<dyn 
         for _ in 0..32 {
             let (pattern, haystack) = draw_case(&mut state);
 
-            let unbounded: Vec<(usize, usize)> = compiled()?.unbounded[slot(pattern)?]
+            let unbounded: Vec<(usize, usize)> = engine_of(&compiled()?.unbounded, pattern)?
                 .find_all(&haystack)
                 .map(|found| (found.start, found.end))
                 .collect();
-            let observed: Vec<(usize, usize)> = compiled()?.wide[slot(pattern)?]
+            let observed: Vec<(usize, usize)> = engine_of(&compiled()?.wide, pattern)?
                 .find_all(&haystack)?
                 .map(|found| (found.start, found.end))
                 .collect();
@@ -412,7 +426,7 @@ fn a_bounded_find_all_yields_the_engines_spans_in_order() -> Result<(), Box<dyn 
             );
             for window in observed.windows(2) {
                 assert!(
-                    window[0].1 <= window[1].0,
+                    matches!(*window, [(_, end), (start, _)] if end <= start),
                     "seed {seed}: spans must not overlap and must stay in source order"
                 );
             }
@@ -431,10 +445,12 @@ fn a_bounded_split_yields_the_engines_pieces() -> Result<(), Box<dyn std::error:
         for _ in 0..32 {
             let (pattern, haystack) = draw_case(&mut state);
 
-            let unbounded: Vec<&str> = compiled()?.unbounded[slot(pattern)?]
+            let unbounded: Vec<&str> = engine_of(&compiled()?.unbounded, pattern)?
                 .split(&haystack)
                 .collect();
-            let observed: Vec<&str> = compiled()?.wide[slot(pattern)?].split(&haystack)?.collect();
+            let observed: Vec<&str> = engine_of(&compiled()?.wide, pattern)?
+                .split(&haystack)?
+                .collect();
             assert_eq!(
                 observed, unbounded,
                 "seed {seed}: {pattern:?} must split as the engine splits"
@@ -502,11 +518,12 @@ fn a_no_match_borrows_and_still_honours_the_output_ceiling()
 /// source pattern over its limit is refused with the limit and the actual size,
 /// and the refusal carries only a bounded excerpt of the pattern rather than the
 /// whole thing.
-fn a_compile_ceiling_is_refused_with_the_limit_and_the_size() {
+fn a_compile_ceiling_is_refused_with_the_limit_and_the_size()
+-> Result<(), Box<dyn std::error::Error>> {
     let long = "a".repeat(1_000);
     let error = match Regex::with_config(&long, PatternConfig::with_limits(3, 1_000, 250, 16, 16)) {
         Err(error) => error,
-        Ok(_) => return,
+        Ok(_) => return Err("a pattern over its source ceiling must not compile".into()),
     };
     assert_eq!(
         error.kind(),
@@ -521,6 +538,7 @@ fn a_compile_ceiling_is_refused_with_the_limit_and_the_size() {
         64,
         "the refusal keeps a bounded excerpt, not the whole pattern"
     );
+    Ok(())
 }
 
 #[test]

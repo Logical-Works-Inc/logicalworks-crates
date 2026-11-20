@@ -198,7 +198,7 @@ fn lossy_score<E: std::fmt::Debug>(scored: Result<f64, E>, scorer: &'static str)
             #[cfg(feature = "trace")]
             crate::trace::debug!(error = ?refusal, scorer = scorer, "Similarity::score: a refusal reads as zero on the lossy path");
             #[cfg(not(feature = "trace"))]
-            let _ = (scorer, refusal);
+            drop((scorer, refusal));
             0.0
         }
     }
@@ -360,7 +360,9 @@ fn jaccard_unit<T: PartialEq>(left: &[T], right: &[T]) -> f64 {
         .filter(|item| {
             let index = item.0;
             let value = item.1;
-            !left[..index].iter().any(|previous| previous == value)
+            !left
+                .get(..index)
+                .is_some_and(|earlier| earlier.iter().any(|previous| previous == value))
                 && right.iter().any(|candidate| candidate == value)
         })
         .fold(0.0, |count, _| count + 1.0);

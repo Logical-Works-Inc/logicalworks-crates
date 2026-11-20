@@ -207,13 +207,8 @@ fn fixtures_dir() -> BenchResult<Option<PathBuf>> {
     Ok(dir)
 }
 
-fn main() -> BenchResult<()> {
-    let fixtures = fixtures_dir()?;
-    let mut stream = Stream(0x9e37_79b9_7f4a_7c15);
-
-    let text = "PAYROLL 2026-11 DEPT 0042 EMPLOYEE 0001234 NET 0004567.89 ".repeat(18_000);
-    let ebcdic = ebcdic_encode(CodePage::Cp037, &text, &BOUNDS)?;
-
+/// `PACKED_VALUES` packed decimals, back to back.
+fn packed_values() -> BenchResult<Vec<u8>> {
     let mut packed: Vec<u8> = Vec::with_capacity(PACKED_VALUES.saturating_mul(PACKED_WIDTH));
     for index in 0..i128::try_from(PACKED_VALUES)? {
         packed.extend(encode_packed(
@@ -223,7 +218,11 @@ fn main() -> BenchResult<()> {
             &BOUNDS,
         )?);
     }
+    Ok(packed)
+}
 
+/// The payroll copybook and one record encoded under it.
+fn pay_layout() -> BenchResult<(RecordLayout, Vec<u8>)> {
     let layout = RecordLayout::parse(
         "01 PAY.\n 05 ID PIC X(10).\n 05 NAME PIC X(30).\n 05 NET PIC S9(9)V99 COMP-3.\n 05 HOURS PIC S9(4) COMP.\n",
         &BOUNDS,
@@ -237,15 +236,11 @@ fn main() -> BenchResult<()> {
         ],
         &BOUNDS,
     )?;
-    let records = record.repeat(RECORDS);
+    Ok((layout, record))
+}
 
-    let workbook: Vec<u8> = (0..=250_u8).cycle().take(1_048_576).collect();
-    let compound = build_image(&[("Workbook", workbook.as_slice())], &BOUNDS)?;
-    let opened = CfbFile::open(&compound, &BOUNDS)?;
-
-    let source = "Sub Total()\r\n    Range(\"A1\").Value = Sum(1, 2)\r\nEnd Sub\r\n".repeat(1_000);
-    let vba_coded = vba::compress(source.as_bytes(), &BOUNDS)?;
-
+/// A `Pay` table of `DB_ROWS` rows, built into a Jet 4 image.
+fn access_image() -> BenchResult<Vec<u8>> {
     let defs = vec![
         ColumnDef::new("Id", ColumnTag::Integer, 0),
         ColumnDef::new("Name", ColumnTag::Text, 40),
@@ -259,9 +254,21 @@ fn main() -> BenchResult<()> {
             CellValue::Currency(Decimal::new(i128::from(index).saturating_mul(12_345), 4)),
         ]);
     }
-    let database = rows::build_image(DbVersion::Jet4, &[("Pay", &defs, &table)], &BOUNDS)?;
+    Ok(rows::build_image(
+        DbVersion::Jet4,
+        &[("Pay", &defs, &table)],
+        &BOUNDS,
+    )?)
+}
 
-    let page = fax_page(&mut stream)?;
+/// The G3 and G4 encodings of one drawn page, each checked to round-trip, and
+/// written out beside the EBCDIC text when `fixtures` names a directory.
+fn fax_pair(
+    stream: &mut Stream,
+    fixtures: Option<&Path>,
+    ebcdic: &[u8],
+) -> BenchResult<(Vec<u8>, Vec<u8>)> {
+    let page = fax_page(stream)?;
     let g3 = encode_tiff(core::slice::from_ref(&page), Compression::G3, &BOUNDS)?;
     let g4 = encode_tiff(core::slice::from_ref(&page), Compression::G4, &BOUNDS)?;
     for (coded, name) in [(&g3, "G3"), (&g4, "G4")] {
@@ -272,9 +279,32 @@ fn main() -> BenchResult<()> {
             return Err(refusal.into());
         }
     }
-    if let Some(dir) = fixtures.as_deref() {
-        write_fixtures(dir, &ebcdic, &g3, &g4)?;
+    if let Some(dir) = fixtures {
+        write_fixtures(dir, ebcdic, &g3, &g4)?;
     }
+    Ok((g3, g4))
+}
+
+fn main() -> BenchResult<()> {
+    let fixtures = fixtures_dir()?;
+    let mut stream = Stream(0x9e37_79b9_7f4a_7c15);
+
+    let text = "PAYROLL 2026-11 DEPT 0042 EMPLOYEE 0001234 NET 0004567.89 ".repeat(18_000);
+    let ebcdic = ebcdic_encode(CodePage::Cp037, &text, &BOUNDS)?;
+
+    let packed = packed_values()?;
+    let (layout, record) = pay_layout()?;
+    let records = record.repeat(RECORDS);
+
+    let workbook: Vec<u8> = (0..=250_u8).cycle().take(1_048_576).collect();
+    let compound = build_image(&[("Workbook", workbook.as_slice())], &BOUNDS)?;
+    let opened = CfbFile::open(&compound, &BOUNDS)?;
+
+    let source = "Sub Total()\r\n    Range(\"A1\").Value = Sum(1, 2)\r\nEnd Sub\r\n".repeat(1_000);
+    let vba_coded = vba::compress(source.as_bytes(), &BOUNDS)?;
+
+    let database = access_image()?;
+    let (g3, g4) = fax_pair(&mut stream, fixtures.as_deref(), &ebcdic)?;
 
     let record_len = record.len();
     let mut cases = [

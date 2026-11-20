@@ -25,7 +25,7 @@
 /// generator whose output depends on the platform would make the replay
 /// receipt meaningless.
 #[derive(Clone, Debug)]
-pub struct Rng {
+pub(crate) struct Rng {
     state: [u64; 4],
 }
 
@@ -36,7 +36,7 @@ impl Rng {
     /// state — it is the one fixed point of the update — and a scenario that
     /// silently stopped varying after a zeroed draw would be worse than one
     /// that failed.
-    pub fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         let mut splitmix = seed;
         let mut state = [0u64; 4];
         for lane in state.iter_mut() {
@@ -53,7 +53,7 @@ impl Rng {
     }
 
     /// The next 64 bits.
-    pub fn next_u64(&mut self) -> u64 {
+    pub(crate) fn next_u64(&mut self) -> u64 {
         let result = self.state[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
         let shift = self.state[1] << 17;
         self.state[2] ^= self.state[0];
@@ -79,7 +79,7 @@ impl Rng {
     /// Multiplied rather than reduced modulo `bound` because a modulo both
     /// biases toward the low residues and is raw arithmetic that wraps the day
     /// a constant changes.
-    pub fn below(&mut self, bound: u32) -> u32 {
+    pub(crate) fn below(&mut self, bound: u32) -> u32 {
         // Two to the thirty-second: the width of the draw this consumes.
         let width = u64::from(u32::MAX).saturating_add(1);
         let range = u64::from(bound);
@@ -103,7 +103,7 @@ impl Rng {
     }
 
     /// A value in `low..=high`.
-    pub fn between(&mut self, low: u32, high: u32) -> u32 {
+    pub(crate) fn between(&mut self, low: u32, high: u32) -> u32 {
         if high <= low {
             return low;
         }
@@ -120,7 +120,7 @@ impl Rng {
 /// hash differs, the runs differed, and the assertions are only a second line
 /// of defence over a fact the hash already established.
 #[derive(Clone, Debug, Default)]
-pub struct Trace {
+pub(crate) struct Trace {
     /// Every fact recorded, framed; [`super::seed_helpers`] reads whether it is
     /// empty, so the field is visible to the substrate around this file.
     pub(super) bytes: Vec<u8>,
@@ -130,7 +130,7 @@ pub struct Trace {
 
 impl Trace {
     /// The empty trace.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
@@ -141,7 +141,7 @@ impl Trace {
     /// that, a scenario that split one event into two would be
     /// indistinguishable from one that did not, and the replay receipt would
     /// be weaker than it looks.
-    pub fn record(&mut self, fact: &str) {
+    pub(crate) fn record(&mut self, fact: &str) {
         self.len = self.len.wrapping_add(1);
         self.bytes.push(b'|');
         self.bytes.extend_from_slice(&self.len.to_le_bytes()[..4]);
@@ -154,7 +154,7 @@ impl Trace {
     /// draw of equal value trace identically on every target, so a `usize` on a
     /// 32-bit host and a `u64` on a 64-bit one produce the same receipt, and
     /// there is no widening to fail.
-    pub fn record_number(&mut self, label: &str, value: impl std::fmt::Display) {
+    pub(crate) fn record_number(&mut self, label: &str, value: impl std::fmt::Display) {
         self.record(label);
         self.record(&value.to_string());
     }
@@ -165,7 +165,7 @@ impl Trace {
     /// determinism receipt, not a security boundary, and it must be readable
     /// in three lines of dependency-free code whose behaviour cannot change
     /// across a toolchain bump.
-    pub fn hash(&self) -> u64 {
+    pub(crate) fn hash(&self) -> u64 {
         let mut digest = 0xcbf2_9ce4_8422_2325u64;
         for byte in &self.bytes {
             digest ^= u64::from(*byte);

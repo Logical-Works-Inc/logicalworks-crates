@@ -23,12 +23,18 @@ use std::error::Error;
 use lgwks_std::process::ContainmentMechanism;
 
 use crate::rng::Rng;
-use crate::seeded_sweep::{SWEEP_SEEDS, fold, initial_trace};
+#[cfg(target_os = "linux")]
+use crate::seeded_bytes::poll_within;
+use crate::seeded_sweep::{SWEEP_SEEDS, assert_same_seed_replays, fold, initial_trace};
 
 /// What every test here returns: a fixture that cannot be built fails the test
 /// with its cause instead of panicking.
 #[cfg(target_os = "linux")]
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// `ECHILD` on Linux (asm-generic/errno-base.h): the child was already reaped.
+#[cfg(target_os = "linux")]
+const ECHILD: i32 = 10;
 
 /// Every mechanism the merge may be asked about, in one place so a new variant
 /// cannot be added without this family asking about it.
@@ -64,56 +70,64 @@ fn rank(mechanism: ContainmentMechanism) -> u64 {
 /// Every ordered pair of mechanisms, swept per seed.
 const PAIRS: usize = MECHANISMS.len() * MECHANISMS.len();
 
-/// One sweep pass over every pair: the model's rank decides, the merge answers.
-fn sweep_trace() -> u64 {
+/// The mechanism a draw below [`MECHANISMS`]'s length names: the last of the
+/// first `draw + 1` entries, so the lookup is total and no index can leave the
+/// table.
+fn drawn_mechanism(draw: usize) -> ContainmentMechanism {
+    let [first, ..] = MECHANISMS;
+    MECHANISMS
+        .iter()
+        .take(draw.saturating_add(1))
+        .fold(first, |_, &entry| entry)
+}
+
+/// One sweep pass over every pair under one seed: the model's rank decides, the
+/// merge answers.
+fn sweep_trace(seed: u64) -> u64 {
     let mut trace = initial_trace();
-    for seed in SWEEP_SEEDS {
-        let mut rng = Rng::new(seed);
-        for _ in 0..PAIRS {
-            let first = MECHANISMS[rng.below(MECHANISMS.len())];
-            let second = MECHANISMS[rng.below(MECHANISMS.len())];
-            let merged = first.strongest(second);
-            // Commutativity: the merge is a set union of evidence, so the
-            // order the owners ran in must not change what the receipt names.
-            assert_eq!(
-                merged,
-                second.strongest(first),
-                "seed {seed:#x}: strongest({first:?}, {second:?}) must not depend on order"
-            );
-            // The model's rank decides the winner.
-            let winner = if rank(first) >= rank(second) {
-                first
-            } else {
-                second
-            };
-            assert_eq!(
-                merged, winner,
-                "seed {seed:#x}: strongest({first:?}, {second:?}) must name the stronger owner"
-            );
-            fold(&mut trace, rank(merged));
-        }
-        // Idempotence: merging a mechanism with itself names it.
-        for mechanism in MECHANISMS {
-            assert_eq!(
-                mechanism.strongest(mechanism),
-                mechanism,
-                "seed {seed:#x}: strongest({mechanism:?}, {mechanism:?}) must name itself"
-            );
-            fold(&mut trace, rank(mechanism));
-        }
+    let mut rng = Rng::new(seed);
+    for _ in 0..PAIRS {
+        let first = drawn_mechanism(rng.below(MECHANISMS.len()));
+        let second = drawn_mechanism(rng.below(MECHANISMS.len()));
+        let merged = first.strongest(second);
+        // Commutativity: the merge is a set union of evidence, so the
+        // order the owners ran in must not change what the receipt names.
+        assert_eq!(
+            merged,
+            second.strongest(first),
+            "seed {seed:#x}: strongest({first:?}, {second:?}) must not depend on order"
+        );
+        // The model's rank decides the winner.
+        let winner = if rank(first) >= rank(second) {
+            first
+        } else {
+            second
+        };
+        assert_eq!(
+            merged, winner,
+            "seed {seed:#x}: strongest({first:?}, {second:?}) must name the stronger owner"
+        );
+        fold(&mut trace, rank(merged));
+    }
+    // Idempotence: merging a mechanism with itself names it.
+    for mechanism in MECHANISMS {
+        assert_eq!(
+            mechanism.strongest(mechanism),
+            mechanism,
+            "seed {seed:#x}: strongest({mechanism:?}, {mechanism:?}) must name itself"
+        );
+        fold(&mut trace, rank(mechanism));
     }
     trace
 }
 
 #[test]
 /// The owner merge is commutative, idempotent, and ranks kernel owners first,
-/// and the same seeds replay the same trace.
+/// and each seed replays the same trace.
 fn strongest_ranks_kernel_owners_above_table_readings() {
-    assert_eq!(
-        sweep_trace(),
-        sweep_trace(),
-        "the same seeds must replay the same merge trace"
-    );
+    for seed in SWEEP_SEEDS {
+        assert_same_seed_replays(sweep_trace, seed);
+    }
 }
 
 #[test]
@@ -162,7 +176,7 @@ fn names_trace() -> Result<u64, Box<dyn Error>> {
         for _ in 0..64 {
             let length = rng.below(81);
             let bytes: Vec<u8> = (0..length)
-                .map(|_| NAME_ALPHABET[rng.below(NAME_ALPHABET.len())])
+                .filter_map(|_| NAME_ALPHABET.get(rng.below(NAME_ALPHABET.len())).copied())
                 .collect();
             // The draw is bytes; only UTF-8 spellings reach the validator,
             // because scope names are directory entries and those are bytes on
@@ -235,6 +249,11 @@ fn scope_names_are_one_safe_entry() -> TestResult {
     Ok(())
 }
 
+/// How many probes a wait on a process the test did not start may spend: a
+/// count, not a duration, so the bound is the same on every run.
+#[cfg(target_os = "linux")]
+const PROBE_BUDGET: u32 = 1 << 20;
+
 #[test]
 /// The subreaper attribution primitives are safe on empty input: nothing
 /// adopted, nothing reaped, and the flag enables without disturbing the host.
@@ -273,7 +292,6 @@ fn an_adopted_orphan_is_named_by_its_adoption() -> TestResult {
     use lgwks_std::process::{
         adopted_descendants, enable_child_subreaper, kill_process, process_exists, reap_descendants,
     };
-    use std::time::{Duration, Instant};
 
     enable_child_subreaper()?;
     let dir = std::env::temp_dir().join(format!("lgwks-std-adopt-{}", std::process::id()));
@@ -287,40 +305,41 @@ fn an_adopted_orphan_is_named_by_its_adoption() -> TestResult {
         .stderr(std::process::Stdio::null())
         .spawn()?;
     // The middle writes the file before it exits, so the pid on disk is the
-    // sleeper's; the exit adopts the sleeper into this process. Polled rather
+    // sleeper's; the exit adopts the sleeper into this process. Probed rather
     // than waited on: the middle is an untracked child, so a concurrent sweep
     // may collect its exit first, and only the file proves the fork happened.
-    let recorded = Instant::now();
-    let text = loop {
-        if let Ok(text) = std::fs::read_to_string(&file)
-            && !text.trim().is_empty()
-        {
-            break text;
-        }
-        if recorded.elapsed() > Duration::from_secs(10) {
-            let _reaped = middle.wait();
-            let _removed = std::fs::remove_dir_all(&dir);
-            return Err("the middle shell never recorded its sleeper".into());
-        }
-        std::thread::park_timeout(Duration::from_millis(5));
+    let recorded = poll_within(PROBE_BUDGET, || match std::fs::read_to_string(&file) {
+        Ok(text) if !text.trim().is_empty() => Ok(Some(text)),
+        Ok(_) => Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.into()),
+    })?;
+    let Some(text) = recorded else {
+        let _reaped = middle.wait();
+        let _removed = std::fs::remove_dir_all(&dir);
+        return Err("the middle shell never recorded its sleeper".into());
     };
     // Best effort: the middle already exited, and its exit may already have
     // been collected. What matters below is that it exited, because the exit
     // is what adopts the sleeper into this process — so the adoption check
     // waits for the exit rather than assuming it.
-    let exited = Instant::now();
-    loop {
-        match middle.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {}
-            // A concurrent sweep already collected it: still exited.
-            Err(_) => break,
+    let exited = poll_within(PROBE_BUDGET, || match middle.try_wait() {
+        Ok(Some(_status)) => Ok(Some(())),
+        Ok(None) => Ok(None),
+        // A concurrent sweep already collected it (ECHILD, 10 on Linux and the
+        // BSDs): still exited. Any other failure is a fault the check reports.
+        Err(collected) if collected.raw_os_error() == Some(ECHILD) => {
+            lgwks_std::trace::debug!(
+                error = %collected,
+                "sim_kernel_owners: the middle shell's exit was collected elsewhere"
+            );
+            Ok(Some(()))
         }
-        if exited.elapsed() > Duration::from_secs(10) {
-            let _removed = std::fs::remove_dir_all(&dir);
-            return Err("the middle shell never exited".into());
-        }
-        std::thread::park_timeout(Duration::from_millis(5));
+        Err(other) => Err(other.into()),
+    })?;
+    if exited.is_none() {
+        let _removed = std::fs::remove_dir_all(&dir);
+        return Err("the middle shell never exited".into());
     }
     let grandchild: i32 = text.trim().parse().map_err(|_| {
         std::io::Error::new(
@@ -343,16 +362,12 @@ fn an_adopted_orphan_is_named_by_its_adoption() -> TestResult {
     // asking whether the process still runs: a kill the scheduler has not yet
     // acted on already reads as "not running", which is no evidence the pid
     // is collectable.
-    let settle = Instant::now();
-    let reaped = loop {
+    let settled = poll_within(PROBE_BUDGET, || {
         let reaped = reap_descendants(&[grandchild])?;
-        if reaped == vec![grandchild] {
-            break reaped;
-        }
-        if settle.elapsed() > Duration::from_secs(10) {
-            return Err("the signalled adoptee was never reaped".into());
-        }
-        std::thread::park_timeout(Duration::from_millis(5));
+        Ok((reaped == vec![grandchild]).then_some(reaped))
+    })?;
+    let Some(reaped) = settled else {
+        return Err("the signalled adoptee was never reaped".into());
     };
     assert_eq!(
         reaped,

@@ -29,9 +29,11 @@ use lgwks_std::retry::RetryPolicy;
 use lgwks_std::similarity::{
     CheckedEvidence, CheckedSimilarity, EditDistance, EvidenceError, EvidenceVerdict,
 };
+use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::seeded_bytes::pick;
 use crate::seeded_sweep;
 
 use seeded_sweep::seeded_stream;
@@ -87,7 +89,12 @@ struct TenantPolicy {
     retry: RetryPolicy,
 }
 
-/// The three tenants' configurations, or `None` when one cannot be built.
+/// What a test of this file returns: a fixture that cannot be built, or a
+/// tenant answer that is refused, fails the test with its cause.
+type TestResult = Result<(), Box<dyn Error>>;
+
+/// The three tenants' configurations, or the refusal that stopped one being
+/// built.
 ///
 /// Every field differs, and each difference has to be one the *answer* carries:
 /// a threshold alone is invisible when the score sits above every threshold, and
@@ -96,7 +103,7 @@ struct TenantPolicy {
 /// weights, their thresholds, their patterns and their retry caps, and the
 /// premise test below requires each pair to actually disagree on one input
 /// before any isolation claim is made.
-fn tenants() -> Option<Vec<TenantPolicy>> {
+fn tenants() -> Result<Vec<TenantPolicy>, Box<dyn Error>> {
     let configurations: [(&'static str, f64, &str, u64); TENANTS] = [
         ("tenant-a", 0.9, "**/*.rs", 1),
         ("tenant-b", 0.0, "*.rs", 10),
@@ -106,14 +113,13 @@ fn tenants() -> Option<Vec<TenantPolicy>> {
     for (slot, (name, threshold, pattern_source, cap_seconds)) in
         configurations.into_iter().enumerate()
     {
-        let pattern =
-            GlobPattern::compile_with_dialect(pattern_source, GlobDialect::Legacy).ok()?;
+        let pattern = GlobPattern::compile_with_dialect(pattern_source, GlobDialect::Legacy)?;
         // The first weight is 0.25, 0.5 and 0.75 for the three tenants, and the
         // second is what remains. The components differ too: one is an exact
         // comparison that refuses on length and the other is an edit distance
         // that refuses on budget, so the score is not a single number two
         // policies happen to weight differently.
-        let first_weight = FIRST_WEIGHTS[slot.rem_euclid(FIRST_WEIGHTS.len())];
+        let first_weight = pick(&FIRST_WEIGHTS, slot, 0.0);
         let second_weight = 1.0 - first_weight;
         let retry = RetryPolicy::new(3, Duration::from_millis(100), Duration::MAX)
             .with_max_delay(Duration::from_secs(cap_seconds));
@@ -125,8 +131,7 @@ fn tenants() -> Option<Vec<TenantPolicy>> {
             ],
             vec![first_weight, second_weight],
             threshold,
-        )
-        .ok()?;
+        )?;
         tenants.push(TenantPolicy {
             name,
             threshold,
@@ -136,7 +141,7 @@ fn tenants() -> Option<Vec<TenantPolicy>> {
             retry,
         });
     }
-    Some(tenants)
+    Ok(tenants)
 }
 
 /// A structural component that scores `1.0` for equal inputs and `0.0`
@@ -202,37 +207,42 @@ struct TenantAnswer {
     delay_nanos: u128,
 }
 
-/// Scores [`SHARED_INPUT`] against one tenant's three policies.
-fn answer(tenant: &TenantPolicy, scratch: &mut GlobScratch) -> TenantAnswer {
-    let Ok(answered) = tenant.evidence.verdict(SHARED_INPUT, SHARED_INPUT) else {
-        // The verdict is borrowed for the whole answer, so a refusal has nowhere
-        // to go: it is reported with its cause and the process stops, rather than
-        // folding a verdict the tenant's own budget refused.
-        unreachable_verdict(&tenant.evidence);
-    };
-    let verdict: &EvidenceVerdict = &answered;
-    TenantAnswer {
-        matched: tenant.pattern.is_match_with(SHARED_INPUT, scratch),
-        score_bits: verdict.score().map_or(0, f64::to_bits),
-        accepted: verdict.is_accepted(),
-        first_weight_bits: verdict
-            .outcomes()
-            .first()
-            .map_or(0, |outcome| outcome.weight().to_bits()),
-        delay_nanos: tenant.retry.delay(2, 0).as_nanos(),
+/// The bits of a verdict's score, and zero for a verdict that has none: an
+/// absent score is its own arm of the answer, matched case by case.
+fn bits_of(score: Option<f64>) -> u64 {
+    match score {
+        Some(score) => score.to_bits(),
+        None => 0,
     }
 }
 
-/// Reached only if the shared input is over budget, which the sixteen-character
-/// budget of every tenant means it never is; the answer would otherwise be a
-/// refusal, which every tenant produces identically and would not discriminate.
-fn unreachable_verdict(refusal: &dyn std::fmt::Debug) -> ! {
-    lgwks_std::trace::error!(?refusal, "the shared input was refused by a tenant budget");
-    std::process::abort()
+/// Scores [`SHARED_INPUT`] against one tenant's three policies.
+///
+/// A refusal of the shared input is returned with its cause rather than folded:
+/// it would mean a tenant's own budget refused the one input every tenant is
+/// asked about, and a refusal every tenant produces identically would not
+/// discriminate between them.
+fn answer(
+    tenant: &TenantPolicy,
+    scratch: &mut GlobScratch,
+) -> Result<TenantAnswer, Box<dyn Error>> {
+    let answered = tenant.evidence.verdict(SHARED_INPUT, SHARED_INPUT)?;
+    let verdict: &EvidenceVerdict = &answered;
+    let first_weight_bits = match verdict.outcomes().first() {
+        Some(outcome) => outcome.weight().to_bits(),
+        None => 0,
+    };
+    Ok(TenantAnswer {
+        matched: tenant.pattern.is_match_with(SHARED_INPUT, scratch),
+        score_bits: bits_of(verdict.score()),
+        accepted: verdict.is_accepted(),
+        first_weight_bits,
+        delay_nanos: tenant.retry.delay(2, 0).as_nanos(),
+    })
 }
 
 /// The single-threaded reference for each tenant.
-fn references(tenants: &[TenantPolicy]) -> Vec<TenantAnswer> {
+fn references(tenants: &[TenantPolicy]) -> Result<Vec<TenantAnswer>, Box<dyn Error>> {
     tenants
         .iter()
         .map(|tenant| {
@@ -243,84 +253,106 @@ fn references(tenants: &[TenantPolicy]) -> Vec<TenantAnswer> {
 }
 
 #[test]
-fn the_three_tenants_disagree_on_one_shared_input() {
+fn the_three_tenants_disagree_on_one_shared_input() -> TestResult {
     // The premise. If the three policies produced the same answer there would
     // be nothing to isolate, and every assertion below would be vacuous.
-    let Some(tenants) = tenants() else {
-        return;
+    let tenants = tenants()?;
+    let references = references(&tenants)?;
+    let [ref first, ref second, ref third] = *references.as_slice() else {
+        return Err(format!("{TENANTS} tenants gave {} references", references.len()).into());
     };
-    let references = references(&tenants);
     assert_ne!(
-        references[0], references[1],
+        first, second,
         "tenant-a and tenant-b must disagree, or there is no isolation to prove"
     );
     assert_ne!(
-        references[1], references[2],
+        second, third,
         "tenant-b and tenant-c must disagree, or there is no isolation to prove"
     );
     assert_ne!(
-        references[0].first_weight_bits, references[1].first_weight_bits,
+        first.first_weight_bits, second.first_weight_bits,
         "each tenant's first weight must differ, so a cross is visible"
     );
     assert!(
-        references[0].matched && !references[1].matched,
+        first.matched && !second.matched,
         "tenant-a's pattern must accept the shared input and tenant-b's must reject \
          it, or the two patterns cannot be told apart: {references:?}"
     );
     assert_eq!(
-        references[0].score_bits, references[1].score_bits,
+        first.score_bits, second.score_bits,
         "a threshold alone must be visible: the two tenants' scores must differ, \
          or a cross could go unnoticed"
     );
+    Ok(())
+}
+
+/// What a run of rounds returns: the answers each tenant observed, by slot, and
+/// the spawn refusals the host gave.
+type RoundAnswers = (Vec<Vec<TenantAnswer>>, usize);
+
+/// Runs every tenant once per round for `tier` rounds, each from its own
+/// thread, and returns the answers each tenant observed with the spawn
+/// refusals the host gave.
+fn interleaved_round_answers(
+    tenants: &Arc<[TenantPolicy]>,
+    tier: usize,
+) -> Result<RoundAnswers, Box<dyn Error>> {
+    let mut observed: Vec<Vec<TenantAnswer>> = vec![Vec::new(); TENANTS];
+    let mut refusals = 0_usize;
+    for round in 0..tier {
+        // Each round runs every tenant once, on the same input, from its own
+        // thread, so a cross would need one tenant's policy to be reachable
+        // from another tenant's thread.
+        let mut handles = Vec::with_capacity(TENANTS);
+        for (slot, tenant) in tenants.iter().cloned().enumerate() {
+            let tenant = Arc::new(tenant);
+            let built = std::thread::Builder::new()
+                .name(format!("tenant-{slot}-round-{round}"))
+                .stack_size(STACK_BYTES)
+                .spawn(move || {
+                    let mut scratch = GlobScratch::new();
+                    answer(&tenant, &mut scratch).map_err(|refusal| refusal.to_string())
+                });
+            match built {
+                Ok(joined) => match joined.join() {
+                    Ok(value) => handles.push((slot, value?)),
+                    Err(_panicked) => {
+                        lgwks_std::trace::debug!(
+                            "interleaved_round_answers: returning an error to the caller"
+                        );
+                        return Err(format!("tenant {slot} panicked in round {round}").into());
+                    }
+                },
+                Err(_refused) => refusals = refusals.saturating_add(1),
+            }
+        }
+        for (slot, value) in handles {
+            observed
+                .get_mut(slot)
+                .ok_or("a tenant slot is below the tenant count")?
+                .push(value);
+        }
+    }
+    Ok((observed, refusals))
 }
 
 #[test]
-fn two_tenants_interleaved_across_every_tier_never_cross() {
-    let Some(tenants) = tenants() else {
-        return;
-    };
-    let references = references(&tenants);
-    let tenants = Arc::new(tenants);
+fn two_tenants_interleaved_across_every_tier_never_cross() -> TestResult {
+    let tenants = tenants()?;
+    let references = references(&tenants)?;
+    let tenants: Arc<[TenantPolicy]> = Arc::from(tenants);
 
     for tier in TIERS {
-        let mut observed: Vec<Vec<TenantAnswer>> = vec![Vec::new(); TENANTS];
-        let mut refusals = 0_usize;
-        for round in 0..tier {
-            // Each round runs every tenant once, on the same input, from its own
-            // thread, so a cross would need one tenant's policy to be reachable
-            // from another tenant's thread.
-            let mut handles = Vec::with_capacity(TENANTS);
-            for (slot, tenant) in tenants.iter().cloned().enumerate() {
-                let tenant = Arc::new(tenant);
-                let built = std::thread::Builder::new()
-                    .name(format!("tenant-{slot}-round-{round}"))
-                    .stack_size(STACK_BYTES)
-                    .spawn(move || {
-                        let mut scratch = GlobScratch::new();
-                        answer(&tenant, &mut scratch)
-                    });
-                match built {
-                    Ok(joined) => {
-                        if let Ok(value) = joined.join() {
-                            handles.push((slot, value));
-                        }
-                    }
-                    Err(_) => refusals = refusals.saturating_add(1),
-                }
-            }
-            for (slot, value) in handles {
-                observed[slot].push(value);
-            }
-        }
-
+        let (observed, refusals) = interleaved_round_answers(&tenants, tier)?;
         for (slot, answers) in observed.iter().enumerate() {
-            let Some(tenant) = tenants.get(slot) else {
-                continue;
-            };
+            let tenant = tenants.get(slot).ok_or("an observed slot names a tenant")?;
+            let own = references
+                .get(slot)
+                .ok_or("an observed slot has a reference")?;
             let cross: Vec<usize> = answers
                 .iter()
                 .enumerate()
-                .filter(|entry| entry.1 != &references[slot])
+                .filter(|entry| entry.1 != own)
                 .map(|(index, _)| index)
                 .collect();
             assert!(
@@ -333,32 +365,30 @@ fn two_tenants_interleaved_across_every_tier_never_cross() {
             );
         }
         assert!(
-            refusals * TENANTS < tier,
+            refusals.saturating_mul(TENANTS) < tier,
             "tier {tier}: too many spawn refusals ({refusals}) to have compared anything"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn the_seeded_tenant_sweep_replays_and_diverges() {
-    let Some(tenants) = tenants() else {
-        return;
-    };
+fn the_seeded_tenant_sweep_replays_and_diverges() -> TestResult {
+    let tenants = tenants()?;
     let sweep = |seed: u64| seeded_run(seed, &tenants);
     for seed in SWEEP_SEEDS {
         assert_same_seed_replays(sweep, seed);
     }
     assert_distinct_seeds_diverge(sweep, SWEEP_SEEDS[0], SWEEP_SEEDS[1]);
+    Ok(())
 }
 
 #[test]
-fn the_tenant_sweep_binds_each_tenants_policy_to_its_own_answers() {
+fn the_tenant_sweep_binds_each_tenants_policy_to_its_own_answers() -> TestResult {
     // The negative control for the sweep: a tenant run with another tenant's
     // threshold must produce a different trace, otherwise the seeded
     // comparison above could not see a cross.
-    let Some(mut tenants) = tenants() else {
-        return;
-    };
+    let mut tenants = tenants()?;
     let honest = seeded_run(SWEEP_SEEDS[0], &tenants);
     tenants.swap(0, 1);
     let crossed = seeded_run(SWEEP_SEEDS[0], &tenants);
@@ -367,6 +397,7 @@ fn the_tenant_sweep_binds_each_tenants_policy_to_its_own_answers() {
         "two tenants' policies must produce different traces on the same seed, \
          or the sweep cannot detect a cross between them"
     );
+    Ok(())
 }
 
 /// The seeded sweep over an explicit tenant set, so a control can swap two
@@ -392,7 +423,7 @@ fn seeded_run(seed: u64, tenants: &[TenantPolicy]) -> u64 {
         );
         match verdict {
             Ok(inner) => {
-                fold(&mut trace, inner.score().map_or(0, f64::to_bits));
+                fold(&mut trace, bits_of(inner.score()));
                 fold(&mut trace, u64::from(inner.is_accepted()));
             }
             Err(reason) => {
@@ -417,16 +448,14 @@ fn seeded_run(seed: u64, tenants: &[TenantPolicy]) -> u64 {
 }
 
 #[test]
-fn each_tenant_reads_back_its_own_threshold_and_weights() {
+fn each_tenant_reads_back_its_own_threshold_and_weights() -> TestResult {
     // The policy is configuration, so the cheapest way for a tenant to observe
     // another's is a field that was overwritten. Reading the configuration back
     // off the verdict catches that with no concurrency at all.
-    let Some(tenants) = tenants() else {
-        return;
-    };
+    let tenants = tenants()?;
     let mut scratch = GlobScratch::new();
     for tenant in &tenants {
-        let observed = answer(tenant, &mut scratch);
+        let observed = answer(tenant, &mut scratch)?;
         assert_eq!(
             observed.first_weight_bits,
             tenant.first_weight.to_bits(),
@@ -447,4 +476,5 @@ fn each_tenant_reads_back_its_own_threshold_and_weights() {
             tenant.name
         );
     }
+    Ok(())
 }

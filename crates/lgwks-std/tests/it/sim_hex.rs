@@ -17,7 +17,8 @@ use crate::seeded_sweep;
 use lgwks_std::hex::{DecodeError, decode, decode_into, encode};
 
 use seeded_bytes::{
-    below, fold_bytes, fold_refusal, next_byte, next_bytes, next_text, reference_nibble, repeated,
+    below, fold_bytes, fold_refusal, next_byte, next_bytes, next_text, reference_lower_pair,
+    reference_nibble, repeated,
 };
 use seeded_sweep::seeded_stream;
 use seeded_sweep::{
@@ -40,11 +41,6 @@ const ALIEN_DIGIT: u8 = b'g';
 /// sixteen low-nibble values are letters, so a payload of one byte or more
 /// carries one with probability at least three in eight per byte.
 const LETTER_DRAW_LIMIT: usize = 8;
-
-/// The lowercase hex alphabet, indexed by nibble: the table is the documented
-/// two-characters-per-byte rule rather than a call into the shipped encoder, so
-/// this reference cannot agree with it by construction.
-const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// What the reference transcoder says about one payload.
 enum Reference {
@@ -76,8 +72,7 @@ enum Refusal {
 fn reference_encode(bytes: &[u8]) -> String {
     let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
     for byte in bytes {
-        rendered.push(char::from(LOWER_HEX[usize::from(byte >> 4)]));
-        rendered.push(char::from(LOWER_HEX[usize::from(byte & 0x0f)]));
+        rendered.push_str(&reference_lower_pair(*byte));
     }
     rendered
 }
@@ -95,18 +90,18 @@ fn reference_decode(text: &[u8]) -> Reference {
     }
     let mut decoded = Vec::new();
     let (pairs, _) = text.as_chunks::<2>();
-    for (index, pair) in pairs.iter().enumerate() {
+    for (index, &[first, second]) in pairs.iter().enumerate() {
         let base = index.saturating_mul(2);
-        let Some(high) = reference_nibble(pair[0]) else {
+        let Some(high) = reference_nibble(first) else {
             return Reference::Refused(Refusal::NotDigit {
                 at: base,
-                byte: pair[0],
+                byte: first,
             });
         };
-        let Some(low) = reference_nibble(pair[1]) else {
+        let Some(low) = reference_nibble(second) else {
             return Reference::Refused(Refusal::NotDigit {
                 at: base.saturating_add(1),
-                byte: pair[1],
+                byte: second,
             });
         };
         decoded.push((high << 4) | low);
@@ -148,7 +143,13 @@ fn hex_trace(seed: u64) -> u64 {
     let mut trace = initial_trace();
 
     for _ in 0..96 {
-        let length = BOUNDARY_LENGTHS[below(&mut state, BOUNDARY_LENGTHS.len())];
+        // The draw is below the table's length, so the last of the first
+        // `draw + 1` entries is the entry the draw names.
+        let draw = below(&mut state, BOUNDARY_LENGTHS.len());
+        let length = BOUNDARY_LENGTHS
+            .iter()
+            .take(draw.saturating_add(1))
+            .fold(0, |_, &entry| entry);
         let payload = next_bytes(&mut state, length);
         let encoded = encode(&payload);
 
@@ -334,7 +335,7 @@ fn a_non_digit_is_reported_at_its_first_exact_offset() -> Result<(), DecodeError
 /// An odd-length input is refused on its length, and the length check runs
 /// before the destination width is consulted, so an odd input with a wrong
 /// width still reports the odd length.
-fn an_odd_length_is_refused_before_any_destination_width_check() -> Result<(), DecodeError> {
+fn an_odd_length_is_refused_before_any_destination_width_check() {
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..24 {
@@ -366,7 +367,6 @@ fn an_odd_length_is_refused_before_any_destination_width_check() -> Result<(), D
             );
         }
     }
-    Ok(())
 }
 
 #[test]
@@ -466,7 +466,7 @@ fn uppercase_and_lowercase_spellings_decode_to_the_same_bytes() -> Result<(), De
 #[test]
 /// A refusal arm and its offsets are folded into the trace, so a family that
 /// converged on one arm for every corruption would still diverge here.
-fn refusals_report_their_arm_and_both_of_their_offsets() -> Result<(), DecodeError> {
+fn refusals_report_their_arm_and_both_of_their_offsets() {
     let mut trace = initial_trace();
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
@@ -496,7 +496,6 @@ fn refusals_report_their_arm_and_both_of_their_offsets() -> Result<(), DecodeErr
         initial_trace(),
         "the refusal family must fold at least one observation"
     );
-    Ok(())
 }
 
 #[test]
@@ -540,7 +539,7 @@ fn every_truncated_prefix_is_refused_or_is_a_shorter_value() -> Result<(), Decod
                 // every `cut` in this loop. The same file asserts the rendering
                 // against the reference alphabet above, so this is a property
                 // the family has already established rather than a hope.
-                let prefix = &encoded[..cut];
+                let (prefix, _tail) = encoded.split_at(cut);
                 if !cut.is_multiple_of(2) {
                     assert_eq!(
                         decode(prefix),

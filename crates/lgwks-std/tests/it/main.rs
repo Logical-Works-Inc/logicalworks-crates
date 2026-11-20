@@ -48,6 +48,8 @@ mod seeded_sweep;
 mod wire_record;
 
 mod glob_public;
+// A wall-clock latency measurement, not a seeded simulation: no seed replays it.
+mod latency_measured_paths;
 mod pattern_external;
 mod process_parity;
 mod prop_codecs;
@@ -78,6 +80,7 @@ mod sim_encoding;
 mod sim_fs_capability;
 mod sim_fs_walk;
 mod sim_fs_walk_prune;
+mod sim_glob_refusal;
 mod sim_glob_sweep;
 mod sim_hash;
 mod sim_hex;
@@ -107,7 +110,6 @@ mod sim_legacy_edges;
 #[cfg(feature = "legacy")]
 mod sim_legacy_fax;
 mod sim_locale;
-mod sim_measured_paths;
 mod sim_orphan_reap;
 mod sim_pattern;
 mod sim_process_group;
@@ -116,7 +118,6 @@ mod sim_retry_arithmetic;
 #[cfg(feature = "ron")]
 mod sim_ron;
 mod sim_seeded;
-mod sim_shared_policy_tiers;
 mod sim_sign;
 mod sim_similarity_sweep;
 mod sim_task_public;
@@ -127,6 +128,8 @@ mod sim_trace;
 mod sim_wire;
 mod similarity_evidence_contract;
 mod similarity_public_api;
+// Concurrency tiers with measured latency: wall-clock, so not a simulation.
+mod tier_shared_policy;
 mod unsafe_boundary;
 mod wire_consumer;
 mod wire_feature_unification;

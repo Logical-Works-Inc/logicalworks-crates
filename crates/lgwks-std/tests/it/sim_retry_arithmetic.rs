@@ -7,6 +7,7 @@
 use lgwks_std::retry::RetryPolicy;
 use std::time::Duration;
 
+use crate::seeded_bytes::pick;
 use crate::seeded_sweep;
 
 use seeded_sweep::seeded_stream;
@@ -78,9 +79,9 @@ fn run_seeded_sweep(seed: u64) -> u64 {
     for _ in 0..400 {
         // Each table is indexed by a draw in the index width, which is what the
         // shared stream reports, so a position is the position the draw named.
-        let base = bases[next_index(&mut state).rem_euclid(bases.len())];
-        let cap = caps[next_index(&mut state).rem_euclid(caps.len())];
-        let attempt = attempts[next_index(&mut state).rem_euclid(attempts.len())];
+        let base = pick(&bases, next_index(&mut state), Duration::ZERO);
+        let cap = pick(&caps, next_index(&mut state), Duration::ZERO);
+        let attempt = pick(&attempts, next_index(&mut state), 0);
         let entropy = next_seed(&mut state);
 
         let policy = RetryPolicy::new(1, base, Duration::MAX).with_max_delay(cap);

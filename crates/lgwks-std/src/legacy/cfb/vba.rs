@@ -324,18 +324,7 @@ fn code_chunk(
                 return refusal;
             };
             flags |= flag_bit(flag_count);
-            let bytes = narrow.to_le_bytes();
-            let (Some(low), Some(high)) = (bytes.first(), bytes.get(1)) else {
-                let refusal = Err(VbaError::Truncated {
-                    offset: at,
-                    need: 2,
-                });
-                #[cfg(feature = "trace")]
-                crate::trace::debug!("vba: refusing a token past its bytes");
-                return refusal;
-            };
-            group.push(*low);
-            group.push(*high);
+            group.extend_from_slice(&narrow.to_le_bytes());
             at = at.saturating_add(length);
             decoded = decoded.saturating_add(length);
         } else {
@@ -369,18 +358,7 @@ fn code_chunk(
         return refusal;
     }
     let header = COMPRESSED_FLAG.saturating_add(header_size(coded.len())?);
-    let bytes = header.to_le_bytes();
-    let (Some(low), Some(high)) = (bytes.first(), bytes.get(1)) else {
-        let refusal = Err(VbaError::Truncated {
-            offset: at,
-            need: 2,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("vba: refusing a header past its bytes");
-        return refusal;
-    };
-    out.push(*low);
-    out.push(*high);
+    out.extend_from_slice(&header.to_le_bytes());
     limits.check_bytes(out.len().saturating_add(coded.len()))?;
     out.extend_from_slice(&coded);
     Ok(at.saturating_sub(start))

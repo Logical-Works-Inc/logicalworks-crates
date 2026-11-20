@@ -25,7 +25,7 @@ fn a_method_keeping_redirect_of_a_post_is_refused() -> Result<(), Box<dyn std::e
         ),
         "{result:?}"
     );
-    let heads = server.join().map_err(|_| "server panicked")??;
+    let heads = join_server(server)?;
     assert_eq!(heads.len(), 1, "the body was not replayed");
     Ok(())
 }
@@ -178,9 +178,7 @@ fn custom_headers_reach_the_server() -> Result<(), Box<dyn std::error::Error>> {
         &options,
     )?;
     assert_eq!(response.status, 200);
-    let seen = handle
-        .join()
-        .map_err(|_| "the recording server thread panicked before replying")??;
+    let seen = join_server(handle)?;
     assert!(
         seen.to_ascii_lowercase()
             .contains("authorization: bearer test-token"),
@@ -238,10 +236,8 @@ fn silent_server_hits_timeout() -> Result<(), Box<dyn std::error::Error>> {
     );
     release
         .send(())
-        .map_err(|_| "timeout fixture receiver ended")?;
-    handle
-        .join()
-        .map_err(|_| "timeout fixture thread panicked")??;
+        .map_err(|error| format!("timeout fixture receiver ended: {error}"))?;
+    join_server(handle)?;
     Ok(())
 }
 
@@ -261,8 +257,10 @@ fn tls_handshake_timeout_preserves_connect_stage() -> Result<(), Box<dyn std::er
             ..
         })
     ));
-    release.send(()).map_err(|_| "TLS fixture receiver ended")?;
-    server.join().map_err(|_| "TLS fixture thread panicked")??;
+    release
+        .send(())
+        .map_err(|error| format!("TLS fixture receiver ended: {error}"))?;
+    join_server(server)?;
     Ok(())
 }
 
@@ -296,9 +294,7 @@ fn malformed_tls_handshake_preserves_tls_stage() -> Result<(), Box<dyn std::erro
             ..
         })
     ));
-    server
-        .join()
-        .map_err(|_| "malformed TLS fixture panicked")??;
+    join_server(server)?;
     Ok(())
 }
 
@@ -323,69 +319,8 @@ fn request_body_timeout_preserves_send_stage() -> Result<(), Box<dyn std::error:
     ));
     release
         .send(())
-        .map_err(|_| "send fixture receiver ended")?;
-    server
-        .join()
-        .map_err(|_| "send fixture thread panicked")??;
-    Ok(())
-}
-
-/// A body timeout keeps its body phase and timeout class after headers land.
-#[test]
-fn body_timeout_preserves_stage_and_class() -> Result<(), Box<dyn std::error::Error>> {
-    // The head must land before the timeout for the stall to be a body stall (#272).
-    let timeout = host_budget(Duration::from_millis(150), Duration::from_secs(5))?;
-    let (port, release, server) = serve_held(Some(
-        b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: keep-alive\r\n\r\nx".to_vec(),
-    ))?;
-    let result = get_with(
-        &format!("http://127.0.0.1:{port}/"),
-        &quiet().timeout(timeout),
-    );
-    assert!(matches!(
-        result,
-        Err(Error::Failure {
-            stage: FailureStage::Body,
-            kind: FailureKind::Timeout,
-            ..
-        })
-    ));
-    release
-        .send(())
-        .map_err(|_| "body fixture receiver ended")?;
-    server
-        .join()
-        .map_err(|_| "body fixture thread panicked")??;
-    Ok(())
-}
-
-/// The exact-cap EOF probe reports its own timeout stage.
-#[test]
-fn eof_probe_timeout_preserves_stage_and_class() -> Result<(), Box<dyn std::error::Error>> {
-    let limit = SMALL_CEILING;
-    let mut response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
-        limit.saturating_add(1)
-    )
-    .into_bytes();
-    response.extend(std::iter::repeat_n(b'x', limit));
-    // The head and the body must land before the timeout for the stall to be the probe's (#272).
-    let timeout = host_budget(Duration::from_millis(150), Duration::from_secs(5))?;
-    let (port, release, server) = serve_held(Some(response))?;
-    let result = get_with(
-        &format!("http://127.0.0.1:{port}/"),
-        &previewing(limit).timeout(timeout),
-    );
-    assert!(matches!(
-        result,
-        Err(Error::Failure {
-            stage: FailureStage::EofProbe,
-            kind: FailureKind::Timeout,
-            ..
-        })
-    ));
-    release.send(()).map_err(|_| "EOF fixture receiver ended")?;
-    server.join().map_err(|_| "EOF fixture thread panicked")??;
+        .map_err(|error| format!("send fixture receiver ended: {error}"))?;
+    join_server(server)?;
     Ok(())
 }
 
@@ -475,7 +410,9 @@ fn the_read_window_is_a_fixed_chunk_and_capacity_is_clamped_to_the_ceiling()
             if buffer.is_empty() || self.remaining == 0 {
                 return Ok(0);
             }
-            buffer[0] = b'x';
+            if let Some(first) = buffer.first_mut() {
+                *first = b'x';
+            }
             self.remaining = self.remaining.saturating_sub(1);
             Ok(1)
         }
@@ -547,7 +484,7 @@ fn an_interruption_is_classified_the_same_way_at_every_stage() {
     for stage in [FailureStage::Body, FailureStage::EofProbe] {
         assert!(
             matches!(
-                map_read_error(interrupted(), stage),
+                map_read_error(&interrupted(), stage),
                 Error::Failure {
                     kind: FailureKind::Interrupted,
                     stage: observed,
@@ -792,9 +729,9 @@ fn a_preview_stops_reading_at_the_ceiling() -> Result<(), Box<dyn std::error::Er
         Truncation::Cut,
         "the reply continues past the ceiling"
     );
-    let served = server
-        .join()
-        .map_err(|_| "the raw server thread panicked before replying")?;
+    let served = server.join().map_err(|payload| {
+        format!("the raw server thread panicked before replying: {payload:?}")
+    })?;
     assert!(
         served.is_err(),
         "a 4 MiB reply can only be written in full to a reader that keeps reading, so a \

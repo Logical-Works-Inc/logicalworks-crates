@@ -59,11 +59,18 @@ pub(super) struct Origin {
 /// The origin of `target`, or `None` when its authority cannot be read,
 /// which makes every comparison with it cross-origin.
 pub(super) fn origin_of(target: &str) -> Option<Origin> {
-    let target = UriAbsoluteStr::new(target).ok()?;
+    let Ok(target) = UriAbsoluteStr::new(target) else {
+        return None;
+    };
     let authority = target.authority_components()?;
     let scheme = target.scheme_str().to_ascii_lowercase();
     let port = match authority.port() {
-        Some(port) if !port.is_empty() => Some(port.parse::<u16>().ok()?),
+        Some(port) if !port.is_empty() => {
+            let Ok(explicit) = port.parse::<u16>() else {
+                return None;
+            };
+            Some(explicit)
+        }
         _ => match scheme.as_str() {
             "http" => Some(80),
             "https" => Some(443),
@@ -85,17 +92,17 @@ pub(super) fn origin_of(target: &str) -> Option<Origin> {
 /// bound from a lookup that can hang, and misreading a literal as a name costs
 /// only the thread this exists to save.
 pub(super) fn host_is_literal(target: &str) -> bool {
-    UriAbsoluteStr::new(target)
-        .ok()
-        .and_then(|target| target.authority_components())
-        .is_some_and(|authority| {
-            let host = authority.host();
-            let address = match host.strip_prefix('[') {
-                Some(bracketed) => bracketed.strip_suffix(']'),
-                None => Some(host),
-            };
-            address.is_some_and(|address| address.parse::<std::net::IpAddr>().is_ok())
-        })
+    let Ok(parsed) = UriAbsoluteStr::new(target) else {
+        return false;
+    };
+    parsed.authority_components().is_some_and(|authority| {
+        let host = authority.host();
+        let address = match host.strip_prefix('[') {
+            Some(bracketed) => bracketed.strip_suffix(']'),
+            None => Some(host),
+        };
+        address.is_some_and(|address| address.parse::<std::net::IpAddr>().is_ok())
+    })
 }
 
 /// Resolve a caller policy into a bounded redirect count.
@@ -496,7 +503,7 @@ fn finish(
     stream: bool,
 ) -> Result<Answered, Error> {
     if stream {
-        return stream_of(response, options, chain).map(Answered::Streamed);
+        return Ok(Answered::Streamed(stream_of(response, options, chain)));
     }
     response_of(response, options, chain).map(Answered::Buffered)
 }

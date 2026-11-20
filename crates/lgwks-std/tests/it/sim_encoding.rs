@@ -95,21 +95,22 @@ fn reference_decode(input: &str) -> Reference {
     let bytes = input.as_bytes();
     let mut decoded: Vec<u8> = Vec::new();
     let mut cursor = 0usize;
-    while cursor < bytes.len() {
-        if bytes[cursor] != b'%' {
-            decoded.push(bytes[cursor]);
+    while let Some(&byte) = bytes.get(cursor) {
+        if byte != b'%' {
+            decoded.push(byte);
             cursor = cursor.saturating_add(1);
             continue;
         }
-        let Some(pair) = bytes.get(cursor.saturating_add(1)..cursor.saturating_add(3)) else {
+        let Some(&[first, second]) = bytes.get(cursor.saturating_add(1)..cursor.saturating_add(3))
+        else {
             return Reference::Truncated { at: cursor };
         };
-        let Some(high) = reference_nibble(pair[0]) else {
+        let Some(high) = reference_nibble(first) else {
             return Reference::NotDigit {
                 at: cursor.saturating_add(1),
             };
         };
-        let Some(low) = reference_nibble(pair[1]) else {
+        let Some(low) = reference_nibble(second) else {
             return Reference::NotDigit {
                 at: cursor.saturating_add(2),
             };
@@ -151,7 +152,13 @@ fn encoding_trace(seed: u64) -> u64 {
     let mut trace = initial_trace();
 
     for _ in 0..64 {
-        let length = BOUNDARY_LENGTHS[below(&mut state, BOUNDARY_LENGTHS.len())];
+        // The draw is below the table's length, so the last of the first
+        // `draw + 1` entries is the entry the draw names.
+        let draw = below(&mut state, BOUNDARY_LENGTHS.len());
+        let length = BOUNDARY_LENGTHS
+            .iter()
+            .take(draw.saturating_add(1))
+            .fold(0, |_, &entry| entry);
         let payload = next_bytes(&mut state, length);
         let encoded = percent::encode_component(&String::from_utf8_lossy(&payload));
         assert_eq!(
@@ -461,7 +468,7 @@ fn every_truncated_prefix_is_refused_or_is_shorter() -> Result<(), PercentError>
         let encoded = percent::encode_component(sample);
         for cut in 0..encoded.len() {
             // `cut` is a bound of this loop, so the prefix exists.
-            let prefix = &encoded[..cut];
+            let (prefix, _tail) = encoded.split_at(cut);
             match reference_decode(prefix) {
                 Reference::Decoded(text) => assert_eq!(
                     percent::decode(prefix)?,
@@ -522,9 +529,9 @@ fn every_reported_coordinate_is_a_real_position_in_its_own_space() -> Result<(),
                     );
                     // `at` was just asserted to be a position in the payload, so
                     // the byte there is the one the refusal names.
-                    let offending = &payload.as_bytes()[at];
+                    let offending = payload.as_bytes().get(at);
                     assert!(
-                        reference_nibble(*offending).is_none(),
+                        matches!(offending, Some(&byte) if reference_nibble(byte).is_none()),
                         "seed {seed}: the named position {at} must hold a non-digit"
                     );
                     assert_eq!(
@@ -570,8 +577,8 @@ fn decoded_len_of(payload: &str) -> usize {
     let bytes = payload.as_bytes();
     let mut cursor = 0usize;
     let mut length = 0usize;
-    while cursor < bytes.len() {
-        if bytes[cursor] == b'%' {
+    while let Some(&byte) = bytes.get(cursor) {
+        if byte == b'%' {
             cursor = cursor.saturating_add(3);
         } else {
             cursor = cursor.saturating_add(1);
@@ -581,117 +588,7 @@ fn decoded_len_of(payload: &str) -> usize {
     length
 }
 
-#[test]
-/// Base64 round-trips every seeded payload and its rendering is the RFC 4648
-/// shape: four characters per three input bytes, padded, and only characters
-/// from the standard alphabet.
-fn a_seeded_payload_round_trips_through_base64() -> Result<(), base64::DecodeError> {
-    for seed in SWEEP_SEEDS {
-        let mut state = seeded_stream(seed);
-        for length in BOUNDARY_LENGTHS {
-            let payload = next_bytes(&mut state, length);
-            let encoded = base64::encode(&payload);
-            let quantum = length.div_ceil(3).saturating_mul(4);
-            assert_eq!(
-                encoded.len(),
-                quantum,
-                "seed {seed}: a {length}-byte payload renders as {quantum} characters"
-            );
-            assert!(
-                encoded.chars().all(|character| {
-                    character.is_ascii_alphanumeric()
-                        || character == '+'
-                        || character == '/'
-                        || character == '='
-                }),
-                "seed {seed}: the rendering uses only the standard alphabet"
-            );
-            assert_eq!(
-                base64::decode(&encoded)?,
-                payload,
-                "seed {seed}: a {length}-byte payload decodes back to itself"
-            );
-        }
-    }
-    Ok(())
-}
-
-#[test]
-/// A base64 payload truncated by any number of characters is refused on its
-/// length, never padded back out into the payload.
-fn every_truncated_base64_prefix_is_refused_on_its_length() -> Result<(), base64::DecodeError> {
-    for seed in SWEEP_SEEDS {
-        let mut state = seeded_stream(seed);
-        for _ in 0..16 {
-            let payload = next_bytes(&mut state, 16);
-            let encoded = base64::encode(&payload);
-            for cut in 0..encoded.len() {
-                // `cut` is a bound of this loop, so the prefix exists.
-                let prefix = &encoded[..cut];
-                if !cut.is_multiple_of(4) {
-                    assert_eq!(
-                        base64::decode(prefix),
-                        Err(base64::DecodeError::BadLength { len: cut, at: cut }),
-                        "seed {seed}: a {cut}-character prefix is not a whole quantum"
-                    );
-                } else {
-                    assert_eq!(
-                        base64::decode(prefix)?.len(),
-                        cut.saturating_div(4).saturating_mul(3),
-                        "seed {seed}: a whole quantum decodes to three bytes per four characters"
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-#[test]
-/// A base64 payload with one character corrupted outside the alphabet is
-/// refused at that character's own offset, and a good quantum beside it is
-/// unaffected.
-fn a_corrupted_base64_character_is_refused_at_its_offset() -> Result<(), Box<dyn std::error::Error>>
-{
-    for seed in SWEEP_SEEDS {
-        for alien in [b'!', b'-', b'_', b' ', b'\n', 0x80, 0xff] {
-            let good = base64::encode("standard base64 sample text");
-            let padding_start = good.trim_end_matches('=').len();
-            assert_eq!(
-                base64::decode(&good)?.len(),
-                good.len().saturating_div(4).saturating_mul(3),
-                "seed {seed}: the good quantum decodes to its full length"
-            );
-
-            for position in 0..padding_start {
-                let mut corrupted = good.clone().into_bytes();
-                if let Some(slot) = corrupted.get_mut(position) {
-                    *slot = alien;
-                }
-                assert_eq!(
-                    base64::decode(&corrupted),
-                    Err(base64::DecodeError::NotInAlphabet {
-                        at: position,
-                        byte: alien
-                    }),
-                    "seed {seed}: the body corruption at {position} is named at its own offset"
-                );
-            }
-
-            for position in padding_start..good.len() {
-                let mut corrupted = good.clone().into_bytes();
-                if let Some(slot) = corrupted.get_mut(position) {
-                    *slot = alien;
-                }
-                assert!(
-                    base64::decode(&corrupted).is_err(),
-                    "seed {seed}: a padding position holding {alien:#04x} must be refused"
-                );
-            }
-        }
-    }
-    Ok(())
-}
+mod base64_door;
 
 #[test]
 /// The replay oracle: one seed, one trace.

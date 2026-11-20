@@ -412,8 +412,15 @@ mod tests {
                 *window = start.elapsed();
             }
         }
-        let per_attempt: [[std::time::Duration; ROUNDS]; ATTEMPTS.len()] =
-            std::array::from_fn(|index| windows.map(|round| round[index]));
+        let mut per_attempt = [[std::time::Duration::ZERO; ROUNDS]; ATTEMPTS.len()];
+        // The transpose walks both arrays by zip, so no index can miss and leave a
+        // seeded zero that the fastest-window pick would then read.
+        for (round, timings) in windows.iter().enumerate() {
+            for (row, &timing) in per_attempt.iter_mut().zip(timings) {
+                let slot = row.get_mut(round).ok_or("a round past ROUNDS was timed")?;
+                *slot = timing;
+            }
+        }
         let mut fastest = Vec::with_capacity(ATTEMPTS.len());
         for rounds in &per_attempt {
             fastest.push(

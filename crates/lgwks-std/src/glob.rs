@@ -25,7 +25,6 @@
 //! with two rolling rows keeps this crate's zero-dependency single-pattern
 //! contract while bounding each token transition to one path scan.
 
-use core::cell::RefCell;
 use core::fmt;
 
 /// The rolling DP rows the matcher retains: the previous token's row and the
@@ -33,12 +32,13 @@ use core::fmt;
 /// read.
 const ROLLING_ROWS: usize = 2;
 
-thread_local! {
-    /// The calling thread's matching scratch, so [`GlobPattern::is_match`] makes
-    /// no allocation per call. It is one buffer per thread for the whole
-    /// program, grown to the longest path that thread has matched.
-    static SCRATCH: RefCell<GlobScratch> = const { RefCell::new(GlobScratch::new()) };
-}
+/// The longest path, in Unicode scalars, that [`GlobPattern::is_match`] matches
+/// in stack buffers. A longer path takes a fresh heap scratch for that one call.
+const STACK_SCALARS: usize = 256;
+
+/// The length of one stack rolling row: one entry per scalar plus the
+/// terminating position.
+const STACK_ROW: usize = 257;
 
 /// Selects the syntax accepted while compiling a glob.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +84,15 @@ impl fmt::Display for PatternError {
 }
 
 impl std::error::Error for PatternError {}
+
+/// Builds the typed refusal for `kind` at `byte_offset`, reporting it through
+/// `trace` when that feature is on.
+fn refusal(kind: PatternErrorKind, byte_offset: usize) -> PatternError {
+    let error = PatternError { kind, byte_offset };
+    #[cfg(feature = "trace")]
+    crate::trace::debug!(error = ?error, "glob: returning an error to the caller");
+    error
+}
 
 /// One inclusive Unicode scalar interval compiled from a class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,15 +148,10 @@ pub struct GlobPattern {
     tokens: Vec<Token>,
 }
 
-/// The compile-time assertion that one pattern is shareable across threads.
-///
-/// A compile error, not a runtime note, if a future edit gives [`GlobPattern`]
-/// interior mutability or a non-`Send` field: the whole sharing contract above
-/// is that claim. It is asserted once here, and the same assertion is written
-/// independently against the published type by
-/// `tests/sim_shared_policy_tiers.rs`, which is what makes this one a check
-/// rather than a note. The test module below carries the matching runtime
-/// probe.
+/// The compile-time assertion that one pattern is shareable across threads: a
+/// compile error if [`GlobPattern`] gains interior mutability or a non-`Send`
+/// field. `tests/sim_shared_policy_tiers.rs` writes the same assertion against
+/// the published type, and the test module below carries the runtime probe.
 #[cfg(test)]
 const fn assert_shared_across_threads() {
     const fn assert<T: Send + Sync>() {}
@@ -178,24 +182,30 @@ impl GlobPattern {
         compile_pattern(pattern, dialect, &mut work)
     }
 
-    /// Matches a path, reusing one scratch per thread.
+    /// Matches a path in stack buffers: no allocation and no state shared
+    /// between calls or callers.
     ///
-    /// The scratch is the calling thread's own, so a match allocates only while
-    /// the thread's first path grows its buffers: the per-call scratch this used
-    /// to take made three allocations on every match, and on the CI host that
-    /// showed up as a 1.9 µs p99 against a 490 ns p50 (run 39821047107). A
-    /// caller that already owns a [`GlobScratch`] and wants to state its memory
-    /// account should call [`Self::is_match_with`]; the two produce the same
-    /// answer.
+    /// A path of up to 256 Unicode scalars is matched in two stack rows and a
+    /// stack scalar index; a longer one takes a fresh [`GlobScratch`] for that
+    /// call. A caller that owns a [`GlobScratch`] should call
+    /// [`Self::is_match_with`]; the two produce the same answer.
     #[must_use]
     pub fn is_match(&self, path: &str) -> bool {
-        SCRATCH.with(|cell| match cell.try_borrow_mut() {
-            Ok(mut scratch) => scratch.match_path(self, path),
-            // Reached only if a match is started from inside a match on the same
-            // thread, which no caller of this type does; the fresh scratch keeps
-            // the call correct rather than panicking inside a match.
-            Err(_) => GlobScratch::new().match_path(self, path),
-        })
+        let count = path.chars().count();
+        let mut scalars = ['\0'; STACK_SCALARS];
+        let mut previous = [0_u8; STACK_ROW];
+        let mut next = [0_u8; STACK_ROW];
+        if let (Some(live), Some(previous_row), Some(next_row)) = (
+            scalars.get_mut(..count),
+            previous.get_mut(..=count),
+            next.get_mut(..=count),
+        ) {
+            for (slot, scalar) in live.iter_mut().zip(path.chars()) {
+                *slot = scalar;
+            }
+            return run_rows(self, live, previous_row, next_row, &mut Work::new());
+        }
+        GlobScratch::new().match_path(self, path)
     }
 
     /// Matches a path while reusing scalar indexing and rolling-row storage.
@@ -208,12 +218,8 @@ impl GlobPattern {
         scratch.match_path(self, path)
     }
 
-    /// Returns the number of compiled tokens.
-    ///
-    /// Pattern storage is `O(M)` in the pattern length, and this is the count
-    /// that sizes it. It is reported separately from the `O(N)` matching
-    /// scratch so a caller sizing its own memory is not misled by a whole-call
-    /// figure that blends the two.
+    /// Returns the number of compiled tokens: the `O(M)` pattern storage,
+    /// reported apart from the `O(N)` matching scratch.
     #[must_use]
     pub const fn token_count(&self) -> usize {
         self.tokens.len()
@@ -249,41 +255,29 @@ impl GlobScratch {
         }
     }
 
-    /// Returns the retained byte capacity of the scalar index.
-    ///
-    /// This is `O(N)` in the path's scalar count and is the largest single
-    /// buffer the scratch owns; `char` is four bytes on every target this
-    /// workspace supports.
+    /// Returns the retained capacity of the scalar index, in scalars: `O(N)` in
+    /// the path's scalar count and the largest buffer the scratch owns.
     #[must_use]
     pub fn scalar_capacity(&self) -> usize {
         self.scalars.capacity()
     }
 
-    /// Returns the retained byte capacity of each rolling row.
-    ///
-    /// There are exactly two, and each is one byte per scalar plus the
-    /// terminating position.
+    /// Returns the retained byte capacity of each rolling row: one byte per
+    /// scalar plus the terminating position.
     #[must_use]
     pub fn row_capacity(&self) -> usize {
         self.previous.capacity()
     }
 
-    /// Returns the number of rolling rows the scratch retains.
-    ///
-    /// Always two. It is reported rather than assumed so a caller accounting
-    /// for its own `O(N)` storage has the count from the type instead of from
-    /// the module's prose.
+    /// Returns the number of rolling rows the scratch retains: always two,
+    /// reported so a caller accounting its own storage reads the type.
     #[must_use]
     pub const fn row_count(&self) -> usize {
         ROLLING_ROWS
     }
 
-    /// Returns the total retained capacity across all three buffers.
-    ///
-    /// The scratch is caller-owned and outlives the call, so a caller sizing
-    /// its own steady-state memory needs the scalar index, the two rolling
-    /// rows, and this sum reported separately from the pattern's own `O(M)`
-    /// storage ([`GlobPattern::token_count`]).
+    /// Returns the total retained capacity across all three buffers, apart from
+    /// the pattern's own `O(M)` storage ([`GlobPattern::token_count`]).
     #[must_use]
     pub fn storage_bytes(&self) -> usize {
         self.scalars
@@ -293,30 +287,48 @@ impl GlobScratch {
             .saturating_add(self.next.capacity())
     }
 
-    /// Runs the two-row automaton, counting each inspected state as work.
+    /// Runs the two-row automaton over the retained buffers.
     fn match_path(&mut self, pattern: &GlobPattern, path: &str) -> bool {
         self.scalars.clear();
         self.scalars.extend(path.chars());
         let row_len = self.scalars.len().saturating_add(1);
         self.previous.resize(row_len, 0);
         self.next.resize(row_len, 0);
-        self.previous.fill(0);
-        self.previous[0] = 1;
-        self.work.reset();
-
-        for token in &pattern.tokens {
-            self.next.fill(0);
-            step_token(
-                token,
-                &self.scalars,
-                &self.previous,
-                &mut self.next,
-                &mut self.work,
-            );
-            core::mem::swap(&mut self.previous, &mut self.next);
-        }
-        self.previous[self.scalars.len()] != 0
+        run_rows(
+            pattern,
+            &self.scalars,
+            &mut self.previous,
+            &mut self.next,
+            &mut self.work,
+        )
     }
+}
+
+/// Runs the two-row automaton over `scalars`, counting each inspected state as
+/// work. Both rows hold one entry per scalar plus the terminating position.
+fn run_rows<'row>(
+    pattern: &GlobPattern,
+    scalars: &[char],
+    mut previous: &'row mut [u8],
+    mut next: &'row mut [u8],
+    work: &mut Work,
+) -> bool {
+    // Only the empty prefix is reachable before the first token.
+    previous.fill(0);
+    if let Some(first) = previous.first_mut() {
+        *first = 1;
+    }
+    work.reset();
+    for token in &pattern.tokens {
+        next.fill(0);
+        step_token(token, scalars, previous, next, work);
+        core::mem::swap(&mut previous, &mut next);
+    }
+    // The path is consumed when the final offset is reachable; a missing offset
+    // is a non-match.
+    previous
+        .get(scalars.len())
+        .is_some_and(|&reachable| reachable != 0)
 }
 
 /// Counts deterministic parser and transition operations in test builds only.
@@ -373,113 +385,137 @@ fn compile_pattern(
     work: &mut Work,
 ) -> Result<GlobPattern, PatternError> {
     let chars: Vec<char> = pattern.chars().collect();
+    let next_close = close_index(&chars, work);
+    check_double_stars(&chars, &next_close, dialect, work)?;
+    let tokens = compile_tokens(&chars, &next_close, dialect, work)?;
+    Ok(GlobPattern { tokens })
+}
+
+/// Maps each scalar offset to the offset of the nearest `]` at or after it, in
+/// one backward pass, with a terminal entry carrying the input's own length.
+fn close_index(chars: &[char], work: &mut Work) -> Vec<usize> {
     let mut next_close = vec![chars.len(); chars.len().saturating_add(1)];
     let mut nearest = chars.len();
-    for index in (0..chars.len()).rev() {
+    for ((index, &scalar), slot) in chars.iter().enumerate().zip(next_close.iter_mut()).rev() {
         work.parser_step();
-        if chars[index] == ']' {
+        if scalar == ']' {
             nearest = index;
         }
-        next_close[index] = nearest;
+        *slot = nearest;
     }
+    next_close
+}
 
-    let mut star_cursor = 0;
-    while star_cursor < chars.len() {
+/// Refuses, under the strict dialect, a `**` run that is not a complete path
+/// component. Classes are skipped whole, so a `**` inside one is not a run.
+fn check_double_stars(
+    chars: &[char],
+    next_close: &[usize],
+    dialect: GlobDialect,
+    work: &mut Work,
+) -> Result<(), PatternError> {
+    let mut cursor = 0;
+    while let Some(&current) = chars.get(cursor) {
         work.parser_step();
-        if chars[star_cursor] == '[' {
-            let (_, _, close) = class_bounds(&chars, &next_close, star_cursor);
-            star_cursor = if close < chars.len() {
+        if current == '[' {
+            let (_, _, close) = class_bounds(chars, next_close, cursor);
+            cursor = if close < chars.len() {
                 close.saturating_add(1)
             } else if dialect == GlobDialect::Strict {
                 chars.len()
             } else {
-                star_cursor.saturating_add(1)
+                cursor.saturating_add(1)
             };
-        } else if chars[star_cursor] == '*'
-            && chars.get(star_cursor.saturating_add(1)) == Some(&'*')
-        {
-            let run_start = star_cursor;
-            while chars.get(star_cursor) == Some(&'*') {
+        } else if current == '*' && chars.get(cursor.saturating_add(1)) == Some(&'*') {
+            let run_start = cursor;
+            while chars.get(cursor) == Some(&'*') {
                 work.parser_step();
-                star_cursor = star_cursor.saturating_add(1);
+                cursor = cursor.saturating_add(1);
             }
-            let left_boundary = run_start == 0 || chars[run_start.saturating_sub(1)] == '/';
-            let right_boundary = star_cursor == chars.len() || chars.get(star_cursor) == Some(&'/');
+            let left = run_start == 0 || chars.get(run_start.saturating_sub(1)) == Some(&'/');
+            let right = cursor == chars.len() || chars.get(cursor) == Some(&'/');
             if dialect == GlobDialect::Strict
-                && (star_cursor.saturating_sub(run_start) != 2 || !left_boundary || !right_boundary)
+                && (cursor.saturating_sub(run_start) != 2 || !left || !right)
             {
-                let refusal = Err(PatternError {
-                    kind: PatternErrorKind::DoubleStarPlacement,
-                    byte_offset: byte_offset(&chars, run_start),
-                });
+                let at = byte_offset(chars, run_start);
+                let refusal = Err(refusal(PatternErrorKind::DoubleStarPlacement, at));
                 #[cfg(feature = "trace")]
-                crate::trace::debug!(error = ?refusal.as_ref().err(), "compile_pattern: returning an error to the caller");
+                crate::trace::debug!(error = ?refusal.as_ref().err(), "check_double_stars: returning an error to the caller");
                 return refusal;
             }
         } else {
-            star_cursor = star_cursor.saturating_add(1);
+            cursor = cursor.saturating_add(1);
         }
     }
+    Ok(())
+}
 
+/// Turns the scalars of a pattern into transitions, longest `**` form first.
+fn compile_tokens(
+    chars: &[char],
+    next_close: &[usize],
+    dialect: GlobDialect,
+    work: &mut Work,
+) -> Result<Vec<Token>, PatternError> {
     let mut tokens = Vec::with_capacity(chars.len());
     let mut index = 0;
-    while index < chars.len() {
+    while let Some(&current) = chars.get(index) {
         work.parser_step();
-        if starts_with(&chars, index, &['/', '*', '*', '/']) {
+        if starts_with(chars, index, &['/', '*', '*', '/']) {
             tokens.push(Token::SlashDoubleStarSlash);
             index = index.saturating_add(4);
-        } else if starts_with(&chars, index, &['/', '*', '*']) {
+        } else if starts_with(chars, index, &['/', '*', '*']) {
             tokens.push(Token::SlashDoubleStar);
             index = index.saturating_add(3);
-        } else if starts_with(&chars, index, &['*', '*', '/']) {
+        } else if starts_with(chars, index, &['*', '*', '/']) {
             tokens.push(Token::DoubleStarSlash);
             index = index.saturating_add(3);
-        } else if starts_with(&chars, index, &['*', '*']) {
-            let previous_is_separator = index == 0 || chars[index.saturating_sub(1)] == '/';
+        } else if starts_with(chars, index, &['*', '*']) {
+            let previous_is_separator =
+                index == 0 || chars.get(index.saturating_sub(1)) == Some(&'/');
             let after = index.saturating_add(2);
             let next_is_separator = after == chars.len() || chars.get(after) == Some(&'/');
             if dialect == GlobDialect::Strict && !(previous_is_separator && next_is_separator) {
-                let refusal = Err(PatternError {
-                    kind: PatternErrorKind::DoubleStarPlacement,
-                    byte_offset: byte_offset(&chars, index),
-                });
+                let at = byte_offset(chars, index);
+                let refusal = Err(refusal(PatternErrorKind::DoubleStarPlacement, at));
                 #[cfg(feature = "trace")]
-                crate::trace::debug!(error = ?refusal.as_ref().err(), "compile_pattern: returning an error to the caller");
+                crate::trace::debug!(error = ?refusal.as_ref().err(), "compile_tokens: returning an error to the caller");
                 return refusal;
             }
             tokens.push(Token::DoubleStar);
             index = after;
-        } else if chars[index] == '*' {
+        } else if current == '*' {
             tokens.push(Token::Star);
             index = index.saturating_add(1);
-        } else if chars[index] == '?' {
+        } else if current == '?' {
             tokens.push(Token::Question);
             index = index.saturating_add(1);
-        } else if chars[index] == '[' {
-            let (negated, content, close) = class_bounds(&chars, &next_close, index);
+        } else if current == '[' {
+            let (negated, content, close) = class_bounds(chars, next_close, index);
             if close == chars.len() {
                 if dialect == GlobDialect::Strict {
-                    let refusal = Err(PatternError {
-                        kind: PatternErrorKind::UnclosedClass,
-                        byte_offset: byte_offset(&chars, index),
-                    });
+                    let at = byte_offset(chars, index);
+                    let refusal = Err(refusal(PatternErrorKind::UnclosedClass, at));
                     #[cfg(feature = "trace")]
-                    crate::trace::debug!(error = ?refusal.as_ref().err(), "compile_pattern: returning an error to the caller");
+                    crate::trace::debug!(error = ?refusal.as_ref().err(), "compile_tokens: returning an error to the caller");
                     return refusal;
                 }
                 tokens.push(Token::Literal('['));
                 index = index.saturating_add(1);
             } else {
-                let ranges = compile_class(&chars[content..close], dialect, index, work)?;
+                let body = chars.get(content..close).ok_or_else(|| {
+                    refusal(PatternErrorKind::UnclosedClass, byte_offset(chars, index))
+                })?;
+                let ranges = compile_class(body, dialect, byte_offset(chars, index), work)?;
                 tokens.push(Token::Class { ranges, negated });
                 index = close.saturating_add(1);
             }
         } else {
-            tokens.push(Token::Literal(chars[index]));
+            tokens.push(Token::Literal(current));
             index = index.saturating_add(1);
         }
     }
-    Ok(GlobPattern { tokens })
+    Ok(tokens)
 }
 
 /// Tests a short token prefix without allocating a suffix or rescanning input.
@@ -498,10 +534,8 @@ fn class_bounds(chars: &[char], next_close: &[usize], opening: usize) -> (bool, 
     if chars.get(closing_search) == Some(&']') {
         closing_search = closing_search.saturating_add(1);
     }
-    // `next_close` holds one entry per scalar plus a terminal entry carrying the
-    // input's own length, so this offset names an entry even when no `]` is
-    // left; that entry is how an unclosed class says so. A table without it
-    // names the same end of input.
+    // The table's terminal entry carries the input's length, so an unclosed
+    // class names the end of input rather than a missing entry.
     let close = match next_close.get(closing_search) {
         Some(&close) => close,
         None => chars.len(),
@@ -509,17 +543,13 @@ fn class_bounds(chars: &[char], next_close: &[usize], opening: usize) -> (bool, 
     (negated, content, close)
 }
 
-/// Converts a scalar offset to the public UTF-8 byte-offset convention.
-///
-/// An offset past the end of the input measures the end of the input, which is
-/// the nearest coordinate a past-the-end offset has: the byte offset of a
-/// scalar that is not there is the input's own length.
+/// Converts a scalar offset to the public UTF-8 byte-offset convention. An
+/// offset past the end of the input measures the input's own length.
 fn byte_offset(chars: &[char], scalar_offset: usize) -> usize {
-    // `take` stops at the end of the input, which is the clamp described above.
     chars
         .iter()
         .take(scalar_offset)
-        .map(|ch| ch.len_utf8())
+        .map(|scalar| scalar.len_utf8())
         .sum()
 }
 
@@ -532,16 +562,13 @@ fn compile_class(
 ) -> Result<Vec<ScalarRange>, PatternError> {
     let mut ranges = Vec::with_capacity(body.len());
     let mut index = 0;
-    while index < body.len() {
+    while let Some(&start) = body.get(index) {
         work.parser_step();
-        if index.saturating_add(2) < body.len() && body[index.saturating_add(1)] == '-' {
-            let start = body[index];
-            let end = body[index.saturating_add(2)];
+        let dash = body.get(index.saturating_add(1));
+        let last = body.get(index.saturating_add(2));
+        if let (Some(&'-'), Some(&end)) = (dash, last) {
             if start > end && dialect == GlobDialect::Strict {
-                let refusal = Err(PatternError {
-                    kind: PatternErrorKind::DescendingRange,
-                    byte_offset: class_offset,
-                });
+                let refusal = Err(refusal(PatternErrorKind::DescendingRange, class_offset));
                 #[cfg(feature = "trace")]
                 crate::trace::debug!(error = ?refusal.as_ref().err(), "compile_class: returning an error to the caller");
                 return refusal;
@@ -551,161 +578,137 @@ fn compile_class(
             }
             index = index.saturating_add(3);
         } else {
-            ranges.push(ScalarRange {
-                start: body[index],
-                end: body[index],
-            });
+            ranges.push(ScalarRange { start, end: start });
             index = index.saturating_add(1);
         }
     }
-    radix_sort_ranges(&mut ranges, work);
+    for _range in &ranges {
+        work.parser_step();
+    }
+    ranges.sort_unstable_by_key(|range| (range.start, range.end));
     merge_overlapping_ranges(&mut ranges, work);
     Ok(ranges)
 }
 
 /// Merges overlapping intervals so binary-search membership remains monotone.
 fn merge_overlapping_ranges(ranges: &mut Vec<ScalarRange>, work: &mut Work) {
-    let mut written = 0_usize;
-    for read in 0..ranges.len() {
+    ranges.dedup_by(|current, kept| {
         work.parser_step();
-        let range = ranges[read];
-        if written > 0 && range.start <= ranges[written.saturating_sub(1)].end {
-            let previous = &mut ranges[written.saturating_sub(1)];
-            if range.end > previous.end {
-                previous.end = range.end;
-            }
-        } else {
-            ranges[written] = range;
-            written = written.saturating_add(1);
+        let overlaps = current.start <= kept.end;
+        if overlaps && current.end > kept.end {
+            kept.end = current.end;
         }
-    }
-    ranges.truncate(written);
-}
-
-/// Sorts scalar intervals in linear time using six fixed-width radix passes.
-fn radix_sort_ranges(ranges: &mut Vec<ScalarRange>, work: &mut Work) {
-    if ranges.len() < 2 {
-        return;
-    }
-    let mut output = vec![ranges[0]; ranges.len()];
-    for shift in [0_u32, 8, 16, 24, 32, 40] {
-        let mut counts = [0_usize; 256];
-        for range in ranges.iter() {
-            work.parser_step();
-            let bucket = range_bucket(*range, shift);
-            counts[bucket] = counts[bucket].saturating_add(1);
-        }
-        let mut positions = [0_usize; 256];
-        let mut start = 0;
-        for bucket in 0..counts.len() {
-            work.parser_step();
-            positions[bucket] = start;
-            start = start.saturating_add(counts[bucket]);
-        }
-        for range in ranges.iter() {
-            work.parser_step();
-            let bucket = range_bucket(*range, shift);
-            let position = positions[bucket];
-            output[position] = *range;
-            positions[bucket] = position.saturating_add(1);
-        }
-        core::mem::swap(ranges, &mut output);
-    }
-}
-
-/// Returns the current radix bucket for the lexicographic `(start, end)` key.
-fn range_bucket(range: ScalarRange, shift: u32) -> usize {
-    let start = u64::from(u32::from(range.start));
-    let end = u64::from(u32::from(range.end));
-    let key = (start << 21) | end;
-    // The bucket is one byte of the key, and reading that byte is total where a
-    // checked conversion would carry a refusal arm for a mask this function has
-    // already applied: the byte at offset zero of the shifted key *is* the
-    // masked byte.
-    usize::from((key >> shift).to_le_bytes()[0])
+        overlaps
+    });
 }
 
 /// Advances one compiled token over one path using the rolling previous row.
 fn step_token(token: &Token, path: &[char], previous: &[u8], next: &mut [u8], work: &mut Work) {
     match *token {
         Token::Literal(literal) => {
-            for offset in 0..path.len() {
-                work.transition_step();
-                if previous[offset] != 0 && path[offset] == literal {
-                    next[offset.saturating_add(1)] = 1;
-                }
-            }
+            step_single(path, previous, next, work, |scalar, _| scalar == literal);
         }
-        Token::Question => {
-            for offset in 0..path.len() {
-                work.transition_step();
-                if previous[offset] != 0 && path[offset] != '/' {
-                    next[offset.saturating_add(1)] = 1;
-                }
-            }
-        }
+        Token::Question => step_single(path, previous, next, work, |scalar, _| scalar != '/'),
         Token::Class {
             ref ranges,
             negated,
-        } => {
-            for offset in 0..path.len() {
-                work.transition_step();
-                let member = class_contains(ranges, path[offset], work);
-                if previous[offset] != 0 && path[offset] != '/' && (member != negated) {
-                    next[offset.saturating_add(1)] = 1;
-                }
-            }
+        } => step_single(path, previous, next, work, |scalar, counter| {
+            let member = class_contains(ranges, scalar, counter);
+            scalar != '/' && (member != negated)
+        }),
+        Token::Star => step_star(path, previous, next, work),
+        Token::DoubleStar => step_double_star(previous, next, work),
+        Token::DoubleStarSlash => step_double_star_slash(path, previous, next, work),
+        Token::SlashDoubleStar => step_slash_double_star(path, previous, next, work),
+        Token::SlashDoubleStarSlash => step_slash_double_star_slash(path, previous, next, work),
+    }
+}
+
+/// A token that consumes one scalar: the next offset is reachable when this one
+/// was and `accepts` takes the scalar between them.
+fn step_single(
+    path: &[char],
+    previous: &[u8],
+    next: &mut [u8],
+    work: &mut Work,
+    mut accepts: impl FnMut(char, &mut Work) -> bool,
+) {
+    for ((&reach, &scalar), slot) in previous.iter().zip(path).zip(next.iter_mut().skip(1)) {
+        work.transition_step();
+        let accepted = accepts(scalar, work);
+        if reach != 0 && accepted {
+            *slot = 1;
         }
-        Token::Star => {
-            for offset in 0..=path.len() {
-                work.transition_step();
-                let zero_or_more = previous[offset] != 0
-                    || (offset > 0
-                        && next[offset.saturating_sub(1)] != 0
-                        && path[offset.saturating_sub(1)] != '/');
-                next[offset] = u8::from(zero_or_more);
-            }
+    }
+}
+
+/// `*`: an offset is reachable when it was before, or when the offset behind it
+/// is reachable now and the scalar between them is not `/`.
+fn step_star(path: &[char], previous: &[u8], next: &mut [u8], work: &mut Work) {
+    let mut scalars = path.iter();
+    let mut extends = false;
+    for (&reach, slot) in previous.iter().zip(next.iter_mut()) {
+        work.transition_step();
+        let value = u8::from(reach != 0 || extends);
+        *slot = value;
+        let consumed = scalars.next();
+        extends = value != 0 && consumed.is_some_and(|&scalar| scalar != '/');
+    }
+}
+
+/// `**`: every offset at or after the first reachable one.
+fn step_double_star(previous: &[u8], next: &mut [u8], work: &mut Work) {
+    let mut reachable = false;
+    for (&reach, slot) in previous.iter().zip(next.iter_mut()) {
+        work.transition_step();
+        reachable |= reach != 0;
+        *slot = u8::from(reachable);
+    }
+}
+
+/// `**/`: the offsets after each separator reachable from any earlier offset,
+/// plus every offset that was already reachable.
+fn step_double_star_slash(path: &[char], previous: &[u8], next: &mut [u8], work: &mut Work) {
+    let mut scalars = path.iter();
+    let mut behind: Option<(u8, char)> = None;
+    let mut reachable = false;
+    for (&reach, slot) in previous.iter().zip(next.iter_mut()) {
+        work.transition_step();
+        if let Some((earlier, '/')) = behind {
+            reachable |= earlier != 0;
+            *slot = u8::from(reachable);
         }
-        Token::DoubleStar => {
-            let mut reachable = false;
-            for offset in 0..=path.len() {
-                work.transition_step();
-                reachable |= previous[offset] != 0;
-                next[offset] = u8::from(reachable);
-            }
+        *slot |= reach;
+        reachable |= reach != 0;
+        behind = scalars.next().map(|&scalar| (reach, scalar));
+    }
+}
+
+/// `/**`: a separator reached from a reachable offset opens every later offset,
+/// and every offset that was already reachable stays.
+fn step_slash_double_star(path: &[char], previous: &[u8], next: &mut [u8], work: &mut Work) {
+    let mut scalars = path.iter();
+    let mut behind: Option<(u8, char)> = None;
+    let mut can_extend = false;
+    for (&reach, slot) in previous.iter().zip(next.iter_mut()) {
+        work.transition_step();
+        if let Some((earlier, scalar)) = behind {
+            can_extend |= earlier != 0 && scalar == '/';
         }
-        Token::DoubleStarSlash => {
-            let mut reachable = false;
-            for offset in 0..=path.len() {
-                work.transition_step();
-                if offset > 0 && path[offset.saturating_sub(1)] == '/' {
-                    reachable |= previous[offset.saturating_sub(1)] != 0;
-                    next[offset] = u8::from(reachable);
-                }
-                next[offset] |= previous[offset];
-                reachable |= previous[offset] != 0;
-            }
-        }
-        Token::SlashDoubleStar => {
-            let mut can_extend = false;
-            for offset in 0..=path.len() {
-                work.transition_step();
-                if offset > 0 {
-                    can_extend |= previous[offset.saturating_sub(1)] != 0
-                        && path[offset.saturating_sub(1)] == '/';
-                }
-                next[offset] = u8::from(can_extend || previous[offset] != 0);
-            }
-        }
-        Token::SlashDoubleStarSlash => {
-            let mut started = false;
-            for offset in 1..=path.len() {
-                work.transition_step();
-                let separator = path[offset.saturating_sub(1)] == '/';
-                started |= previous[offset.saturating_sub(1)] != 0 && separator;
-                next[offset] = u8::from(started && separator);
-            }
-        }
+        *slot = u8::from(can_extend || reach != 0);
+        behind = scalars.next().map(|&scalar| (reach, scalar));
+    }
+}
+
+/// `/**/`: an offset is reachable when it follows a separator and an earlier
+/// separator was reached from a reachable offset.
+fn step_slash_double_star_slash(path: &[char], previous: &[u8], next: &mut [u8], work: &mut Work) {
+    let mut started = false;
+    for ((&earlier, &scalar), slot) in previous.iter().zip(path).zip(next.iter_mut().skip(1)) {
+        work.transition_step();
+        let separator = scalar == '/';
+        started |= earlier != 0 && separator;
+        *slot = u8::from(started && separator);
     }
 }
 

@@ -264,7 +264,7 @@ mod sim {
                     // for a draw that never filled its buffer is every byte.
                     let (filled, buf) = match joined.join() {
                         Ok(drawn) => drawn,
-                        Err(_) => (false, [SENTINEL; DRAW_BYTES]),
+                        Err(_panicked) => (false, [SENTINEL; DRAW_BYTES]),
                     };
                     if filled {
                         survivors = survivors.saturating_add(usize::from(buf.contains(&SENTINEL)));
@@ -319,10 +319,10 @@ mod sim {
                 trace.untouched_draws, trace.draws
             );
             for length in LENGTHS {
-                let worst = trace.worst_sentinels[&length];
+                let worst = trace.worst_sentinels.get(&length).copied();
                 assert!(
-                    worst <= sentinel_budget(length),
-                    "seed {seed:#018x}: a {length}-byte draw left {worst} sentinel bytes, \
+                    worst.is_some_and(|worst| worst <= sentinel_budget(length)),
+                    "seed {seed:#018x}: a {length}-byte draw left {worst:?} sentinel bytes, \
                      above the {budget} a whole draw leaves",
                     budget = sentinel_budget(length)
                 );
@@ -369,20 +369,16 @@ mod sim {
                 ..SweepTrace::default()
             };
             let outcome = draw(&mut trace, length);
-            let drawn = match outcome {
-                Ok(ref bytes) => bytes.len(),
-                Err(_) => 0,
-            };
             assert_eq!(
-                drawn,
-                length,
+                outcome.as_ref().map(Vec::len),
+                Ok(length),
                 "a {length}-byte draw must hand back {length} bytes; refusal: {}",
                 refusal_text(&outcome)
             );
-            let worst = trace.worst_sentinels[&length];
+            let worst = trace.worst_sentinels.get(&length).copied();
             assert!(
-                worst <= sentinel_budget(length),
-                "a {length}-byte draw left {worst} sentinel bytes, above the {} a whole draw \
+                worst.is_some_and(|worst| worst <= sentinel_budget(length)),
+                "a {length}-byte draw left {worst:?} sentinel bytes, above the {} a whole draw \
                  leaves, so the write was short",
                 sentinel_budget(length)
             );
@@ -494,7 +490,7 @@ mod sim {
                         variant_lows.insert(raw[8] & 0x3f);
                         seen.insert(*raw);
                     }
-                    Err(_) => refusals = refusals.saturating_add(1),
+                    Err(_refused) => refusals = refusals.saturating_add(1),
                 }
             }
             assert_eq!(

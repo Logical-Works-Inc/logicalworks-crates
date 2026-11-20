@@ -294,7 +294,7 @@ fn measure(
     samples: usize,
     mut body: impl FnMut(),
     mut raw: Option<Box<dyn FnMut()>>,
-) -> Result<(Tails, Option<Tails>), Box<dyn Error>> {
+) -> (Tails, Option<Tails>) {
     let mut taken = Vec::with_capacity(samples);
     let mut floor = Vec::with_capacity(if raw.is_some() { samples } else { 0 });
     for _ in 0..samples {
@@ -309,13 +309,13 @@ fn measure(
         name: "raw call",
         samples: floor,
     });
-    Ok((
+    (
         Tails {
             name,
             samples: taken,
         },
         floor,
-    ))
+    )
 }
 
 /// Reads `--samples N`, defaulting to [`SAMPLES`].
@@ -402,19 +402,38 @@ fn registry(samples: usize) -> Result<Vec<Row>, Box<dyn Error>> {
         );
     });
 
+    #[cfg(any(
+        feature = "hash",
+        feature = "json",
+        feature = "random",
+        feature = "pattern"
+    ))]
+    feature_rows(&mut rows, samples, mid)?;
+
+    Ok(rows)
+}
+
+/// The rows of the optional modules: each present only when its feature is on.
+#[cfg(any(
+    feature = "hash",
+    feature = "json",
+    feature = "random",
+    feature = "pattern"
+))]
+fn feature_rows(rows: &mut Vec<Row>, samples: usize, mid: usize) -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "hash")]
     {
         let subject = black_box(DIGEST_SUBJECT);
-        Row::light(&mut rows, "blake3(64 B)", samples, move || {
+        Row::light(rows, "blake3(64 B)", samples, move || {
             let value = blake3(black_box(&subject));
             black_box(value.as_bytes());
         });
         let digest = blake3(&DIGEST_SUBJECT);
-        Row::light(&mut rows, "digest hex", samples, move || {
+        Row::light(rows, "digest hex", samples, move || {
             black_box(black_box(digest).to_hex());
         });
         let twin = black_box(digest);
-        Row::light(&mut rows, "digest ct_eq", samples, move || {
+        Row::light(rows, "digest ct_eq", samples, move || {
             black_box(black_box(digest).ct_eq(&twin));
         });
     }
@@ -425,11 +444,11 @@ fn registry(samples: usize) -> Result<Vec<Row>, Box<dyn Error>> {
         let parsed = JSON_SUBJECT.parse::<lgwks_std::json::Value>()?;
         let parsed = black_box(parsed);
         // The tree's own reader (#831): `str::parse::<Value>()`.
-        Row::light(&mut rows, "json parse", samples, move || {
+        Row::light(rows, "json parse", samples, move || {
             let value = black_box(document).parse::<lgwks_std::json::Value>();
             black_box(value.is_ok());
         });
-        Row::light(&mut rows, "json write", samples, move || {
+        Row::light(rows, "json write", samples, move || {
             black_box(lgwks_std::json::to_string(black_box(&parsed)).is_ok());
         });
     }
@@ -437,15 +456,15 @@ fn registry(samples: usize) -> Result<Vec<Row>, Box<dyn Error>> {
     #[cfg(feature = "random")]
     {
         let text = black_box(UUID_TEXT);
-        Row::light(&mut rows, "uuid parse 36 B", mid, move || {
+        Row::light(rows, "uuid parse 36 B", mid, move || {
             black_box(Uuid::parse(black_box(text)).is_ok());
         });
         let identifier = Uuid::parse(UUID_TEXT)?;
-        Row::light(&mut rows, "uuid render", mid, move || {
+        Row::light(rows, "uuid render", mid, move || {
             black_box(format!("{}", black_box(identifier)));
         });
         Row::kernel(
-            &mut rows,
+            rows,
             "uuid v4 (getentropy)",
             mid,
             move || {
@@ -461,12 +480,12 @@ fn registry(samples: usize) -> Result<Vec<Row>, Box<dyn Error>> {
     {
         let regex = lgwks_std::pattern::Regex::new(REGEX_PATTERN)?;
         let subject = black_box(REGEX_SUBJECT);
-        Row::light(&mut rows, "regex match", mid, move || {
+        Row::light(rows, "regex match", mid, move || {
             black_box(regex.is_match(black_box(subject)));
         });
     }
 
-    Ok(rows)
+    Ok(())
 }
 
 /// Prints one measured row: its tails, its sample count and what was dropped.
@@ -494,7 +513,7 @@ fn run(out: &mut impl Write, arguments: &[String]) -> Result<bool, Box<dyn Error
     let mut within = true;
     for row in rows {
         let budget = row.budget;
-        let (tails, raw) = measure(row.name, row.samples, row.body, row.raw)?;
+        let (tails, raw) = measure(row.name, row.samples, row.body, row.raw);
         let inside = tails.within_bounds(budget, raw.as_ref())?;
         if !inside {
             within = false;

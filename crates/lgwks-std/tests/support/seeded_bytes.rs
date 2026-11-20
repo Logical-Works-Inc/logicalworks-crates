@@ -23,13 +23,14 @@ const TEXT_ALPHABET: &[u8] =
 /// `x % 256` names and one instruction rather than a checked conversion: the
 /// stream's low byte is exactly as good as any other byte of it.
 #[must_use]
-pub fn next_byte(state: &mut Seeded) -> u8 {
-    next_seed(state).to_le_bytes()[0]
+pub(crate) fn next_byte(state: &mut Seeded) -> u8 {
+    let [low, ..] = next_seed(state).to_le_bytes();
+    low
 }
 
 /// `len` bytes drawn from the sweep stream rooted at `state`.
 #[must_use]
-pub fn next_bytes(state: &mut Seeded, len: usize) -> Vec<u8> {
+pub(crate) fn next_bytes(state: &mut Seeded, len: usize) -> Vec<u8> {
     (0..len).map(|_| next_byte(state)).collect()
 }
 
@@ -43,7 +44,7 @@ pub fn next_bytes(state: &mut Seeded, len: usize) -> Vec<u8> {
 /// family, so a build without that feature has no uncalled draw in it.
 #[cfg(feature = "random")]
 #[must_use]
-pub fn next_array<const LEN: usize>(state: &mut Seeded) -> [u8; LEN] {
+pub(crate) fn next_array<const LEN: usize>(state: &mut Seeded) -> [u8; LEN] {
     let mut drawn = [0_u8; LEN];
     for slot in drawn.iter_mut() {
         *slot = next_byte(state);
@@ -60,11 +61,11 @@ pub fn next_array<const LEN: usize>(state: &mut Seeded) -> [u8; LEN] {
 /// mapping of [`crate::seeded_sweep::next_seed`] applied one byte at a time and
 /// is enough for a payload a family asserts a contract about.
 #[must_use]
-pub fn next_text(state: &mut Seeded, len: usize) -> String {
+pub(crate) fn next_text(state: &mut Seeded, len: usize) -> String {
     (0..len)
-        .map(|_| {
+        .filter_map(|_| {
             let offset = usize::from(next_byte(state)).rem_euclid(TEXT_ALPHABET.len());
-            char::from(TEXT_ALPHABET[offset])
+            TEXT_ALPHABET.get(offset).copied().map(char::from)
         })
         .collect()
 }
@@ -72,7 +73,7 @@ pub fn next_text(state: &mut Seeded, len: usize) -> String {
 /// `len` copies of one byte, the degenerate payload every family's boundaries
 /// are stated at.
 #[must_use]
-pub fn repeated(byte: u8, len: usize) -> Vec<u8> {
+pub(crate) fn repeated(byte: u8, len: usize) -> Vec<u8> {
     vec![byte; len]
 }
 
@@ -83,17 +84,63 @@ pub fn repeated(byte: u8, len: usize) -> Vec<u8> {
 /// to name and yields `0`; every caller indexes a table whose length it has
 /// already checked, so an empty table is not a case this draws for.
 #[must_use]
-pub fn below(state: &mut Seeded, bound: usize) -> usize {
+pub(crate) fn below(state: &mut Seeded, bound: usize) -> usize {
     // The bound is at least one, so the draw is never refused, and the index
-    // is below a `usize`, so it converts back: the `0` arm is a bound of one.
-    match u64::try_from(bound.max(1)).map(|wide| state.below(wide).map(usize::try_from)) {
-        Ok(Ok(Ok(index))) => index,
-        Ok(Ok(Err(_)) | Err(_)) | Err(_) => 0,
+    // is below a `usize`, so it converts back: the `0` answer is a bound of one.
+    let Ok(wide) = u64::try_from(bound.max(1)) else {
+        return 0;
+    };
+    let Ok(drawn) = state.below(wide) else {
+        return 0;
+    };
+    let Ok(index) = usize::try_from(drawn) else {
+        return 0;
+    };
+    index
+}
+
+/// The entry of `table` that `draw` names, wrapped into the table's length.
+///
+/// The lookup is total: the prefix it takes is never empty, so its last entry is
+/// the one named, and `floor` only seeds the fold (it is what an empty table
+/// would read as, a case no caller draws for).
+#[must_use]
+pub(crate) fn pick<T: Copy>(table: &[T], draw: usize, floor: T) -> T {
+    let position = draw.rem_euclid(table.len().max(1));
+    table
+        .iter()
+        .take(position.saturating_add(1))
+        .fold(floor, |_, &entry| entry)
+}
+
+/// Run `probe` until it answers `Some` or `budget` probes are spent, and answer
+/// its last result.
+///
+/// Each wait here watches the operating system for a fact about a process a test
+/// did not start (a pid file a grandchild wrote, a pid that stopped running, an
+/// exit another sweep collected), and the kernel offers no event for any of them.
+/// A park or a sleep between probes would be a delay guessed at, so the wait is
+/// the probe itself, repeated, and the budget, a count of probes, is what ends
+/// it: no wall clock is read, so the bound is the same on every run. `yield_now`
+/// hands the core to the process waited on. The probe runs once more after the
+/// budget, so a fact that arrived during the last yield is not reported as
+/// absent.
+#[cfg(all(unix, feature = "process"))]
+pub(crate) fn poll_within<T>(
+    budget: u32,
+    mut probe: impl FnMut() -> Result<Option<T>, Box<dyn std::error::Error>>,
+) -> Result<Option<T>, Box<dyn std::error::Error>> {
+    for _ in 0..budget {
+        if let Some(found) = probe()? {
+            return Ok(Some(found));
+        }
+        std::thread::yield_now();
     }
+    probe()
 }
 
 /// Folds every byte of `bytes` into the running trace.
-pub fn fold_bytes(trace: &mut u64, bytes: &[u8]) {
+pub(crate) fn fold_bytes(trace: &mut u64, bytes: &[u8]) {
     for byte in bytes {
         fold(trace, u64::from(*byte));
     }
@@ -102,7 +149,7 @@ pub fn fold_bytes(trace: &mut u64, bytes: &[u8]) {
 /// Folds one refusal into the trace as its arm, its first offset and its
 /// second offset, so two refusals that differ only in a location cannot
 /// collapse into one trace value.
-pub fn fold_refusal(trace: &mut u64, arm: u64, first: usize, second: usize) {
+pub(crate) fn fold_refusal(trace: &mut u64, arm: u64, first: usize, second: usize) {
     fold(trace, arm);
     fold_usize(trace, first);
     fold_usize(trace, second);
@@ -117,7 +164,7 @@ pub fn fold_refusal(trace: &mut u64, arm: u64, first: usize, second: usize) {
 /// returns, so the shared copy is a model rather than a wrapper — it does not
 /// call into `lgwks_std` and must not start to.
 #[must_use]
-pub fn reference_nibble(character: u8) -> Option<u8> {
+pub(crate) fn reference_nibble(character: u8) -> Option<u8> {
     match character {
         b'0'..=b'9' => character.checked_sub(b'0'),
         b'a'..=b'f' => character
@@ -135,15 +182,36 @@ pub fn reference_nibble(character: u8) -> Option<u8> {
 /// cannot agree with the shipped escaper by construction.
 const UPPER_HEX: &[u8; 16] = b"0123456789ABCDEF";
 
+/// The lowercase hex digits a rendering uses, indexed by nibble: the table is
+/// the documented two-characters-per-byte rule rather than a call into the
+/// shipped encoder, so a reference renderer cannot agree with it by
+/// construction.
+const LOWER_HEX: &[u8; 16] = b"0123456789abcdef";
+
+/// One byte as two lowercase hex digits, the high nibble first.
+///
+/// Both nibbles are below sixteen, so each names a digit of the table; a table
+/// that lacked one would render short and fail the comparison against the
+/// shipped encoder rather than render a fallback digit.
+#[must_use]
+pub(crate) fn reference_lower_pair(byte: u8) -> String {
+    [usize::from(byte >> 4), usize::from(byte & 0x0f)]
+        .iter()
+        .filter_map(|&nibble| LOWER_HEX.get(nibble).copied().map(char::from))
+        .collect()
+}
+
 /// The `0x00`..=`0xff` rendering of one byte as two uppercase hex digits, the
 /// spelling RFC 3986 requires of an escape.
 #[must_use]
-pub fn reference_escape(byte: u8) -> String {
-    let high = usize::from(byte >> 4);
-    let low = usize::from(byte & 0x0f);
+pub(crate) fn reference_escape(byte: u8) -> String {
+    let nibbles = [usize::from(byte >> 4), usize::from(byte & 0x0f)];
     let mut rendered = String::with_capacity(3);
     rendered.push('%');
-    rendered.push(char::from(UPPER_HEX[high]));
-    rendered.push(char::from(UPPER_HEX[low]));
+    rendered.extend(
+        nibbles
+            .iter()
+            .filter_map(|&nibble| UPPER_HEX.get(nibble).copied().map(char::from)),
+    );
     rendered
 }

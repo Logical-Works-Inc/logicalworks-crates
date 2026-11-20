@@ -103,5 +103,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0065](0065-a-sealed-store-answers-absence-like-a-plain-one.md) | A sealed store answers absence like a plain one; a key fault fails the pending listing |
 | [0066](0066-ci-builds-on-nightly-releases-build-on-stable.md) | CI builds on a dated nightly, releases build on stable |
 | [0067](0067-a-capability-scope-refuses-a-traversal-segment.md) | A capability scope refuses a traversal segment; a denial ends at its rule |
+| [0068](0068-a-glob-refusal-names-its-utf-8-byte-offset.md) | A glob refusal names its UTF-8 byte offset |
 
 New records go at the bottom of that table.

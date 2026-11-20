@@ -38,7 +38,7 @@ fn guard<T>(locked: std::sync::LockResult<MutexGuard<'_, T>>) -> MutexGuard<'_, 
 }
 
 /// A latch jobs wait on, opened once for all of them.
-pub struct Gate {
+pub(crate) struct Gate {
     /// Whether the gate is open, under the condvar that waits on it.
     open: Mutex<bool>,
     /// Signalled when the gate opens.
@@ -47,7 +47,7 @@ pub struct Gate {
 
 impl Gate {
     /// A gate nobody has opened.
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             open: Mutex::new(false),
             opened: Condvar::new(),
@@ -56,7 +56,7 @@ impl Gate {
 
     /// Wait until the gate opens. A wake with the gate still shut waits again,
     /// so a spurious wakeup is not mistaken for the opening.
-    pub fn pass(&self) {
+    pub(crate) fn pass(&self) {
         let mut open = guard(self.open.lock());
         while !*open {
             open = guard(self.opened.wait(open));
@@ -64,7 +64,7 @@ impl Gate {
     }
 
     /// Open the gate, releasing every waiter.
-    pub fn release(&self) {
+    pub(crate) fn release(&self) {
         *guard(self.open.lock()) = true;
         self.opened.notify_all();
     }
@@ -77,7 +77,7 @@ impl Gate {
 /// wrong for a fixture a test replays: the second run would find the gate
 /// already open and hold nothing. A holder here waits for the generation to
 /// pass the one it took, so every run is held by its own release.
-pub struct Release {
+pub(crate) struct Release {
     /// How many times this has been released.
     generation: Mutex<u64>,
     /// Signalled when the generation moves.
@@ -86,7 +86,7 @@ pub struct Release {
 
 impl Release {
     /// Nothing has been released yet.
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self {
             generation: Mutex::new(0),
             changed: Condvar::new(),
@@ -94,12 +94,12 @@ impl Release {
     }
 
     /// The generation a holder takes to be held until this is released again.
-    pub fn generation(&self) -> u64 {
+    pub(crate) fn generation(&self) -> u64 {
         *guard(self.generation.lock())
     }
 
     /// Hold until the generation has moved past `held`.
-    pub fn wait_past(&self, held: u64) {
+    pub(crate) fn wait_past(&self, held: u64) {
         let mut generation = guard(self.generation.lock());
         while *generation <= held {
             generation = guard(self.changed.wait(generation));
@@ -107,7 +107,7 @@ impl Release {
     }
 
     /// Move the generation on, releasing every holder waiting on this one.
-    pub fn release(&self) {
+    pub(crate) fn release(&self) {
         let mut generation = guard(self.generation.lock());
         *generation = generation.saturating_add(1);
         self.changed.notify_all();
@@ -155,7 +155,9 @@ mod tests {
     /// blocked and this loop would never finish.
     fn join(handles: Vec<JoinHandle<()>>) -> Result<(), Box<dyn Error>> {
         for handle in handles {
-            handle.join().map_err(|_| "a gate waiter panicked")?;
+            handle
+                .join()
+                .map_err(|payload| format!("a gate waiter panicked: {payload:?}"))?;
         }
         Ok(())
     }
@@ -228,7 +230,7 @@ mod tests {
             .next()
             .ok_or("the holder thread was not spawned")?
             .join()
-            .map_err(|_| "a holder panicked")?;
+            .map_err(|payload| format!("a holder panicked: {payload:?}"))?;
         assert_eq!(
             released_at, held,
             "the holder must report the generation it took, not the one that released it"

@@ -262,12 +262,11 @@ impl verb::Execute for IdempotentPost {
         let response = request
             .await
             .map_err(|error| transport_failure(domain.clone(), &error))?;
-        let preview = response
-            .text_lossy()
+        let preview = String::from_utf8_lossy(response.body())
             .chars()
             .take(BODY_PREVIEW)
             .collect::<String>();
-        let status = response.status;
+        let status = response.status();
         let refusal = match answer_of(status) {
             Answer::Applied => return Ok(PostOutput { status, preview }),
             // The credential row's mapping, reused on this path: a receiver

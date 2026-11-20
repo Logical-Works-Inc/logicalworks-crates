@@ -183,12 +183,10 @@ fn the_process_wide_generator_never_repeats_across_threads() -> ProbeResult {
     let mut seen = BTreeSet::new();
     for batch in batches {
         let ids = batch?;
-        for pair in ids.windows(2) {
+        for (earlier, later) in ids.iter().zip(ids.iter().skip(1)) {
             assert!(
-                pair[0] < pair[1],
-                "a thread saw {} then {} out of order",
-                pair[0],
-                pair[1]
+                earlier < later,
+                "a thread saw {earlier} then {later} out of order"
             );
         }
         for id in ids {

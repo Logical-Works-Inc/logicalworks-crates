@@ -43,7 +43,7 @@ mod seeded_sweep;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use lgwks_std::task::{
     PoolConfigError, PoolShutdown, SpawnError, block_on, configure_blocking_pool, join_all,
@@ -104,7 +104,7 @@ fn work_for(work: usize) {
 }
 
 /// Holds the burst's first job until a second job is running beside it, or
-/// until [`GENEROUS`] has passed.
+/// until [`COMPANY_YIELDS`] yields have passed.
 ///
 /// Without it, "two jobs ran at once" is a claim about the host's scheduler: on
 /// a fast machine the first job can finish its yields before the second is
@@ -113,11 +113,17 @@ fn work_for(work: usize) {
 /// starts the second job on another thread and releases this wait; a pool that
 /// ran jobs one at a time never does, and the peak assertion then names it.
 fn wait_for_company(running: &AtomicUsize) {
-    let started = Instant::now();
-    while running.load(Ordering::SeqCst) < 2 && started.elapsed() < GENEROUS {
+    for _ in 0..COMPANY_YIELDS {
+        if running.load(Ordering::SeqCst) >= 2 {
+            return;
+        }
         std::thread::yield_now();
     }
 }
+
+/// How many yields the first job gives a second one to start beside it: counted
+/// in yields, not read off a clock, so a replay waits the same number of turns.
+const COMPANY_YIELDS: usize = 20_000_000;
 
 /// One seeded burst through the public bounded entry point, as its trace.
 ///
@@ -171,16 +177,8 @@ fn burst_trace(seed: u64, jobs: usize, ceiling: usize) -> u64 {
     trace
 }
 
-#[test]
-fn the_public_pool_journey_configures_drains_joins_and_then_refuses() {
-    let [seed, ..] = SWEEP_SEEDS;
-    let mut rng = Rng::new(seed);
-    let ceiling = rng
-        .below(MAX_CEILING.saturating_sub(MIN_CEILING).saturating_add(1))
-        .saturating_add(MIN_CEILING);
-    let jobs = rng.below(MAX_BURST).saturating_add(1);
-    let gated = rng.below(MAX_GATED.saturating_add(1));
-
+/// Steps 1 to 3: the ceiling, a burst and its replay, and a later configure.
+fn configure_burst_and_reconfigure(seed: u64, jobs: usize, ceiling: usize) {
     // 1. The ceiling, fixed before the pool has run anything.
     assert_eq!(
         configure_blocking_pool(ceiling),
@@ -219,10 +217,12 @@ fn the_public_pool_journey_configures_drains_joins_and_then_refuses() {
         }),
         "seed {seed:#x}: a configure that cannot take effect must never be silently ignored"
     );
+}
 
-    // 4. Shutdown, with a burst of gated jobs still in flight. The first
-    // deadline is shorter than the jobs can take, because the gate is shut, so
-    // it must report what is left rather than cancel it.
+/// Step 4: shutdown with `gated` jobs held at a shut gate. The first deadline
+/// is shorter than the jobs can take, so it must report what is left rather
+/// than cancel it; the gate then opens and a later shutdown joins the rest.
+fn shutdown_with_gated_jobs(seed: u64, ceiling: usize, gated: usize) {
     let gate = Arc::new(Gate::new());
     let mut inflight = Vec::with_capacity(gated);
     for index in 0..gated {
@@ -301,8 +301,10 @@ fn the_public_pool_journey_configures_drains_joins_and_then_refuses() {
         (0..gated).collect::<Vec<_>>(),
         "seed {seed:#x}: shutdown let the queued and running jobs finish"
     );
+}
 
-    // 5. Admission is closed, and a second shutdown has nothing left to join.
+/// Step 5: admission is closed, and a second shutdown has nothing left to join.
+fn admission_is_closed(seed: u64) {
     let ran = Arc::new(AtomicBool::new(false));
     let witness = Arc::clone(&ran);
     assert!(
@@ -334,4 +336,24 @@ fn the_public_pool_journey_configures_drains_joins_and_then_refuses() {
         PoolShutdown::Drained { threads: 0 },
         "seed {seed:#x}: a pool whose threads were all joined has nothing left to join"
     );
+}
+
+#[test]
+fn the_public_pool_journey_configures_drains_joins_and_then_refuses() {
+    let [seed, ..] = SWEEP_SEEDS;
+    let mut rng = Rng::new(seed);
+    let ceiling = rng
+        .below(MAX_CEILING.saturating_sub(MIN_CEILING).saturating_add(1))
+        .saturating_add(MIN_CEILING);
+    let jobs = rng.below(MAX_BURST).saturating_add(1);
+    let gated = rng.below(MAX_GATED.saturating_add(1));
+
+    // 1-3. The ceiling, a burst and its replay, and a later configure.
+    configure_burst_and_reconfigure(seed, jobs, ceiling);
+
+    // 4. Shutdown, with a burst of gated jobs still in flight.
+    shutdown_with_gated_jobs(seed, ceiling, gated);
+
+    // 5. Admission is closed, and a second shutdown has nothing left to join.
+    admission_is_closed(seed);
 }

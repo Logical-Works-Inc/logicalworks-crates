@@ -26,11 +26,11 @@ use proptest::test_runner::{
 };
 
 /// What every property test returns: a refusal carries the shrunk input.
-pub type Outcome = Result<(), Box<dyn Error>>;
+pub(crate) type Outcome = Result<(), Box<dyn Error>>;
 
 /// A runner for a property that must hold: fixed seed, failures persisted
 /// beside `source_file` (pass `file!()`).
-pub fn runner(seed: u64, cases: u32, source_file: &'static str) -> TestRunner {
+pub(crate) fn runner(seed: u64, cases: u32, source_file: &'static str) -> TestRunner {
     TestRunner::new(Config {
         cases,
         rng_seed: RngSeed::Fixed(seed),
@@ -47,7 +47,7 @@ pub fn runner(seed: u64, cases: u32, source_file: &'static str) -> TestRunner {
 /// Nothing is persisted: the mutant is meant to fail, and its seed is not a
 /// regression of the real implementation. A case that failed in [`setup`]
 /// did not reach the mutant, so it is refused rather than reported as a catch.
-pub fn shrunk<S>(
+pub(crate) fn shrunk<S>(
     seed: u64,
     strategy: &S,
     property: impl Fn(S::Value) -> Result<(), TestCaseError>,
@@ -73,7 +73,7 @@ where
 }
 
 /// Fail the case with `message` unless `holds`.
-pub fn check(holds: bool, message: impl FnOnce() -> String) -> Result<(), TestCaseError> {
+pub(crate) fn check(holds: bool, message: impl FnOnce() -> String) -> Result<(), TestCaseError> {
     if holds {
         Ok(())
     } else {
@@ -85,7 +85,7 @@ pub fn check(holds: bool, message: impl FnOnce() -> String) -> Result<(), TestCa
 const SETUP_FAILED: &str = "setup failed: ";
 
 /// Lift a setup error into a case failure that names it.
-pub fn setup<T, E: Debug>(result: Result<T, E>) -> Result<T, TestCaseError> {
+pub(crate) fn setup<T, E: Debug>(result: Result<T, E>) -> Result<T, TestCaseError> {
     result.map_err(|error| TestCaseError::fail(format!("{SETUP_FAILED}{error:?}")))
 }
 
@@ -117,13 +117,12 @@ mod tests {
     }
 
     #[test]
-    fn a_holding_property_passes_under_the_fixed_seed() -> Result<(), Box<dyn std::error::Error>> {
+    fn a_holding_property_passes_under_the_fixed_seed() {
         let outcome = runner(7, 32, file!()).run(&any::<u32>(), is_four_bytes);
         assert!(
             outcome.is_ok(),
             "a property that holds must pass under a fixed seed, got {outcome:?}"
         );
-        Ok(())
     }
 
     /// The seed rule the harness exists for: one seed, one corpus. Neither run

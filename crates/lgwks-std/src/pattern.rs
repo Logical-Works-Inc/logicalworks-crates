@@ -152,6 +152,14 @@ pub enum PatternRunError {
     },
     /// The engine violated its group-zero capture invariant.
     MissingWholeMatch,
+    /// A span the engine or the replacement walk named is not a slice of the
+    /// text it was taken from.
+    SpanOutsideText {
+        /// Byte offset the span starts at.
+        start: usize,
+        /// Byte offset the span ends at.
+        end: usize,
+    },
 }
 
 impl core::fmt::Display for PatternRunError {
@@ -169,6 +177,9 @@ impl core::fmt::Display for PatternRunError {
             }
             Self::MissingWholeMatch => {
                 f.write_str("regex engine returned captures without group zero")
+            }
+            Self::SpanOutsideText { start, end } => {
+                write!(f, "span {start}..{end} is not a slice of its text")
             }
         }
     }
@@ -203,7 +214,7 @@ impl Regex {
     pub fn new(pattern: &str) -> Result<Self, PatternError> {
         regex::Regex::new(pattern)
             .map(Self)
-            .map_err(|err| pattern_error(pattern, err))
+            .map_err(|err| pattern_error(pattern, &err))
     }
 
     /// Reports whether the pattern matches anywhere in `text`.
@@ -332,13 +343,13 @@ impl Regex {
         builder
             .build()
             .map(|engine| BoundedRegex { engine, config })
-            .map_err(|err| pattern_error(pattern, err))
+            .map_err(|err| pattern_error(pattern, &err))
     }
 }
 
 /// Preserve the engine refusal as a machine-readable facade class.
-fn pattern_error(pattern: &str, source: regex::Error) -> PatternError {
-    let kind = match source.clone() {
+fn pattern_error(pattern: &str, source: &regex::Error) -> PatternError {
+    let kind = match *source {
         regex::Error::Syntax(_) => PatternErrorKind::Syntax,
         regex::Error::CompiledTooBig(_) => PatternErrorKind::CompiledTooLarge,
         _ => PatternErrorKind::Other,
@@ -486,7 +497,7 @@ impl BoundedRegex {
         let mut current = Some(first);
         while let Some(groups) = current {
             let whole = groups.get(0).ok_or(PatternRunError::MissingWholeMatch)?;
-            output.push_str(&text[cursor..whole.start()])?;
+            output.push_str(span_of(text, cursor, whole.start())?)?;
             expand_replacement(&groups, replacement, &mut output)?;
             cursor = whole.end();
             if count != 0 {
@@ -497,9 +508,16 @@ impl BoundedRegex {
             }
             current = captures.next();
         }
-        output.push_str(&text[cursor..])?;
+        output.push_str(span_of(text, cursor, text.len())?)?;
         Ok(Cow::Owned(output.value))
     }
+}
+
+/// The slice `start..end` of `text`, or the typed refusal when it is not one
+/// (out of range, reversed, or inside a multi-byte character).
+fn span_of(text: &str, start: usize, end: usize) -> Result<&str, PatternRunError> {
+    text.get(start..end)
+        .ok_or(PatternRunError::SpanOutsideText { start, end })
 }
 
 /// Convert the engine's byte-span match into the facade result.
@@ -586,7 +604,7 @@ fn expand_replacement(
                 cursor = cursor.saturating_add(1);
             }
             ExpansionStep::Done => {
-                output.push_str(&replacement[literal_start..])?;
+                output.push_str(span_of(replacement, literal_start, replacement.len())?)?;
                 return Ok(());
             }
             ExpansionStep::Consumed { next } => {
@@ -594,7 +612,7 @@ fn expand_replacement(
             }
         }
     }
-    output.push_str(&replacement[literal_start..])
+    output.push_str(span_of(replacement, literal_start, replacement.len())?)
 }
 
 /// What one pass over the replacement string found at `cursor`.
@@ -624,42 +642,48 @@ fn next_expansion(
     literal_start: &mut usize,
 ) -> Result<ExpansionStep, PatternRunError> {
     let bytes = replacement.as_bytes();
-    if bytes[cursor] != b'$' {
+    if bytes.get(cursor) != Some(&b'$') {
         return Ok(ExpansionStep::Skipped);
     }
     let reference_start = cursor.saturating_add(1);
-    if reference_start < bytes.len() && bytes[reference_start] == b'$' {
-        output.push_str(&replacement[*literal_start..cursor])?;
+    if bytes.get(reference_start) == Some(&b'$') {
+        output.push_str(span_of(replacement, *literal_start, cursor)?)?;
         output.push_str("$")?;
         cursor = cursor.saturating_add(2);
         *literal_start = cursor;
         return Ok(ExpansionStep::Consumed { next: cursor });
     }
-    let (reference_end, name_start, braced) =
-        if reference_start < bytes.len() && bytes[reference_start] == b'{' {
-            let name_start = reference_start.saturating_add(1);
-            match bytes[name_start..].iter().position(|byte| *byte == b'}') {
-                Some(offset) => (name_start.saturating_add(offset), name_start, true),
-                None => return Ok(ExpansionStep::Skipped),
-            }
-        } else {
-            let mut end = reference_start;
-            while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
-                end = end.saturating_add(1);
-            }
-            if end == reference_start {
-                return Ok(ExpansionStep::Skipped);
-            }
-            (end, reference_start, false)
+    let (reference_end, name_start, braced) = if bytes.get(reference_start) == Some(&b'{') {
+        let name_start = reference_start.saturating_add(1);
+        let Some(tail) = bytes.get(name_start..) else {
+            return Ok(ExpansionStep::Skipped);
         };
-    output.push_str(&replacement[*literal_start..cursor])?;
-    let name = &replacement[name_start..reference_end];
+        match tail.iter().position(|byte| *byte == b'}') {
+            Some(offset) => (name_start.saturating_add(offset), name_start, true),
+            None => return Ok(ExpansionStep::Skipped),
+        }
+    } else {
+        let mut end = reference_start;
+        while bytes
+            .get(end)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            end = end.saturating_add(1);
+        }
+        if end == reference_start {
+            return Ok(ExpansionStep::Skipped);
+        }
+        (end, reference_start, false)
+    };
+    output.push_str(span_of(replacement, *literal_start, cursor)?)?;
+    let name = span_of(replacement, name_start, reference_end)?;
     // The engine's own rule, so `${+1}` is group 1 here exactly as it is in
     // `regex::Captures::expand`: whatever `usize::from_str` accepts is a
     // group number, and anything else is a group name.
-    let matched = match name.parse::<usize>() {
-        Ok(index) => captures.get(index),
-        Err(_) => captures.name(name),
+    let matched = if let Ok(index) = name.parse::<usize>() {
+        captures.get(index)
+    } else {
+        captures.name(name)
     };
     if let Some(matched) = matched {
         output.push_str(matched.as_str())?;

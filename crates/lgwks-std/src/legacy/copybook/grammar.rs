@@ -118,7 +118,7 @@ fn parse_occurs(
         crate::trace::debug!(line_no, "copybook: refusing a zero fixed OCCURS count");
         return refusal;
     }
-    let mut after = at.saturating_add(1);
+    let after = at.saturating_add(1);
     let Some(second) = tokens.get(after) else {
         return Ok((
             Occurs {
@@ -149,7 +149,24 @@ fn parse_occurs(
             after,
         ));
     }
-    after = after.saturating_add(1);
+    parse_occurs_range(line_no, field, tokens, after.saturating_add(1), min)
+}
+
+/// Parses the `m TO n [TIMES] DEPENDING ON field` tail of an `OCCURS`, from
+/// the token after `TO`, returning the clause and the next unread token.
+fn parse_occurs_range(
+    line_no: usize,
+    field: &str,
+    tokens: &[&str],
+    start: usize,
+    min: usize,
+) -> Result<(Occurs, usize), CopybookError> {
+    let refused = |text: String| CopybookError::BadOccurs {
+        line: line_no,
+        field: String::from(field),
+        text,
+    };
+    let mut after = start;
     let Some(third) = tokens.get(after) else {
         let refusal = Err(refused(String::from("OCCURS m TO with no ceiling")));
         #[cfg(feature = "trace")]
@@ -218,6 +235,28 @@ fn parse_occurs(
     ))
 }
 
+/// Reads the digits of a `(n)` repeat count whose `(` is already consumed,
+/// leaving `index` past the `)`. `None` for an unterminated, non-numeric or
+/// zero count.
+fn parenthesised_count(chars: &[char], index: &mut usize) -> Option<usize> {
+    let mut number = String::new();
+    while let Some(&drawn) = chars.get(*index) {
+        if drawn == ')' {
+            break;
+        }
+        number.push(drawn);
+        *index = index.saturating_add(1);
+    }
+    if chars.get(*index) != Some(&')') {
+        return None;
+    }
+    *index = index.saturating_add(1);
+    match number.parse::<usize>() {
+        Ok(parsed) if parsed > 0 => Some(parsed),
+        _ => None,
+    }
+}
+
 /// Parses one picture string into a [`Picture`].
 ///
 /// [`Picture`]: super::Picture
@@ -248,28 +287,18 @@ fn parse_picture(
         let Some(kind) = chars.get(index) else {
             break;
         };
-        if *kind != 'X' && *kind != '9' && *kind != 'V' {
+        let known = matches!(*kind, 'X' | '9' | 'V');
+        let second_v = *kind == 'V' && seen_scale;
+        if !known || second_v || seen_kind.is_some_and(|seen| seen != *kind && *kind != 'V') {
             let refusal = Err(refused(pattern));
             #[cfg(feature = "trace")]
             crate::trace::debug!(
                 line_no,
-                "copybook: refusing a picture character past X, 9 and V"
+                "copybook: refusing a character past X, 9 and V, a second V or a mixed X and 9"
             );
             return refusal;
         }
-        if seen_kind.is_some_and(|seen| seen != *kind && *kind != 'V') {
-            let refusal = Err(refused(pattern));
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(line_no, "copybook: refusing a mixed X and 9 picture");
-            return refusal;
-        }
         if *kind == 'V' {
-            if seen_scale {
-                let refusal = Err(refused(pattern));
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(line_no, "copybook: refusing a second V in one picture");
-                return refusal;
-            }
             seen_scale = true;
             seen_kind = Some('9');
             index = index.saturating_add(1);
@@ -280,36 +309,15 @@ fn parse_picture(
         let mut count: usize = 1;
         if chars.get(index) == Some(&'(') {
             index = index.saturating_add(1);
-            let mut number = String::new();
-            while index < chars.len() {
-                let Some(drawn) = chars.get(index) else {
-                    break;
-                };
-                if *drawn == ')' {
-                    break;
-                }
-                number.push(*drawn);
-                index = index.saturating_add(1);
-            }
-            if chars.get(index) != Some(&')') {
+            let Some(parsed) = parenthesised_count(&chars, &mut index) else {
                 let refusal = Err(refused(pattern));
                 #[cfg(feature = "trace")]
-                crate::trace::debug!(line_no, "copybook: refusing an unterminated picture count");
-                return refusal;
-            }
-            index = index.saturating_add(1);
-            let Ok(parsed) = number.parse::<usize>() else {
-                let refusal = Err(refused(pattern));
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(line_no, "copybook: refusing a non-numeric picture count");
+                crate::trace::debug!(
+                    line_no,
+                    "copybook: refusing an unterminated, non-numeric or zero picture count"
+                );
                 return refusal;
             };
-            if parsed == 0 {
-                let refusal = Err(refused(pattern));
-                #[cfg(feature = "trace")]
-                crate::trace::debug!(line_no, "copybook: refusing a zero picture count");
-                return refusal;
-            }
             count = parsed;
         }
         if *kind == 'X' {
@@ -340,22 +348,14 @@ fn parse_picture(
             }
         }
     }
-    if usage != Usage::Display && text_len.is_some() {
+    let comp_over_text = usage != Usage::Display && text_len.is_some();
+    if comp_over_text || (text_len.is_none() && digits == 0) || digits > 31 {
         let refusal = Err(refused(pattern));
         #[cfg(feature = "trace")]
-        crate::trace::debug!(line_no, "copybook: refusing a COMP picture over text");
-        return refusal;
-    }
-    if text_len.is_none() && digits == 0 {
-        let refusal = Err(refused(pattern));
-        #[cfg(feature = "trace")]
-        crate::trace::debug!(line_no, "copybook: refusing an empty picture");
-        return refusal;
-    }
-    if digits > 31 {
-        let refusal = Err(refused(pattern));
-        #[cfg(feature = "trace")]
-        crate::trace::debug!(line_no, "copybook: refusing a picture past 31 digits");
+        crate::trace::debug!(
+            line_no,
+            "copybook: refusing a COMP picture over text, an empty picture or one past 31 digits"
+        );
         return refusal;
     }
     Ok(Picture {

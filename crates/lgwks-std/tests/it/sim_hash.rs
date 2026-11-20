@@ -66,7 +66,10 @@ fn seeded_chunks(state: &mut Seeded, message: &[u8]) -> Vec<Vec<u8>> {
         let end = cursor.saturating_add(width).min(message.len());
         // `cursor` is below the length and `end` is at most it, so the chunk
         // exists; the loop advances `cursor` to `end`.
-        chunks.push(message[cursor..end].to_vec());
+        let Some(chunk) = message.get(cursor..end) else {
+            break;
+        };
+        chunks.push(chunk.to_vec());
         cursor = end;
     }
     chunks
@@ -402,9 +405,9 @@ fn a_keyed_digest_depends_on_the_key_and_the_message() {
             }
 
             assert_eq!(
-                keyed(&key, &message),
-                keyed(&key, &message),
-                "seed {seed}: a keyed digest must be deterministic"
+                keyed(&key, &message).as_bytes(),
+                ::blake3::keyed_hash(&key, &message).as_bytes(),
+                "seed {seed}: a keyed digest must be the upstream keyed hash, and so deterministic"
             );
             assert_ne!(
                 keyed(&key, &message),
@@ -503,7 +506,7 @@ fn a_digest_hex_of_the_wrong_length_is_refused_on_its_length()
             for candidate in [
                 String::new(),
                 "0".to_owned(),
-                hex[..63].to_owned(),
+                hex.split_at(63).0.to_owned(),
                 longer,
                 format!("{hex}0000"),
             ] {
@@ -545,7 +548,9 @@ fn a_digest_hex_with_a_bad_character_is_refused_as_a_hex_refusal()
         for _ in 0..32 {
             let hex = blake3(&next_bytes(&mut state, 8)).to_hex();
             let position = below(&mut state, 64);
-            let alien = b"gz !"[below(&mut state, 4)];
+            let Some(&alien) = b"gz !".get(below(&mut state, 4)) else {
+                return Err("a draw below four indexes the four aliens".into());
+            };
             let mut corrupted = hex.into_bytes();
             if let Some(slot) = corrupted.get_mut(position) {
                 *slot = alien;

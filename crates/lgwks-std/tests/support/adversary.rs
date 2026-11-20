@@ -40,26 +40,26 @@ const BIT_MASKS: [u8; 8] = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80];
 const MUTATION_KINDS: usize = 8;
 
 /// One party who controls the bytes a parser is handed.
-pub struct Attacker {
+pub(crate) struct Attacker {
     /// The stream every choice the attacker makes is drawn from.
     stream: Seeded,
 }
 
 impl Attacker {
     /// The attacker `seed` names.
-    pub fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self {
             stream: seeded_stream(seed),
         }
     }
 
     /// The next word of the attacker's stream.
-    pub fn word(&mut self) -> u64 {
+    pub(crate) fn word(&mut self) -> u64 {
         next_seed(&mut self.stream)
     }
 
     /// A value in `0..bound`, drawn without bias; a zero bound yields `0`.
-    pub fn below(&mut self, bound: usize) -> usize {
+    pub(crate) fn below(&mut self, bound: usize) -> usize {
         below(&mut self.stream, bound)
     }
 
@@ -67,22 +67,25 @@ impl Attacker {
     ///
     /// An empty range yields `low`, the one value it can be said to contain, and
     /// draws nothing.
-    pub fn field(&mut self, low: u32, high: u32) -> u32 {
+    pub(crate) fn field(&mut self, low: u32, high: u32) -> u32 {
         let width = u64::from(high.saturating_sub(low));
-        match self.stream.below(width).map(u32::try_from) {
-            Ok(Ok(offset)) => low.saturating_add(offset),
-            Ok(Err(_)) | Err(_) => low,
-        }
+        let Ok(drawn) = self.stream.below(width) else {
+            return low;
+        };
+        let Ok(offset) = u32::try_from(drawn) else {
+            return low;
+        };
+        low.saturating_add(offset)
     }
 
     /// A payload of `len` bytes drawn from the attacker's stream, the raw material
     /// of a hostile message or a key.
-    pub fn bytes(&mut self, len: usize) -> Vec<u8> {
+    pub(crate) fn bytes(&mut self, len: usize) -> Vec<u8> {
         next_bytes(&mut self.stream, len)
     }
 
     /// `LEN` bytes as a fixed-width array: a key, an identifier, a digest.
-    pub fn array<const LEN: usize>(&mut self) -> [u8; LEN] {
+    pub(crate) fn array<const LEN: usize>(&mut self) -> [u8; LEN] {
         let mut out = [0_u8; LEN];
         for (slot, byte) in out.iter_mut().zip(self.bytes(LEN)) {
             *slot = byte;
@@ -91,7 +94,11 @@ impl Attacker {
     }
 
     /// A message of `below(max)` random bytes with its `spell`ing as text.
-    pub fn spelled(&mut self, max: usize, spell: impl Fn(&[u8]) -> String) -> (Vec<u8>, String) {
+    pub(crate) fn spelled(
+        &mut self,
+        max: usize,
+        spell: impl Fn(&[u8]) -> String,
+    ) -> (Vec<u8>, String) {
         let len = self.below(max);
         let bytes = self.bytes(len);
         let text = spell(&bytes);
@@ -99,29 +106,34 @@ impl Attacker {
     }
 
     /// `len` printable ASCII characters.
-    pub fn text(&mut self, len: usize) -> String {
+    pub(crate) fn text(&mut self, len: usize) -> String {
         next_text(&mut self.stream, len)
     }
 
     /// One of the bytes at the edge of a byte grammar.
-    pub fn boundary_byte(&mut self) -> u8 {
-        BOUNDARY_BYTES[self.below(BOUNDARY_BYTES.len())]
+    pub(crate) fn boundary_byte(&mut self) -> u8 {
+        let [first, ..] = BOUNDARY_BYTES;
+        let drawn = self.below(BOUNDARY_BYTES.len());
+        match BOUNDARY_BYTES.get(drawn) {
+            Some(&byte) => byte,
+            None => first,
+        }
     }
 
-    /// One element of a table that has at least one element.
-    pub fn pick<'table, Item>(&mut self, table: &'table [Item]) -> &'table Item {
-        &table[self.below(table.len())]
+    /// One element of a table, or `None` when the table has none.
+    pub(crate) fn pick<'table, Item>(&mut self, table: &'table [Item]) -> Option<&'table Item> {
+        table.get(self.below(table.len()))
     }
 
     /// `input` with one hostile change: a flipped bit, a deleted, duplicated,
     /// inserted, overwritten or swapped byte, a cut, or a random tail.
-    pub fn mutate(&mut self, input: &[u8]) -> Vec<u8> {
+    pub(crate) fn mutate(&mut self, input: &[u8]) -> Vec<u8> {
         let mut out = input.to_vec();
         let at = self.below(out.len().max(1));
         match self.below(MUTATION_KINDS) {
             0 => {
-                let mask = BIT_MASKS[self.below(BIT_MASKS.len())];
-                if let Some(byte) = out.get_mut(at) {
+                let drawn = self.below(BIT_MASKS.len());
+                if let (Some(byte), Some(&mask)) = (out.get_mut(at), BIT_MASKS.get(drawn)) {
                     *byte ^= mask;
                 }
             }
@@ -163,7 +175,7 @@ impl Attacker {
     }
 
     /// `input` after `rounds` successive mutations, each applied to the last.
-    pub fn mutate_n(&mut self, input: &[u8], rounds: usize) -> Vec<u8> {
+    pub(crate) fn mutate_n(&mut self, input: &[u8], rounds: usize) -> Vec<u8> {
         let mut out = input.to_vec();
         for _ in 0..rounds {
             out = self.mutate(&out);
@@ -176,13 +188,13 @@ impl Attacker {
 /// UTF-8, and the replacement-character reading when they are not, so a parser
 /// that takes `&str` is still handed everything the attacker built.
 #[must_use]
-pub fn as_text(bytes: &[u8]) -> String {
+pub(crate) fn as_text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
 /// What a family's test returns: the first refusal of a generated input that
 /// must have been valid ends the sweep and prints itself.
-pub type TestResult = Result<(), Box<dyn std::error::Error>>;
+pub(crate) type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// The trace hash of one campaign against a decoder.
 ///
@@ -190,7 +202,7 @@ pub type TestResult = Result<(), Box<dyn std::error::Error>>;
 /// text `outcome` gives of what the decoder made of it is folded into the trace.
 /// Two runs of one seed fold the same outcomes in the same order, so the hash is
 /// the replay oracle every family states once.
-pub fn decoder_campaign(
+pub(crate) fn decoder_campaign(
     seed: u64,
     valid: impl Fn(&mut Attacker) -> Vec<u8>,
     outcome: impl Fn(&[u8]) -> String,
@@ -206,7 +218,7 @@ pub fn decoder_campaign(
 }
 
 /// Asserts a campaign replays bit for bit under every sweep seed.
-pub fn replays_under_every_seed(campaign: impl Fn(u64) -> u64) {
+pub(crate) fn replays_under_every_seed(campaign: impl Fn(u64) -> u64) {
     for seed in SWEEP_SEEDS {
         assert_same_seed_replays(&campaign, seed);
     }
@@ -214,31 +226,36 @@ pub fn replays_under_every_seed(campaign: impl Fn(u64) -> u64) {
 
 /// Asserts a campaign differs between seeds: two pairs, so one coincidence of a
 /// pair cannot pass a campaign that ignores its seed.
-pub fn diverges_between_seeds(campaign: impl Fn(u64) -> u64) {
+pub(crate) fn diverges_between_seeds(campaign: impl Fn(u64) -> u64) {
     assert_distinct_seeds_diverge(&campaign, SWEEP_SEEDS[0], SWEEP_SEEDS[1]);
     assert_distinct_seeds_diverge(&campaign, SWEEP_SEEDS[2], SWEEP_SEEDS[3]);
 }
 
 /// `bytes` with bit number `bit` flipped, counting from the first byte's lowest
 /// bit: the single-bit fault every checksum and signature must notice.
-pub fn flip_bit(bytes: &[u8], bit: usize) -> Vec<u8> {
+pub(crate) fn flip_bit(bytes: &[u8], bit: usize) -> Vec<u8> {
     let mut out = bytes.to_vec();
-    if let Some(byte) = out.get_mut(bit.div_euclid(8)) {
-        *byte ^= BIT_MASKS[bit.rem_euclid(8)];
+    if let (Some(byte), Some(&mask)) = (
+        out.get_mut(bit.div_euclid(8)),
+        BIT_MASKS.get(bit.rem_euclid(8)),
+    ) {
+        *byte ^= mask;
     }
     out
 }
 
 /// Calls `check` with `template` after each of the 256 byte values has replaced
 /// each of its positions: the exhaustive single-byte attack on a short grammar.
-pub fn every_byte_at_every_position<const LEN: usize>(
+pub(crate) fn every_byte_at_every_position<const LEN: usize>(
     template: [u8; LEN],
     mut check: impl FnMut([u8; LEN], usize, u8),
 ) {
     for position in 0..LEN {
         for candidate in 0..=u8::MAX {
             let mut input = template;
-            input[position] = candidate;
+            if let Some(slot) = input.get_mut(position) {
+                *slot = candidate;
+            }
             check(input, position, candidate);
         }
     }
@@ -249,7 +266,7 @@ pub fn every_byte_at_every_position<const LEN: usize>(
 /// `body` receives the seed, the round and the attacker, so a failing assertion
 /// can name the seed and round that reproduce it. One attacker serves all of a
 /// seed's rounds, so round `n` is the same attack on every run of that seed.
-pub fn sweep(
+pub(crate) fn sweep(
     rounds: usize,
     mut body: impl FnMut(u64, usize, &mut Attacker) -> TestResult,
 ) -> TestResult {

@@ -425,7 +425,7 @@ pub fn scan_source_with(source: &str, path: &str, rules: &[Rule]) -> Result<Vec<
 ///
 /// use lgwks_ast::scan::scan_path;
 ///
-/// let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/scan/mod.rs");
+/// let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/scan.rs");
 /// assert!(scan_path(&path)?.is_empty());
 /// # Ok::<(), lgwks_ast::scan::ScanError>(())
 /// ```

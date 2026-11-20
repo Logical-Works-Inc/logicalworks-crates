@@ -114,18 +114,120 @@ fn split_exact_chunk<const N: usize>(
     }
 }
 
-/// Unpacks one element recursively, tracking depth and total element count.
-fn unpack_element_internal<'a>(
-    key: &'a [u8],
-    depth: usize,
-    element_count: &mut usize,
-) -> Result<(TupleElement<'a>, &'a [u8]), TupleError> {
+/// What follows the first `from` bytes of `slice`; empty when it is shorter.
+fn tail(slice: &[u8], from: usize) -> &[u8] {
+    match slice.get(from..) {
+        Some(after) => after,
+        None => &[],
+    }
+}
+
+/// Counts one more element against [`MAX_TUPLE_ELEMENTS`].
+fn count_element(element_count: &mut usize) -> Result<(), TupleError> {
     *element_count = element_count.saturating_add(1);
     if *element_count > MAX_TUPLE_ELEMENTS {
         return refuse(TupleError::TooManyElements {
             limit: MAX_TUPLE_ELEMENTS,
         });
     }
+    Ok(())
+}
+
+/// The `width` big-endian bytes at the front of `rest`: the bytes, their value
+/// and what follows them.
+fn read_int_bytes(
+    rest: &[u8],
+    width: u8,
+    key_len: usize,
+) -> Result<(&[u8], u64, &[u8]), TupleError> {
+    let width = usize::from(width);
+    let Some(chunk) = rest.get(..width) else {
+        return refuse(TupleError::Truncated { len: key_len });
+    };
+    let mut value = 0_u64;
+    for &byte in chunk {
+        value = (value << 8) | u64::from(byte);
+    }
+    Ok((chunk, value, tail(rest, width)))
+}
+
+/// Unpacks a negative integer, whose code counts its width down from zero.
+fn unpack_negative_int<'a>(
+    code: u8,
+    rest: &'a [u8],
+    key_len: usize,
+) -> Result<(TupleElement<'a>, &'a [u8]), TupleError> {
+    let width = INT_ZERO_CODE.saturating_sub(code);
+    let (chunk, encoded, after) = read_int_bytes(rest, width, key_len)?;
+    let shift_bits = 8_u32.saturating_mul(u32::from(width));
+    let max_n: u64 = if width == 8_u8 {
+        u64::MAX
+    } else {
+        (1_u64 << shift_bits).saturating_sub(1)
+    };
+    if chunk.first().copied() == Some(0xff) {
+        return refuse(TupleError::NonCanonicalInteger { code });
+    }
+    let Ok(value) = i64::try_from(i128::from(encoded).saturating_sub(i128::from(max_n))) else {
+        return refuse(TupleError::IntegerOutOfRange { code });
+    };
+    Ok((TupleElement::Int(value), after))
+}
+
+/// Unpacks a positive integer, whose code counts its width up from zero.
+fn unpack_positive_int<'a>(
+    code: u8,
+    rest: &'a [u8],
+    key_len: usize,
+) -> Result<(TupleElement<'a>, &'a [u8]), TupleError> {
+    let width = code.saturating_sub(INT_ZERO_CODE);
+    let (chunk, unsigned, after) = read_int_bytes(rest, width, key_len)?;
+    if chunk.first().copied() == Some(0x00) {
+        return refuse(TupleError::NonCanonicalInteger { code });
+    }
+    let Ok(value) = i64::try_from(unsigned) else {
+        return refuse(TupleError::IntegerOutOfRange { code });
+    };
+    Ok((TupleElement::Int(value), after))
+}
+
+/// Unpacks the children of a nested tuple up to its terminating `0x00`.
+fn unpack_nested_tuple<'a>(
+    rest: &'a [u8],
+    depth: usize,
+    element_count: &mut usize,
+) -> Result<(TupleElement<'a>, &'a [u8]), TupleError> {
+    if depth >= MAX_TUPLE_DEPTH {
+        return refuse(TupleError::DepthExceeded {
+            limit: MAX_TUPLE_DEPTH,
+        });
+    }
+    let mut children = Vec::new();
+    let mut cursor = rest;
+    while let Some(&first) = cursor.first() {
+        if first != 0x00 {
+            let (child, next) =
+                unpack_element_internal(cursor, depth.saturating_add(1), element_count)?;
+            children.push(child);
+            cursor = next;
+        } else if cursor.get(1).copied() == Some(ESCAPE_FF) {
+            count_element(element_count)?;
+            children.push(TupleElement::Null);
+            cursor = tail(cursor, 2);
+        } else {
+            return Ok((TupleElement::Tuple(children), tail(cursor, 1)));
+        }
+    }
+    refuse(TupleError::Unterminated { code: TUPLE_CODE })
+}
+
+/// Unpacks one element recursively, tracking depth and total element count.
+fn unpack_element_internal<'a>(
+    key: &'a [u8],
+    depth: usize,
+    element_count: &mut usize,
+) -> Result<(TupleElement<'a>, &'a [u8]), TupleError> {
+    count_element(element_count)?;
     if depth > MAX_TUPLE_DEPTH {
         return refuse(TupleError::DepthExceeded {
             limit: MAX_TUPLE_DEPTH,
@@ -140,11 +242,7 @@ fn unpack_element_internal<'a>(
     match code {
         NULL_CODE => {
             if depth > 0 && rest.first().copied() == Some(ESCAPE_FF) {
-                let after = match rest.get(1..) {
-                    Some(slice) => slice,
-                    None => &[],
-                };
-                Ok((TupleElement::Null, after))
+                Ok((TupleElement::Null, tail(rest, 1)))
             } else {
                 Ok((TupleElement::Null, rest))
             }
@@ -157,110 +255,10 @@ fn unpack_element_internal<'a>(
             let (text, after) = unpack_string(rest)?;
             Ok((TupleElement::String(text), after))
         }
-        TUPLE_CODE => {
-            if depth >= MAX_TUPLE_DEPTH {
-                return refuse(TupleError::DepthExceeded {
-                    limit: MAX_TUPLE_DEPTH,
-                });
-            }
-            let mut children = Vec::new();
-            let mut cur_slice = rest;
-            let mut terminated = false;
-            while let Some(byte_ref) = cur_slice.first() {
-                let byte = *byte_ref;
-                if byte == 0x00 {
-                    if cur_slice.get(1).copied() == Some(ESCAPE_FF) {
-                        *element_count = element_count.saturating_add(1);
-                        if *element_count > MAX_TUPLE_ELEMENTS {
-                            return refuse(TupleError::TooManyElements {
-                                limit: MAX_TUPLE_ELEMENTS,
-                            });
-                        }
-                        children.push(TupleElement::Null);
-                        cur_slice = match cur_slice.get(2..) {
-                            Some(slice) => slice,
-                            None => &[],
-                        };
-                    } else {
-                        terminated = true;
-                        cur_slice = match cur_slice.get(1..) {
-                            Some(slice) => slice,
-                            None => &[],
-                        };
-                        break;
-                    }
-                } else {
-                    let (child, next_cur) =
-                        unpack_element_internal(cur_slice, depth.saturating_add(1), element_count)?;
-                    children.push(child);
-                    cur_slice = next_cur;
-                }
-            }
-            if !terminated {
-                return refuse(TupleError::Unterminated { code: TUPLE_CODE });
-            }
-            Ok((TupleElement::Tuple(children), cur_slice))
-        }
-        0x0c..=0x13 => {
-            let len_u8 = INT_ZERO_CODE.saturating_sub(code);
-            let len_usize = usize::from(len_u8);
-            let Some(chunk) = rest.get(..len_usize) else {
-                return refuse(TupleError::Truncated { len: key.len() });
-            };
-            if chunk.len() < len_usize {
-                return refuse(TupleError::Truncated { len: key.len() });
-            }
-            let mut encoded = 0_u64;
-            for byte_ref in chunk {
-                let byte = *byte_ref;
-                encoded = (encoded << 8) | u64::from(byte);
-            }
-            let shift_bits = 8_u32.saturating_mul(u32::from(len_u8));
-            let max_n: u64 = if len_u8 == 8_u8 {
-                u64::MAX
-            } else {
-                (1_u64 << shift_bits).saturating_sub(1)
-            };
-            if chunk.first().copied() == Some(0xff) {
-                return refuse(TupleError::NonCanonicalInteger { code });
-            }
-            let Ok(val_i64) = i64::try_from(i128::from(encoded).saturating_sub(i128::from(max_n)))
-            else {
-                return refuse(TupleError::IntegerOutOfRange { code });
-            };
-            let after = match rest.get(len_usize..) {
-                Some(slice) => slice,
-                None => &[],
-            };
-            Ok((TupleElement::Int(val_i64), after))
-        }
+        TUPLE_CODE => unpack_nested_tuple(rest, depth, element_count),
+        0x0c..=0x13 => unpack_negative_int(code, rest, key.len()),
         INT_ZERO_CODE => Ok((TupleElement::Int(0), rest)),
-        0x15..=0x1c => {
-            let len_u8 = code.saturating_sub(INT_ZERO_CODE);
-            let len_usize = usize::from(len_u8);
-            let Some(chunk) = rest.get(..len_usize) else {
-                return refuse(TupleError::Truncated { len: key.len() });
-            };
-            if chunk.len() < len_usize {
-                return refuse(TupleError::Truncated { len: key.len() });
-            }
-            let mut unsigned_val = 0_u64;
-            for byte_ref in chunk {
-                let byte = *byte_ref;
-                unsigned_val = (unsigned_val << 8) | u64::from(byte);
-            }
-            if chunk.first().copied() == Some(0x00) {
-                return refuse(TupleError::NonCanonicalInteger { code });
-            }
-            let Ok(val_i64) = i64::try_from(unsigned_val) else {
-                return refuse(TupleError::IntegerOutOfRange { code });
-            };
-            let after = match rest.get(len_usize..) {
-                Some(slice) => slice,
-                None => &[],
-            };
-            Ok((TupleElement::Int(val_i64), after))
-        }
+        0x15..=0x1c => unpack_positive_int(code, rest, key.len()),
         F32_CODE => {
             let (raw_bytes, after) = split_exact_chunk::<4>(rest, key.len())?;
             let bytes_buf = uninvert_float_bytes(*raw_bytes);

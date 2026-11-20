@@ -70,7 +70,13 @@ const EDGES: [Duration; 8] = [
 /// A duration as a hostile config might name it: an edge, or a random magnitude.
 fn draw_duration(attacker: &mut Attacker) -> Duration {
     match attacker.below(8) {
-        0 => *attacker.pick(&EDGES),
+        0 => {
+            let [first, ..] = EDGES;
+            match attacker.pick(&EDGES) {
+                Some(&edge) => edge,
+                None => first,
+            }
+        }
         1 => Duration::from_nanos(attacker.word()),
         2 => Duration::from_secs(attacker.word().wrapping_shr(attacker.field(0, 64))),
         3 => Duration::new(attacker.word(), 999_999_999),

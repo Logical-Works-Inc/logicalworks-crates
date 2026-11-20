@@ -56,14 +56,19 @@ impl Map {
     /// The value under `key`.
     #[must_use]
     pub fn get(&self, key: &str) -> Option<&Value> {
-        let index = self.position(key).ok()?;
+        // `Err` is the insertion point of an absent key, not a failure.
+        let Ok(index) = self.position(key) else {
+            return None;
+        };
         self.entries.get(index).map(|entry| &entry.1)
     }
 
     /// The value under `key`, mutably.
     #[must_use]
     pub fn get_mut(&mut self, key: &str) -> Option<&mut Value> {
-        let index = self.position(key).ok()?;
+        let Ok(index) = self.position(key) else {
+            return None;
+        };
         self.entries.get_mut(index).map(|entry| &mut entry.1)
     }
 
@@ -90,7 +95,9 @@ impl Map {
 
     /// Removes `key` and returns its value.
     pub fn remove(&mut self, key: &str) -> Option<Value> {
-        let index = self.position(key).ok()?;
+        let Ok(index) = self.position(key) else {
+            return None;
+        };
         self.entries
             .drain(index..=index)
             .next()
@@ -138,7 +145,7 @@ fn normalize(entries: &mut Vec<(Text, Value)>) {
 }
 
 /// The members of a [`Map`] in key order, borrowed.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Iter<'map> {
     /// The sorted members.
     inner: std::slice::Iter<'map, (Text, Value)>,
@@ -176,6 +183,7 @@ impl<'map> IntoIterator for &'map Map {
 }
 
 /// The members of a [`Map`] in key order, owned, each key as a `String`.
+#[derive(Debug)]
 pub struct IntoIter {
     /// The sorted members.
     inner: std::vec::IntoIter<(Text, Value)>,

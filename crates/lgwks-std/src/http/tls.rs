@@ -172,6 +172,18 @@ fn refused<T>(detail: &'static str) -> Result<T, Error> {
     Err(error)
 }
 
+/// Refuse a PEM block the parser could not read.
+///
+/// The parser's reason is announced through `trace` and goes no further: its
+/// text can quote the offending line, so it never enters the error a caller
+/// holds. The refusal itself stays a constant, as every other one is.
+fn refused_pem<T>(detail: &'static str, parse_error: ureq::Error) -> Result<T, Error> {
+    #[cfg(feature = "trace")]
+    crate::trace::debug!(%parse_error, detail, "tls: PEM is not parseable");
+    drop(parse_error);
+    refused(detail)
+}
+
 // ── Roots and identity ──────────────────────────────────────────────────────
 
 /// Every item of one PEM block, or the block refused as a whole.
@@ -185,12 +197,7 @@ fn pem_items(pem: &[u8]) -> Result<Vec<ureq::tls::PemItem<'static>>, ureq::Error
 fn roots_from_pem(pem: &[u8]) -> Result<ureq::tls::RootCerts, Error> {
     let items = match pem_items(pem) {
         Ok(items) => items,
-        Err(parse_error) => {
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(%parse_error, "roots PEM is not parseable PEM");
-            let _ = parse_error;
-            return refused("roots PEM is not parseable PEM");
-        }
+        Err(parse_error) => return refused_pem("roots PEM is not parseable PEM", parse_error),
     };
     let mut roots = Vec::new();
     let mut saw_certificate = false;
@@ -231,10 +238,7 @@ fn identity_from_pem(
             let chain_items = match pem_items(chain_pem) {
                 Ok(items) => items,
                 Err(parse_error) => {
-                    #[cfg(feature = "trace")]
-                    crate::trace::debug!(%parse_error, "chain PEM is not parseable PEM");
-                    let _ = parse_error;
-                    return refused("chain PEM is not parseable PEM");
+                    return refused_pem("chain PEM is not parseable PEM", parse_error);
                 }
             };
             let mut chain = Vec::new();
@@ -256,10 +260,7 @@ fn identity_from_pem(
             let key_items = match pem_items(key_pem) {
                 Ok(items) => items,
                 Err(parse_error) => {
-                    #[cfg(feature = "trace")]
-                    crate::trace::debug!(%parse_error, "key PEM is not parseable PEM");
-                    let _ = parse_error;
-                    return refused("key PEM is not parseable PEM");
+                    return refused_pem("key PEM is not parseable PEM", parse_error);
                 }
             };
             let mut keys = Vec::new();

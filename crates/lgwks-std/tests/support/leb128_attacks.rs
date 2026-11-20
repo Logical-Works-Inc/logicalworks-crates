@@ -24,7 +24,7 @@ use lgwks_std::leb128::{
 use crate::adversary::{Attacker, TestResult, sweep};
 
 /// One integer width of the codec.
-pub trait Width: Copy + PartialEq + std::fmt::Debug {
+pub(crate) trait Width: Copy + PartialEq + std::fmt::Debug {
     /// The width's name, for messages.
     const NAME: &'static str;
     /// The width in bits.
@@ -45,8 +45,8 @@ pub trait Width: Copy + PartialEq + std::fmt::Debug {
 
 /// The low four bytes of a word.
 fn low_four(word: u64) -> [u8; 4] {
-    let bytes = word.to_le_bytes();
-    [bytes[0], bytes[1], bytes[2], bytes[3]]
+    let [first, second, third, fourth, ..] = word.to_le_bytes();
+    [first, second, third, fourth]
 }
 
 impl Width for u64 {
@@ -126,7 +126,7 @@ impl Width for i32 {
 }
 
 /// The canonical encoding of `value`.
-pub fn encoded<W: Width>(value: W) -> Vec<u8> {
+pub(crate) fn encoded<W: Width>(value: W) -> Vec<u8> {
     let mut out = Vec::new();
     value.encode(&mut out);
     out
@@ -185,8 +185,8 @@ fn check_canonical<W: Width>(seed: u64, round: usize, bytes: &[u8]) -> bool {
         bytes.len()
     );
     assert_eq!(
-        encoded(value),
-        bytes[..used].to_vec(),
+        Some(encoded(value).as_slice()),
+        bytes.get(..used),
         "seed {seed:#x} round {round}: {bytes:02x?} was accepted as {value:?} but is not its canonical spelling"
     );
     true
@@ -195,7 +195,7 @@ fn check_canonical<W: Width>(seed: u64, round: usize, bytes: &[u8]) -> bool {
 /// Random short byte strings: whatever is accepted is the one canonical
 /// spelling of its value (no second spelling forges a hash), and a reasonable
 /// share of the draws is accepted so the property is not vacuous.
-pub fn canonical_on_random_bytes<W: Width>() -> TestResult {
+pub(crate) fn canonical_on_random_bytes<W: Width>() -> TestResult {
     let mut accepted = 0_usize;
     sweep(2_048, |seed, round, attacker| {
         let len = 1_usize.saturating_add(attacker.below(12));
@@ -215,7 +215,7 @@ pub fn canonical_on_random_bytes<W: Width>() -> TestResult {
 /// Valid encodings after two rounds of byte mutation: the attacker starts from
 /// something the reader accepts and nudges it, which is how real malleability
 /// reports are found.
-pub fn mutated_encodings_stay_canonical<W: Width>() -> TestResult {
+pub(crate) fn mutated_encodings_stay_canonical<W: Width>() -> TestResult {
     sweep(1_024, |seed, round, attacker| {
         let value = draw_value::<W>(attacker);
         let hostile = attacker.mutate_n(&encoded(value), 2);
@@ -227,7 +227,7 @@ pub fn mutated_encodings_stay_canonical<W: Width>() -> TestResult {
 /// A redundant final group, in the sign-extending form the width calls
 /// redundant, is refused where the redundancy sits (or at the last group when
 /// the padded value would be too long).
-pub fn padding_is_refused<W: Width>() -> TestResult {
+pub(crate) fn padding_is_refused<W: Width>() -> TestResult {
     sweep(1_024, |seed, round, attacker| {
         let value = draw_value::<W>(attacker);
         let mut padded = encoded(value);
@@ -258,13 +258,21 @@ pub fn padding_is_refused<W: Width>() -> TestResult {
 
 /// A value cut at every length is an unexpected end at the cut, never a
 /// shorter integer, and the whole encoding decodes to its value.
-pub fn every_proper_prefix_is_an_unexpected_end<W: Width>() -> TestResult {
+pub(crate) fn every_proper_prefix_is_an_unexpected_end<W: Width>() -> TestResult {
     sweep(512, |seed, round, attacker| {
         let value = draw_value::<W>(attacker);
         let whole = encoded(value);
         for cut in 0..whole.len() {
+            let Some(prefix) = whole.get(..cut) else {
+                lgwks_std::trace::debug!(
+                    "every_proper_prefix_is_an_unexpected_end: returning an error to the caller"
+                );
+                return Err(
+                    format!("seed {seed:#x} round {round}: no prefix of {cut} bytes").into(),
+                );
+            };
             assert_eq!(
-                W::decode(&whole[..cut]),
+                W::decode(prefix),
                 Err(DecodeError::UnexpectedEnd { at: cut }),
                 "seed {seed:#x} round {round}: {value:?} cut to {cut} bytes"
             );
@@ -280,7 +288,7 @@ pub fn every_proper_prefix_is_an_unexpected_end<W: Width>() -> TestResult {
 
 /// Bytes after a value are the caller's: the reader consumes exactly the value,
 /// whatever follows, including bytes that would extend it if it read on.
-pub fn trailing_bytes_are_left_alone<W: Width>() -> TestResult {
+pub(crate) fn trailing_bytes_are_left_alone<W: Width>() -> TestResult {
     sweep(1_024, |seed, round, attacker| {
         let value = draw_value::<W>(attacker);
         let mut input = encoded(value);
@@ -299,7 +307,7 @@ pub fn trailing_bytes_are_left_alone<W: Width>() -> TestResult {
 
 /// Zero, and minus one for the signed widths, padded to every depth the width
 /// allows: each is refused at the first redundant group.
-pub fn padding_to_any_depth_is_refused<W: Width>() {
+pub(crate) fn padding_to_any_depth_is_refused<W: Width>() {
     for pad in 1..W::MAX_BYTES {
         let mut zero = vec![0x80; pad];
         zero.push(0x00);
@@ -325,7 +333,7 @@ pub fn padding_to_any_depth_is_refused<W: Width>() {
 /// A run of continuation bytes at least as long as the width is an overflow at
 /// the last group the width has, however long the run is: the loop is bounded
 /// by the width, not by the attacker's patience.
-pub fn a_run_of_continuations_overflows_at_the_last_group<W: Width>() {
+pub(crate) fn a_run_of_continuations_overflows_at_the_last_group<W: Width>() {
     let last = W::MAX_BYTES.saturating_sub(1);
     for run in W::MAX_BYTES..=W::MAX_BYTES.saturating_add(90) {
         let mut bytes = vec![0x80; run];
@@ -341,7 +349,7 @@ pub fn a_run_of_continuations_overflows_at_the_last_group<W: Width>() {
 
 /// An input that is all continuation bytes is an unexpected end while it is
 /// shorter than the width and an overflow at the last group once it is not.
-pub fn dangling_continuations_end_exactly<W: Width>() {
+pub(crate) fn dangling_continuations_end_exactly<W: Width>() {
     let last = W::MAX_BYTES.saturating_sub(1);
     for run in 1..W::MAX_BYTES {
         assert_eq!(
@@ -364,7 +372,7 @@ pub fn dangling_continuations_end_exactly<W: Width>() {
 /// Encoders emit the fewest groups: the length of every drawn value equals the
 /// reference length, so the canonical form the readers insist on is the form
 /// the writers produce.
-pub fn encodings_have_exactly_the_minimal_length<W: Width>() -> TestResult {
+pub(crate) fn encodings_have_exactly_the_minimal_length<W: Width>() -> TestResult {
     sweep(512, |seed, round, attacker| {
         let value = draw_value::<W>(attacker);
         assert_eq!(
@@ -378,7 +386,7 @@ pub fn encodings_have_exactly_the_minimal_length<W: Width>() -> TestResult {
 
 /// The values either side of every power of two round-trip, with the length the
 /// reference gives: the group boundaries are where encoders slip.
-pub fn boundaries_around_every_power_of_two_round_trip<W: Width>() {
+pub(crate) fn boundaries_around_every_power_of_two_round_trip<W: Width>() {
     for exponent in 0_u32..64 {
         let base = 1_u64.rotate_left(exponent);
         for word in [
@@ -408,7 +416,7 @@ pub fn boundaries_around_every_power_of_two_round_trip<W: Width>() {
 /// A stream of hostile varints is read by advancing by what each read consumed:
 /// the cursor moves at least one byte and at most the width, never past the end,
 /// and the read ends, whatever the attacker put in the stream.
-pub fn a_stream_read_always_advances_and_ends<W: Width>() -> TestResult {
+pub(crate) fn a_stream_read_always_advances_and_ends<W: Width>() -> TestResult {
     sweep(256, |seed, round, attacker| {
         let mut stream = Vec::new();
         let count = 1_usize.saturating_add(attacker.below(8));
@@ -418,7 +426,10 @@ pub fn a_stream_read_always_advances_and_ends<W: Width>() -> TestResult {
         let stream = attacker.mutate_n(&stream, 2);
         let (mut cursor, mut steps) = (0_usize, 0_usize);
         while cursor < stream.len() {
-            let Ok((_, used)) = W::decode(&stream[cursor..]) else {
+            let Some(rest) = stream.get(cursor..) else {
+                break;
+            };
+            let Ok((_, used)) = W::decode(rest) else {
                 break;
             };
             assert!(
@@ -438,7 +449,8 @@ pub fn a_stream_read_always_advances_and_ends<W: Width>() -> TestResult {
 
 /// A value is accepted by a narrower reader exactly when it fits, and then it
 /// is the same value: a wide encoding is never silently truncated.
-pub fn a_narrower_reader_takes_exactly_what_fits<Wide: Width, Narrow: Width>() -> TestResult {
+pub(crate) fn a_narrower_reader_takes_exactly_what_fits<Wide: Width, Narrow: Width>() -> TestResult
+{
     sweep(1_024, |seed, round, attacker| {
         let value = draw_value::<Wide>(attacker);
         let bytes = encoded(value);

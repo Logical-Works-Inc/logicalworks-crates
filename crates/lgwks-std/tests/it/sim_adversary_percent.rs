@@ -130,7 +130,7 @@ fn draw_text(attacker: &mut Attacker, max: usize) -> String {
     let mut text = String::new();
     for _ in 0..len {
         if attacker.below(4) == 0 {
-            text.push(*attacker.pick(&GLYPHS));
+            text.extend(attacker.pick(&GLYPHS).copied());
         } else {
             text.push_str(&attacker.text(1));
         }
@@ -141,7 +141,9 @@ fn draw_text(attacker: &mut Attacker, max: usize) -> String {
 /// A string of `below(max)` characters drawn from the hostile table.
 fn draw_noise(attacker: &mut Attacker, max: usize) -> String {
     let len = attacker.below(max);
-    (0..len).map(|_| *attacker.pick(&NOISE)).collect()
+    (0..len)
+        .filter_map(|_| attacker.pick(&NOISE).copied())
+        .collect()
 }
 
 /// A valid encoding of drawn text after `rounds` rounds of mutation, as text.
@@ -479,8 +481,9 @@ fn sim_adversary_percent_a_cut_sequence_is_refused_at_its_start() -> TestResult 
             let whole = format!("{prefix}{}", escaped(&bytes));
             assert_eq!(decode(&whole), Ok(format!("{head}{scalar}")), "{whole}");
             for cut in 1..bytes.len() {
+                let (kept, _dropped) = bytes.split_at(cut);
                 for suffix in ["", "cd", "%41"] {
-                    let input = format!("{prefix}{}{suffix}", escaped(&bytes[..cut]));
+                    let input = format!("{prefix}{}{suffix}", escaped(kept));
                     assert_eq!(
                         decode(&input),
                         Err(DecodeError::NotUtf8 { decoded_at }),
@@ -532,7 +535,7 @@ fn sim_adversary_percent_a_cut_inside_an_escape_names_the_escape() -> TestResult
     sweep(256, |seed, round, attacker| {
         let encoded = encode_component(&draw_text(attacker, 12));
         for cut in 0..=encoded.len() {
-            let prefix = &encoded[..cut];
+            let (prefix, _tail) = encoded.split_at(cut);
             assert_eq!(
                 decode(prefix),
                 reference_decode(prefix),
@@ -578,7 +581,9 @@ fn sim_adversary_percent_a_far_bad_escape_is_reported_exactly() -> TestResult {
         let start = attacker.below(count).saturating_mul(3);
         for digit in [1_usize, 2] {
             let mut bytes = base.clone().into_bytes();
-            bytes[start.saturating_add(digit)] = b'G';
+            if let Some(slot) = bytes.get_mut(start.saturating_add(digit)) {
+                *slot = b'G';
+            }
             let text = String::from_utf8(bytes)?;
             assert_eq!(
                 decode(&text),
@@ -669,7 +674,12 @@ fn sim_adversary_percent_a_reported_offset_names_the_problem() -> TestResult {
             },
             Err(DecodeError::NotUtf8 { decoded_at }) => decoded_at < bytes.len(),
             Ok(_) => true,
-            Err(_) => false,
+            Err(unlisted) => {
+                return Err(format!(
+                    "seed {seed:#x} round {round}: {hostile:?} was refused with an unlisted error: {unlisted}"
+                )
+                .into());
+            }
         };
         assert!(names_it, "seed {seed:#x} round {round}: {hostile:?}");
         Ok(())

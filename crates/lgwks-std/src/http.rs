@@ -43,10 +43,8 @@ use std::time::Duration;
 ///
 /// Finite on purpose. A remote server authors its own response, so an unbounded
 /// read lets it author this process's memory footprint as well; there is no
-/// spelling for "no ceiling" anywhere in this module. The default is generous
-/// for a client built for tooling and probes, and a caller that legitimately
-/// needs more raises it through [`Options::max_body_bytes`] — an explicit
-/// decision, made once, at the call site that needs it.
+/// spelling for "no ceiling" here. A caller that legitimately needs more raises
+/// it through [`Options::max_body_bytes`], once, at the call site that needs it.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 8_388_608;
 
 /// Maximum redirects an HTTP call may follow.
@@ -54,11 +52,8 @@ pub const DEFAULT_MAX_BODY_BYTES: usize = 8_388_608;
 /// This preserves ureq's former default while bounding caller-selected policy.
 pub const MAX_REDIRECT_HOPS: u8 = 10;
 
-/// Bytes read per `read` call in [`read_bounded`].
-///
-/// Bounds each read to a stack buffer rather than letting the reader size its
-/// own windows: the chunk handed to a socket is whatever this constant says,
-/// independent of the transport's buffering.
+/// Bytes read per `read` call in [`read_bounded`]: each read is bounded to a
+/// stack buffer, independent of the transport's buffering.
 const READ_CHUNK_BYTES: usize = 8_192;
 
 /// What an exchange does when a response body reaches its declared ceiling.
@@ -253,13 +248,13 @@ pub struct Options {
     /// Maximum time allowed for each transport phase. Body reads and redirect
     /// hops each receive this bound independently, so it is not a bound on the
     /// whole call; [`Options::deadline`] is.
-    pub timeout: Duration,
+    timeout: Duration,
     /// Bound on the whole call, from the first hop's DNS lookup to the last
     /// byte of the final body, carried across every redirect hop. `None` (the
     /// default) leaves only the per-phase [`Options::timeout`]. A call that
     /// exhausts it fails at [`FailureStage::Deadline`] with
     /// [`FailureKind::Timeout`].
-    pub deadline: Option<Duration>,
+    deadline: Option<Duration>,
     /// `User-Agent` header sent with every request.
     user_agent: String,
     /// Extra headers sent with every request as `(name, value)` pairs, e.g.
@@ -272,19 +267,19 @@ pub struct Options {
     /// Ceiling on the response body in bytes, enforced while reading. See
     /// [`DEFAULT_MAX_BODY_BYTES`] for the default and the reason there is no
     /// unbounded value, and [`BodyPolicy`] for what happens at the ceiling.
-    pub max_body_bytes: usize,
+    max_body_bytes: usize,
     /// What to do when the body reaches [`Options::max_body_bytes`].
-    pub body_policy: BodyPolicy,
+    body_policy: BodyPolicy,
     /// Redirect policy. The default follows at most ten hops.
-    pub redirect_policy: RedirectPolicy,
+    redirect_policy: RedirectPolicy,
     /// Idle-connection pool a [`Client`] built from these
     /// options keeps. The free functions build a one-shot agent per call, so
     /// they read the timeouts and TLS below but never pool on this.
-    pub pool: PoolConfig,
+    pool: PoolConfig,
     /// Private-CA roots and client identity. The default is Mozilla's root
     /// set with no client certificate, which is today's behavior byte for
     /// byte; only a deployment behind a private CA or mutual TLS sets this.
-    pub tls: TlsOptions,
+    tls: TlsOptions,
 }
 
 impl Default for Options {
@@ -436,140 +431,6 @@ impl Options {
     pub fn tls(mut self, tls: TlsOptions) -> Self {
         self.tls = tls;
         self
-    }
-}
-
-// ── Response ────────────────────────────────────────────────────────────────
-
-/// A completed HTTP exchange: status, headers, and body.
-#[derive(Debug, Clone)]
-#[non_exhaustive]
-pub struct Response {
-    /// HTTP status code, including 4xx/5xx.
-    pub status: u16,
-    /// HTTP response headers.
-    headers: Vec<(String, String)>,
-    /// Final request target without userinfo, query or fragment.
-    final_target: String,
-    /// Redirect targets, including original and final, with userinfo, query
-    /// and fragment removed.
-    redirect_chain: Vec<String>,
-    /// Exact legal header value bytes with multiplicity, in upstream map order.
-    header_bytes: Vec<(String, Vec<u8>)>,
-    /// Response body bytes, at most [`Options::max_body_bytes`] long.
-    body: Vec<u8>,
-    /// Whether [`Response::body`] is the whole body or a prefix of it.
-    pub truncation: Truncation,
-}
-
-impl Response {
-    /// Compatibility projection of headers. Values are lossy UTF-8 text and
-    /// order follows the upstream `HeaderMap`, not wire arrival order.
-    #[must_use]
-    pub fn headers(&self) -> &[(String, String)] {
-        &self.headers
-    }
-
-    /// Iterate header names and exact legal value bytes, preserving repeated
-    /// values. Order is upstream `HeaderMap` iteration order. Each item is a
-    /// header name and its exact legal value bytes, so a repeated header yields
-    /// one item per value.
-    pub fn header_values(&self) -> impl ExactSizeIterator<Item = (&str, &[u8])> {
-        self.header_bytes
-            .iter()
-            .map(|header| (header.0.as_str(), header.1.as_slice()))
-    }
-
-    /// The sanitized final request target after any followed redirects.
-    #[must_use]
-    pub fn final_target(&self) -> &str {
-        &self.final_target
-    }
-
-    /// Sanitized redirect history, including original and final targets.
-    #[must_use]
-    pub fn redirect_chain(&self) -> &[String] {
-        &self.redirect_chain
-    }
-
-    /// The body bytes, whole or previewed according to [`Response::truncation`].
-    #[must_use]
-    pub fn body(&self) -> &[u8] {
-        &self.body
-    }
-
-    /// The body as UTF-8, or a `TextDecode` / `InvalidUtf8` failure when it is
-    /// not valid UTF-8. Decoding failure does not imply exchange failure.
-    pub fn text(&self) -> Result<&str, Error> {
-        std::str::from_utf8(&self.body).map_err(|utf8_error| Error::Failure {
-            stage: FailureStage::TextDecode,
-            kind: FailureKind::InvalidUtf8,
-            cause: Some(FailureCause::sanitized(format!(
-                "valid UTF-8 ends at byte {}",
-                utf8_error.valid_up_to()
-            ))),
-        })
-    }
-
-    /// The body as UTF-8, replacing every invalid sequence with `U+FFFD`.
-    ///
-    /// Use this where the body is a preview rather than a payload: a caller
-    /// that only wants a diagnostic excerpt should not have to invent a
-    /// fallback for a body it is about to truncate anyway. For a strict read
-    /// that reports invalid encoding distinctly, use [`Response::text`].
-    #[must_use]
-    pub fn text_lossy(&self) -> std::borrow::Cow<'_, str> {
-        String::from_utf8_lossy(&self.body)
-    }
-}
-
-// ── Head ────────────────────────────────────────────────────────────────────
-
-/// The part of a completed exchange that does not depend on how the body
-/// arrives: status, headers, and provenance.
-///
-/// [`Response`] carries these fields inline, because its body arrives with
-/// them in one value. [`StreamResponse`] carries them
-/// in this struct, because its body is still on the wire when the head is
-/// read. Both answer the same four questions the same way, so a caller that
-/// only needs the head never learns which shape the body took.
-struct Head {
-    /// HTTP response headers.
-    headers: Vec<(String, String)>,
-    /// Final request target without userinfo, query or fragment.
-    final_target: String,
-    /// Redirect targets, including original and final, with userinfo, query
-    /// and fragment removed.
-    redirect_chain: Vec<String>,
-    /// Exact legal header value bytes with multiplicity, in upstream map order.
-    header_bytes: Vec<(String, Vec<u8>)>,
-}
-
-impl Head {
-    /// Compatibility projection of headers. Values are lossy UTF-8 text and
-    /// order follows the upstream `HeaderMap`, not wire arrival order.
-    fn headers(&self) -> &[(String, String)] {
-        &self.headers
-    }
-
-    /// Iterate header names and exact legal value bytes, preserving repeated
-    /// values. Order is upstream `HeaderMap` iteration order. Each item is a
-    /// header name and its exact legal value bytes, so a repeated header yields
-    /// one item per value.
-    fn header_values(&self) -> impl ExactSizeIterator<Item = (&str, &[u8])> {
-        self.header_bytes
-            .iter()
-            .map(|header| (header.0.as_str(), header.1.as_slice()))
-    }
-
-    /// The sanitized final request target after any followed redirects.
-    fn final_target(&self) -> &str {
-        &self.final_target
-    }
-
-    /// Sanitized redirect history, including original and final targets.
-    fn redirect_chain(&self) -> &[String] {
-        &self.redirect_chain
     }
 }
 
@@ -747,6 +608,7 @@ pub fn post_with(
 // private-CA and identity seam.
 mod exchange;
 mod pool;
+mod response;
 mod stream;
 mod tls;
 mod walk;
@@ -754,6 +616,8 @@ mod walk;
 use exchange::exchange;
 pub use exchange::validate_url;
 pub use pool::{Client, PoolConfig};
+use response::Head;
+pub use response::Response;
 pub use stream::{
     Page, Paginate, PaginationLimits, SseEvent, SseStream, StreamResponse, StreamedBody, paginate,
 };

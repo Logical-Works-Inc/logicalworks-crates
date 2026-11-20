@@ -108,8 +108,8 @@ mod tests {
     // on failure, which is the same report `.expect` would have panicked with,
     // without an `expect` in the tree.
     #[test]
-    fn parse_reverses_render_for_the_current_instant() -> Result<(), Box<dyn std::error::Error>> {
-        let original = SystemTime::now();
+    fn parse_reverses_render_for_a_fixed_instant() -> Result<(), Box<dyn std::error::Error>> {
+        let original = UNIX_EPOCH + Duration::new(1_700_000_000, 123_456_789);
         let rendered = to_rfc3339(original)?;
         let parsed = parse_rfc3339(&rendered)?;
         assert_eq!(
@@ -228,10 +228,14 @@ mod tests {
     }
 
     #[test]
-    fn now_is_after_the_start_of_twenty_twenty_six() -> Result<(), ParseError> {
-        let now = SystemTime::now();
+    fn now_is_after_the_start_of_twenty_twenty_six() -> Result<(), Box<dyn std::error::Error>> {
+        let rendered = now_rfc3339()?;
+        let current = parse_rfc3339(&rendered)?;
         let twenty_twenty_six = parse_rfc3339("2026-01-01T00:00:00Z")?;
-        assert!(now > twenty_twenty_six);
+        assert!(
+            current > twenty_twenty_six,
+            "the rendered now parses past 2026"
+        );
         Ok(())
     }
 }

@@ -5,7 +5,7 @@ use super::walk::{host_is_literal, origin_of, resolve_location};
 use super::*;
 
 mod deadlines;
-use deadlines::host_budget;
+mod sim_lying_reader;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -14,7 +14,7 @@ use std::thread;
 /// path like the PKI module in `tls.rs`: one server behavior for every
 /// loopback fixture, unit and integration alike. A second copy would be a
 /// second server the harnesses could silently disagree on.
-#[path = "../../../tests/support/loopback.rs"]
+#[path = "../../tests/support/loopback.rs"]
 mod loopback;
 use loopback::read_request_head;
 
@@ -54,7 +54,7 @@ fn serve_held(
     let handle = fixture_thread(move || -> std::io::Result<()> {
         let (mut stream, _) = listener.accept()?;
         if let Some(response) = response {
-            let _ = read_request_head(&mut stream)?;
+            let _request_head = read_request_head(&mut stream)?;
             stream.write_all(&response)?;
         }
         let _released = wait_release.recv();
@@ -143,7 +143,7 @@ fn serve_one(
 /// `UnexpectedEof`, never a loop on a zero-byte read.
 fn read_full_request(stream: &mut std::net::TcpStream) -> std::io::Result<Vec<u8>> {
     let mut request = vec![0u8; 4096];
-    let mut head = Vec::new();
+    let mut head: Vec<u8> = Vec::new();
     while !head.windows(4).any(|w| w == b"\r\n\r\n") {
         let n = stream.read(&mut request)?;
         if n == 0 {
@@ -154,7 +154,7 @@ fn read_full_request(stream: &mut std::net::TcpStream) -> std::io::Result<Vec<u8
             );
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
-        head.extend_from_slice(&request[..n]);
+        head.extend(request.iter().take(n));
     }
     let header_end = match head.windows(4).position(|w| w == b"\r\n\r\n") {
         // `position` reports the delimiter's first byte, so the header end is
@@ -164,7 +164,8 @@ fn read_full_request(stream: &mut std::net::TcpStream) -> std::io::Result<Vec<u8
         // No delimiter in what has been read: the header is everything read.
         None => head.len(),
     };
-    let text = String::from_utf8_lossy(&head[..header_end]);
+    let header: Vec<u8> = head.iter().copied().take(header_end).collect();
+    let text = String::from_utf8_lossy(&header);
     // `Content-Length` is the only length this fixture honours. A request
     // without a parsable one declares no body — which is what a GET carries
     // — so the accumulator starts at zero and a header replaces it.
@@ -191,7 +192,7 @@ fn read_full_request(stream: &mut std::net::TcpStream) -> std::io::Result<Vec<u8
             );
             return Err(std::io::ErrorKind::UnexpectedEof.into());
         }
-        head.extend_from_slice(&request[..n]);
+        head.extend(request.iter().take(n));
         received = received.saturating_add(n);
     }
     Ok(head)
@@ -237,7 +238,7 @@ fn serve_raw(reply: Vec<u8>) -> std::io::Result<(u16, thread::JoinHandle<std::io
     let handle = fixture_thread(move || -> std::io::Result<()> {
         let (mut stream, _) = listener.accept()?;
         let mut request = vec![0u8; 4096];
-        let mut head = Vec::new();
+        let mut head: Vec<u8> = Vec::new();
         loop {
             let n = stream.read(&mut request)?;
             // EOF before the terminator: the client gave up mid-head (a
@@ -247,7 +248,7 @@ fn serve_raw(reply: Vec<u8>) -> std::io::Result<(u16, thread::JoinHandle<std::io
             if n == 0 {
                 return Ok(());
             }
-            head.extend_from_slice(&request[..n]);
+            head.extend(request.iter().take(n));
             if head.windows(4).any(|window| window == b"\r\n\r\n") {
                 break;
             }
@@ -369,10 +370,10 @@ fn legal_header_bytes_and_repeated_values_are_preserved() -> Result<(), Box<dyn 
         2,
         "the compatibility view keeps multiplicity"
     );
-    assert_eq!(
-        display_values[0], display_values[1],
-        "lossy display is explicitly lossy"
-    );
+    let [ref first, ref second] = *display_values.as_slice() else {
+        return Err("the compatibility view must hold both values".into());
+    };
+    assert_eq!(first, second, "lossy display is explicitly lossy");
     join_server(server)?;
     Ok(())
 }
@@ -417,7 +418,7 @@ fn followed_redirect_records_target_and_strips_sensitive_headers()
     let origin_port = origin.local_addr()?.port();
     let origin_server = fixture_thread(move || -> std::io::Result<()> {
         let (mut stream, _) = origin.accept()?;
-        let _ = read_request_head(&mut stream)?;
+        let _request_head = read_request_head(&mut stream)?;
         let reply = format!(
             "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{destination_port}/final?token=hidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         );
@@ -443,16 +444,12 @@ fn followed_redirect_records_target_and_strips_sensitive_headers()
             .all(|target| !target.contains("hidden") && !target.contains("secret")),
         "redirect provenance strips query secrets"
     );
-    let received = destination_server
-        .join()
-        .map_err(|_| "redirect destination thread panicked")??;
+    let received = join_server(destination_server)?;
     assert!(
         !received.to_ascii_lowercase().contains("authorization:"),
         "sensitive authorization is not forwarded"
     );
-    origin_server
-        .join()
-        .map_err(|_| "redirect origin thread panicked")??;
+    join_server(origin_server)?;
     Ok(())
 }
 
@@ -465,7 +462,7 @@ fn redirect_loop_refuses_at_the_configured_limit() -> Result<(), Box<dyn std::er
         let mut count = 0;
         for _ in 0..=2 {
             let (mut stream, _) = listener.accept()?;
-            let _ = read_request_head(&mut stream)?;
+            let _request_head = read_request_head(&mut stream)?;
             let reply = format!(
                 "HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{port}/loop\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
             );
@@ -487,9 +484,7 @@ fn redirect_loop_refuses_at_the_configured_limit() -> Result<(), Box<dyn std::er
         })
     ));
     assert_eq!(
-        server
-            .join()
-            .map_err(|_| "redirect loop server panicked")??,
+        join_server(server)?,
         3,
         "the receiver observed the initial request plus two followed hops"
     );
@@ -505,7 +500,7 @@ fn a_deadline_bounds_a_trickled_body() -> Result<(), Box<dyn std::error::Error>>
     let (done, client_done) = std::sync::mpsc::sync_channel::<()>(1);
     let server = fixture_thread(move || -> std::io::Result<()> {
         let (mut stream, _) = listener.accept()?;
-        let _ = read_request_head(&mut stream)?;
+        let _request_head = read_request_head(&mut stream)?;
         stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\n\r\n")?;
         // One byte per 50 ms: each gap is inside the per-phase timeout, so
         // only the whole-call deadline can stop the read.
@@ -544,7 +539,7 @@ fn a_deadline_bounds_a_trickled_body() -> Result<(), Box<dyn std::error::Error>>
         elapsed < Duration::from_millis(1_500),
         "the body was not read to its 3.2 s end: {elapsed:?}"
     );
-    server.join().map_err(|_| "trickle server panicked")??;
+    join_server(server)?;
     Ok(())
 }
 
@@ -671,18 +666,12 @@ fn a_cross_origin_redirect_carries_no_caller_header() -> Result<(), Box<dyn std:
         .header("Authorization", "Bearer bearer-secret");
     let response = get_with(&format!("http://127.0.0.1:{origin_port}/start"), &options)?;
     assert_eq!(response.status, 200);
-    let sent = origin
-        .join()
-        .map_err(|_| "origin server panicked")??
-        .concat();
+    let sent = join_server(origin)?.concat();
     assert!(
         sent.contains("x-api-key: key-secret"),
         "the first hop carries the caller's headers:\n{sent}"
     );
-    let forwarded = destination
-        .join()
-        .map_err(|_| "destination server panicked")??
-        .concat();
+    let forwarded = join_server(destination)?.concat();
     assert!(
         !forwarded.contains("secret"),
         "no caller header reaches another origin:\n{forwarded}"
@@ -707,7 +696,7 @@ fn a_same_origin_redirect_keeps_ordinary_headers_but_not_credentials()
         response.final_target(),
         format!("http://127.0.0.1:{port}/dir/next")
     );
-    let heads = server.join().map_err(|_| "server panicked")??;
+    let heads = join_server(server)?;
     let (Some(first), Some(second), 2) = (heads.first(), heads.get(1), heads.len()) else {
         return Err(format!("expected two requests, saw {}", heads.len()).into());
     };
@@ -742,7 +731,7 @@ fn a_see_other_redirect_turns_a_post_into_a_bodiless_get() -> Result<(), Box<dyn
         &quiet(),
     )?;
     assert_eq!(response.status, 200);
-    let heads = server.join().map_err(|_| "server panicked")??;
+    let heads = join_server(server)?;
     let (Some(first), Some(second), 2) = (heads.first(), heads.get(1), heads.len()) else {
         return Err(format!("expected two requests, saw {}", heads.len()).into());
     };

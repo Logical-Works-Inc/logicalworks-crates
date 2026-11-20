@@ -345,30 +345,32 @@ impl WalkIter {
     /// Returns the reported omission to yield, if the listing or its
     /// buffering met one the policy reports. A withheld frame never reaches
     /// this: [`Self::skip_children`] removes it while it is still unopened.
-    fn open_top(&mut self, top: usize) -> Option<WalkFailure> {
-        if !matches!(self.stack[top].reader, FrameReader::Unopened) {
+    fn open_top(&mut self) -> Option<WalkFailure> {
+        // The frame leaves the stack while it is opened and goes back opened,
+        // so an unreadable directory is dropped from the stack by not returning.
+        let mut frame = self.stack.pop()?;
+        if !matches!(frame.reader, FrameReader::Unopened) {
+            self.stack.push(frame);
             return None;
         }
         if self
             .unopened_frame
             .as_ref()
-            .is_some_and(|unopened| *unopened == self.stack[top].absolute)
+            .is_some_and(|unopened| *unopened == frame.absolute)
         {
             self.unopened_frame = None;
         }
-        let absolute = self.stack[top].absolute.clone();
-        let relative = self.stack[top].relative.clone();
-        let listing = match fs::read_dir(&absolute) {
+        let listing = match fs::read_dir(&frame.absolute) {
             Ok(listing) => listing,
             Err(error) => {
-                self.stack.pop();
                 return self
                     .policy
-                    .decide(relative, OmissionStage::ReadEntries, error);
+                    .decide(frame.relative, OmissionStage::ReadEntries, error);
             }
         };
         if !self.options.sort_alphabetically {
-            self.stack[top].reader = FrameReader::Streaming(Box::new(listing));
+            frame.reader = FrameReader::Streaming(Box::new(listing));
+            self.stack.push(frame);
             return None;
         }
         let mut buffered = Vec::new();
@@ -376,10 +378,11 @@ impl WalkIter {
             match item {
                 Ok(entry) => buffered.push(entry),
                 Err(error) => {
-                    if let Some(failure) =
-                        self.policy
-                            .decide(relative.clone(), OmissionStage::ReadEntries, error)
-                    {
+                    if let Some(failure) = self.policy.decide(
+                        frame.relative.clone(),
+                        OmissionStage::ReadEntries,
+                        error,
+                    ) {
                         self.pending = Some(failure);
                         break;
                     }
@@ -387,7 +390,8 @@ impl WalkIter {
             }
         }
         buffered.sort_by_key(DirEntry::file_name);
-        self.stack[top].reader = FrameReader::Sorted(buffered.into_iter());
+        frame.reader = FrameReader::Sorted(buffered.into_iter());
+        self.stack.push(frame);
         None
     }
 
@@ -517,20 +521,21 @@ impl WalkIter {
             if let Some(failure) = self.pending.take() {
                 return Some(Err(failure));
             }
-            let top = self.stack.len().checked_sub(1)?;
-            if matches!(self.stack[top].reader, FrameReader::Unopened) {
-                if let Some(failure) = self.open_top(top) {
+            let frame = self.stack.last_mut()?;
+            if matches!(frame.reader, FrameReader::Unopened) {
+                if let Some(failure) = self.open_top() {
                     return Some(Err(failure));
                 }
                 continue;
             }
-            let next = self.stack[top].reader.next_entry();
+            let next = frame.reader.next_entry();
+            let depth = frame.depth;
             match next {
                 None => {
                     self.stack.pop();
                 }
                 Some(Err(error)) => {
-                    let relative = self.stack[top].relative.clone();
+                    let relative = frame.relative.clone();
                     if let Some(failure) =
                         self.policy
                             .decide(relative, OmissionStage::ReadEntries, error)
@@ -539,10 +544,10 @@ impl WalkIter {
                     }
                 }
                 Some(Ok(entry)) => {
+                    let relative = frame.relative.join(entry.file_name());
                     let file_type = match entry.file_type() {
                         Ok(file_type) => file_type,
                         Err(error) => {
-                            let relative = self.stack[top].relative.join(entry.file_name());
                             if let Some(failure) =
                                 self.policy
                                     .decide(relative, OmissionStage::EntryType, error)
@@ -552,9 +557,7 @@ impl WalkIter {
                             continue;
                         }
                     };
-                    let relative = self.stack[top].relative.join(entry.file_name());
                     let absolute = self.canonical_root.join(&relative);
-                    let depth = self.stack[top].depth;
                     if file_type.is_dir() || file_type.is_symlink() {
                         match self.admit(&entry, absolute, relative, file_type, depth) {
                             DirDecision::Yield(admitted) => return Some(Ok(admitted)),

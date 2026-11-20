@@ -106,7 +106,7 @@ fn a_deadline_bounds_the_whole_redirect_chain() -> Result<(), Box<dyn std::error
             ) {
                 break;
             }
-            let _ = read_request_head(&mut stream)?;
+            let _request_head = read_request_head(&mut stream)?;
             requested += 1;
             // A slow upstream: one unit per hop, well inside the per-phase
             // timeout, so only the whole-call deadline can stop the chain.
@@ -137,7 +137,12 @@ fn a_deadline_bounds_the_whole_redirect_chain() -> Result<(), Box<dyn std::error
     // Tell the server the client is done, and wake an accept it may be
     // blocked in; whether that connection lands is the server's business.
     drop(done);
-    drop(TcpStream::connect(("127.0.0.1", port)));
+    if let Err(error) = TcpStream::connect(("127.0.0.1", port)) {
+        #[cfg(feature = "trace")]
+        crate::trace::debug!(%error, "deadlines: the server had already stopped accepting");
+        #[cfg(not(feature = "trace"))]
+        core::convert::identity(error);
+    }
     assert!(
         matches!(
             result,
@@ -150,7 +155,7 @@ fn a_deadline_bounds_the_whole_redirect_chain() -> Result<(), Box<dyn std::error
         "the chain is refused at its deadline, got {result:?}"
     );
     assert!(
-        elapsed < unit.saturating_mul(15) / 2,
+        elapsed < unit.saturating_mul(15).div_f64(2.0),
         "the deadline bounds the chain, not ten hops of {unit:?}: {elapsed:?}"
     );
     let requested = join_server(server)?;
@@ -159,5 +164,64 @@ fn a_deadline_bounds_the_whole_redirect_chain() -> Result<(), Box<dyn std::error
         "the client followed at least one redirect, then stopped at the deadline: \
          {requested} requests"
     );
+    Ok(())
+}
+
+/// A body timeout keeps its body phase and timeout class after headers land.
+#[test]
+fn body_timeout_preserves_stage_and_class() -> Result<(), Box<dyn std::error::Error>> {
+    // The head must land before the timeout for the stall to be a body stall (#272).
+    let timeout = host_budget(Duration::from_millis(150), Duration::from_secs(5))?;
+    let (port, release, server) = serve_held(Some(
+        b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: keep-alive\r\n\r\nx".to_vec(),
+    ))?;
+    let result = get_with(
+        &format!("http://127.0.0.1:{port}/"),
+        &quiet().timeout(timeout),
+    );
+    assert!(matches!(
+        result,
+        Err(Error::Failure {
+            stage: FailureStage::Body,
+            kind: FailureKind::Timeout,
+            ..
+        })
+    ));
+    release
+        .send(())
+        .map_err(|error| format!("body fixture receiver ended: {error}"))?;
+    join_server(server)?;
+    Ok(())
+}
+
+/// The exact-cap EOF probe reports its own timeout stage.
+#[test]
+fn eof_probe_timeout_preserves_stage_and_class() -> Result<(), Box<dyn std::error::Error>> {
+    let limit = SMALL_CEILING;
+    let mut response = format!(
+        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: keep-alive\r\n\r\n",
+        limit.saturating_add(1)
+    )
+    .into_bytes();
+    response.extend(std::iter::repeat_n(b'x', limit));
+    // The head and the body must land before the timeout for the stall to be the probe's (#272).
+    let timeout = host_budget(Duration::from_millis(150), Duration::from_secs(5))?;
+    let (port, release, server) = serve_held(Some(response))?;
+    let result = get_with(
+        &format!("http://127.0.0.1:{port}/"),
+        &previewing(limit).timeout(timeout),
+    );
+    assert!(matches!(
+        result,
+        Err(Error::Failure {
+            stage: FailureStage::EofProbe,
+            kind: FailureKind::Timeout,
+            ..
+        })
+    ));
+    release
+        .send(())
+        .map_err(|error| format!("EOF fixture receiver ended: {error}"))?;
+    join_server(server)?;
     Ok(())
 }

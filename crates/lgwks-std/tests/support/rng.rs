@@ -19,16 +19,16 @@
 use lgwks_std::seeded::Seeded;
 
 /// A deterministic generator: one seed, one stream.
-pub struct Rng(Seeded);
+pub(crate) struct Rng(Seeded);
 
 impl Rng {
     /// The stream `seed` names.
-    pub fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self(Seeded::from_seed(seed))
     }
 
     /// The next value in the stream.
-    pub fn next(&mut self) -> u64 {
+    pub(crate) fn next(&mut self) -> u64 {
         self.0.next_u64()
     }
 
@@ -40,7 +40,7 @@ impl Rng {
     /// it was, so a family's later draws do not depend on an empty range it
     /// happened to ask about. The stream's other refusal, an index wider than
     /// 64 bits, has no target to occur on.
-    pub fn below(&mut self, bound: usize) -> usize {
+    pub(crate) fn below(&mut self, bound: usize) -> usize {
         let Ok(drawn) = self.0.index(bound) else {
             return 0;
         };
@@ -105,8 +105,8 @@ mod tests {
         let mut rng = Rng::new(SEEDS[0]);
         let bytes: Vec<u8> = (0..1_024).map(|_| rng.next().to_le_bytes()[0]).collect();
         assert_ne!(
-            &bytes[..768],
-            &bytes[256..1_024],
+            bytes.get(..768),
+            bytes.get(256..1_024),
             "the low byte repeated with a period of 256 draws"
         );
     }

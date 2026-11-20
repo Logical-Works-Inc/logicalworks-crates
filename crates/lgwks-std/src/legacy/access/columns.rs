@@ -172,32 +172,14 @@ pub(crate) fn encode_cell(
         why,
     };
     let column_name = column.name.clone();
+    let site = CellSite {
+        cursor,
+        table,
+        column,
+        page_size,
+    };
     match column.tag {
-        super::ColumnTag::Text => {
-            let CellValue::Text(ref text) = *cell else {
-                return crate::legacy::refuse(bad(String::from("a text column needs text")));
-            };
-            let width = usize::from(column.len);
-            if text.len() > width {
-                return crate::legacy::refuse(bad(format!(
-                    "text needs {} bytes past {width}",
-                    text.len()
-                )));
-            }
-            let end = cursor.saturating_add(width);
-            if end > page_size {
-                return crate::legacy::refuse(bad(String::from("text runs past the page")));
-            }
-            if let Some(window) = page.get_mut(cursor..end) {
-                for slot in window.iter_mut() {
-                    *slot = 0x20;
-                }
-            } else {
-                return crate::legacy::refuse(bad(String::from("text runs past the page")));
-            }
-            place_bytes(page, cursor, text.as_bytes(), table, &column_name)?;
-            Ok(end)
-        }
+        super::ColumnTag::Text => encode_text(page, &site, cell),
         super::ColumnTag::Integer => {
             let CellValue::Integer(ref value) = *cell else {
                 return crate::legacy::refuse(bad(String::from(
@@ -232,65 +214,117 @@ pub(crate) fn encode_cell(
             place_bytes(page, cursor, &bytes, table, &column_name)?;
             Ok(end)
         }
-        super::ColumnTag::Date => {
-            let CellValue::Date {
-                ref days,
-                ref millis,
-            } = *cell
-            else {
-                return crate::legacy::refuse(bad(String::from("a date column needs a date")));
-            };
-            if *millis >= MILLIS_PER_DAY {
-                return crate::legacy::refuse(bad(String::from("date milliseconds past one day")));
-            }
-            let end = cursor.saturating_add(8);
-            if end > page_size {
-                return crate::legacy::refuse(bad(String::from("date runs past the page")));
-            }
-            let day_bytes = days.to_be_bytes();
-            let millis_bytes = millis.to_be_bytes();
-            place_bytes(page, cursor, &day_bytes, table, &column_name)?;
-            place_bytes(
-                page,
-                cursor.saturating_add(4),
-                &millis_bytes,
-                table,
-                &column_name,
-            )?;
-            Ok(end)
-        }
-        super::ColumnTag::Memo => match *cell {
-            CellValue::Memo(ref text) => {
-                let end = cursor.saturating_add(4).saturating_add(text.len());
-                if end > page_size {
-                    return crate::legacy::refuse(bad(String::from("memo runs past the page")));
-                }
-                let Ok(len) = u32::try_from(text.len()) else {
-                    return crate::legacy::refuse(bad(String::from("memo past 4 GiB")));
-                };
-                let bytes = len.to_le_bytes();
-                place_bytes(page, cursor, &bytes, table, &column_name)?;
-                place_bytes(
-                    page,
-                    cursor.saturating_add(4),
-                    text.as_bytes(),
-                    table,
-                    &column_name,
-                )?;
-                Ok(end)
-            }
-            CellValue::Null => {
-                let end = cursor.saturating_add(4);
-                if end > page_size {
-                    return crate::legacy::refuse(bad(String::from(
-                        "null memo runs past the page",
-                    )));
-                }
-                let bytes = 0_u32.to_le_bytes();
-                place_bytes(page, cursor, &bytes, table, &column_name)?;
-                Ok(end)
-            }
-            _ => Err(bad(String::from("a memo column needs memo or null"))),
-        },
+        super::ColumnTag::Date => encode_date(page, &site, cell),
+        super::ColumnTag::Memo => encode_memo(page, &site, cell),
     }
 }
+
+/// Where one cell goes: the cursor, its table and column, and the page bound.
+struct CellSite<'site> {
+    /// Offset the cell starts at.
+    cursor: usize,
+    /// The table the cell belongs to.
+    table: &'site str,
+    /// The column the cell fills.
+    column: &'site ColumnDef,
+    /// Bytes the page holds.
+    page_size: usize,
+}
+
+impl CellSite<'_> {
+    /// A value-mismatch refusal naming this cell's table and column.
+    fn mismatch(&self, why: impl Into<String>) -> AccessError {
+        AccessError::ValueMismatch {
+            table: String::from(self.table),
+            column: self.column.name.clone(),
+            why: why.into(),
+        }
+    }
+
+    /// Writes `bytes` at `offset` from the cursor.
+    fn place(&self, page: &mut [u8], offset: usize, bytes: &[u8]) -> Result<(), AccessError> {
+        let at = self.cursor.saturating_add(offset);
+        place_bytes(page, at, bytes, self.table, &self.column.name)
+    }
+}
+
+/// Encodes a text cell, space-padded to the column's width.
+fn encode_text(
+    page: &mut [u8],
+    site: &CellSite<'_>,
+    cell: &CellValue,
+) -> Result<usize, AccessError> {
+    let CellValue::Text(ref text) = *cell else {
+        return crate::legacy::refuse(site.mismatch("a text column needs text"));
+    };
+    let width = usize::from(site.column.len);
+    if text.len() > width {
+        return crate::legacy::refuse(
+            site.mismatch(format!("text needs {} bytes past {width}", text.len())),
+        );
+    }
+    let end = site.cursor.saturating_add(width);
+    let window = match page.get_mut(site.cursor..end) {
+        Some(window) if end <= site.page_size => window,
+        _ => return crate::legacy::refuse(site.mismatch("text runs past the page")),
+    };
+    window.fill(0x20);
+    site.place(page, 0, text.as_bytes())?;
+    Ok(end)
+}
+
+/// Encodes a date cell: day count, then milliseconds into the day.
+fn encode_date(
+    page: &mut [u8],
+    site: &CellSite<'_>,
+    cell: &CellValue,
+) -> Result<usize, AccessError> {
+    let CellValue::Date {
+        ref days,
+        ref millis,
+    } = *cell
+    else {
+        return crate::legacy::refuse(site.mismatch("a date column needs a date"));
+    };
+    if *millis >= MILLIS_PER_DAY {
+        return crate::legacy::refuse(site.mismatch("date milliseconds past one day"));
+    }
+    let end = site.cursor.saturating_add(8);
+    if end > site.page_size {
+        return crate::legacy::refuse(site.mismatch("date runs past the page"));
+    }
+    site.place(page, 0, &days.to_be_bytes())?;
+    site.place(page, 4, &millis.to_be_bytes())?;
+    Ok(end)
+}
+
+/// Encodes a memo cell: a little-endian length, then the text; null is length zero.
+fn encode_memo(
+    page: &mut [u8],
+    site: &CellSite<'_>,
+    cell: &CellValue,
+) -> Result<usize, AccessError> {
+    let (text, why_past) = match *cell {
+        CellValue::Memo(ref text) => (text.as_str(), "memo runs past the page"),
+        CellValue::Null => ("", "null memo runs past the page"),
+        _ => {
+            let refusal = Err(site.mismatch("a memo column needs memo or null"));
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = ?refusal.as_ref().err(), "encode_memo: returning an error to the caller");
+            return refusal;
+        }
+    };
+    let end = site.cursor.saturating_add(4).saturating_add(text.len());
+    if end > site.page_size {
+        return crate::legacy::refuse(site.mismatch(why_past));
+    }
+    let Ok(len) = u32::try_from(text.len()) else {
+        return crate::legacy::refuse(site.mismatch("memo past 4 GiB"));
+    };
+    site.place(page, 0, &len.to_le_bytes())?;
+    site.place(page, 4, text.as_bytes())?;
+    Ok(end)
+}
+
+#[cfg(test)]
+mod sim_columns;

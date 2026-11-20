@@ -166,9 +166,11 @@ fn locale_case(seed: u64, trace: &mut u64) -> TestResult {
 
     // A byte payload through hex.
     let length = rng.index(32)?.saturating_add(1);
-    let payload: Vec<u8> = (0..length)
-        .map(|_| rng.next_u64().to_le_bytes()[0])
-        .collect();
+    let mut payload: Vec<u8> = Vec::with_capacity(length);
+    for _ in 0..length {
+        let [byte, ..] = rng.next_u64().to_le_bytes();
+        payload.push(byte);
+    }
     let encoded = hex::encode(&payload);
     assert_eq!(
         hex::decode(&encoded)?,
@@ -187,7 +189,9 @@ fn locale_case(seed: u64, trace: &mut u64) -> TestResult {
     }
 
     // A component in another script through percent encoding.
-    let script = SCRIPTS[rng.index(SCRIPTS.len())?];
+    let script = SCRIPTS
+        .get(rng.index(SCRIPTS.len())?)
+        .ok_or("the drawn script exists")?;
     let component = format!("{script}{}", rng.next_u64());
     let escaped = percent::encode_component(&component);
     assert_eq!(
@@ -208,7 +212,8 @@ fn locale_case(seed: u64, trace: &mut u64) -> TestResult {
 /// localized spelling is not a number.
 #[cfg(any(feature = "json", feature = "ron"))]
 fn numbers(seed: u64, rng: &mut Seeded, trace: &mut u64) -> TestResult {
-    let numerator = i32::from_le_bytes(rng.next_u64().to_le_bytes()[..4].try_into()?);
+    let [first, second, third, fourth, ..] = rng.next_u64().to_le_bytes();
+    let numerator = i32::from_le_bytes([first, second, third, fourth]);
     let shift = u32::try_from(rng.below(11)?)?;
     let denominator = f64::from(1_u16.checked_shl(shift).ok_or("the shift fits")?);
     let dyadic = f64::from(numerator) / denominator;
@@ -283,9 +288,10 @@ fn sweep(first: u64, end: u64) -> Result<u64, Box<dyn Error>> {
 fn locale_band(index: u64) -> TestResult {
     let first = index.checked_mul(BAND_WIDTH).ok_or("the band fits")?;
     let end = first.checked_add(BAND_WIDTH).ok_or("the band fits")?;
+    let once = sweep(first, end)?;
+    let again = sweep(first, end)?;
     assert_eq!(
-        sweep(first, end)?,
-        sweep(first, end)?,
+        once, again,
         "band {index}: the same seeds read two different traces"
     );
     Ok(())
@@ -369,7 +375,8 @@ fn child(
 /// The whole sweep replays in one process; a child reports its trace.
 fn the_whole_sweep_replays_in_one_process() -> TestResult {
     let trace = sweep(0, SEEDS)?;
-    assert_eq!(trace, sweep(0, SEEDS)?, "the whole sweep read two traces");
+    let again = sweep(0, SEEDS)?;
+    assert_eq!(trace, again, "the whole sweep read two traces");
     if std::env::var_os(PROBE).is_some() {
         report("locale-trace", &format!("{trace:016x}"))?;
     }

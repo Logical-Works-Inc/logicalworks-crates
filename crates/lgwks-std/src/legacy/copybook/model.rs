@@ -364,24 +364,18 @@ pub enum CopybookError {
 impl fmt::Display for CopybookError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::BadLevel { line, ref text } => {
-                write!(
-                    formatter,
-                    "copybook line {line}: level {text:?} is not 01-49, 66 or 88"
-                )
-            }
-            Self::RenamesRefused { line, ref name } => {
-                write!(
-                    formatter,
-                    "copybook line {line}: 66 RENAMES {name:?} is refused"
-                )
-            }
-            Self::UnknownClause { line, ref text } => {
-                write!(
-                    formatter,
-                    "copybook line {line}: clause {text:?} is not admitted"
-                )
-            }
+            Self::BadLevel { line, ref text } => write!(
+                formatter,
+                "copybook line {line}: level {text:?} is not 01-49, 66 or 88"
+            ),
+            Self::RenamesRefused { line, ref name } => write!(
+                formatter,
+                "copybook line {line}: 66 RENAMES {name:?} is refused"
+            ),
+            Self::UnknownClause { line, ref text } => write!(
+                formatter,
+                "copybook line {line}: clause {text:?} is not admitted"
+            ),
             Self::BadPic {
                 line,
                 ref field,
@@ -406,12 +400,10 @@ impl fmt::Display for CopybookError {
                 formatter,
                 "copybook line {line}: field {field:?} redefines unknown {name:?}"
             ),
-            Self::AmbiguousName { line, ref name } => {
-                write!(
-                    formatter,
-                    "copybook line {line}: name {name:?} resolves twice"
-                )
-            }
+            Self::AmbiguousName { line, ref name } => write!(
+                formatter,
+                "copybook line {line}: name {name:?} resolves twice"
+            ),
             Self::DependsOnMissing {
                 line,
                 ref field,
@@ -437,12 +429,10 @@ impl fmt::Display for CopybookError {
                 formatter,
                 "field {field:?} count {count} is past {min} TO {max}"
             ),
-            Self::LengthMismatch { need, have } => {
-                write!(
-                    formatter,
-                    "record holds {have} bytes for a {need}-byte layout"
-                )
-            }
+            Self::LengthMismatch { need, have } => write!(
+                formatter,
+                "record holds {have} bytes for a {need}-byte layout"
+            ),
             Self::TruncatedRecord {
                 ref field,
                 need,

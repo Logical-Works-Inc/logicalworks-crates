@@ -328,7 +328,7 @@ impl RecordLayout {
             items.push(item);
         }
         let tree = layout::build_tree(items, limits)?;
-        let mut layout = layout::expand_tree(tree, limits)?;
+        let mut layout = layout::expand_tree(&tree, limits)?;
         layout.conditions = conditions;
         Ok(layout)
     }

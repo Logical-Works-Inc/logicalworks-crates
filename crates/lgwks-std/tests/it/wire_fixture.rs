@@ -52,8 +52,11 @@ mod fixture {
             "retained bytes carry the pinned schema's text field"
         );
         assert_eq!(
-            u64::from(archived.indices[2].to_native()),
-            8,
+            archived
+                .indices
+                .get(2)
+                .map(|index| u64::from(index.to_native())),
+            Some(8),
             "retained bytes carry pointer-sized indices under the pinned width"
         );
         assert_eq!(

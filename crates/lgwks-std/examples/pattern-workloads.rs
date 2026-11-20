@@ -70,107 +70,69 @@ fn run_scenario(
     let hash = span_hash(&facade_spans);
     let match_count = facade_spans.len();
 
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "facade",
-            operation: "single-find",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || usize::from(facade.find(input).is_some()),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "engine",
-            operation: "single-find",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || usize::from(engine.find(input).is_some()),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "facade",
-            operation: "find-all",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || facade.find_all(input).count(),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "engine",
-            operation: "find-all",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || engine.find_iter(input).count(),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "facade",
-            operation: "split",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || facade.split(input).count(),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "engine",
-            operation: "split",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || engine.split(input).count(),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "facade",
-            operation: "replace-all",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || facade.replace_all(input, "X").len(),
-    )?;
-    emit(
-        output,
-        Workload {
-            scenario,
-            implementation: "engine",
-            operation: "replace-all",
-            input_len: input.len(),
-            match_count,
-            span_hash: hash,
-        },
-        || engine.replace_all(input, "X").len(),
-    )?;
+    let shared = Shared {
+        scenario,
+        input_len: input.len(),
+        match_count,
+        span_hash: hash,
+    };
+    let facade_row = |operation| shared.row("facade", operation);
+    let engine_row = |operation| shared.row("engine", operation);
+    emit(output, &facade_row("single-find"), || {
+        usize::from(facade.find(input).is_some())
+    })?;
+    emit(output, &engine_row("single-find"), || {
+        usize::from(engine.find(input).is_some())
+    })?;
+    emit(output, &facade_row("find-all"), || {
+        facade.find_all(input).count()
+    })?;
+    emit(output, &engine_row("find-all"), || {
+        engine.find_iter(input).count()
+    })?;
+    emit(output, &facade_row("split"), || facade.split(input).count())?;
+    emit(output, &engine_row("split"), || engine.split(input).count())?;
+    emit(output, &facade_row("replace-all"), || {
+        facade.replace_all(input, "X").len()
+    })?;
+    emit(output, &engine_row("replace-all"), || {
+        engine.replace_all(input, "X").len()
+    })?;
     Ok(())
 }
 
+/// What every workload row of one scenario shares.
+struct Shared<'scenario> {
+    /// The scenario's name.
+    scenario: &'scenario str,
+    /// The input's length in bytes.
+    input_len: usize,
+    /// How many matches the pattern finds in the input.
+    match_count: usize,
+    /// The hash of the matched spans.
+    span_hash: u64,
+}
+
+impl<'scenario> Shared<'scenario> {
+    /// The row for `implementation` running `operation` in this scenario.
+    const fn row(
+        &self,
+        implementation: &'scenario str,
+        operation: &'scenario str,
+    ) -> Workload<'scenario> {
+        Workload {
+            scenario: self.scenario,
+            implementation,
+            operation,
+            input_len: self.input_len,
+            match_count: self.match_count,
+            span_hash: self.span_hash,
+        }
+    }
+}
+
 /// Time one workload repeatedly and write its distribution and exact work count.
-fn emit<F>(output: &mut impl Write, workload: Workload<'_>, mut operation_fn: F) -> io::Result<()>
+fn emit<F>(output: &mut impl Write, workload: &Workload<'_>, mut operation_fn: F) -> io::Result<()>
 where
     F: FnMut() -> usize,
 {
@@ -195,6 +157,11 @@ where
     }
     elapsed.sort_unstable();
     let work = expected_work.ok_or_else(|| io::Error::other("no timing samples"))?;
+    let (Some(p50), Some(p95), Some(p99)) = (elapsed.get(15), elapsed.get(29), elapsed.get(30))
+    else {
+        lgwks_std::trace::debug!("emit: returning an error to the caller");
+        return Err(io::Error::other("too few timing samples for p99"));
+    };
     writeln!(
         output,
         "{},{},{},{},{SAMPLES},{},{},{},{work},{},{:016x}",
@@ -202,9 +169,9 @@ where
         workload.implementation,
         workload.operation,
         workload.input_len,
-        elapsed[15],
-        elapsed[29],
-        elapsed[30],
+        p50,
+        p95,
+        p99,
         workload.match_count,
         workload.span_hash,
     )

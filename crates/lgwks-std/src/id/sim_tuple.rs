@@ -261,7 +261,11 @@ fn sim_tuple_full_all_twelve_typecodes_pack_and_unpack_correctly()
     let (tuple_elem, tuple_rest) = unpack_element(&tuple_key)?;
     assert_eq!(tuple_elem, nested);
     assert!(tuple_rest.is_empty());
+    Ok(())
+}
 
+#[test]
+fn sim_tuple_full_ints_and_floats_pack_in_key_order() -> Result<(), Box<dyn std::error::Error>> {
     // 5. Int across boundary values: i64::MIN, -256, -255, -1, 0, 1, 255, 256, i64::MAX
     let mut min_key = Vec::new();
     pack_element(&Element::Int(i64::MIN), &mut min_key)?;
@@ -360,7 +364,12 @@ fn sim_tuple_full_all_twelve_typecodes_pack_and_unpack_correctly()
         }
         prev_f64_key = Some(key_buf);
     }
+    Ok(())
+}
 
+#[test]
+fn sim_tuple_full_bool_uuid_and_versionstamps_pack_correctly()
+-> Result<(), Box<dyn std::error::Error>> {
     // 8. Bool
     let mut bool_f_key = Vec::new();
     pack_element(&Element::Bool(false), &mut bool_f_key)?;
@@ -458,7 +467,7 @@ fn sim_fdb_tuple_element_lexicographical_bijection() -> Result<(), TupleError> {
     let mut packed_list = Vec::with_capacity(count);
 
     for _ in 0..count {
-        let val_int = i64::from_ne_bytes(stream.next_u64().to_ne_bytes());
+        let val_int = i64::from_le_bytes(stream.next_u64().to_le_bytes());
         let mut rem_0 = 0_u8;
         if let Some(rem_val) = stream.next_u64().checked_rem(26)
             && let Ok(byte_val) = u8::try_from(rem_val)

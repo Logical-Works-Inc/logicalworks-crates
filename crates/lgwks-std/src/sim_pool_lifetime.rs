@@ -44,7 +44,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 // The seeded generator and replay harness are declared once, by the parent
 // module: a file loaded as a module twice is two copies of every type in it,
@@ -130,6 +130,145 @@ const ARM_IN_USE: u64 = 53;
 /// A drained pool refused a job, typed, and the job never ran.
 const ARM_CLOSED: u64 = 54;
 
+/// The shape of one burst: the seed that drew it and the numbers the pool's
+/// state must match while every job is held at the gate.
+struct Burst {
+    /// The seed, named in every failure.
+    seed: u64,
+    /// The pool's thread ceiling.
+    ceiling: usize,
+    /// How many jobs the burst submits.
+    jobs: usize,
+    /// The threads a burst of this shape starts.
+    live: usize,
+    /// Whether a shutdown with an expired deadline runs before the drain.
+    expire_first: bool,
+}
+
+/// A burst held at a gate, optionally shut down past its deadline, then
+/// drained: every job returns its own value.
+fn burst_scenario(pool: &Arc<Pool>, burst: &Burst, trace: &mut u64) {
+    let Burst {
+        seed,
+        ceiling,
+        jobs,
+        live,
+        expire_first,
+    } = *burst;
+    let gate = Arc::new(Gate::new());
+    let mut handles = Vec::with_capacity(jobs);
+    for index in 0..jobs {
+        let gate = Arc::clone(&gate);
+        handles.push(spawn_blocking_on(pool, move || {
+            gate.pass();
+            index
+        }));
+    }
+    {
+        let state = lock(&pool.state);
+        assert_eq!(
+            state.live, live,
+            "seed {seed:#x}: {} threads alive, not the {live} a burst of {jobs} starts at a ceiling of {ceiling}",
+            state.live
+        );
+        assert_eq!(
+            state.queue.len(),
+            jobs.saturating_sub(live),
+            "seed {seed:#x}: the rest of the burst waits its turn"
+        );
+        assert_eq!(
+            state.handles.len(),
+            live,
+            "seed {seed:#x}: every started thread is registered to be joined"
+        );
+    }
+    fold_usize(trace, live);
+    fold_usize(trace, jobs.saturating_sub(live));
+
+    if expire_first {
+        assert_eq!(
+            pool.shutdown(EXPIRED),
+            PoolShutdown::DeadlineExceeded {
+                joined: 0,
+                running: live,
+                queued: jobs.saturating_sub(live)
+            },
+            "seed {seed:#x}: the deadline names the threads still working and the jobs still waiting"
+        );
+        fold(trace, ARM_EXPIRED);
+        fold_usize(trace, live);
+        fold_usize(trace, jobs.saturating_sub(live));
+    }
+
+    gate.release();
+    assert_eq!(
+        pool.shutdown(GENEROUS),
+        PoolShutdown::Drained { threads: live },
+        "seed {seed:#x}: shutdown let every queued and running job finish and joined every thread"
+    );
+    fold(trace, ARM_DRAINED);
+    for (index, value) in block_on(join_all(handles)).into_iter().enumerate() {
+        assert_eq!(
+            value, index,
+            "seed {seed:#x}: job {index} returned another job's value"
+        );
+        fold_usize(trace, value);
+    }
+}
+
+/// A thread parked in its keep-alive is woken by the shutdown, not waited out.
+fn parked_scenario(pool: &Arc<Pool>, seed: u64, trace: &mut u64) {
+    assert_eq!(block_on(spawn_blocking_on(pool, || 5u32)), 5);
+    // The wait is load-bearing: the thread must reach its park, so the
+    // broadcast is what releases it rather than a running job
+    // finishing. It waits for that state rather than for a guessed
+    // length of time: a fixed 30 ms pause cost 1.5 s a sweep and still
+    // only made the park likely.
+    wait_until_parked(pool, seed);
+    // The deadline is the wake bound itself, well under the keep-alive: a
+    // thread waited out instead of woken would report `DeadlineExceeded`, so
+    // the drain inside the bound is the proof the broadcast released it, with
+    // no clock read in the simulation.
+    let report = pool.shutdown(WAKE_BOUND);
+    assert_eq!(
+        report,
+        PoolShutdown::Drained { threads: 1 },
+        "seed {seed:#x}: a parked thread was not woken and joined within {WAKE_BOUND:?}, \
+         against a {BLOCKING_KEEP_ALIVE:?} keep-alive"
+    );
+    fold(trace, ARM_WOKEN);
+}
+
+/// A running pool refuses a later ceiling by name, then still drains.
+fn configure_scenario(pool: &Arc<Pool>, seed: u64, ceiling: usize, trace: &mut u64) {
+    assert_eq!(block_on(spawn_blocking_on(pool, || 6u32)), 6);
+    assert_eq!(
+        configure_decision(pool, ceiling.saturating_add(1)),
+        Err(PoolConfigError::InUse {
+            requested: ceiling.saturating_add(1),
+            running: ceiling
+        }),
+        "seed {seed:#x}: a running pool refuses another ceiling by name"
+    );
+    // Even its own ceiling: this pool was built by first use, and the
+    // answer says so rather than pretending a configure took effect.
+    assert_eq!(
+        configure_decision(pool, ceiling),
+        Err(PoolConfigError::InUse {
+            requested: ceiling,
+            running: ceiling
+        }),
+        "seed {seed:#x}: the same ceiling is still refused as unconfigured"
+    );
+    fold(trace, ARM_IN_USE);
+    assert_eq!(
+        pool.shutdown(GENEROUS),
+        PoolShutdown::Drained { threads: 1 },
+        "seed {seed:#x}: a pool that refused a configure still drains"
+    );
+    fold(trace, ARM_DRAINED);
+}
+
 /// One seed's whole journey, as its trace hash.
 fn journey(seed: u64) -> u64 {
     let mut rng = Rng::new(seed);
@@ -162,118 +301,19 @@ fn journey(seed: u64) -> u64 {
     let pool = Arc::new(Pool::new(ceiling, start_os_thread));
 
     match scenario {
-        Scenario::BurstDrain | Scenario::DeadlineThenDrain => {
-            let gate = Arc::new(Gate::new());
-            let mut handles = Vec::with_capacity(jobs);
-            for index in 0..jobs {
-                let gate = Arc::clone(&gate);
-                handles.push(spawn_blocking_on(&pool, move || {
-                    gate.pass();
-                    index
-                }));
-            }
-            {
-                let state = lock(&pool.state);
-                assert_eq!(
-                    state.live, live,
-                    "seed {seed:#x}: {} threads alive, not the {live} a burst of {jobs} starts at a ceiling of {ceiling}",
-                    state.live
-                );
-                assert_eq!(
-                    state.queue.len(),
-                    jobs.saturating_sub(live),
-                    "seed {seed:#x}: the rest of the burst waits its turn"
-                );
-                assert_eq!(
-                    state.handles.len(),
-                    live,
-                    "seed {seed:#x}: every started thread is registered to be joined"
-                );
-            }
-            fold_usize(&mut trace, live);
-            fold_usize(&mut trace, jobs.saturating_sub(live));
-
-            if scenario == Scenario::DeadlineThenDrain && jobs > 0 {
-                assert_eq!(
-                    pool.shutdown(EXPIRED),
-                    PoolShutdown::DeadlineExceeded {
-                        joined: 0,
-                        running: live,
-                        queued: jobs.saturating_sub(live)
-                    },
-                    "seed {seed:#x}: the deadline names the threads still working and the jobs still waiting"
-                );
-                fold(&mut trace, ARM_EXPIRED);
-                fold_usize(&mut trace, live);
-                fold_usize(&mut trace, jobs.saturating_sub(live));
-            }
-
-            gate.release();
-            assert_eq!(
-                pool.shutdown(GENEROUS),
-                PoolShutdown::Drained { threads: live },
-                "seed {seed:#x}: shutdown let every queued and running job finish and joined every thread"
-            );
-            fold(&mut trace, ARM_DRAINED);
-            for (index, value) in block_on(join_all(handles)).into_iter().enumerate() {
-                assert_eq!(
-                    value, index,
-                    "seed {seed:#x}: job {index} returned another job's value"
-                );
-                fold_usize(&mut trace, value);
-            }
-        }
-        Scenario::ParkedThenShutdown => {
-            assert_eq!(block_on(spawn_blocking_on(&pool, || 5u32)), 5);
-            // The wait is load-bearing: the thread must reach its park, so the
-            // broadcast is what releases it rather than a running job
-            // finishing. It waits for that state rather than for a guessed
-            // length of time: a fixed 30 ms pause cost 1.5 s a sweep and still
-            // only made the park likely.
-            wait_until_parked(&pool, seed);
-            let began = Instant::now();
-            let report = pool.shutdown(WAKE_BOUND.saturating_add(BLOCKING_KEEP_ALIVE));
-            let waited = began.elapsed();
-            assert_eq!(
-                report,
-                PoolShutdown::Drained { threads: 1 },
-                "seed {seed:#x}: a parked thread was woken and joined"
-            );
-            assert!(
-                waited < WAKE_BOUND,
-                "seed {seed:#x}: a parked thread was waited out ({waited:?}) rather than woken, \
-                 against a {BLOCKING_KEEP_ALIVE:?} keep-alive"
-            );
-            fold(&mut trace, ARM_WOKEN);
-        }
-        Scenario::ConfigureAfterUse => {
-            assert_eq!(block_on(spawn_blocking_on(&pool, || 6u32)), 6);
-            assert_eq!(
-                configure_decision(&pool, ceiling.saturating_add(1)),
-                Err(PoolConfigError::InUse {
-                    requested: ceiling.saturating_add(1),
-                    running: ceiling
-                }),
-                "seed {seed:#x}: a running pool refuses another ceiling by name"
-            );
-            // Even its own ceiling: this pool was built by first use, and the
-            // answer says so rather than pretending a configure took effect.
-            assert_eq!(
-                configure_decision(&pool, ceiling),
-                Err(PoolConfigError::InUse {
-                    requested: ceiling,
-                    running: ceiling
-                }),
-                "seed {seed:#x}: the same ceiling is still refused as unconfigured"
-            );
-            fold(&mut trace, ARM_IN_USE);
-            assert_eq!(
-                pool.shutdown(GENEROUS),
-                PoolShutdown::Drained { threads: 1 },
-                "seed {seed:#x}: a pool that refused a configure still drains"
-            );
-            fold(&mut trace, ARM_DRAINED);
-        }
+        Scenario::BurstDrain | Scenario::DeadlineThenDrain => burst_scenario(
+            &pool,
+            &Burst {
+                seed,
+                ceiling,
+                jobs,
+                live,
+                expire_first: scenario == Scenario::DeadlineThenDrain && jobs > 0,
+            },
+            &mut trace,
+        ),
+        Scenario::ParkedThenShutdown => parked_scenario(&pool, seed, &mut trace),
+        Scenario::ConfigureAfterUse => configure_scenario(&pool, seed, ceiling, &mut trace),
     }
 
     // Admission is closed in every scenario, and the job refused never runs.
@@ -316,16 +356,19 @@ const IDLE_POLLS: usize = 500;
 
 /// Wait until every thread of `pool` has left, or fail naming the seed.
 ///
-/// The wait is a bounded poll rather than a sleep of a guessed length: what it
-/// proves is that a thread left, and how long that took is the host's business.
+/// The wait is on the pool's own condvar, which every leaving thread signals,
+/// bounded by [`IDLE_POLLS`] waits of a millisecond: what it proves is that a
+/// thread left, and how long that took is the host's business.
 fn wait_until_empty(pool: &Arc<Pool>, seed: u64) {
+    let mut state = lock(&pool.state);
     for _ in 0..IDLE_POLLS {
-        if lock(&pool.state).live == 0 {
+        if state.live == 0 {
             return;
         }
-        thread::park_timeout(Duration::from_millis(1));
+        let (woken, _timed_out) =
+            super::wait_timeout(&pool.work_ready, state, Duration::from_millis(1));
+        state = woken;
     }
-    let state = lock(&pool.state);
     assert!(
         state.live == 0,
         "seed {seed:#x}: {} threads were still alive after an idle period of {} polls at a \
@@ -343,13 +386,15 @@ fn wait_until_empty(pool: &Arc<Pool>, seed: u64) {
 /// broadcast is what must wake it. Bounded like [`wait_until_empty`], so a
 /// thread that never parks fails with a message instead of hanging the sweep.
 fn wait_until_parked(pool: &Arc<Pool>, seed: u64) {
+    let mut state = lock(&pool.state);
     for _ in 0..IDLE_POLLS {
-        if lock(&pool.state).idle == 1 {
+        if state.idle == 1 {
             return;
         }
-        thread::park_timeout(Duration::from_millis(1));
+        let (woken, _timed_out) =
+            super::wait_timeout(&pool.work_ready, state, Duration::from_millis(1));
+        state = woken;
     }
-    let state = lock(&pool.state);
     assert!(
         state.idle == 1,
         "seed {seed:#x}: the pool's thread never parked after its job: {} idle, {} live after \
@@ -490,6 +535,8 @@ fn start_lingering(pool: Arc<Pool>, first: Handoff) -> io::Result<super::ThreadH
         .spawn(move || {
             serve_pool(&pool, first);
             HELD_IN_WINDOW.fetch_add(1, Ordering::SeqCst);
+            // Tell a waiter on the pool's condvar the window is now held.
+            pool.work_ready.notify_all();
             hold.wait_past(held);
             HELD_IN_WINDOW.fetch_sub(1, Ordering::SeqCst);
         })
@@ -503,13 +550,17 @@ static HELD_IN_WINDOW: AtomicUsize = AtomicUsize::new(0);
 /// Wait until exactly `count` threads are held in the window, or fail naming
 /// the seed. The identity is checked against this count, so the check waits for
 /// the threads rather than racing them.
-fn wait_until_held(count: usize, seed: u64) {
+fn wait_until_held(pool: &Arc<Pool>, count: usize, seed: u64) {
+    let mut state = lock(&pool.state);
     for _ in 0..IDLE_POLLS {
         if HELD_IN_WINDOW.load(Ordering::SeqCst) == count {
             return;
         }
-        thread::park_timeout(Duration::from_millis(1));
+        let (woken, _timed_out) =
+            super::wait_timeout(&pool.work_ready, state, Duration::from_millis(1));
+        state = woken;
     }
+    drop(state);
     let held = HELD_IN_WINDOW.load(Ordering::SeqCst);
     assert!(
         held == count,
@@ -542,17 +593,16 @@ fn assert_handles_equal_live_plus_held(pool: &Arc<Pool>, where_: &str, seed: u64
 /// wait for the return itself. `is_finished` never blocks, and the poll is
 /// bounded so a thread that never returns fails with a message.
 fn wait_until_all_returned(pool: &Arc<Pool>, seed: u64) {
+    let mut state = lock(&pool.state);
     for _ in 0..IDLE_POLLS {
-        let returned = lock(&pool.state)
-            .handles
-            .iter()
-            .all(super::ThreadHandle::is_finished);
-        if returned {
+        if state.handles.iter().all(super::ThreadHandle::is_finished) {
             return;
         }
-        thread::park_timeout(Duration::from_millis(1));
+        let (woken, _timed_out) =
+            super::wait_timeout(&pool.work_ready, state, Duration::from_millis(1));
+        state = woken;
     }
-    let held = lock(&pool.state).handles.len();
+    let held = state.handles.len();
     assert!(
         held == 0,
         "seed {seed:#x}: {held} registered threads had not all returned after {} polls",
@@ -578,7 +628,7 @@ fn mid_exit(seed: u64) -> u64 {
     let first = spawn_blocking_on(&pool, || 1u32);
     assert_eq!(block_on(first), 1, "seed {seed:#x}: the first job must run");
     wait_until_empty(&pool, seed);
-    wait_until_held(1, seed);
+    wait_until_held(&pool, 1, seed);
     {
         let state = lock(&pool.state);
         assert_eq!(
@@ -609,7 +659,7 @@ fn mid_exit(seed: u64) -> u64 {
         2,
         "seed {seed:#x}: the second job must run"
     );
-    wait_until_held(2, seed);
+    wait_until_held(&pool, 2, seed);
     assert_handles_equal_live_plus_held(&pool, "after the start in the window", seed);
     fold(&mut trace, 61);
 
@@ -634,7 +684,7 @@ fn mid_exit(seed: u64) -> u64 {
     // becomes "held 1" for good. Asserting the transient state passed only when
     // this line ran within that millisecond; the settled one is deterministic.
     wait_until_empty(&pool, seed);
-    wait_until_held(1, seed);
+    wait_until_held(&pool, 1, seed);
     assert_handles_equal_live_plus_held(&pool, "after the reap", seed);
     fold(&mut trace, 62);
 

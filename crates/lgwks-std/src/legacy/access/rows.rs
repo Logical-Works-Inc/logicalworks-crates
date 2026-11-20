@@ -168,6 +168,59 @@ fn write_data_pages(
     Ok(pages)
 }
 
+/// One table's catalogue entry: where its pages are and what its columns are.
+struct CatalogEntry<'entry> {
+    /// The table's name.
+    table_name: &'entry str,
+    /// The table's columns, in order.
+    columns: &'entry [ColumnDef],
+    /// The first data page.
+    first_page: u32,
+    /// How many data pages the table has.
+    page_total: u8,
+    /// Every data page, in order.
+    listed: &'entry [u32],
+}
+
+/// Appends one table's catalogue entry: name, first page, columns, page list.
+fn push_catalog_entry(body: &mut Vec<u8>, entry: &CatalogEntry<'_>) -> Result<(), AccessError> {
+    let Ok(name_len) = u8::try_from(entry.table_name.len()) else {
+        return crate::legacy::refuse(AccessError::ValueMismatch {
+            table: String::from(entry.table_name),
+            column: String::from("<table>"),
+            why: String::from("table name past 255 bytes"),
+        });
+    };
+    body.push(name_len);
+    body.extend_from_slice(entry.table_name.as_bytes());
+    push_u32_le(body, entry.first_page);
+    let Ok(column_total) = u16::try_from(entry.columns.len()) else {
+        return crate::legacy::refuse(AccessError::BadPage {
+            page: 1,
+            why: String::from("column total past 16 bits"),
+        });
+    };
+    push_u16_le(body, column_total);
+    for column in entry.columns {
+        body.push(column.tag.tag());
+        push_u16_le(body, column.len);
+        let Ok(column_name_len) = u8::try_from(column.name.len()) else {
+            return crate::legacy::refuse(AccessError::ValueMismatch {
+                table: String::from(entry.table_name),
+                column: column.name.clone(),
+                why: String::from("column name past 255 bytes"),
+            });
+        };
+        body.push(column_name_len);
+        body.extend_from_slice(column.name.as_bytes());
+    }
+    body.push(entry.page_total);
+    for &page in entry.listed {
+        push_u32_le(body, page);
+    }
+    Ok(())
+}
+
 /// One table to write: its name, columns and rows.
 pub type TableSpec<'spec> = (&'spec str, &'spec [ColumnDef], &'spec [Vec<CellValue>]);
 
@@ -225,56 +278,20 @@ pub fn build_image(
             page_index = page_index.saturating_add(1);
             data_pages.push(page);
         }
-        catalog_body.push(match u8::try_from(table_name.len()) {
-            Ok(drawn) => drawn,
-            Err(_) => {
-                return crate::legacy::refuse(AccessError::ValueMismatch {
-                    table: String::from(table_name),
-                    column: String::from("<table>"),
-                    why: String::from("table name past 255 bytes"),
-                });
-            }
-        });
-        catalog_body.extend_from_slice(table_name.as_bytes());
-        push_u32_le(&mut catalog_body, table_page);
-        let column_total = match u16::try_from(columns.len()) {
-            Ok(drawn) => drawn,
-            Err(_) => {
-                return crate::legacy::refuse(AccessError::BadPage {
-                    page: 1,
-                    why: String::from("column total past 16 bits"),
-                });
-            }
+        let entry = CatalogEntry {
+            table_name,
+            columns,
+            first_page: table_page,
+            page_total,
+            listed: &listed,
         };
-        push_u16_le(&mut catalog_body, column_total);
-        for column in columns.iter() {
-            catalog_body.push(column.tag.tag());
-            push_u16_le(&mut catalog_body, column.len);
-            catalog_body.push(match u8::try_from(column.name.len()) {
-                Ok(drawn) => drawn,
-                Err(_) => {
-                    return crate::legacy::refuse(AccessError::ValueMismatch {
-                        table: String::from(table_name),
-                        column: column.name.clone(),
-                        why: String::from("column name past 255 bytes"),
-                    });
-                }
-            });
-            catalog_body.extend_from_slice(column.name.as_bytes());
-        }
-        catalog_body.push(page_total);
-        for page in listed {
-            push_u32_le(&mut catalog_body, page);
-        }
+        push_catalog_entry(&mut catalog_body, &entry)?;
     }
-    let table_total = match u16::try_from(tables.len()) {
-        Ok(drawn) => drawn,
-        Err(_) => {
-            return crate::legacy::refuse(AccessError::BadPage {
-                page: 1,
-                why: String::from("table total past 16 bits"),
-            });
-        }
+    let Ok(table_total) = u16::try_from(tables.len()) else {
+        return crate::legacy::refuse(AccessError::BadPage {
+            page: 1,
+            why: String::from("table total past 16 bits"),
+        });
     };
     let mut catalog_page = vec![0_u8; page_size];
     if let Some(slot) = catalog_page.first_mut() {

@@ -21,12 +21,21 @@
 //! The module is compiled under test and into the `world-bench` bin until the cell uses it (#1004). The
 //! module names no `ECS` engine crate and no driver: `tests/it/core_boundary.rs` holds that.
 
+// The paths are explicit because the `world-bench` bin loads this file by `#[path]`,
+// and a file loaded that way looks for its children beside itself, not in `world/`.
+#[path = "world/codec.rs"]
 pub(crate) mod codec;
+#[path = "world/component.rs"]
 pub(crate) mod component;
+#[path = "world/digest.rs"]
 pub(crate) mod digest;
+#[path = "world/error.rs"]
 pub(crate) mod error;
+#[path = "world/snapshot.rs"]
 pub(crate) mod snapshot;
+#[path = "world/state.rs"]
 pub(crate) mod state;
+#[path = "world/tx.rs"]
 pub(crate) mod tx;
 
 use lgwks_std::id::Uuid;

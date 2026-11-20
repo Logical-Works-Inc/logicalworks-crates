@@ -73,8 +73,14 @@ const ALIEN_CHARACTERS: &[u8; 11] = b"gzGZ !/:@[]";
 
 /// An alien drawn from [`ALIEN_CHARACTERS`], as one byte of the corrupted text.
 fn draw_alien(state: &mut Seeded) -> u8 {
-    let index = below(state, ALIEN_CHARACTERS.len());
-    ALIEN_CHARACTERS[index]
+    // The draw is below the table's length, so the last of the first
+    // `draw + 1` entries is the entry the draw names.
+    let draw = below(state, ALIEN_CHARACTERS.len());
+    let [first, ..] = *ALIEN_CHARACTERS;
+    ALIEN_CHARACTERS
+        .iter()
+        .take(draw.saturating_add(1))
+        .fold(first, |_, &entry| entry)
 }
 
 /// Replaces the character at `position`, reporting when the position is outside
@@ -108,7 +114,7 @@ fn a_wrong_length_is_refused_before_anything_is_parsed() {
                     rendered.is_char_boundary(len),
                     "seed {seed}: the canonical form is ASCII, so offset {len} is a boundary"
                 );
-                let shortened = rendered[..len].to_owned();
+                let shortened = rendered.split_at(len).0.to_owned();
                 assert_eq!(
                     shortened.chars().count(),
                     len,
@@ -162,7 +168,7 @@ fn every_truncation_of_a_canonical_form_is_refused() {
                     rendered.is_char_boundary(cut),
                     "seed {seed}: the canonical form is ASCII, so offset {cut} is a boundary"
                 );
-                let prefix = &rendered[..cut];
+                let prefix = rendered.split_at(cut).0;
                 assert_eq!(
                     Uuid::parse(prefix),
                     Err(ParseError::WrongLength { len: cut, at: cut }),
@@ -189,14 +195,18 @@ fn a_multi_byte_character_in_a_group_is_refused_at_its_own_offset()
             // `GROUP_STARTS` is the hex start, which is where this family's
             // corruption must land: a separator position is a different refusal
             // with a different coordinate.
-            let hex_start = GROUP_STARTS[group_index];
-            let hex_width = GROUPS[group_index]
-                .0
-                .saturating_sub(usize::from(group_index > 0));
+            let (Some(&hex_start), Some(&(char_width, _))) =
+                (GROUP_STARTS.get(group_index), GROUPS.get(group_index))
+            else {
+                return Err(format!("seed {seed}: group {group_index} is not a group").into());
+            };
+            let hex_width = char_width.saturating_sub(usize::from(group_index > 0));
             let within = below(&mut state, hex_width.saturating_sub(1));
             let position = hex_start.saturating_add(within);
             let alien_index = below(&mut state, multibyte.len());
-            let alien = multibyte[alien_index];
+            let Some(&alien) = multibyte.get(alien_index) else {
+                return Err(format!("seed {seed}: scalar {alien_index} is not drawn").into());
+            };
 
             // The two hex characters are replaced by one scalar, and however many bytes
             // that scalar occupies the *hex span* it takes is taken off the tail,
@@ -204,7 +214,6 @@ fn a_multi_byte_character_in_a_group_is_refused_at_its_own_offset()
             // about the character rather than about the length.
             let alien_len = alien.len_utf8();
             let tail_start = position.saturating_add(alien_len);
-            let tail_len = CANONICAL_LEN.saturating_sub(tail_start);
             // The head ends where the alien begins and the tail starts where the
             // alien ends, both of which the layout puts inside an ASCII
             // rendering at a hex character; the assertions below re-check the
@@ -214,8 +223,8 @@ fn a_multi_byte_character_in_a_group_is_refused_at_its_own_offset()
                 "seed {seed}: the replacement at {position} must land on ASCII boundaries of the \
                  canonical form"
             );
-            let head = &rendered[..position];
-            let tail = &rendered[tail_start..tail_start.saturating_add(tail_len)];
+            let head = rendered.split_at(position).0;
+            let tail = rendered.split_at(tail_start).1;
             let corrupted = format!("{head}{alien}{tail}");
             assert_eq!(
                 corrupted.len(),
