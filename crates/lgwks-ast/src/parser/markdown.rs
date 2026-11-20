@@ -60,15 +60,13 @@ pub fn markdown_containers(source: &str, limit: usize) -> Option<usize> {
 
 /// The leading whitespace of `line` in columns, and the line without it.
 fn split_indent(line: &str) -> (usize, &str) {
-    let mut columns = 0_usize;
-    for (at, character) in line.char_indices() {
-        match character {
-            ' ' => columns = columns.saturating_add(1),
-            '\t' => columns = columns.saturating_add(4),
-            _ => return (columns, &line[at..]),
-        }
-    }
-    (columns, "")
+    let columns = line
+        .chars()
+        .take_while(|character| matches!(character, ' ' | '\t'))
+        .fold(0_usize, |columns, character| {
+            columns.saturating_add(if character == '\t' { 4 } else { 1 })
+        });
+    (columns, line.trim_start_matches([' ', '\t']))
 }
 
 /// The block containers `line` declares, after its indentation.
@@ -91,8 +89,12 @@ fn count_markers(line: &str) -> usize {
     }
     let mut counted = 0_usize;
     let mut rest = line;
-    while let Some(character) = rest.chars().next() {
-        let tail = &rest[character.len_utf8()..];
+    loop {
+        let mut characters = rest.chars();
+        let Some(character) = characters.next() else {
+            break;
+        };
+        let tail = characters.as_str();
         if character == '>' {
             counted = counted.saturating_add(1);
         } else if matches!(character, '-' | '*' | '+') {
@@ -119,11 +121,7 @@ fn is_marker_end(tail: &str) -> bool {
 /// container however long its number is, which is why this counts a container
 /// and not the digits it consumed.
 fn ordered_marker_len(rest: &str) -> usize {
-    let digits = match rest.char_indices().find(|entry| !entry.1.is_ascii_digit()) {
-        Some((offset, _)) => offset,
-        None => rest.len(),
-    };
-    let after_digits = &rest[digits..];
+    let after_digits = rest.trim_start_matches(|digit: char| digit.is_ascii_digit());
     if after_digits
         .strip_prefix(['.', ')'])
         .is_some_and(is_marker_end)
@@ -156,20 +154,21 @@ pub(super) fn validate_markdown_containers(
     name: &'static str,
     limit: usize,
 ) -> Result<(), ParseError> {
-    let Some(observed) = markdown_containers(source, limit) else {
-        return Ok(());
-    };
-    let refusal = Err(ParseError::ContainerNestingTooDeep {
-        language: name,
-        observed,
-        limit,
-    });
-    tracing::warn!(
-        language = name,
-        observed,
-        limit,
-        "validate_markdown_containers: refusing before the grammar's external scanner, whose \
-         serialization buffer would overflow and abort the process"
-    );
-    refusal
+    if let Some(observed) = markdown_containers(source, limit) {
+        tracing::warn!(
+            language = name,
+            observed,
+            limit,
+            "validate_markdown_containers: refusing before the grammar's external scanner, whose \
+             serialization buffer would overflow and abort the process"
+        );
+        return Err(ParseError::ContainerNestingTooDeep {
+            language: name,
+            observed,
+            limit,
+        });
+    }
+    // Every line was counted and none passed `limit`: the scanner can serialize
+    // each one, which is the only thing this check decides.
+    Ok(())
 }

@@ -16,7 +16,7 @@ pub(super) fn serve(declared: &Serve) -> Result<TokenStream> {
     let script = runtime();
     let site = site_of(declared.site());
     let label = declared.label();
-    let max = bound(declared.bound())?;
+    let max = bound(declared.bound());
     // The options answer `ServeError`; the flow answers `FlowError`, so the
     // refusal is carried across by name rather than by a `?` with no `From`.
     let refused = quote! {
@@ -54,7 +54,7 @@ fn route_tokens(route: &super::super::Route) -> Result<TokenStream> {
     let output_ty = code(route.output_ty())?;
     let site = site_of(route.site());
     let label = route.label();
-    let inner = body(route.body())?.into_ok_block();
+    let inner = body(route.body())?.into_ok_statements();
     Ok(quote! {
         ::lgwks_bot::rt::serve::TypedRoute::new(#method, #path, {
             let site = #site;
@@ -78,9 +78,11 @@ fn route_tokens(route: &super::super::Route) -> Result<TokenStream> {
                             #script::FlowError::failed(::std::format!("the tenant is refused: {error}"))
                         })?);
                         let scope = &scope.enter_at(label, site)?;
-                        let _ = scope;
+                        // A route body may use neither binding; a named borrow keeps
+                        // both live without an unused-variable warning in the caller.
+                        let _entered: &#script::Scope = scope;
                         let body = decoded;
-                        let _ = &body;
+                        let _input: &_ = &body;
                         #inner
                     }.await;
                     match outcome {

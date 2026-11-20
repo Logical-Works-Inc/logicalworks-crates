@@ -19,6 +19,17 @@ use lgwks_ast::{MAX_AST_DEPTH, MAX_SOURCE_BYTES, ParseError};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// The text a thread panicked with, or a note that its payload was not text.
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> &str {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        text
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.as_str()
+    } else {
+        "a payload that is not text"
+    }
+}
+
 /// One function whose body is a balanced parenthesised expression `depth` levels
 /// deep: the hostile row of `examples/rust_readers.rs nest`.
 fn nested(depth: usize) -> String {
@@ -167,7 +178,13 @@ fn a_tree_at_the_depth_bound_is_scanned_on_a_small_stack_in_every_shape() -> Tes
                 .spawn_scoped(scope, || scan_source(&source, "deepest.rs"))
                 .map_err(|error| format!("{}: no thread: {error}", shape.name))?
                 .join()
-                .map_err(|_| format!("{}: the scan thread died", shape.name))
+                .map_err(|died| {
+                    format!(
+                        "{}: the scan thread died: {}",
+                        shape.name,
+                        panic_text(&*died)
+                    )
+                })
         })?;
         let hits = found.map_err(|error| format!("{}: {error}", shape.name))?;
         let reported: Vec<(usize, &str)> =

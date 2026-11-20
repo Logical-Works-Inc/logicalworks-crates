@@ -22,7 +22,7 @@ pub(super) fn graph(declared: &Graph) -> Result<TokenStream> {
     let limit = match declared.bound() {
         None => quote!(::core::option::Option::None),
         Some(written) => {
-            let limit = bound(written)?;
+            let limit = bound(written);
             quote!(::core::option::Option::Some(#script::at_most(#limit)?))
         }
     };
@@ -59,7 +59,9 @@ pub(super) fn saga(named: &Step) -> Result<TokenStream> {
     Ok(quote! {
         #script::compensated_at(scope, #label, #site, async |scope: #script::Scope, #registrar| {
             let scope = &scope;
-            let _ = &#registrar;
+            // A saga with no `compensate` line never names the registrar; a
+            // named borrow keeps it live without an unused-variable warning.
+            let _registered: &_ = &#registrar;
             #inner
         }).await
     })
@@ -88,7 +90,7 @@ pub(super) fn whenever(feed: &Whenever) -> Result<TokenStream> {
         Overflow::DropNewest => quote!(DropNewest),
         Overflow::Refuse => quote!(Refuse),
     };
-    let cap = bound(feed.cap())?;
+    let cap = bound(feed.cap());
     let batches = code(feed.batches())?;
     let pattern = feed.pattern();
     let label = feed.label();
@@ -189,7 +191,7 @@ pub(super) fn approval(parked: &Approval) -> Result<TokenStream> {
     let name = parked.name();
     let label = parked.label();
     let site = site_of(parked.site());
-    let limit = duration(parked.limit())?;
+    let limit = duration(parked.limit());
     let inner = body(parked.body())?.into_ok_block();
     Ok(quote! {
         #script::approval_at(
@@ -212,7 +214,7 @@ pub(super) fn approval(parked: &Approval) -> Result<TokenStream> {
 pub(super) fn ready(waited: &Ready) -> Result<TokenStream> {
     let pattern = waited.pattern();
     let readiness = waited.readiness();
-    let limit = duration(waited.limit())?;
+    let limit = duration(waited.limit());
     let block = body(waited.body())?.into_ok_block();
     let inner = quote! {
         let #pattern = (#readiness).wait(scope, #limit).await?;

@@ -110,8 +110,11 @@ fn sim_derive_error_the_same_seed_replays_and_distinct_seeds_diverge() -> TestRe
 
 #[test]
 fn a_from_conversion_lets_the_question_mark_carry_the_cause() {
+    fn read() -> Result<(), io::Error> {
+        Err(io::Error::other("disk"))
+    }
     fn refused() -> Result<(), Diagnostic> {
-        Err(io::Error::other("disk"))?;
+        read()?;
         Ok(())
     }
     assert!(

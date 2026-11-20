@@ -1,8 +1,5 @@
 //! The checked and unchecked parses, content detection and the parser's deadline.
 
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
 
@@ -15,21 +12,6 @@ use super::{
     MAX_AST_DEPTH, MAX_AST_NODES, MAX_DETECT_BYTES, MAX_MARKDOWN_CONTAINERS_PER_LINE,
     MAX_SOURCE_BYTES, ParseError, Parsed, StrDoc, TSLanguage,
 };
-
-/// Grammars one thread keeps a ready parser for before it starts over.
-///
-/// A parser is per thread and per grammar, so the cache is never shared and
-/// never locked; the ceiling exists because a caller-registered grammar is a
-/// key this crate does not choose, and an unbounded map keyed by it would grow
-/// with whatever a long-lived thread was handed. Every compiled grammar fits
-/// with room to spare, so the built-in set never evicts.
-const MAX_CACHED_PARSERS: usize = 64;
-
-thread_local! {
-    /// This thread's parser per grammar, reset before every parse.
-    static PARSERS: RefCell<HashMap<TSLanguage, tree_sitter::Parser>> =
-        RefCell::new(HashMap::new());
-}
 
 /// Identify a language by file extension. `None` means the name does not claim
 /// the file, so report unscanned, never clean.
@@ -107,9 +89,10 @@ pub(super) fn detect_candidates(
     let mut incomplete = None;
 
     for &language in candidates {
-        let Some(index) = Language::ALL
+        let Some(slot) = Language::ALL
             .iter()
             .position(|&compiled| compiled == language)
+            .and_then(|index| seen.get_mut(index))
         else {
             keep_first_incomplete(
                 language,
@@ -121,7 +104,7 @@ pub(super) fn detect_candidates(
             );
             continue;
         };
-        if std::mem::replace(&mut seen[index], true) {
+        if std::mem::replace(slot, true) {
             continue;
         }
         match parse_candidate(language) {
@@ -367,38 +350,17 @@ pub(super) fn parse_bounded<L: LanguageExt>(
 /// same parser defaults — and is handed to it through `StrDoc`'s public fields,
 /// so a caller receives the identical [`Parsed`].
 ///
-/// The parser is cached per thread and per grammar, as ast-grep's is. If the
-/// cache is already borrowed on this thread, which nothing in this crate does,
-/// the parse runs on a fresh parser rather than failing.
+/// Each parse builds its own parser, owned by the call and dropped with it, so
+/// no parser state outlives a parse or is shared between callers: a stopped
+/// parse can leave nothing behind for the next source to continue.
 fn parse_tree(
     code: &str,
     grammar: &TSLanguage,
     name: &'static str,
     deadline: Duration,
 ) -> Result<tree_sitter::Tree, ParseError> {
-    PARSERS.with(|cache| match cache.try_borrow_mut() {
-        Ok(mut parsers) => {
-            if parsers.len() >= MAX_CACHED_PARSERS && !parsers.contains_key(grammar) {
-                parsers.clear();
-            }
-            let parser = match parsers.entry(grammar.clone()) {
-                Entry::Occupied(entry) => entry.into_mut(),
-                Entry::Vacant(entry) => {
-                    let fresh = new_parser(grammar, name);
-                    entry.insert(fresh?)
-                }
-            };
-            run_parser(parser, code, name, deadline, &mut Instant::now)
-        }
-        Err(busy) => {
-            tracing::debug!(
-                ?busy,
-                "parse_tree: the parser cache is in use; parsing on a fresh parser"
-            );
-            let fresh = new_parser(grammar, name);
-            run_parser(&mut fresh?, code, name, deadline, &mut Instant::now)
-        }
-    })
+    let mut parser = new_parser(grammar, name)?;
+    run_parser(&mut parser, code, name, deadline, &mut Instant::now)
 }
 
 /// A parser for `grammar`, or the grammar's own refusal of it.

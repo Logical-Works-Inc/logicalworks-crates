@@ -373,6 +373,150 @@ fn verify_struct_shapes(step: usize) {
     }
 }
 
+/// Why an edge sim could not read the expansion it asserts on.
+#[derive(Debug)]
+enum EdgeFault {
+    /// The derive input did not lex as Rust tokens.
+    Lex {
+        /// The input that failed to lex.
+        code: String,
+        /// The lexer's own error.
+        source: proc_macro2::LexError,
+    },
+    /// The derive refused input the sim expected it to expand.
+    Refused {
+        /// The input refused.
+        code: String,
+        /// The refusal it gave.
+        message: String,
+    },
+    /// The derive expanded input the sim expected it to refuse.
+    Expanded {
+        /// The input that expanded.
+        code: String,
+    },
+}
+
+impl core::fmt::Display for EdgeFault {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::Lex {
+                ref code,
+                ref source,
+            } => write!(formatter, "{code:?} does not lex: {source}"),
+            Self::Refused {
+                ref code,
+                ref message,
+            } => write!(formatter, "{code:?} was refused: {message}"),
+            Self::Expanded { ref code } => write!(formatter, "{code:?} expanded"),
+        }
+    }
+}
+
+impl core::error::Error for EdgeFault {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
+        match *self {
+            Self::Lex { ref source, .. } => Some(source),
+            Self::Refused { .. } | Self::Expanded { .. } => None,
+        }
+    }
+}
+
+/// The tokens of `code`, or the lex fault naming it.
+fn lexed(code: &str) -> Result<TokenStream, EdgeFault> {
+    TokenStream::from_str(code).map_err(|source| EdgeFault::Lex {
+        code: code.to_owned(),
+        source,
+    })
+}
+
+/// The expansion of `code`, or the refusal it gave.
+fn expanded(code: &str) -> Result<String, EdgeFault> {
+    expand(lexed(code)?)
+        .map(|toks| toks.to_string())
+        .map_err(|refusal| EdgeFault::Refused {
+            code: code.to_owned(),
+            message: refusal.message().to_owned(),
+        })
+}
+
+/// The refusal message of `code`, or the fault that it expanded.
+fn refused(code: &str) -> Result<String, EdgeFault> {
+    match expand(lexed(code)?) {
+        Ok(_) => Err(EdgeFault::Expanded {
+            code: code.to_owned(),
+        }),
+        Err(refusal) => Ok(refusal.message().to_owned()),
+    }
+}
+
+/// The fat-finger fool breaks a long message over lines with `\`: the newline
+/// and every indent after it vanish, as `rustc` reads the same literal, for
+/// each indent width a formatter might leave.
+#[test]
+fn sim_error_derive_a_line_continuation_drops_the_newline_and_its_indent() -> Result<(), EdgeFault>
+{
+    for indent in [0_usize, 1, 4, 8, 13] {
+        let pad = " ".repeat(indent);
+        let code = format!("enum Wrapped {{ #[error(\"first \\\n{pad}second\")] First, }}");
+        let text = expanded(&code)?;
+        assert!(text.contains("\"first second\""), "indent {indent}: {text}");
+    }
+    Ok(())
+}
+
+/// A unit variant and a unit struct have no field names, so a named
+/// placeholder is refused as one used where only positions exist.
+#[test]
+fn sim_error_derive_a_unit_shape_refuses_a_named_placeholder_as_positional() -> Result<(), EdgeFault>
+{
+    let variant = refused("enum Ghost { #[error(\"{ghost}\")] Unit, }")?;
+    let structure = refused("#[error(\"{ghost}\")] struct Ghost;")?;
+    for message in [variant, structure] {
+        assert!(
+            message.contains("named field 'ghost' used in format string for tuple variant"),
+            "{message}"
+        );
+    }
+    Ok(())
+}
+
+/// The wrong-order fool puts the `#[source]` field first: the source arm binds
+/// exactly that slot and ignores the others, wherever it sits.
+#[test]
+fn sim_error_derive_a_tuple_source_binds_its_own_slot() -> Result<(), EdgeFault> {
+    let first = expanded("enum E { #[error(\"x\")] Io(#[source] std::io::Error, u32, u8), }")?;
+    assert!(
+        first.contains("Self :: Io (ref __field_source , _ , _)"),
+        "{first}"
+    );
+    let last = expanded("enum E { #[error(\"x\")] Io(u32, u8, #[source] std::io::Error), }")?;
+    assert!(
+        last.contains("Self :: Io (_ , _ , ref __field_source)"),
+        "{last}"
+    );
+    Ok(())
+}
+
+/// A source spelled `std::boxed::Box<E>` is a box and reports the error inside
+/// it; a reference to a box, `&'static Box<E>`, is not, and is returned as is.
+#[test]
+fn sim_error_derive_a_boxed_source_is_known_by_its_path_not_a_reference() -> Result<(), EdgeFault> {
+    let pathed =
+        expanded("enum E { #[error(\"x\")] Io(#[source] std::boxed::Box<std::io::Error>), }")?;
+    assert!(
+        pathed.contains(":: core :: option :: Option :: Some (& * * __field_source)"),
+        "{pathed}"
+    );
+    let borrowed =
+        expanded("enum E { #[error(\"x\")] Io(#[source] &'static Box<std::io::Error>), }")?;
+    assert!(
+        borrowed.contains(":: core :: option :: Option :: Some (__field_source)"),
+        "{borrowed}"
+    );
+    Ok(())
+}
+
 /// Verify refusal cases.
 fn verify_refusal_cases(step: usize) {
     let code_union = format!("union BadUnion{step} {{ num_a: u32, num_b: f32 }}");

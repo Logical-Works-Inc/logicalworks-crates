@@ -29,11 +29,11 @@ fn a_clean_tree_reports_nothing() {
 }
 
 #[test]
-fn a_recovery_is_reported_on_the_line_that_carries_it() {
+fn a_recovery_is_reported_on_the_line_that_carries_it() -> Result<(), Box<dyn std::error::Error>> {
     let tree = parse(BROKEN, Language::Rust);
     let found = diagnostics("bad.rs", &tree.root(), BROKEN, "Rust");
     assert_eq!(found.len(), 1, "one malformed function reports once");
-    let first = &found[0];
+    let first = found.first().ok_or("one malformed function reports once")?;
     assert_eq!(
         first.span().start.line,
         2,
@@ -48,9 +48,11 @@ fn a_recovery_is_reported_on_the_line_that_carries_it() {
         BROKEN.len()
     );
     assert_eq!(
-        &BROKEN[range], "fn broken( {",
+        BROKEN.get(range),
+        Some("fn broken( {"),
         "the span covers the malformed text and nothing else"
     );
+    Ok(())
 }
 
 #[test]
@@ -77,10 +79,14 @@ fn findings_come_back_in_source_order() {
 }
 
 #[test]
-fn lines_and_columns_are_one_based_and_bytes_are_zero_based() {
+fn lines_and_columns_are_one_based_and_bytes_are_zero_based()
+-> Result<(), Box<dyn std::error::Error>> {
     let tree = parse(BROKEN, Language::Rust);
     let found = diagnostics("p.rs", &tree.root(), BROKEN, "Rust");
-    let first = &found[0];
+    let first = found.first().ok_or("the malformed function reports")?;
+    let before = BROKEN
+        .get(..first.span().start.byte)
+        .ok_or("the span starts on a character boundary")?;
     assert!(
         first.span().start.line >= 1,
         "a report reading line 0 is a defect in the report"
@@ -94,27 +100,33 @@ fn lines_and_columns_are_one_based_and_bytes_are_zero_based() {
     // assertion that pins the convention rather than the arithmetic.
     assert_eq!(
         first.span().start.line,
-        BROKEN[..first.span().start.byte]
-            .matches('\n')
-            .count()
-            .saturating_add(1),
+        before.matches('\n').count().saturating_add(1),
         "the reported line is one more than the newlines before it"
     );
+    Ok(())
 }
 
 #[test]
-fn a_column_counts_characters_and_not_bytes() {
+fn a_column_counts_characters_and_not_bytes() -> Result<(), Box<dyn std::error::Error>> {
     // `é` is two bytes and one character. A report pointing after it must
     // not claim the reader typed two characters more than they did.
     let source = "// é\nfn broken( {\n";
     let tree = parse(source, Language::Rust);
     let found = diagnostics("u.rs", &tree.root(), source, "Rust");
-    let first = &found[0];
-    let line_start = match source[..first.span().start.byte].rfind('\n') {
+    let first = found.first().ok_or("the malformed function reports")?;
+    let start = first.span().start.byte;
+    let before = source
+        .get(..start)
+        .ok_or("the span starts on a character boundary")?;
+    let line_start = match before.rfind('\n') {
         Some(at) => at.saturating_add(1),
         None => 0,
     };
-    let column_chars = source[line_start..first.span().start.byte].chars().count();
+    let column_chars = source
+        .get(line_start..start)
+        .ok_or("the line starts on a character boundary")?
+        .chars()
+        .count();
     assert_eq!(
         first.span().start.column,
         column_chars.saturating_add(1),
@@ -126,6 +138,7 @@ fn a_column_counts_characters_and_not_bytes() {
         first.span().start.byte > first.span().start.column,
         "the multi-byte line should separate byte and character offsets"
     );
+    Ok(())
 }
 
 #[test]
@@ -141,20 +154,29 @@ fn an_end_of_file_position_is_the_last_line_and_zero_width() {
 }
 
 #[test]
-fn an_unlabeled_file_renders_as_a_placeholder_and_not_a_bare_colon() {
+fn an_unlabeled_file_renders_as_a_placeholder_and_not_a_bare_colon()
+-> Result<(), Box<dyn std::error::Error>> {
     let tree = parse(BROKEN, Language::Rust);
     let found = diagnostics("", &tree.root(), BROKEN, "Rust");
-    let rendered = found[0].render();
+    let rendered = found
+        .first()
+        .ok_or("the malformed function reports")?
+        .render();
     assert!(
         rendered.starts_with("<source>:"),
         "an empty path rendered as {rendered}, which reads as a truncated filename"
     );
+    Ok(())
 }
 
 #[test]
-fn the_render_matches_the_documented_shape() {
+fn the_render_matches_the_documented_shape() -> Result<(), Box<dyn std::error::Error>> {
     let tree = parse(BROKEN, Language::Rust);
-    let rendered = diagnostics("src/a.rs", &tree.root(), BROKEN, "Rust")[0].render();
+    let found = diagnostics("src/a.rs", &tree.root(), BROKEN, "Rust");
+    let rendered = found
+        .first()
+        .ok_or("the malformed function reports")?
+        .render();
     assert!(rendered.starts_with("src/a.rs:"), "{rendered}");
     assert!(
         rendered.contains(": W: "),
@@ -164,17 +186,20 @@ fn the_render_matches_the_documented_shape() {
         !rendered.ends_with('\n'),
         "render carries no trailing newline"
     );
+    Ok(())
 }
 
 #[test]
-fn a_message_names_the_grammar_it_came_from() {
+fn a_message_names_the_grammar_it_came_from() -> Result<(), Box<dyn std::error::Error>> {
     let tree = parse(BROKEN, Language::Rust);
     let found = diagnostics("m.rs", &tree.root(), BROKEN, "Rust");
+    let first = found.first().ok_or("the malformed function reports")?;
     assert!(
-        found[0].message().contains("Rust"),
+        first.message().contains("Rust"),
         "the message names the grammar: {}",
-        found[0].message()
+        first.message()
     );
+    Ok(())
 }
 
 #[test]

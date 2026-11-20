@@ -370,7 +370,7 @@ impl Language {
 /// assert_eq!(mine.name(), "mine");
 /// assert!(CustomLang::of_path("src/lib.mine", &[mine]).is_some());
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CustomLang {
     /// Stable lowercase name, reported in findings and diagnostics and used by
     /// the caller to match on. `'static` because the registration outlives any
@@ -532,7 +532,7 @@ impl CoreLanguage for CustomLang {
         self.grammar.field_id_for_name(field).map(|id| id.get())
     }
 
-    fn build_pattern(&self, builder: &PatternBuilder) -> Result<Pattern, PatternError> {
+    fn build_pattern(&self, builder: &PatternBuilder<'_>) -> Result<Pattern, PatternError> {
         builder.build(|src| StrDoc::try_new(src, self.clone()))
     }
 }

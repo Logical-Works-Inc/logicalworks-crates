@@ -110,6 +110,14 @@ struct Body {
 impl Body {
     /// `{ statements; Ok(tail) }` for an async body that returns a flow result.
     fn into_ok_block(self) -> TokenStream {
+        let inner = self.into_ok_statements();
+        quote!({ #inner })
+    }
+
+    /// `statements; Ok(tail)` with no braces of its own, for a caller that
+    /// already stands inside a block: a block set as that block's tail is a
+    /// brace pair the compiler's `unused_braces` refuses in the expansion.
+    fn into_ok_statements(self) -> TokenStream {
         let Self {
             statements,
             tail,
@@ -123,7 +131,7 @@ impl Body {
             (None, Some((tokens, false))) => ok(&tokens),
             (None, None) => ok(&quote!(())),
         };
-        quote!({ #statements #value })
+        quote!(#statements #value)
     }
 
     /// `{ statements; tail }` for a plain Rust block, which a closing
@@ -364,7 +372,7 @@ fn each(fan: &Each) -> Result<TokenStream> {
     let limit = match fan.bound() {
         None => quote!(::core::option::Option::None),
         Some(written) => {
-            let limit = bound(written)?;
+            let limit = bound(written);
             quote!(::core::option::Option::Some(#script::at_most(#limit)?))
         }
     };
@@ -387,7 +395,7 @@ fn each(fan: &Each) -> Result<TokenStream> {
 fn within(deadline: &Within) -> Result<TokenStream> {
     let script = runtime();
     let label = deadline.label();
-    let limit = duration(deadline.limit())?;
+    let limit = duration(deadline.limit());
     let inner = body(deadline.body())?.into_ok_block();
     let site = site_of(deadline.site());
     Ok(quote! {
@@ -399,17 +407,16 @@ fn within(deadline: &Within) -> Result<TokenStream> {
 fn retry(attempts: &Retry) -> Result<TokenStream> {
     let script = runtime();
     let label = attempts.label();
-    let count = bound(attempts.attempts())?;
+    let count = bound(attempts.attempts());
     let waiting = match attempts.waiting() {
         None => quote!(::core::time::Duration::from_millis(100)),
-        Some(pause) => duration(pause)?,
+        Some(pause) => duration(pause),
     };
     let inner = body(attempts.body())?.into_ok_block();
     let site = site_of(attempts.site());
     Ok(quote! {
-        #script::retry_at(scope, #label, #site, #script::attempts(#count)?, #waiting, async |scope: #script::Scope, attempt: u32| {
+        #script::retry_at(scope, #label, #site, #script::attempts(#count)?, #waiting, async |scope: #script::Scope, _attempt: u32| {
             let scope = &scope;
-            let _ = attempt;
             #inner
         }).await
     })
@@ -644,21 +651,21 @@ fn site_static(kind: Kind, line: usize, text: &str) -> TokenStream {
 }
 
 /// A bound as the runtime's argument.
-fn bound(written: &Bound) -> Result<TokenStream> {
+fn bound(written: &Bound) -> TokenStream {
     match *written {
-        Bound::Count(count) => Ok(Literal::u64_unsuffixed(count).into_token_stream()),
-        Bound::Expr(ref expr) => Ok(expr.clone()),
+        Bound::Count(count) => Literal::u64_unsuffixed(count).into_token_stream(),
+        Bound::Expr(ref expr) => expr.clone(),
     }
 }
 
 /// A duration as a `core::time::Duration` expression.
-fn duration(written: &Duration) -> Result<TokenStream> {
+fn duration(written: &Duration) -> TokenStream {
     match *written {
         Duration::Nanos(nanos) => {
             let nanos = Literal::u64_unsuffixed(nanos);
-            Ok(quote!(::core::time::Duration::from_nanos(#nanos)))
+            quote!(::core::time::Duration::from_nanos(#nanos))
         }
-        Duration::Expr(ref expr) => Ok(expr.clone()),
+        Duration::Expr(ref expr) => expr.clone(),
     }
 }
 

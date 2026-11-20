@@ -255,3 +255,47 @@ fn the_shipped_scan_holds_a_change_to_its_added_lines() -> TestResult {
     assert!(err.contains("--base no-such-rev"), "{err}");
     Ok(())
 }
+
+/// A moved file is judged by what the move changed, not as a new file: a
+/// `mod.rs` renamed to its parent's name keeps its old unexampled item unjudged,
+/// and the one item the change wrote beside it is refused at its line.
+#[cfg(feature = "tool")]
+#[test]
+fn the_shipped_scan_judges_a_moved_file_by_the_lines_the_move_changed() -> TestResult {
+    let tree = Scratch::new("scan-examples-rename")?;
+    let root = tree.path();
+    let old_items: String = (0..12)
+        .map(|index| format!("/// Old item {index}, with no example.\npub fn old_{index}() {{}}\n"))
+        .collect();
+    plant(root, "src/walk/mod.rs", &old_items)?;
+    git(root, &["init", "-q"])?;
+    git(root, &["add", "-A"])?;
+    git(root, &["commit", "-q", "-m", "base"])?;
+    git(root, &["mv", "src/walk/mod.rs", "src/walk.rs"])?;
+    plant(
+        root,
+        "src/walk.rs",
+        &format!("{old_items}\n/// New, with none.\npub fn added() {{}}\n"),
+    )?;
+
+    let held = tool(
+        root,
+        &["scan", "--rule", "missing-example", "--base", "HEAD", "src"],
+    )?;
+    let (out, err) = text(&held);
+    assert_eq!(held.status.code(), Some(1), "{out}{err}");
+    assert!(
+        // 24 old lines, a blank, the doc, then the item.
+        out.contains("src/walk.rs:27: [missing-example] pub fn added"),
+        "{out}"
+    );
+    assert!(
+        !out.contains("pub fn old_"),
+        "a moved item is not a new one: {out}"
+    );
+    assert!(
+        err.contains("REFUSED  scan: 1 findings across 1 files"),
+        "{out}{err}"
+    );
+    Ok(())
+}

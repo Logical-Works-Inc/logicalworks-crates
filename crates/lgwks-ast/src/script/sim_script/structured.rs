@@ -50,13 +50,16 @@ impl Script {
             4 => self.remember(depth),
             5 => self.admit(depth),
             6 => self.approval(depth),
-            7 => self.serve(depth),
+            7 => {
+                self.serve(depth);
+                Ok(())
+            }
             _ => self.ready(depth),
         }
     }
 
     /// `serve` with one route, the route's body the value.
-    fn serve(&mut self, depth: usize) -> Result<(), Drawn> {
+    fn serve(&mut self, depth: usize) {
         let name = self.name();
         self.line(
             depth,
@@ -70,7 +73,6 @@ impl Script {
             Some(Kind::Route),
         );
         self.line(inner.saturating_add(1), "give back body".to_owned(), None);
-        Ok(())
     }
 
     /// `remember name:` around a block of statements.
