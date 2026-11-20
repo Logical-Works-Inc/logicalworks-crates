@@ -182,14 +182,23 @@ mod tests {
         problems
     }
 
-    /// The prebuild step: selected targets only, and before the engine runs.
+    /// A prebuild names its packages and its targets: one that names neither
+    /// compiles every test binary in the workspace.
+    fn names_its_targets(command: &str) -> bool {
+        command.contains(" -p ") && (command.contains(" --lib") || command.contains(" --test "))
+    }
+
+    /// The prebuild steps: each scoped to its packages and targets, and the
+    /// property lane's own before the engine runs.
     fn prebuild_problems(workflow: &str) -> Vec<String> {
         let mut problems = Vec::new();
         // A `nextest --no-run` naming no target compiles every test binary
         // whatever the filter: it built all 51 and outlasted the job's 10
         // minutes (run 43282569391). One naming the lane's targets is what the
         // cold lane needs: v0.4.3's compile alone ran past its 392.8 s cap on
-        // a 3-slot hosted Mac (run 43315235672).
+        // a 3-slot hosted Mac (run 43315235672). The loom probe's release
+        // prebuild names `-p lgwks_std --lib`, the one target it runs (run
+        // 44733566537), so a scoped prebuild passes and an unscoped one fails.
         let prebuilds: Vec<(usize, &str)> = workflow
             .match_indices("run:")
             .filter_map(|(at, _)| {
@@ -199,7 +208,7 @@ mod tests {
             .collect();
         if prebuilds
             .iter()
-            .any(|&(_, command)| !(command.contains("--lib") && command.contains("--test it")))
+            .any(|&(_, command)| !names_its_targets(command))
         {
             problems.push(
                 "logical_ci.yml prebuilds every test binary the engine's property lane skips"
@@ -207,10 +216,11 @@ mod tests {
             );
         }
         let engine = engine_step(workflow);
-        if !prebuilds
-            .iter()
-            .any(|&(at, _)| engine.is_some_and(|engine| at < engine))
-        {
+        if !prebuilds.iter().any(|&(at, command)| {
+            command.contains(" --lib")
+                && command.contains(" --test it")
+                && engine.is_some_and(|engine| at < engine)
+        }) {
             problems.push(
                 "logical_ci.yml leaves the property lane's cold compile inside its lane cap"
                     .to_owned(),
@@ -368,6 +378,24 @@ mod tests {
             ],
             "a copy that brings back the 51-binary prebuild is named"
         );
+        let loom = "run: cargo test --locked --release -p lgwks_std --lib --no-run";
+        assert!(
+            gate.contains(loom),
+            "the loom prebuild the controls mutate must exist"
+        );
+        for unscoped in [
+            "run: cargo test --locked --release --lib --no-run",
+            "run: cargo test --locked --release -p lgwks_std --no-run",
+        ] {
+            assert_eq!(
+                inline_gate_problems(&gate.replacen(loom, unscoped, 1), &adr),
+                vec![
+                    "logical_ci.yml prebuilds every test binary the engine's property lane skips"
+                        .to_owned()
+                ],
+                "a release prebuild that drops its package or its target is named: {unscoped}"
+            );
+        }
         let in_cap = gate.replacen("--test it --no-run", "--test it", 1);
         assert_ne!(in_cap, gate, "the prebuild the control drops must exist");
         assert_eq!(
