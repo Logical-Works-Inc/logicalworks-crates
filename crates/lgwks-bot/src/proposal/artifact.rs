@@ -50,7 +50,10 @@ pub const MAX_ARTIFACTS_PER_TENANT: usize = 4_096;
 /// The same bound [`crate::script::Tenant`] enforces, so a name that could key a
 /// step record can key an artifact, and a caller cannot smuggle a separator into
 /// one key and not the other.
-pub const MAX_ARTIFACT_TENANT_BYTES: usize = crate::script::MAX_TENANT_BYTES;
+pub(super) const MAX_ARTIFACT_TENANT_BYTES: usize = crate::script::MAX_TENANT_BYTES;
+
+/// The writer count of a key nobody has committed.
+const NO_WRITERS: u64 = 0;
 
 /// What identifies one artifact: whose it is, and which bytes.
 ///
@@ -279,9 +282,14 @@ impl ArtifactStore {
     /// per key so two tenants writing their own copies never share it.
     #[must_use]
     pub fn writers(&self, tenant: &str, digest: &Digest) -> u64 {
-        crate::journal::owner::read(&self.shelf(tenant).artifacts)
-            .get(digest)
-            .map_or(0, |held| held.writers)
+        let shelf = self.shelf(tenant);
+        let artifacts = crate::journal::owner::read(&shelf.artifacts);
+        let Some(held) = artifacts.get(digest) else {
+            // A key no writer committed has been written by nobody: the count
+            // is zero, a measured answer and not a stand-in for an error.
+            return NO_WRITERS;
+        };
+        held.writers
     }
 
     /// Whether `tenant` holds the artifact whose content hashes to `digest`.

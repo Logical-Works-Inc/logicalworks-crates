@@ -587,14 +587,14 @@ where
             Admission::Refused => Err(SubmitError::QueueFull),
             Admission::Admitted => {
                 reply.arm(job);
-                held.pending.push_back(Arc::clone(&reply));
+                held.pending.push_back(reply);
                 drop(held);
                 self.signal.notify_all();
                 Ok(())
             }
             Admission::Waiting => {
                 reply.arm(job);
-                held.waiting.push_back(Arc::clone(&reply));
+                held.waiting.push_back(reply);
                 drop(held);
                 self.signal.notify_all();
                 Ok(())

@@ -31,10 +31,9 @@
 //! [`join_all`]: crate::task::join_all
 //! [`spawn_blocking`]: crate::task::spawn_blocking
 
-use std::collections::VecDeque;
 use std::fmt;
 use std::io;
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, WaitTimeoutResult};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -48,57 +47,9 @@ pub use blocking::{JoinHandle, spawn_blocking, try_spawn_blocking};
 use blocking::{prepare, spawn_blocking_on};
 pub use executor::{block_on, join_all, join_all_boxed};
 
-// ── shared lock helpers ────────────────────────────────────────────────────
-
-/// Take `mutex`, treating poisoning as non-fatal.
-///
-/// Poisoning means some thread panicked while holding the lock. Every critical
-/// section behind this mutex moves a whole job in or out and writes no
-/// partial state, so a poisoned lock still guards a consistent value and the
-/// panic itself is already being resumed on the awaiter. Recovering the guard
-/// is therefore correct here, and it is why this is not an `unwrap`: a
-/// `JoinHandle` must not turn a worker's failure into a deadlock for the task
-/// awaiting it.
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    match mutex.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Wait on `condition` until woken, treating poisoning as non-fatal.
-///
-/// The same guarded state `lock` recovers, through the same argument: every
-/// critical section behind these primitives moves a whole job in or out and
-/// writes no partial state, so a poisoned guard still names a consistent value
-/// and the panic that poisoned it is already being resumed on the awaiter. One
-/// helper per lock shape rather than one recovery per call site, because a
-/// fourth spelling of the same recovery is a fourth place to get it wrong.
-///
-/// Untimed because [`block_on`] waits for exactly one thing, its waker, and has
-/// no deadline of its own to bound the wait with; the pool itself only ever
-/// waits against a deadline.
-fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
-    match condition.wait(guard) {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Wait on `condition` for at most `timeout`, treating poisoning as non-fatal.
-///
-/// [`wait`]'s argument applies unchanged to the timed form: the guard it returns
-/// names the same consistent state, and the wait outcome is reported beside it.
-fn wait_timeout<'a, T>(
-    condition: &Condvar,
-    guard: MutexGuard<'a, T>,
-    timeout: Duration,
-) -> (MutexGuard<'a, T>, WaitTimeoutResult) {
-    match condition.wait_timeout(guard, timeout) {
-        Ok(waited) => waited,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
+/// The lock helpers every pool path shares.
+mod sync;
+use sync::{lock, wait, wait_timeout};
 
 // ── the blocking pool ──────────────────────────────────────────────────────
 
@@ -186,7 +137,7 @@ pub enum PoolConfigError {
     },
     /// A `configure` call already fixed the ceiling at another value.
     AlreadyConfigured {
-        /// The ceiling asked for now.
+        /// The ceiling this later call asked for.
         requested: usize,
         /// The ceiling the earlier `configure` fixed.
         configured: usize,
@@ -385,233 +336,9 @@ struct Pool {
     start: fn(Arc<Pool>, Handoff) -> io::Result<ThreadHandle>,
 }
 
-/// What the pool's lock guards.
-///
-/// Generic over the job so the deterministic simulation (`sim_pool`) drives
-/// these same transitions with numbered jobs instead of closures. Every
-/// transition is a method below; [`Pool::submit`] and [`Pool::run`] only add
-/// the lock, the condvar, and running the job.
-struct PoolState<W = Work> {
-    /// Jobs waiting for a thread, oldest first.
-    queue: VecDeque<W>,
-    /// Threads alive, running or idle.
-    live: usize,
-    /// Threads waiting for work that no submitter has claimed yet.
-    idle: usize,
-    /// Wakeups claimed by submitters and not yet taken by a thread. Counted
-    /// rather than inferred from the condvar, which may wake spuriously.
-    wakeups: usize,
-    /// Set by [`Pool::shutdown`]: admission is closed, and a thread with no
-    /// job leaves instead of parking.
-    draining: bool,
-    /// The join handle of every thread this pool started and has not joined.
-    ///
-    /// Registered under the same lock that counted the start, so a shutdown
-    /// can never observe a thread it cannot join. What the list holds is
-    /// exactly:
-    ///
-    /// ```text
-    /// handles.len() == live + (threads that have left the accounting and not
-    ///                          yet returned)
-    /// ```
-    ///
-    /// A thread decrements `live` under the lock and only then returns, so
-    /// every entry beyond `live` is a real OS thread still executing its last
-    /// instructions. **There is no constant bound on that second group.** Each
-    /// departure frees a slot immediately while the thread keeps running, so
-    /// a scheduler that deschedules every departing thread in turn admits the
-    /// next one; at a ceiling of one the list can hold several handles with a
-    /// single thread live. What is true is the identity above and what the
-    /// reap does with it: every thread that *has* returned is joined at the
-    /// next start or at a shutdown, so the list never holds a
-    /// finished-but-unjoined thread past one of those, and it does not grow
-    /// across idle cycles.
-    handles: Vec<ThreadHandle>,
-}
-
-/// What admitting a job asks of the submitter.
-#[derive(Debug, PartialEq, Eq)]
-enum Admitted<W> {
-    /// An idle thread was claimed: notify the condvar.
-    Woke,
-    /// No thread is idle and the pool is under its ceiling: start one with
-    /// this job as its first, then report [`PoolState::started`] or
-    /// [`PoolState::start_failed`]. The job never passes through the queue,
-    /// so the new thread does not contend for the lock to reach it.
-    Start(W),
-    /// Every thread is busy at the ceiling: the job waits its turn.
-    Queued,
-}
-
-/// Why admitting a job was refused. The job is handed back: it did not run.
-#[derive(Debug, PartialEq, Eq)]
-enum Refused<W> {
-    /// The wait queue is at its declared bound.
-    AtCapacity(W),
-    /// The pool no longer admits work.
-    Draining(W),
-}
-
-/// What a parked thread does once it holds the lock again.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Woken {
-    /// It took a claimed wakeup: look for work.
-    Resume,
-    /// It waited out the keep-alive unclaimed: it has left the pool.
-    Exit,
-    /// A spurious wake: wait again.
-    Wait,
-}
-
-impl<W> PoolState<W> {
-    /// An empty pool.
-    const fn new() -> Self {
-        Self {
-            queue: VecDeque::new(),
-            live: 0,
-            idle: 0,
-            wakeups: 0,
-            draining: false,
-            handles: Vec::new(),
-        }
-    }
-
-    /// Admit `work`, or hand it back when the pool takes no more.
-    fn admit(
-        &mut self,
-        work: W,
-        queue_limit: Option<usize>,
-        ceiling: usize,
-    ) -> Result<Admitted<W>, Refused<W>> {
-        if self.draining {
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(
-                live = self.live,
-                queued = self.queue.len(),
-                "admit: the pool is shutting down and admits nothing"
-            );
-            return Err(Refused::Draining(work));
-        }
-        if queue_limit.is_some_and(|limit| self.queue.len() >= limit) {
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(queued = self.queue.len(), limit = ?queue_limit, "admit: the wait queue is at its bound");
-            return Err(Refused::AtCapacity(work));
-        }
-        if self.idle == 0 && self.live < ceiling {
-            return Ok(Admitted::Start(work));
-        }
-        self.queue.push_back(work);
-        if self.idle > 0 {
-            self.idle = self.idle.saturating_sub(1);
-            self.wakeups = self.wakeups.saturating_add(1);
-            return Ok(Admitted::Woke);
-        }
-        Ok(Admitted::Queued)
-    }
-
-    /// The thread [`Admitted::Start`] asked for is running.
-    const fn started(&mut self) {
-        self.live = self.live.saturating_add(1);
-    }
-
-    /// The thread [`Admitted::Start`] asked for could not start, and `work`
-    /// was its first job. With a live thread the job is queued for it
-    /// (`None`): no thread is idle, since admission chose to start one, and
-    /// the lock has been held since. With none, nothing would ever run it, so
-    /// it is handed back.
-    fn start_failed(&mut self, work: W) -> Option<W> {
-        if self.live > 0 {
-            self.queue.push_back(work);
-            return None;
-        }
-        Some(work)
-    }
-
-    /// The next job for a thread that is free.
-    fn take(&mut self) -> Option<W> {
-        self.queue.pop_front()
-    }
-
-    /// A free thread found no job: park it, or — while the pool drains —
-    /// retire it instead. Returns `true` when the thread leaves the pool.
-    const fn park_or_retire(&mut self) -> bool {
-        if self.draining {
-            self.live = self.live.saturating_sub(1);
-            return true;
-        }
-        self.idle = self.idle.saturating_add(1);
-        false
-    }
-
-    /// A parked thread holds the lock again, its wait having `timed_out` or
-    /// not.
-    const fn woken(&mut self, timed_out: bool) -> Woken {
-        if self.wakeups > 0 {
-            // The submitter already moved this thread out of `idle`.
-            self.wakeups = self.wakeups.saturating_sub(1);
-            return Woken::Resume;
-        }
-        if timed_out {
-            self.idle = self.idle.saturating_sub(1);
-            self.live = self.live.saturating_sub(1);
-            return Woken::Exit;
-        }
-        Woken::Wait
-    }
-
-    /// A parked thread woken without a claimed wakeup: while the pool drains
-    /// it takes a waiting job if there is one, and otherwise leaves. Its
-    /// `idle` was never claimed by a submitter, so it retires that itself.
-    fn drain_wake(&mut self) -> Woken {
-        if !self.draining {
-            return Woken::Wait;
-        }
-        self.idle = self.idle.saturating_sub(1);
-        if self.queue.is_empty() {
-            self.live = self.live.saturating_sub(1);
-            return Woken::Exit;
-        }
-        Woken::Resume
-    }
-
-    /// Close admission: every later submit is refused, and a thread with no
-    /// job leaves instead of parking.
-    const fn begin_drain(&mut self) {
-        self.draining = true;
-    }
-
-    /// Join every thread that has already returned.
-    ///
-    /// A thread that exits on its keep-alive is still held by its handle until
-    /// something joins it, so a start is where the exits of earlier bursts are
-    /// released — the property the list's doc rests on. `is_finished` never
-    /// blocks and a returned thread's `join` returns at once, so this is a reap
-    /// and not a wait: a thread still in its last instructions keeps its handle
-    /// and is reaped by a later start or by a shutdown.
-    fn reap_finished_threads(&mut self) {
-        let mut kept = Vec::with_capacity(self.handles.len());
-        let mut reaped = 0usize;
-        for handle in std::mem::take(&mut self.handles) {
-            if handle.is_finished() {
-                join_pool_thread(handle);
-                reaped = reaped.saturating_add(1);
-            } else {
-                kept.push(handle);
-            }
-        }
-        self.handles = kept;
-        #[cfg(feature = "trace")]
-        if reaped > 0 {
-            crate::trace::debug!(
-                reaped,
-                live = self.live,
-                "submit: joined the pool threads that had already left"
-            );
-        }
-        #[cfg(not(feature = "trace"))]
-        let _ = reaped;
-    }
-}
+/// What the pool's lock guards, and every transition on it.
+mod state;
+use state::{Admitted, PoolState, Refused, Woken};
 
 /// The process-wide pool. [`configure_blocking_pool`] and first use race to
 /// initialize it; whoever wins fixes the ceiling, and the `OnceLock` is the

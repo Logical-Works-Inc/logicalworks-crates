@@ -18,7 +18,7 @@ use lgwks_bot::rt::serve::{RouteMethod, TypedRoute};
 /// What a draft request carries.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde")]
-pub struct DraftRequest {
+pub(crate) struct DraftRequest {
     /// The working title.
     pub(crate) title: String,
     /// The body to shape into a draft.
@@ -28,13 +28,13 @@ pub struct DraftRequest {
 impl DraftRequest {
     /// The headline carried into the draft.
     #[must_use]
-    pub fn title(&self) -> &str {
+    pub(crate) fn title(&self) -> &str {
         self.title.as_str()
     }
 
     /// The body to shape into a draft.
     #[must_use]
-    pub fn body(&self) -> &str {
+    pub(crate) fn body(&self) -> &str {
         self.body.as_str()
     }
 }
@@ -42,7 +42,7 @@ impl DraftRequest {
 /// What the reference route answers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(crate = "lgwks_std::json::serde")]
-pub struct Draft {
+pub(crate) struct Draft {
     /// The shaped draft.
     pub(crate) text: String,
 }
@@ -50,21 +50,21 @@ pub struct Draft {
 impl Draft {
     /// The shaped draft.
     #[must_use]
-    pub fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         self.text.as_str()
     }
 }
 
 /// Shape `request` into its draft reply.
 #[must_use]
-pub fn draft_reply(request: DraftRequest) -> Draft {
+pub(crate) fn draft_reply(request: &DraftRequest) -> Draft {
     Draft {
         text: format!("draft for {}: {}", request.title(), request.body()),
     }
 }
 
 /// Decode `bytes` as [`DraftRequest`], or the `400` naming the field.
-pub fn decode_request(bytes: &[u8]) -> Result<DraftRequest, (u16, String)> {
+pub(crate) fn decode_request(bytes: &[u8]) -> Result<DraftRequest, (u16, String)> {
     let raw: &[u8] = if bytes.is_empty() { b"null" } else { bytes };
     match lgwks_std::json::from_slice::<DraftRequest>(raw) {
         Ok(request) => Ok(request),
@@ -80,7 +80,7 @@ pub fn decode_request(bytes: &[u8]) -> Result<DraftRequest, (u16, String)> {
 }
 
 /// Encode `draft` as the response bytes, or the `500` for an unencodable value.
-pub fn encode_draft(draft: &Draft) -> Result<Vec<u8>, (u16, String)> {
+pub(crate) fn encode_draft(draft: &Draft) -> Result<Vec<u8>, (u16, String)> {
     lgwks_std::trace::debug!(text = draft.text(), "estate-serve: the draft is encoded");
     match lgwks_std::json::to_vec(draft) {
         Ok(bytes) => Ok(bytes),
@@ -96,10 +96,10 @@ pub fn encode_draft(draft: &Draft) -> Result<Vec<u8>, (u16, String)> {
 type HandlerFuture = Pin<Box<dyn Future<Output = Result<Vec<u8>, (u16, String)>> + Send>>;
 
 /// The erased handler the edge runs: tenant in, JSON out.
-pub fn handler(tenant: String, body: Vec<u8>) -> HandlerFuture {
+pub(crate) fn handler(tenant: String, body: Vec<u8>) -> HandlerFuture {
     Box::pin(async move {
         let request = decode_request(&body)?;
-        let mut draft = draft_reply(request);
+        let mut draft = draft_reply(&request);
         draft.text = format!("[{}] {}", tenant, draft.text);
         encode_draft(&draft)
     })
@@ -110,7 +110,7 @@ const USAGE: &str = "estate serve --store DIR [--port PORT] [--drain-grace-ms MS
 
 /// Why `estate serve` could not start or stop cleanly.
 #[derive(Debug)]
-pub enum ServeRefError {
+pub(crate) enum ServeRefError {
     /// The arguments do not read as `USAGE`; the text names the flag.
     Usage(String),
     /// A flag's value does not parse as the number it names.
@@ -348,7 +348,7 @@ fn openapi_route(document: Vec<u8>) -> Result<TypedRoute, ServeRefError> {
 /// `--drain-grace-ms MS`, serves `POST /drafts` with tenant isolation and
 /// idempotency until SIGINT or SIGTERM, then drains gracefully and prints
 /// what drained and what was cancelled. Called by the shipped `estate` bin.
-pub fn run(args: &[String]) -> Result<(), ServeRefError> {
+pub(crate) fn run(args: &[String]) -> Result<(), ServeRefError> {
     let mut store: Option<&String> = None;
     let mut port_flag: Option<&String> = None;
     let mut grace_flag: Option<&String> = None;

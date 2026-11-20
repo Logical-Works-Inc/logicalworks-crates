@@ -17,8 +17,9 @@ pub(crate) fn handle_vendor(
         write!(err, "{USAGE}")?;
         return Ok(ExitCode::from(2));
     }
-    let positional: Vec<&String> = args[1..]
+    let positional: Vec<&String> = args
         .iter()
+        .skip(1)
         .filter(|arg| !arg.starts_with("--"))
         .collect();
     let start = subject_path(

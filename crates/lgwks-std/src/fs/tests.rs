@@ -422,9 +422,14 @@ fn tolerant_reports_an_unlistable_subdirectory() -> std::io::Result<()> {
         "one omission must mark the report incomplete"
     );
     assert_eq!(report.omissions().len(), 1);
-    assert_eq!(report.omissions()[0].stage, OmissionStage::ReadEntries);
+    let Some(omission) = report.omissions().first() else {
+        return Err(std::io::Error::other(
+            "the report must hold its one omission",
+        ));
+    };
+    assert_eq!(omission.stage, OmissionStage::ReadEntries);
     assert_eq!(
-        report.omissions()[0].path,
+        omission.path,
         locked.canonicalize()?,
         "omission paths use the canonical-root coordinate basis"
     );
@@ -525,16 +530,17 @@ fn broken_symlink_is_a_strict_refusal_or_a_tolerant_omission() -> std::io::Resul
         1,
         "the unread target is visible once"
     );
+    let Some(omission) = report.omissions().first() else {
+        return Err(std::io::Error::other(
+            "the report must hold its one omission",
+        ));
+    };
     assert_eq!(
-        report.omissions()[0].path,
-        canonical_link,
+        omission.path, canonical_link,
         "tolerant omission uses the same canonical-root path basis"
     );
-    assert_eq!(report.omissions()[0].stage, OmissionStage::SymlinkTarget);
-    assert_eq!(
-        report.omissions()[0].error.kind(),
-        std::io::ErrorKind::NotFound
-    );
+    assert_eq!(omission.stage, OmissionStage::SymlinkTarget);
+    assert_eq!(omission.error.kind(), std::io::ErrorKind::NotFound);
     assert!(!report.is_complete());
     Ok(())
 }

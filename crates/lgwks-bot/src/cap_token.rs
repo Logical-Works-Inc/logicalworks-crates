@@ -216,15 +216,26 @@ pub(super) fn valid_text(text: &str, field: &'static str) -> Result<(), TokenErr
     Ok(())
 }
 
-/// Whether `resource` names a node of the one hierarchy: rooted, no empty
-/// segment, no trailing slash past the root.
+/// Whether one `/`-bounded segment names a node rather than a step: not empty
+/// (no `//`, no trailing `/`), not only dots (`.`, `..`, `...`, CWE-32/33),
+/// and holding no `\` or `%`, so no consumer that splits on a backslash or
+/// decodes percent escapes can resolve it upward (CWE-28..31, CWE-174).
+fn admitted_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && !segment.bytes().all(|byte| byte == b'.')
+        && !segment.contains(['\\', '%'])
+}
+
+/// Whether `resource` names a node of the one hierarchy: the root itself, or
+/// rooted with every segment admitted (ADR 0067).
 pub(super) fn valid_resource(resource: &str) -> Result<(), TokenError> {
     valid_text(resource, "resource")?;
-    let bytes = resource.as_bytes();
-    let rooted = bytes.first().is_some_and(|first| *first == b'/');
-    let no_empty = !resource.contains("//");
-    let no_trailing = resource.len() == 1 || !resource.ends_with('/');
-    if rooted && no_empty && no_trailing {
+    let admitted = match resource.strip_prefix('/') {
+        Some("") => true,
+        Some(tail) => tail.split('/').all(admitted_segment),
+        None => false,
+    };
+    if admitted {
         Ok(())
     } else {
         let refusal = Err(TokenError::BadText { field: "resource" });
@@ -333,8 +344,8 @@ fn canonical_caveat(caveat: &Caveat) -> Result<Vec<u8>, TokenError> {
         out.extend_from_slice(len.to_le_bytes().as_slice());
         out.extend_from_slice(part.as_bytes());
     }
-    let nanos = caveat.expires_at.as_secs();
-    out.extend_from_slice(nanos.to_le_bytes().as_slice());
+    let secs = caveat.expires_at.as_secs();
+    out.extend_from_slice(secs.to_le_bytes().as_slice());
     let subsec = caveat.expires_at.subsec_nanos();
     out.extend_from_slice(subsec.to_le_bytes().as_slice());
     Ok(out)
@@ -360,7 +371,7 @@ pub(super) fn chain_over(
 
 /// A bearer capability token: a random id, the caveats it carries, and the
 /// chain tag that binds them.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(crate = "lgwks_std::json::serde")]
 #[doc(hidden)]
 pub struct BearerToken {
@@ -372,9 +383,23 @@ pub struct BearerToken {
     pub(super) tag: [u8; 32],
 }
 
+impl fmt::Debug for BearerToken {
+    /// The id and caveats, never the tag: the tag is what makes the token a
+    /// credential, so a token in a log line cannot be replayed (CWE-532).
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("BearerToken")
+            .field("id", &format_args!("{}", lgwks_std::hex::encode(self.id)))
+            .field("caveats", &self.caveats)
+            .field("tag", &format_args!("<redacted>"))
+            .finish()
+    }
+}
+
 impl BearerToken {
-    /// Validate one decoded token: at least one caveat, at most the bound,
-    /// every caveat re-validated.
+    /// Validate one token's shape: at least one caveat, at most the bound.
+    /// Each caveat is already valid, since `Caveat::new` and decoding both pass
+    /// through `Request::new`.
     fn check(caveats: &[Caveat]) -> Result<(), TokenError> {
         if caveats.is_empty() {
             let refusal = Err(TokenError::EmptyCaveats);
@@ -388,14 +413,6 @@ impl BearerToken {
             });
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "BearerToken::check: returning an error to the caller");
             return refusal;
-        }
-        for caveat in caveats {
-            Caveat::new(
-                caveat.audience(),
-                caveat.action(),
-                caveat.resource(),
-                caveat.expires_at,
-            )?;
         }
         Ok(())
     }
@@ -457,12 +474,6 @@ impl BearerToken {
             return refusal;
         };
         for caveat in extra {
-            Caveat::new(
-                caveat.audience(),
-                caveat.action(),
-                caveat.resource(),
-                caveat.expires_at,
-            )?;
             let narrows = caveat.audience() == opening.audience()
                 && caveat.action() == opening.action()
                 && under_scope(caveat.resource(), opening.resource())
@@ -535,12 +546,22 @@ impl BearerToken {
 /// The minting and verifying side: the root key lives here privately, built by
 /// [`Authority::generate`] from the estate's one entropy source. No public
 /// function takes a key, so there is no static secret to pass, store or leak.
-#[derive(Debug)]
 #[doc(hidden)]
 pub struct Authority {
     /// The root key. Private with no accessor: it enters the chain and never
     /// leaves the type, and the redacted `Debug` keeps it out of logs.
     pub(super) root: [u8; 32],
+}
+
+impl fmt::Debug for Authority {
+    /// `Authority { root: <redacted> }`: a log line names the type and never
+    /// a key byte (CWE-532).
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Authority")
+            .field("root", &format_args!("<redacted>"))
+            .finish()
+    }
 }
 
 impl Authority {

@@ -80,7 +80,7 @@ struct Tally {
 impl Tally {
     /// Count one presented report.
     fn report(&mut self, report: &RuntimeReport) {
-        if report.idle {
+        if report.idle() {
             self.idle = self.idle.saturating_add(1);
         }
         self.uploads = self.uploads.saturating_add(report.uploads().len());
@@ -95,7 +95,7 @@ impl Tally {
         {
             self.receipts = self.receipts.saturating_add(1);
             self.upload_bytes = self.upload_bytes.saturating_add(upload_bytes);
-            if epoch != report.epoch {
+            if epoch != report.epoch() {
                 self.stale_receipts = self.stale_receipts.saturating_add(1);
             }
             // The shape count folds in byte by byte, so the digest is the same

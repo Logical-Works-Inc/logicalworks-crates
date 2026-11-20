@@ -6,7 +6,7 @@ use crate::journal::owner::SubmitError;
 use crate::script::run_store::{Appended, RunRecords, StagedRecord, StoredValue};
 use crate::script::{FlowError, StepKey};
 
-use super::{DefinitionIdentity, Drift, RunStore, StoreError};
+use super::{DefinitionIdentity, Drift, Held, RunStore, StoreError};
 
 /// What a sealed open carries into `RunStore::open_impl`. Without `sealed`
 /// there is no sealed open, so the option it rides in is always `None`.
@@ -150,7 +150,7 @@ impl RunRecords for RunStore {
         definition: &DefinitionIdentity,
         bytes: Vec<u8>,
     ) -> Result<Appended, FlowError> {
-        let staged = self.owned(RunRecords::stage(
+        let staged = self.owned(&RunRecords::stage(
             self, tenant, run, key, path, definition, bytes,
         ));
         self.commit(staged).map_err(FlowError::from)
@@ -222,7 +222,7 @@ impl RunRecords for RunStore {
         &'a self,
         record: StagedRecord<'a>,
     ) -> crate::verb::BoxFuture<'a, Result<Appended, FlowError>> {
-        let staged = self.owned(record);
+        let staged = self.owned(&record);
         Box::pin(async move { self.commit_async(staged).await.map_err(FlowError::from) })
     }
 
@@ -231,7 +231,7 @@ impl RunRecords for RunStore {
         &'a self,
         record: StagedRecord<'a>,
     ) -> crate::script::run_store::SendFuture<'a, Result<Appended, FlowError>> {
-        let staged = self.owned(record);
+        let staged = self.owned(&record);
         Box::pin(async move { self.commit_send(staged).await.map_err(FlowError::from) })
     }
 
@@ -280,14 +280,62 @@ impl RunStore {
     ///
     /// The [`StoreError`] a sealed step's open returns: a key refusal fails
     /// the whole listing, so a fault never hides a parked approval (#1085).
+    #[cfg(feature = "sealed")]
     pub(crate) fn pending_scan(
         &self,
         tenant: &str,
         limit: usize,
     ) -> Result<Vec<crate::script::approval_records::PendingRow>, StoreError> {
-        use crate::script::approval::{RecordClass, classify_record};
-        #[cfg(feature = "sealed")]
         let provider = self.inner.sealed.as_ref().map(std::sync::Arc::clone);
+        self.scan_pending(tenant, limit, |step| {
+            match (step.sealed.as_ref(), provider.as_ref()) {
+                // An erased step is absent; a refusal fails the scan (#1085).
+                (Some(sealed), Some(keys)) => {
+                    Ok(super::sealed_impl::pending_sealed_value(keys, sealed)?
+                        .map(std::borrow::Cow::Owned))
+                }
+                (Some(_), None) => Ok(None),
+                (None, _) => Ok(Some(std::borrow::Cow::Borrowed(step.bytes.as_slice()))),
+            }
+        })
+    }
+
+    /// Up to `limit` raw approval records of `tenant`: run, key hex, path,
+    /// bytes.
+    ///
+    /// The scan behind the pending listing: only records that decode as a
+    /// parked approval are cloned, so a store of large step values is not
+    /// copied to list a few approvals. Sorted by key, so two hosts list the
+    /// same approvals in the same order.
+    ///
+    /// Without `sealed` no step can be sealed, so reading one cannot fail and
+    /// the listing is not a `Result`.
+    #[cfg(not(feature = "sealed"))]
+    pub(crate) fn pending_scan(
+        &self,
+        tenant: &str,
+        limit: usize,
+    ) -> Vec<crate::script::approval_records::PendingRow> {
+        match self.scan_pending(tenant, limit, |step| {
+            Ok::<_, core::convert::Infallible>(Some(std::borrow::Cow::Borrowed(
+                step.bytes.as_slice(),
+            )))
+        }) {
+            Ok(rows) => rows,
+            Err(never) => match never {},
+        }
+    }
+
+    /// The scan both builds share: `read` yields a step's bytes as the build
+    /// reads them (borrowed when plain, owned when a sealed step was opened),
+    /// or `None` for a step that is absent.
+    fn scan_pending<E>(
+        &self,
+        tenant: &str,
+        limit: usize,
+        read: impl for<'step> Fn(&'step Held) -> Result<Option<std::borrow::Cow<'step, [u8]>>, E>,
+    ) -> Result<Vec<crate::script::approval_records::PendingRow>, E> {
+        use crate::script::approval::{RecordClass, classify_record};
         let index = self.index();
         let mut out = Vec::new();
         let mut runs: Vec<RunId> = index
@@ -315,23 +363,11 @@ impl RunStore {
                 let Some(step) = kept.steps.get(key_hex) else {
                     continue;
                 };
-                #[cfg(feature = "sealed")]
-                if let Some(sealed) = step.sealed.as_ref() {
-                    let Some(provider) = provider.as_ref() else {
-                        continue;
-                    };
-                    // An erased step is absent; a refusal fails the scan (#1085).
-                    let Some(value) = super::sealed_impl::pending_sealed_value(provider, sealed)?
-                    else {
-                        continue;
-                    };
-                    if matches!(classify_record(&value), RecordClass::Pending(_)) {
-                        out.push((run, key_hex.clone(), step.path.clone(), value));
-                    }
+                let Some(value) = read(step)? else {
                     continue;
-                }
-                if matches!(classify_record(&step.bytes), RecordClass::Pending(_)) {
-                    out.push((run, key_hex.clone(), step.path.clone(), step.bytes.clone()));
+                };
+                if matches!(classify_record(&value), RecordClass::Pending(_)) {
+                    out.push((run, key_hex.clone(), step.path.clone(), value.into_owned()));
                 }
             }
             if out.len() >= limit {
@@ -350,10 +386,32 @@ impl RunStore {
 /// per call site would be four chances to name a different variant for one event.
 /// The refusal's own message distinguishes a full queue from a poison from an
 /// undelivered answer, so nothing is lost by carrying it as the device's error.
+///
+/// The owner's one reply channel is an `io::Error`, and the store's own refusals
+/// travel through it (see `refusal`). A device error that carries a
+/// [`StoreError`] is that refusal coming home, so it is returned as itself and a
+/// caller matches `StoreError::Limit` or `StoreError::ForeignTenant` directly;
+/// only an error the device itself raised is a [`StoreError::Storage`].
 impl From<SubmitError> for StoreError {
     fn from(cause: SubmitError) -> Self {
-        Self::Storage {
-            cause: cause.into_io(),
+        let device = cause.into_io();
+        if !device
+            .get_ref()
+            .is_some_and(|inner| inner.is::<StoreError>())
+        {
+            return Self::Storage { cause: device };
+        }
+        let kind = device.kind();
+        match device.into_inner() {
+            Some(inner) => match inner.downcast::<StoreError>() {
+                Ok(refusal) => *refusal,
+                Err(other) => Self::Storage {
+                    cause: std::io::Error::other(other),
+                },
+            },
+            None => Self::Storage {
+                cause: std::io::Error::from(kind),
+            },
         }
     }
 }

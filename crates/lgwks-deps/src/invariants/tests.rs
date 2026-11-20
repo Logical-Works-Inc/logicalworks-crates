@@ -87,7 +87,10 @@ fn an_absolute_or_parent_relative_enforced_by_is_refused_at_load() {
 fn an_empty_evidence_triple_is_admitted_but_a_broken_one_is_refused() -> TestResult {
     let complete = entry("INV-BOT-FOUR-VERBS", "lgwks_bot", "clippy::unwrap_used");
     assert!(
-        Register::parse(&complete)?.entries[0].evidence.is_none(),
+        Register::parse(&complete)?
+            .entries
+            .first()
+            .is_some_and(|entry| entry.evidence.is_none()),
         "a static check without a recorded run is a valid entry"
     );
     let partial = format!("{complete}evidence_revision = \"deadbeef\"\n");
@@ -132,9 +135,10 @@ fn evidence_must_name_a_revision_the_enforcer_and_a_pass() -> TestResult {
         "cargo clippy -- clippy::unwrap_used",
         "pass",
     ))?;
-    let evidence = register.entries[0]
-        .evidence
-        .as_ref()
+    let evidence = register
+        .entries
+        .first()
+        .and_then(|entry| entry.evidence.as_ref())
         .ok_or("the complete triple must be recorded")?;
     assert_eq!(evidence.revision(), "deadbeef");
     assert_eq!(evidence.invocation(), "cargo clippy -- clippy::unwrap_used");
@@ -231,7 +235,7 @@ fn a_file_declaring_no_test_is_refused() -> TestResult {
 
 /// Control 5: a file that declares tests, but only ones a run would skip.
 #[test]
-fn an_ignored_or_unselected_test_is_not_enforcement() -> TestResult {
+fn an_ignored_or_unselected_test_is_not_enforcement() {
     assert!(!declares_active_test(
         "#[cfg(test)]\nmod tests {\n    #[test]\n    #[ignore]\n    fn skipped() {}\n}\n"
     ));
@@ -259,7 +263,6 @@ fn an_ignored_or_unselected_test_is_not_enforcement() -> TestResult {
         "#[cfg(test)]\nmod tests {\n    #[test]\n    #[should_panic]\n    fn runs() {}\n}\n"
     ));
     assert!(declares_active_test("#[tokio::test]\nasync fn runs() {}\n"));
-    Ok(())
 }
 
 /// Control 6: an escape to an existing file outside the repository. The
@@ -338,7 +341,10 @@ fn a_resolved_entry_without_a_run_is_resolved_not_attested() -> TestResult {
     assert_eq!(audit.resolved(), 1, "a resolved reference is not a run");
     assert_eq!(audit.attested(), 0);
     assert_eq!(audit.refused(), 0);
-    assert_eq!(audit.outcomes()[0].status, Status::Resolved);
+    assert_eq!(
+        audit.outcomes().first().map(|outcome| outcome.status),
+        Some(Status::Resolved)
+    );
     Ok(())
 }
 
@@ -442,7 +448,10 @@ fn a_run_at_an_ancestor_with_an_unchanged_enforcer_is_attested() -> TestResult {
     let audit = scratch.audit(&observed)?;
     assert!(audit.refusals().is_empty(), "{:?}", audit.refusals());
     assert_eq!(audit.attested(), 1);
-    assert_eq!(audit.outcomes()[0].status, Status::Attested);
+    assert_eq!(
+        audit.outcomes().first().map(|outcome| outcome.status),
+        Some(Status::Attested)
+    );
     Ok(())
 }
 
@@ -455,7 +464,10 @@ fn a_fabricated_revision_does_not_attest() -> TestResult {
     let audit = scratch.audit("deadbee")?;
     assert_eq!(only_gap(&audit), Some(&EvidenceGap::UnknownRevision));
     assert_eq!(audit.attested(), 0);
-    assert_eq!(audit.outcomes()[0].status, Status::Refused);
+    assert_eq!(
+        audit.outcomes().first().map(|outcome| outcome.status),
+        Some(Status::Refused)
+    );
     Ok(())
 }
 
@@ -533,13 +545,12 @@ fn a_scope_naming_a_real_module_resolves() -> TestResult {
 }
 
 #[test]
-fn a_stray_file_no_mod_reaches_is_not_a_module() -> TestResult {
+fn a_stray_file_no_mod_reaches_is_not_a_module() {
     assert!(!declares_module("// mod ghost;\n", "ghost"));
     assert!(!declares_module("pub fn ghost() {}\n", "ghost"));
     assert!(declares_module("pub mod ghost;\n", "ghost"));
     assert!(declares_module("pub(crate) mod ghost {}\n", "ghost"));
     assert!(declares_module("#[path = \"x.rs\"] mod ghost;\n", "ghost"));
-    Ok(())
 }
 
 // ── The pre-existing rules ──────────────────────────────────────────────
@@ -640,7 +651,13 @@ fn a_valid_register_resolves_and_is_never_called_enforced() -> TestResult {
     let audit = audit(&register, &workspace_root(), &members());
     assert!(audit.refusals().is_empty(), "the entry is well formed");
     assert_eq!(audit.attested(), 0, "nothing was executed for this entry");
-    assert_eq!(audit.outcomes()[0].status.as_str(), "resolved");
+    assert_eq!(
+        audit
+            .outcomes()
+            .first()
+            .map(|outcome| outcome.status.as_str()),
+        Some("resolved")
+    );
     Ok(())
 }
 

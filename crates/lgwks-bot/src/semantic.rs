@@ -542,8 +542,8 @@ impl<E: Embedder> SemanticResolver<E> {
     /// reports a lead over a competitor that was never measured. Issue #31 is
     /// the same defect reached through the threshold instead of through an
     /// error, and a fallback arm is exactly how it comes back.
-    fn degrade(reason: CosineError) -> DegradedReason {
-        match reason {
+    fn degrade(reason: &CosineError) -> DegradedReason {
+        match *reason {
             // The provider contradicted its own declared identity, so the
             // tier's input contract is what broke rather than one value.
             CosineError::DimensionMismatch { .. } => DegradedReason::EmbedderUnavailable,
@@ -563,7 +563,7 @@ impl<E: Embedder> SemanticResolver<E> {
     fn ensure_measurable(metric: &Cosine, vector: &[f32]) -> Result<(), DegradedReason> {
         match metric.try_score(vector, vector) {
             Ok(_) => Ok(()),
-            Err(reason) => Err(Self::degrade(reason)),
+            Err(reason) => Err(Self::degrade(&reason)),
         }
     }
 
@@ -604,7 +604,7 @@ impl<E: Embedder> SemanticResolver<E> {
             match metric.try_score(&target, &candidate) {
                 Ok(score) => scored.push((index, MatchTier::Semantic, score)),
                 Err(reason) => {
-                    let refusal = Err(Self::degrade(reason));
+                    let refusal = Err(Self::degrade(&reason));
                     lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "score_semantically: returning an error to the caller");
                     return refusal;
                 }

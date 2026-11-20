@@ -226,9 +226,9 @@ pub struct Contract {
     /// stand-down outright when the tree carries violations, so the recorded
     /// value reports which posture the register was read under while the verdict
     /// stays a function of the refusals (#204).
-    pub enforce: bool,
+    pub(crate) enforce: bool,
     /// Canonical repository URL whose workspace members are local authority.
-    pub repository: Option<String>,
+    pub(crate) repository: Option<String>,
     /// Register schema version. Absent means version 1 (a class-only register);
     /// the committed register authors version 3, which adds the exact-origin and
     /// capability-policy keys, the explicit alias list, and every edge's
@@ -245,6 +245,40 @@ pub struct Contract {
     pub(crate) policy: Policy,
     /// Every approved dependency.
     pub(crate) entries: Vec<Entry>,
+}
+
+impl Contract {
+    /// Whether refusals are enforcement failures (`[policy] enforce`).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let text = std::fs::read_to_string("contract/APPROVED.toml")?;
+    /// let contract = lgwks_deps::contract::Contract::parse(&text)?;
+    /// let fatal = contract.enforce();
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn enforce(&self) -> bool {
+        self.enforce
+    }
+
+    /// Canonical repository URL whose workspace members are local authority.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let text = std::fs::read_to_string("contract/APPROVED.toml")?;
+    /// let contract = lgwks_deps::contract::Contract::parse(&text)?;
+    /// if let Some(url) = contract.repository() {
+    ///     println!("members of {url} are local");
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn repository(&self) -> Option<&str> {
+        self.repository.as_deref()
+    }
 }
 
 /// What a register declares about its own repository, beyond the approvals.

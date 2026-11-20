@@ -185,11 +185,24 @@ impl GatedIdentifiedSpawn {
     ///
     /// Idempotent: releasing a released spawn is a no-op.
     ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use lgwks_bot::rt::{process::ProcessSpec, supervise::Supervisor};
+    /// # async fn demo(supervisor: &mut Supervisor, spec: &ProcessSpec) -> std::io::Result<()> {
+    /// let mut gated = supervisor.spawn_process_identified_gated(spec).await?;
+    /// println!("record {:?} durably, then run", gated.leader());
+    /// gated.release()?;
+    /// assert!(gated.is_released());
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     /// # Errors
     ///
     /// An [`io::Error`] if writing to the gate pipe fails unexpectedly.
     #[cfg(all(unix, feature = "process"))]
-    pub async fn release(&mut self) -> io::Result<()> {
+    pub fn release(&mut self) -> io::Result<()> {
         if self.released {
             return Ok(());
         }

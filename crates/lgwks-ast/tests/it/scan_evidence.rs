@@ -20,6 +20,15 @@ use crate::scratch::Scratch;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// The member `key` of a JSON `document`, or a refusal naming the key.
+///
+/// A document that omits a member is a failure, not a value read as null.
+fn member<'a>(document: &'a Value, key: &str) -> Result<&'a Value, Box<dyn Error>> {
+    document
+        .get(key)
+        .ok_or_else(|| format!("the document carries no {key:?}").into())
+}
+
 /// Issue #48's two literal false-positive sources, together in one file.
 /// Neither value carries an error: `None` on an `Option` means "use zero", and
 /// a literal has no error to lose.
@@ -312,20 +321,24 @@ fn the_json_document_carries_the_findings_and_the_refusals() -> TestResult {
     let (stdout, stderr) = text(&output);
     assert_eq!(output.status.code(), Some(2), "{stdout} {stderr}");
     let document: Value = lgwks_std::json::from_str(&stdout)?;
-    assert_eq!(document["verb"], "scan", "{stdout}");
-    assert_eq!(document["verdict"], "unread", "{stdout}");
-    assert_eq!(document["files"], 2, "{stdout}");
-    assert_eq!(document["refused"], 1, "{stdout}");
-    assert_eq!(document["findings"], 3, "{stdout}");
-    let hits = document["hits"]
+    assert_eq!(*member(&document, "verb")?, "scan", "{stdout}");
+    assert_eq!(*member(&document, "verdict")?, "unread", "{stdout}");
+    assert_eq!(*member(&document, "files")?, 2, "{stdout}");
+    assert_eq!(*member(&document, "refused")?, 1, "{stdout}");
+    assert_eq!(*member(&document, "findings")?, 3, "{stdout}");
+    let hits = member(&document, "hits")?
         .as_array()
         .ok_or("the document lists its hits")?;
     assert!(
-        hits.iter().all(|hit| hit["rule"] == "ERROR-SWALLOW"),
+        hits.iter()
+            .all(|hit| hit.get("rule").is_some_and(|rule| *rule == "ERROR-SWALLOW")),
         "every hit names its rule: {stdout}"
     );
     assert_eq!(
-        document["unscanned"].as_array().map(Vec::len),
+        document
+            .get("unscanned")
+            .and_then(Value::as_array)
+            .map(Vec::len),
         Some(1),
         "the torn file is listed as unscanned: {stdout}"
     );

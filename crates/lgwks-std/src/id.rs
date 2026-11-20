@@ -19,6 +19,8 @@ mod loom_v7_tests;
 #[cfg(test)]
 mod sim_tuple;
 #[cfg(test)]
+mod sim_tuple_ints;
+#[cfg(test)]
 mod sim_v7;
 #[cfg(test)]
 mod sim_v7_clamped;
@@ -196,7 +198,12 @@ fn parse_uuid_group(
     width: usize,
     out: &mut [u8],
 ) -> Result<(), ParseError> {
-    let group = &bytes[cursor..cursor.saturating_add(width)];
+    let group = bytes
+        .get(cursor..cursor.saturating_add(width))
+        .ok_or(ParseError::WrongLength {
+            len: bytes.len(),
+            at: cursor,
+        })?;
     crate::hex::decode_into(group, out).map_err(|err| match err {
         DecodeError::NotHexDigit { at, .. } | DecodeError::OddLength { at, .. } => {
             ParseError::NotHexDigit {
@@ -227,12 +234,14 @@ fn parse_uuid_groups(bytes: &[u8], raw: &mut [u8; 16]) -> Result<(), ParseError>
             check_hyphen(bytes, cursor)?;
             cursor = cursor.saturating_add(1);
         }
-        parse_uuid_group(
-            bytes,
-            cursor,
-            width,
-            &mut raw[out_offset..out_offset.saturating_add(byte_count)],
-        )?;
+        let room = raw.len().saturating_sub(out_offset);
+        let destination = raw
+            .get_mut(out_offset..out_offset.saturating_add(byte_count))
+            .ok_or(ParseError::DecodeOutputLength {
+                expected: byte_count,
+                actual: room,
+            })?;
+        parse_uuid_group(bytes, cursor, width, destination)?;
         out_offset = out_offset.saturating_add(byte_count);
         cursor = cursor.saturating_add(width);
     }
@@ -348,10 +357,13 @@ mod tests {
         let id = Uuid::new_v4()?;
         let text = id.to_string();
         assert_eq!(text.len(), 36);
-        assert_eq!(&text[8..9], "-");
-        assert_eq!(&text[13..14], "-");
-        assert_eq!(&text[18..19], "-");
-        assert_eq!(&text[23..24], "-");
+        for at in [8_usize, 13, 18, 23] {
+            assert_eq!(
+                text.get(at..at.saturating_add(1)),
+                Some("-"),
+                "hyphen at {at}"
+            );
+        }
         assert!(
             text.chars()
                 .all(|char_value| char_value.is_ascii_hexdigit() || char_value == '-')

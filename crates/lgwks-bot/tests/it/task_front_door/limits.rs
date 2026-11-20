@@ -115,7 +115,10 @@ fn a_refused_run_never_entered_its_body() -> TestResult {
         }
     })?;
     let mut waiting_run = Box::pin(host.run(&waiter, ()));
-    let _ = pending_once(waiting_run.as_mut());
+    assert!(
+        pending_once(waiting_run.as_mut()),
+        "the waiter parks at the admission gate while the permit is held"
+    );
     host.cancel();
 
     let report: Report<()> = drive(waiting_run);
@@ -124,11 +127,6 @@ fn a_refused_run_never_entered_its_body() -> TestResult {
         Disposition::Refused,
         "a run stopped at the admission gate is Refused: {:?}",
         report.error()
-    );
-    assert_eq!(
-        report.disposition(),
-        Disposition::Refused,
-        "a refused run was not admitted"
     );
     assert!(
         report.steps().is_empty(),
@@ -214,7 +212,8 @@ fn two_tenants_never_share_a_step_key() -> TestResult {
     let keys = observed.borrow();
     assert_eq!(keys.len(), 2, "each run recorded its own key once");
     assert_ne!(
-        keys[0], keys[1],
+        keys.first(),
+        keys.get(1),
         "two tenants, one task name, one input: the keys must differ"
     );
     Ok(())
@@ -250,7 +249,8 @@ fn two_runs_of_one_flow_never_share_a_step_key() -> TestResult {
     let keys = observed.borrow();
     assert_eq!(keys.len(), 2, "each run recorded its key once");
     assert_ne!(
-        keys[0], keys[1],
+        keys.first(),
+        keys.get(1),
         "two runs of one flow, one tenant, one input: the keys must differ"
     );
     Ok(())
@@ -269,7 +269,10 @@ fn two_hosts_hold_separate_budgets() -> TestResult {
         Ok(())
     })?;
     let mut holder = Box::pin(left.run(&blocker, ()));
-    let _ = pending_once(holder.as_mut());
+    assert!(
+        pending_once(holder.as_mut()),
+        "the blocker parks in its body"
+    );
 
     assert_eq!(left.admission().available_permits(), 0, "left is busy");
     let report: Report<u32> = drive(right.run(&echo, 9_u32));

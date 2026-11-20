@@ -1,153 +1,42 @@
-//! The record a run store archives, how it is framed, and the replay that
-//! rebuilds the index from the file.
+//! The record a run store archives and how it is framed. The replay that
+//! rebuilds the index from the file is the child module [`replay`].
 
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 #[cfg(feature = "sealed")]
 use std::sync::Arc;
 #[cfg(feature = "sealed")]
 use std::time::Duration;
 
 use lgwks_std::hash::{Digest, Hasher};
-use lgwks_std::wire::{WireError, from_bytes, to_bytes};
+use lgwks_std::wire::{WireError, to_bytes};
 
 use crate::effect::RunId;
-use crate::journal::frame::{self, Cursor, HEAD_BYTES, SaturatingFrom};
+use crate::journal::frame::{self, SaturatingFrom};
 #[cfg(feature = "sealed")]
-use crate::sealed::envelope::{NONCE_BYTES, open as envelope_open, seal as envelope_seal};
-#[cfg(feature = "sealed")]
-use crate::sealed::fold::{Unwrapped, fold_unwrap};
+use crate::sealed::envelope::{NONCE_BYTES, seal as envelope_seal};
 #[cfg(feature = "sealed")]
 use crate::sealed::keys::{KeyId, KeyProvider};
 #[cfg(feature = "sealed")]
-use crate::sealed::record::{DecodedFrame, decode_frame, encode_record, is_sealed_payload};
+use crate::sealed::record::encode_record;
 
 #[cfg(feature = "sealed")]
 use super::SealedWrite;
 use super::{
-    DefinitionIdentity, Held, Index, MAX_RECORD_BYTES, MAX_RECORDS_PER_RUN, MAX_STORE_BYTES,
-    RunIndex, STORE_HEADER, StoreError, StoreLimitKind, check_format_version, genesis_head,
+    DefinitionIdentity, Index, MAX_RECORD_BYTES, MAX_STORE_BYTES, StoreError, StoreLimitKind,
 };
 use crate::script::approval::{RecordClass, classify_record};
 
-/// Read and validate the file header: the constant prefix every version of
-/// this format shares, without which the file was never a run store.
-///
-/// One definition because the plain and sealed replays refuse a missing
-/// header with the same answer, and two spellings would be two chances to
-/// name a different length for one check.
-fn read_header(file: &mut File) -> Result<[u8; STORE_HEADER.len()], StoreError> {
-    let mut header = [0u8; STORE_HEADER.len()];
-    if !read_full(file, &mut header)? {
-        let refusal = Err(StoreError::NotAStore);
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: the file holds no header");
-        return refusal;
-    }
-    Ok(header)
-}
-
-/// The replay's starting point: how many bytes the file held, the empty
-/// index, and the chain head the first frame follows.
-///
-/// One definition because both replays open the same way — length first,
-/// then the header, then the version, then the empty index — and two
-/// spellings would be two chances to start one of them past a byte the other
-/// still counts.
-fn replay_prologue(file: &mut File) -> Result<(u64, Index, Digest), StoreError> {
-    let total = file.metadata().map_err(StoreError::storage)?.len();
-    file.seek(SeekFrom::Start(0)).map_err(StoreError::storage)?;
-
-    let header = read_header(file)?;
-    // The two refusals are separated, and the version one is checked first,
-    // because they are different facts and only one of them is a version the
-    // writer could have meant. Every version of this format shares the whole
-    // magic *except* its last byte, which is that format's version — so a file
-    // whose first fifteen bytes match is this store's, at some version, and a
-    // file whose first fifteen do not match was never a run store at all. That
-    // is the whole reason `STORE_MAGIC` is 15 bytes of constant plus a version
-    // byte rather than one 16-byte constant.
-    check_format_version(header)?;
-    Ok((total, empty_index(), genesis_head()))
-}
-
-/// The index a replay starts from: nothing committed past the header, the
-/// chain head genesis, and no staged or burned slots.
-///
-/// One definition because the plain and sealed replays fold into the same
-/// empty index, and two spellings would be two chances to start one of them
-/// already holding records.
-fn empty_index() -> Index {
-    Index {
-        runs: HashMap::new(),
-        committed: u64::saturating_from(STORE_HEADER.len()),
-        tail: genesis_head(),
-        pending: HashMap::new(),
-        staged: HashMap::new(),
-        #[cfg(feature = "sealed")]
-        frames: 0,
-        #[cfg(feature = "sealed")]
-        erased: HashMap::new(),
-        #[cfg(feature = "sealed")]
-        erased_runs: HashMap::new(),
-    }
-}
-
-/// Count one more committed frame, refusing past the per-run record ceiling.
-///
-/// One definition because both replays bound the same loop by the same
-/// ceiling, and two spellings would be two chances to admit a different
-/// count for one file.
-fn bump_frame_count(at: u64) -> Result<u64, StoreError> {
-    let at = at.saturating_add(1);
-    if at > MAX_RECORDS_PER_RUN {
-        let refusal = Err(StoreError::Limit {
-            kind: StoreLimitKind::Records,
-            requested: at,
-            limit: MAX_RECORDS_PER_RUN,
-        });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: the file holds more frames than one run retains");
-        return refusal;
-    }
-    Ok(at)
-}
-
-/// Read the next whole frame under the shared torn-tail discipline: a partial
-/// length prefix or a payload or head cut short is an append that never
-/// finished, so the scan stops and the caller trims to `committed`.
-///
-/// One definition because both frame readers walk the same grammar with the
-/// same limit and the same corruption answer, and two spellings would be two
-/// chances to trim what the other refuses.
-fn read_frame_at(
-    file: &mut File,
-    cursor: &Cursor<'_>,
-    head_of: impl Fn(&Digest, &[u8]) -> Option<Digest>,
-) -> Result<Option<frame::Raw>, StoreError> {
-    let at = cursor.at;
-    let corrupt = || StoreError::Corrupt { at };
-    let Some(raw) = frame::read_raw(
-        file,
-        cursor,
-        MAX_RECORD_BYTES,
-        StoreError::storage,
-        corrupt,
-        head_of,
-    )?
-    else {
-        return Ok(None);
-    };
-    Ok(Some(raw))
-}
+mod replay;
+pub(super) use replay::replay;
+#[cfg(feature = "sealed")]
+pub(super) use replay::replay_sealed;
 
 /// A store refusal as the device error the owner's one reply channel carries.
 ///
 /// One conversion rather than a `map_err` per arm, because every `?` on a store
-/// refusal wraps the same fact — this store said no — and a literal per site would
-/// be seven chances to name a different message for one event. The refusal's own
-/// `Display` carries the ceiling or the tenant that names it.
+/// refusal wraps the same fact: this store said no. The refusal travels as the
+/// error's source, so its own `Display` names the ceiling or the tenant.
 pub(super) fn refusal(cause: StoreError) -> std::io::Error {
-    std::io::Error::other(cause.to_string())
+    std::io::Error::other(cause)
 }
 
 /// The chain head the next frame in this file follows.
@@ -237,8 +126,10 @@ pub(super) struct StoredDefinition {
 /// workspace and this is the honest alternative to it.
 fn digest_from_record(bytes: &[u8]) -> Digest {
     let mut digest = [0u8; 32];
-    let copied = bytes.len().min(digest.len());
-    digest[..copied].copy_from_slice(&bytes[..copied]);
+    digest
+        .iter_mut()
+        .zip(bytes)
+        .for_each(|(slot, byte)| *slot = *byte);
     Digest::from_bytes(digest)
 }
 
@@ -353,409 +244,7 @@ fn record_too_large(len: usize) -> StoreError {
     }
 }
 
-/// Read `buf` in full, reporting whether all of it arrived.
-fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool, StoreError> {
-    let mut filled = 0usize;
-    while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
-            Ok(0) => return Ok(false),
-            Ok(read) => filled = filled.saturating_add(read),
-            Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(cause) => {
-                let refusal = Err(StoreError::storage(cause));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "read_full: returning an error to the caller");
-                return refusal;
-            }
-        }
-    }
-    Ok(true)
-}
-
-/// One complete, decoded frame read from the store.
-struct Framed {
-    /// The record the frame's payload decoded to.
-    stored: Stored,
-    /// The payload bytes, which the chain head is computed over.
-    payload: Vec<u8>,
-    /// The chain head the frame recorded for itself.
-    head: [u8; HEAD_BYTES],
-    /// The payload length the frame declared.
-    declared: usize,
-}
-
-/// Read the frame at ordinal `at`, or `None` where the file stops holding a
-/// whole frame.
-///
-/// A partial length prefix, or a payload or head cut short, is an append that
-/// never finished: it was never anyone's answer, so the scan stops and the
-/// caller trims to `committed`. A complete prefix naming a frame this store
-/// never writes (a write leaves a prefix of a length it did finish computing,
-/// and that length was always legal) or a payload that does not decode cannot
-/// be an interrupted append and is refused. So is a cut whose bytes hold a frame
-/// this store acknowledged under another length: `cursor` is where the frame
-/// starts and the head it chains from, which is what the stored head is checked
-/// against (#262).
-fn next_frame(file: &mut File, cursor: &Cursor<'_>) -> Result<Option<Framed>, StoreError> {
-    let Some(raw) = read_frame_at(file, cursor, |previous, payload| {
-        let aligned = frame::decodable(payload);
-        from_bytes::<Stored, WireError>(aligned.as_slice())
-            .ok()
-            .map(|stored| stored.head_from(previous, payload))
-    })?
-    else {
-        return Ok(None);
-    };
-    #[cfg(feature = "sealed")]
-    if is_sealed_payload(&raw.payload) {
-        lgwks_std::trace::debug!(
-            at = cursor.at,
-            "next_frame: a plain replay holds a sealed frame"
-        );
-        return Err(StoreError::Corrupt { at: cursor.at });
-    }
-    let stored = from_bytes::<Stored, WireError>(&raw.payload).map_err(|error| {
-        lgwks_std::trace::debug!(
-            ?error,
-            at = cursor.at,
-            "next_frame: the payload did not decode"
-        );
-        StoreError::Corrupt { at: cursor.at }
-    })?;
-    Ok(Some(Framed {
-        stored,
-        declared: raw.payload.len(),
-        payload: raw.payload,
-        head: raw.head,
-    }))
-}
-
-/// Read every committed frame, returning the index it implies.
-///
-/// The scan is bounded by the file's own length: every iteration consumes at
-/// least one byte, and a file that grows underneath the scan cannot extend it,
-/// because the reader stops at the length it saw when it began. A frame whose
-/// stored head does not follow is [`StoreError::Corrupt`] and is not truncated.
-pub(super) fn replay(file: &mut File) -> Result<Index, StoreError> {
-    let (total, mut index, mut previous) = replay_prologue(file)?;
-    let mut at = 0u64;
-    while let Some(Framed {
-        stored,
-        payload,
-        head,
-        declared,
-    }) = next_frame(file, &Cursor::new(at, index.committed, &previous))?
-    {
-        if stored.head_from(&previous, &payload) != Digest::from_bytes(head) {
-            let refusal = Err(StoreError::Corrupt { at });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-            return refusal;
-        }
-        let frame_len = frame::framed_len(declared);
-        // A frame that runs past the end of the file is an interrupted append.
-        // Readable as a whole above, so this only catches a header that lied
-        // about a frame already acknowledged, which is rot rather than a crash.
-        if index
-            .committed
-            .checked_add(frame_len)
-            .is_none_or(|end| end > total)
-        {
-            break;
-        }
-        index.committed = index.committed.saturating_add(frame_len);
-        index.tail = stored.head_from(&previous, &payload);
-        previous = stored.head_from(&previous, &payload);
-        at = bump_frame_count(at)?;
-        let run = index.runs.entry(stored.run).or_insert_with(|| RunIndex {
-            tenant: stored.tenant.clone(),
-            definition: stored.definition.to_identity(),
-            steps: HashMap::new(),
-        });
-        run.steps.insert(
-            hex_of(&stored.key),
-            Held {
-                path: stored.path.clone(),
-                bytes: stored.value.clone(),
-                #[cfg(feature = "sealed")]
-                sealed: None,
-            },
-        );
-        count_approval(&mut index, &stored.tenant, &stored.value);
-    }
-    Ok(index)
-}
-
-/// Read every committed sealed frame, returning the index it implies.
-///
-/// The sealed twin of [`replay`]: the loop is the same torn-tail discipline
-/// over the same frame grammar, but every record payload is an envelope the
-/// provider opens. A destroyed key folds its slot to erased; any other
-/// provider refusal fails the open, because the replay cannot attribute a
-/// frame it cannot read, and inventing an attribution would be worse. A live
-/// key decrypts into the index. Tombstones move their record to the burn
-/// set. A plain payload in a sealed file, a foreign tenant, a broken bind or
-/// a head that does not follow is [`StoreError::Corrupt`] and is not trimmed.
-///
-/// # Errors
-///
-/// [`StoreError::Storage`] when the device refuses; [`StoreError::NotAStore`]
-/// when the file is not a run store; [`StoreError::Corrupt`] when a committed
-/// frame does not follow from the ones before it.
-#[cfg(feature = "sealed")]
-pub(super) fn replay_sealed(
-    file: &mut File,
-    provider: &Arc<dyn KeyProvider>,
-) -> Result<Index, StoreError> {
-    let (total, mut index, mut previous) = replay_prologue(file)?;
-    let mut at = 0u64;
-    let mut ordinals: HashMap<u64, (RunId, String, [u8; 16])> = HashMap::new();
-    while let Some(raw) = next_sealed_frame(file, &Cursor::new(at, index.committed, &previous))? {
-        let frame_len = frame::framed_len(raw.declared);
-        if index
-            .committed
-            .checked_add(frame_len)
-            .is_none_or(|end| end > total)
-        {
-            break;
-        }
-        if crate::journal::chain_over_bytes(&previous, &raw.payload) != Digest::from_bytes(raw.head)
-        {
-            let refusal = Err(StoreError::Corrupt { at });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a frame does not follow the chain");
-            return refusal;
-        }
-        let Some(decoded) = decode_frame(&raw.payload) else {
-            let refusal = Err(StoreError::Corrupt { at });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a committed frame is not a sealed record");
-            return refusal;
-        };
-        match decoded {
-            DecodedFrame::Record {
-                tenant,
-                key_id,
-                wrapped,
-                nonce,
-                ciphertext,
-                expires_at,
-                bind,
-            } => {
-                let (run_hex, key_hex) = match parse_runstore_bind(&bind) {
-                    Some(pair) => pair,
-                    None => {
-                        let refusal = Err(StoreError::Corrupt { at });
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a frame carries no routing tag");
-                        return refusal;
-                    }
-                };
-                let run = match RunId::from_hex(&run_hex) {
-                    Ok(run) => run,
-                    Err(error) => {
-                        lgwks_std::trace::debug!(at, error = ?error, "replay_sealed: a frame names no run");
-                        return Err(StoreError::Corrupt { at });
-                    }
-                };
-                let key = KeyId::new(tenant.clone(), key_id);
-                if let Err(error) = provider.note_wrapped(&key, &wrapped) {
-                    lgwks_std::trace::debug!(at, error = ?error, "replay_sealed: a live record's key does not open");
-                    return Err(StoreError::SealedKey { source: error });
-                }
-                match fold_unwrap(provider.unwrap_key(&key, &wrapped)) {
-                    Ok(Unwrapped::Live(data_key)) => {
-                        let plaintext = match envelope_open(&data_key, &nonce, &ciphertext) {
-                            Ok(plaintext) => plaintext,
-                            Err(error) => {
-                                lgwks_std::trace::debug!(at, error = ?error, "replay_sealed: a live key with an unopenable envelope");
-                                return Err(StoreError::Corrupt { at });
-                            }
-                        };
-                        let stored = match from_bytes::<Stored, WireError>(&plaintext) {
-                            Ok(stored) => stored,
-                            Err(error) => {
-                                lgwks_std::trace::debug!(
-                                    at,
-                                    ?error,
-                                    "replay_sealed: a committed frame does not decode"
-                                );
-                                return Err(StoreError::Corrupt { at });
-                            }
-                        };
-                        if stored.tenant != tenant
-                            || stored.run != run
-                            || hex_of(&stored.key) != key_hex
-                        {
-                            lgwks_std::trace::debug!(
-                                at,
-                                "replay_sealed: a frame's routing does not match its record"
-                            );
-                            return Err(StoreError::Corrupt { at });
-                        }
-                        index.committed = index.committed.saturating_add(frame_len);
-                        index.tail = Digest::from_bytes(raw.head);
-                        previous = Digest::from_bytes(raw.head);
-                        ordinals.insert(at, (run, key_hex.clone(), key_id));
-                        let run_index = index.runs.entry(run).or_insert_with(|| RunIndex {
-                            tenant: tenant.clone(),
-                            definition: stored.definition.to_identity(),
-                            steps: HashMap::new(),
-                        });
-                        run_index.steps.insert(
-                            key_hex,
-                            Held {
-                                path: stored.path.clone(),
-                                bytes: Vec::new(),
-                                sealed: Some(crate::task::store::SealedStep {
-                                    key_id: key.clone(),
-                                    wrapped,
-                                    nonce,
-                                    ciphertext,
-                                    digest: value_digest(&stored.value),
-                                    expires_at,
-                                    ordinal: at,
-                                }),
-                            },
-                        );
-                        count_approval(&mut index, &tenant, &stored.value);
-                    }
-                    Ok(Unwrapped::Erased) => {
-                        index.committed = index.committed.saturating_add(frame_len);
-                        index.tail = Digest::from_bytes(raw.head);
-                        previous = Digest::from_bytes(raw.head);
-                        ordinals.insert(at, (run, key_hex.clone(), key_id));
-                        insert_erased(&mut index, run, key_hex, key_id, tenant, expires_at);
-                    }
-                    Err(error) => {
-                        lgwks_std::trace::debug!(at, error = ?error, "replay_sealed: the provider cannot answer");
-                        return Err(StoreError::SealedKey { source: error });
-                    }
-                }
-            }
-            DecodedFrame::Tombstone {
-                index: target,
-                key_id,
-            } => {
-                index.committed = index.committed.saturating_add(frame_len);
-                index.tail = Digest::from_bytes(raw.head);
-                previous = Digest::from_bytes(raw.head);
-                let (run, key_hex) = match ordinals.get(&target) {
-                    Some(found) if found.2 == key_id => (found.0, found.1.clone()),
-                    _ => {
-                        let refusal = Err(StoreError::Corrupt { at });
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a tombstone names no sealed record");
-                        return refusal;
-                    }
-                };
-                if index.erased.contains_key(&(run, key_hex.clone())) {
-                    // A second tombstone for the same record: already erased.
-                } else {
-                    let step = match index
-                        .runs
-                        .get_mut(&run)
-                        .and_then(|run_index| run_index.steps.remove(&key_hex))
-                    {
-                        Some(step) => step,
-                        None => {
-                            let refusal = Err(StoreError::Corrupt { at });
-                            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a tombstone names an absent step");
-                            return refusal;
-                        }
-                    };
-                    let (tenant, sealed) = match (index.runs.get(&run), step.sealed) {
-                        (Some(run_index), Some(sealed)) => (run_index.tenant.clone(), sealed),
-                        _ => {
-                            let refusal = Err(StoreError::Corrupt { at });
-                            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a tombstone names a plain step");
-                            return refusal;
-                        }
-                    };
-                    if sealed.key_id.id() != key_id {
-                        let refusal = Err(StoreError::Corrupt { at });
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay_sealed: a tombstone names the wrong key");
-                        return refusal;
-                    }
-                    insert_erased(
-                        &mut index,
-                        run,
-                        key_hex,
-                        sealed.key_id.id(),
-                        tenant,
-                        sealed.expires_at,
-                    );
-                }
-            }
-        }
-        at = bump_frame_count(at)?;
-    }
-    index.frames = at;
-    Ok(index)
-}
-
-/// Fold one shredded step into the burn set: the slot the reads refuse and
-/// the sweep skips, with the per-run count the reports read.
-#[cfg(feature = "sealed")]
-fn insert_erased(
-    index: &mut Index,
-    run: RunId,
-    key_hex: String,
-    key_id: [u8; 16],
-    tenant: String,
-    expires_at: Option<Duration>,
-) {
-    let counts = index
-        .erased_runs
-        .entry(run)
-        .or_insert_with(|| (0, tenant.clone()));
-    counts.0 = counts.0.saturating_add(1);
-    index.erased.insert(
-        (run, key_hex),
-        crate::task::store::ErasedSlot {
-            key_id: KeyId::new(tenant.clone(), key_id),
-            tenant,
-            expires_at,
-        },
-    );
-}
-
-/// One sealed frame read from the file: its payload, its stored head, and
-/// the payload length the prefix declared.
-#[cfg(feature = "sealed")]
-struct SealedRaw {
-    /// The frame's payload bytes: the sealed envelope.
-    payload: Vec<u8>,
-    /// The chain head the frame recorded for itself.
-    head: [u8; 32],
-    /// The payload length the frame declared.
-    declared: usize,
-}
-
-/// Read one sealed frame at `cursor`, or `None` where the file stops holding
-/// a whole frame.
-///
-/// The torn-tail discipline is the shared grammar's: a partial length prefix
-/// or a payload cut short is an interrupted append, while a complete frame
-/// whose head does not follow is refused. The head search only authenticates
-/// sealed payloads, so acknowledged sealed bytes are never trimmed and plain
-/// bytes never verify as sealed.
-#[cfg(feature = "sealed")]
-fn next_sealed_frame(
-    file: &mut File,
-    cursor: &Cursor<'_>,
-) -> Result<Option<SealedRaw>, StoreError> {
-    let Some(raw) = read_frame_at(file, cursor, |previous, payload| {
-        if is_sealed_payload(payload) {
-            Some(crate::journal::chain_over_bytes(previous, payload))
-        } else {
-            None
-        }
-    })?
-    else {
-        return Ok(None);
-    };
-    let declared = raw.payload.len();
-    Ok(Some(SealedRaw {
-        payload: raw.payload,
-        head: raw.head,
-        declared,
-    }))
-}
+/// Fold one record's approval state into its tenant's pending count.
 ///
 /// Pending parks increment their tenant; decisions decrement, saturating, so
 /// a decision that arrives with no park counted — an app park recorded
@@ -783,16 +272,14 @@ pub(super) fn count_approval(index: &mut Index, tenant: &str, bytes: &[u8]) {
 /// bytes before the head has been computed; formatting them here rather than
 /// reaching into the digest type keeps the key exactly the bytes on the disk.
 pub(super) fn hex_of(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = Vec::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes.iter().copied() {
-        hex.push(DIGITS[usize::from(byte >> 4) & 0x0f]);
-        hex.push(DIGITS[usize::from(byte) & 0x0f]);
-    }
-    // Every byte pushed above is an ASCII digit, so this is well-formed UTF-8
-    // and the conversion cannot fail; `String::from_utf8` reports the invariant
-    // rather than trusting it.
-    hex.into_iter().map(char::from).collect()
+    let digit = |nibble: u8| match nibble {
+        0..=9 => char::from(b'0'.saturating_add(nibble)),
+        _ => char::from(b'a'.saturating_add(nibble.saturating_sub(10))),
+    };
+    bytes
+        .iter()
+        .flat_map(|byte| [digit(byte >> 4), digit(byte & 0x0f)])
+        .collect()
 }
 
 /// The BLAKE3 of a plaintext step value: what the duplicate check compares
@@ -836,29 +323,21 @@ fn abandon_sealed(provider: &Arc<dyn KeyProvider>, id: &KeyId) {
 /// frame names its own slot without the key.
 #[cfg(feature = "sealed")]
 pub(super) fn runstore_bind(run_hex: &str, key_hex: &str) -> Vec<u8> {
-    let mut bind = Vec::with_capacity(
-        run_hex
-            .len()
-            .saturating_add(key_hex.len())
-            .saturating_add(1),
-    );
-    bind.extend_from_slice(run_hex.as_bytes());
-    bind.push(0);
-    bind.extend_from_slice(key_hex.as_bytes());
-    bind
+    [run_hex.as_bytes(), &[0], key_hex.as_bytes()].concat()
 }
 
-/// Split a routing tag back into its run and step hex, or `None` for a shape
-/// this store never wrote.
+/// Split a routing tag into its run and step hex, or `None` for a shape this store never wrote.
 #[cfg(feature = "sealed")]
 pub(super) fn parse_runstore_bind(bind: &[u8]) -> Option<(String, String)> {
-    let at = bind.iter().position(|byte| *byte == 0)?;
-    let (run, key) = bind.split_at(at);
-    let key = key.get(1..)?;
-    Some((
-        String::from_utf8(run.to_vec()).ok()?,
-        String::from_utf8(key.to_vec()).ok()?,
-    ))
+    match std::str::from_utf8(bind) {
+        Ok(text) => text
+            .split_once('\0')
+            .map(|(run, key)| (run.to_owned(), key.to_owned())),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "parse_runstore_bind: a tag is not text");
+            None
+        }
+    }
 }
 
 /// Frame one step record sealed: burn nothing here — the duplicate check

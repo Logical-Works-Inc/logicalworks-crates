@@ -33,7 +33,7 @@ use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use crate::effect_policy::allowing;
 use crate::effects::memory_scope;
-use crate::spec_materialize::{Counter, Page, record, take_trace};
+use crate::spec_materialize::{Counter, PAGE, clear_trace, record, take_trace};
 
 /// A test's result: an error fails it with the error's text.
 type TestResult = Result<(), Box<dyn Error>>;
@@ -102,10 +102,13 @@ struct Post;
 
 impl Post {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self))
+    fn from_target(_target: &str) -> Action {
+        Action::new(Self)
     }
 }
+
+/// The registry's constructor for [`Post`], which cannot fail.
+const POST: fn(&str) -> Result<Action, EcsError> = |target| Ok(Post::from_target(target));
 
 impl Execute for Post {
     type Input = u16;
@@ -140,8 +143,8 @@ domains! {
             "test::net_counter" => Counter::net_from_target,
         }
         execute {
-            "test::page" => Page::from_target,
-            "test::post" => Post::from_target,
+            "test::page" => PAGE,
+            "test::post" => POST,
         }
     }
 }
@@ -255,7 +258,7 @@ pub(crate) fn undeclared<O: std::fmt::Debug>(report: &Report<O>) -> Result<Vec<N
 /// Forget the trace a previous run on this thread left, so a test reads only
 /// its own.
 fn reset_trace() {
-    drop(take_trace());
+    clear_trace();
 }
 
 /// The need an undeclared identifier in `SCRIPT_DOMAINS` reports.

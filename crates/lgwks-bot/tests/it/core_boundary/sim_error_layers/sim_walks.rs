@@ -11,7 +11,7 @@ use lgwks_bot::script::FlowError;
 use lgwks_bot::task::StoreError;
 
 use super::{DRAWS, Fields, Hash, Kind, Route, Spec, TestResult, arms, hostile, layer_of, path};
-use super::{replays, walk};
+use super::{replays, replays_total, walk};
 use crate::sim::{Rng, Trace};
 
 /// A flow nested `depth` retries deep over a bottom drawn from `rng`; returns
@@ -310,17 +310,17 @@ fn monkey_walk(rng: &mut Rng, trace: &mut Trace, seed: u64) {
 }
 
 /// A thousand seeds, each its own walk.
-pub(super) fn sim_monkey(seed: u64) -> Hash {
+pub(super) fn sim_monkey(seed: u64) -> u64 {
     let mut trace = Trace::new();
     for index in 0..1000_u64 {
         let inner = seed.wrapping_add(index.wrapping_mul(0x9e37_79b9));
         monkey_walk(&mut Rng::new(inner), &mut trace, inner);
     }
-    Ok(trace.hash())
+    trace.hash()
 }
 
 #[test]
 /// A thousand random walks over layer operations keep the layer invariant.
 fn sim_error_layers_monkey_1000_walks_over_layer_operations_keep_the_invariant() -> TestResult {
-    replays(sim_monkey)
+    replays_total(sim_monkey)
 }

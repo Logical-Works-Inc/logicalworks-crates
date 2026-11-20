@@ -16,7 +16,7 @@ use lgwks_std::seeded::Seeded;
 ///
 /// Each is named rather than generated so a failure names the exact seed that
 /// reproduces it.
-pub const SWEEP_SEEDS: [u64; 4] = [
+pub(crate) const SWEEP_SEEDS: [u64; 4] = [
     0x5EED_0000_0000_0001,
     0x5EED_0000_0000_0002,
     0x5EED_0000_FFFF_FFFF,
@@ -38,12 +38,12 @@ const FNV_BASIS: u64 = 14_695_981_039_346_656_037;
 /// private xorshift64* word of its own; a second generator gave every seed a
 /// second meaning.
 #[must_use]
-pub fn seeded_stream(seed: u64) -> Seeded {
+pub(crate) fn seeded_stream(seed: u64) -> Seeded {
     Seeded::from_seed(seed)
 }
 
 /// The next word of a sweep's stream.
-pub fn next_seed(state: &mut Seeded) -> u64 {
+pub(crate) fn next_seed(state: &mut Seeded) -> u64 {
     state.next_u64()
 }
 
@@ -57,7 +57,7 @@ pub fn next_seed(state: &mut Seeded) -> u64 {
 /// address rather than dropping them, because a truncated draw is a different
 /// stream and the trace is a property of the seed rather than of the platform.
 #[must_use]
-pub fn next_index(state: &mut Seeded) -> usize {
+pub(crate) fn next_index(state: &mut Seeded) -> usize {
     let mut folded = 0_usize;
     for byte in next_seed(state).to_le_bytes() {
         folded = folded.wrapping_mul(31).wrapping_add(usize::from(byte));
@@ -69,12 +69,12 @@ pub fn next_index(state: &mut Seeded) -> usize {
 ///
 /// The trace is a hash rather than a list: a sweep can run thousands of cases
 /// and still compare in one value, so a same-seed replay is one comparison.
-pub fn fold(trace: &mut u64, value: u64) {
+pub(crate) fn fold(trace: &mut u64, value: u64) {
     *trace = trace.wrapping_mul(FNV_PRIME).wrapping_add(value);
 }
 
 /// Starts a trace with the FNV-1a basis.
-pub fn initial_trace() -> u64 {
+pub(crate) fn initial_trace() -> u64 {
     FNV_BASIS
 }
 
@@ -82,7 +82,7 @@ pub fn initial_trace() -> u64 {
 ///
 /// Bit patterns, not the values, so two sweeps that differ only in a
 /// floating-point detail still compare exactly.
-pub fn fold_score(trace: &mut u64, score: f64) {
+pub(crate) fn fold_score(trace: &mut u64, score: f64) {
     fold(trace, score.to_bits());
 }
 
@@ -98,9 +98,9 @@ pub fn fold_score(trace: &mut u64, score: f64) {
 /// It is a fold and not a cast: it is a value for entropy and for a trace, not a
 /// copy of the counter, and no caller may read it as the counter itself.
 #[must_use]
-pub fn word_of(value: usize) -> u64 {
+pub(crate) fn word_of(value: usize) -> u64 {
     let mut word = 0_u64;
-    for byte in value.to_ne_bytes() {
+    for byte in value.to_le_bytes() {
         word = word.wrapping_mul(31).wrapping_add(u64::from(byte));
     }
     word
@@ -112,7 +112,7 @@ pub fn word_of(value: usize) -> u64 {
 /// The whole counter reaches the trace through [`word_of`], so the fold is the
 /// same reading everywhere: no caller can fold a counter one way and read it
 /// another.
-pub fn fold_usize(trace: &mut u64, value: usize) {
+pub(crate) fn fold_usize(trace: &mut u64, value: usize) {
     fold(trace, word_of(value));
 }
 
@@ -122,7 +122,7 @@ pub fn fold_usize(trace: &mut u64, value: usize) {
 /// and the trace word is 64 bits. Narrowing it would alias two counts that share
 /// their low 64 bits — the one collision a replay trace cannot have — so the
 /// count is folded a half at a time, and each half is a `u64` already.
-pub fn fold_nanos(trace: &mut u64, nanos: u128) {
+pub(crate) fn fold_nanos(trace: &mut u64, nanos: u128) {
     let bytes = nanos.to_le_bytes();
     let (halves, _) = bytes.as_chunks::<8>();
     for half in halves {
@@ -139,7 +139,7 @@ pub fn fold_nanos(trace: &mut u64, nanos: u128) {
 /// that somehow outlasted `u64::MAX` nanoseconds reads as the largest sample
 /// rather than as a wrapped one.
 #[must_use]
-pub fn nanos_of(elapsed: std::time::Duration) -> u64 {
+pub(crate) fn nanos_of(elapsed: std::time::Duration) -> u64 {
     elapsed
         .as_secs()
         .saturating_mul(1_000_000_000_u64)
@@ -150,7 +150,7 @@ pub fn nanos_of(elapsed: std::time::Duration) -> u64 {
 ///
 /// This is the same-seed replay oracle every family uses. The assertion names
 /// the seed so a failure is directly reproducible.
-pub fn assert_same_seed_replays(sweep: impl Fn(u64) -> u64, seed: u64) {
+pub(crate) fn assert_same_seed_replays(sweep: impl Fn(u64) -> u64, seed: u64) {
     let first = sweep(seed);
     let replayed = sweep(seed);
     assert_eq!(
@@ -166,7 +166,7 @@ pub fn assert_same_seed_replays(sweep: impl Fn(u64) -> u64, seed: u64) {
 /// read state the input does not hold. The verdict is kept and compared
 /// instead of discarded, so the read is an observation and not a call made
 /// only to see whether it panics.
-pub fn assert_verdict_replays<T: PartialEq + std::fmt::Debug>(
+pub(crate) fn assert_verdict_replays<T: PartialEq + std::fmt::Debug>(
     seed: u64,
     what: &str,
     read: impl Fn() -> T,
@@ -183,7 +183,7 @@ pub fn assert_verdict_replays<T: PartialEq + std::fmt::Debug>(
 ///
 /// Without this, a sweep that ignores its seed entirely would pass the replay
 /// oracle while proving nothing.
-pub fn assert_distinct_seeds_diverge(sweep: impl Fn(u64) -> u64, first: u64, second: u64) {
+pub(crate) fn assert_distinct_seeds_diverge(sweep: impl Fn(u64) -> u64, first: u64, second: u64) {
     assert_ne!(
         sweep(first),
         sweep(second),
@@ -211,7 +211,8 @@ mod tests {
         for _ in 0..64 {
             fold(&mut trace, next_seed(&mut state));
             fold_usize(&mut trace, next_index(&mut state));
-            let score = f64::from(u32::from(next_seed(&mut state).to_le_bytes()[0]));
+            let [low, ..] = next_seed(&mut state).to_le_bytes();
+            let score = f64::from(u32::from(low));
             fold_score(&mut trace, score);
         }
         trace
@@ -239,11 +240,14 @@ mod tests {
         // word sixteen copies of one block.
         let mut state = seeded_stream(SWEEP_SEEDS[0]);
         let bytes: Vec<u8> = (0..1_024)
-            .map(|_| next_seed(&mut state).to_le_bytes()[0])
+            .map(|_| {
+                let [low, ..] = next_seed(&mut state).to_le_bytes();
+                low
+            })
             .collect();
         assert_ne!(
-            &bytes[..768],
-            &bytes[256..1_024],
+            bytes.get(..768),
+            bytes.get(256..1_024),
             "the low byte repeated with a period of 256 draws"
         );
     }

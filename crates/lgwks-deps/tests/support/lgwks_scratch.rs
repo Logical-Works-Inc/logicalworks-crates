@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 /// A scratch directory, removed when the test ends.
-pub struct Scratch {
+pub(crate) struct Scratch {
     /// The directory.
     dir: PathBuf,
 }
@@ -26,7 +26,7 @@ impl Scratch {
     /// # Errors
     ///
     /// The directory could not be created, or entropy refused its name.
-    pub fn fresh(label: &str) -> std::io::Result<Self> {
+    pub(crate) fn fresh(label: &str) -> std::io::Result<Self> {
         match scratch_dir(label) {
             Ok(dir) => Ok(Self { dir }),
             Err(error) => Err(std::io::Error::other(error)),
@@ -34,7 +34,7 @@ impl Scratch {
     }
 
     /// The scratch root this test builds and serves under.
-    pub fn dir(&self) -> &Path {
+    pub(crate) fn dir(&self) -> &Path {
         self.dir.as_path()
     }
 }
@@ -59,7 +59,7 @@ fn scratch_dir(label: &str) -> Result<PathBuf, String> {
 
 /// A unique tag for `label`: entropy plus the call counter, spelling only
 /// letters, digits and `-`, so it names app directories and idempotency keys.
-pub fn unique_tag(label: &str) -> Result<String, String> {
+pub(crate) fn unique_tag(label: &str) -> Result<String, String> {
     let id = NEXT.fetch_add(1, Ordering::Relaxed);
     match lgwks_std::random::bytes::<4>() {
         Ok(nonce) => Ok(format!("{label}-{}-{id}", lgwks_std::hex::encode(nonce))),
@@ -71,7 +71,7 @@ pub fn unique_tag(label: &str) -> Result<String, String> {
 }
 
 /// A loopback port in 18000..19000 drawn from OS entropy, for one server.
-pub fn test_port() -> Result<u16, String> {
+pub(crate) fn test_port() -> Result<u16, String> {
     loop {
         let nonce = match lgwks_std::random::bytes::<2>() {
             Ok(nonce) => u16::from_le_bytes(nonce),
@@ -91,7 +91,7 @@ pub fn test_port() -> Result<u16, String> {
 /// The estate bans parking a thread in `thread::sleep` where a bounded wait
 /// names what it waits for; this names the readiness, checks it, and reports
 /// whether it arrived within `deadline`, pacing tries `step` apart.
-pub fn poll_ready(
+pub(crate) fn poll_ready(
     deadline: std::time::Duration,
     step: std::time::Duration,
     mut ready: impl FnMut() -> bool,
@@ -128,7 +128,7 @@ impl Drop for Scratch {
 }
 
 /// One run of the built `lgwks` binary.
-pub struct Outcome {
+pub(crate) struct Outcome {
     /// The exit code, or `None` when a signal ended the process.
     pub(crate) code: Option<i32>,
     /// What it wrote to stdout.
@@ -138,7 +138,7 @@ pub struct Outcome {
 }
 
 /// The `lgwks` binary under test: the binary Cargo built for this suite.
-pub fn binary() -> Result<PathBuf, String> {
+pub(crate) fn binary() -> Result<PathBuf, String> {
     match std::env::var_os("CARGO_BIN_EXE_lgwks") {
         Some(binary) => Ok(PathBuf::from(binary)),
         None => {
@@ -150,13 +150,13 @@ pub fn binary() -> Result<PathBuf, String> {
 
 /// Drive the built `lgwks` binary with `args` from `dir`, capturing both
 /// streams so the verdict can assert on them.
-pub fn run_lgwks(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
+pub(crate) fn run_lgwks(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
     let binary = binary()?;
     run_with("lgwks", &binary, dir, args)
 }
 
 /// The `lgwks-deps` binary under test: the binary Cargo built for this suite.
-pub fn deps_binary() -> Result<PathBuf, String> {
+pub(crate) fn deps_binary() -> Result<PathBuf, String> {
     match std::env::var_os("CARGO_BIN_EXE_lgwks-deps") {
         Some(binary) => Ok(PathBuf::from(binary)),
         None => {
@@ -170,7 +170,7 @@ pub fn deps_binary() -> Result<PathBuf, String> {
 
 /// Drive the built `lgwks-deps` binary with `args` from `dir`, capturing both
 /// streams so the verdict can assert on them.
-pub fn run_deps(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
+pub(crate) fn run_deps(dir: &Path, args: &[&str]) -> Result<Outcome, String> {
     let binary = deps_binary()?;
     run_with("lgwks-deps", &binary, dir, args)
 }
@@ -200,7 +200,7 @@ fn run_with(name: &str, binary: &Path, dir: &Path, args: &[&str]) -> Result<Outc
 }
 
 /// The workspace root: two levels above this package's manifest dir.
-pub fn workspace_root() -> Result<PathBuf, String> {
+pub(crate) fn workspace_root() -> Result<PathBuf, String> {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     match manifest.parent().and_then(Path::parent) {
         Some(root) => Ok(root.to_path_buf()),
@@ -271,13 +271,13 @@ fn patch_workspace(dir: &Path) -> Result<(), String> {
 
 /// The target directory every app a test serves builds in: under Cargo's
 /// per-suite scratch, so the suite's own target cache keeps it warm.
-pub fn app_target() -> PathBuf {
+pub(crate) fn app_target() -> PathBuf {
     PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lgwks-apps")
 }
 
 /// Start `lgwks run` (with `--json` when asked) in `dir` on `port`, building
 /// in [`app_target`]; stdout is piped for `--json`, inherited otherwise.
-pub fn spawn_run(dir: &Path, port: u16, json: bool) -> Result<std::process::Child, String> {
+pub(crate) fn spawn_run(dir: &Path, port: u16, json: bool) -> Result<std::process::Child, String> {
     let mut command = std::process::Command::new(binary()?);
     command.arg("run");
     if json {
@@ -298,7 +298,7 @@ pub fn spawn_run(dir: &Path, port: u16, json: bool) -> Result<std::process::Chil
 /// Kill `lgwks run` alone, as a supervisor would, then require `port` shut
 /// within `deadline`: the app it started must stop with it. Nothing else is
 /// signalled, so a port left open is the command's own defect.
-pub fn stop_run(
+pub(crate) fn stop_run(
     child: &mut std::process::Child,
     port: u16,
     deadline: std::time::Duration,
@@ -324,7 +324,7 @@ pub fn stop_run(
 }
 
 /// Scaffold `name` in `dir` with `lgwks new` and read back its app file.
-pub fn reference_app(dir: &Path, name: &str) -> Result<String, String> {
+pub(crate) fn reference_app(dir: &Path, name: &str) -> Result<String, String> {
     patch_workspace(dir)?;
     let outcome = run_lgwks(dir, &["new", name, "--json"])?;
     if outcome.code != Some(0) {

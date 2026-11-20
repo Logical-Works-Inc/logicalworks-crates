@@ -212,33 +212,7 @@ impl Host {
             }
             self.state.hang = 2.5;
         }
-        Host::push(
-            frame,
-            Shape::Circle {
-                centre_x: spout_x,
-                centre_y: 0.0,
-                radius: self.state.hang * 0.7 + 3.0,
-            },
-        );
-        for step in 0..=6 {
-            let fraction = index_to_float(step) / 6.0;
-            Host::push(
-                frame,
-                Shape::Circle {
-                    centre_x: spout_x,
-                    centre_y: hang_y * fraction,
-                    radius: (self.state.hang * (0.42 + 0.1 * fraction)).max(2.2),
-                },
-            );
-        }
-        Host::push(
-            frame,
-            Shape::Circle {
-                centre_x: spout_x,
-                centre_y: hang_y,
-                radius: self.state.hang,
-            },
-        );
+        Self::push_hanging_drop(frame, spout_x, self.state.hang, hang_y);
         let floor = height - 2.0;
         for drop in &mut self.state.drops {
             if drop.landed {
@@ -291,6 +265,43 @@ impl Host {
             .retain(|bit| bit.centre_y <= floor - self.state.puddle + 2.0);
         self.state.puddle += (5.0 - self.state.puddle) * 0.0009 * dt_ms;
         self.state.puddle_amplitude *= 0.997_f64.powf(dt_ms);
+        self.push_puddle(frame, width, floor);
+    }
+
+    /// The hanging drop: its cap, the neck beads down to it, and its body.
+    fn push_hanging_drop(frame: &mut Frame, spout_x: f64, hang: f64, hang_y: f64) {
+        Host::push(
+            frame,
+            Shape::Circle {
+                centre_x: spout_x,
+                centre_y: 0.0,
+                radius: hang * 0.7 + 3.0,
+            },
+        );
+        for step in 0..=6 {
+            let fraction = index_to_float(step) / 6.0;
+            Host::push(
+                frame,
+                Shape::Circle {
+                    centre_x: spout_x,
+                    centre_y: hang_y * fraction,
+                    radius: (hang * (0.42 + 0.1 * fraction)).max(2.2),
+                },
+            );
+        }
+        Host::push(
+            frame,
+            Shape::Circle {
+                centre_x: spout_x,
+                centre_y: hang_y,
+                radius: hang,
+            },
+        );
+    }
+
+    /// The living puddle: a row of beads whose radius ripples with the
+    /// puddle's amplitude.
+    fn push_puddle(&self, frame: &mut Frame, width: f64, floor: f64) {
         let mut position_x = 0.0;
         while position_x <= width {
             let radius = self.state.puddle * 0.9

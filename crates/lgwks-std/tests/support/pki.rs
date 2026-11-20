@@ -54,7 +54,9 @@ impl rand_core::TryRng for SeededRng {
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
         for piece in dest.chunks_mut(8) {
             let word = self.0.next_u64().to_le_bytes();
-            piece.copy_from_slice(&word[..piece.len()]);
+            for (slot, byte) in piece.iter_mut().zip(word) {
+                *slot = byte;
+            }
         }
         Ok(())
     }
@@ -63,7 +65,7 @@ impl rand_core::TryRng for SeededRng {
 impl rand_core::TryCryptoRng for SeededRng {}
 
 /// Wrap `der` in PEM with `label`, 64 columns like `openssl` writes.
-pub fn pem_wrap(label: &str, der: &[u8]) -> Vec<u8> {
+pub(crate) fn pem_wrap(label: &str, der: &[u8]) -> Vec<u8> {
     let encoded = lgwks_std::encoding::base64::encode(der);
     let mut pem = format!("-----BEGIN {label}-----\n");
     let mut rest = encoded.as_str();
@@ -190,10 +192,13 @@ fn child_spans(mut rest: &[u8]) -> Result<Vec<&[u8]>, String> {
 /// parameters field is what turns the parameter-less encoding into the shape
 /// the loader admits.
 fn sec1_assembled(spans: &[&[u8]]) -> Result<Vec<u8>, String> {
-    if spans.len() != 3 || spans[0] != [0x02, 0x01, 0x01] {
+    let &[version, key, point] = spans else {
+        lgwks_std::trace::debug!("sec1_assembled: returning an error to the caller");
+        return Err("test PKI: SEC1 is not version, key and point".to_owned());
+    };
+    if version != [0x02, 0x01, 0x01] {
         Err("test PKI: SEC1 is not version, key and point".to_owned())
     } else {
-        let (version, key, point) = (spans[0], spans[1], spans[2]);
         let mut body_len = P256_PARAMS_FIELD.len();
         for span in spans {
             body_len = body_len.saturating_add(span.len());
@@ -219,7 +224,7 @@ fn sec1_assembled(spans: &[&[u8]]) -> Result<Vec<u8>, String> {
 /// RSA key for the mismatch proof, and an Ed25519 pair for the refusal
 /// proof. Every byte below is generated; nothing is read from disk.
 #[derive(Debug, Clone)]
-pub struct TestPki {
+pub(crate) struct TestPki {
     /// The CA certificate: the only trust root the tests configure.
     ca_der: Vec<u8>,
     /// The server certificate, with `localhost` and `127.0.0.1` SANs.
@@ -244,7 +249,7 @@ pub struct TestPki {
 }
 
 /// Generate the throwaway PKI named by `seed`.
-pub fn test_pki(seed: u64) -> Result<TestPki, String> {
+pub(crate) fn test_pki(seed: u64) -> Result<TestPki, String> {
     let mut rng = SeededRng(Seeded::from_seed(seed));
     let use_rng = &mut rng;
 
@@ -333,7 +338,7 @@ pub fn test_pki(seed: u64) -> Result<TestPki, String> {
 /// Both sides read the same blocks: the server proves they parse as DER,
 /// the client proves they build through the shipped loader.
 #[derive(Debug, Clone)]
-pub struct TestPkiPems {
+pub(crate) struct TestPkiPems {
     /// The CA certificate: the only trust root the tests configure.
     pub(crate) ca: Vec<u8>,
     /// The server certificate, with `localhost` and `127.0.0.1` SANs.
@@ -362,7 +367,7 @@ pub struct TestPkiPems {
 /// One generation serves both harnesses: the loopback server parses the same
 /// blocks the shipped client configures, so a second generation (and a
 /// second RSA keygen) would only burn time.
-pub fn test_pki_pems(seed: u64) -> Result<TestPkiPems, String> {
+pub(crate) fn test_pki_pems(seed: u64) -> Result<TestPkiPems, String> {
     let pki = test_pki(seed)?;
     Ok(TestPkiPems {
         ca: pem_wrap("CERTIFICATE", &pki.ca_der),

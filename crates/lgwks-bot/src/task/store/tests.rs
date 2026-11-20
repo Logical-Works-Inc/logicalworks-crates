@@ -3,6 +3,7 @@
 //! then one prefix is changed: the bytes are the acknowledged ones, so nothing but
 //! the stored head can say whether the length is the writer's.
 
+#[cfg(test)]
 use super::record::frame;
 use super::*;
 use crate::journal::frame::HEAD_BYTES;
@@ -60,7 +61,9 @@ fn require_refused(path: &Path, before: &[u8], at: u64, why: &str) -> TestResult
 fn a_lengthened_acknowledged_final_record_is_refused_not_trimmed() -> TestResult {
     let scratch = Scratch::new("store-lengthened")?;
     let bytes = written(scratch.path(), 3)?;
-    let last = frame_starts(&bytes, STORE_HEADER.len())?[2];
+    let last = *frame_starts(&bytes, STORE_HEADER.len())?
+        .get(2)
+        .ok_or("three records were written")?;
     let declared = declared_at(&bytes, last);
     for extra in (1u32..=40).chain([100, 255, 1024, 4096]) {
         let lied = with_prefix(&bytes, last, declared + extra);
@@ -76,7 +79,9 @@ fn a_lengthened_acknowledged_final_record_is_refused_not_trimmed() -> TestResult
 fn an_inflated_record_with_records_behind_it_is_refused_untouched() -> TestResult {
     let scratch = Scratch::new("store-inflated")?;
     let bytes = written(scratch.path(), 3)?;
-    let middle = frame_starts(&bytes, STORE_HEADER.len())?[1];
+    let middle = *frame_starts(&bytes, STORE_HEADER.len())?
+        .get(1)
+        .ok_or("three records were written")?;
     let remaining = u32::try_from(bytes.len() - middle)?;
     for declared in [remaining, remaining + 1, remaining + 31, remaining + 500] {
         let lied = with_prefix(&bytes, middle, declared);
@@ -92,7 +97,9 @@ fn an_inflated_record_with_records_behind_it_is_refused_untouched() -> TestResul
 fn a_damaged_cut_record_with_an_acknowledged_one_behind_it_is_refused() -> TestResult {
     let scratch = Scratch::new("store-damaged")?;
     let bytes = written(scratch.path(), 3)?;
-    let middle = frame_starts(&bytes, STORE_HEADER.len())?[1];
+    let middle = *frame_starts(&bytes, STORE_HEADER.len())?
+        .get(1)
+        .ok_or("three records were written")?;
     let remaining = u32::try_from(bytes.len() - middle)?;
     let mut lied = with_prefix(&bytes, middle, remaining + 7);
     if let Some(byte) = lied.get_mut(middle + 12) {
@@ -109,7 +116,9 @@ fn a_damaged_cut_record_with_an_acknowledged_one_behind_it_is_refused() -> TestR
 fn an_append_cut_inside_the_final_record_is_repaired() -> TestResult {
     let scratch = Scratch::new("store-cut")?;
     let bytes = written(scratch.path(), 3)?;
-    let last = frame_starts(&bytes, STORE_HEADER.len())?[2];
+    let last = *frame_starts(&bytes, STORE_HEADER.len())?
+        .get(2)
+        .ok_or("three records were written")?;
     let kept = u64::try_from(last)?;
     let whole = bytes.len() - last;
     for cut in [

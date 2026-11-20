@@ -157,7 +157,7 @@ fn check_tenant(
     tenant_no: usize,
     hasher: &mut Hasher,
 ) -> TestResult {
-    let tenant = TENANTS[tenant_no];
+    let tenant = *crate::sim::nth(&TENANTS, tenant_no)?;
     let mut expected: Vec<(&String, &ModelRun)> = model
         .runs
         .iter()
@@ -216,9 +216,36 @@ fn check_tenant(
     Ok(())
 }
 
+/// A refusal the model never predicted, fenced with its seed and operation.
+#[derive(Debug)]
+struct Unmodeled {
+    /// The seed that drew the step.
+    seed: u64,
+    /// The store operation that refused.
+    op: &'static str,
+    /// What the store said.
+    source: TenantStoreError,
+}
+
+impl std::fmt::Display for Unmodeled {
+    fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            out,
+            "seed {}: {} refused: {}",
+            self.seed, self.op, self.source
+        )
+    }
+}
+
+impl Error for Unmodeled {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
 /// Check one closer's answer against the model: a commit must match the
 /// model's openness, a lost run must be modeled closed, and any other refusal
-/// is fenced with its seed, run and operation attached.
+/// is fenced as [`Unmodeled`].
 ///
 /// One definition for the finish and abandon closers, so a refusal the store
 /// never modeled is named once rather than once per closer.
@@ -226,7 +253,6 @@ fn check_close(
     outcome: Result<bool, TenantStoreError>,
     open: bool,
     seed: u64,
-    run: &str,
     op: &'static str,
 ) -> TestResult<()> {
     match outcome {
@@ -234,15 +260,10 @@ fn check_close(
         Err(TenantStoreError::NoSuchRun { .. }) => {
             assert!(!open, "seed {seed}: a refused {op} must be modeled")
         }
-        Err(other) => {
-            lgwks_std::trace::warn!(
-                seed,
-                run = %run,
-                op,
-                %other,
-                "sim_tenant_store: a close fenced with an unexpected refusal"
-            );
-            return Err(format!("seed {seed}: {op} refused: {other}").into());
+        Err(source) => {
+            let refusal = Err(Unmodeled { seed, op, source }.into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "check_close: returning an error to the caller");
+            return refusal;
         }
     }
     Ok(())
@@ -258,20 +279,16 @@ fn close_finished(
     run: &str,
     hasher: &mut Hasher,
 ) -> TestResult {
-    let picked = rng.index(VERDICTS.len())?;
+    let verdict = *crate::sim::nth(&VERDICTS, rng.index(VERDICTS.len())?)?;
     let finished = next_moment(&mut *model);
-    let open = close_model(
-        &mut *model,
-        run,
-        ModelClose::Finished {
-            verdict: VERDICTS[picked].to_owned(),
-        },
-    )?;
+    let close = ModelClose::Finished {
+        verdict: verdict.to_owned(),
+    };
+    let open = close_model(&mut *model, run, close)?;
     check_close(
-        store.finish_run(run, VERDICTS[picked], &finished, "record", "seal"),
+        store.finish_run(run, verdict, &finished, "record", "seal"),
         open,
         seed,
-        run,
         "finish",
     )?;
     observe(hasher, "finish", &format!("{run}/{open}"));
@@ -289,7 +306,7 @@ fn close_abandoned(
 ) -> TestResult {
     let done = next_moment(&mut *model);
     let open = abandon_model(&mut *model, run)?;
-    check_close(store.abandon(run, &done), open, seed, run, "abandon")?;
+    check_close(store.abandon(run, &done), open, seed, "abandon")?;
     observe(hasher, "abandon", &format!("{run}/{open}"));
     Ok(())
 }
@@ -299,148 +316,215 @@ fn run_seed(seed: u64) -> TestResult<String> {
     let scratch = Scratch::new("sim-tenant-store")?;
     let dir = scratch.path();
     let mut store = TenantStore::open(dir)?;
-    let mut model = Model::default();
-    let mut rng = Seeded::from_seed(seed);
     let mut hasher = Hasher::new();
     hasher.write_framed(&seed.to_le_bytes());
-    let mut step_no = 0usize;
-    while step_no < STEPS_PER_SEED {
-        step_no = step_no.saturating_add(1);
-        let choice = rng.below(100)?;
-        let tenant_no = rng.index(TENANTS.len())?;
-        let tenant = TENANTS[tenant_no];
-        if choice < 8 {
-            let done = model.policies.insert(tenant_no, ()).is_some();
-            match store.init_policy(tenant, "[\"fmt\"]", 1, "2026-10-07T00:00:00Z") {
-                Ok(()) => assert!(!done, "seed {seed}: a first init must be novel"),
-                Err(TenantStoreError::AlreadyInitialised { .. }) => {
-                    assert!(done, "seed {seed}: a refused init must be modeled")
-                }
-                Err(other) => {
-                    lgwks_std::trace::warn!(
-                        seed,
-                        tenant,
-                        %other,
-                        "sim_tenant_store: init fenced with an unexpected refusal"
-                    );
-                    return Err(format!("seed {seed}: init refused: {other}").into());
-                }
-            }
-            observe(&mut hasher, "init", &format!("{tenant}/{done}"));
-        } else if choice < 38 {
-            let run = next_run(&mut model, tenant_no);
-            let lane_count = 1u64.saturating_add(rng.below(3)?);
-            let mut ids: Vec<String> = Vec::new();
-            let mut lane_no = 0u64;
-            while lane_no < lane_count {
-                ids.push(format!("lane-{lane_no}"));
-                lane_no = lane_no.saturating_add(1);
-            }
-            let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-            let started = next_moment(&mut model);
-            let duplicate = model.runs.contains_key(&run);
-            match store.begin_run(
-                &RunStart::new(&run, tenant, "/repo", "host", 1, "lock", &started),
-                &refs,
-            ) {
-                Ok(()) => {
-                    assert!(!duplicate, "seed {seed}: a begun run must be novel");
-                    model.runs.insert(
-                        run.clone(),
-                        ModelRun {
-                            tenant: tenant_no,
-                            started,
-                            lanes: ids.iter().map(|_| ModelLane::Pending).collect(),
-                            close: None,
-                        },
-                    );
-                }
-                Err(TenantStoreError::DuplicateRun { .. }) => {
-                    assert!(duplicate, "seed {seed}: a refused begin must be modeled")
-                }
-                Err(other) => {
-                    lgwks_std::trace::warn!(
-                        seed,
-                        run = %run,
-                        %other,
-                        "sim_tenant_store: begin fenced with an unexpected refusal"
-                    );
-                    return Err(format!("seed {seed}: begin refused: {other}").into());
-                }
-            }
-            observe(&mut hasher, "begin", &format!("{run}/{duplicate}"));
-            check_tenant(&store, &model, tenant_no, &mut hasher)?;
-        } else if choice < 52 {
-            let Some((run, lane)) = pick_lane(&mut rng, &model)? else {
-                continue;
-            };
-            let outcome = step_lane(&mut model, &run, lane, true)?;
-            match store.lane_dispatched(&run, lane) {
-                Ok(()) => assert!(outcome, "seed {seed}: a committed dispatch must be modeled"),
-                Err(TenantStoreError::LaneLost { .. } | TenantStoreError::NoSuchRun { .. }) => {
-                    assert!(!outcome, "seed {seed}: a refused dispatch must be modeled")
-                }
-                Err(other) => {
-                    lgwks_std::trace::warn!(
-                        seed,
-                        run = %run,
-                        lane,
-                        %other,
-                        "sim_tenant_store: dispatch fenced with an unexpected refusal"
-                    );
-                    return Err(format!("seed {seed}: dispatch refused: {other}").into());
-                }
-            }
-            observe(&mut hasher, "dispatch", &format!("{run}/{lane}/{outcome}"));
-            check_tenant(&store, &model, model_tenant(&model, &run)?, &mut hasher)?;
-        } else if choice < 66 {
-            let Some((run, lane)) = pick_lane(&mut rng, &model)? else {
-                continue;
-            };
-            let picked = rng.index(OUTCOMES.len())?;
-            let outcome_text = OUTCOMES[picked];
-            let done = step_lane(&mut model, &run, lane, false)?;
-            match store.lane_ended(&run, lane, outcome_text, "detail", b"tail") {
-                Ok(()) => {
-                    assert!(done, "seed {seed}: a committed end must be modeled");
-                    end_model_lane(&mut model, &run, lane, outcome_text)?;
-                }
-                Err(TenantStoreError::LaneLost { .. } | TenantStoreError::NoSuchRun { .. }) => {
-                    assert!(!done, "seed {seed}: a refused end must be modeled")
-                }
-                Err(other) => {
-                    lgwks_std::trace::warn!(
-                        seed,
-                        run = %run,
-                        lane,
-                        %other,
-                        "sim_tenant_store: end fenced with an unexpected refusal"
-                    );
-                    return Err(format!("seed {seed}: end refused: {other}").into());
-                }
-            }
-            observe(&mut hasher, "end", &format!("{run}/{lane}/{done}"));
-            check_tenant(&store, &model, model_tenant(&model, &run)?, &mut hasher)?;
-        } else if choice < 86 {
-            let Some((run, _)) = pick_run(&mut rng, &model)? else {
-                continue;
-            };
-            if rng.below(2)? == 0 {
-                close_finished(&store, &mut model, seed, &mut rng, &run, &mut hasher)?;
-            } else {
-                close_abandoned(&store, &mut model, seed, &run, &mut hasher)?;
-            }
-            check_tenant(&store, &model, model_tenant(&model, &run)?, &mut hasher)?;
-        } else {
+    let mut drive = Drive {
+        seed,
+        model: Model::default(),
+        rng: Seeded::from_seed(seed),
+        hasher,
+    };
+    for _ in 0..STEPS_PER_SEED {
+        if drive.step(&store)? {
             drop(store);
             store = TenantStore::open(dir)?;
-            observe(&mut hasher, "reopen", "ok");
-            for tenant_no in 0..TENANTS.len() {
-                check_tenant(&store, &model, tenant_no, &mut hasher)?;
-            }
+            drive.reopened(&store)?;
         }
     }
-    Ok(hasher.finalize().to_hex())
+    Ok(drive.hasher.finalize().to_hex())
+}
+
+/// One seed's draws, its model and its trace; the store is lent per step so a
+/// restart can drop and reopen it.
+struct Drive {
+    /// The seed, named in every failure.
+    seed: u64,
+    /// What the store must hold.
+    model: Model,
+    /// The seed's draws.
+    rng: Seeded,
+    /// The trace hash under construction.
+    hasher: Hasher,
+}
+
+impl Drive {
+    /// Draw and run one step; true when the seed asks for a restart.
+    fn step(&mut self, store: &TenantStore) -> TestResult<bool> {
+        let choice = self.rng.below(100)?;
+        let tenant_no = self.rng.index(TENANTS.len())?;
+        let stepped = match choice {
+            0..=7 => self.init(store, tenant_no),
+            8..=37 => self.begin(store, tenant_no),
+            38..=51 => self.dispatch(store),
+            52..=65 => self.end(store),
+            66..=85 => self.close(store),
+            _ => return Ok(true),
+        };
+        stepped?;
+        Ok(false)
+    }
+
+    /// After a restart: every tenant must read back what the model holds.
+    fn reopened(&mut self, store: &TenantStore) -> TestResult {
+        observe(&mut self.hasher, "reopen", "ok");
+        for tenant_no in 0..TENANTS.len() {
+            check_tenant(store, &self.model, tenant_no, &mut self.hasher)?;
+        }
+        Ok(())
+    }
+
+    /// Check the tenant that owns `run` against the model.
+    fn recheck(&mut self, store: &TenantStore, run: &str) -> TestResult {
+        let tenant_no = model_tenant(&self.model, run)?;
+        check_tenant(store, &self.model, tenant_no, &mut self.hasher)
+    }
+
+    /// Initialise `tenant_no`'s policy: novel once, refused after.
+    fn init(&mut self, store: &TenantStore, tenant_no: usize) -> TestResult {
+        let seed = self.seed;
+        let tenant = *crate::sim::nth(&TENANTS, tenant_no)?;
+        let done = self.model.policies.insert(tenant_no, ()).is_some();
+        match store.init_policy(tenant, "[\"fmt\"]", 1, "2026-10-07T00:00:00Z") {
+            Ok(()) => assert!(!done, "seed {seed}: a first init must be novel"),
+            Err(TenantStoreError::AlreadyInitialised { .. }) => {
+                assert!(done, "seed {seed}: a refused init must be modeled")
+            }
+            Err(source) => {
+                let refusal = Err(Unmodeled {
+                    seed,
+                    op: "init",
+                    source,
+                }
+                .into());
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "init: returning an error to the caller");
+                return refusal;
+            }
+        }
+        observe(&mut self.hasher, "init", &format!("{tenant}/{done}"));
+        Ok(())
+    }
+
+    /// Begin a run with one to three lanes: novel once, refused on a duplicate.
+    fn begin(&mut self, store: &TenantStore, tenant_no: usize) -> TestResult {
+        let seed = self.seed;
+        let tenant = *crate::sim::nth(&TENANTS, tenant_no)?;
+        let run = next_run(&mut self.model, tenant_no);
+        let lane_count = 1u64.saturating_add(self.rng.below(3)?);
+        let ids: Vec<String> = (0..lane_count).map(|lane| format!("lane-{lane}")).collect();
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let started = next_moment(&mut self.model);
+        let duplicate = self.model.runs.contains_key(&run);
+        match store.begin_run(
+            &RunStart::new(&run, tenant, "/repo", "host", 1, "lock", &started),
+            &refs,
+        ) {
+            Ok(()) => {
+                assert!(!duplicate, "seed {seed}: a begun run must be novel");
+                self.model.runs.insert(
+                    run.clone(),
+                    ModelRun {
+                        tenant: tenant_no,
+                        started,
+                        lanes: ids.iter().map(|_| ModelLane::Pending).collect(),
+                        close: None,
+                    },
+                );
+            }
+            Err(TenantStoreError::DuplicateRun { .. }) => {
+                assert!(duplicate, "seed {seed}: a refused begin must be modeled")
+            }
+            Err(source) => {
+                let refusal = Err(Unmodeled {
+                    seed,
+                    op: "begin",
+                    source,
+                }
+                .into());
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "begin: returning an error to the caller");
+                return refusal;
+            }
+        }
+        observe(&mut self.hasher, "begin", &format!("{run}/{duplicate}"));
+        check_tenant(store, &self.model, tenant_no, &mut self.hasher)
+    }
+
+    /// Dispatch one drawn lane: committed exactly when the model says so.
+    fn dispatch(&mut self, store: &TenantStore) -> TestResult {
+        let seed = self.seed;
+        let Some((run, lane)) = pick_lane(&mut self.rng, &self.model)? else {
+            return Ok(());
+        };
+        let outcome = step_lane(&mut self.model, &run, lane, true)?;
+        match store.lane_dispatched(&run, lane) {
+            Ok(()) => assert!(outcome, "seed {seed}: a committed dispatch must be modeled"),
+            Err(TenantStoreError::LaneLost { .. } | TenantStoreError::NoSuchRun { .. }) => {
+                assert!(!outcome, "seed {seed}: a refused dispatch must be modeled")
+            }
+            Err(source) => {
+                let refusal = Err(Unmodeled {
+                    seed,
+                    op: "dispatch",
+                    source,
+                }
+                .into());
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "dispatch: returning an error to the caller");
+                return refusal;
+            }
+        }
+        observe(
+            &mut self.hasher,
+            "dispatch",
+            &format!("{run}/{lane}/{outcome}"),
+        );
+        self.recheck(store, &run)
+    }
+
+    /// End one drawn lane with a drawn outcome: committed exactly when modeled.
+    fn end(&mut self, store: &TenantStore) -> TestResult {
+        let seed = self.seed;
+        let Some((run, lane)) = pick_lane(&mut self.rng, &self.model)? else {
+            return Ok(());
+        };
+        let outcome_text = *crate::sim::nth(&OUTCOMES, self.rng.index(OUTCOMES.len())?)?;
+        let done = step_lane(&mut self.model, &run, lane, false)?;
+        match store.lane_ended(&run, lane, outcome_text, "detail", b"tail") {
+            Ok(()) => {
+                assert!(done, "seed {seed}: a committed end must be modeled");
+                end_model_lane(&mut self.model, &run, lane, outcome_text)?;
+            }
+            Err(TenantStoreError::LaneLost { .. } | TenantStoreError::NoSuchRun { .. }) => {
+                assert!(!done, "seed {seed}: a refused end must be modeled")
+            }
+            Err(source) => {
+                let refusal = Err(Unmodeled {
+                    seed,
+                    op: "end",
+                    source,
+                }
+                .into());
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "end: returning an error to the caller");
+                return refusal;
+            }
+        }
+        observe(&mut self.hasher, "end", &format!("{run}/{lane}/{done}"));
+        self.recheck(store, &run)
+    }
+
+    /// Finish or abandon one drawn run.
+    fn close(&mut self, store: &TenantStore) -> TestResult {
+        let Some((run, _)) = pick_run(&mut self.rng, &self.model)? else {
+            return Ok(());
+        };
+        if self.rng.below(2)? == 0 {
+            let (seed, model, rng, hasher) =
+                (self.seed, &mut self.model, &mut self.rng, &mut self.hasher);
+            close_finished(store, model, seed, rng, &run, hasher)?;
+        } else {
+            let (seed, model, hasher) = (self.seed, &mut self.model, &mut self.hasher);
+            close_abandoned(store, model, seed, &run, hasher)?;
+        }
+        self.recheck(store, &run)
+    }
 }
 
 /// One modeled run id drawn from the model, or `None` when the seed began
@@ -451,7 +535,7 @@ fn pick_run(rng: &mut Seeded, model: &Model) -> TestResult<Option<(String, usize
         return Ok(None);
     }
     let picked = rng.index(ids.len())?;
-    let run = ids[picked].clone();
+    let run = crate::sim::nth(&ids, picked)?.clone();
     let tenant = model
         .runs
         .get(&run)
@@ -471,9 +555,7 @@ fn pick_lane(rng: &mut Seeded, model: &Model) -> TestResult<Option<(String, usiz
         return Ok(None);
     };
     let drawn = rng.below(4)?;
-    let lane =
-        usize::try_from(drawn).map_err(|error| format!("the lane draw does not fit: {error}"))?;
-    Ok(Some((run, lane)))
+    Ok(Some((run, usize::try_from(drawn)?)))
 }
 
 /// The tenant that owns `run` in the model.
@@ -578,13 +660,15 @@ fn seeded_histories_match_the_model_and_replay() -> TestResult {
         hashes.push(first);
         seed = seed.saturating_add(1);
     }
-    let count = u64::try_from(hashes.len())
-        .map_err(|error| format!("the seed count does not fit: {error}"))?;
-    assert_eq!(count, SEEDS, "every seed must leave a hash");
-    let diverge = match (hashes.first(), hashes.get(1)) {
-        (Some(first), Some(second)) => first != second,
-        _ => false,
-    };
-    assert!(diverge, "distinct seeds must drive distinct histories");
+    assert_eq!(
+        u64::try_from(hashes.len())?,
+        SEEDS,
+        "every seed must leave a hash"
+    );
+    assert_ne!(
+        hashes.first(),
+        hashes.get(1),
+        "distinct seeds must drive distinct histories"
+    );
     Ok(())
 }

@@ -13,7 +13,7 @@ use crate::clock::Clock;
 use crate::effect::ActionId;
 use crate::error::KernelError;
 use crate::gate::GrantSet;
-use crate::journal::{AttemptStatus, DurabilityPromise, JournalError, recover};
+use crate::journal::{Attempt, AttemptStatus, DurabilityPromise, JournalError, recover};
 use crate::spec::{ChainEntry, Witness, typed_entry};
 use crate::verb::{Evaluate, Execute, Observe};
 
@@ -473,6 +473,162 @@ pub struct EcsObserveBuilder<S> {
     pub(super) poll_deadline: Duration,
 }
 
+/// Hand `error` back to the caller of `assemble`, leaving a trace of it.
+fn refused<T>(error: EcsError) -> Result<T, EcsError> {
+    let refusal = Err(error);
+    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
+    refusal
+}
+
+/// The refusals that need nothing built: an empty name, a poll budget that is
+/// zero or past its ceiling, and no effect scope. Returns the scope.
+///
+/// A budget of zero cancels every poll before its first poll, so a bot built
+/// with one observes nothing forever and reports every chain as stalled. The
+/// scope is refused before the capability gate, because a bot that cannot record
+/// a dispatch is not one that is missing a capability: it was never given a
+/// dispatch path.
+fn admitted_parts(
+    name: &str,
+    poll_deadline: Duration,
+    effects: Option<EffectScope>,
+) -> Result<EffectScope, EcsError> {
+    if name.is_empty() {
+        return refused(EcsError::IncompleteSpec {
+            field: "name",
+            cause: String::from("the bot was given an empty name"),
+        });
+    }
+    if poll_deadline.is_zero() {
+        return refused(EcsError::PollDeadlineUnbounded {
+            deadline: poll_deadline,
+        });
+    }
+    if poll_deadline > MAX_POLL_DEADLINE {
+        return refused(EcsError::PollDeadlineExceeded {
+            deadline: poll_deadline,
+            ceiling: MAX_POLL_DEADLINE,
+        });
+    }
+    match effects {
+        Some(scope) => Ok(scope),
+        None => refused(EcsError::IncompleteSpec {
+            field: "effects",
+            cause: String::from(
+                "no effect scope was supplied, so a dispatch could not be recorded",
+            ),
+        }),
+    }
+}
+
+/// The admission gate `Bot::build` applies, from one pass over every chain: each
+/// unmet requirement is attributed to the domain that declared it, so a bot
+/// short of four capabilities is told so at once, not in four refusals.
+fn admit_capabilities(chains: &[EcsChain], grants: &GrantSet) -> Result<(), EcsError> {
+    let mut shortages: Vec<Shortage> = Vec::new();
+    for chain in chains {
+        shortages.extend(grants.uncovered(
+            chain.source.required_caps(),
+            &Demand::new(chain.source.domain_id()),
+        ));
+        for entry in &chain.entries {
+            shortages.extend(grants.uncovered(
+                entry.action.required_caps(),
+                &Demand::new(entry.action.domain_id()),
+            ));
+        }
+    }
+    if let Some(deficit) = Deficit::from_shortages(shortages) {
+        return refused(EcsError::from(KernelError::CapabilityDenied { deficit }));
+    }
+    Ok(())
+}
+
+/// Insert the per-tick resources, sized to `count` chains where each has a slot
+/// per chain, so the observation path never resizes them. `seen` starts empty of
+/// revisions: a chain with no committed value has nothing a source's revision
+/// could equal, so its first tick is a poll like any other. `TickReport` is a
+/// resource rather than a field on the bot, so the observation phase and the
+/// schedule step write the one record `tick_report` reads.
+fn insert_scratch(world: &mut World, count: usize) {
+    world.insert_non_send(Polled::default());
+    world.insert_non_send(ChangeTicks {
+        seen: vec![None; count],
+        polled: vec![None; count],
+    });
+    world.insert_non_send(AdmitScratch::default());
+    world.insert_non_send(Moved::default());
+    world.insert_non_send(Plan::default());
+    world.insert_non_send(PollScratch::default());
+    world.insert_non_send(Invalidated {
+        reasons: vec![None; count],
+    });
+    world.insert_non_send(Committed {
+        slots: vec![SlotAdmission::default(); count],
+    });
+    world.insert_resource(TickReport::default());
+}
+
+/// Fold every attempt the journal names into `ledger`, not only the uncertain
+/// ones: a recorded outcome sets the attempt the action must mint next, and an
+/// attempt whose effect landed is retired rather than dispatched again. A key
+/// naming an action this bot does not declare, or another run, flow or
+/// environment, is a foreign journal and is refused (issue #101).
+fn fold_attempts(ledger: &mut Ledger, attempts: &[Attempt]) -> Result<(), EcsError> {
+    for attempt in attempts {
+        let key = attempt.key();
+        let identity = ledger.effects.identity();
+        let foreign = key.run() != identity.run()
+            || key.flow() != identity.flow()
+            || key.environment() != identity.environment();
+        if ledger.locate(key.action()).is_none() || foreign {
+            return refused(EcsError::from(KernelError::ActionNotDeclared {
+                action: key.action(),
+            }));
+        }
+        ledger
+            .effects
+            .note_journal_attempt(key.action(), key.attempt());
+        let durable = ledger.effects.scope.journal().durability() != DurabilityPromise::Ephemeral;
+        let evidence = match attempt.status() {
+            // A dispatch with no outcome: nothing established that the bytes did
+            // not arrive, so the action is held until a caller settles it.
+            AttemptStatus::OutcomeUnknown => {
+                ledger.effects.unsettled.push(key);
+                continue;
+            }
+            // `Prepared`: the intent was admitted and nothing was handed over.
+            AttemptStatus::Prepared => continue,
+            AttemptStatus::NotApplied => EffectEvidence::NotApplied,
+            // A failed predicate is an effect that landed, so it is never resent.
+            AttemptStatus::Applied
+            | AttemptStatus::Verified
+            | AttemptStatus::VerificationFailed => EffectEvidence::Applied,
+        };
+        // A durable journal needs a positioned receipt before replay treats a
+        // known outcome as settled: the record alone may sit below its grade.
+        let confirmed = if durable {
+            match ledger.effects.confirm_recorded_outcome(key, evidence) {
+                Ok(_) => true,
+                Err(cause) => {
+                    ledger.effects.recording.push(RecordedOutcome {
+                        key,
+                        evidence,
+                        cause,
+                    });
+                    false
+                }
+            }
+        } else {
+            true
+        };
+        if confirmed && evidence == EffectEvidence::Applied {
+            ledger.effects.note_applied(key);
+        }
+    }
+    Ok(())
+}
+
 impl EcsBot {
     /// Validate and assemble. Shared by both terminal builder calls so
     /// admission cannot drift between them, the same rule
@@ -485,47 +641,7 @@ impl EcsBot {
         effects: Option<EffectScope>,
         poll_deadline: Duration,
     ) -> Result<Self, EcsError> {
-        if name.is_empty() {
-            let refusal = Err(EcsError::IncompleteSpec {
-                field: "name",
-                cause: String::from("the bot was given an empty name"),
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-            return refusal;
-        }
-        // Refused before anything is built or polled, and for the same reason the
-        // name is: a budget of zero cancels every poll before its first poll, so
-        // a bot built with one observes nothing forever and reports every chain
-        // as stalled. A refusal here names the number and the repair rather than
-        // producing a bot whose every tick is a cancellation.
-        if poll_deadline.is_zero() {
-            let refusal = Err(EcsError::PollDeadlineUnbounded {
-                deadline: poll_deadline,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-            return refusal;
-        }
-        if poll_deadline > MAX_POLL_DEADLINE {
-            let refusal = Err(EcsError::PollDeadlineExceeded {
-                deadline: poll_deadline,
-                ceiling: MAX_POLL_DEADLINE,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-            return refusal;
-        }
-        // Refused before the capability gate, because a bot that cannot record
-        // a dispatch is not a bot that is missing a capability — it is one that
-        // was never given a dispatch path, and the repair is different.
-        let Some(effects) = effects else {
-            let refusal = Err(EcsError::IncompleteSpec {
-                field: "effects",
-                cause: String::from(
-                    "no effect scope was supplied, so a dispatch could not be recorded",
-                ),
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-            return refusal;
-        };
+        let effects = admitted_parts(&name, poll_deadline, effects)?;
         // What recovery found, folded in before the world exists. A key naming
         // an action this bot does not declare is a foreign journal — the
         // record belongs to a different bot or a different revision of this
@@ -573,24 +689,7 @@ impl EcsBot {
         // required set minus the granted set — so it reports the whole of it,
         // and the caller has one list to act on rather than a sequence to
         // discover.
-        let mut shortages: Vec<Shortage> = Vec::new();
-        for chain in &chains {
-            shortages.extend(grants.uncovered(
-                chain.source.required_caps(),
-                &Demand::new(chain.source.domain_id()),
-            ));
-            for entry in &chain.entries {
-                shortages.extend(grants.uncovered(
-                    entry.action.required_caps(),
-                    &Demand::new(entry.action.domain_id()),
-                ));
-            }
-        }
-        if let Some(deficit) = Deficit::from_shortages(shortages) {
-            let refusal = Err(EcsError::from(KernelError::CapabilityDenied { deficit }));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-            return refusal;
-        }
+        admit_capabilities(&chains, grants)?;
 
         // Each source's cadence, read once: a zero `Every` is refused here,
         // before the world exists (ADR 0006 R5).
@@ -654,83 +753,7 @@ impl EcsBot {
         //     append rather than a dispatch;
         //   - the attempts whose effect landed, which the walk retires rather
         //     than dispatching again.
-        for attempt in recovered.attempts() {
-            let key = attempt.key();
-            if ledger.locate(key.action()).is_none() {
-                let refusal = Err(EcsError::from(KernelError::ActionNotDeclared {
-                    action: key.action(),
-                }));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-                return refusal;
-            }
-            // The journal's key must name this run, this flow, and this
-            // environment. A journal that holds keys from any of the others is
-            // the foreign-journal case one step finer: the action matches, the
-            // ownership identity does not, and folding it in would dispatch an
-            // action whose earlier attempt belongs to a different bot (issue
-            // #101).
-            let identity = ledger.effects.identity();
-            if key.run() != identity.run()
-                || key.flow() != identity.flow()
-                || key.environment() != identity.environment()
-            {
-                let refusal = Err(EcsError::from(KernelError::ActionNotDeclared {
-                    action: key.action(),
-                }));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assemble: returning an error to the caller");
-                return refusal;
-            }
-            ledger
-                .effects
-                .note_journal_attempt(key.action(), key.attempt());
-            match attempt.status() {
-                // A dispatch with no outcome. Nothing established that the
-                // bytes did not arrive, so the action is held until a caller
-                // settles it.
-                AttemptStatus::OutcomeUnknown => ledger.effects.unsettled.push(key),
-                // A durable journal needs a positioned receipt before replay
-                // treats a known outcome as settled. The record alone may have
-                // landed below its advertised grade.
-                // A failed predicate is an effect that landed, so it is never
-                // resent; the failure is read from the status, not from here.
-                AttemptStatus::Applied
-                | AttemptStatus::Verified
-                | AttemptStatus::VerificationFailed => {
-                    if ledger.effects.scope.journal().durability() == DurabilityPromise::Ephemeral {
-                        ledger.effects.note_applied(key);
-                    } else if let Err(cause) = ledger
-                        .effects
-                        .confirm_recorded_outcome(key, EffectEvidence::Applied)
-                    {
-                        ledger.effects.recording.push(RecordedOutcome {
-                            key,
-                            evidence: EffectEvidence::Applied,
-                            cause,
-                        });
-                    } else {
-                        ledger.effects.note_applied(key);
-                    }
-                }
-                // Nothing to hold. `Prepared` means the intent was admitted and
-                // nothing was handed over, and `NotApplied` means exactly that
-                // the bytes did not arrive; both leave the entry free to be
-                // attempted again, under the next attempt identity.
-                AttemptStatus::Prepared => {}
-                AttemptStatus::NotApplied => {
-                    if ledger.effects.scope.journal().durability() != DurabilityPromise::Ephemeral
-                        && let Err(cause) = ledger
-                            .effects
-                            .confirm_recorded_outcome(key, EffectEvidence::NotApplied)
-                    {
-                        ledger.effects.recording.push(RecordedOutcome {
-                            key,
-                            evidence: EffectEvidence::NotApplied,
-                            cause,
-                        });
-                    }
-                }
-            }
-        }
+        fold_attempts(&mut ledger, recovered.attempts())?;
         world.insert_non_send(Chains(chains));
         // Not `vec![None; count]`: `Box<dyn Any>` is not `Clone`, so the
         // repeat-form macro cannot build this.
@@ -738,48 +761,7 @@ impl EcsBot {
         // The eligible work of the bot, one idle slot per chain. Non-send,
         // because each transition owns the observed payload it is bound to.
         world.insert_non_send(ledger);
-        // The two staging resources the awaited phases hand to the schedule.
-        // Inserted here rather than at first use so every phase can name them
-        // unconditionally: a phase that found one missing would have to decide
-        // what that means, and there is no answer that is better than "this
-        // cannot happen".
-        world.insert_non_send(Polled::default());
-        // The change ticks, sized here so neither buffer is ever resized on the
-        // observation path. `seen` starts empty of revisions: a chain with no
-        // committed value has nothing a source's revision could equal, so its
-        // first tick is a poll like any other.
-        world.insert_non_send(ChangeTicks {
-            seen: vec![None; count],
-            polled: vec![None; count],
-        });
-        // The change flags and the plan's buffers are per-tick scratch, inserted
-        // here so the first tick allocates them once and every later tick reuses
-        // the same allocations. Nothing else writes them.
-        world.insert_non_send(AdmitScratch::default());
-        world.insert_non_send(Moved::default());
-        world.insert_non_send(Plan::default());
-        // The observation phase's own scratch, empty on purpose: the first tick
-        // sizes these to the world and every tick after reuses that capacity,
-        // which is the whole of how a tick that changed nothing came to cost no
-        // allocations at all.
-        world.insert_non_send(PollScratch::default());
-        // One slot per chain, sized here so the observation phase never resizes
-        // it: a `resize` per tick would be an allocation the first time and a
-        // capacity check every tick after, for a buffer whose length is the
-        // chain count and is already known.
-        world.insert_non_send(Invalidated {
-            reasons: vec![None; count],
-        });
-        // Same shape and the same reason: the supersession check asks one
-        // question per chain, and a walk of the transitions to answer it would
-        // be a per-chain scan on every tick for a question that has one.
-        world.insert_non_send(Committed {
-            slots: vec![SlotAdmission::default(); count],
-        });
-        // A resource rather than a field on the bot, so the observation phase
-        // and the schedule step — two functions that can only reach the world —
-        // write one record and `tick_report` reads the same one they wrote.
-        world.insert_resource(TickReport::default());
+        insert_scratch(&mut world, count);
 
         let mut schedule = schedule();
         validate(&mut schedule, &mut world)?;
@@ -793,44 +775,8 @@ impl EcsBot {
     }
 }
 
-// ── `Debug` for the assembled bot and its two builders ─────────────────────
-//
-// Written as impls rather than derives because a derive line added above a type
-// would renumber the citations the module's own docs make by line number, and
-// because `EcsObserveBuilder<S>` and `EcsBuilder` hold `dyn` seams that no
-// derive can cross. Each rendering reports the shape a caller can act on — the
-// name, how many chains or entries are staged, the retry policy — and stops
-// short of the engine's own state through `finish_non_exhaustive`, which marks
-// the omission instead of hiding it.
-
-impl core::fmt::Debug for EcsBot {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EcsBot")
-            .field("name", &self.name)
-            .finish_non_exhaustive()
-    }
-}
-
-impl core::fmt::Debug for EcsBuilder {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EcsBuilder")
-            .field("name", &self.name)
-            .field("chains", &self.chains.len())
-            .field("policy", &self.policy)
-            .finish()
-    }
-}
-
-impl<S> core::fmt::Debug for EcsObserveBuilder<S> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("EcsObserveBuilder")
-            .field("name", &self.name)
-            .field("prior", &self.prior.len())
-            .field("entries", &self.entries.len())
-            .field("policy", &self.policy)
-            .finish_non_exhaustive()
-    }
-}
+// `Debug` for the assembled bot and its two builders lives in its own file.
+mod debug;
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 //

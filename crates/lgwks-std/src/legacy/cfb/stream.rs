@@ -221,35 +221,8 @@ pub fn build_image(streams: &[(&str, &[u8])], limits: &Limits) -> Result<Vec<u8>
     let chain_sectors = dir_sectors.saturating_add(data_sectors);
     let fat_entries = chain_sectors.saturating_add(2);
     let fat_sectors = fat_entries.saturating_mul(4).div_ceil(SECTOR);
-    let mut image: Vec<u8> = Vec::new();
-    image.extend_from_slice(&super::MAGIC);
-    image.extend_from_slice(&[0_u8; 16]);
-    push_u16_le(&mut image, 0x003e);
-    push_u16_le(&mut image, 3);
-    push_u16_le(&mut image, 0xfffe);
-    push_u16_le(&mut image, 9);
-    push_u16_le(&mut image, 6);
-    image.extend_from_slice(&[0_u8; 6]);
-    push_u32_le(&mut image, 0);
-    push_u32_le(&mut image, narrow_sector_count(fat_sectors)?);
-    push_u32_le(&mut image, narrow_sector_count(fat_sectors)?);
-    push_u32_le(&mut image, 0);
-    push_u32_le(&mut image, WRITER_CUTOFF);
-    push_u32_le(&mut image, ENDOFCHAIN);
-    push_u32_le(&mut image, 0);
-    push_u32_le(&mut image, ENDOFCHAIN);
-    push_u32_le(&mut image, 0);
+    let mut image = image_header(fat_sectors)?;
     let fat_base = narrow_sector_count(fat_sectors)?;
-    for index in 0..109_usize {
-        if index < fat_sectors {
-            push_u32_le(&mut image, narrow_sector_count(index)?);
-        } else {
-            push_u32_le(&mut image, FREESECT);
-        }
-    }
-    while image.len() < HEADER_LEN {
-        image.push(0);
-    }
     let mut fat: Vec<u32> = vec![FATSECT; fat_sectors.max(1)];
     let mut next_sector: u32 = fat_base;
     let mut dir_starts: Vec<u32> = Vec::new();
@@ -273,38 +246,21 @@ pub fn build_image(streams: &[(&str, &[u8])], limits: &Limits) -> Result<Vec<u8>
         stream_starts.push(start);
         stream_sectors.push(run);
     }
-    let total_sectors = match usize::try_from(next_sector) {
-        Ok(drawn) => drawn,
-        Err(_) => {
-            let refusal = Err(CfbError::Truncated { offset: 0, need: 1 });
-            #[cfg(feature = "trace")]
-            crate::trace::debug!("cfb: refusing an image past the sector address width");
-            return refusal;
-        }
+    let Ok(total_sectors) = usize::try_from(next_sector) else {
+        let refusal = Err(CfbError::Truncated { offset: 0, need: 1 });
+        #[cfg(feature = "trace")]
+        crate::trace::debug!("cfb: refusing an image past the sector address width");
+        return refusal;
     };
     while fat.len() < total_sectors {
         fat.push(FREESECT);
     }
-    for run in stream_sectors.iter() {
-        let mut previous: Option<u32> = None;
-        for sector in run.iter() {
-            if let Some(done) = previous {
-                fat_set(&mut fat, done, *sector)?;
-            }
-            previous = Some(*sector);
-        }
-        if let Some(last) = previous {
-            fat_set(&mut fat, last, ENDOFCHAIN)?;
-        }
+    for run in &stream_sectors {
+        chain_run(&mut fat, run)?;
     }
     // The directory is one chain, sector to sector, like a stream: a
     // directory that spills past one sector stays reachable from its head.
-    for (sector, next) in dir_starts.iter().zip(dir_starts.iter().skip(1)) {
-        fat_set(&mut fat, *sector, *next)?;
-    }
-    if let Some(last) = dir_starts.last() {
-        fat_set(&mut fat, *last, ENDOFCHAIN)?;
-    }
+    chain_run(&mut fat, &dir_starts)?;
     for _ in 0..fat_sectors {
         image.extend_from_slice(&[0xff_u8; 512]);
     }
@@ -349,6 +305,50 @@ pub fn build_image(streams: &[(&str, &[u8])], limits: &Limits) -> Result<Vec<u8>
             padded.push(0);
         }
         image.extend_from_slice(&padded);
+    }
+    Ok(image)
+}
+
+/// Chains `run` through the FAT, sector to sector, ending in `ENDOFCHAIN`.
+fn chain_run(fat: &mut [u32], run: &[u32]) -> Result<(), CfbError> {
+    for (sector, next) in run.iter().zip(run.iter().skip(1)) {
+        fat_set(fat, *sector, *next)?;
+    }
+    if let Some(last) = run.last() {
+        fat_set(fat, *last, ENDOFCHAIN)?;
+    }
+    Ok(())
+}
+
+/// The 512-byte header of a version-3 image with `fat_sectors` FAT sectors.
+fn image_header(fat_sectors: usize) -> Result<Vec<u8>, CfbError> {
+    let mut image: Vec<u8> = Vec::new();
+    image.extend_from_slice(&super::MAGIC);
+    image.extend_from_slice(&[0_u8; 16]);
+    push_u16_le(&mut image, 0x003e);
+    push_u16_le(&mut image, 3);
+    push_u16_le(&mut image, 0xfffe);
+    push_u16_le(&mut image, 9);
+    push_u16_le(&mut image, 6);
+    image.extend_from_slice(&[0_u8; 6]);
+    push_u32_le(&mut image, 0);
+    push_u32_le(&mut image, narrow_sector_count(fat_sectors)?);
+    push_u32_le(&mut image, narrow_sector_count(fat_sectors)?);
+    push_u32_le(&mut image, 0);
+    push_u32_le(&mut image, WRITER_CUTOFF);
+    push_u32_le(&mut image, ENDOFCHAIN);
+    push_u32_le(&mut image, 0);
+    push_u32_le(&mut image, ENDOFCHAIN);
+    push_u32_le(&mut image, 0);
+    for index in 0..109_usize {
+        if index < fat_sectors {
+            push_u32_le(&mut image, narrow_sector_count(index)?);
+        } else {
+            push_u32_le(&mut image, FREESECT);
+        }
+    }
+    while image.len() < HEADER_LEN {
+        image.push(0);
     }
     Ok(image)
 }

@@ -407,7 +407,11 @@ fn sim_digest_mismatch_storm(band: sim::Band) -> TestResult {
             let id = &park.1;
             let next = position.saturating_add(1);
             let rotated = if next >= parks.len() { 0 } else { next };
-            let other = parks[rotated].2;
+            let Some(other) = parks.get(rotated).map(|rotated_park| rotated_park.2) else {
+                return Err(ApprovalSimError::Setup {
+                    what: "a rotated park exists",
+                });
+            };
             match host.decide(id, ApprovalDecision::approve("storm", other)) {
                 Err(DecisionError::DigestMismatch { .. }) => {}
                 _ => {

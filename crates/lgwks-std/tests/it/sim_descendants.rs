@@ -34,6 +34,7 @@ use lgwks_std::process::{
 
 use crate::group_leader::spawn_group_leader;
 use crate::rng::Rng;
+use crate::seeded_bytes::poll_within;
 use crate::seeded_sweep::{SWEEP_SEEDS, fold, fold_usize, initial_trace};
 
 /// What every test here returns: a fixture that cannot be built fails the test
@@ -88,8 +89,10 @@ impl Shape {
             .collect();
         let escape = if rng.below(2) == 0 {
             let level = rng.below(depth);
-            let child = rng.below(breadths[level]);
-            Some((level, child))
+            // The level is below the depth, which is the table's length.
+            breadths
+                .get(level)
+                .map(|&breadth| (level, rng.below(breadth)))
         } else {
             None
         };
@@ -134,7 +137,7 @@ impl Tree {
             for child in 0..*breadth {
                 let file = dir.join(format!("{level}-{child}.pid"));
                 let source = if shape.escape == Some((level, child)) {
-                    escape_source(&file)?
+                    escape_source(&file)
                 } else {
                     hold_source(&file)
                 };
@@ -191,35 +194,11 @@ fn hold_source(pid_file: &std::path::Path) -> String {
 /// The backgrounded fork is what makes the escape possible at all: `setsid`
 /// fails with `EPERM` for a process-group leader, and the leader's own direct
 /// child is not one.
-fn escape_source(pid_file: &std::path::Path) -> Result<String, Box<dyn Error>> {
-    Ok(format!(
+fn escape_source(pid_file: &std::path::Path) -> String {
+    format!(
         "perl -e 'use POSIX; setsid(); open(my $f, \">\", \"{}\"); print $f $$; $f->flush(); sleep 30' & ",
         pid_file.display()
-    ))
-}
-
-/// Run `probe` until it answers `Some` or `budget` probes are spent, and answer
-/// its last result.
-///
-/// Each wait here watches the operating system for a fact about a process this
-/// test did not start (a pid file a grandchild wrote, a pid that stopped running),
-/// and the kernel offers no event for either. A park or a sleep between probes
-/// would be a delay guessed at, so the wait is the probe itself, repeated, and the
-/// budget, a count of probes, is what ends it: no wall clock is read, so the bound
-/// is the same on every run. `yield_now` hands the core to the process waited on.
-/// The probe runs once more after the budget, so a fact that arrived during the
-/// last yield is not reported as absent.
-fn poll_within<T>(
-    budget: u32,
-    mut probe: impl FnMut() -> Result<Option<T>, Box<dyn Error>>,
-) -> Result<Option<T>, Box<dyn Error>> {
-    for _ in 0..budget {
-        if let Some(found) = probe()? {
-            return Ok(Some(found));
-        }
-        std::thread::yield_now();
-    }
-    probe()
+    )
 }
 
 /// The pid `file` holds, or `None` while it is absent or not yet a whole number.
@@ -380,9 +359,10 @@ fn a_seeded_sweep_agrees_with_the_model_at_every_step() -> TestResult {
 /// The replay oracle: one seed, one sweep trace.
 fn the_same_seed_replays_the_same_sweep_trace() -> TestResult {
     for seed in SWEEP_SEEDS {
+        let first = sweep(seed)?;
+        let replay = sweep(seed)?;
         assert_eq!(
-            sweep(seed)?,
-            sweep(seed)?,
+            first, replay,
             "seed {seed:#x}: the same seed must replay the same sweep"
         );
     }

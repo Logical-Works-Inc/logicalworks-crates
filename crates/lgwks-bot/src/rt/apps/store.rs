@@ -58,6 +58,12 @@ pub struct OpRegistry {
     ops: BTreeMap<String, OpEntry>,
 }
 
+impl std::fmt::Debug for OpRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.ops.keys()).finish()
+    }
+}
+
 impl OpRegistry {
     /// A registry holding nothing.
     #[must_use]
@@ -393,6 +399,12 @@ pub struct AppStore {
     limits: PlanLimits,
     /// The plans by `(tenant, id)` and the counts the bounds read.
     inner: Mutex<Held>,
+}
+
+impl std::fmt::Debug for AppStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppStore").finish_non_exhaustive()
+    }
 }
 
 impl AppStore {

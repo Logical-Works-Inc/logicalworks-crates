@@ -563,9 +563,9 @@ impl DomainRegistry {
     /// assert!(TWICE.validate().is_err());
     /// ```
     pub fn validate(&self) -> Result<(), EcsError> {
-        if let Some((first, second)) = first_duplicate(self.sources) {
+        if let Some((domain, first, second)) = first_duplicate(self.sources) {
             let refusal = Err(EcsError::DuplicateDomain {
-                domain: self.sources[first].0.to_owned(),
+                domain: domain.to_owned(),
                 role: "source",
                 first,
                 second,
@@ -573,9 +573,9 @@ impl DomainRegistry {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "validate: returning an error to the caller");
             return refusal;
         }
-        if let Some((first, second)) = first_duplicate(self.actions) {
+        if let Some((domain, first, second)) = first_duplicate(self.actions) {
             let refusal = Err(EcsError::DuplicateDomain {
-                domain: self.actions[first].0.to_owned(),
+                domain: domain.to_owned(),
                 role: "action",
                 first,
                 second,
@@ -708,11 +708,13 @@ fn find<T: Copy>(entries: &[(&'static str, T)], domain_id: &str) -> Option<T> {
 /// the check runs once per build, not per tick — and written with comparisons
 /// rather than index arithmetic, which the workspace lints forbid.
 #[cfg(any(feature = "ecs", feature = "script", feature = "inspect"))]
-fn first_duplicate<T: PartialEq>(entries: &[(&'static str, T)]) -> Option<(usize, usize)> {
+fn first_duplicate<T: PartialEq>(
+    entries: &[(&'static str, T)],
+) -> Option<(&'static str, usize, usize)> {
     for (first, &(registered, _)) in entries.iter().enumerate() {
         for (second, &(other, _)) in entries.iter().enumerate() {
             if second > first && other == registered {
-                return Some((first, second));
+                return Some((registered, first, second));
             }
         }
     }

@@ -537,7 +537,10 @@ fn backoff_delay(base: Duration, attempt: u32, key: &StepKey) -> Duration {
     // give a default. The annotation pins the width the mask relies on, so a key
     // of another width stops compiling here instead of reading out of range.
     let bytes: &[u8; 32] = key.as_bytes();
-    let jitter_byte = u32::from(bytes[usize::saturating_from(attempt) & 31]);
+    let mut window = *bytes;
+    window.rotate_left(usize::saturating_from(attempt) & 31);
+    let [first, ..] = window;
+    let jitter_byte = u32::from(first);
     // The halving is done in nanoseconds, which is a width wide enough that the
     // product cannot overflow and a divide by a constant is total — where
     // `Duration` has no total divide and its checked one returns an `Option` whose

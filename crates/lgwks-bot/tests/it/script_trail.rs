@@ -250,8 +250,11 @@ fn a_retry_attempts_share_one_step_key() -> TestResult {
 
     let keys = keys.borrow();
     assert_eq!(keys.len(), 3, "three attempts, three entries");
-    assert_eq!(keys[0], keys[1], "the first two attempts key alike");
-    assert_eq!(keys[1], keys[2], "the last two attempts key alike");
-    assert_eq!(outcome, keys[2], "the served key is the last attempt's");
+    let (Some(one), Some(two), Some(three)) = (keys.first(), keys.get(1), keys.get(2)) else {
+        return Err("three attempts, three entries".into());
+    };
+    assert_eq!(one, two, "the first two attempts key alike");
+    assert_eq!(two, three, "the last two attempts key alike");
+    assert_eq!(&outcome, three, "the served key is the last attempt's");
     Ok(())
 }

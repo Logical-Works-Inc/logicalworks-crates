@@ -75,14 +75,15 @@ impl EcsBot {
             // `steps` is in `(chain, entry)` walk order, so the steps of `chain`
             // are the run at `start` — and a chain that recorded none contributes
             // the empty run, because its first step is a later chain's.
-            let end = match steps[start..].iter().position(|step| step.chain != chain) {
-                Some(offset) => start.saturating_add(offset),
-                None => steps.len(),
-            };
-            let run = match steps.get(start) {
-                Some(step) if step.chain == chain => &steps[start..end],
-                _ => &[],
-            };
+            let (run, _) = steps.split_at(start).1.split_at(
+                steps
+                    .split_at(start)
+                    .1
+                    .iter()
+                    .take_while(|step| step.chain == chain)
+                    .count(),
+            );
+            let end = start.saturating_add(run.len());
 
             // Taken only when it is this chain's, so the condition failure
             // belongs to the chain it was recorded for and cannot be reported for
@@ -134,16 +135,9 @@ impl EcsBot {
                 // `Skipped` is how the unknown got buried and its successor
                 // ran (issue #104). The chain stops instead, and the entry
                 // stays where it was.
-                let blocked = {
-                    let ledger = self.world.non_send::<Ledger>();
-                    ledger
-                        .action_of(work)
-                        .is_some_and(|action| ledger.effects.blocks(action))
-                };
-                if blocked {
+                if self.skip_entry(work) {
                     break;
                 }
-                self.world.non_send_mut::<Ledger>().skip(work);
                 continue;
             }
 
@@ -152,39 +146,16 @@ impl EcsBot {
             // repair on the recovery side — the occurrence is already a fact,
             // so a second dispatch would be a duplicate, and the only thing
             // left to do is write the record that failed to land.
-            if let Some((key, evidence, attempts)) =
-                self.world.non_send::<Ledger>().recording_failed(work)
-            {
-                let result = self
-                    .world
-                    .non_send_mut::<Ledger>()
-                    .effects
-                    .ensure_outcome(key, evidence);
-                match result {
-                    Ok(()) => {
-                        if self
-                            .world
-                            .non_send_mut::<Ledger>()
-                            .finish_recording(work, evidence, attempts, retry)
-                            && evidence == EffectEvidence::Applied
-                        {
-                            fired = fired.saturating_add(1);
-                        }
-                        continue;
-                    }
-                    Err(cause) => {
-                        let error = EcsError::EffectUnrecorded {
-                            key: Box::new(key),
-                            evidence,
-                            cause: Box::new(DispatchError::Journal(cause)),
-                        };
-                        self.world
-                            .non_send_mut::<Ledger>()
-                            .hold_recording(work, evidence, &error);
-                        failure = Some(error);
-                        break;
-                    }
+            match self.retry_recording(work, retry) {
+                Some(Ok(landed)) => {
+                    fired = fired.saturating_add(usize::from(landed));
+                    continue;
                 }
+                Some(Err(error)) => {
+                    failure = Some(error);
+                    break;
+                }
+                None => {}
             }
 
             // Two questions the ledger answers before anything is sent, and
@@ -239,16 +210,7 @@ impl EcsBot {
             // beside it. The attempt a caller is handed and the attempt
             // settlement checks have to be one identity, and two derivations of
             // one identity are two identities the moment they disagree.
-            let lifetime = match self
-                .world
-                .non_send::<Chains>()
-                .0
-                .get(step.chain)
-                .and_then(|chain| chain.entries.get(step.entry))
-            {
-                Some(entry) => entry.action.effect_lifetime(),
-                None => EffectLifetime::External,
-            };
+            let lifetime = self.lifetime_of(step);
             let (key, authority) = match self
                 .world
                 .non_send_mut::<Ledger>()
@@ -303,78 +265,12 @@ impl EcsBot {
             // retry against another, combining two command inputs into one
             // transition's effects. The slot is empty for as long as the binding
             // is out on loan, so there is nothing to reach for by accident.
-            let outcome = {
-                let chains = self.world.non_send::<Chains>();
-                let grants = self.world.resource::<Grants>();
-                let bound = self.world.non_send::<Ledger>().bound(step.chain);
-                match (chains.0.get(step.chain), bound) {
-                    (Some(chain), Some(value)) => match chain.entries.get(step.entry) {
-                        Some(entry) => Some(entry.action.run_any(&grants.0, value).await),
-                        None => None,
-                    },
-                    // No chain, or a transition bound to nothing: the entry
-                    // stays held by the record written above rather than being
-                    // guessed at.
-                    _ => None,
-                }
-            };
-
-            let Some(outcome) = outcome else {
+            let Some(outcome) = self.run_entry(step).await else {
                 break;
             };
-            // The outcome is written down for the two cases where it is a fact,
-            // and deliberately not for the third. `Applied` and `NotApplied` are
-            // answers; an indeterminate effect is the *absence* of one, and
-            // appending `NotApplied` for it would record a fact the substrate
-            // does not have — which is exactly how a recovery path comes to
-            // believe a merge did not land.
-            let observed = match outcome {
-                Ok(_) => Some(EffectEvidence::Applied),
-                Err(ref error) => match error.dispatch_certainty() {
-                    DispatchCertainty::Refused | DispatchCertainty::NotDelivered => {
-                        Some(EffectEvidence::NotApplied)
-                    }
-                    DispatchCertainty::Unsettled => None,
-                    // An action cannot report `Occurred` as its own failure —
-                    // that certainty belongs to a post-effect recording
-                    // failure. Nothing is appended for it, because the
-                    // substrate does not have the fact that arm would record.
-                    DispatchCertainty::Occurred => None,
-                },
-            };
-            if let Some(evidence) = observed
-                && let Err(cause) = self
-                    .world
-                    .non_send_mut::<Ledger>()
-                    .effects
-                    .ensure_outcome(key, evidence)
-            {
-                // Post-effect: the action already returned and `evidence` is a
-                // fact. This is a recording failure, not a pre-dispatch
-                // refusal — `EffectRefused` would tell a controller that
-                // nothing left the process and that it may replan, which
-                // duplicates a known outcome.
-                let error = EcsError::EffectUnrecorded {
-                    key: Box::new(key),
-                    evidence,
-                    cause: Box::new(DispatchError::Journal(cause)),
-                };
-                self.world
-                    .non_send_mut::<Ledger>()
-                    .fail(work, &error, key.attempt(), retry);
-                failure = Some(error);
-                break;
-            }
-            match outcome {
-                Ok(_) => {
-                    if self.world.non_send_mut::<Ledger>().succeed(work) {
-                        fired = fired.saturating_add(1);
-                    }
-                }
+            match self.settle_outcome(work, key, outcome, retry) {
+                Ok(succeeded) => fired = fired.saturating_add(usize::from(succeeded)),
                 Err(error) => {
-                    self.world
-                        .non_send_mut::<Ledger>()
-                        .fail(work, &error, key.attempt(), retry);
                     failure = Some(error);
                     break;
                 }
@@ -383,6 +279,155 @@ impl EcsBot {
         // An action failure happens *earlier* in walk order than a condition
         // failure that follows it, so it is the more specific report.
         (fired, failure.or(condition_failure))
+    }
+
+    /// Step over a skipped entry, unless a recovered unknown stands against its
+    /// action. Returns whether the chain stops here.
+    ///
+    /// A Skip is the plan's answer to a false condition, and a recovered unknown
+    /// outranks that answer: marking the entry `Skipped` is how the unknown got
+    /// buried and its successor ran (issue #104). The chain stops instead, and
+    /// the entry stays where it was.
+    fn skip_entry(&mut self, work: WorkId) -> bool {
+        let blocked = {
+            let ledger = self.world.non_send::<Ledger>();
+            ledger
+                .action_of(work)
+                .is_some_and(|action| ledger.effects.blocks(action))
+        };
+        if !blocked {
+            self.world.non_send_mut::<Ledger>().skip(work);
+        }
+        blocked
+    }
+
+    /// Write the record of a known outcome the journal refused earlier, when
+    /// this entry owes one.
+    ///
+    /// `None` when nothing is owed. Otherwise the record either landed, and the
+    /// answer says whether the effect counts as fired, or was refused again, and
+    /// the entry stays held with that error.
+    fn retry_recording(
+        &mut self,
+        work: WorkId,
+        retry: &RetryReading,
+    ) -> Option<Result<bool, EcsError>> {
+        let (key, evidence, attempts) = self.world.non_send::<Ledger>().recording_failed(work)?;
+        let result = self
+            .world
+            .non_send_mut::<Ledger>()
+            .effects
+            .ensure_outcome(key, evidence);
+        Some(match result {
+            Ok(()) => Ok(self
+                .world
+                .non_send_mut::<Ledger>()
+                .finish_recording(work, evidence, attempts, retry)
+                && evidence == EffectEvidence::Applied),
+            Err(cause) => {
+                let error = EcsError::EffectUnrecorded {
+                    key: Box::new(key),
+                    evidence,
+                    cause: Box::new(DispatchError::Journal(cause)),
+                };
+                self.world
+                    .non_send_mut::<Ledger>()
+                    .hold_recording(work, evidence, &error);
+                Err(error)
+            }
+        })
+    }
+
+    /// The lifetime of the effect `step` runs; an entry the chains do not hold is
+    /// external, the most careful answer.
+    fn lifetime_of(&self, step: &Step) -> EffectLifetime {
+        match self
+            .world
+            .non_send::<Chains>()
+            .0
+            .get(step.chain)
+            .and_then(|chain| chain.entries.get(step.entry))
+        {
+            Some(entry) => entry.action.effect_lifetime(),
+            None => EffectLifetime::External,
+        }
+    }
+
+    /// Run `step`'s action against the payload its transition was bound to.
+    ///
+    /// Scoped, so the world is borrowed immutably only across the await and the
+    /// ledger is reachable mutably on either side of it. `None` for no chain, or
+    /// a transition bound to nothing: the entry stays held by the record written
+    /// before the attempt rather than being guessed at.
+    async fn run_entry(&self, step: &Step) -> Option<Result<Box<dyn std::any::Any>, EcsError>> {
+        let chains = self.world.non_send::<Chains>();
+        let grants = self.world.resource::<Grants>();
+        let bound = self.world.non_send::<Ledger>().bound(step.chain);
+        match (chains.0.get(step.chain), bound) {
+            (Some(chain), Some(value)) => match chain.entries.get(step.entry) {
+                Some(entry) => Some(entry.action.run_any(&grants.0, value).await),
+                None => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Record how the action ended and move its entry, returning whether it
+    /// succeeded.
+    ///
+    /// The outcome is written down for the two cases where it is a fact, and
+    /// deliberately not for the third. `Applied` and `NotApplied` are answers; an
+    /// indeterminate effect is the *absence* of one, and appending `NotApplied`
+    /// for it would record a fact the substrate does not have, which is how a
+    /// recovery path comes to believe a merge did not land. A failure to write
+    /// the record is post-effect: `EffectUnrecorded`, not a pre-dispatch refusal,
+    /// which would tell a controller that nothing left the process.
+    fn settle_outcome(
+        &mut self,
+        work: WorkId,
+        key: EffectKey,
+        outcome: Result<Box<dyn std::any::Any>, EcsError>,
+        retry: &RetryReading,
+    ) -> Result<bool, EcsError> {
+        let observed = match outcome {
+            Ok(_) => Some(EffectEvidence::Applied),
+            Err(ref error) => match error.dispatch_certainty() {
+                DispatchCertainty::Refused | DispatchCertainty::NotDelivered => {
+                    Some(EffectEvidence::NotApplied)
+                }
+                // An action cannot report `Occurred` as its own failure: that
+                // certainty belongs to a post-effect recording failure.
+                DispatchCertainty::Unsettled | DispatchCertainty::Occurred => None,
+            },
+        };
+        if let Some(evidence) = observed
+            && let Err(cause) = self
+                .world
+                .non_send_mut::<Ledger>()
+                .effects
+                .ensure_outcome(key, evidence)
+        {
+            let error = EcsError::EffectUnrecorded {
+                key: Box::new(key),
+                evidence,
+                cause: Box::new(DispatchError::Journal(cause)),
+            };
+            self.world
+                .non_send_mut::<Ledger>()
+                .fail(work, &error, key.attempt(), retry);
+            let refusal = Err(error);
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "settle_outcome: returning an error to the caller");
+            return refusal;
+        }
+        match outcome {
+            Ok(_) => Ok(self.world.non_send_mut::<Ledger>().succeed(work)),
+            Err(error) => {
+                self.world
+                    .non_send_mut::<Ledger>()
+                    .fail(work, &error, key.attempt(), retry);
+                Err(error)
+            }
+        }
     }
 
     /// Every entry that is not finished, in `(chain, entry)` order.

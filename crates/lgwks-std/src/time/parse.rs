@@ -225,7 +225,7 @@ fn parse_fraction_digits(
     dot_pos: usize,
 ) -> Result<u32, ParseError> {
     let start = *cursor;
-    while *cursor < bytes.len() && bytes[*cursor].is_ascii_digit() {
+    while bytes.get(*cursor).is_some_and(u8::is_ascii_digit) {
         // `*cursor < bytes.len()` on entry, so this cannot saturate.
         *cursor = cursor.saturating_add(1);
     }

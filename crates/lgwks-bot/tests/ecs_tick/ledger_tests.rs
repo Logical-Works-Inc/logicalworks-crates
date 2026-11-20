@@ -86,6 +86,50 @@ pub(super) fn binding(work: &PendingWork) -> Result<EffectKey, Box<dyn std::erro
     })
 }
 
+/// The first entry the bot is holding, or the reason none was reported.
+fn first_pending(bot: &Bot, why: &str) -> Result<PendingWork, Box<dyn std::error::Error>> {
+    Ok(bot.pending().first().cloned().ok_or(why)?)
+}
+
+/// A tick over an indeterminate effect fails with the action's own error.
+fn tick_holds_indeterminate(bot: &mut Bot) -> TestResult {
+    match bot.tick() {
+        Ok(fired) => Err(format!("an indeterminate effect was reported as {fired} fired").into()),
+        Err(error) => {
+            assert!(
+                matches!(
+                    error,
+                    EcsError::Kernel(KernelError::EffectIndeterminate { .. })
+                ),
+                "expected the action's own error, got {error:?}"
+            );
+            Ok(())
+        }
+    }
+}
+
+/// Evidence contradicting what `binding` was settled with is refused, and the
+/// settlement it contradicts stands.
+fn require_contradicted(bot: &mut Bot, binding: &EffectKey) -> TestResult {
+    match bot.resolve_effect(binding, EffectEvidence::NotApplied) {
+        Ok(()) => Err("evidence contradicting the generation's own settlement was accepted".into()),
+        Err(error) => {
+            assert!(
+                matches!(
+                    error,
+                    EcsError::EvidenceContradicted {
+                        settled: EffectEvidence::Applied,
+                        submitted: EffectEvidence::NotApplied,
+                        ..
+                    }
+                ),
+                "expected the recorded and the refused evidence to be reported, got {error:?}"
+            );
+            Ok(())
+        }
+    }
+}
+
 /// A settlement is accepted only for the binding it names.
 ///
 /// The counterexample this closes, stated as the review states it: the entry at
@@ -118,23 +162,8 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
 
     // Revision 1, held: the attempt may be live, so nothing settles it on its
     // own and the tick says so rather than guessing.
-    match bot.tick() {
-        Ok(fired) => {
-            return Err(format!("an indeterminate effect was reported as {fired} fired").into());
-        }
-        Err(error) => assert!(
-            matches!(
-                error,
-                EcsError::Kernel(KernelError::EffectIndeterminate { .. })
-            ),
-            "expected the action's own error, got {error:?}"
-        ),
-    }
-    let first = bot
-        .pending()
-        .first()
-        .cloned()
-        .ok_or("the held entry is reported")?;
+    tick_holds_indeterminate(&mut bot)?;
+    let first = first_pending(&bot, "the held entry is reported")?;
     let first_binding = binding(&first)?;
     assert!(
         matches!(
@@ -161,23 +190,8 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
     // differs, which is the whole point.
     uncertain.set(true);
     value.set(2);
-    match bot.tick() {
-        Ok(fired) => {
-            return Err(format!("an indeterminate effect was reported as {fired} fired").into());
-        }
-        Err(error) => assert!(
-            matches!(
-                error,
-                EcsError::Kernel(KernelError::EffectIndeterminate { .. })
-            ),
-            "expected the action's own error, got {error:?}"
-        ),
-    }
-    let second = bot
-        .pending()
-        .first()
-        .cloned()
-        .ok_or("the held entry is reported again")?;
+    tick_holds_indeterminate(&mut bot)?;
+    let second = first_pending(&bot, "the held entry is reported again")?;
     let second_binding = binding(&second)?;
     assert_eq!(second.id(), first.id(), "the slot is the same one");
     assert_ne!(
@@ -258,24 +272,7 @@ fn a_settlement_names_the_binding_it_settles_and_no_other() -> TestResult {
     // and the settlement it contradicts stands. The refusal names both pieces of
     // evidence, because "your report was refused" without saying which way round
     // leaves the caller unable to tell whether it misread its own observation.
-    match bot.resolve_effect(&second_binding, EffectEvidence::NotApplied) {
-        Ok(()) => {
-            return Err(
-                "evidence contradicting the generation's own settlement was accepted".into(),
-            );
-        }
-        Err(error) => assert!(
-            matches!(
-                error,
-                EcsError::EvidenceContradicted {
-                    settled: EffectEvidence::Applied,
-                    submitted: EffectEvidence::NotApplied,
-                    ..
-                }
-            ),
-            "expected the recorded and the refused evidence to be reported, got {error:?}"
-        ),
-    }
+    require_contradicted(&mut bot, &second_binding)?;
     assert!(
         bot.pending().is_empty(),
         "the acknowledged generation is still acknowledged: {:?}",

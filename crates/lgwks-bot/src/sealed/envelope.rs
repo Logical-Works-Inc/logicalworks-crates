@@ -339,10 +339,12 @@ mod tests {
             "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f",
         )?
         .try_into()
-        .map_err(|_refused| "the RFC key is 32 bytes")?;
+        .map_err(|refused: Vec<u8>| format!("the RFC key is 32 bytes, not {}", refused.len()))?;
         let nonce: [u8; NONCE_BYTES] = lgwks_std::hex::decode("070000004041424344454647")?
             .try_into()
-            .map_err(|_refused| "the RFC nonce is 12 bytes")?;
+            .map_err(|refused: Vec<u8>| {
+                format!("the RFC nonce is 12 bytes, not {}", refused.len())
+            })?;
         let plaintext: &[u8] = b"Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
         let key = DataKey::from_bytes(key_bytes);
         let sealed = seal(&key, &nonce, plaintext)?;
@@ -397,8 +399,11 @@ mod tests {
             open(&key, &other_nonce, &sealed).is_err(),
             "a seal never opens under another nonce"
         );
+        let truncated = sealed
+            .get(..sealed.len().saturating_sub(1))
+            .ok_or("a seal is at least its tag long")?;
         assert!(
-            open(&key, &nonce, &sealed[..sealed.len().saturating_sub(1)]).is_err(),
+            open(&key, &nonce, truncated).is_err(),
             "a truncated seal never opens"
         );
         Ok(())

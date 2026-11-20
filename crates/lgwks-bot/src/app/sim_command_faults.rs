@@ -3,6 +3,7 @@
 //! Source: #898's "a waiter never hangs on a refused mailbox" and "a rebuild never
 //! re-runs effects", with the harness in `sim_command`.
 
+#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -188,7 +189,10 @@ fn sim_command_neighbour_the_asker_stays_with_its_chain_and_nobody_else() -> Out
             "the chain keeps the slot"
         );
     }
-    let held = asked.lock().map_err(|_| "the list broke")?.clone();
+    let held = asked
+        .lock()
+        .map_err(|cause| format!("the list broke: {cause}"))?
+        .clone();
     let named = |tenant: &str, who: Option<&str>, body: &[u8]| {
         (tenant.to_owned(), who.map(str::to_owned), body.to_vec())
     };

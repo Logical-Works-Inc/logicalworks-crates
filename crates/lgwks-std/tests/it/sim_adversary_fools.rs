@@ -30,12 +30,15 @@ fn sim_fool_double_clicker_concurrent_v7_monotonic() -> Result<(), Box<dyn Error
         ids.push(identifier);
     }
     for window in ids.windows(2) {
+        let [ref earlier, ref later] = *window else {
+            return Err("a window of two holds two uuids".into());
+        };
         assert!(
-            window[0] < window[1],
+            earlier < later,
             "double-clicker: consecutive v7 uuids must be strictly increasing in value"
         );
         assert!(
-            window[0].to_string() < window[1].to_string(),
+            earlier.to_string() < later.to_string(),
             "double-clicker: consecutive v7 uuids must be strictly increasing in textual sort order"
         );
     }
@@ -109,7 +112,7 @@ fn sim_fool_weird_bytes_uuid_parse_refusal_offset() -> Result<(), Box<dyn Error>
 }
 
 #[test]
-fn sim_fool_pulled_plug_hex_decode_preserves_destination_on_error() -> Result<(), Box<dyn Error>> {
+fn sim_fool_pulled_plug_hex_decode_preserves_destination_on_error() {
     let mut dest = [0xAAu8; 8];
     let bad_hex = "01020304050607zz";
     let decode_result = hex::decode_into(bad_hex.as_bytes(), &mut dest);
@@ -118,11 +121,10 @@ fn sim_fool_pulled_plug_hex_decode_preserves_destination_on_error() -> Result<()
         dest, [0xAAu8; 8],
         "pulled-plug: destination slice must remain untouched when decode fails"
     );
-    Ok(())
 }
 
 #[test]
-fn sim_fool_liar_upstream_retry_policy_progression() -> Result<(), Box<dyn Error>> {
+fn sim_fool_liar_upstream_retry_policy_progression() {
     let policy = RetryPolicy::new(4, Duration::from_millis(10), Duration::from_millis(100))
         .with_max_delay(Duration::from_millis(100));
 
@@ -134,7 +136,6 @@ fn sim_fool_liar_upstream_retry_policy_progression() -> Result<(), Box<dyn Error
         assert!(delay <= Duration::from_millis(100));
         delay_prev = delay;
     }
-    Ok(())
 }
 
 #[test]
@@ -164,8 +165,7 @@ fn sim_fool_clock_fool_v7_clock_step_backwards_monotonic() -> Result<(), Box<dyn
 fn sim_fool_fat_finger_leb128_non_minimal_refusal() -> Result<(), Box<dyn Error>> {
     let mut buf = Vec::new();
     leb128::encode_u64(0, &mut buf);
-    assert_eq!(buf.len(), 1);
-    assert_eq!(buf[0], 0);
+    assert_eq!(buf, [0_u8], "zero encodes as the single byte zero");
 
     let (val, consumed) = leb128::decode_u64(&[0]).map_err(|err| format!("{err:?}"))?;
     assert_eq!(val, 0);
@@ -195,7 +195,7 @@ fn sim_fool_monkey_seeded_draw_in_bounds() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
-fn sim_fool_saboteur_fail_closed_zero_length_and_underflow() -> Result<(), Box<dyn Error>> {
+fn sim_fool_saboteur_fail_closed_zero_length_and_underflow() {
     let mut stream = Seeded::from_seed(0x42);
     let sample = stream.next_u64();
     assert!(
@@ -214,7 +214,6 @@ fn sim_fool_saboteur_fail_closed_zero_length_and_underflow() -> Result<(), Box<d
         hex::decode_into(b"", &mut dest).is_ok(),
         "saboteur: empty hex into empty destination succeeds"
     );
-    Ok(())
 }
 
 #[test]
@@ -223,11 +222,11 @@ fn sim_fool() -> Result<(), Box<dyn Error>> {
     sim_fool_wrong_order_json_duplicate_keys_last_wins()?;
     sim_fool_giant_and_empty_json_nesting_and_endpoints()?;
     sim_fool_weird_bytes_uuid_parse_refusal_offset()?;
-    sim_fool_pulled_plug_hex_decode_preserves_destination_on_error()?;
-    sim_fool_liar_upstream_retry_policy_progression()?;
+    sim_fool_pulled_plug_hex_decode_preserves_destination_on_error();
+    sim_fool_liar_upstream_retry_policy_progression();
     sim_fool_clock_fool_v7_clock_step_backwards_monotonic()?;
     sim_fool_fat_finger_leb128_non_minimal_refusal()?;
     sim_fool_monkey_seeded_draw_in_bounds()?;
-    sim_fool_saboteur_fail_closed_zero_length_and_underflow()?;
+    sim_fool_saboteur_fail_closed_zero_length_and_underflow();
     Ok(())
 }

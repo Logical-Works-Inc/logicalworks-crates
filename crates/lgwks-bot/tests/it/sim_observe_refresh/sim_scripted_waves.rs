@@ -1,5 +1,6 @@
 //! INV-BOT-120..124: how many watchdogs a wave spends, a cancelled tick, and a stalled chain's mark.
 
+use super::sim_scripted_reports::cause_of;
 use super::*;
 
 /// A wave whose every source answers on its first poll starts no watchdog at all.
@@ -16,7 +17,7 @@ fn a_fast_wave_spends_no_watchdog_across_seeded_widths() -> TestResult {
     for _ in 0..6_u32 {
         let width = usize::try_from(rng.between(1, ceiling))?;
         let holds = Rc::new(Cell::new(false));
-        let mut subject = scripted_bot("sim-observe-fast-wave", 0, width, SIM_DEADLINE, holds)?;
+        let mut subject = scripted_bot("sim-observe-fast-wave", 0, width, SIM_DEADLINE, &holds)?;
         for (index, held) in subject.handles.iter().enumerate() {
             let value = u32::try_from(index)?.saturating_add(1);
             arm_chain(held, value, 0, None, 0);
@@ -55,7 +56,7 @@ fn a_pending_source_spends_one_watchdog_for_its_wave() -> TestResult {
     let width = usize::try_from(rng.between(wave.saturating_add(1), wave.saturating_mul(2)))?;
     let yields = usize::try_from(rng.below(u32::try_from(width)?))?;
     let holds = Rc::new(Cell::new(false));
-    let mut subject = scripted_bot("sim-observe-pending", 0, width, SIM_DEADLINE, holds)?;
+    let mut subject = scripted_bot("sim-observe-pending", 0, width, SIM_DEADLINE, &holds)?;
     for (index, held) in subject.handles.iter().enumerate() {
         let pending = u32::from(index == yields);
         let value = u32::try_from(index)?.saturating_add(1);
@@ -94,7 +95,7 @@ fn a_seeded_run_spends_one_watchdog_per_pending_tick() -> TestResult {
     let mut rng = Rng::new(SEED);
     let ticks = rng.between(3, 6);
     let holds = Rc::new(Cell::new(false));
-    let mut subject = scripted_bot("sim-observe-pending-ticks", 0, 3, SIM_DEADLINE, holds)?;
+    let mut subject = scripted_bot("sim-observe-pending-ticks", 0, 3, SIM_DEADLINE, &holds)?;
     let mut watchdogs = 0_u32;
     let mut pending_ticks = 0_u32;
     for tick in 1..=ticks {
@@ -141,7 +142,7 @@ fn a_cancelled_tick_leaves_the_bot_usable() -> TestResult {
     const SEED: u64 = 0x1240_0004;
     let mut rng = Rng::new(SEED);
     let holds = Rc::new(Cell::new(false));
-    let mut subject = baseline_bot("sim-observe-cancelled-tick", 3, SIM_DEADLINE, holds)?;
+    let mut subject = baseline_bot("sim-observe-cancelled-tick", 3, SIM_DEADLINE, &holds)?;
 
     let wedged = usize::try_from(rng.below(3))?;
     for (index, held) in subject.handles.iter().enumerate() {
@@ -201,9 +202,9 @@ fn a_cancelled_tick_leaves_the_bot_usable() -> TestResult {
 fn a_stalled_chain_keeps_its_mark_and_is_re_polled_next_tick() -> TestResult {
     const SEED: u64 = 0x1230_0005;
     let mut rng = Rng::new(SEED);
-    let cause = CAUSES[usize::try_from(rng.below(4))?];
+    let cause = cause_of(rng.below(4))?;
     let holds = Rc::new(Cell::new(false));
-    let mut subject = baseline_bot("sim-observe-stall-mark", 3, SIM_DEADLINE, holds)?;
+    let mut subject = baseline_bot("sim-observe-stall-mark", 3, SIM_DEADLINE, &holds)?;
 
     for (index, held) in subject.handles.iter().enumerate() {
         if index == 0 {
@@ -230,7 +231,7 @@ fn a_stalled_chain_keeps_its_mark_and_is_re_polled_next_tick() -> TestResult {
         after.forced()
     );
 
-    arm_chain(&subject.handles[0], 42, 0, None, 0);
+    arm_chain(crate::sim::nth(&subject.handles, 0)?, 42, 0, None, 0);
     let _recovered = subject.bot.tick();
     assert!(
         subject

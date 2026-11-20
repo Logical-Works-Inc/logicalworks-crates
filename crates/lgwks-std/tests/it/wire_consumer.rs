@@ -37,8 +37,11 @@ fn external_consumer_derives_serializes_checked_accesses_and_reconstructs() -> R
         "archive retains the pointer-sized collection length"
     );
     assert_eq!(
-        u64::from(archived.indices[0].to_native()),
-        3,
+        archived
+            .indices
+            .first()
+            .map(|index| u64::from(index.to_native())),
+        Some(3),
         "archive retains pointer-sized collection entries"
     );
     assert_eq!(
@@ -127,13 +130,13 @@ fn different_values_produce_different_archive_bytes() -> Result<(), WireError> {
 #[test]
 fn checked_access_rejects_truncated_and_misaligned_archive_bytes() -> Result<(), WireError> {
     let bytes = to_bytes::<WireError>(&sample())?;
-    let truncated = &bytes[..bytes.len().saturating_sub(1)];
+    let truncated = bytes.as_slice().split_at(bytes.len().saturating_sub(1)).0;
     assert!(
         access::<ArchivedConsumerRecord, WireError>(truncated).is_err(),
         "checked access rejects a truncated archive"
     );
 
-    let shifted = &bytes[1..];
+    let shifted = bytes.as_slice().split_at(1).1;
     assert!(
         access::<ArchivedConsumerRecord, WireError>(shifted).is_err(),
         "checked access rejects an offset-misaligned archive"

@@ -34,13 +34,15 @@ const GLYPHS: [char; 16] = [
 ];
 
 /// A string drawn from the glyph table, `below(max)` characters long.
-pub fn draw_text(attacker: &mut Attacker, max: usize) -> String {
+pub(crate) fn draw_text(attacker: &mut Attacker, max: usize) -> String {
     let len = attacker.below(max);
-    (0..len).map(|_| *attacker.pick(&GLYPHS)).collect()
+    (0..len)
+        .filter_map(|_| attacker.pick(&GLYPHS).copied())
+        .collect()
 }
 
 /// A tree of every value kind, at most `depth` levels deep.
-pub fn draw_value(attacker: &mut Attacker, depth: usize) -> Value {
+pub(crate) fn draw_value(attacker: &mut Attacker, depth: usize) -> Value {
     let kinds = if depth == 0 { 6 } else { 8 };
     match attacker.below(kinds) {
         0 => Value::Null,
@@ -67,11 +69,11 @@ pub fn draw_value(attacker: &mut Attacker, depth: usize) -> Value {
 }
 
 /// The compact text of `value`, which a tree cannot fail to have.
-pub fn encode(value: &Value) -> Vec<u8> {
+pub(crate) fn encode(value: &Value) -> Vec<u8> {
     value.to_string().into_bytes()
 }
 
 /// Whether the facade reads `text` as a document of one value.
-pub fn accepts(text: &str) -> bool {
+pub(crate) fn accepts(text: &str) -> bool {
     from_str::<Value>(text).is_ok()
 }

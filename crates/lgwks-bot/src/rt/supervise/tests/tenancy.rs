@@ -1,5 +1,6 @@
 //! Per-tenant admission through the supervisor, and the idle wait.
 
+#[cfg(test)]
 #[cfg(all(unix, feature = "process"))]
 use super::super::TaskId;
 use super::super::lease::Lease;
@@ -120,6 +121,52 @@ fn a_cancelled_admission_hands_its_granted_permit_back_to_the_round()
     })
 }
 
+/// Which of the three waiters the round resolved, by its place in the queue
+/// (the claim is 0), carrying a resolved waiter's permit forward in `held`.
+#[cfg(feature = "script")]
+fn resolved(
+    claim_out: &mut Option<Result<Lease, SpawnRefused>>,
+    second_out: Option<crate::rt::sync::OwnedSemaphorePermit>,
+    third_out: Option<crate::rt::sync::OwnedSemaphorePermit>,
+    held: &mut Option<crate::rt::sync::OwnedSemaphorePermit>,
+) -> Result<u8, Box<dyn std::error::Error>> {
+    if claim_out.is_some() {
+        match claim_out.take() {
+            Some(Ok(lease)) => {
+                // The granted lease hands its permit to the next waiter as it
+                // drops, which is the hand-off the next round needs.
+                drop(lease);
+                Ok(0)
+            }
+            Some(Err(refusal)) => Err(format!("the parked claim was refused: {refusal}").into()),
+            None => Err("the claim reported no outcome at all".into()),
+        }
+    } else if let Some(permit) = second_out {
+        *held = Some(permit);
+        Ok(1)
+    } else if let Some(permit) = third_out {
+        *held = Some(permit);
+        Ok(2)
+    } else {
+        Err("a resolution was reported with no waiter behind it".into())
+    }
+}
+
+/// The three waiters were served in arrival order and none is left queued.
+#[cfg(feature = "script")]
+fn assert_served_in_order(order: &[u8], retained: usize) {
+    assert_eq!(
+        order,
+        [0, 1, 2],
+        "one tenant's three waiters are served in arrival order: the claim \
+         that parked first, then the two behind it"
+    );
+    assert_eq!(
+        retained, 0,
+        "every waiter left the queue once it was served"
+    );
+}
+
 /// A parked admission keeps its place in its tenant's FIFO queue, and leaves
 /// nothing abandoned behind it, however long it waits.
 ///
@@ -161,10 +208,10 @@ fn a_parked_tenant_admission_keeps_its_place_in_the_queue() -> Result<(), Box<dy
         let tenant = Tenant::new("queued")?;
         // The pool's one permit is held back by the test before the first
         // arrival, so every arrival below parks rather than being admitted.
-        let mut held = Some(match Arc::clone(&pool).try_acquire_owned() {
-            Ok(permit) => permit,
-            Err(_) => return Err("the pool did not start with its one permit".into()),
-        });
+        let mut held =
+            Some(Arc::clone(&pool).try_acquire_owned().map_err(|error| {
+                format!("the pool did not start with its one permit: {error:?}")
+            })?);
 
         // The claim under test registers first, so FIFO serves it first. It
         // borrows the supervisor for as long as it is parked, which is why
@@ -245,43 +292,14 @@ fn a_parked_tenant_admission_keeps_its_place_in_the_queue() -> Result<(), Box<dy
                 }),
             )
             .await
-            .map_err(|_| "no waiter resolved after a permit was released into the round")?;
-            let index = if claim_out.is_some() {
-                match claim_out.take() {
-                    Some(Ok(lease)) => {
-                        // The granted lease hands its permit to the next
-                        // waiter as it drops, which is the hand-off the next
-                        // round needs.
-                        drop(lease);
-                        0
-                    }
-                    Some(Err(refusal)) => {
-                        return Err(format!("the parked claim was refused: {refusal}").into());
-                    }
-                    None => return Err("the claim reported no outcome at all".into()),
-                }
-            } else if let Some(permit) = second_out {
-                held = Some(permit);
-                1
-            } else if let Some(permit) = third_out {
-                held = Some(permit);
-                2
-            } else {
-                return Err("a resolution was reported with no waiter behind it".into());
-            };
-            order.push(index);
+            .map_err(|timeout| {
+                format!(
+                    "no waiter resolved after a permit was released into the round: {timeout:?}"
+                )
+            })?;
+            order.push(resolved(&mut claim_out, second_out, third_out, &mut held)?);
         }
-        assert_eq!(
-            order,
-            vec![0, 1, 2],
-            "one tenant's three waiters are served in arrival order: the claim \
-                 that parked first, then the two behind it"
-        );
-        assert_eq!(
-            shell.retained_waiters(&tenant),
-            0,
-            "every waiter left the queue once it was served"
-        );
+        assert_served_in_order(&order, shell.retained_waiters(&tenant));
         Ok::<(), Box<dyn std::error::Error>>(())
     })
 }
@@ -315,10 +333,9 @@ fn a_waiting_spawn_keeps_its_place_in_the_pool_queue() -> Result<(), Box<dyn std
         let pool = Arc::new(crate::rt::sync::Semaphore::new(1));
         let mut first = Supervisor::assembled(1, Arc::clone(&pool), Clock::wall());
         let mut second = Supervisor::assembled(1, Arc::clone(&pool), Clock::wall());
-        let mut held = match Arc::clone(&pool).try_acquire_owned() {
-            Ok(permit) => Some(permit),
-            Err(_) => return Err("the shared pool did not start with its one permit".into()),
-        };
+        let mut held = Some(Arc::clone(&pool).try_acquire_owned().map_err(|error| {
+            format!("the shared pool did not start with its one permit: {error:?}")
+        })?);
 
         let mut first_claim = std::pin::pin!(first.claim());
         let mut second_claim = std::pin::pin!(second.claim());

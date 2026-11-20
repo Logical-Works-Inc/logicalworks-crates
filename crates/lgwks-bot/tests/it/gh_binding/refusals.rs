@@ -102,9 +102,7 @@ fn a_failure_naming_no_status_stays_a_transport_failure() -> TestResult {
 #[test]
 fn a_diff_past_its_file_ceiling_is_a_typed_coverage_refusal() -> TestResult {
     let script = ScriptedGh::install("files-ceiling", HEAD)?;
-    let over = u32::try_from(lgwks_bot::domain::gh::MAX_DIFF_FILES_PER_PULL)
-        .map_err(|_| "the file ceiling must fit the fixture's counter")?
-        .saturating_add(1);
+    let over = u32::try_from(lgwks_bot::domain::gh::MAX_DIFF_FILES_PER_PULL)?.saturating_add(1);
     script.configure(Scenario::new(HEAD).with_filler_files(over))?;
     let gh = script.binding("acme/widgets", 4 * 1024 * 1024)?;
 

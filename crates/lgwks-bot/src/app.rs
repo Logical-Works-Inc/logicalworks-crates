@@ -204,6 +204,16 @@ pub struct App<S = ()> {
     ons: Vec<OnEntry<S>>,
 }
 
+impl<S> std::fmt::Debug for App<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("App")
+            .field("name", &self.name)
+            .field("routes", &self.routes.len())
+            .field("ons", &self.ons.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl App<()> {
     /// An app named `name`, holding no routes, grants or provider.
     #[must_use]
@@ -417,7 +427,7 @@ where
         let authenticator = self.authenticator.clone();
         let held_for = self.runs_commands().then(|| self.commands.deadline());
         let host = self.start(auto_workers(), DEFAULT_MAILBOX_BOUND)?;
-        serve::serve_host(host, authenticator, held_for, listener, stop)
+        serve::serve_host(&host, authenticator, held_for, listener, stop)
     }
 
     /// Whether this app was granted commands, and so owns a pool to run them on.

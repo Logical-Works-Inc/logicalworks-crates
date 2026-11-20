@@ -49,6 +49,8 @@ pub use capture::{
 
 #[doc(hidden)]
 impl DescendantSet {
+    /// Built only by the capture code of targets with a process table to read.
+    #[cfg(any(unix, windows))]
     pub(crate) fn from_raw_parts(
         mechanism: ContainmentMechanism,
         pids: Vec<i32>,
@@ -169,8 +171,10 @@ fn signal_every<Target: Copy + std::fmt::Debug>(
 /// [`std::io::ErrorKind::Unsupported`] rather than a fabricated success.
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn kill_process_group(pgid: i32) -> io::Result<()> {
-    let _ = pgid;
-    Err(unsupported("process kill_process_group is Unix-only"))
+    Err(unsupported_for(
+        "process kill_process_group is Unix-only",
+        pgid,
+    ))
 }
 
 /// Whether `pgid` currently names a process group.
@@ -216,8 +220,10 @@ pub fn process_group_exists(pgid: i32) -> io::Result<bool> {
 /// [`std::io::ErrorKind::Unsupported`] rather than a fabricated answer.
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn process_group_exists(pgid: i32) -> io::Result<bool> {
-    let _ = pgid;
-    Err(unsupported("process process_group_exists is Unix-only"))
+    Err(unsupported_for(
+        "process process_group_exists is Unix-only",
+        pgid,
+    ))
 }
 
 /// Whether child `pid` has exited, leaving it un-reaped.
@@ -286,9 +292,9 @@ pub fn child_has_exited_without_reaping(pid: i32) -> io::Result<bool> {
 /// [`std::io::ErrorKind::Unsupported`] rather than a fabricated success.
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn child_has_exited_without_reaping(pid: i32) -> io::Result<bool> {
-    let _ = pid;
-    Err(unsupported(
+    Err(unsupported_for(
         "process child_has_exited_without_reaping is Unix-only",
+        pid,
     ))
 }
 
@@ -315,9 +321,9 @@ pub fn child_stopped_without_reaping(pid: i32) -> io::Result<bool> {
 /// [`std::io::ErrorKind::Unsupported`] rather than a fabricated answer.
 #[cfg(all(not(unix), feature = "process"))]
 pub fn child_stopped_without_reaping(pid: i32) -> io::Result<bool> {
-    let _ = pid;
-    Err(unsupported(
+    Err(unsupported_for(
         "process child_stopped_without_reaping is Unix-only",
+        pid,
     ))
 }
 
@@ -550,8 +556,13 @@ fn scope_create_refusal(mount: &std::path::Path, error: io::Error) -> io::Error 
 #[cfg(all(not(unix), feature = "process"))]
 /// Construct the unsupported-operation error for non-Unix targets, Windows
 /// included: the stop observation and the release are Unix-only there too.
-fn unsupported(message: &'static str) -> io::Error {
-    io::Error::new(io::ErrorKind::Unsupported, message)
+/// It names what the caller asked about, so a refusal in a log says which pid,
+/// group or batch it refused.
+fn unsupported_for(message: &'static str, asked: impl std::fmt::Debug) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        format!("{message} (asked for {asked:?})"),
+    )
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

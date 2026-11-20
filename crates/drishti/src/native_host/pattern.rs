@@ -47,12 +47,11 @@ pub fn validate_pattern(pattern: &SignalPattern) -> bool {
             return false;
         }
     }
-    match pattern.payload_predicate() {
-        None => true,
-        Some(predicate) => {
-            count_ast_nodes(predicate) <= MAX_AST_NODES && validate_predicate_structure(predicate)
-        }
-    }
+    // A pattern with no predicate matches on kind alone, so it has no
+    // predicate structure to refuse.
+    pattern.payload_predicate().is_none_or(|predicate| {
+        count_ast_nodes(predicate) <= MAX_AST_NODES && validate_predicate_structure(predicate)
+    })
 }
 
 /// Count predicate AST nodes: leaves count one, `and`/`or` add one for the
@@ -121,10 +120,10 @@ pub fn match_pattern(envelope: &SignalEnvelope, pattern: &SignalPattern) -> bool
     if !match_kind_glob(pattern.kind_glob(), envelope.kind()) {
         return false;
     }
-    match pattern.payload_predicate() {
-        None => true,
-        Some(predicate) => eval_predicate(predicate, envelope.payload()),
-    }
+    // A pattern with no predicate matches on kind alone.
+    pattern
+        .payload_predicate()
+        .is_none_or(|predicate| eval_predicate(predicate, envelope.payload()))
 }
 
 /// Match a kind against a glob. `*` matches exactly one segment; a trailing
@@ -261,7 +260,7 @@ pub fn glob_match(pattern: &str, value: &str) -> bool {
             star_index = Some(pattern_index);
             match_index = value_index;
             pattern_index = pattern_index.saturating_add(1);
-        } else if in_pattern == Some('?') || in_pattern == Some(value_chars[value_index]) {
+        } else if in_pattern == Some('?') || in_pattern == value_chars.get(value_index).copied() {
             pattern_index = pattern_index.saturating_add(1);
             value_index = value_index.saturating_add(1);
         } else if let Some(star) = star_index {

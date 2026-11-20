@@ -17,10 +17,10 @@ use lgwks_bot::spec::Bot;
 use crate::effects::memory_scope;
 
 /// What a bound world fired, in firing order.
-pub type Fired = Rc<Cell<Vec<SettledRun>>>;
+pub(crate) type Fired = Rc<Cell<Vec<SettledRun>>>;
 
 /// A fresh world bound to `feed`, and the record of what it fires.
-pub fn bound_world(feed: &RunFeed) -> Result<(Bot, Fired), Box<dyn Error>> {
+pub(crate) fn bound_world(feed: &RunFeed) -> Result<(Bot, Fired), Box<dyn Error>> {
     let mut bot = Bot::builder("run-world")
         .with_effects(memory_scope()?)
         .build(&GrantSet::empty())?;
@@ -35,7 +35,7 @@ pub fn bound_world(feed: &RunFeed) -> Result<(Bot, Fired), Box<dyn Error>> {
 }
 
 /// A run body that fails when it is told to: the probe both families drive.
-pub async fn fallible(_scope: Scope, fail: bool) -> Result<(), FlowError> {
+pub(crate) async fn fallible(_scope: Scope, fail: bool) -> Result<(), FlowError> {
     if fail {
         Err(FlowError::failed(format_args!(
             "the probe was told to fail"
@@ -46,7 +46,7 @@ pub async fn fallible(_scope: Scope, fail: bool) -> Result<(), FlowError> {
 }
 
 /// Bind `feed` to a fresh world, tick it once, and return what fired.
-pub fn fire(feed: &RunFeed) -> Result<Vec<SettledRun>, Box<dyn Error>> {
+pub(crate) fn fire(feed: &RunFeed) -> Result<Vec<SettledRun>, Box<dyn Error>> {
     let (mut bot, fired) = bound_world(feed)?;
     bot.tick()?;
     Ok(fired.take())

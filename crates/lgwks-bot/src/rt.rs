@@ -115,7 +115,7 @@ pub use lgwks_deps::tokio::task_local;
 pub use lgwks_deps::tokio::{join, select};
 
 #[cfg(all(feature = "script", feature = "edge"))]
-#[path = "apps/mod.rs"]
+#[path = "rt/apps/mod.rs"]
 pub mod apps;
 /// This crate's own cancellation primitive. Private, because its only public
 /// name is `rt::sync::CancellationToken` (one type, one path), matching how

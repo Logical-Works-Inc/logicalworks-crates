@@ -45,13 +45,12 @@ impl Rgb {
             Some(rest) => rest,
             None => value,
         };
-        let bytes = digits.as_bytes();
-        if bytes.len() != 6 {
+        let &[r_high, r_low, g_high, g_low, b_high, b_low] = digits.as_bytes() else {
             return None;
-        }
-        let red = hex_byte(bytes[0], bytes[1])?;
-        let green = hex_byte(bytes[2], bytes[3])?;
-        let blue = hex_byte(bytes[4], bytes[5])?;
+        };
+        let red = hex_byte(r_high, r_low)?;
+        let green = hex_byte(g_high, g_low)?;
+        let blue = hex_byte(b_high, b_low)?;
         Some(Self::new(red, green, blue))
     }
 
@@ -165,8 +164,8 @@ pub mod primitive {
 /// A semantic role from the brand's `--lw-c-*` layer.
 ///
 /// Components address roles, never values, so one attribute re-themes a whole
-/// surface. The list is closed for now; new roles require a light/dark pair
-/// and a contrast check per the brand's accessibility rules.
+/// surface. The list is closed: a new role requires a light/dark pair and a
+/// contrast check per the brand's accessibility rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Role {

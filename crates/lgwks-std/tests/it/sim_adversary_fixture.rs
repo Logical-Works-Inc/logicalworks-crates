@@ -127,7 +127,7 @@ fn sim_adversary_fixture_a_pick_covers_its_table() {
     let mut attacker = Attacker::new(SWEEP_SEEDS[2]);
     let mut seen = std::collections::BTreeSet::new();
     for _ in 0..512 {
-        seen.insert(*attacker.pick(&table));
+        seen.extend(attacker.pick(&table).copied());
     }
     assert_eq!(seen.len(), table.len(), "elements picked: {seen:?}");
 }

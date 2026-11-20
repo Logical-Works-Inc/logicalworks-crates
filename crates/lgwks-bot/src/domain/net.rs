@@ -292,7 +292,7 @@ impl verb::Execute for Endpoint {
             .await?;
         match posted {
             Ok(reply) => Ok(NetState::new(
-                reply.status,
+                reply.status(),
                 true,
                 preview_text(reply.body()),
             )),
@@ -371,7 +371,7 @@ mod tests {
             let mut head = Vec::new();
             loop {
                 let read = stream.read(&mut request)?;
-                head.extend_from_slice(&request[..read]);
+                head.extend_from_slice(request.split_at(read).0);
                 if head.windows(4).any(|window| window == b"\r\n\r\n") {
                     break;
                 }
@@ -386,7 +386,9 @@ mod tests {
         if !accepted.load(Ordering::Acquire) {
             // The cancellation: a refused wake dial means the server already
             // returned, so there is nothing left to release.
-            drop(std::net::TcpStream::connect(("127.0.0.1", port)));
+            if let Err(error) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+                lgwks_std::trace::debug!(%error, "net test: the server had already returned");
+            }
         }
         let served = lgwks_std::task::block_on(server);
         Ok((outcome, served))
@@ -618,7 +620,11 @@ mod tests {
             *crate::journal::owner::lock(open) = true;
             opened.notify_all();
         }
-        drop(lgwks_std::task::block_on(lgwks_std::task::join_all(parked)));
+        let released = lgwks_std::task::block_on(lgwks_std::task::join_all(parked));
+        lgwks_std::trace::debug!(
+            count = released.len(),
+            "net test: every parked call was released"
+        );
 
         let closed = {
             let probe = TcpListener::bind("127.0.0.1:0")?;
@@ -672,7 +678,7 @@ mod tests {
                 if read == 0 {
                     break;
                 }
-                head.extend_from_slice(&window[..read]);
+                head.extend_from_slice(window.split_at(read).0);
             }
             // The post arrived; the connection closes with no reply.
             Ok(())

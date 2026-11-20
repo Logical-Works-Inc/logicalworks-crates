@@ -223,11 +223,11 @@ pub struct Frame {
     /// Soft shapes to rasterize, fused by the goo filter.
     shapes: Vec<Shape>,
     /// Global layer opacity in `[0, 1]`.
-    pub alpha: f64,
+    alpha: f64,
     /// Gaussian blur standard deviation for the goo threshold, in pixels.
-    pub blur: f64,
+    blur: f64,
     /// Turbulence displacement scale, in pixels. Zero disables displacement.
-    pub displacement: f64,
+    displacement: f64,
     /// Visible text, for the count effect; `None` for geometric effects.
     label: Option<String>,
 }
@@ -249,6 +249,64 @@ impl Frame {
     #[must_use]
     pub fn shapes(&self) -> &[Shape] {
         &self.shapes
+    }
+
+    /// Global layer opacity in `[0, 1]`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use drishti::{ink_lab::{Canvas, Effect, HostSpec}, runtime::{Budgets, Runtime}};
+    /// # let mut runtime = Runtime::new(7, Budgets::conservative());
+    /// # let [effect, ..] = Effect::all();
+    /// # runtime.add_host(HostSpec::new(effect, Canvas::new(64.0, 64.0), true))?;
+    /// for upload in runtime.present(16.0)?.uploads() {
+    ///     assert!((0.0..=1.0).contains(&upload.frame.alpha()));
+    /// }
+    /// # Ok::<(), drishti::runtime::RuntimeError>(())
+    /// ```
+    #[must_use]
+    pub const fn alpha(&self) -> f64 {
+        self.alpha
+    }
+
+    /// Gaussian blur standard deviation for the goo threshold, in pixels.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use drishti::{ink_lab::{Canvas, Effect, HostSpec}, runtime::{Budgets, Runtime}};
+    /// # let mut runtime = Runtime::new(7, Budgets::conservative());
+    /// # let [effect, ..] = Effect::all();
+    /// # runtime.add_host(HostSpec::new(effect, Canvas::new(64.0, 64.0), true))?;
+    /// for upload in runtime.present(16.0)?.uploads() {
+    ///     assert!(upload.frame.blur() >= 0.0, "a deviation is never negative");
+    /// }
+    /// # Ok::<(), drishti::runtime::RuntimeError>(())
+    /// ```
+    #[must_use]
+    pub const fn blur(&self) -> f64 {
+        self.blur
+    }
+
+    /// Turbulence displacement scale, in pixels. Zero disables displacement.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use drishti::{ink_lab::{Canvas, Effect, HostSpec}, runtime::{Budgets, Runtime}};
+    /// # let mut runtime = Runtime::new(7, Budgets::conservative());
+    /// # let [effect, ..] = Effect::all();
+    /// # runtime.add_host(HostSpec::new(effect, Canvas::new(64.0, 64.0), true))?;
+    /// for upload in runtime.present(16.0)?.uploads() {
+    ///     let turbulent = upload.frame.displacement() > 0.0;
+    ///     println!("host {:?} turbulent: {turbulent}", upload.host);
+    /// }
+    /// # Ok::<(), drishti::runtime::RuntimeError>(())
+    /// ```
+    #[must_use]
+    pub const fn displacement(&self) -> f64 {
+        self.displacement
     }
 
     /// The count effect's visible text, if any.

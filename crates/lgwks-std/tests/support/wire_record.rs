@@ -14,7 +14,7 @@ use lgwks_std::wire::{Archive, Deserialize, Serialize};
 /// A representative nested consumer value.
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 #[rkyv(crate = lgwks_std::wire::rkyv, derive(Debug))]
-pub struct ConsumerRecord {
+pub(crate) struct ConsumerRecord {
     /// Borrowed-from-archive text.
     pub(crate) name: String,
     /// Pointer-sized collection.
@@ -30,14 +30,14 @@ pub struct ConsumerRecord {
 /// A nested child record.
 #[derive(Archive, Deserialize, Serialize, Debug, PartialEq, Eq, Clone)]
 #[rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug))]
-pub struct ConsumerChild {
+pub(crate) struct ConsumerChild {
     /// Child scalar.
     pub(crate) value: u64,
 }
 
 /// The fixture value, identical to the one the retained bytes were produced from.
 #[must_use]
-pub fn sample() -> ConsumerRecord {
+pub(crate) fn sample() -> ConsumerRecord {
     let mut fields = BTreeMap::new();
     fields.insert(String::from("height"), 200);
     fields.insert(String::from("width"), 100);
@@ -51,13 +51,13 @@ pub fn sample() -> ConsumerRecord {
 }
 
 /// The format the retained fixture bytes were produced under.
-pub const PINNED_POINTER_WIDTH_BITS: usize = 32;
+pub(crate) const PINNED_POINTER_WIDTH_BITS: usize = 32;
 /// The fixture's archived `u32` alignment, in bytes.
-pub const PINNED_U32_ALIGNMENT: usize = 4;
+pub(crate) const PINNED_U32_ALIGNMENT: usize = 4;
 
 /// The hex payload of the retained fixture, with `#` metadata lines removed.
 #[must_use]
-pub fn fixture_hex() -> String {
+pub(crate) fn fixture_hex() -> String {
     let raw = include_str!("../fixtures/wire/consumer_record_v1.hex");
     raw.lines()
         .filter(|line| !line.trim_start().starts_with('#'))

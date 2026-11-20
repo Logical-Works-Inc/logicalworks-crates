@@ -27,7 +27,7 @@ lgwks_deps = { workspace = true, default-features = false, features = ["macro"] 
 # grammar is built for it.
 lgwks_ast = { workspace = true, default-features = false, features = ["emit"] }
 # The diagnostics `unlogged-err-return` requires come from the estate facade.
-lgwks_std = { workspace = true }
+lgwks_std = { workspace = true, default-features = false }
 
 [lints]
 workspace = true

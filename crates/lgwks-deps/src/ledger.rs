@@ -279,12 +279,30 @@ pub fn render_json(input: &Input<'_>) -> Result<String, LedgerError> {
     let mut out = String::from("{");
     push(&mut out, format_args!("\"today\":{}", quoted(input.today)?))?;
     out.push_str(",\"edges\":[");
+    push_edges(&mut out, input)?;
+    out.push_str("],\"deferred\":[");
+    push_deferred(&mut out, input)?;
+    out.push_str("],\"pins\":[");
+    push_pins(&mut out, input)?;
+    out.push_str("],\"providers\":[");
+    push_providers(&mut out, input)?;
+    out.push_str("]}");
+    Ok(out)
+}
+
+/// Writes the `,` between two array items; nothing before the first.
+fn separate(out: &mut String, first: &mut bool) {
+    if !*first {
+        out.push(',');
+    }
+    *first = false;
+}
+
+/// The approved edges, one object each.
+fn push_edges(out: &mut String, input: &Input<'_>) -> Result<(), LedgerError> {
     let mut first = true;
     for entry in input.register.approvals() {
-        if !first {
-            out.push(',');
-        }
-        first = false;
+        separate(out, &mut first);
         let mut consumers = String::new();
         for (index, name) in entry.allowed_consumers.iter().enumerate() {
             if index > 0 {
@@ -293,7 +311,7 @@ pub fn render_json(input: &Input<'_>) -> Result<String, LedgerError> {
             consumers.push_str(&quoted(name)?);
         }
         push(
-            &mut out,
+            out,
             format_args!(
                 "{{\"crate\":{},\"owner\":{},\"capability\":{},\"consumers\":[{consumers}],\"tier\":\"{}\",\"version\":{},\"license\":{},\"replacement\":{},\"removal_trigger\":{},\"last_reviewed\":{}}}",
                 quoted(entry.krate())?,
@@ -308,16 +326,17 @@ pub fn render_json(input: &Input<'_>) -> Result<String, LedgerError> {
             ),
         )?;
     }
-    out.push_str("],\"deferred\":[");
-    first = true;
+    Ok(())
+}
+
+/// The deferred families, one object each.
+fn push_deferred(out: &mut String, input: &Input<'_>) -> Result<(), LedgerError> {
+    let mut first = true;
     if let Some(catalog) = input.deferral {
         for row in catalog.entries() {
-            if !first {
-                out.push(',');
-            }
-            first = false;
+            separate(out, &mut first);
             push(
-                &mut out,
+                out,
                 format_args!(
                     "{{\"crate\":{},\"family\":{},\"owner\":{},\"trigger\":{},\"replacement\":{},\"review\":{},\"deferred_on\":{}}}",
                     quoted(row.krate())?,
@@ -331,16 +350,17 @@ pub fn render_json(input: &Input<'_>) -> Result<String, LedgerError> {
             )?;
         }
     }
-    out.push_str("],\"pins\":[");
-    first = true;
+    Ok(())
+}
+
+/// The supply-chain pins, one object each.
+fn push_pins(out: &mut String, input: &Input<'_>) -> Result<(), LedgerError> {
+    let mut first = true;
     if let Some(ledger) = input.supply {
         for pin in ledger.entries() {
-            if !first {
-                out.push(',');
-            }
-            first = false;
+            separate(out, &mut first);
             push(
-                &mut out,
+                out,
                 format_args!(
                     "{{\"crate\":{},\"kind\":\"{}\",\"owner\":{},\"expires_on\":{},\"live\":{},\"upstream\":{},\"recorded_on\":{},\"version\":{},\"patch_digest\":{},\"blast_radius\":{},\"removal_trigger\":{}}}",
                     quoted(pin.krate())?,
@@ -358,24 +378,25 @@ pub fn render_json(input: &Input<'_>) -> Result<String, LedgerError> {
             )?;
         }
     }
-    out.push_str("],\"providers\":[");
-    first = true;
+    Ok(())
+}
+
+/// Every blocked provider, present in the lock or not.
+fn push_providers(out: &mut String, input: &Input<'_>) -> Result<(), LedgerError> {
+    let mut first = true;
     for blocked in BLOCKED_PROVIDERS {
-        if !first {
-            out.push(',');
-        }
-        first = false;
+        separate(out, &mut first);
         match input.locked.iter().find(|item| item.name() == blocked) {
             None => {
                 push(
-                    &mut out,
+                    out,
                     format_args!("{{\"crate\":\"{blocked}\",\"present\":false}}"),
                 )?;
             }
             Some(package) => {
                 let covered = provider_covered(input, blocked);
                 push(
-                    &mut out,
+                    out,
                     format_args!(
                         "{{\"crate\":\"{blocked}\",\"present\":true,\"version\":{},\"via\":{},\"covered\":{covered}}}",
                         quoted(package.version())?,
@@ -385,8 +406,7 @@ pub fn render_json(input: &Input<'_>) -> Result<String, LedgerError> {
             }
         }
     }
-    out.push_str("]}");
-    Ok(out)
+    Ok(())
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────

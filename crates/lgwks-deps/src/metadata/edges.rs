@@ -131,7 +131,7 @@ fn source(dependency: &CargoDependency) -> Result<DependencySource, MetadataErro
 /// Decodes format-version 1 metadata into direct workspace edges.
 pub fn parse(text: &str) -> Result<Vec<DirectEdge>, MetadataError> {
     let metadata: CargoMetadata = lgwks_std::json::from_str(text).map_err(MetadataError::Json)?;
-    direct_edges(metadata)
+    direct_edges(&metadata)
 }
 
 /// Joins a manifest-relative dependency path to its declaring directory.
@@ -189,8 +189,8 @@ pub(super) fn lexical_join(base: &Path, relative: &str) -> Option<PathBuf> {
 /// packages share therefore cannot borrow another package's licence by
 /// renaming, and an approval is compared against the licence of the package
 /// Cargo actually resolved.
-pub(super) fn direct_edges(metadata: CargoMetadata) -> Result<Vec<DirectEdge>, MetadataError> {
-    let workspace = validated_workspace(&metadata)?;
+pub(super) fn direct_edges(metadata: &CargoMetadata) -> Result<Vec<DirectEdge>, MetadataError> {
+    let workspace = validated_workspace(metadata)?;
     let member_packages = workspace.packages;
     let member_dirs = workspace.member_dirs;
     let declaring_dirs = workspace.declaring_dirs;

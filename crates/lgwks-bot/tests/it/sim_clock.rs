@@ -169,7 +169,7 @@ fn scenario(seed: u64) -> (Trace, Receipt) {
 /// The clock is deterministic: the same seed gives the same trace and the same
 /// receipt, so a recorded hash is a replay receipt.
 #[test]
-fn the_same_seed_replays_the_same_clock_trace() -> Result<(), Box<dyn std::error::Error>> {
+fn the_same_seed_replays_the_same_clock_trace() {
     let mut first: Vec<(u64, Receipt)> = Vec::new();
     let mut second: Vec<(u64, Receipt)> = Vec::new();
     for seed in seeds() {
@@ -193,7 +193,6 @@ fn the_same_seed_replays_the_same_clock_trace() -> Result<(), Box<dyn std::error
         "a seed drove the wall watchdog past {WATCHDOG_LIMIT:?} without any real \
          wait, which means logical time reached the watchdog"
     );
-    Ok(())
 }
 
 /// Distinct seeds give distinct traces, so the family is not sweeping a
@@ -306,8 +305,7 @@ fn racing_logical_time_leaves_the_wall_watchdog_independent()
 /// over it: an advance past it saturates instead of wrapping into the past,
 /// where a computed deadline would fire immediately and look legitimate.
 #[test]
-fn the_elapsed_ceiling_saturates_instead_of_wrapping_into_the_past()
--> Result<(), Box<dyn std::error::Error>> {
+fn the_elapsed_ceiling_saturates_instead_of_wrapping_into_the_past() {
     let clock = Clock::virtual_at(Clock::elapsed_ceiling());
     assert_eq!(
         clock.advance(Duration::from_secs(1)),
@@ -322,7 +320,6 @@ fn the_elapsed_ceiling_saturates_instead_of_wrapping_into_the_past()
         Clock::elapsed_ceiling(),
         "a refused advance leaves the clock unchanged rather than wrapping"
     );
-    Ok(())
 }
 
 // ── Origin-to-counter saturation ───────────────────────────────────────────
@@ -478,7 +475,7 @@ fn origin_scenario(seed: u64) -> (Trace, Vec<OriginReading>) {
 /// The saturation identity replays: the same seed gives the same trace and the
 /// same readings, so a hash recorded against this sweep is a receipt.
 #[test]
-fn the_same_seed_replays_the_same_origin_trace() -> Result<(), Box<dyn std::error::Error>> {
+fn the_same_seed_replays_the_same_origin_trace() {
     let mut first: Vec<(u64, Vec<OriginReading>)> = Vec::new();
     let mut second: Vec<(u64, Vec<OriginReading>)> = Vec::new();
     for seed in seeds() {
@@ -494,7 +491,6 @@ fn the_same_seed_replays_the_same_origin_trace() -> Result<(), Box<dyn std::erro
         second.push((trace_b.hash(), observed_b));
     }
     assert_eq!(first, second, "the readings diverged across a repeat sweep");
-    Ok(())
 }
 
 /// No seed in the band observes a counter outside the representable range, and

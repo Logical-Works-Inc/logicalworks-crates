@@ -328,6 +328,11 @@ pub(crate) async fn ingress(
             }
         }
     };
+    respond(&shared, outcome)
+}
+
+/// The HTTP answer for what the run came to, counting an answered run as drained.
+fn respond(shared: &Shared, outcome: SubmitOutcome) -> HttpResponse {
     match outcome {
         SubmitOutcome::Answered { status, body } => {
             if status != 200 {

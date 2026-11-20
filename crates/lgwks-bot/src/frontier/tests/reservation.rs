@@ -1,5 +1,6 @@
 //! The reservation is bound to the admission, not to the name.
 
+#[cfg(test)]
 use super::*;
 
 // ── The reservation is bound to the admission, not to the name ─────────
@@ -29,7 +30,7 @@ fn releasing_after_reresolution_preserves_other_requests() -> TestResult {
     );
 
     frontier.observe_resolution("a.example", Resolved::Origin("new".to_owned()));
-    frontier.complete(permit, Outcome::Success)?;
+    frontier.complete(&permit, Outcome::Success)?;
 
     // Physical ownership invariants, not implementation counters.
     assert_eq!(
@@ -72,7 +73,7 @@ fn a_resolution_failure_during_flight_returns_the_original_slots() -> TestResult
     assert_eq!(frontier.in_flight(&ConstraintKey::origin("old")), 1);
 
     frontier.observe_resolution("a.example", Resolved::Failed);
-    frontier.complete(permit, Outcome::Failure)?;
+    frontier.complete(&permit, Outcome::Failure)?;
 
     assert_eq!(
         frontier.in_flight(&ConstraintKey::origin("old")),
@@ -123,9 +124,9 @@ fn several_in_flight_across_topology_generations_conserve_every_slot() -> TestRe
     );
 
     // Out of order, and against a topology the names have left behind.
-    frontier.complete(second, Outcome::Success)?;
-    frontier.complete(third, Outcome::Failure)?;
-    frontier.complete(first, Outcome::Success)?;
+    frontier.complete(&second, Outcome::Success)?;
+    frontier.complete(&third, Outcome::Failure)?;
+    frontier.complete(&first, Outcome::Success)?;
 
     for origin in ["origin-a", "origin-b", "origin-c", "gen2", "gen3"] {
         assert_eq!(
@@ -150,7 +151,7 @@ fn several_in_flight_across_topology_generations_conserve_every_slot() -> TestRe
         !moved.holds(&ConstraintKey::origin("origin-a")),
         "and not on the one an earlier request for the same name used"
     );
-    frontier.complete(moved, Outcome::Success)?;
+    frontier.complete(&moved, Outcome::Success)?;
     Ok(())
 }
 
@@ -200,7 +201,7 @@ fn response_attribution_follows_the_admission_not_the_current_name() -> TestResu
     let new_before = frontier.window(&ConstraintKey::origin("new"));
     let old_before = frontier.window(&ConstraintKey::origin("old"));
 
-    frontier.complete(permit, Outcome::Failure)?;
+    frontier.complete(&permit, Outcome::Failure)?;
 
     assert_eq!(
         frontier.window(&ConstraintKey::origin("old")),
@@ -223,7 +224,7 @@ fn a_permit_from_another_frontier_is_refused() -> TestResult {
     let permit = admitted(&mut issuer, "a.example", Duration::ZERO)?;
 
     assert_eq!(
-        stranger.complete(permit, Outcome::Success),
+        stranger.complete(&permit, Outcome::Success),
         Err(CompletionError::ForeignPermit),
         "a permit is evidence only against the accounting that minted it, \
              and a second frontier holds a different ledger"
@@ -263,7 +264,7 @@ fn a_permit_with_no_live_reservation_is_refused() -> TestResult {
              subtraction that quietly does nothing"
     );
     assert_eq!(
-        frontier.complete(permit, Outcome::Success),
+        frontier.complete(&permit, Outcome::Success),
         Err(CompletionError::UnknownPermit),
         "and completing it is refused before any window is touched"
     );

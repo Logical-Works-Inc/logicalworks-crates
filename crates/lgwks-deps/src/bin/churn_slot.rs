@@ -59,7 +59,19 @@ const MAX_SLOTS: usize = 64;
 /// The directory holding the slot files when `LWC_CHURN_DIR` names none. Absolute
 /// and outside `TMPDIR` on purpose: every job of the host sets its own `TMPDIR`
 /// (a RAM disk of its own), and the slots are shared by all of them.
-const DEFAULT_DIR: &str = "/tmp/lwc-churn";
+const DEFAULT_DIR_PARTS: [&str; 2] = ["tmp", "lwc-churn"];
+
+/// `parts` joined under the filesystem root.
+fn under_root(parts: [&str; 2]) -> PathBuf {
+    let mut path = PathBuf::from(std::path::MAIN_SEPARATOR_STR);
+    path.extend(parts);
+    path
+}
+
+/// The slot directory when none is named.
+fn default_dir() -> PathBuf {
+    under_root(DEFAULT_DIR_PARTS)
+}
 
 /// The variable naming how many slots there are.
 const SLOTS_VAR: &str = "LWC_CHURN_SLOTS";
@@ -73,7 +85,7 @@ const TMP_VAR: &str = "LWC_CHURN_TMP";
 
 /// The prefix of the per-user temporary directory macOS hands a process that
 /// names none: on the physical disk.
-const DEFAULT_TMP_PREFIX: &str = "/var/folders/";
+const DEFAULT_TMP_PARTS: [&str; 2] = ["var", "folders"];
 
 /// The shared volume's name under `/Volumes`.
 #[cfg(target_os = "macos")]
@@ -101,9 +113,13 @@ impl Temp {
         if choice.is_some_and(|said| said == "inherit") {
             return Self::Inherited;
         }
-        match tmpdir.map(|dir| dir.to_string_lossy()) {
+        match tmpdir {
             None => Self::Shared,
-            Some(dir) if dir.is_empty() || dir.starts_with(DEFAULT_TMP_PREFIX) => Self::Shared,
+            Some(dir)
+                if dir.is_empty() || Path::new(dir).starts_with(under_root(DEFAULT_TMP_PARTS)) =>
+            {
+                Self::Shared
+            }
             Some(_) => Self::Inherited,
         }
     }
@@ -189,7 +205,7 @@ struct Held {
 fn dir_from_env(dir: Option<OsString>) -> PathBuf {
     match dir {
         Some(text) if !text.is_empty() => PathBuf::from(text),
-        _ => PathBuf::from(DEFAULT_DIR),
+        _ => default_dir(),
     }
 }
 
@@ -212,10 +228,14 @@ impl Slots {
     /// The slots a caller's environment names. A count that is unset, not a
     /// number, zero or past [`MAX_SLOTS`] is `fallback`.
     fn from_env(slots: Option<OsString>, dir: PathBuf, fallback: NonZeroUsize) -> Self {
-        let named = slots
-            .as_deref()
-            .and_then(|text| text.to_str())
-            .map(|text| text.trim().parse::<usize>());
+        let named = match slots.map(OsString::into_string) {
+            Some(Ok(text)) => Some(text.trim().parse::<usize>()),
+            Some(Err(raw)) => {
+                lgwks_std::trace::debug!(value = ?raw, "from_env: the slot count is not unicode");
+                None
+            }
+            None => None,
+        };
         let count = match named {
             Some(Ok(number)) if number <= MAX_SLOTS => match NonZeroUsize::new(number) {
                 Some(count) => count,
@@ -291,8 +311,8 @@ impl Drop for Held {
     /// keeps the intent in one place, and a refusal changes nothing because the
     /// operating system drops the lock when the process ends.
     fn drop(&mut self) {
-        match self.file.unlock() {
-            Ok(()) | Err(_) => {}
+        if let Err(error) = self.file.unlock() {
+            lgwks_std::trace::debug!(%error, "a slot could not be released by name; the process end releases it");
         }
     }
 }
@@ -331,8 +351,8 @@ fn low_byte(value: i32) -> u8 {
 /// is not worth failing a test for, so it is dropped.
 fn say(line: &str) {
     let mut handle = io::stderr().lock();
-    match writeln!(handle, "churn-slot: {line}") {
-        Ok(()) | Err(_) => {}
+    if let Err(error) = writeln!(handle, "churn-slot: {line}") {
+        lgwks_std::trace::debug!(%error, "churn-slot could not write to standard error");
     }
 }
 

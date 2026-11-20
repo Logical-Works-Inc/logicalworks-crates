@@ -82,7 +82,15 @@ impl Scratch {
         }
         let temp = std::env::temp_dir();
         reclaim_stale(&temp);
-        let Some(identity) = fresh_identity() else {
+        // WASI has no entropy source and no RAM disk to name, so a scratch name
+        // is never made there and the lanes use the system temporary directory.
+        // Elsewhere the name is a time-ordered UUID no other run holds, that
+        // sorts by when the run started.
+        #[cfg(target_family = "wasm")]
+        let identity: Option<String> = None;
+        #[cfg(not(target_family = "wasm"))]
+        let identity = Some(Uuid::now_v7().to_string());
+        let Some(identity) = identity else {
             return Self::none();
         };
         let name = format!("{PREFIX}{identity}");
@@ -123,20 +131,6 @@ impl Drop for Scratch {
             release_lease(lease);
         }
     }
-}
-
-/// WASI has no entropy source and no RAM disk to name, so a scratch name is
-/// never made there and the lanes use the system temporary directory.
-#[cfg(target_family = "wasm")]
-fn fresh_identity() -> Option<String> {
-    None
-}
-
-/// A name no other run holds, that sorts by when the run started: a time-ordered
-/// UUID, 62 random bits behind a millisecond stamp and a counter.
-#[cfg(not(target_family = "wasm"))]
-fn fresh_identity() -> Option<String> {
-    Some(Uuid::now_v7().to_string())
 }
 
 /// The millisecond the run that made `stem` started, when its name says so.
@@ -180,13 +174,19 @@ fn age_from_name(stem: &str, now: SystemTime) -> Option<Duration> {
 /// How long ago `entry`'s file was last modified, or nothing when the host
 /// cannot say.
 fn age_from_file(entry: &fs::DirEntry) -> Option<Duration> {
-    match entry
-        .metadata()
-        .and_then(|meta| meta.modified())
-        .map(|stamp| stamp.elapsed())
-    {
-        Ok(Ok(age)) => Some(age),
-        Ok(Err(_)) | Err(_) => None,
+    let stamp = match entry.metadata().and_then(|meta| meta.modified()) {
+        Ok(stamp) => stamp,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "a scratch lease has no readable modification time");
+            return None;
+        }
+    };
+    match stamp.elapsed() {
+        Ok(age) => Some(age),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "a scratch lease is stamped ahead of the clock");
+            None
+        }
     }
 }
 
@@ -211,9 +211,11 @@ fn take_lease(temp: &Path, name: &str) -> Option<(File, PathBuf)> {
 
 /// Lets go of a lease: the file goes, then the lock with the handle.
 fn release_lease(lease: (File, PathBuf)) {
-    if let Err(error) = fs::remove_file(&lease.1) {
-        lgwks_std::trace::debug!(%error, path = ?lease.1, "a scratch lease could not be removed");
+    let (handle, path) = lease;
+    if let Err(error) = fs::remove_file(&path) {
+        lgwks_std::trace::debug!(%error, path = ?path, "a scratch lease could not be removed");
     }
+    drop(handle);
 }
 
 /// A macOS APFS volume on a RAM disk, and the device to detach it by.

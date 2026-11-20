@@ -27,7 +27,7 @@ The `lgwks_std` part of the invariant register, one short line per rule: rule ·
 - **INV-STD-HTTP-5** A `Debug` of `Options` or `Client` names each extra header and never renders its value. · why: #913 · enforced by: `tests/it/sim_http.rs`
 - **INV-STD-ONLINE-1** Reachability candidates share one monotonic budget over at most 64 addresses; the result is a TCP heuristic. · why: #163 · enforced by: `online::tests::a_whole_probe_fits_one_budget`
 - **INV-GLOB-1** Glob matching is anchored, Unicode-scalar and case-sensitive with segment-bound `*`, and a compiled pattern is shareable. · enforced by: `tests/it/glob_public.rs`
-- **INV-STD-SHARED-POLICY** One matcher, evidence policy and retry policy serve 10,000 callers bit-identical to the serial run, in flat memory. · why: #154 · enforced by: `tests/it/sim_shared_policy_tiers.rs`
+- **INV-STD-SHARED-POLICY** One matcher, evidence policy and retry policy serve 10,000 callers bit-identical to the serial run, in flat memory. · why: #154 · enforced by: `tests/it/tier_shared_policy.rs`
 - **INV-CODEC-1** JSON and RON decoders borrow where they can and never report escaped text as borrowed. · why: #162 · enforced by: `tests/it/sim_codec.rs`
 - **INV-STD-JSON-1** `json::Value` keeps strings of up to 22 bytes inline and reads, writes and converts exactly as serde_json does. · why: #831 · enforced by: `tests/it/sim_json.rs`, the `latency-tails` lane
 - **INV-WIRE-1** `lgwks_std::wire` is an rkyv facade with an observable format descriptor, not a canonical encoding. · why: #167 · enforced by: `tests/it/sim_wire.rs`

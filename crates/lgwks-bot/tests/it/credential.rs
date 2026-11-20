@@ -229,10 +229,13 @@ fn an_upstream_rejection_carries_the_repair_and_is_never_retried() -> TestResult
         "one shortfall in, one need out: a caller must not iterate to learn what to re-grant: \
          {needs}"
     );
+    let Some(first) = reported.first() else {
+        return Err("one need is reported".into());
+    };
     let Need::CredentialExpired {
         ref domain,
         ref capabilities,
-    } = reported[0]
+    } = *first
     else {
         return Err(Box::new(std::io::Error::other(format!(
             "the repair must be a credential need, not a shortage: {needs}"

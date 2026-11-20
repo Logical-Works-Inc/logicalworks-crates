@@ -23,7 +23,6 @@
 
 use std::error::Error;
 use std::process::Child;
-use std::time::{Duration, Instant};
 
 use lgwks_std::process::{
     MAX_START_TOKEN_BYTES, OrphanReap, ProcessIdentity, identify_process, kill_process_group,
@@ -32,6 +31,7 @@ use lgwks_std::process::{
 
 use crate::group_leader::spawn_group_leader;
 use crate::rng::Rng;
+use crate::seeded_bytes::poll_within;
 use crate::seeded_sweep::{SWEEP_SEEDS, fold, fold_usize, initial_trace};
 
 /// What every test here returns: a fixture that cannot be built fails the test
@@ -47,9 +47,9 @@ const CASES: usize = 6;
 /// Stored-form cases per seed; parsing is pure, so the family runs many.
 const TEXT_CASES: usize = 2_500;
 
-/// How long a group may take to record its members, or a signalled member to
-/// stop running.
-const SETTLE: Duration = Duration::from_secs(10);
+/// How many probes a group may take to record its members, or a signalled
+/// member to stop running: a count, so the bound is the same on every run.
+const PROBE_BUDGET: u32 = 1 << 22;
 
 /// What the seed drew for one record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -129,31 +129,27 @@ impl Group {
         Ok(group)
     }
 
-    /// The `count` member pids the leader recorded, within [`SETTLE`].
+    /// The `count` member pids the leader recorded, within [`PROBE_BUDGET`].
     fn read_roster(&self, count: usize) -> Result<Vec<i32>, Box<dyn Error>> {
-        let deadline = Instant::now()
-            .checked_add(SETTLE)
-            .ok_or("the roster deadline overflows the clock")?;
-        while Instant::now() < deadline {
-            if self.ready.exists() {
-                let text = std::fs::read_to_string(&self.roster)?;
-                let mut pids = text
-                    .lines()
-                    .map(|line| line.trim().parse::<i32>())
-                    .collect::<Result<Vec<i32>, _>>()?;
-                if pids.len() != count {
-                    let refusal: Result<Vec<i32>, Box<dyn Error>> =
-                        Err(format!("the roster holds {} of {count} members", pids.len()).into());
-                    #[cfg(feature = "trace")]
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "read_roster: returning an error to the caller");
-                    return refusal;
-                }
-                pids.sort_unstable();
-                return Ok(pids);
-            }
-            std::thread::park_timeout(Duration::from_millis(5));
+        let written = poll_within(PROBE_BUDGET, || Ok(self.ready.exists().then_some(())))?;
+        if written.is_none() {
+            lgwks_std::trace::debug!("read_roster: returning an error to the caller");
+            return Err("the leader never wrote its roster".into());
         }
-        Err("the leader never wrote its roster".into())
+        let text = std::fs::read_to_string(&self.roster)?;
+        let mut pids = text
+            .lines()
+            .map(|line| line.trim().parse::<i32>())
+            .collect::<Result<Vec<i32>, _>>()?;
+        if pids.len() != count {
+            let refusal: Result<Vec<i32>, Box<dyn Error>> =
+                Err(format!("the roster holds {} of {count} members", pids.len()).into());
+            #[cfg(feature = "trace")]
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "read_roster: returning an error to the caller");
+            return refusal;
+        }
+        pids.sort_unstable();
+        Ok(pids)
     }
 
     /// Every process in the group, leader first.
@@ -174,28 +170,21 @@ impl Drop for Group {
     }
 }
 
-/// Whether `pids` reach the wanted running state within [`SETTLE`].
+/// Whether `pids` reach the wanted running state within [`PROBE_BUDGET`].
 ///
 /// Running, not present: a stopped member nobody reaped is a zombie, which is not
 /// a survivor.
 fn settles(pids: &[i32], want_running: bool) -> Result<bool, Box<dyn Error>> {
-    let deadline = Instant::now()
-        .checked_add(SETTLE)
-        .ok_or("the settle deadline overflows the clock")?;
-    let reached = |running: usize| {
-        if want_running {
+    let reached = poll_within(PROBE_BUDGET, || {
+        let running = running_processes(pids)?.len();
+        let wanted = if want_running {
             running == pids.len()
         } else {
             running == 0
-        }
-    };
-    while Instant::now() < deadline {
-        if reached(running_processes(pids)?.len()) {
-            return Ok(true);
-        }
-        std::thread::park_timeout(Duration::from_millis(5));
-    }
-    Ok(reached(running_processes(pids)?.len()))
+        };
+        Ok(wanted.then_some(()))
+    })?;
+    Ok(reached.is_some())
 }
 
 /// One seeded sweep of live reaps, as its trace.
@@ -272,7 +261,8 @@ fn damage(rng: &mut Rng, text: &str) -> String {
         2 => {
             let at = rng.below(bytes.len());
             if let Some(byte) = bytes.get_mut(at) {
-                *byte = rng.next().to_le_bytes()[0];
+                let [low, ..] = rng.next().to_le_bytes();
+                *byte = low;
             }
         }
         3 => bytes.extend(std::iter::repeat_n(
@@ -294,7 +284,9 @@ fn text_sweep(seed: u64) -> Result<u64, Box<dyn Error>> {
     let starts = ["ps:Mon-Oct-6-12:00:00-2026", "proc:3f1e-boot:123456"];
     for case in 0..TEXT_CASES {
         let pid = i32::try_from(rng.below(4_194_304).saturating_add(1))?;
-        let started = starts[rng.below(starts.len())];
+        let started = starts
+            .get(rng.below(starts.len()))
+            .ok_or("the drawn start token exists")?;
         let whole = ProcessIdentity::new(pid, started)?.to_string();
         let text = damage(&mut rng, &whole);
         let accepted = match text.parse::<ProcessIdentity>() {
@@ -335,11 +327,8 @@ fn sim_a_damaged_record_is_refused_or_read_back_exactly() -> TestResult {
     let mut traces = Vec::with_capacity(SWEEP_SEEDS.len());
     for seed in SWEEP_SEEDS {
         let first = text_sweep(seed)?;
-        assert_eq!(
-            first,
-            text_sweep(seed)?,
-            "seed {seed:#x} must replay its own trace"
-        );
+        let replay = text_sweep(seed)?;
+        assert_eq!(first, replay, "seed {seed:#x} must replay its own trace");
         traces.push(first);
     }
     traces.sort_unstable();

@@ -101,7 +101,7 @@ mod test_part_05;
 /// is forced rather than raced, and a wave that cut off the yielding source
 /// unpolled fails here on every run.
 #[test]
-fn an_expired_wave_still_reads_a_source_ready_on_its_next_turn() -> TestResult {
+fn an_expired_wave_still_reads_a_source_ready_on_its_next_turn() {
     // Long enough that no host schedules the two first turns past it, so the
     // wave is live for both; a 1 ms deadline let a loaded host fire the reaper
     // before the first turn finished and stall it (run 38438866216, CI
@@ -186,7 +186,6 @@ fn an_expired_wave_still_reads_a_source_ready_on_its_next_turn() -> TestResult {
         0,
         "the yielding source was turned exactly twice"
     );
-    Ok(())
 }
 
 /// The applied-key index answers the same questions the vector did, at a

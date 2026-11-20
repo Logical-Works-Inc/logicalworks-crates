@@ -11,7 +11,7 @@
 
 use std::num::NonZeroU64;
 
-pub use crate::seed::{Rng, Trace};
+pub(crate) use crate::seed::{Rng, Trace};
 
 impl Rng {
     /// An element of `values`, drawn from the sequence, or `None` when
@@ -24,7 +24,7 @@ impl Rng {
     /// the table is inspected, so the sequence a seed produces does not depend
     /// on how long the table it drew from was — the same seed replays the same
     /// sequence whatever it is asked to pick from.
-    pub fn pick<'a, T>(&mut self, values: &'a [T]) -> Option<&'a T> {
+    pub(crate) fn pick<'a, T>(&mut self, values: &'a [T]) -> Option<&'a T> {
         let draw = self.next_u64();
         // A table this target cannot measure in `u64` and an empty table are the
         // two cases with no index; `NonZeroU64` is the one check that refuses
@@ -46,7 +46,7 @@ impl Rng {
     /// names a fixture defect — and a fixture defect has to be a *named* one,
     /// because the alternative is a suite that silently tests the first element
     /// of a table it meant to draw from.
-    pub fn pick_named<'a, T>(
+    pub(crate) fn pick_named<'a, T>(
         &mut self,
         table: &'static str,
         values: &'a [T],
@@ -58,7 +58,7 @@ impl Rng {
     ///
     /// One spelling for every family, so every coin in the suite is the same
     /// draw from the same stream rather than a bit each family chose to read.
-    pub fn coin(&mut self) -> bool {
+    pub(crate) fn coin(&mut self) -> bool {
         self.chance(500)
     }
 }
@@ -72,7 +72,7 @@ impl Rng {
 /// # Errors
 ///
 /// [`EmptyTrace`] when nothing was recorded.
-pub fn receipt(trace: &Trace) -> Result<u64, EmptyTrace> {
+pub(crate) fn receipt(trace: &Trace) -> Result<u64, EmptyTrace> {
     if trace.is_empty() {
         let refusal = Err(EmptyTrace);
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "receipt: refusing an empty trace");
@@ -87,9 +87,9 @@ pub fn receipt(trace: &Trace) -> Result<u64, EmptyTrace> {
 /// invent a value its seed did not choose, and names the table so the fixture
 /// that was emptied can be found without re-reading every draw site.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EmptyTable {
+pub(crate) struct EmptyTable {
     /// The table the draw was asked for, as the call site named it.
-    pub table: &'static str,
+    pub(crate) table: &'static str,
 }
 
 impl std::fmt::Display for EmptyTable {
@@ -106,7 +106,7 @@ impl std::error::Error for EmptyTable {}
 
 /// A run asked for its receipt having recorded nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EmptyTrace;
+pub(crate) struct EmptyTrace;
 
 impl std::fmt::Display for EmptyTrace {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -37,6 +37,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::error::Error;
+use std::path::Path;
 
 use lgwks_std::hash::Hasher;
 use lgwks_std::seeded::Seeded;
@@ -48,6 +49,7 @@ use lgwks_bot::dist_lease::{
 use lgwks_bot::tenant_store::{RunStart, TenantStore};
 
 use crate::scratch::Scratch;
+use sim_model::{lane_must_dispatch, lane_must_end, model_lane_slot, pick_grant};
 
 /// The test result: fixtures bubble with `?`, like the rest of the estate.
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
@@ -205,6 +207,19 @@ fn trace_verdict(verdict: Option<&str>) -> &str {
     }
 }
 
+/// One counter, one more.
+fn bump(counter: &mut u64) {
+    *counter = counter.saturating_add(1);
+}
+
+/// Item `id` of a per-host vector, or the refusal naming what the set lacks.
+fn nth<'a, T>(items: &'a mut [T], id: usize, what: &str) -> TestResult<&'a mut T> {
+    let found = items
+        .get_mut(id)
+        .ok_or_else(|| format!("the set holds no {what} {id}"))?;
+    Ok(found)
+}
+
 /// The per-host drivers one seed step reaches: the hosts, their channels to
 /// the authority, and their coordinators over the shared store.
 ///
@@ -218,6 +233,388 @@ struct HostSet {
     channels: Vec<LoopbackChannel>,
     /// One coordinator per host over the shared store and authority.
     coordinators: Vec<Coordinator>,
+}
+
+/// One grant's target: the run, the lane, and whether it ends the lane.
+type Target = (String, usize, bool);
+
+/// One seed in flight: the authority, the hosts, the model that predicts them,
+/// and the seeded draws and trace that make the run replayable.
+struct Sim {
+    /// The seed that drives every draw.
+    seed: u64,
+    /// The one lease authority the hosts share.
+    authority: AuthorityHandle,
+    /// The hosts and their drivers.
+    set: HostSet,
+    /// What every step must produce.
+    model: Model,
+    /// The hosts cut off from the authority.
+    cut: BTreeSet<usize>,
+    /// The seeded draws.
+    rng: Seeded,
+    /// The trace the seed hashes to.
+    hasher: Hasher,
+}
+
+impl Sim {
+    /// Take the step the draw `choice` selects, on host `hid`.
+    fn step(&mut self, choice: u64, hid: usize, dir: &Path) -> TestResult {
+        let seed = self.seed;
+        match choice {
+            0..20 => {
+                let lease = self.authority.acquire(&host_name(hid));
+                announce(&mut self.set.hosts, &self.cut, lease.epoch());
+                nth(&mut self.set.hosts, hid, "host")?.lease = Some(lease);
+                self.model.epoch = self.model.epoch.saturating_add(1);
+                self.model.holder = Some(hid);
+                check_authority(&self.authority, &self.model, seed)?;
+                let tag = format!("host-{hid}/{}", self.model.epoch);
+                observe(&mut self.hasher, "acquire", &tag);
+                Ok(())
+            }
+            20..40 => self.grant_step(hid),
+            40..50 => {
+                let healing = self.cut.remove(&hid);
+                nth(&mut self.set.channels, hid, "channel")?.set_partitioned(!healing);
+                if healing {
+                    announce(&mut self.set.hosts, &self.cut, self.authority.epoch());
+                } else {
+                    self.cut.insert(hid);
+                }
+                let tag = if healing { "heal" } else { "partition" };
+                observe(&mut self.hasher, tag, &format!("host-{hid}"));
+                Ok(())
+            }
+            50..58 => {
+                let drawn = draw_skew(self.rng.below(5)?);
+                nth(&mut self.set.hosts, hid, "host")?.skew = drawn;
+                observe(&mut self.hasher, "skew", &format!("host-{hid}/{drawn}"));
+                Ok(())
+            }
+            58..68 => self.push(hid),
+            68..76 => {
+                let queue = self.model.queues.entry(hid).or_default();
+                let got = nth(&mut self.set.hosts, hid, "host")?.queue.pop();
+                assert_eq!(
+                    got,
+                    queue.pop_front(),
+                    "seed {seed}: host-{hid} must pop its modeled queue"
+                );
+                let tag = format!("host-{hid}/{}", got.is_some());
+                observe(&mut self.hasher, "pop", &tag);
+                Ok(())
+            }
+            76..84 => self.kill(hid),
+            84..92 => self.begin(hid),
+            _ => self.reopen(dir),
+        }
+    }
+
+    /// The lease host `hid` holds, tracing `tag` when it holds none.
+    fn lease_or_trace(&mut self, hid: usize, tag: &str) -> TestResult<Option<Lease>> {
+        let held = nth(&mut self.set.hosts, hid, "host")?.lease.clone();
+        if held.is_none() {
+            observe(&mut self.hasher, tag, &format!("host-{hid}/no-lease"));
+        }
+        Ok(held)
+    }
+
+    /// Push one item on host `hid`'s queue, and the model's.
+    fn push(&mut self, hid: usize) -> TestResult {
+        let seed = self.seed;
+        let item = format!("work-{begun:04}", begun = self.model.begun);
+        self.model.begun = self.model.begun.saturating_add(1);
+        let queue = self.model.queues.entry(hid).or_default();
+        let host = nth(&mut self.set.hosts, hid, "host")?;
+        match host.queue.try_push(item.clone()) {
+            Ok(()) => {
+                queue.push_back(item);
+                observe(&mut self.hasher, "push", &format!("host-{hid}/ok"));
+            }
+            Err(refused) => {
+                assert_eq!(
+                    refused.into_item(),
+                    item,
+                    "seed {seed}: a refused push must hand its item back"
+                );
+                observe(&mut self.hasher, "push", &format!("host-{hid}/full"));
+            }
+        }
+        let held = host.queue.len();
+        assert!(
+            held <= QUEUE_CAPACITY,
+            "seed {seed}: host-{hid} must never exceed its bound"
+        );
+        assert_eq!(
+            held,
+            queue.len(),
+            "seed {seed}: host-{hid} must hold its modeled queue"
+        );
+        Ok(())
+    }
+
+    /// Drop host `hid`'s lease with runs open, and let a rival host recover them.
+    fn kill(&mut self, hid: usize) -> TestResult {
+        nth(&mut self.set.hosts, hid, "host")?.lease = None;
+        observe(&mut self.hasher, "kill", &format!("host-{hid}"));
+        let rid = self.rng.index(HOSTS)?;
+        if rid == hid {
+            return Ok(());
+        }
+        if self.cut.contains(&rid) {
+            bump(&mut nth(&mut self.set.hosts, rid, "host")?.waits);
+            return Ok(());
+        }
+        if let Some(lease) = nth(&mut self.set.hosts, rid, "host")?.lease.clone() {
+            self.recover_for(hid, rid, &lease)?;
+        }
+        Ok(())
+    }
+
+    /// Host `rid` recovers the open runs of the dead host `hid`, once.
+    fn recover_for(&mut self, hid: usize, rid: usize, lease: &Lease) -> TestResult {
+        let seed = self.seed;
+        if !nth(&mut self.set.channels, rid, "channel")?.validate(lease)? {
+            bump(&mut nth(&mut self.set.hosts, rid, "host")?.refusals);
+            return Ok(());
+        }
+        let dead = host_name(hid);
+        let coordinator = nth(&mut self.set.coordinators, rid, "coordinator")?;
+        let closed = coordinator.recover(lease, &dead, "t-recover")?;
+        let mut wanted = 0usize;
+        for run in self.model.runs.values_mut() {
+            if run.host == hid && run.close.is_none() {
+                run.close = Some("UNMEASURED".to_owned());
+                run.lanes.fill(ModelLane::Ended);
+                wanted = wanted.saturating_add(1);
+            }
+        }
+        assert_eq!(
+            closed, wanted,
+            "seed {seed}: recovery must close exactly the open runs"
+        );
+        assert_eq!(
+            coordinator.recover(lease, &dead, "t-recover-again")?,
+            0,
+            "seed {seed}: a second recovery must close nothing"
+        );
+        Ok(())
+    }
+
+    /// Host `hid` begins a run: committed under a current lease, fenced under a
+    /// stale one, and waited out when cut off.
+    fn begin(&mut self, hid: usize) -> TestResult {
+        let seed = self.seed;
+        let lease = match self.lease_or_trace(hid, "begin")? {
+            Some(lease) => lease,
+            None => return Ok(()),
+        };
+        if self.cut.contains(&hid) {
+            bump(&mut nth(&mut self.set.hosts, hid, "host")?.waits);
+            observe(&mut self.hasher, "begin", &format!("host-{hid}/wait"));
+            return Ok(());
+        }
+        let run = format!(
+            "seed-{seed}-host-{hid}-{begun:04}",
+            begun = self.model.begun
+        );
+        self.model.begun = self.model.begun.saturating_add(1);
+        let tenant = host_tenant(hid);
+        let hostname = nth(&mut self.set.hosts, hid, "host")?.name.clone();
+        let start = RunStart::new(&run, &tenant, "/repo", &hostname, 1, "lock", "t-begin");
+        let validated = nth(&mut self.set.channels, hid, "channel")?.validate(&lease)?;
+        let coordinator = nth(&mut self.set.coordinators, hid, "coordinator")?;
+        let outcome = coordinator.begin_run(&lease, &start, &["fmt", "clippy"]);
+        let host = nth(&mut self.set.hosts, hid, "host")?;
+        if validated {
+            outcome?;
+            let lanes = vec![ModelLane::Pending, ModelLane::Pending];
+            let modeled = ModelRun {
+                host: hid,
+                lanes,
+                close: None,
+            };
+            self.model.runs.insert(run, modeled);
+            bump(&mut host.commits);
+            observe(&mut self.hasher, "begin", &format!("host-{hid}/ok"));
+        } else {
+            bump(&mut host.refusals);
+            require_fenced(seed, &run, outcome, "begin")?;
+            observe(&mut self.hasher, "begin", &format!("host-{hid}/stale"));
+        }
+        Ok(())
+    }
+
+    /// A second handle over the same directory reads exactly the modeled runs.
+    fn reopen(&mut self, dir: &Path) -> TestResult {
+        let seed = self.seed;
+        let probe = TenantStore::open(dir)?;
+        for tenant_no in 0..HOSTS {
+            let rows = probe.runs(&host_tenant(tenant_no), 500)?;
+            let modeled = self
+                .model
+                .runs
+                .values()
+                .filter(|run| run.host == tenant_no)
+                .count();
+            assert_eq!(
+                rows.len(),
+                modeled,
+                "seed {seed}: a reopened handle must read the modeled runs"
+            );
+        }
+        observe(&mut self.hasher, "reopen", "ok");
+        Ok(())
+    }
+
+    /// One grant attempt by host `hid`: validate through the channel, then
+    /// commit through the coordinator only past a current lease.
+    fn grant_step(&mut self, hid: usize) -> TestResult {
+        let seed = self.seed;
+        let lease = match self.lease_or_trace(hid, "grant")? {
+            Some(lease) => lease,
+            None => return Ok(()),
+        };
+        let channel = nth(&mut self.set.channels, hid, "channel")?;
+        if channel.partitioned() {
+            assert!(
+                self.cut.contains(&hid),
+                "seed {seed}: a partitioned channel must be a cut host"
+            );
+            if channel.validate(&lease).is_ok() {
+                lgwks_std::trace::debug!("grant_step: returning an error to the caller");
+                return Err(format!("seed {seed}: a partitioned channel must not answer").into());
+            }
+            bump(&mut nth(&mut self.set.hosts, hid, "host")?.waits);
+            observe(&mut self.hasher, "grant", &format!("host-{hid}/wait"));
+            return Ok(());
+        }
+        let validated = channel.validate(&lease)?;
+        assert_eq!(
+            validated,
+            lease.epoch() == self.model.epoch,
+            "seed {seed}: host-{hid} must validate exactly as the model predicts"
+        );
+        let host = nth(&mut self.set.hosts, hid, "host")?;
+        let saw = perceived(host);
+        if saw != self.model.epoch {
+            bump(&mut host.overruled);
+        }
+        let tag = format!("host-{hid}/{validated}/saw-{saw}");
+        observe(&mut self.hasher, "grant", &tag);
+        match pick_grant(&mut self.rng, &self.model, hid)? {
+            Some(target) => self.apply_grant(hid, &lease, validated, target),
+            None => Ok(()),
+        }
+    }
+
+    /// Commit the drawn target through the coordinator when the lease validated,
+    /// and require the fence to refuse it when it did not.
+    fn apply_grant(
+        &mut self,
+        hid: usize,
+        lease: &Lease,
+        validated: bool,
+        target: Target,
+    ) -> TestResult {
+        let seed = self.seed;
+        let (run, lane, end) = target;
+        let coordinator = nth(&mut self.set.coordinators, hid, "coordinator")?;
+        let at = coordinator.handle().epoch();
+        let must_commit = if end {
+            lane_must_end(&self.model, &run, lane)?
+        } else {
+            lane_must_dispatch(&self.model, &run, lane)?
+        };
+        let answer = if end {
+            coordinator.end_lane(lease, &run, lane, "pass", "detail", b"tail")
+        } else {
+            coordinator.dispatch_lane(lease, &run, lane)
+        };
+        let host = nth(&mut self.set.hosts, hid, "host")?;
+        if !validated {
+            bump(&mut host.refusals);
+            return require_fenced(seed, &run, answer, "grant");
+        }
+        match answer {
+            Ok(()) => {
+                assert!(
+                    must_commit,
+                    "seed {seed}: a committed grant must be modeled"
+                );
+                let to = if end {
+                    ModelLane::Ended
+                } else {
+                    ModelLane::Dispatched
+                };
+                *model_lane_slot(&mut self.model, &run, lane)? = to;
+                assert_eq!(
+                    at,
+                    lease.epoch(),
+                    "seed {seed}: no commit under a stale epoch"
+                );
+                bump(&mut host.commits);
+            }
+            Err(refusal) => {
+                lgwks_std::trace::debug!(%refusal, seed, "sim_dist_lease: the coordinator refused a grant");
+                assert!(!must_commit, "seed {seed}: a refused grant must be modeled");
+            }
+        }
+        Ok(())
+    }
+
+    /// The trace hash once every step has run: each stored run reads its
+    /// modeled verdict, and the counters are part of the replay.
+    fn finish(&mut self, store: &TenantStore) -> TestResult<String> {
+        let seed = self.seed;
+        for tenant_no in 0..HOSTS {
+            for row in &store.runs(&host_tenant(tenant_no), 500)? {
+                let held = self
+                    .model
+                    .runs
+                    .get(row.run_id())
+                    .ok_or_else(|| format!("seed {seed}: the model lost {}", row.run_id()))?;
+                assert_eq!(
+                    row.verdict(),
+                    held.close.as_deref(),
+                    "seed {seed}: {} must read its modeled verdict",
+                    row.run_id()
+                );
+                let tag = format!("{}/{}", row.run_id(), trace_verdict(row.verdict()));
+                observe(&mut self.hasher, "final", &tag);
+            }
+        }
+        for (hid, host) in self.set.hosts.iter().enumerate() {
+            let (commits, refusals) = (host.commits, host.refusals);
+            let tag = format!(
+                "host-{hid}/{commits}/{refusals}/{}/{}",
+                host.waits, host.overruled
+            );
+            observe(&mut self.hasher, "counters", &tag);
+        }
+        Ok(self.hasher.finalize().to_hex())
+    }
+}
+
+/// A stale `what` must be fenced by the lease check, and by nothing else.
+fn require_fenced(
+    seed: u64,
+    run: &str,
+    outcome: Result<(), DispatchError>,
+    what: &str,
+) -> TestResult {
+    match outcome {
+        Err(DispatchError::Lease(_)) => Ok(()),
+        Err(other) => {
+            lgwks_std::trace::warn!(seed, %other, what, "sim_dist_lease: a stale step was refused by something else");
+            Err(format!("seed {seed}: a stale {what} must fence, got {other}").into())
+        }
+        Ok(()) => {
+            lgwks_std::trace::warn!(seed, run = %run, what, "sim_dist_lease: a stale step committed");
+            Err(format!("seed {seed}: a stale {what} must not commit").into())
+        }
+    }
 }
 
 /// Drive one seed and return its trace hash.
@@ -251,431 +648,23 @@ fn run_seed(seed: u64) -> TestResult<String> {
             authority.clone(),
         ));
     }
-    let mut model = Model::default();
-    let mut cut: BTreeSet<usize> = BTreeSet::new();
-    let mut rng = Seeded::from_seed(seed);
     let mut hasher = Hasher::new();
     hasher.write_framed(&seed.to_le_bytes());
-    let mut step_no = 0usize;
-    while step_no < STEPS_PER_SEED {
-        step_no = step_no.saturating_add(1);
-        let choice = rng.below(100)?;
-        let hid = rng.index(HOSTS)?;
-        if choice < 20 {
-            let lease = authority.acquire(&host_name(hid));
-            announce(&mut set.hosts, &cut, lease.epoch());
-            set.hosts[hid].lease = Some(lease);
-            model.epoch = model.epoch.saturating_add(1);
-            model.holder = Some(hid);
-            check_authority(&authority, &model, seed)?;
-            observe(
-                &mut hasher,
-                "acquire",
-                &format!("host-{hid}/{}", model.epoch),
-            );
-        } else if choice < 40 {
-            grant_step(&mut set, &cut, &mut model, &mut rng, seed, hid, &mut hasher)?;
-        } else if choice < 50 {
-            if cut.contains(&hid) {
-                cut.remove(&hid);
-                set.channels[hid].set_partitioned(false);
-                announce(&mut set.hosts, &cut, authority.epoch());
-                observe(&mut hasher, "heal", &format!("host-{hid}"));
-            } else {
-                cut.insert(hid);
-                set.channels[hid].set_partitioned(true);
-                observe(&mut hasher, "partition", &format!("host-{hid}"));
-            }
-        } else if choice < 58 {
-            set.hosts[hid].skew = draw_skew(rng.below(5)?);
-            observe(
-                &mut hasher,
-                "skew",
-                &format!("host-{hid}/{}", set.hosts[hid].skew),
-            );
-        } else if choice < 68 {
-            let item = format!("work-{begun:04}", begun = model.begun);
-            model.begun = model.begun.saturating_add(1);
-            let queue = model.queues.entry(hid).or_default();
-            match set.hosts[hid].queue.try_push(item.clone()) {
-                Ok(()) => {
-                    queue.push_back(item);
-                    observe(&mut hasher, "push", &format!("host-{hid}/ok"));
-                }
-                Err(refused) => {
-                    assert_eq!(
-                        refused.into_item(),
-                        item,
-                        "seed {seed}: a refused push must hand its item back"
-                    );
-                    observe(&mut hasher, "push", &format!("host-{hid}/full"));
-                }
-            }
-            assert!(
-                set.hosts[hid].queue.len() <= QUEUE_CAPACITY,
-                "seed {seed}: host-{hid} must never exceed its bound"
-            );
-            assert_eq!(
-                set.hosts[hid].queue.len(),
-                queue.len(),
-                "seed {seed}: host-{hid} must hold its modeled queue"
-            );
-        } else if choice < 76 {
-            let queue = model.queues.entry(hid).or_default();
-            let got = set.hosts[hid].queue.pop();
-            let wanted = queue.pop_front();
-            assert_eq!(
-                got, wanted,
-                "seed {seed}: host-{hid} must pop its modeled queue"
-            );
-            observe(&mut hasher, "pop", &format!("host-{hid}/{}", got.is_some()));
-        } else if choice < 84 {
-            set.hosts[hid].lease = None;
-            observe(&mut hasher, "kill", &format!("host-{hid}"));
-            let rid = rng.index(HOSTS)?;
-            let partitioned = cut.contains(&rid);
-            if rid != hid && partitioned {
-                set.hosts[rid].waits = set.hosts[rid].waits.saturating_add(1);
-            } else if rid != hid
-                && let Some(lease) = set.hosts[rid].lease.clone()
-            {
-                if !(set.channels[rid].validate(&lease)?) {
-                    set.hosts[rid].refusals = set.hosts[rid].refusals.saturating_add(1);
-                } else {
-                    let dead = host_name(hid);
-                    let closed = set.coordinators[rid].recover(&lease, &dead, "t-recover")?;
-                    let mut wanted = 0usize;
-                    for run in model.runs.values_mut() {
-                        if run.host == hid && run.close.is_none() {
-                            run.close = Some("UNMEASURED".to_owned());
-                            for slot in &mut run.lanes {
-                                if *slot != ModelLane::Ended {
-                                    *slot = ModelLane::Ended;
-                                }
-                            }
-                            wanted = wanted.saturating_add(1);
-                        }
-                    }
-                    assert_eq!(
-                        closed, wanted,
-                        "seed {seed}: recovery must close exactly the open runs"
-                    );
-                    assert_eq!(
-                        set.coordinators[rid].recover(&lease, &dead, "t-recover-again")?,
-                        0,
-                        "seed {seed}: a second recovery must close nothing"
-                    );
-                }
-            }
-        } else if choice < 92 {
-            if let Some(lease) = set.hosts[hid].lease.clone() {
-                if cut.contains(&hid) {
-                    set.hosts[hid].waits = set.hosts[hid].waits.saturating_add(1);
-                    observe(&mut hasher, "begin", &format!("host-{hid}/wait"));
-                } else {
-                    let run = format!("seed-{seed}-host-{hid}-{begun:04}", begun = model.begun);
-                    model.begun = model.begun.saturating_add(1);
-                    let tenant = host_tenant(hid);
-                    let hostname = set.hosts[hid].name.clone();
-                    let start =
-                        RunStart::new(&run, &tenant, "/repo", &hostname, 1, "lock", "t-begin");
-                    if !set.channels[hid].validate(&lease)? {
-                        set.hosts[hid].refusals = set.hosts[hid].refusals.saturating_add(1);
-                        match set.coordinators[hid].begin_run(&lease, &start, &["fmt", "clippy"]) {
-                            Err(DispatchError::Lease(_)) => Ok::<(), Box<dyn Error>>(()),
-                            Err(other) => {
-                                lgwks_std::trace::warn!(
-                                    seed,
-                                    %other,
-                                    "sim_dist_lease: a stale begin fenced with an unexpected refusal"
-                                );
-                                return Err(format!(
-                                    "seed {seed}: a stale begin must fence, got {other}"
-                                )
-                                .into());
-                            }
-                            Ok(()) => {
-                                lgwks_std::trace::warn!(
-                                    seed,
-                                    run = %run,
-                                    "sim_dist_lease: a stale begin committed"
-                                );
-                                return Err(
-                                    format!("seed {seed}: a stale begin must not commit").into()
-                                );
-                            }
-                        }?;
-                        observe(&mut hasher, "begin", &format!("host-{hid}/stale"));
-                    } else {
-                        set.coordinators[hid].begin_run(&lease, &start, &["fmt", "clippy"])?;
-                        model.runs.insert(
-                            run.clone(),
-                            ModelRun {
-                                host: hid,
-                                lanes: vec![ModelLane::Pending, ModelLane::Pending],
-                                close: None,
-                            },
-                        );
-                        set.hosts[hid].commits = set.hosts[hid].commits.saturating_add(1);
-                        observe(&mut hasher, "begin", &format!("host-{hid}/ok"));
-                    }
-                }
-            } else {
-                observe(&mut hasher, "begin", &format!("host-{hid}/no-lease"));
-            }
-        } else {
-            let probe = TenantStore::open(dir)?;
-            for tenant_no in 0..HOSTS {
-                let rows = probe.runs(&host_tenant(tenant_no), 500)?;
-                let modeled = model
-                    .runs
-                    .iter()
-                    .filter(|&(_, run)| run.host == tenant_no)
-                    .count();
-                assert_eq!(
-                    rows.len(),
-                    modeled,
-                    "seed {seed}: a reopened handle must read the modeled runs"
-                );
-            }
-            observe(&mut hasher, "reopen", "ok");
-        }
-    }
-    for tenant_no in 0..HOSTS {
-        let rows = store.runs(&host_tenant(tenant_no), 500)?;
-        for row in &rows {
-            let held = model
-                .runs
-                .get(row.run_id())
-                .ok_or_else(|| format!("seed {seed}: the model lost {}", row.run_id()))?;
-            assert_eq!(
-                row.verdict(),
-                held.close.as_deref(),
-                "seed {seed}: {} must read its modeled verdict",
-                row.run_id()
-            );
-            observe(
-                &mut hasher,
-                "final",
-                &format!("{}/{}", row.run_id(), trace_verdict(row.verdict())),
-            );
-        }
-    }
-    for (hid, host) in set.hosts.iter().enumerate() {
-        observe(
-            &mut hasher,
-            "counters",
-            &format!(
-                "host-{hid}/{}/{}/{}/{}",
-                host.commits, host.refusals, host.waits, host.overruled
-            ),
-        );
-    }
-    Ok(hasher.finalize().to_hex())
-}
-
-/// One grant attempt by one host: validate through the channel, then commit
-/// through the coordinator only past a current lease.
-fn grant_step(
-    set: &mut HostSet,
-    cut: &BTreeSet<usize>,
-    model: &mut Model,
-    rng: &mut Seeded,
-    seed: u64,
-    hid: usize,
-    hasher: &mut Hasher,
-) -> TestResult {
-    let Some(lease) = set.hosts[hid].lease.clone() else {
-        observe(&mut *hasher, "grant", &format!("host-{hid}/no-lease"));
-        return Ok(());
-    };
-    if set.channels[hid].partitioned() {
-        assert!(
-            cut.contains(&hid),
-            "seed {seed}: a partitioned channel must be a cut host"
-        );
-        match set.channels[hid].validate(&lease) {
-            Err(_) => Ok::<(), Box<dyn Error>>(()),
-            Ok(_) => {
-                lgwks_std::trace::warn!(
-                    seed,
-                    hid,
-                    "sim_dist_lease: a partitioned channel answered validation"
-                );
-                return Err(format!("seed {seed}: a partitioned channel must not answer").into());
-            }
-        }?;
-        set.hosts[hid].waits = set.hosts[hid].waits.saturating_add(1);
-        observe(&mut *hasher, "grant", &format!("host-{hid}/wait"));
-        return Ok(());
-    }
-    let validated = set.channels[hid].validate(&lease)?;
-    let predicted = lease.epoch() == model.epoch;
-    assert_eq!(
-        validated, predicted,
-        "seed {seed}: host-{hid} must validate exactly as the model predicts"
-    );
-    if perceived(&set.hosts[hid]) != model.epoch {
-        set.hosts[hid].overruled = set.hosts[hid].overruled.saturating_add(1);
-    }
-    observe(
+    let mut sim = Sim {
+        seed,
+        authority,
+        set,
+        model: Model::default(),
+        cut: BTreeSet::new(),
+        rng: Seeded::from_seed(seed),
         hasher,
-        "grant",
-        &format!("host-{hid}/{validated}/saw-{}", perceived(&set.hosts[hid])),
-    );
-    let Some((run, lane, end)) = pick_grant(rng, model, hid)? else {
-        return Ok(());
     };
-    if !validated {
-        set.hosts[hid].refusals = set.hosts[hid].refusals.saturating_add(1);
-        let refused = if end {
-            set.coordinators[hid].end_lane(&lease, &run, lane, "pass", "detail", b"tail")
-        } else {
-            set.coordinators[hid].dispatch_lane(&lease, &run, lane)
-        };
-        match refused {
-            Err(DispatchError::Lease(_)) => Ok::<(), Box<dyn Error>>(()),
-            Err(other) => {
-                lgwks_std::trace::warn!(
-                    seed,
-                    %other,
-                    "sim_dist_lease: a stale grant fenced with an unexpected refusal"
-                );
-                return Err(format!("seed {seed}: a stale grant must fence, got {other}").into());
-            }
-            Ok(()) => {
-                lgwks_std::trace::warn!(
-                    seed,
-                    run = %run,
-                    lane,
-                    "sim_dist_lease: a stale grant committed"
-                );
-                return Err(format!("seed {seed}: a stale grant must not commit").into());
-            }
-        }?;
-        return Ok(());
+    for _ in 0..STEPS_PER_SEED {
+        let choice = sim.rng.below(100)?;
+        let hid = sim.rng.index(HOSTS)?;
+        sim.step(choice, hid, dir)?;
     }
-    let at = set.coordinators[hid].handle().epoch();
-    if end {
-        let must_commit = lane_must_end(model, &run, lane)?;
-        match set.coordinators[hid].end_lane(&lease, &run, lane, "pass", "detail", b"tail") {
-            Ok(()) => {
-                assert!(must_commit, "seed {seed}: a committed end must be modeled");
-                end_model_lane(model, &run, lane)?;
-                assert_eq!(
-                    at,
-                    lease.epoch(),
-                    "seed {seed}: no commit under a stale epoch"
-                );
-                set.hosts[hid].commits = set.hosts[hid].commits.saturating_add(1);
-            }
-            Err(_) => assert!(!must_commit, "seed {seed}: a refused end must be modeled"),
-        }
-    } else {
-        let must_commit = lane_must_dispatch(model, &run, lane)?;
-        match set.coordinators[hid].dispatch_lane(&lease, &run, lane) {
-            Ok(()) => {
-                assert!(
-                    must_commit,
-                    "seed {seed}: a committed dispatch must be modeled"
-                );
-                dispatch_model_lane(model, &run, lane)?;
-                assert_eq!(
-                    at,
-                    lease.epoch(),
-                    "seed {seed}: no commit under a stale epoch"
-                );
-                set.hosts[hid].commits = set.hosts[hid].commits.saturating_add(1);
-            }
-            Err(_) => assert!(
-                !must_commit,
-                "seed {seed}: a refused dispatch must be modeled"
-            ),
-        }
-    }
-    Ok(())
-}
-
-/// One grant's target drawn from the host's open modeled runs: a run and a
-/// lane, ending or dispatching by draw.
-fn pick_grant(
-    rng: &mut Seeded,
-    model: &Model,
-    hid: usize,
-) -> TestResult<Option<(String, usize, bool)>> {
-    let ids: Vec<String> = model
-        .runs
-        .iter()
-        .filter(|&(_, run)| run.host == hid && run.close.is_none())
-        .map(|(id, _)| id.clone())
-        .collect();
-    if ids.is_empty() {
-        return Ok(None);
-    }
-    let picked = rng.index(ids.len())?;
-    let drawn = rng.below(3)?;
-    let lane =
-        usize::try_from(drawn).map_err(|error| format!("the lane draw does not fit: {error}"))?;
-    let end = rng.below(2)? == 0;
-    Ok(Some((ids[picked].clone(), lane, end)))
-}
-
-/// Whether the modeled lane must dispatch: present and pending.
-fn lane_must_dispatch(model: &Model, run: &str, lane: usize) -> TestResult<bool> {
-    let held = model
-        .runs
-        .get(run)
-        .ok_or_else(|| format!("the model lost {run}"))?;
-    Ok(held.lanes.get(lane) == Some(&ModelLane::Pending))
-}
-
-/// Whether the modeled lane must end: present and unended.
-fn lane_must_end(model: &Model, run: &str, lane: usize) -> TestResult<bool> {
-    let held = model
-        .runs
-        .get(run)
-        .ok_or_else(|| format!("the model lost {run}"))?;
-    Ok(match held.lanes.get(lane) {
-        None => false,
-        Some(&ModelLane::Ended) => false,
-        Some(_) => true,
-    })
-}
-
-/// The modeled lane a step targets: the run and the lane row it names.
-///
-/// One lookup for the dispatch and end recorders, so a lane the model lost is
-/// refused once, in one place, rather than once per recorder.
-fn model_lane_slot<'a>(
-    model: &'a mut Model,
-    run: &str,
-    lane: usize,
-) -> TestResult<&'a mut ModelLane> {
-    let held = model
-        .runs
-        .get_mut(run)
-        .ok_or_else(|| format!("the model lost {run}"))?;
-    let Some(slot) = held.lanes.get_mut(lane) else {
-        lgwks_std::trace::warn!(
-            run = %run,
-            lane,
-            "sim_dist_lease: the model lost the lane a step targets"
-        );
-        return Err(format!("the model lost lane {lane} of {run}").into());
-    };
-    Ok(slot)
-}
-
-/// Record the modeled dispatch of one lane.
-fn dispatch_model_lane(model: &mut Model, run: &str, lane: usize) -> TestResult<()> {
-    *model_lane_slot(model, run, lane)? = ModelLane::Dispatched;
-    Ok(())
-}
-
-/// Record the modeled end of one lane.
-fn end_model_lane(model: &mut Model, run: &str, lane: usize) -> TestResult<()> {
-    *model_lane_slot(model, run, lane)? = ModelLane::Ended;
-    Ok(())
+    sim.finish(&store)
 }
 
 /// Every seed replays to the same trace hash, and the first two seeds
@@ -705,3 +694,5 @@ fn partitions_and_skew_never_break_the_fence() -> TestResult {
     assert!(diverge, "distinct seeds must drive distinct histories");
     Ok(())
 }
+
+mod sim_model;

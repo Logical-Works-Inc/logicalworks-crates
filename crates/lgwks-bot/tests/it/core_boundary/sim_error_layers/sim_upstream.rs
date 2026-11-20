@@ -15,7 +15,7 @@ use lgwks_bot::session::{JournalError, SessionError};
 use lgwks_bot::task::StoreError;
 
 use super::{DRAWS, Fields, Hash, Kind, Route, Spec, TestResult, hostile, path, reading, refuse};
-use super::{replays, walk};
+use super::{replays, replays_total, walk};
 use crate::sim::{Rng, Trace};
 
 /// The io kinds the flow layer reads as a moment (`true`) or as a fact.
@@ -101,7 +101,7 @@ fn sim_error_layers_liar_upstream_io_and_store_failures_stay_typed() -> TestResu
 }
 
 /// Causes that lie about their own retry class: the class is the variant's.
-pub(super) fn sim_liar_upstream_cause_text(seed: u64) -> Hash {
+pub(super) fn sim_liar_upstream_cause_text(seed: u64) -> u64 {
     let mut rng = Rng::new(seed);
     let mut trace = Trace::new();
     for draw in 0..DRAWS {
@@ -124,13 +124,13 @@ pub(super) fn sim_liar_upstream_cause_text(seed: u64) -> Hash {
         );
         trace.record(&spec.fields.cause);
     }
-    Ok(trace.hash())
+    trace.hash()
 }
 
 #[test]
 /// The words in a cause never move a failure to another retry class.
 fn sim_error_layers_liar_upstream_cause_text_never_decides_the_retry_class() -> TestResult {
-    replays(sim_liar_upstream_cause_text)
+    replays_total(sim_liar_upstream_cause_text)
 }
 
 /// One step's receipt: the journal is killed at the step the plug names.
@@ -298,7 +298,7 @@ fn readings(error: &BotError) -> Vec<Duration> {
 }
 
 /// The clock steps back, jumps a year, stalls at zero: every reading survives.
-pub(super) fn sim_clock_fool(seed: u64) -> Hash {
+pub(super) fn sim_clock_fool(seed: u64) -> u64 {
     let mut rng = Rng::new(seed);
     let mut trace = Trace::new();
     for draw in 0..DRAWS {
@@ -353,11 +353,11 @@ pub(super) fn sim_clock_fool(seed: u64) -> Hash {
         }
         trace.record(&format!("{near:?}/{far:?}"));
     }
-    Ok(trace.hash())
+    trace.hash()
 }
 
 #[test]
 /// A deadline or credential error keeps the readings it was judged at, through every hop.
 fn sim_error_layers_clock_fool_every_clock_reading_survives_every_hop() -> TestResult {
-    replays(sim_clock_fool)
+    replays_total(sim_clock_fool)
 }

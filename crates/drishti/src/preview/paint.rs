@@ -70,7 +70,13 @@ impl Painter {
             16.0,
         );
         self.buffers.push(title_buffer);
+        let [source_scroll, proposal_scroll, evidence_scroll] = frame.scroll();
         for view in View::ALL {
+            let scrolled = match view {
+                View::Source => source_scroll,
+                View::Proposal => proposal_scroll,
+                View::Evidence => evidence_scroll,
+            };
             let section = format!(
                 "{}{}\n\n{}",
                 view.label(),
@@ -83,7 +89,7 @@ impl Painter {
                     .artifact()
                     .text(view)
                     .lines()
-                    .skip(frame.scroll()[view.index()])
+                    .skip(scrolled)
                     .take(80)
                     .collect::<Vec<_>>()
                     .join("\n")
@@ -123,22 +129,8 @@ impl Painter {
             return Ok(());
         }
         self.prepare_text(frame);
-        // Low-frequency material, deterministic and static once motion settles.
         let width_float = f64_from_usize(width)?;
-        let height_float = f64_from_usize(height)?;
-        for (index, pixel) in pixels.iter_mut().enumerate() {
-            let column = index.checked_rem(width).ok_or("zero-width surface")?;
-            let row = index.checked_div(width).ok_or("zero-width surface")?;
-            let horizontal = f64_from_usize(column)? / width_float;
-            let vertical = f64_from_usize(row)? / height_float;
-            let anchor = 0.2 + frame.position().clamp(0.0, 2.0) * 0.3;
-            let strength = (1.0 - (horizontal - anchor).abs() * 1.4 - (vertical - 0.5).abs() * 0.5)
-                .clamp(0.0, 1.0);
-            let red = pixel_channel(239.0 - strength * 25.0);
-            let green = pixel_channel(235.0 - strength * 9.0);
-            let blue = pixel_channel(223.0 + strength * 11.0);
-            *pixel = red.wrapping_shl(16) | green.wrapping_shl(8) | blue;
-        }
+        paint_background(frame, pixels, width, f64_from_usize(height)?)?;
         for (index, buffer) in self.buffers.iter_mut().enumerate() {
             let (left, top, clip_top, clip_bottom) = match index {
                 0 => (32, 18, 0, 95),
@@ -226,6 +218,31 @@ impl Painter {
         }
         Ok(())
     }
+}
+
+/// Fill the surface with low-frequency material, deterministic and static once
+/// motion settles.
+fn paint_background(
+    frame: &Frame,
+    pixels: &mut [u32],
+    width: usize,
+    height_float: f64,
+) -> Result<(), Failure> {
+    let width_float = f64_from_usize(width)?;
+    for (index, pixel) in pixels.iter_mut().enumerate() {
+        let column = index.checked_rem(width).ok_or("zero-width surface")?;
+        let row = index.checked_div(width).ok_or("zero-width surface")?;
+        let horizontal = f64_from_usize(column)? / width_float;
+        let vertical = f64_from_usize(row)? / height_float;
+        let anchor = 0.2 + frame.position().clamp(0.0, 2.0) * 0.3;
+        let strength = (1.0 - (horizontal - anchor).abs() * 1.4 - (vertical - 0.5).abs() * 0.5)
+            .clamp(0.0, 1.0);
+        let red = pixel_channel(239.0 - strength * 25.0);
+        let green = pixel_channel(235.0 - strength * 9.0);
+        let blue = pixel_channel(223.0 + strength * 11.0);
+        *pixel = red.wrapping_shl(16) | green.wrapping_shl(8) | blue;
+    }
+    Ok(())
 }
 
 /// Enforce a painter precondition without adding an effect.

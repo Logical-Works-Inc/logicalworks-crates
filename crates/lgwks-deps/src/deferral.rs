@@ -306,7 +306,7 @@ mod tests {
     fn a_complete_row_parses() -> TestResult {
         let catalog = Catalog::parse(&row(""))?;
         assert_eq!(catalog.entry_count(), 1);
-        let parsed = &catalog.entries[0];
+        let parsed = catalog.entries.first().ok_or("one entry was parsed")?;
         assert_eq!(parsed.krate(), "openraft");
         assert_eq!(parsed.owner(), "logical-DB");
         assert_eq!(
@@ -361,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn a_trigger_that_states_nothing_is_refused() -> TestResult {
+    fn a_trigger_that_states_nothing_is_refused() {
         let input = row("").replace(
             "trigger = \"A paid multi-node replication requirement with a measured failover test.\"",
             "trigger = \"later\"",
@@ -376,11 +376,10 @@ mod tests {
             ),
             "\"not now\" wearing a trigger key must be refused, not recorded"
         );
-        Ok(())
     }
 
     #[test]
-    fn a_row_without_an_owner_is_refused() -> TestResult {
+    fn a_row_without_an_owner_is_refused() {
         let input = row("").replace("owner = \"logical-DB\"\n", "");
         assert!(
             matches!(
@@ -389,6 +388,5 @@ mod tests {
             ),
             "a deferral that names no owner must be refused at load"
         );
-        Ok(())
     }
 }

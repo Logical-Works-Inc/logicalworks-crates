@@ -59,11 +59,12 @@ pub(super) fn tenant_continuation(band: Band) -> TestResult {
             lives.insert(tenant, live);
         }
 
-        assert_ne!(lives[&1], lives[&2], "the two tenants share a journal");
+        let live_of = |tenant: u64| lives.get(&tenant).ok_or("every tenant ran a journal");
+        assert_ne!(live_of(1)?, live_of(2)?, "the two tenants share a journal");
         for tenant in 1_u64..=2 {
             let mine = u64::MAX.saturating_sub(tenant);
             let theirs = u64::MAX.saturating_sub(3_u64.saturating_sub(tenant));
-            let handle = FileJournal::open(&lives[&tenant])?;
+            let handle = FileJournal::open(live_of(tenant)?)?;
             for held in handle.recover().attempts() {
                 assert_eq!(
                     held.key().action(),
@@ -77,7 +78,11 @@ pub(super) fn tenant_continuation(band: Band) -> TestResult {
                 );
             }
             assert_eq!(
-                oracles[&tenant].dispatched, rounds,
+                oracles
+                    .get(&tenant)
+                    .ok_or("every tenant kept an oracle")?
+                    .dispatched,
+                rounds,
                 "tenant {tenant} dispatched every attempt exactly once"
             );
         }

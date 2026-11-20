@@ -93,40 +93,8 @@ pub(super) fn shred_on_owner(
     } = job;
     use super::record::refusal;
     let mut index = owner::lock(shared);
-    if index.erased.contains_key(&(run, key_hex.clone())) {
+    if !shreddable(&index, run, &key_hex, &tenant)? {
         return Ok(Stage::Settled(Ok(Appended::AlreadyRecorded)));
-    }
-    let Some(run_index) = index.runs.get(&run) else {
-        lgwks_std::trace::debug!(
-            run = run.id().to_hex(),
-            "shred_on_owner: the index holds no such run"
-        );
-        return Err(refusal(StoreError::SealedUnknown {
-            run: run.id().to_hex(),
-            key: key_hex,
-        }));
-    };
-    if run_index.tenant != tenant {
-        lgwks_std::trace::debug!(
-            owner = run_index.tenant.as_str(),
-            tenant = tenant,
-            "shred_on_owner: the step belongs to another tenant"
-        );
-        return Err(refusal(StoreError::ForeignTenant {
-            owner: run_index.tenant.clone(),
-            asked: tenant,
-        }));
-    }
-    if !run_index.steps.contains_key(&key_hex) {
-        lgwks_std::trace::debug!(
-            run = run.id().to_hex(),
-            "shred_on_owner: the run holds no such step"
-        );
-        let refusal = Err(refusal(StoreError::SealedUnknown {
-            run: run.id().to_hex(),
-            key: key_hex,
-        }));
-        return refusal;
     }
     let payload = encode_tombstone(ordinal, &key_id.id());
     let previous = record::tail_head(&index);
@@ -186,44 +154,107 @@ pub(super) fn shred_on_owner(
         bytes: framed.len(),
         settle: Box::new(move |shared: &mut Arc<std::sync::Mutex<super::Index>>| {
             let mut index = owner::lock(shared);
-            index.staged.remove(&(run, key_hex.clone()));
-            if was_pending && let Some(held) = index.pending.get_mut(&tenant) {
-                *held = held.saturating_sub(1);
-            }
-            let step = index
-                .runs
-                .get_mut(&run)
-                .and_then(|run_index| run_index.steps.remove(&key_hex));
-            let is_empty = index
-                .runs
-                .get(&run)
-                .is_some_and(|run_index| run_index.steps.is_empty());
-            if is_empty {
-                index.runs.remove(&run);
-            }
-            let expires_at = step
-                .as_ref()
-                .and_then(|step| step.sealed.as_ref())
-                .and_then(|sealed| sealed.expires_at);
-            let tenant_for_burn = match index.runs.get(&run) {
-                Some(run_index) => run_index.tenant.clone(),
-                None => tenant,
-            };
-            let counts = index
-                .erased_runs
-                .entry(run)
-                .or_insert_with(|| (0, tenant_for_burn.clone()));
-            counts.0 = counts.0.saturating_add(1);
-            index.erased.insert(
-                (run, key_hex),
-                ErasedSlot {
-                    key_id,
-                    tenant: tenant_for_burn,
-                    expires_at,
-                },
-            );
+            burn(&mut index, (run, key_hex), key_id, tenant, was_pending);
         }),
     })
+}
+
+/// Whether `key_hex` under `run` still has a live step to shred for `tenant`.
+///
+/// `Ok(false)` when the step is already erased, which makes a retried shred
+/// idempotent; a refusal when the index holds no such run or step, or the run
+/// belongs to another tenant.
+fn shreddable(
+    index: &super::Index,
+    run: RunId,
+    key_hex: &str,
+    tenant: &str,
+) -> std::io::Result<bool> {
+    use super::record::refusal;
+    if index.erased.contains_key(&(run, key_hex.to_owned())) {
+        return Ok(false);
+    }
+    let Some(run_index) = index.runs.get(&run) else {
+        lgwks_std::trace::debug!(
+            run = run.id().to_hex(),
+            "shred_on_owner: the index holds no such run"
+        );
+        return Err(refusal(StoreError::SealedUnknown {
+            run: run.id().to_hex(),
+            key: key_hex.to_owned(),
+        }));
+    };
+    if run_index.tenant != tenant {
+        lgwks_std::trace::debug!(
+            owner = run_index.tenant.as_str(),
+            tenant = tenant,
+            "shred_on_owner: the step belongs to another tenant"
+        );
+        return Err(refusal(StoreError::ForeignTenant {
+            owner: run_index.tenant.clone(),
+            asked: tenant.to_owned(),
+        }));
+    }
+    if !run_index.steps.contains_key(key_hex) {
+        lgwks_std::trace::debug!(
+            run = run.id().to_hex(),
+            "shred_on_owner: the run holds no such step"
+        );
+        return Err(refusal(StoreError::SealedUnknown {
+            run: run.id().to_hex(),
+            key: key_hex.to_owned(),
+        }));
+    }
+    Ok(true)
+}
+
+/// Move the shredded step from the live index to the burn set, once its
+/// tombstone is on the file: the slot is erased, never to be re-appended, and a
+/// parked approval no longer counts against its tenant.
+fn burn(
+    index: &mut super::Index,
+    slot: (RunId, String),
+    key_id: KeyId,
+    tenant: String,
+    was_pending: bool,
+) {
+    let (run, key_hex) = slot;
+    index.staged.remove(&(run, key_hex.clone()));
+    if was_pending && let Some(held) = index.pending.get_mut(&tenant) {
+        *held = held.saturating_sub(1);
+    }
+    let step = index
+        .runs
+        .get_mut(&run)
+        .and_then(|run_index| run_index.steps.remove(&key_hex));
+    let is_empty = index
+        .runs
+        .get(&run)
+        .is_some_and(|run_index| run_index.steps.is_empty());
+    if is_empty {
+        index.runs.remove(&run);
+    }
+    let expires_at = step
+        .as_ref()
+        .and_then(|step| step.sealed.as_ref())
+        .and_then(|sealed| sealed.expires_at);
+    let tenant_for_burn = match index.runs.get(&run) {
+        Some(run_index) => run_index.tenant.clone(),
+        None => tenant,
+    };
+    let counts = index
+        .erased_runs
+        .entry(run)
+        .or_insert_with(|| (0, tenant_for_burn.clone()));
+    counts.0 = counts.0.saturating_add(1);
+    index.erased.insert(
+        (run, key_hex),
+        ErasedSlot {
+            key_id,
+            tenant: tenant_for_burn,
+            expires_at,
+        },
+    );
 }
 
 /// One ordered visit per run the index holds, by key hex.
@@ -389,5 +420,69 @@ impl SweepTarget for RunStore {
 
     fn sweep_once(&self, now: Duration) -> Result<u64, Self::Error> {
         RunStore::sweep_once(self, now)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use lgwks_std::hash::Digest;
+
+    use super::super::{Held, Index, RunIndex};
+    use super::shreddable;
+    use crate::effect::RunId;
+    use crate::task::DefinitionIdentity;
+
+    /// An index holding one live step `key` under `run`, written by `acme`.
+    fn index_holding(run: RunId, key: &str) -> Index {
+        let held = Held {
+            path: "step".to_owned(),
+            bytes: vec![1],
+            sealed: None,
+        };
+        let definition = DefinitionIdentity::new("shred", 1, Digest::from_bytes([1; 32]), 1);
+        let run_index = RunIndex {
+            tenant: "acme".to_owned(),
+            definition,
+            steps: HashMap::from([(key.to_owned(), held)]),
+        };
+        Index {
+            runs: HashMap::from([(run, run_index)]),
+            committed: 0,
+            tail: Digest::from_bytes([0; 32]),
+            pending: HashMap::new(),
+            staged: HashMap::new(),
+            frames: 0,
+            erased: HashMap::new(),
+            erased_runs: HashMap::new(),
+        }
+    }
+
+    /// A live step is shreddable by its owner; a neighbour tenant, a missing
+    /// step and a missing run are refused, so a shred never answers "already
+    /// erased" for a step it has not burned.
+    #[test]
+    fn sealed_shred_a_live_step_is_shreddable_by_its_owner_alone()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let run = RunId::mint()?;
+        let index = index_holding(run, "k");
+        assert!(
+            shreddable(&index, run, "k", "acme")?,
+            "the owner's live step is shreddable"
+        );
+        assert!(
+            shreddable(&index, run, "k", "globex").is_err(),
+            "a neighbour tenant is refused"
+        );
+        assert!(
+            shreddable(&index, run, "missing", "acme").is_err(),
+            "a step the run never held is refused"
+        );
+        assert!(
+            shreddable(&index, RunId::mint()?, "k", "acme").is_err(),
+            "a run the index never held is refused"
+        );
+        Ok(())
     }
 }

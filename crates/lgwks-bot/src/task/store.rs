@@ -614,16 +614,19 @@ impl RunStore {
         run: RunId,
         identity: &DefinitionIdentity,
     ) -> Result<(), StoreError> {
-        let Some(recorded) = self.definition_of(run) else {
-            return Ok(());
-        };
-        match identity.drift_from(&recorded) {
-            None => Ok(()),
-            Some(drift) => Err(StoreError::Incompatible {
+        // A run with no recorded definition has none to drift from.
+        let drift = self
+            .definition_of(run)
+            .and_then(|recorded| identity.drift_from(&recorded));
+        if let Some(found) = drift {
+            let refusal = Err(StoreError::Incompatible {
                 run: run.id().to_hex(),
-                drift,
-            }),
+                drift: found,
+            });
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "check_definition: returning an error to the caller");
+            return refusal;
         }
+        Ok(())
     }
 
     /// Turn a borrowed record into one that can cross onto the storage owner's
@@ -632,7 +635,7 @@ impl RunStore {
     /// The stored record owns its tenant and path, so the hop is the only part that
     /// has to be `'static`, and it takes the record by value rather than borrowing
     /// the caller's strings for the length of a flush.
-    fn owned(&self, record: StagedRecord<'_>) -> Staged {
+    fn owned(&self, record: &StagedRecord<'_>) -> Staged {
         Staged {
             record: Stored {
                 run: record.run(),

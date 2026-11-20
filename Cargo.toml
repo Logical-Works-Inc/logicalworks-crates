@@ -111,6 +111,17 @@ improper_ctypes_definitions = "forbid"
 # `lwc_it_group` selects one group of lgwks_bot's `it` test modules for a CI job;
 # `loom` builds lgwks_std's loom model under logical_ci's `ci/property-and-loom`.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(lwc_it_group, values(none(), "scale", "surface", "refusals", "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8"))', 'cfg(loom)'] }
+# The 15-axis lint floor (rust-guard LINT_FLOOR, 2026-11-19): the rustc half.
+elided_lifetimes_in_paths = "deny"
+let_underscore_drop = "deny"
+missing_debug_implementations = "deny"
+non_ascii_idents = "deny"
+redundant_lifetimes = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unnameable_types = "deny"
+unreachable_pub = "deny"
+unused_lifetimes = "deny"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Anti-pattern contract.
@@ -221,7 +232,39 @@ wildcard_imports = "forbid"
 # justification. That lint is in fact the tell: it exists so exceptions can be
 # audited, and it would be dead config if every lint were `forbid`.
 disallowed_methods = "deny"
+disallowed_names = "deny"
 disallowed_types = "deny"
+
+# The 15-axis lint floor (rust-guard LINT_FLOOR, 2026-11-19): the clippy names the
+# anti-pattern contract above did not yet carry. Each is `deny`, the floor's
+# level, until it is measured clean under `forbid`.
+fallible_impl_from = "deny"
+filetype_is_file = "deny"
+get_unwrap = "deny"
+host_endian_bytes = "deny"
+indexing_slicing = "deny"
+infinite_loop = "deny"
+large_futures = "deny"
+large_include_file = "deny"
+let_underscore_untyped = "deny"
+map_err_ignore = "deny"
+match_wildcard_for_single_variants = "deny"
+mod_module_files = "deny"
+mutex_atomic = "deny"
+mutex_integer = "deny"
+needless_pass_by_value = "deny"
+partial_pub_fields = "deny"
+pub_underscore_fields = "deny"
+rc_mutex = "deny"
+string_slice = "deny"
+too_many_lines = "deny"
+try_err = "deny"
+unnecessary_wraps = "deny"
+unreachable = "deny"
+unused_async = "deny"
+unused_result_ok = "deny"
+verbose_file_reads = "deny"
+wildcard_dependencies = "deny"
 
 [workspace.lints.rustdoc]
 broken_intra_doc_links = "deny"

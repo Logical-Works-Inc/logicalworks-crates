@@ -58,7 +58,7 @@ fn chunked_body_arrives_in_order() -> Result<(), Box<dyn std::error::Error>> {
     let (port, server) = serve_once_and_close(chunked_reply(pieces))?;
     let client = Client::new(quiet())?;
     let mut response = client.get_stream(&format!("http://127.0.0.1:{port}/"))?;
-    assert_eq!(response.status, 200, "the stream head answers");
+    assert_eq!(response.status(), 200, "the stream head answers");
     let (body, truncation) = drain(response.body())?;
     assert_eq!(body, b"hello streamed body", "every chunk arrives in order");
     assert_eq!(
@@ -251,12 +251,8 @@ fn streamed_redirect_lands_and_streams() -> Result<(), Box<dyn std::error::Error
     let (body, truncation) = drain(response.body())?;
     assert_eq!(body, b"stream", "the landed body streams");
     assert_eq!(truncation, Some(Truncation::Complete), "and ends whole");
-    origin_server
-        .join()
-        .map_err(|_| "redirect origin panicked")??;
-    landed_server
-        .join()
-        .map_err(|_| "redirect destination panicked")??;
+    join_server(origin_server)?;
+    join_server(landed_server)?;
     Ok(())
 }
 
@@ -294,7 +290,10 @@ fn paginate_collects_pages_in_order() -> Result<(), Box<dyn std::error::Error>> 
                 return Err(FetchRefusal("unknown cursor"));
             }
         };
-        Ok::<Page<&str>, FetchRefusal>(pages[index].clone())
+        pages
+            .get(index)
+            .cloned()
+            .ok_or(FetchRefusal("page index out of range"))
     })?;
     assert_eq!(collected, vec!["a", "b", "c", "d"], "every item in order");
     let seen = match seen.lock() {

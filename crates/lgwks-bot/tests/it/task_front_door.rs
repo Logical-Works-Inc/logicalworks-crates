@@ -147,12 +147,9 @@ fn a_malformed_name_is_refused() -> TestResult {
     }
     // `FlowError` has no `PartialEq`, so acceptance is read as the name that
     // came back and refusal by variant: the two facts worth distinguishing.
-    let accepted = build("ok-name_1.v2:3")
-        .map(|declared| declared.name().to_owned())
-        .ok();
+    let accepted = build("ok-name_1.v2:3")?.name().to_owned();
     assert_eq!(
-        accepted,
-        Some("ok-name_1.v2:3".to_owned()),
+        accepted, "ok-name_1.v2:3",
         "a name of allowed characters is accepted and kept verbatim"
     );
     Ok(())
@@ -266,16 +263,7 @@ fn dropping_a_suspended_run_releases_its_permit() -> TestResult {
     let (released, release) = std::sync::mpsc::sync_channel::<()>(1);
     let watchdog = std::thread::Builder::new()
         .name("task-permit-watchdog".to_owned())
-        .spawn(move || {
-            if let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = release.recv_timeout(WATCHDOG)
-            {
-                // The permit never came back. A deadlock is a failure, not a
-                // hang the suite has to time out.
-                std::panic::resume_unwind(Box::new(
-                    "task: an abandoned run never released its admission permit",
-                ));
-            }
-        })?;
+        .spawn(move || release.recv_timeout(WATCHDOG))?;
 
     // Poll the run once, so it is admitted, charged, and parked inside its body.
     let mut suspended = Box::pin(host.run(&never, ()));
@@ -318,12 +306,14 @@ fn dropping_a_suspended_run_releases_its_permit() -> TestResult {
     );
 
     // Tell the watchdog the wait is over, and join it.
-    released
-        .send(())
-        .map_err(|_| "the watchdog stopped listening before the permit was back")?;
-    watchdog
-        .join()
-        .map_err(|_| "the watchdog must not panic once the permit is back")?;
+    released.send(())?;
+    // A timeout means the permit never came back: a deadlock is a failure, not a
+    // hang the suite has to time out. A dropped sender is a release as well.
+    let waited = watchdog.join().map_err(crate::sim::panicked)?;
+    assert!(
+        !matches!(waited, Err(std::sync::mpsc::RecvTimeoutError::Timeout)),
+        "task: an abandoned run never released its admission permit"
+    );
 
     // The freed permit is usable again, which is the point of releasing it.
     let echo = task("echo", |_scope: Scope, ()| async { Ok(()) })?;
@@ -439,6 +429,12 @@ fn nested_runs_complete_at_a_ceiling_of_one() -> TestResult {
     });
 
     let report: Report<u32> = drive(host.run(&top, 21_u32));
+    assert_chain_settled(&host, &report, entered.get());
+    Ok(())
+}
+
+/// The nested chain's outcome and the admission ledger it left behind.
+fn assert_chain_settled(host: &Host, report: &Report<u32>, entered: usize) {
     assert_eq!(
         report.disposition(),
         Disposition::Succeeded,
@@ -450,28 +446,28 @@ fn nested_runs_complete_at_a_ceiling_of_one() -> TestResult {
         Some(42),
         "the innermost task's value came back up the whole chain"
     );
-    assert_eq!(entered.get(), 3, "every wrapper above the leaf ran");
+    assert_eq!(entered, 3, "every wrapper above the leaf ran");
+    let admission = host.admission();
     assert_eq!(
-        host.admission().available_permits(),
+        admission.available_permits(),
         1,
         "the single permit is back after the chain finished"
     );
     assert_eq!(
-        host.admission().peak_in_flight(),
+        admission.peak_in_flight(),
         1,
         "one permit was ever in flight at a time, never two"
     );
     assert_eq!(
-        host.admission().refused(),
+        admission.refused(),
         0,
         "nesting at a ceiling of one refuses nothing: it charges the parent"
     );
     assert_eq!(
-        host.admission().admitted(),
+        admission.admitted(),
         4,
         "all four runs are counted: three wrappers and the leaf, which shared one permit"
     );
-    Ok(())
 }
 
 /// The step paths a nested chain reports read as one tree, so a report explains

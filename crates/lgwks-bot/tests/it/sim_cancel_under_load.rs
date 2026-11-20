@@ -123,6 +123,102 @@ struct Reached {
     refused: usize,
 }
 
+/// Every flow's disposition is `Succeeded`, `Cancelled` or `Refused` and agrees
+/// with whether its body started and finished; returns how many of each.
+fn tally(
+    reports: &[lgwks_bot::task::Report<usize>],
+    started: &Flags,
+    completed: &Flags,
+) -> Result<Reached, Box<dyn Error>> {
+    let mut counts = Reached::default();
+    for (index, report) in reports.iter().enumerate() {
+        match report.disposition() {
+            Disposition::Succeeded => {
+                assert_eq!(
+                    report.output().copied(),
+                    Some(index),
+                    "flow {index} kept its input"
+                );
+                assert!(
+                    flag(completed, index),
+                    "a succeeded flow {index} ran every step"
+                );
+                counts.succeeded = counts.succeeded.saturating_add(1);
+            }
+            Disposition::Cancelled => {
+                assert!(
+                    flag(started, index),
+                    "a cancelled flow {index} was admitted, so its body started"
+                );
+                counts.cancelled = counts.cancelled.saturating_add(1);
+            }
+            Disposition::Refused => {
+                assert!(
+                    !flag(started, index),
+                    "a refused flow {index} never started"
+                );
+                counts.refused = counts.refused.saturating_add(1);
+            }
+            other => {
+                let refusal = Err(format!(
+                    "flow {index} ended {other:?} under a cancel: {:?}",
+                    report.error()
+                )
+                .into());
+                lgwks_std::trace::debug!(
+                    error = ?refusal.as_ref().err(),
+                    "tally: returning an error to the caller"
+                );
+                return refusal;
+            }
+        }
+    }
+    Ok(counts)
+}
+
+/// The host's own counters agree with the reports, no body outlives the call
+/// or starts late (`probes` is the live and the late count), and every permit
+/// is back.
+fn assert_accounted(
+    host: &Host,
+    counts: &Reached,
+    started: &Flags,
+    probes: (&Arc<AtomicUsize>, &Arc<AtomicUsize>),
+    ceiling: usize,
+) -> TestResult {
+    let (live, late) = probes;
+    let admission = host.admission();
+    assert_eq!(
+        admission.admitted().saturating_add(admission.refused()),
+        u64::try_from(FLOWS)?,
+        "every flow was admitted or refused, once"
+    );
+    assert_eq!(
+        admission.refused(),
+        u64::try_from(counts.refused)?,
+        "the host's refusals are the refused reports"
+    );
+    let bodies = (0..FLOWS).filter(|&index| flag(started, index)).count();
+    assert_eq!(
+        admission.admitted(),
+        u64::try_from(bodies)?,
+        "every admitted flow started its body, and no other did"
+    );
+    assert_eq!(live.load(Ordering::Relaxed), 0, "no body outlives the call");
+    assert_eq!(
+        late.load(Ordering::Relaxed),
+        0,
+        "no body starts after the host's stop"
+    );
+    assert_eq!(
+        admission.available_permits(),
+        ceiling,
+        "every permit came back"
+    );
+    assert_eq!(admission.in_flight(), 0, "nothing is left in flight");
+    Ok(())
+}
+
 /// One seed: a thousand flows, a cancel at a drawn poll, and the accounting.
 fn cancel_case(sim: &mut sim::Sim, reached: &mut Reached) -> TestResult {
     let ceiling = usize::try_from(sim.rng().between(1, MAX_CEILING))?;
@@ -206,78 +302,8 @@ fn cancel_case(sim: &mut sim::Sim, reached: &mut Reached) -> TestResult {
     }));
 
     assert_eq!(reports.len(), FLOWS, "every flow produced a report");
-    let mut counts = Reached::default();
-    for (index, report) in reports.iter().enumerate() {
-        match report.disposition() {
-            Disposition::Succeeded => {
-                assert_eq!(
-                    report.output().copied(),
-                    Some(index),
-                    "flow {index} kept its input"
-                );
-                assert!(
-                    flag(&completed, index),
-                    "a succeeded flow {index} ran every step"
-                );
-                counts.succeeded = counts.succeeded.saturating_add(1);
-            }
-            Disposition::Cancelled => {
-                assert!(
-                    flag(&started, index),
-                    "a cancelled flow {index} was admitted, so its body started"
-                );
-                counts.cancelled = counts.cancelled.saturating_add(1);
-            }
-            Disposition::Refused => {
-                assert!(
-                    !flag(&started, index),
-                    "a refused flow {index} never started"
-                );
-                counts.refused = counts.refused.saturating_add(1);
-            }
-            other => {
-                let refusal: TestResult = Err(format!(
-                    "flow {index} ended {other:?} under a cancel: {:?}",
-                    report.error()
-                )
-                .into());
-                lgwks_std::trace::debug!(
-                    error = ?refusal.as_ref().err(),
-                    "cancel_case: returning an error to the caller"
-                );
-                return refusal;
-            }
-        }
-    }
-    let admission = host.admission();
-    assert_eq!(
-        admission.admitted().saturating_add(admission.refused()),
-        u64::try_from(FLOWS)?,
-        "every flow was admitted or refused, once"
-    );
-    assert_eq!(
-        admission.refused(),
-        u64::try_from(counts.refused)?,
-        "the host's refusals are the refused reports"
-    );
-    let bodies = (0..FLOWS).filter(|&index| flag(&started, index)).count();
-    assert_eq!(
-        admission.admitted(),
-        u64::try_from(bodies)?,
-        "every admitted flow started its body, and no other did"
-    );
-    assert_eq!(live.load(Ordering::Relaxed), 0, "no body outlives the call");
-    assert_eq!(
-        late.load(Ordering::Relaxed),
-        0,
-        "no body starts after the host's stop"
-    );
-    assert_eq!(
-        admission.available_permits(),
-        ceiling,
-        "every permit came back"
-    );
-    assert_eq!(admission.in_flight(), 0, "nothing is left in flight");
+    let counts = tally(&reports, &started, &completed)?;
+    assert_accounted(&host, &counts, &started, (&live, &late), ceiling)?;
 
     let cancelled = polls > cancel_at;
     if cancelled {

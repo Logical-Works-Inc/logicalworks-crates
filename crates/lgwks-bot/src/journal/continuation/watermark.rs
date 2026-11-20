@@ -23,19 +23,21 @@ pub(super) const SHIPPED_BYTE_CEILING: u64 = 64 * 1024 * 1024;
 
 /// The watermark count for a ceiling of `limit` events or bytes.
 ///
-/// Integer arithmetic in the declared order, so the watermark is the same number
-/// on every host: `limit * 8 / 10`, with the multiplication first because it is
-/// exact for every ceiling this crate declares. The `checked_div` arm is
-/// unreachable for the constant denominator above; it is here rather than an
-/// `unwrap` because the crate forbids both.
+/// Integer arithmetic, so the watermark is the same number on every host:
+/// `floor(limit * 8 / 10)`, computed as whole tenths plus the remainder's share
+/// so no ceiling overflows. `limit * 8` first saturated above `u64::MAX / 8` and
+/// put the watermark of `u64::MAX` at a tenth of the ceiling, not eight tenths.
 pub(super) const fn watermark_of(limit: u64) -> u64 {
-    match limit
+    let (tenths, rest) = (
+        limit.div_euclid(CONTINUATION_WATERMARK_DENOMINATOR),
+        limit.rem_euclid(CONTINUATION_WATERMARK_DENOMINATOR),
+    );
+    tenths
         .saturating_mul(CONTINUATION_WATERMARK_NUMERATOR)
-        .checked_div(CONTINUATION_WATERMARK_DENOMINATOR)
-    {
-        Some(at) => at,
-        None => limit,
-    }
+        .saturating_add(
+            rest.saturating_mul(CONTINUATION_WATERMARK_NUMERATOR)
+                .div_euclid(CONTINUATION_WATERMARK_DENOMINATOR),
+        )
 }
 
 /// Where one journal continues.

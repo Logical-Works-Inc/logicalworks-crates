@@ -246,8 +246,7 @@ pub(super) fn inline_module_items(source: &str) -> BTreeMap<Vec<String>, BTreeSe
     let mut index = 0_usize;
     let mut at_line_start = true;
     let mut disabled = false;
-    while index < length {
-        let ch = chars[index];
+    while let Some(&ch) = chars.get(index) {
         if ch == '/' && chars.get(index.saturating_add(1)) == Some(&'/') {
             match find_at(&chars, "\n", index) {
                 Some(end) => index = end,
@@ -275,8 +274,10 @@ pub(super) fn inline_module_items(source: &str) -> BTreeMap<Vec<String>, BTreeSe
         }
         if ch == '"' {
             let mut cursor = index.saturating_add(1);
-            while cursor < length && chars[cursor] != '"' {
-                cursor = cursor.saturating_add(if chars[cursor] == '\\' { 2 } else { 1 });
+            while let Some(&inside) = chars.get(cursor)
+                && inside != '"'
+            {
+                cursor = cursor.saturating_add(if inside == '\\' { 2 } else { 1 });
             }
             index = cursor.saturating_add(1);
             continue;

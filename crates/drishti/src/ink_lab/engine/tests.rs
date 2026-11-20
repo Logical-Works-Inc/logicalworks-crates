@@ -38,7 +38,10 @@ fn reduced_motion_resolves_every_effect_to_its_end_state() {
         engine.set_reduce_motion(true);
         let renders = stepped(&mut engine, 16.0);
         assert_eq!(renders.len(), 1, "{} did not render", effect.name());
-        let frame = &renders[0].frame;
+        let Some(render) = renders.first() else {
+            continue;
+        };
+        let frame = &render.frame;
         assert!(frame.blur.abs() < 1e-9, "{} left blur on", effect.name());
         assert!(
             frame.displacement.abs() < 1e-9,
@@ -52,7 +55,7 @@ fn reduced_motion_resolves_every_effect_to_its_end_state() {
         );
         if effect == Effect::Mark {
             assert!(!frame.shapes().is_empty());
-            assert!(matches!(frame.shapes()[0], Shape::Quad { .. }));
+            assert!(matches!(frame.shapes().first(), Some(&Shape::Quad { .. })));
         }
     }
 }
@@ -77,8 +80,11 @@ fn same_seed_and_trace_replay_to_the_same_digest() {
         }
         digest
     };
-    assert_eq!(run(99), run(99), "replay diverged");
-    assert_ne!(run(99), run(100), "seed did not change the trace");
+    let original = run(99);
+    let replayed = run(99);
+    let reseeded = run(100);
+    assert_eq!(original, replayed, "replay diverged");
+    assert_ne!(original, reseeded, "seed did not change the trace");
 }
 
 #[test]
@@ -254,7 +260,7 @@ fn reduced_motion_resolves_strided_hosts_on_the_same_frame() {
         engine.add_host(HostSpec::new(Effect::Loader, Canvas::new(60.0, 60.0), true));
     }
     engine.set_quality(Quality::Lite);
-    let _ = stepped(&mut engine, 16.0);
+    stepped(&mut engine, 16.0);
     engine.set_reduce_motion(true);
     assert_eq!(
         stepped(&mut engine, 16.0).len(),
@@ -306,7 +312,7 @@ fn resolved_mark_is_the_published_twenty_four_beams() {
     assert_eq!(shapes.len(), 24, "the mark has twenty-four beams");
     // The first published beam's narrow end is (59.34, 51)-(60.66, 51).
     assert!(
-        matches!(shapes[0], Shape::Quad { points } if (points[0][0] - 59.34).abs() < 1e-9
+        matches!(shapes.first(), Some(&Shape::Quad { points }) if (points[0][0] - 59.34).abs() < 1e-9
                 && (points[3][0] - 60.66).abs() < 1e-9),
         "first beam does not match the published polygon"
     );

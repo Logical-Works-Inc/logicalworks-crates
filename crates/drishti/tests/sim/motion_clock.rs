@@ -71,7 +71,11 @@ fn sim_motion_clock_nan_never_poisons_spring() -> Result<(), String> {
         let mut wall_ms = 1_000.0_f64;
         for step in 0..120_u64 {
             let clock = if random.below(6) == 0 {
-                f64::from_bits(NANS[random.below_len(NANS.len())])
+                f64::from_bits(
+                    *NANS
+                        .get(random.below_len(NANS.len()))
+                        .ok_or("NaN index out of range")?,
+                )
             } else {
                 wall_ms += 16.0;
                 wall_ms

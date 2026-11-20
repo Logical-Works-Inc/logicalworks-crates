@@ -40,6 +40,57 @@ struct Attempt {
     value: String,
 }
 
+/// A seeded permutation of the attempts: the only nondeterminism a real race
+/// has, drawn from the seed rather than the scheduler.
+fn shuffle(attempts: &mut [Attempt], rng: &mut Rng) -> TestResult {
+    for index in (1..attempts.len()).rev() {
+        let bound = u32::try_from(index.saturating_add(1)).map_err(|error| {
+            format!("the shuffle bound for attempt {index} fits in a u32: {error}")
+        })?;
+        let drawn = usize::try_from(rng.below(bound))
+            .map_err(|error| format!("a below-{bound} draw is a valid swap index: {error}"))?;
+        attempts.swap(index, drawn);
+    }
+    Ok(())
+}
+
+/// The losers re-read and name what they found: second-round writes all apply,
+/// one per record, at version two.
+fn second_round(store: &RecordStore, records: usize, trace: &mut Trace) -> TestResult {
+    for record in 0..records {
+        let name = format!("record-{record}");
+        let version = store.write(&name, 1, "second-round")?;
+        if version != 2 {
+            return refuse(format!(
+                "a re-read write installs version two, not {version}"
+            ));
+        }
+        trace.record_number("reapplied", version);
+    }
+    Ok(())
+}
+
+/// Reopen: the records and the conflicts survive the restart, so what changed
+/// is answerable from the file rather than from a live handle.
+fn reopen_agrees(store: RecordStore, path: &std::path::Path, trace: &mut Trace) -> TestResult {
+    let state = store.state();
+    drop(store);
+    let reopened = RecordStore::open(path)?;
+    let reread = reopened.state();
+    if reread.records().len() != state.records().len() {
+        return refuse("a reopened store holds the same records");
+    }
+    if reread.conflicts().len() != state.conflicts().len() {
+        return refuse("a reopened store holds the same conflicts");
+    }
+    if reread.evicted() != state.evicted() {
+        return refuse("a reopened store holds the same eviction count");
+    }
+    trace.record_number("records", reread.records().len());
+    trace.record_number("conflicts", reread.conflicts().len());
+    Ok(())
+}
+
 /// Run one seeded schedule of concurrent editors against the shipped store.
 ///
 /// Returns the trace hash: the replay receipt.
@@ -71,16 +122,7 @@ fn run(seed: u64, trace: &mut Trace) -> TestResult {
             });
         }
     }
-    // A seeded permutation of the attempts: the only nondeterminism a real
-    // race has, drawn from the seed rather than the scheduler.
-    for index in (1..attempts.len()).rev() {
-        let bound = u32::try_from(index.saturating_add(1)).map_err(|error| {
-            format!("the shuffle bound for attempt {index} fits in a u32: {error}")
-        })?;
-        let drawn = usize::try_from(rng.below(bound))
-            .map_err(|error| format!("a below-{bound} draw is a valid swap index: {error}"))?;
-        attempts.swap(index, drawn);
-    }
+    shuffle(&mut attempts, &mut rng)?;
     let mut applied: HashMap<usize, u64> = HashMap::new();
     let mut conflicts = 0u64;
     for attempt in &attempts {
@@ -101,11 +143,10 @@ fn run(seed: u64, trace: &mut Trace) -> TestResult {
                 if expected != attempt.expected {
                     return refuse("a conflict names the version the write saw");
                 }
-                let current = store
-                    .state()
-                    .records()
-                    .get(&name)
-                    .map_or(NO_VERSION, |record| record.version());
+                let current = match store.state().records().get(&name) {
+                    Some(record) => record.version(),
+                    None => NO_VERSION,
+                };
                 if found != current {
                     return refuse("a conflict names the version the store holds");
                 }
@@ -150,34 +191,8 @@ fn run(seed: u64, trace: &mut Trace) -> TestResult {
     }
     // The losers re-read and name what they found: second-round writes all
     // apply, one per record, at version two.
-    for record in 0..records {
-        let name = format!("record-{record}");
-        let version = store.write(&name, 1, "second-round")?;
-        if version != 2 {
-            return refuse(format!(
-                "a re-read write installs version two, not {version}"
-            ));
-        }
-        trace.record_number("reapplied", version);
-    }
-    // Reopen: the records and the conflicts survive the restart, so what
-    // changed is answerable from the file rather than from a live handle.
-    let state = store.state();
-    drop(store);
-    let reopened = RecordStore::open(&path)?;
-    let reread = reopened.state();
-    if reread.records().len() != state.records().len() {
-        return refuse("a reopened store holds the same records");
-    }
-    if reread.conflicts().len() != state.conflicts().len() {
-        return refuse("a reopened store holds the same conflicts");
-    }
-    if reread.evicted() != state.evicted() {
-        return refuse("a reopened store holds the same eviction count");
-    }
-    trace.record_number("records", reread.records().len());
-    trace.record_number("conflicts", reread.conflicts().len());
-    Ok(())
+    second_round(&store, records, trace)?;
+    reopen_agrees(store, &path, trace)
 }
 
 /// Seeded writer schedules against the shipped store, over 1,024 seeds.

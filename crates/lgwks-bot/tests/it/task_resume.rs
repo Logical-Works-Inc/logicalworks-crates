@@ -734,7 +734,9 @@ fn measure_tier(runs: usize) -> TestResult {
         let which = index
             .checked_rem(TENANTS.len())
             .ok_or("the scale run alternates over at least one tenant")?;
-        let host = &hosts[which];
+        let host = hosts
+            .get(which)
+            .ok_or("the scale run has a host for every tenant")?;
         let at = Instant::now();
         let report = runtime::block_on(host.run(&work, u32::try_from(index)?));
         samples.push(at.elapsed().as_micros());
@@ -745,7 +747,10 @@ fn measure_tier(runs: usize) -> TestResult {
         }
         let id = report.run_id().ok_or("a stored run must name a run id")?;
         run_ids.push((id, which));
-        per_tenant[which] = per_tenant[which].saturating_add(1);
+        let ran = per_tenant
+            .get_mut(which)
+            .ok_or("the scale run counts every tenant")?;
+        *ran = ran.saturating_add(1);
     }
     let elapsed = started.elapsed();
 
@@ -757,7 +762,7 @@ fn measure_tier(runs: usize) -> TestResult {
         let (id, which) = *entry;
         assert_eq!(
             reopened.tenant_of(id).as_deref(),
-            Some(TENANTS[which]),
+            TENANTS.get(which).copied(),
             "run {id:?} is attributed to the tenant that minted it"
         );
         assert_eq!(
@@ -768,9 +773,9 @@ fn measure_tier(runs: usize) -> TestResult {
     }
     // Both tenants were in flight against the same store, which is what makes the
     // attribution above a cross-tenant check rather than two single-tenant runs.
-    for (which, tenant) in TENANTS.iter().enumerate() {
+    for (tenant, ran) in TENANTS.iter().zip(&per_tenant) {
         assert!(
-            per_tenant[which] > 0,
+            *ran > 0,
             "{tenant} ran nothing at this tier, so the isolation above is vacuous"
         );
     }

@@ -375,8 +375,10 @@ fn a_checkpoint_round_trip_preserves_work_corrections_unknowns_and_evidence_t27(
         "the user correction survives with its text"
     );
     assert_eq!(
-        back.corrections()[0].text(),
-        "use the base commit, not the head",
+        back.corrections()
+            .first()
+            .map(|correction| correction.text()),
+        Some("use the base commit, not the head"),
         "the correction's content is exact, not just its count"
     );
     assert_eq!(
@@ -404,7 +406,7 @@ fn a_checkpoint_round_trip_preserves_work_corrections_unknowns_and_evidence_t27(
         .len()
         .checked_div(2)
         .ok_or("a record has bytes to cut")?;
-    let torn = Checkpoint::from_record(&bytes[..cut]);
+    let torn = Checkpoint::from_record(bytes.get(..cut).ok_or("the cut lies inside the record")?);
     assert!(
         torn.is_err(),
         "a torn record is refused rather than decoded into a partial checkpoint"

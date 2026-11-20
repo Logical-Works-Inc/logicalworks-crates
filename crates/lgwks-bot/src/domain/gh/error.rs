@@ -14,11 +14,12 @@ use crate::error::KernelError;
 /// that never ran, a client that ran and failed, an answer that was not the
 /// shape expected, and an answer that was truncated. None of them is a claim
 /// about whether an effect landed — that is
-/// [`Gh::read_reviews`](super::Gh::read_reviews)'s question.
-#[derive(Debug)]
+/// `Gh::read_reviews`'s question (the `process` feature).
+#[derive(Debug, lgwks_macros::Error)]
 #[non_exhaustive]
 pub enum GhError {
     /// The repository reference did not validate.
+    #[error("{spec:?}: not a repository reference: {reason}")]
     Repository {
         /// The reference as given.
         spec: String,
@@ -26,6 +27,7 @@ pub enum GhError {
         reason: &'static str,
     },
     /// The commit id did not validate.
+    #[error("{hex:?}: not a commit id: {reason}")]
     CommitId {
         /// The id as given.
         hex: String,
@@ -33,11 +35,16 @@ pub enum GhError {
         reason: &'static str,
     },
     /// The review event is not one GitHub accepts.
+    #[error(
+        "{event:?}: not a review event; expected one of {}",
+        ReviewPayload::EVENTS.join(", ")
+    )]
     Event {
         /// The event as given.
         event: String,
     },
     /// The reconciliation marker cannot be carried in a review body.
+    #[error("{marker:?}: not a review marker: {reason}")]
     Marker {
         /// The marker as given.
         marker: String,
@@ -45,21 +52,28 @@ pub enum GhError {
         reason: &'static str,
     },
     /// An issue draft GitHub would refuse, refused before any call.
+    #[error("the issue draft was not sent: {reason}")]
     IssueDraft {
         /// What is wrong with it.
         reason: &'static str,
     },
     /// The client could not be run, or ran and could not be settled.
     #[cfg(feature = "process")]
-    Process(crate::rt::process::ProcessRunError),
+    #[error("the GitHub client could not run: {0}")]
+    Process(#[source] crate::rt::process::ProcessRunError),
     /// Built without the `process` feature, so there is no supervised runner
     /// to bind the GitHub client to.
     ///
     /// A refusal rather than an empty answer on purpose: a caller handed "no
     /// reviews" would conclude GitHub has none, which is a different and
     /// entirely wrong fact.
+    #[error(
+        "this build has no supervised process runner, so the GitHub client cannot run; \
+         rebuild with the `process` feature"
+    )]
     NoRunner,
     /// The client ran and reported failure.
+    #[error("{what} failed ({}): {stderr:?}", ExitText(*exit_code))]
     Transport {
         /// What the call was doing.
         what: String,
@@ -69,11 +83,13 @@ pub enum GhError {
         stderr: String,
     },
     /// The supervisor stopped the client before it answered.
+    #[error("{what} was stopped by its deadline before it answered")]
     Deadline {
         /// What the call was doing.
         what: String,
     },
     /// The answer was not the shape expected.
+    #[error("{path}: {reason}")]
     Response {
         /// The endpoint or path it came from.
         path: String,
@@ -81,6 +97,10 @@ pub enum GhError {
         reason: String,
     },
     /// The answer was larger than the capture ceiling and was not decoded.
+    #[error(
+        "the response was truncated at the capture ceiling: {retained} of {total} bytes \
+         retained, so it was not decoded"
+    )]
     TruncatedResponse {
         /// Bytes retained.
         retained: usize,
@@ -95,6 +115,10 @@ pub enum GhError {
     /// page nobody read — the one failure mode a bounded capture cannot catch,
     /// because the truncation would have happened inside a client that decoded
     /// cleanly.
+    #[error(
+        "{path}: the pull request holds {reviews} reviews, past the ceiling of {ceiling}; the \
+         list was not returned, because a prefix of it is not the review history"
+    )]
     ReviewCeiling {
         /// The endpoint the answer came from.
         path: String,
@@ -111,6 +135,10 @@ pub enum GhError {
     /// than flattened into [`GhError::Transport`], because a caller must act on
     /// a permission outcome differently: a lost read permission is an
     /// *unverified* publication, never a clean failure and never a second write.
+    #[error(
+        "{what} was refused by a credential that cannot reach the resource (HTTP {status}): \
+         {reason:?}"
+    )]
     Unauthorized {
         /// What the call was doing.
         what: String,
@@ -126,6 +154,7 @@ pub enum GhError {
     /// failure after a write started may have landed it and is read back,
     /// while a rejection is GitHub's answer that it did not, and reading back
     /// after one would only spend a settle finding nothing.
+    #[error("{what} was rejected by GitHub (HTTP {status}), so nothing landed: {reason:?}")]
     Rejected {
         /// What the call was doing.
         what: String,
@@ -141,6 +170,10 @@ pub enum GhError {
     /// rather than silently re-pointed: the review is about the repository the
     /// caller named, and a client that followed the redirect would review code
     /// nobody asked about.
+    #[error(
+        "the repository {requested} moved to {canonical}; the subject identity is not \
+         re-pointed, so nothing is reviewed under the canonical name until the caller names it"
+    )]
     MovedRepository {
         /// The repository the caller named.
         requested: String,
@@ -152,6 +185,7 @@ pub enum GhError {
     /// The server declined to render it (typically `406` for a diff too large).
     /// This is an *incomplete coverage*: a review of it would be a clean report
     /// over a diff nobody read.
+    #[error("{path}: the diff could not be produced, so the coverage is incomplete: {reason:?}")]
     DiffUnavailable {
         /// The endpoint the answer came from.
         path: String,
@@ -163,6 +197,10 @@ pub enum GhError {
     /// Reported rather than truncated, for the same reason
     /// [`GhError::ReviewCeiling`] is: a prefix of the inventory that decoded
     /// cleanly is indistinguishable from the whole diff.
+    #[error(
+        "{path}: the pull request changes {files} files, past the ceiling of {ceiling}; the \
+         inventory was not returned, because a prefix of it is not the diff"
+    )]
     DiffFileCeiling {
         /// The endpoint the answer came from.
         path: String,
@@ -175,6 +213,10 @@ pub enum GhError {
     ///
     /// A *separate* axis from [`GhError::DiffFileCeiling`]: one enormous file
     /// and many tiny ones grow different bounds.
+    #[error(
+        "{path}: the changed files carry {bytes} bytes of patch text, past the ceiling of \
+         {ceiling}; the inventory was not returned, because a prefix of it is not the diff"
+    )]
     DiffTooLarge {
         /// The endpoint the answer came from.
         path: String,
@@ -184,24 +226,43 @@ pub enum GhError {
         ceiling: usize,
     },
     /// The answer was not valid JSON of the expected type.
+    #[error("{path}: not the expected JSON: {}", r#source)]
     MalformedResponse {
         /// Which stream it came from.
         path: String,
-        /// The decode failure.
-        source: String,
+        /// The decode failure, rendered: a text, not a wrapped error. Written
+        /// raw because the `Error` derive reads a field named `source` as a
+        /// wrapped error, and a `String` is not one.
+        r#source: String,
     },
     /// The payload could not be serialized, so nothing was sent.
+    #[error("the review payload was not sent: {reason}")]
     PayloadNotSent {
         /// Why.
         reason: String,
     },
     /// The staging file for a payload could not be written.
+    #[error("{path}: the payload could not be staged: {}", r#source)]
     Staging {
         /// The path.
         path: String,
-        /// The operating system's refusal.
-        source: String,
+        /// The operating system's refusal, rendered: a text, not a wrapped
+        /// error, so the cause chain ends here. Written raw for the reason
+        /// [`GhError::MalformedResponse`] gives.
+        r#source: String,
     },
+}
+
+/// How a client's exit renders in a transport failure line.
+struct ExitText(Option<i32>);
+
+impl std::fmt::Display for ExitText {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(code) => write!(f, "exit {code}"),
+            None => f.write_str("no exit code"),
+        }
+    }
 }
 
 /// The capabilities a GitHub credential stands for: the network authority the
@@ -293,175 +354,6 @@ impl GhError {
             *self,
             Self::DiffUnavailable { .. } | Self::DiffFileCeiling { .. } | Self::DiffTooLarge { .. }
         )
-    }
-}
-
-impl std::fmt::Display for GhError {
-    /// What was refused, and what the caller can do about it.
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Self::Repository { ref spec, reason } => {
-                write!(formatter, "{spec:?}: not a repository reference: {reason}")
-            }
-            Self::CommitId { ref hex, reason } => {
-                write!(formatter, "{hex:?}: not a commit id: {reason}")
-            }
-            Self::Event { ref event } => write!(
-                formatter,
-                "{event:?}: not a review event; expected one of {}",
-                ReviewPayload::EVENTS.join(", ")
-            ),
-            Self::Marker { ref marker, reason } => {
-                write!(formatter, "{marker:?}: not a review marker: {reason}")
-            }
-            Self::IssueDraft { reason } => {
-                write!(formatter, "the issue draft was not sent: {reason}")
-            }
-            #[cfg(feature = "process")]
-            Self::Process(ref source) => {
-                write!(formatter, "the GitHub client could not run: {source}")
-            }
-            Self::NoRunner => formatter.write_str(
-                "this build has no supervised process runner, so the GitHub client cannot run; \
-                 rebuild with the `process` feature",
-            ),
-            Self::Transport {
-                ref what,
-                exit_code,
-                ref stderr,
-            } => {
-                let status = match exit_code {
-                    Some(code) => format!("exit {code}"),
-                    None => String::from("no exit code"),
-                };
-                write!(formatter, "{what} failed ({status}): {stderr:?}")
-            }
-            Self::Deadline { ref what } => {
-                write!(
-                    formatter,
-                    "{what} was stopped by its deadline before it answered"
-                )
-            }
-            Self::Response {
-                ref path,
-                ref reason,
-            } => write!(formatter, "{path}: {reason}"),
-            Self::TruncatedResponse { retained, total } => write!(
-                formatter,
-                "the response was truncated at the capture ceiling: {retained} of {total} bytes \
-                 retained, so it was not decoded"
-            ),
-            Self::ReviewCeiling {
-                ref path,
-                reviews,
-                ceiling,
-            } => write!(
-                formatter,
-                "{path}: the pull request holds {reviews} reviews, past the ceiling of \
-                 {ceiling}; the list was not returned, because a prefix of it is not \
-                 the review history"
-            ),
-            Self::MalformedResponse {
-                ref path,
-                ref source,
-            } => {
-                write!(formatter, "{path}: not the expected JSON: {source}")
-            }
-            Self::PayloadNotSent { ref reason } => {
-                write!(formatter, "the review payload was not sent: {reason}")
-            }
-            Self::Staging {
-                ref path,
-                ref source,
-            } => {
-                write!(
-                    formatter,
-                    "{path}: the payload could not be staged: {source}"
-                )
-            }
-            Self::Unauthorized {
-                ref what,
-                status,
-                ref reason,
-            } => write!(
-                formatter,
-                "{what} was refused by a credential that cannot reach the resource \
-                 (HTTP {status}): {reason:?}"
-            ),
-            Self::Rejected {
-                ref what,
-                status,
-                ref reason,
-            } => write!(
-                formatter,
-                "{what} was rejected by GitHub (HTTP {status}), so nothing landed: {reason:?}"
-            ),
-            Self::MovedRepository {
-                ref requested,
-                ref canonical,
-            } => write!(
-                formatter,
-                "the repository {requested} moved to {canonical}; the subject identity is not \
-                 re-pointed, so nothing is reviewed under the canonical name until the caller \
-                 names it"
-            ),
-            Self::DiffUnavailable {
-                ref path,
-                ref reason,
-            } => write!(
-                formatter,
-                "{path}: the diff could not be produced, so the coverage is incomplete: {reason:?}"
-            ),
-            Self::DiffFileCeiling {
-                ref path,
-                files,
-                ceiling,
-            } => write!(
-                formatter,
-                "{path}: the pull request changes {files} files, past the ceiling of {ceiling}; \
-                 the inventory was not returned, because a prefix of it is not the diff"
-            ),
-            Self::DiffTooLarge {
-                ref path,
-                bytes,
-                ceiling,
-            } => write!(
-                formatter,
-                "{path}: the changed files carry {bytes} bytes of patch text, past the ceiling \
-                 of {ceiling}; the inventory was not returned, because a prefix of it is not \
-                 the diff"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for GhError {
-    /// The operating system's refusal, when there is one.
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match *self {
-            #[cfg(feature = "process")]
-            Self::Process(ref source) => Some(source),
-            Self::NoRunner
-            | Self::Repository { .. }
-            | Self::CommitId { .. }
-            | Self::Event { .. }
-            | Self::Marker { .. }
-            | Self::IssueDraft { .. }
-            | Self::Transport { .. }
-            | Self::Deadline { .. }
-            | Self::Response { .. }
-            | Self::TruncatedResponse { .. }
-            | Self::ReviewCeiling { .. }
-            | Self::Unauthorized { .. }
-            | Self::Rejected { .. }
-            | Self::MovedRepository { .. }
-            | Self::DiffUnavailable { .. }
-            | Self::DiffFileCeiling { .. }
-            | Self::DiffTooLarge { .. }
-            | Self::MalformedResponse { .. }
-            | Self::PayloadNotSent { .. }
-            | Self::Staging { .. } => None,
-        }
     }
 }
 

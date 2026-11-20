@@ -42,8 +42,11 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 
+use lgwks_bot::effect::RunId;
 use lgwks_bot::script::{FlowError, Scope, remember};
-use lgwks_bot::task::{DefinitionIdentity, Disposition, Host, RunStore, StoreError, Task, task};
+use lgwks_bot::task::{
+    DefinitionIdentity, Disposition, Host, Report, RunStore, StoreError, Task, task,
+};
 
 use shared::{format_version, ran, record_run, store_refusal};
 
@@ -148,6 +151,22 @@ fn markers(dir: &Path, steps: u32) -> Result<Vec<u32>, Box<dyn Error>> {
         .collect()
 }
 
+/// One resume of `run` on `host`, blocking until its report.
+fn resume(
+    host: &Host,
+    run: RunId,
+    identity: &DefinitionIdentity,
+    plan: &Staged,
+) -> Result<Report<u32>, Box<dyn Error>> {
+    let task = staged_task()?;
+    Ok(lgwks_bot::script::block_on(host.resume_under(
+        run,
+        identity,
+        &task,
+        plan.clone(),
+    )))
+}
+
 // ── INV-BOT-59: a read failure reaches the caller as the store ───────────────
 
 /// One tenant of the read-fault sweep: a fault armed on the store must reach the report as the store.
@@ -188,13 +207,7 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     // The replays before the fault: a compatible resume returns every
     // recorded value without entering a body.
     for replay in 0..warm {
-        let replaying = host_for(tenant, &dir)?;
-        let report = lgwks_bot::script::block_on(replaying.resume_under(
-            run,
-            &identity,
-            &staged_task()?,
-            plan.clone(),
-        ));
+        let report = resume(&host_for(tenant, &dir)?, run, &identity, &plan)?;
         assert_eq!(
             report.disposition(),
             Disposition::Succeeded,
@@ -210,12 +223,7 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
         .run_store()
         .ok_or("a stored host keeps a store")?
         .fail_next_index_read();
-    let refused = lgwks_bot::script::block_on(armed.resume_under(
-        run,
-        &identity,
-        &staged_task()?,
-        plan.clone(),
-    ));
+    let refused = resume(&armed, run, &identity, &plan)?;
     assert_eq!(
         refused.disposition(),
         Disposition::Failed,
@@ -243,9 +251,7 @@ fn read_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     drop(armed);
 
     // The reopen: a fresh handle over the untouched bytes replays.
-    let recovered = host_for(tenant, &dir)?;
-    let after =
-        lgwks_bot::script::block_on(recovered.resume_under(run, &identity, &staged_task()?, plan));
+    let after = resume(&host_for(tenant, &dir)?, run, &identity, &plan)?;
     assert_eq!(
         after.disposition(),
         Disposition::Succeeded,
@@ -322,7 +328,7 @@ const VERSIONS: [u8; 6] = [1, 2, 3, 0, 7, 255];
 /// One tenant of the second store-fault sweep.
 fn second_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     let steps = sim.rng().between(1, 3);
-    let drawn = VERSIONS[usize::try_from(sim.rng().below(6))?];
+    let drawn = *sim::nth(&VERSIONS, usize::try_from(sim.rng().below(6))?)?;
     let scratch = Scratch::new("sim-format")?;
     let dir = scratch.path().join("store");
     let plan = Staged {
@@ -348,11 +354,14 @@ fn second_fault_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     drop(host);
 
     let mut bytes = std::fs::read(&path)?;
+    let stamp = bytes
+        .get_mut(VERSION_AT)
+        .ok_or("the store holds a version byte")?;
     assert_eq!(
-        bytes[VERSION_AT], CURRENT_FORMAT,
+        *stamp, CURRENT_FORMAT,
         "{tenant}: the shipped store must be written at the current version before it is re-stamped"
     );
-    bytes[VERSION_AT] = drawn;
+    *stamp = drawn;
     std::fs::write(&path, &bytes)?;
     let before = std::fs::read(&path)?;
 
@@ -432,7 +441,7 @@ fn same_seed_same_trace_hash(band: sim::Band) -> TestResult {
     let one_run = |sim: &mut sim::Sim| -> TestResult {
         let steps = sim.rng().between(1, 4);
         let warm = sim.rng().below(steps.saturating_add(1));
-        let drawn = VERSIONS[usize::try_from(sim.rng().below(6))?];
+        let drawn = *sim::nth(&VERSIONS, usize::try_from(sim.rng().below(6))?)?;
         sim.trace.record_number("steps", u64::from(steps));
         sim.trace.record_number("warm", u64::from(warm));
         sim.trace.record_number("drawn", u64::from(drawn));

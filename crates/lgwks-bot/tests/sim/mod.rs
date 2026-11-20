@@ -40,11 +40,11 @@
 //! not reproducible across a lockfile bump.
 
 #[cfg(feature = "wire")]
-pub mod piped;
+pub(crate) mod piped;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-pub mod rig;
+pub(crate) mod rig;
 #[cfg(feature = "wire")]
-pub mod scratch_file;
+pub(crate) mod scratch_file;
 
 use std::error::Error;
 use std::fs;
@@ -57,14 +57,36 @@ use std::path::PathBuf;
 pub(crate) mod seed;
 mod seed_helpers;
 
-pub use seed::{Rng, Trace};
+pub(crate) use seed::{Rng, Trace};
+
+/// Item `index` of `items`, or why the run produced fewer: a test's total form
+/// of `items[index]`, which names the shortfall instead of panicking. Built
+/// with its callers, the `ecs` and `wire` sims and the `process` confinement sim.
+#[cfg(any(feature = "process", all(feature = "ecs", feature = "wire")))]
+pub(crate) fn nth<T>(items: &[T], index: usize) -> Result<&T, Box<dyn Error>> {
+    items
+        .get(index)
+        .ok_or_else(|| format!("expected an item at {index}, found {}", items.len()).into())
+}
+
+/// A joined thread's panic as an error, carrying what the thread said.
+pub(crate) fn panicked(payload: Box<dyn std::any::Any + Send>) -> Box<dyn Error> {
+    let said = match payload.downcast::<&str>() {
+        Ok(text) => (*text).to_owned(),
+        Err(other) => match other.downcast::<String>() {
+            Ok(text) => *text,
+            Err(opaque) => format!("a payload that is not text ({:?})", &*opaque),
+        },
+    };
+    format!("a thread panicked: {said}").into()
+}
 
 mod band;
 #[cfg(any(feature = "process", all(feature = "ecs", feature = "wire")))]
-pub use band::bands;
+pub(crate) use band::bands;
 #[cfg(all(feature = "ecs", feature = "wire"))]
-pub use band::{BANDS, SEED_SPACE};
-pub use band::{Band, band_of};
+pub(crate) use band::{BANDS, SEED_SPACE};
+pub(crate) use band::{Band, band_of};
 
 // ── Time ───────────────────────────────────────────────────────────────────
 
@@ -74,18 +96,18 @@ pub use band::{Band, band_of};
 /// Nothing here can observe the wall clock, which is what makes a three-day
 /// outage testable in a second.
 #[derive(Clone, Copy, Debug, Default)]
-pub struct SimClock {
+pub(crate) struct SimClock {
     now: u64,
 }
 
 impl SimClock {
     /// The clock at tick zero.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// The current tick.
-    pub fn now(&self) -> u64 {
+    pub(crate) fn now(&self) -> u64 {
         self.now
     }
 
@@ -111,7 +133,7 @@ impl SimClock {
 /// its own — a torn tail, a killed child — is drawn by that family from the
 /// run's stream rather than declared here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Faults {
+pub(crate) struct Faults {
     /// Per-mille chance a message is dropped in flight.
     pub net_drop: u32,
     /// Per-mille chance a message is delivered twice.
@@ -132,7 +154,7 @@ impl Faults {
     /// fault probability does not renumber every tenant in every other
     /// scenario. A schedule that shifted wholesale would make a regression in
     /// one dimension unbisectable in the others.
-    pub fn for_seed(seed: u64) -> Self {
+    pub(crate) fn for_seed(seed: u64) -> Self {
         let mut rng = Rng::new(seed);
         let tenants = rng.between(1, 65);
         Self {
@@ -159,7 +181,7 @@ impl Faults {
 /// the fields only to read them, and the one place that writes them is
 /// [`Network::send`] and [`Network::deliver`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Envelope {
+pub(crate) struct Envelope {
     /// Who sent it.
     pub(crate) from: u32,
     /// Who it is for.
@@ -176,18 +198,18 @@ pub struct Envelope {
 
 impl Envelope {
     /// Who sent this envelope.
-    pub fn from(&self) -> u32 {
+    pub(crate) fn from(&self) -> u32 {
         self.from
     }
 
     /// Who this envelope is for.
-    pub fn to(&self) -> u32 {
+    pub(crate) fn to(&self) -> u32 {
         self.to
     }
 
     /// The payload, as bytes. A borrow, so a scenario can look without being
     /// able to rewrite what the network carried.
-    pub fn body(&self) -> &[u8] {
+    pub(crate) fn body(&self) -> &[u8] {
         &self.body
     }
 
@@ -195,7 +217,7 @@ impl Envelope {
     /// a duplicate is being delivered, which is the case an at-least-once
     /// consumer has to survive.
     #[cfg(all(feature = "ecs", feature = "wire"))]
-    pub fn attempts(&self) -> u32 {
+    pub(crate) fn attempts(&self) -> u32 {
         self.attempts
     }
 }
@@ -210,7 +232,7 @@ impl Envelope {
 /// cannot accidentally get an in-order, lossless, exactly-once channel by
 /// forgetting to configure it.
 #[derive(Clone, Debug, Default)]
-pub struct Network {
+pub(crate) struct Network {
     in_flight: Vec<Envelope>,
     delivered: u32,
     dropped: u32,
@@ -219,7 +241,7 @@ pub struct Network {
 
 impl Network {
     /// An empty network.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
@@ -229,7 +251,7 @@ impl Network {
     /// arrival order directly: jitter is a seeded draw the scenario makes
     /// itself, rather than something hidden inside the transport where a
     /// determinism bug would be invisible.
-    pub fn send(&mut self, from: u32, to: u32, body: Vec<u8>, due: u64) {
+    pub(crate) fn send(&mut self, from: u32, to: u32, body: Vec<u8>, due: u64) {
         self.in_flight.push(Envelope {
             from,
             to,
@@ -244,7 +266,7 @@ impl Network {
     /// Applies the partition, the drops and the duplicates here, so every
     /// scenario sees the same accounting and the trace can be compared across
     /// families.
-    pub fn deliver(&mut self, now: u64, rng: &mut Rng, faults: &Faults) -> Vec<Envelope> {
+    pub(crate) fn deliver(&mut self, now: u64, rng: &mut Rng, faults: &Faults) -> Vec<Envelope> {
         let mut ready = Vec::new();
         let mut still = Vec::new();
         for envelope in std::mem::take(&mut self.in_flight) {
@@ -278,13 +300,13 @@ impl Network {
 
     /// How many envelopes are still on the wire.
     #[cfg(all(feature = "ecs", feature = "wire"))]
-    pub fn in_flight(&self) -> usize {
+    pub(crate) fn in_flight(&self) -> usize {
         self.in_flight.len()
     }
 
     /// Delivered, dropped and duplicated, for the trace.
     #[cfg(all(feature = "ecs", feature = "wire"))]
-    pub fn counts(&self) -> (u32, u32, u32) {
+    pub(crate) fn counts(&self) -> (u32, u32, u32) {
         (self.delivered, self.dropped, self.duplicated)
     }
 }
@@ -293,24 +315,24 @@ impl Network {
 
 /// One simulated run: a seed, a clock, a network, a fault schedule, a trace.
 #[derive(Debug)]
-pub struct Sim {
+pub(crate) struct Sim {
     /// The seed this run replays from.
-    pub seed: u64,
+    pub(crate) seed: u64,
     /// The virtual clock.
-    pub clock: SimClock,
+    pub(crate) clock: SimClock,
     /// The network under test.
-    pub net: Network,
+    pub(crate) net: Network,
     /// What the environment will do.
-    pub faults: Faults,
+    pub(crate) faults: Faults,
     /// The replay receipt.
-    pub trace: Trace,
+    pub(crate) trace: Trace,
     rng: Rng,
     dirs: Vec<PathBuf>,
 }
 
 impl Sim {
     /// A run replaying from `seed`.
-    pub fn new(seed: u64) -> Self {
+    pub(crate) fn new(seed: u64) -> Self {
         Self {
             seed,
             clock: SimClock::new(),
@@ -323,12 +345,12 @@ impl Sim {
     }
 
     /// The next draw, from the same stream the fault schedule was cut from.
-    pub fn rng(&mut self) -> &mut Rng {
+    pub(crate) fn rng(&mut self) -> &mut Rng {
         &mut self.rng
     }
 
     /// Move the virtual clock forward, recording it.
-    pub fn tick(&mut self, ticks: u64) -> u64 {
+    pub(crate) fn tick(&mut self, ticks: u64) -> u64 {
         self.clock.advance(ticks);
         self.trace.record_number("tick", self.clock.now());
         self.clock.now()
@@ -341,7 +363,7 @@ impl Sim {
     /// network, and a caller cannot borrow all three out of `&mut self` at
     /// once. The copies are taken here so the borrow split is this module's
     /// problem once rather than every scenario's.
-    pub fn drain(&mut self, now: u64) -> Vec<Envelope> {
+    pub(crate) fn drain(&mut self, now: u64) -> Vec<Envelope> {
         let faults = self.faults;
         self.net.deliver(now, &mut self.rng, &faults)
     }
@@ -352,13 +374,13 @@ impl Sim {
     /// `sim.net.send(.., sim.tick(..))` borrows the network mutably and the run
     /// mutably at once, which is a borrow error at every call site rather than
     /// a fact of the design.
-    pub fn send(&mut self, from: u32, to: u32, body: Vec<u8>, due: u64) {
+    pub(crate) fn send(&mut self, from: u32, to: u32, body: Vec<u8>, due: u64) {
         self.net.send(from, to, body, due);
     }
 
     /// Send at the current tick, so the envelope is due now.
     #[cfg(all(feature = "ecs", feature = "wire"))]
-    pub fn send_now(&mut self, from: u32, to: u32, body: Vec<u8>) {
+    pub(crate) fn send_now(&mut self, from: u32, to: u32, body: Vec<u8>) {
         let due = self.clock.now();
         self.net.send(from, to, body, due);
     }
@@ -368,7 +390,7 @@ impl Sim {
     /// The same reason as [`Sim::drain`]: `sim.drain(sim.tick(n))` is two
     /// mutable borrows of the same run, and a scenario that has to express
     /// "advance, then deliver" should not have to name a temporary.
-    pub fn advance_and_drain(&mut self, ticks: u64) -> Vec<Envelope> {
+    pub(crate) fn advance_and_drain(&mut self, ticks: u64) -> Vec<Envelope> {
         let now = self.tick(ticks);
         self.drain(now)
     }
@@ -381,12 +403,12 @@ impl Sim {
     /// would make that assertion weaker, not stronger: it would pass on a run
     /// that took a different path and merely happened to end saying the same
     /// thing.
-    pub fn record(&mut self, fact: &str) {
+    pub(crate) fn record(&mut self, fact: &str) {
         self.trace.record(fact);
     }
 
     /// The replay receipt for this run.
-    pub fn hash(&self) -> u64 {
+    pub(crate) fn hash(&self) -> u64 {
         self.trace.hash()
     }
 
@@ -401,7 +423,7 @@ impl Sim {
     /// so it is not an identity. Nothing in the repository's own tree is ever
     /// written to.
     #[cfg(any(feature = "process", all(feature = "ecs", feature = "wire")))]
-    pub fn scratch(&mut self, tag: &str) -> Result<PathBuf, Box<dyn Error>> {
+    pub(crate) fn scratch(&mut self, tag: &str) -> Result<PathBuf, Box<dyn Error>> {
         let unique = lgwks_std::random::bytes::<8>()?;
         let suffix: Vec<String> = unique.iter().map(|byte| format!("{byte:02x}")).collect();
         let path =
@@ -416,15 +438,18 @@ impl Sim {
 
     /// A journal path inside this run's scratch space.
     #[cfg(all(feature = "ecs", feature = "wire"))]
-    pub fn journal_path(&self, dir: &Path, tenant: u32) -> PathBuf {
+    pub(crate) fn journal_path(&self, dir: &Path, tenant: u32) -> PathBuf {
         dir.join(format!("tenant-{tenant}.jrnl"))
     }
 }
 
 impl Drop for Sim {
     fn drop(&mut self) {
+        // Drop cannot fail, so a scratch dir that will not go is reported, not lost.
         for dir in &self.dirs {
-            drop(fs::remove_dir_all(dir));
+            if let Err(error) = fs::remove_dir_all(dir) {
+                lgwks_std::trace::debug!(%error, dir = %dir.display(), "sim: scratch dir not removed");
+            }
         }
     }
 }
@@ -437,7 +462,7 @@ impl Drop for Sim {
 /// deterministic by comparing two runs' vectors — a stronger statement than
 /// any single run's assertions, because it covers every seed in the band
 /// rather than one of them.
-pub fn sweep<F>(band: Band, mut body: F) -> Result<Vec<u64>, Box<dyn Error>>
+pub(crate) fn sweep<F>(band: Band, mut body: F) -> Result<Vec<u64>, Box<dyn Error>>
 where
     F: FnMut(&mut Sim) -> Result<(), Box<dyn Error>>,
 {
@@ -470,7 +495,7 @@ where
 /// the two hash vectors must be identical. A family that only asserted
 /// outcomes would pass while the run was nondeterministic, which is the
 /// failure this exists to catch.
-pub fn assert_replays<F>(band: Band, mut body: F) -> Result<(), Box<dyn Error>>
+pub(crate) fn assert_replays<F>(band: Band, mut body: F) -> Result<(), Box<dyn Error>>
 where
     F: FnMut(&mut Sim) -> Result<(), Box<dyn Error>>,
 {

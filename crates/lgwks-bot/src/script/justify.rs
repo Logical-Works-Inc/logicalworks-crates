@@ -81,14 +81,24 @@ pub struct Rule {
     /// The name the trail and the refusal carry.
     name: &'static str,
     /// The decision function.
-    decide: Box<dyn Fn(&JustifyCtx) -> Verdict + Send + Sync>,
+    decide: Box<dyn Fn(&JustifyCtx<'_>) -> Verdict + Send + Sync>,
+}
+
+impl std::fmt::Debug for Rule {
+    /// The rule's name; the decision function is a closure with nothing to show.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Rule")
+            .field("name", &self.name)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Rule {
     /// A rule named `name` that answers with `decide`.
     pub fn new(
         name: &'static str,
-        decide: impl Fn(&JustifyCtx) -> Verdict + Send + Sync + 'static,
+        decide: impl Fn(&JustifyCtx<'_>) -> Verdict + Send + Sync + 'static,
     ) -> Self {
         Self {
             name,
@@ -157,8 +167,18 @@ impl Rule {
     }
 
     /// Answer for `ctx`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::script::{JustifyCtx, Rule, Verdict};
+    ///
+    /// let paced = Rule::pace("pace", 2, std::time::Duration::from_millis(5));
+    /// assert_eq!(paced.decide(&JustifyCtx::new("step", 0)), Verdict::Allow);
+    /// assert!(matches!(paced.decide(&JustifyCtx::new("step", 0)), Verdict::Slow { .. }));
+    /// ```
     #[must_use]
-    pub fn decide(&self, ctx: &JustifyCtx) -> Verdict {
+    pub fn decide(&self, ctx: &JustifyCtx<'_>) -> Verdict {
         (self.decide)(ctx)
     }
 }
@@ -234,7 +254,7 @@ pub struct Decision {
 /// Clone shares the rules: every scope descended from the scope the rules were
 /// installed on answers the same sequence, and the counters inside the rules
 /// are the one history every step appends to.
-#[derive(Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Justify {
     /// The ordered rules, shared by clone.
     rules: Arc<[Rule]>,
@@ -270,8 +290,20 @@ impl Justify {
     /// The first non-allow verdict in rule order, or allow when every rule
     /// allows. Deterministic in the evaluation order, which the runtime fixes:
     /// one evaluation per async word entry and one per retry attempt.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_bot::script::{Justify, JustifyCtx, Rule, Verdict};
+    ///
+    /// let rules = Justify::new(vec![Rule::pace("pace", 1, std::time::Duration::from_millis(5))]);
+    /// let decision = rules.decide(&JustifyCtx::new("step", 0));
+    /// assert_eq!(decision.rule, "pace");
+    /// assert!(matches!(decision.verdict, Verdict::Slow { .. }));
+    /// assert_eq!(Justify::empty().decide(&JustifyCtx::new("step", 0)).verdict, Verdict::Allow);
+    /// ```
     #[must_use]
-    pub fn decide(&self, ctx: &JustifyCtx) -> Decision {
+    pub fn decide(&self, ctx: &JustifyCtx<'_>) -> Decision {
         for rule in self.rules.iter() {
             match rule.decide(ctx) {
                 Verdict::Allow => {}
@@ -283,10 +315,26 @@ impl Justify {
                 }
             }
         }
-        Decision {
+        Decision::allowed()
+    }
+}
+
+impl Decision {
+    /// The decision when no rule stopped the step: allow.
+    const fn allowed() -> Self {
+        Self {
             verdict: Verdict::Allow,
             rule: "allow",
         }
+    }
+}
+
+/// What `scope`'s rules answer for `attempt`; a scope with no installed rules
+/// is answered like an empty rule set, which allows.
+fn decision_at(scope: &Scope, attempt: u32) -> Decision {
+    match scope.justification() {
+        Some(rules) => rules.decide(&JustifyCtx::new(scope.path(), attempt)),
+        None => Decision::allowed(),
     }
 }
 
@@ -303,10 +351,7 @@ impl Justify {
 ///
 /// [`FlowError::Justified`] carrying the deciding rule and its reason code.
 pub(crate) fn refuse_if_unjustified(scope: &Scope) -> Result<(), FlowError> {
-    let Some(rules) = scope.justification() else {
-        return Ok(());
-    };
-    let decision = rules.decide(&JustifyCtx::new(scope.path(), 0));
+    let decision = decision_at(scope, 0);
     match decision.verdict {
         Verdict::Allow | Verdict::Slow { .. } => Ok(()),
         Verdict::Park { reason } | Verdict::Block { reason } => {
@@ -333,10 +378,7 @@ impl Scope {
     /// or [`FlowError::Cancelled`] when the scope stopped while a `Slow`
     /// waited.
     pub async fn justified(&self, attempt: u32) -> Result<(), FlowError> {
-        let Some(justify) = self.justification() else {
-            return Ok(());
-        };
-        let decision = justify.decide(&JustifyCtx::new(self.path(), attempt));
+        let decision = decision_at(self, attempt);
         match decision.verdict {
             Verdict::Allow => Ok(()),
             Verdict::Slow { delay } => {
@@ -367,9 +409,6 @@ mod tests {
 
     use super::{Allowance, Decision, Justify, JustifyCtx, Rule, Verdict};
 
-    /// A test's result: an error fails it with the error's text.
-    type TestResult = Result<(), String>;
-
     /// The context these tests decide under.
     fn ctx() -> JustifyCtx<'static> {
         JustifyCtx {
@@ -381,7 +420,7 @@ mod tests {
     /// The first non-allow verdict wins, in rule order, and an empty rule set
     /// allows.
     #[test]
-    fn the_first_non_allow_verdict_wins_in_rule_order() -> TestResult {
+    fn the_first_non_allow_verdict_wins_in_rule_order() {
         let justify = Justify::new(vec![
             Rule::new("first", |_| Verdict::Allow),
             Rule::new("second", |_| Verdict::Slow {
@@ -402,13 +441,12 @@ mod tests {
             Verdict::Allow,
             "no rules is allow, not a refusal"
         );
-        Ok(())
     }
 
     /// An allowance spends one token per evaluation, blocks at zero with its
     /// reason code, and refills from anywhere.
     #[test]
-    fn an_allowance_blocks_at_zero_with_its_reason_code() -> TestResult {
+    fn an_allowance_blocks_at_zero_with_its_reason_code() {
         let allowance = Arc::new(Allowance::new(2));
         let rule = Rule::allowance("budget", Arc::clone(&allowance), "poll-budget-spent");
         assert_eq!(rule.decide(&ctx()), Verdict::Allow, "first take spends");
@@ -431,12 +469,11 @@ mod tests {
             0,
             "the refill's token was spent by the evaluation"
         );
-        Ok(())
     }
 
     /// Pacing slows every `every`-th evaluation and allows the rest.
     #[test]
-    fn pacing_slows_every_nth_evaluation() -> TestResult {
+    fn pacing_slows_every_nth_evaluation() {
         let rule = Rule::pace("poll-every-minute", 3, Duration::from_secs(60));
         let verdicts: Vec<Verdict> = (0..6).map(|_| rule.decide(&ctx())).collect();
         let slowed = verdicts
@@ -455,6 +492,5 @@ mod tests {
                     == matches!(verdict, Verdict::Slow { .. })),
             "only every third evaluation slows: {verdicts:?}"
         );
-        Ok(())
     }
 }

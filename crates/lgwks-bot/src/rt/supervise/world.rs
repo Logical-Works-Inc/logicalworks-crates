@@ -99,7 +99,7 @@ impl Supervisor {
         let (Some(runs), Some(ticket)) = (self.runs.as_ref(), ticket) else {
             return;
         };
-        if let Err(error) = runs.feed.settle(ticket, ended) {
+        if let Err(error) = runs.feed.settle(&ticket, ended) {
             lgwks_std::trace::warn!(%error, "supervisor: the run feed refused a settlement");
         }
     }

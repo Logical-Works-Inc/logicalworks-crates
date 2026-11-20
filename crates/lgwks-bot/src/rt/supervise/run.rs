@@ -549,10 +549,9 @@ impl Supervisor {
     #[cfg(all(not(any(unix, windows)), feature = "process"))]
     pub async fn run_process_observed(
         &mut self,
-        spec: &ProcessSpec,
-        on_line: Option<LineObserver<'_>>,
+        _spec: &ProcessSpec,
+        _on_line: Option<LineObserver<'_>>,
     ) -> Result<ProcessRun, ProcessRunError> {
-        let _ = (spec, on_line);
         Err(ProcessRunError::NotStarted {
             source: Self::no_process_group(),
         })
@@ -563,10 +562,9 @@ impl Supervisor {
     #[cfg(all(not(any(unix, windows)), feature = "process", feature = "script"))]
     pub async fn run_process_for(
         &mut self,
-        tenant: &Tenant,
-        spec: &ProcessSpec,
+        _tenant: &Tenant,
+        _spec: &ProcessSpec,
     ) -> Result<ProcessRun, RunForError> {
-        let _ = (tenant, spec);
         let refusal = Err(RunForError::Run(ProcessRunError::NotStarted {
             source: Self::no_process_group(),
         }));
@@ -577,17 +575,17 @@ impl Supervisor {
     /// Process containment is unavailable beyond Unix and Windows targets.
     #[cfg(all(not(any(unix, windows)), feature = "process"))]
     pub async fn spawn_process(&mut self, spec: &ProcessSpec) -> io::Result<TaskId> {
-        let _ = spec;
-        Err(Self::no_process_group())
+        let refusal = Err(Self::no_process_group());
+        lgwks_std::trace::debug!(program = ?spec.program(), error = ?refusal.as_ref().err(), "spawn_process: no process owner on this target");
+        refusal
     }
 
     /// Process containment is unavailable beyond Unix and Windows targets.
     #[cfg(all(not(any(unix, windows)), feature = "process"))]
     pub async fn spawn_process_identified(
         &mut self,
-        spec: &ProcessSpec,
+        _spec: &ProcessSpec,
     ) -> io::Result<IdentifiedSpawn> {
-        let _ = spec;
         Err(Self::no_process_group())
     }
 
@@ -595,9 +593,8 @@ impl Supervisor {
     #[cfg(all(not(any(unix, windows)), feature = "process"))]
     pub async fn spawn_process_identified_gated(
         &mut self,
-        spec: &ProcessSpec,
+        _spec: &ProcessSpec,
     ) -> io::Result<GatedIdentifiedSpawn> {
-        let _ = spec;
         Err(Self::no_process_group())
     }
 

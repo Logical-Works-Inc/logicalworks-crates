@@ -246,7 +246,7 @@ fn the_walk_costs_the_same_per_node_however_wide_the_tree_is()
     for width in 0..WIDTHS.len() {
         let cheapest_window = windows
             .iter()
-            .map(|round| round[width])
+            .filter_map(|round| round.get(width).copied())
             .min()
             .ok_or("nine rounds produced no window for a width")?;
         per_node_nanos.push(cheapest_window);
@@ -403,7 +403,9 @@ fn syntax_diagnostics_distinguish_recovery_kinds_and_use_source_byte_ranges()
         "span slices the source"
     );
     assert!(
-        source[..error.start_byte].contains('é'),
+        source
+            .get(..error.start_byte)
+            .is_some_and(|prefix| prefix.contains('é')),
         "span follows the multibyte prefix"
     );
 
@@ -600,8 +602,8 @@ fn tree_diagnostics_reads_the_source_from_the_tree() {
         "the malformed function reports a recovery"
     );
     assert_eq!(
-        found[0].span().start.line,
-        2,
+        found.first().map(|first| first.span().start.line),
+        Some(2),
         "the source comes from the tree, so no span can resolve wrongly"
     );
 }

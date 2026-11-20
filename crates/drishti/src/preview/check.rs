@@ -215,7 +215,8 @@ pub fn check_records(
         TraceCheckError::MissingFrames,
     )?;
 
-    let key = String::from(field_str(&frames[0], "object_key")?);
+    let first = frames.first().ok_or(TraceCheckError::MissingFrames)?;
+    let key = String::from(field_str(first, "object_key")?);
     let mut position = 0.0_f64;
     let mut velocity = 0.0_f64;
     let mut counts: BTreeMap<&str, usize> = BTreeMap::new();

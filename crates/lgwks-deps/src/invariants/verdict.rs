@@ -56,9 +56,9 @@ pub struct Outcome {
     /// Invariant identifier.
     pub(super) id: String,
     /// What the audit established about it.
-    pub status: Status,
+    pub(super) status: Status,
     /// One-based line where the invariant opened.
-    pub line: usize,
+    pub(super) line: usize,
 }
 
 impl Outcome {
@@ -66,6 +66,43 @@ impl Outcome {
     #[must_use]
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// What the audit established about the invariant.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lgwks_deps::invariants::{Register, Status, audit};
+    ///
+    /// let text = std::fs::read_to_string("contract/INVARIANTS.toml")?;
+    /// let register = Register::parse(&text).map_err(|kind| format!("{kind:?}"))?;
+    /// let verdict = audit(&register, ".".as_ref(), &[]);
+    /// let refused = verdict.outcomes().iter().filter(|outcome| outcome.status() == Status::Refused);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn status(&self) -> Status {
+        self.status
+    }
+
+    /// One-based line where the invariant opened.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lgwks_deps::invariants::{Register, audit};
+    ///
+    /// let text = std::fs::read_to_string("contract/INVARIANTS.toml")?;
+    /// let register = Register::parse(&text).map_err(|kind| format!("{kind:?}"))?;
+    /// for outcome in audit(&register, ".".as_ref(), &[]).outcomes() {
+    ///     println!("INVARIANTS.toml:{} {} {}", outcome.line(), outcome.id(), outcome.status());
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn line(&self) -> usize {
+        self.line
     }
 }
 
@@ -522,6 +559,26 @@ pub enum ErrorKind {
     },
 }
 
+/// The refusal for a block missing `field`, naming the invariant when the block
+/// wrote an `id`.
+fn write_missing_field(
+    formatter: &mut fmt::Formatter<'_>,
+    id: Option<&str>,
+    field: &str,
+    line: usize,
+) -> fmt::Result {
+    match id {
+        Some(id) => write!(
+            formatter,
+            "line {line}: invariant {id:?} is missing required field {field:?}"
+        ),
+        None => write!(
+            formatter,
+            "line {line}: invariant block is missing required field {field:?}"
+        ),
+    }
+}
+
 impl fmt::Display for ErrorKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
@@ -539,16 +596,7 @@ impl fmt::Display for ErrorKind {
                 ref id,
                 field,
                 line,
-            } => match id.as_deref() {
-                Some(id) => write!(
-                    formatter,
-                    "line {line}: invariant {id:?} is missing required field {field:?}"
-                ),
-                None => write!(
-                    formatter,
-                    "line {line}: invariant block is missing required field {field:?}"
-                ),
-            },
+            } => write_missing_field(formatter, id.as_deref(), field, line),
             Self::BadDate {
                 ref id,
                 line,

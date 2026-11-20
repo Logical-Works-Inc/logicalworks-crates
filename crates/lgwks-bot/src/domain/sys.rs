@@ -121,9 +121,9 @@ pub struct Process {
 pub struct ProcessState {
     /// Whether the process is running. Always `false` for a one-shot run that
     /// has returned.
-    pub running: bool,
+    running: bool,
     /// Exit code if the process exited normally.
-    pub exit_code: Option<i32>,
+    exit_code: Option<i32>,
     /// Standard output, lossily decoded from the retained bytes.
     ///
     /// Private with an accessor because it is mutable state behind the
@@ -135,17 +135,17 @@ pub struct ProcessState {
     /// [`stdout`]: ProcessState::stdout
     stderr: String,
     /// Whether stdout held more than the retained ceiling.
-    pub stdout_truncated: bool,
+    stdout_truncated: bool,
     /// Whether stderr held more than the retained ceiling.
-    pub stderr_truncated: bool,
+    stderr_truncated: bool,
     /// Every byte the child wrote to stdout, retained or not.
-    pub stdout_total_bytes: u64,
+    stdout_total_bytes: u64,
     /// Every byte the child wrote to stderr, retained or not.
-    pub stderr_total_bytes: u64,
+    stderr_total_bytes: u64,
     /// Whether the supervisor stopped the process because its deadline elapsed.
-    pub deadline_fired: bool,
+    deadline_fired: bool,
     /// The terminating signal, when the process was killed by one.
-    pub signal: Option<i32>,
+    signal: Option<i32>,
     /// The length-framed reading of stdout, when the domain was built with
     /// [`Process::frame_stdout`].
     ///
@@ -156,7 +156,35 @@ pub struct ProcessState {
     stdout_frames: Option<Frames>,
 }
 
+/// Read-only accessors for the `Copy` facts a [`ProcessState`] reports, so each
+/// stays private and only the run that built the state can set it.
+macro_rules! state_facts {
+    ($($(#[$doc:meta])* $name:ident: $ty:ty;)*) => {
+        $($(#[$doc])* #[must_use] pub const fn $name(&self) -> $ty { self.$name })*
+    };
+}
+
 impl ProcessState {
+    state_facts! {
+        /// Whether the process is running; always `false` for a one-shot run
+        /// that has returned.
+        running: bool;
+        /// The exit code, if the process exited normally.
+        exit_code: Option<i32>;
+        /// Whether stdout held more than the retained ceiling.
+        stdout_truncated: bool;
+        /// Whether stderr held more than the retained ceiling.
+        stderr_truncated: bool;
+        /// Every byte the child wrote to stdout, retained or not.
+        stdout_total_bytes: u64;
+        /// Every byte the child wrote to stderr, retained or not.
+        stderr_total_bytes: u64;
+        /// Whether the supervisor stopped the process at its deadline.
+        deadline_fired: bool;
+        /// The terminating signal, when the process was killed by one.
+        signal: Option<i32>;
+    }
+
     /// Standard output, lossily decoded from the retained bytes.
     #[must_use]
     pub fn stdout(&self) -> &str {
@@ -334,20 +362,23 @@ impl Process {
     /// method rather than about each verb: a build with no runner has no
     /// supervised process to bind to, so the refusal names the verb and the
     /// command it was asked to run.
+    #[cfg(feature = "process")]
     async fn dispatch(&self, verb: &'static str) -> Result<ProcessState, KernelError> {
-        #[cfg(feature = "process")]
-        {
-            lgwks_std::trace::debug!(verb, "sys::process: running the bound command once");
-            self.run_once().await
-        }
-        #[cfg(not(feature = "process"))]
-        {
-            Err(KernelError::DomainError {
-                domain: String::from("sys::process"),
-                certainty: DispatchCertainty::Refused,
-                cause: format!("{verb} {:?} — binding required", self.command),
-            })
-        }
+        lgwks_std::trace::debug!(verb, "sys::process: running the bound command once");
+        self.run_once().await
+    }
+
+    /// The same refusal without a runner, ready at once because nothing runs.
+    #[cfg(not(feature = "process"))]
+    fn dispatch(
+        &self,
+        verb: &'static str,
+    ) -> std::future::Ready<Result<ProcessState, KernelError>> {
+        std::future::ready(Err(KernelError::DomainError {
+            domain: String::from("sys::process"),
+            certainty: DispatchCertainty::Refused,
+            cause: format!("{verb} {:?} — binding required", self.command),
+        }))
     }
 }
 

@@ -598,8 +598,7 @@ impl<Value: ?Sized + Sync> CheckedEvidence<Value> {
         let mut outcomes = Vec::with_capacity(self.scorers.len());
         let mut measured_total = 0.0;
         let mut refusals = 0_usize;
-        for (index, scorer) in self.scorers.iter().enumerate() {
-            let weight = self.weights[index];
+        for (index, (scorer, &weight)) in self.scorers.iter().zip(&self.weights).enumerate() {
             match scorer.try_score(left, right) {
                 Ok(score) => {
                     measured_total += weight * score;

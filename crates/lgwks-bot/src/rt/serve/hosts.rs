@@ -216,8 +216,19 @@ mod tests {
     }
 
     /// A refusal as the text a test reports.
-    fn said(refusal: ServeError) -> String {
+    fn said(refusal: &ServeError) -> String {
         refusal.to_string()
+    }
+
+    /// What a panicked thread said, for a test's report.
+    fn payload_text(payload: &(dyn std::any::Any + Send)) -> &str {
+        match payload.downcast_ref::<&str>() {
+            Some(text) => text,
+            None => match payload.downcast_ref::<String>() {
+                Some(text) => text.as_str(),
+                None => "a payload that is not text",
+            },
+        }
     }
 
     /// Requirement: a tenant lands in one shard, and names spread over them (#1008).
@@ -269,7 +280,7 @@ mod tests {
                                         builds.fetch_add(1, Ordering::SeqCst);
                                         host_of(&tenant)
                                     })
-                                    .map_err(said)?;
+                                    .map_err(|refusal| said(&refusal))?;
                                 if host.tenant().as_str() != tenant {
                                     return Err(format!("{tenant} got another tenant's host"));
                                 }
@@ -284,7 +295,9 @@ mod tests {
                     .map(|worker| {
                         worker
                             .join()
-                            .map_err(|_panic| String::from("a worker panicked"))
+                            .map_err(|panic| {
+                                format!("a worker panicked: {}", payload_text(panic.as_ref()))
+                            })
                             .and_then(|asked| asked)
                     })
                     .collect()
@@ -329,13 +342,13 @@ mod tests {
                         host_of("a")
                     })
                     .map(|_host| ())
-                    .map_err(said)
+                    .map_err(|refusal| said(&refusal))
             });
             let quick = scope.spawn(move || {
                 let served = hosts
                     .host("b", || host_of("b"))
                     .map(|_host| ())
-                    .map_err(said);
+                    .map_err(|refusal| said(&refusal));
                 done_tx.send(served).map_err(|cause| cause.to_string())
             });
             let started = entered_rx
@@ -347,12 +360,15 @@ mod tests {
                     .map_err(|cause| format!("tenant b waited on tenant a's build: {cause}"))
             });
             let released = release_tx.send(()).map_err(|cause| cause.to_string());
-            let first = parked
-                .join()
-                .map_err(|_panic| String::from("the parked build panicked"))?;
-            let second = quick
-                .join()
-                .map_err(|_panic| String::from("the quick build panicked"))?;
+            let first = parked.join().map_err(|panic| {
+                format!(
+                    "the parked build panicked: {}",
+                    payload_text(panic.as_ref())
+                )
+            })?;
+            let second = quick.join().map_err(|panic| {
+                format!("the quick build panicked: {}", payload_text(panic.as_ref()))
+            })?;
             released?;
             second?;
             served??;
@@ -421,7 +437,9 @@ mod tests {
             return Err(String::from("a failed build left a host behind"));
         }
         for tenant in ["zed", "flaky", "amy", "mid"] {
-            hosts.host(tenant, || host_of(tenant)).map_err(said)?;
+            hosts
+                .host(tenant, || host_of(tenant))
+                .map_err(|refusal| said(&refusal))?;
         }
         let order: Vec<String> = hosts
             .all()

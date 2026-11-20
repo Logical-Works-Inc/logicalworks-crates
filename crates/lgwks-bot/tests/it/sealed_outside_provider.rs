@@ -163,7 +163,12 @@ impl KeystoreProvider {
         let mut entry = Vec::with_capacity(ENTRY_BYTES);
         entry.push(len);
         let mut padded = [0_u8; TENANT_BYTES];
-        padded[..tenant.len()].copy_from_slice(tenant.as_bytes());
+        padded
+            .get_mut(..tenant.len())
+            .ok_or(KeyError::Corrupt {
+                reason: "a tenant name is longer than the keystore holds",
+            })?
+            .copy_from_slice(tenant.as_bytes());
         entry.extend_from_slice(&padded);
         entry.extend_from_slice(handle);
         entry.extend_from_slice(key);

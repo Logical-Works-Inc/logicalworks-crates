@@ -43,7 +43,7 @@ fn surface(id: &str, order: u8) -> WorkspaceSurface {
 }
 
 /// A tool with the given id.
-pub fn tool(id: &str) -> WorkspaceTool {
+pub(crate) fn tool(id: &str) -> WorkspaceTool {
     WorkspaceTool::new(
         String::from(id),
         String::from("Label"),
@@ -75,7 +75,7 @@ fn layout_of(surfaces: Vec<WorkspaceSurface>, tools: Vec<WorkspaceTool>) -> Work
 }
 
 /// The base layout: two surfaces and two tools, valid.
-pub fn base() -> WorkspaceLayout {
+pub(crate) fn base() -> WorkspaceLayout {
     WorkspaceLayout::new(
         1,
         String::from("Title"),
@@ -88,10 +88,10 @@ pub fn base() -> WorkspaceLayout {
 }
 
 /// One fault: a label, the broken layout and the refusal it must draw.
-pub type Fault = (String, WorkspaceLayout, WorkspaceLayoutIssue, &'static str);
+pub(crate) type Fault = (String, WorkspaceLayout, WorkspaceLayoutIssue, &'static str);
 
 /// Collects faults.
-pub struct Faults {
+pub(crate) struct Faults {
     /// The table so far.
     table: Vec<Fault>,
 }
@@ -109,13 +109,31 @@ impl Faults {
     }
 
     /// The whole table.
-    pub fn everything() -> Vec<Fault> {
+    pub(crate) fn everything() -> Result<Vec<Fault>, String> {
         let mut out = Self { table: Vec::new() };
         header_faults(&mut out);
-        surface_faults(&mut out);
-        presentation_and_tool_faults(&mut out);
-        out.table
+        chrome_faults(&mut out);
+        surface_faults(&mut out)?;
+        descriptor_faults(&mut out)?;
+        presentation_and_tool_faults(&mut out)?;
+        Ok(out.table)
     }
+}
+
+/// A surface of `layout` by position; a layout too short is a sim failure.
+fn surface_at(layout: &mut WorkspaceLayout, index: usize) -> Result<&mut WorkspaceSurface, String> {
+    layout
+        .surfaces_mut()
+        .get_mut(index)
+        .ok_or_else(|| format!("the layout has no surface {index}"))
+}
+
+/// A tool of `layout` by position; a layout too short is a sim failure.
+fn tool_at(layout: &mut WorkspaceLayout, index: usize) -> Result<&mut WorkspaceTool, String> {
+    layout
+        .tools_mut()
+        .get_mut(index)
+        .ok_or_else(|| format!("the layout has no tool {index}"))
 }
 
 /// Faults in the header fields: version, id, title, subtitle, chrome.
@@ -180,6 +198,11 @@ fn header_faults(out: &mut Faults) {
             "subtitle",
         );
     }
+}
+
+/// Faults in the chrome block: no placements, duplicates, a default outside
+/// the allowed set, too many entries.
+fn chrome_faults(out: &mut Faults) {
     let bad_chromes = [
         WorkspaceChrome::new(ChromePlacement::Top, Vec::new(), true, WorkspaceTheme::Calm),
         WorkspaceChrome::new(
@@ -227,7 +250,7 @@ fn header_faults(out: &mut Faults) {
 }
 
 /// Faults in the surface list and each widget descriptor.
-fn surface_faults(out: &mut Faults) {
+fn surface_faults(out: &mut Faults) -> Result<(), String> {
     for count in [0_usize, 33, 1_000] {
         let surfaces: Vec<WorkspaceSurface> = (0..count)
             .map(|index| surface(&format!("widget.n{index}"), 0))
@@ -240,7 +263,7 @@ fn surface_faults(out: &mut Faults) {
         );
     }
     let mut dup_id = base();
-    dup_id.surfaces_mut()[1]
+    surface_at(&mut dup_id, 1)?
         .descriptor_mut()
         .set_widget_id(String::from("widget.one"));
     out.add(
@@ -250,7 +273,9 @@ fn surface_faults(out: &mut Faults) {
         "surfaces[].descriptor.widget_id",
     );
     let mut dup_order = base();
-    dup_order.surfaces_mut()[1].presentation_mut().set_order(0);
+    surface_at(&mut dup_order, 1)?
+        .presentation_mut()
+        .set_order(0);
     out.add(
         String::from("duplicate order"),
         dup_order,
@@ -266,7 +291,7 @@ fn surface_faults(out: &mut Faults) {
         "widget.one\n",
     ] {
         let mut layout = base();
-        layout.surfaces_mut()[0]
+        surface_at(&mut layout, 0)?
             .descriptor_mut()
             .set_widget_id(String::from(id));
         out.add(
@@ -276,9 +301,14 @@ fn surface_faults(out: &mut Faults) {
             "surfaces[].descriptor",
         );
     }
+    Ok(())
+}
+
+/// Faults in descriptor kind, version, capabilities and signal patterns.
+fn descriptor_faults(out: &mut Faults) -> Result<(), String> {
     for kind in ["", "Kind", "a..b", "-a", "a-", "1kind", "kind_a", "kind a"] {
         let mut layout = base();
-        layout.surfaces_mut()[0]
+        surface_at(&mut layout, 0)?
             .descriptor_mut()
             .set_kind(String::from(kind));
         out.add(
@@ -293,7 +323,7 @@ fn surface_faults(out: &mut Faults) {
         "1,2,3", "1.2.3.",
     ] {
         let mut layout = base();
-        layout.surfaces_mut()[0]
+        surface_at(&mut layout, 0)?
             .descriptor_mut()
             .set_version(String::from(version));
         out.add(
@@ -311,7 +341,7 @@ fn surface_faults(out: &mut Faults) {
         vec![Capability::RemoteCompute],
     ] {
         let mut layout = base();
-        layout.surfaces_mut()[0]
+        surface_at(&mut layout, 0)?
             .descriptor_mut()
             .capabilities_mut()
             .clone_from(&grant);
@@ -341,7 +371,7 @@ fn surface_faults(out: &mut Faults) {
             Vec::new(),
         );
         let mut layout = base();
-        *layout.surfaces_mut()[0].descriptor_mut() = descriptor;
+        *surface_at(&mut layout, 0)?.descriptor_mut() = descriptor;
         out.add(
             format!("pattern ({count}, {} scalars)", glob.chars().count()),
             layout,
@@ -349,10 +379,11 @@ fn surface_faults(out: &mut Faults) {
             "surfaces[].descriptor",
         );
     }
+    Ok(())
 }
 
 /// Faults in presentation metadata and the tool list.
-fn presentation_and_tool_faults(out: &mut Faults) {
+fn presentation_and_tool_faults(out: &mut Faults) -> Result<(), String> {
     for (role, slot, order, title) in [
         (
             WorkspaceSurfaceRole::Panel,
@@ -388,7 +419,7 @@ fn presentation_and_tool_faults(out: &mut Faults) {
         ),
     ] {
         let mut layout = base();
-        *layout.surfaces_mut()[0].presentation_mut() =
+        *surface_at(&mut layout, 0)?.presentation_mut() =
             WorkspacePresentation::new(String::from(title), role, slot, order);
         out.add(
             format!("presentation {role:?} {slot:?} {order} {title:?}"),
@@ -419,7 +450,7 @@ fn presentation_and_tool_faults(out: &mut Faults) {
         "canvas.\u{e9}",
     ] {
         let mut layout = base();
-        layout.tools_mut()[0].set_tool_id(String::from(id));
+        tool_at(&mut layout, 0)?.set_tool_id(String::from(id));
         out.add(
             format!("tool id {id:?}"),
             layout,
@@ -428,7 +459,7 @@ fn presentation_and_tool_faults(out: &mut Faults) {
         );
     }
     let mut dup_tool = base();
-    dup_tool.tools_mut()[1].set_tool_id(String::from("canvas.first"));
+    tool_at(&mut dup_tool, 1)?.set_tool_id(String::from("canvas.first"));
     out.add(
         String::from("duplicate tool id"),
         dup_tool,
@@ -448,4 +479,5 @@ fn presentation_and_tool_faults(out: &mut Faults) {
             "tools[]",
         );
     }
+    Ok(())
 }

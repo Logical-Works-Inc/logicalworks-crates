@@ -118,7 +118,7 @@ fn refuse<T>(refusal: Refusal) -> Result<T, Refusal> {
 }
 
 /// The refusal for a socket error, keeping the OS's kind.
-fn io(error: std::io::Error) -> Refusal {
+fn io(error: &std::io::Error) -> Refusal {
     Refusal::Io(error.kind())
 }
 
@@ -175,12 +175,12 @@ fn bound(stream: &TcpStream, timeout: Duration) -> Result<(), Refusal> {
     stream
         .set_read_timeout(Some(timeout))
         .and_then(|()| stream.set_write_timeout(Some(timeout)))
-        .map_err(io)
+        .map_err(|error| io(&error))
 }
 
 /// Read exactly `buffer.len()` bytes, or refuse.
 fn fill(stream: &mut TcpStream, buffer: &mut [u8]) -> Result<(), Refusal> {
-    stream.read_exact(buffer).map_err(io)
+    stream.read_exact(buffer).map_err(|error| io(&error))
 }
 
 /// The `N` bytes of `bytes` at `at`, or a refusal when the frame is shorter.
@@ -359,7 +359,10 @@ impl AuthorityServer {
     pub fn serve(&self, listener: &TcpListener, connections: usize) -> ServeReport {
         let mut report = ServeReport::default();
         for incoming in listener.incoming().take(connections) {
-            match incoming.map_err(io).and_then(|stream| self.answer(stream)) {
+            match incoming
+                .map_err(|error| io(&error))
+                .and_then(|stream| self.answer(stream))
+            {
                 Ok(()) => report.answered = report.answered.saturating_add(1),
                 Err(refusal) => {
                     lgwks_std::trace::warn!(
@@ -384,7 +387,7 @@ impl AuthorityServer {
         };
         stream
             .write_all(&encode_reply(&self.key, request.nonce, epoch))
-            .map_err(io)
+            .map_err(|error| io(&error))
     }
 }
 
@@ -432,9 +435,10 @@ impl TcpGrantChannel {
             Refusal::Entropy
         })?;
         let frame = encode_request(&self.key, op, nonce, name)?;
-        let mut stream = TcpStream::connect_timeout(&self.addr, self.timeout).map_err(io)?;
+        let mut stream =
+            TcpStream::connect_timeout(&self.addr, self.timeout).map_err(|error| io(&error))?;
         bound(&stream, self.timeout)?;
-        stream.write_all(&frame).map_err(io)?;
+        stream.write_all(&frame).map_err(|error| io(&error))?;
         let mut reply = [0u8; REPLY];
         fill(&mut stream, &mut reply)?;
         decode_reply(&self.key, nonce, &reply)

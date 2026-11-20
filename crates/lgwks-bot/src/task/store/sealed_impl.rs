@@ -307,7 +307,7 @@ impl RunStore {
             bytes,
             expires_at,
         } = append;
-        let mut staged = self.owned(RunRecords::stage(
+        let mut staged = self.owned(&RunRecords::stage(
             self, tenant, run, key, path, definition, bytes,
         ));
         if let Some(sealed) = staged.sealed.as_mut() {

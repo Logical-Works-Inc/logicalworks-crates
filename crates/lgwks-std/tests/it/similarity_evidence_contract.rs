@@ -128,7 +128,10 @@ fn a_refused_component_is_not_accepted_at_threshold_zero() -> Result<(), Box<dyn
             "S2 repaired: exactly one component refused at threshold {threshold}"
         );
         assert_eq!(
-            refusals[0].reason().cloned(),
+            refusals
+                .first()
+                .and_then(|outcome| outcome.reason())
+                .cloned(),
             Some(EvidenceError::InputTooLong {
                 maximum: 3,
                 observed: 4
@@ -270,9 +273,16 @@ fn typed_refusals_carry_component_identity_through_composition() -> Result<(), B
             1,
             "exactly one component refused: {expected:?}"
         );
-        assert_eq!(refusals[0].index(), 0, "the refusal names its component");
         assert_eq!(
-            refusals[0].reason().cloned(),
+            refusals.first().map(|outcome| outcome.index()),
+            Some(0),
+            "the refusal names its component"
+        );
+        assert_eq!(
+            refusals
+                .first()
+                .and_then(|outcome| outcome.reason())
+                .cloned(),
             Some(expected),
             "the typed reason survives composition unchanged"
         );
@@ -295,14 +305,22 @@ fn typed_refusals_carry_component_identity_through_composition() -> Result<(), B
     );
     let refusals = verdict.refusals();
     assert_eq!(refusals.len(), 1, "only the non-finite identity refused");
-    assert_eq!(refusals[0].index(), 0, "the refusal names component 0");
-    assert_exact(
-        refusals[0].weight(),
-        0.5,
-        "the refused component still reports its own weight",
+    assert_eq!(
+        refusals.first().map(|outcome| outcome.index()),
+        Some(0),
+        "the refusal names component 0"
     );
+    assert_eq!(
+        refusals.first().map(|outcome| outcome.weight().to_bits()),
+        Some(0.5_f64.to_bits()),
+        "the refused component still reports its own weight"
+    );
+    let neighbour = verdict
+        .outcomes()
+        .get(1)
+        .ok_or("the structural neighbour has no outcome")?;
     assert_exact(
-        match verdict.outcomes()[1].score() {
+        match neighbour.score() {
             Some(score) => score,
             None => {
                 return Err("the structural neighbour was refused, not measured".into());
@@ -421,29 +439,22 @@ impl PartialEq for Counted {
     }
 }
 
-#[test]
-fn budget_refusal_precedes_amplification_and_is_measurable() {
-    // A large set is refused by length alone; the quadratic scan is never
-    // entered. Two falsifiers, and the first is exact: a member that counts its
-    // comparisons shows a refusal at every size compares nothing, and an
-    // in-budget set shows the counter does see the scan when one runs.
-    //
-    // The second is the timed growth ratio of a whole loop, not of a per-call
-    // figure: a refusal costs about a nanosecond, so a per-call reading floored
-    // to integer nanoseconds is 1 or 3 by timer noise alone (CI saw "1ns ->
-    // 3ns" on an unchanged path). Each size takes the fastest of `TRIALS` loops
-    // of `REPEATS` calls, and the trials are interleaved across the sizes. Run
-    // back to back, one size's nine 0.5 ms loops span under 5 ms, so one
-    // deschedule of that length covers every trial of that size and reads as
-    // growth (run 37952159765 read 497625ns -> 1589416ns on an unchanged
-    // path). Interleaved, each size's trials are spread over the whole test,
-    // and a burst lands on every size alike. The sizes, the bound and the
-    // verdict logic are unchanged.
-    const REPEATS: u64 = 50_000;
-    const TRIALS: usize = 9;
-    const SIZES: [usize; 3] = [2_000, 4_000, 8_000];
-    /// The member every position of the over-budget set carries.
-    const FILLER_MEMBER: u32 = 0x5EED;
+/// How many refusals one timed loop makes.
+const REPEATS: u64 = 50_000;
+
+/// How many timed loops each size takes the fastest of.
+const TRIALS: usize = 9;
+
+/// The over-budget set sizes the refusal is measured at.
+const SIZES: [usize; 3] = [2_000, 4_000, 8_000];
+
+/// The member every position of the over-budget set carries.
+const FILLER_MEMBER: u32 = 0x5EED;
+
+/// The exact falsifier: a member that counts its comparisons shows a refusal at
+/// every size compares nothing, and an in-budget set shows the counter does see
+/// the scan when one runs.
+fn a_refusal_by_length_compares_no_member() {
     let counted_scorer = BoundedJaccard::<Counted>::new(16);
     for size in SIZES {
         let big: Vec<Counted> = (0..size).map(|_| Counted(FILLER_MEMBER)).collect();
@@ -472,7 +483,25 @@ fn budget_refusal_precedes_amplification_and_is_measurable() {
         COMPARISONS.with(std::cell::Cell::get) > 0,
         "the counter sees the scan when one runs, so its zero above is a measurement"
     );
+}
 
+#[test]
+fn budget_refusal_precedes_amplification_and_is_measurable() {
+    // A large set is refused by length alone; the quadratic scan is never
+    // entered. Two falsifiers, and the first is exact (above).
+    //
+    // The second is the timed growth ratio of a whole loop, not of a per-call
+    // figure: a refusal costs about a nanosecond, so a per-call reading floored
+    // to integer nanoseconds is 1 or 3 by timer noise alone (CI saw "1ns ->
+    // 3ns" on an unchanged path). Each size takes the fastest of `TRIALS` loops
+    // of `REPEATS` calls, and the trials are interleaved across the sizes. Run
+    // back to back, one size's nine 0.5 ms loops span under 5 ms, so one
+    // deschedule of that length covers every trial of that size and reads as
+    // growth (run 37952159765 read 497625ns -> 1589416ns on an unchanged
+    // path). Interleaved, each size's trials are spread over the whole test,
+    // and a burst lands on every size alike. The sizes, the bound and the
+    // verdict logic are unchanged.
+    a_refusal_by_length_compares_no_member();
     let scorer = BoundedJaccard::<u32>::new(16);
     let mut inputs: Vec<Vec<u32>> = Vec::with_capacity(SIZES.len());
     for size in SIZES {

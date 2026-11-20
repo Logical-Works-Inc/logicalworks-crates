@@ -62,23 +62,77 @@ pub(crate) struct DebugReport {
     json: bool,
 }
 
+/// Why the debugger doctor could not reach a report: one variant per failure, so a caller matches the case.
+#[derive(Debug)]
+pub(crate) enum DebugError {
+    /// A `--flag` the command does not take.
+    UnknownOption(String),
+    /// A second repository path; the doctor inspects one.
+    SecondPath(String),
+    /// The target is not inside a Cargo repository.
+    Root(lgwks_deps::GateError),
+    /// The debugger configuration from the environment did not validate.
+    Configure(lgwks_std::trace::DebugInstallError),
+    /// The debugger could not be installed for this process.
+    #[cfg(feature = "debug-doctor")]
+    Install(lgwks_std::trace::DebugInstallError),
+    /// The standard library's manifest could not be read.
+    Manifest {
+        /// The manifest the doctor reads.
+        path: PathBuf,
+        /// Why the read failed.
+        source: io::Error,
+    },
+}
+
+impl std::fmt::Display for DebugError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::UnknownOption(ref flag) => write!(f, "unknown option for `debug`: {flag}"),
+            Self::SecondPath(ref value) => write!(
+                f,
+                "`debug` inspects one repository, and {value:?} is a second path"
+            ),
+            Self::Root(ref source) => write!(f, "{source}"),
+            Self::Configure(ref source) => write!(f, "cannot configure debugger: {source}"),
+            #[cfg(feature = "debug-doctor")]
+            Self::Install(ref source) => write!(f, "cannot install debugger: {source}"),
+            Self::Manifest {
+                ref path,
+                ref source,
+            } => write!(f, "cannot read {}: {source}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for DebugError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::UnknownOption(_) | Self::SecondPath(_) => None,
+            Self::Root(ref source) => Some(source),
+            Self::Configure(ref source) => Some(source),
+            #[cfg(feature = "debug-doctor")]
+            Self::Install(ref source) => Some(source),
+            Self::Manifest { ref source, .. } => Some(source),
+        }
+    }
+}
+
 /// Parses `lgwks-deps debug` arguments.
-pub(crate) fn parse_debug_args(args: &[String]) -> Result<DebugArgs, String> {
+pub(crate) fn parse_debug_args(args: &[String]) -> Result<DebugArgs, DebugError> {
     let mut target: Option<PathBuf> = None;
     let mut json = false;
     for argument in args {
         match argument.as_str() {
             "--json" => json = true,
             flag if flag.starts_with("--") => {
-                let refusal = Err(format!("unknown option for `debug`: {flag}"));
+                let refusal = Err(DebugError::UnknownOption(flag.to_owned()));
                 lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "parse_debug_args: returning an error to the caller");
                 return refusal;
             }
             value => {
                 if target.is_some() {
-                    let refusal = Err(format!(
-                        "`debug` inspects one repository, and {value:?} is a second path"
-                    ));
+                    let refusal = Err(DebugError::SecondPath(value.to_owned()));
                     lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "parse_debug_args: returning an error to the caller");
                     return refusal;
                 }
@@ -90,12 +144,12 @@ pub(crate) fn parse_debug_args(args: &[String]) -> Result<DebugArgs, String> {
 }
 
 /// Runs the debugger doctor and returns the report to render.
-pub(crate) fn run_debug(args: &[String]) -> Result<DebugReport, String> {
+pub(crate) fn run_debug(args: &[String]) -> Result<DebugReport, DebugError> {
     let request = parse_debug_args(args)?;
     let start = subject_path(request.target.as_deref());
-    let root = repository_root(&start).map_err(|error| error.to_string())?;
-    let mut config = lgwks_std::trace::DebugConfig::from_env("lgwks-deps")
-        .map_err(|error| format!("cannot configure debugger: {error}"))?;
+    let root = repository_root(&start).map_err(DebugError::Root)?;
+    let mut config =
+        lgwks_std::trace::DebugConfig::from_env("lgwks-deps").map_err(DebugError::Configure)?;
     if request.json {
         config = config.with_ansi(false);
     }
@@ -103,11 +157,9 @@ pub(crate) fn run_debug(args: &[String]) -> Result<DebugReport, String> {
     let filter = config.filter().to_owned();
     let format = config.format();
     #[cfg(feature = "debug-doctor")]
-    config
-        .install()
-        .map_err(|error| format!("cannot install debugger: {error}"))?;
+    config.install().map_err(DebugError::Install)?;
     #[cfg(not(feature = "debug-doctor"))]
-    let _ = config;
+    drop(config);
     let surface = inspect_debug_surface(&root)?;
     let root_text = format!("{}", root.display());
     lgwks_std::trace::info!(
@@ -128,10 +180,13 @@ pub(crate) fn run_debug(args: &[String]) -> Result<DebugReport, String> {
 }
 
 /// Inspects the standard-library manifest for the default debugger surface.
-pub(crate) fn inspect_debug_surface(root: &Path) -> Result<DebugSurface, String> {
+pub(crate) fn inspect_debug_surface(root: &Path) -> Result<DebugSurface, DebugError> {
     let manifest_path = root.join("crates/lgwks-std/Cargo.toml");
-    let manifest = std::fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("cannot read {}: {error}", manifest_path.display()))?;
+    let manifest =
+        std::fs::read_to_string(&manifest_path).map_err(|source| DebugError::Manifest {
+            path: manifest_path.clone(),
+            source,
+        })?;
     // The manifest's `default` and `trace` lists decide the surface; an absent
     // list declares nothing, so the answer is "no" rather than a guess.
     let trace_value = assignment_value(&manifest, "trace");
@@ -250,7 +305,7 @@ pub(crate) fn handle_debug(
 ) -> io::Result<ExitCode> {
     let report = match run_debug(args) {
         Ok(report) => report,
-        Err(message) => return refuse(&message, err),
+        Err(error) => return refuse(&error.to_string(), err),
     };
     if report.json {
         print_debug_json(&report, out)?;

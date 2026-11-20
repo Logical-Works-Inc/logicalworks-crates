@@ -33,6 +33,16 @@ fn quiet() -> drishti::native_host::broker::SignalListener {
     collector(&Arc::new(Mutex::new(Vec::new())))
 }
 
+/// A tap that logs nothing.
+fn noop_tap() -> TapListener {
+    Arc::new(|_: TapEvent| {})
+}
+
+/// The tenant name of row `index`.
+fn tenant_name(index: usize) -> String {
+    format!("tenant-{index}")
+}
+
 /// Register `count` widgets for one tenant; ids repeat across tenants.
 fn fill_widgets(
     harness: &Harness,
@@ -97,14 +107,26 @@ fn saturate_subscriptions(
     Ok(())
 }
 
-/// Fill the widget, subscription, tap, and ML registries past their bounds in
-/// seeded tenant order; each refusal is exact, others are unaffected, and a
-/// revoke frees the slot.
-fn run_limits(seed: u64) -> Result<u64, String> {
-    let mut random = SimRng::seed(seed);
-    let harness = Harness::seeded(seed);
-    let mut trace = TraceHash::new();
-    trace.mix_u64(seed);
+/// The widget registry after the widget phase: tenants in seeded order, each
+/// tenant's handles, and the one widget registered after the bound was hit.
+struct Fleet {
+    /// Tenant rows in the seeded order the phase filled them.
+    order: Vec<usize>,
+    /// The handles of each tenant row.
+    rows: Vec<Vec<RegisteredHandle>>,
+    /// The tenant that filled alone first.
+    first: usize,
+    /// The widget admitted after a revoke freed a slot.
+    latecomer: RegisteredHandle,
+}
+
+/// Fill the widget registry past its per-tenant and global bounds in seeded
+/// tenant order; a revoke frees exactly one slot, for anyone.
+fn widget_phase(
+    harness: &Harness,
+    random: &mut SimRng,
+    trace: &mut TraceHash,
+) -> Result<Fleet, String> {
     let per_tenant = Limit::WidgetsPerTenant.cap();
     let tenants = Limit::Widgets
         .cap()
@@ -115,31 +137,30 @@ fn run_limits(seed: u64) -> Result<u64, String> {
         let swap = random.below_len(order.len());
         order.swap(index, swap);
     }
-    let name = |index: usize| format!("tenant-{index}");
     let mut rows: Vec<Vec<RegisteredHandle>> = vec![Vec::new(); tenants];
     let first = *order
         .first()
         .ok_or_else(|| String::from("tenant order is empty"))?;
     // One tenant alone fills its own bound and meets the per-tenant refusal.
     let row = rows.get_mut(first).ok_or("row out of range")?;
-    fill_widgets(&harness, &name(first), per_tenant, row)?;
+    fill_widgets(harness, &tenant_name(first), per_tenant, row)?;
     ensure(
-        refused_widget(&harness, &name(first))?
+        refused_widget(harness, &tenant_name(first))?
             == BrokerError::LimitExceeded(Limit::WidgetsPerTenant),
         || String::from("tenant bound must refuse as per-tenant"),
     )?;
     // Everyone else is unaffected until the global bound binds.
     for &index in order.iter().skip(1) {
         let row = rows.get_mut(index).ok_or("row out of range")?;
-        fill_widgets(&harness, &name(index), per_tenant, row)?;
+        fill_widgets(harness, &tenant_name(index), per_tenant, row)?;
     }
-    let newcomer = name(tenants);
+    let newcomer = tenant_name(tenants);
     ensure(
-        refused_widget(&harness, &newcomer)? == BrokerError::LimitExceeded(Limit::Widgets),
+        refused_widget(harness, &newcomer)? == BrokerError::LimitExceeded(Limit::Widgets),
         || String::from("global bound must refuse the newcomer"),
     )?;
     ensure(
-        refused_widget(&harness, &name(first))? == BrokerError::LimitExceeded(Limit::Widgets),
+        refused_widget(harness, &tenant_name(first))? == BrokerError::LimitExceeded(Limit::Widgets),
         || String::from("global bound is reported before the tenant's"),
     )?;
     // Recovery: one revoke frees exactly one slot, for anyone.
@@ -152,30 +173,44 @@ fn run_limits(seed: u64) -> Result<u64, String> {
         .and_then(Vec::pop)
         .ok_or_else(|| String::from("victim row is empty"))?;
     harness.broker().unregister(&gone);
-    let latecomer = register(&harness, "widget.new", &newcomer, SESSION_SHARED)?;
+    let latecomer = register(harness, "widget.new", &newcomer, SESSION_SHARED)?;
     ensure(
-        refused_widget(&harness, &newcomer)? == BrokerError::LimitExceeded(Limit::Widgets),
+        refused_widget(harness, &newcomer)? == BrokerError::LimitExceeded(Limit::Widgets),
         || String::from("the freed slot is spent; the bound binds again"),
     )?;
     trace.mix_len(victim);
-    // Subscriptions: per-tenant first, then the global bound.
+    Ok(Fleet {
+        order,
+        rows,
+        first,
+        latecomer,
+    })
+}
+
+/// Subscriptions: per-tenant bound first, then the global bound, then a freed
+/// slot admits again. Returns the owner whose tenant filled first.
+fn subscription_phase(
+    harness: &Harness,
+    fleet: &Fleet,
+    trace: &mut TraceHash,
+) -> Result<RegisteredHandle, String> {
     let sub_cap = Limit::SubscriptionsPerTenant.cap();
     let mut held: Vec<(RegisteredHandle, SubscriptionId)> = Vec::new();
-    let owner = owner_of(&rows, first)?;
-    saturate_subscriptions(&harness, &owner, &mut held, sub_cap)?;
+    let owner = owner_of(&fleet.rows, fleet.first)?;
+    saturate_subscriptions(harness, &owner, &mut held, sub_cap)?;
     ensure(
         harness.broker().subscribe(&owner, everything(), quiet())
             == Err(BrokerError::LimitExceeded(Limit::SubscriptionsPerTenant)),
         || String::from("subscription tenant bound must refuse"),
     )?;
-    for &index in order.iter().skip(1) {
-        let other = owner_of(&rows, index)?;
-        saturate_subscriptions(&harness, &other, &mut held, sub_cap)?;
+    for &index in fleet.order.iter().skip(1) {
+        let other = owner_of(&fleet.rows, index)?;
+        saturate_subscriptions(harness, &other, &mut held, sub_cap)?;
     }
     ensure(
         harness
             .broker()
-            .subscribe(&latecomer, everything(), quiet())
+            .subscribe(&fleet.latecomer, everything(), quiet())
             == Err(BrokerError::LimitExceeded(Limit::Subscriptions)),
         || String::from("global subscription bound must refuse"),
     )?;
@@ -188,41 +223,49 @@ fn run_limits(seed: u64) -> Result<u64, String> {
         .map_err(|error| format!("{error}"))?;
     harness
         .broker()
-        .subscribe(&latecomer, everything(), quiet())
+        .subscribe(&fleet.latecomer, everything(), quiet())
         .map_err(|error| format!("a freed subscription slot must admit: {error}"))?;
     trace.mix_len(held.len());
-    // Taps: per-tenant 8, global 64.
-    let noop = || -> TapListener { Arc::new(|_: TapEvent| {}) };
+    Ok(owner)
+}
+
+/// Taps: per-tenant 8, global 64.
+fn tap_phase(harness: &Harness, fleet: &Fleet, owner: &RegisteredHandle) -> Result<(), String> {
     for _ in 0..Limit::TapsPerTenant.cap() {
         harness
             .broker()
-            .tap(&owner, Reach::Own, noop())
+            .tap(owner, Reach::Own, noop_tap())
             .map_err(|error| format!("{error}"))?;
     }
     ensure(
-        harness.broker().tap(&owner, Reach::Own, noop())
+        harness.broker().tap(owner, Reach::Own, noop_tap())
             == Err(BrokerError::LimitExceeded(Limit::TapsPerTenant)),
         || String::from("tap tenant bound must refuse"),
     )?;
-    for &index in order.iter().skip(1) {
-        let other = owner_of(&rows, index)?;
+    for &index in fleet.order.iter().skip(1) {
+        let other = owner_of(&fleet.rows, index)?;
         for _ in 0..Limit::TapsPerTenant.cap() {
             harness
                 .broker()
-                .tap(&other, Reach::Own, noop())
+                .tap(&other, Reach::Own, noop_tap())
                 .map_err(|error| format!("{error}"))?;
         }
     }
     ensure(
-        harness.broker().tap(&latecomer, Reach::Own, noop())
+        harness
+            .broker()
+            .tap(&fleet.latecomer, Reach::Own, noop_tap())
             == Err(BrokerError::LimitExceeded(Limit::Taps)),
         || String::from("global tap bound must refuse"),
-    )?;
-    // ML peers: the tenant bound refuses first at 8, the global bound at 64,
-    // and a revoke frees a slot.
+    )
+}
+
+/// ML peers: the tenant bound refuses first at 8, the global bound at 64, and
+/// a revoke frees a slot.
+fn ml_phase(harness: &Harness) -> Result<(), String> {
     let per_tenant = Limit::MlPeersPerTenant.cap();
     let ml_session = |index: usize| match index.checked_div(per_tenant) {
-        Some(owner) => session(&format!("tenant-{owner}"), SESSION_ONE),
+        Some(owner) => session(&tenant_name(owner), SESSION_ONE),
         None => Err(String::from("no ML tenant bound")),
     };
     let mut peers = Vec::new();
@@ -257,6 +300,21 @@ fn run_limits(seed: u64) -> Result<u64, String> {
         .broker()
         .register_ml_peer(ml_grant(10_000)?, ml_session(last)?)
         .map_err(|error| format!("a freed ML slot must admit: {error}"))?;
+    Ok(())
+}
+
+/// Fill the widget, subscription, tap, and ML registries past their bounds in
+/// seeded tenant order; each refusal is exact, others are unaffected, and a
+/// revoke frees the slot.
+fn run_limits(seed: u64) -> Result<u64, String> {
+    let mut random = SimRng::seed(seed);
+    let harness = Harness::seeded(seed);
+    let mut trace = TraceHash::new();
+    trace.mix_u64(seed);
+    let fleet = widget_phase(&harness, &mut random, &mut trace)?;
+    let owner = subscription_phase(&harness, &fleet, &mut trace)?;
+    tap_phase(&harness, &fleet, &owner)?;
+    ml_phase(&harness)?;
     // Every refusal was audited exactly once as a typed limit denial.
     let denials = harness
         .audit_events()
@@ -426,7 +484,10 @@ fn run_reentry(seed: u64) -> Result<u64, String> {
                     broker.unregister_command_bar(&bar);
                     trace.mix_u64(8);
                 }
-                Err(_) => trace.mix_u64(7),
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, "command bar refused during re-entry");
+                    trace.mix_u64(7);
+                }
             },
             _ => widgets.push(
                 broker

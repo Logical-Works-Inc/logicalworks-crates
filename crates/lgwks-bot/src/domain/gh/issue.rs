@@ -329,7 +329,7 @@ impl Gh {
         );
         let filter = listing_filter(key);
         let args = self.args_for(&["--method", "GET", &path, "--jq", &filter]);
-        let outcome = self.call(&args).await?;
+        let outcome = Box::pin(self.call(&args)).await?;
         outcome.require_success("reading the repository's newest issues")?;
         let listing = outcome.parse_json::<Listing>()?;
         if listing.keyed.len() > MAX_ISSUES_READ_BACK
@@ -359,7 +359,7 @@ impl Gh {
         let path = format!("repos/{}/issues/{number}", self.repository.as_str());
         let filter = keyed_projection(key);
         let args = self.args_for(&["--method", "GET", &path, "--jq", &filter]);
-        let outcome = self.call(&args).await?;
+        let outcome = Box::pin(self.call(&args)).await?;
         if !outcome.succeeded() && !outcome.deadline_fired() {
             match outcome.http_status() {
                 Some(404) => return Ok(None),
@@ -388,7 +388,7 @@ impl Gh {
     /// over a window nobody could read is the duplicate this find exists to
     /// prevent.
     async fn issue_keyed(&self, draft: &IssueDraft) -> Result<Option<IssueRecord>, GhError> {
-        let listing = self.listing(draft.key()).await?;
+        let listing = Box::pin(self.listing(draft.key())).await?;
         if let Some(listed) = listing.keyed.into_iter().last() {
             return listed.for_draft(draft).map(Some);
         }
@@ -397,7 +397,7 @@ impl Gh {
             .filter(|number| !listing.numbers.contains(number));
         for number in skipped {
             reads = self.unlisted_read(reads, listing.newest)?;
-            if let Some(unlisted) = self.numbered(number, draft.key()).await?
+            if let Some(unlisted) = Box::pin(self.numbered(number, draft.key())).await?
                 && unlisted.keyed
             {
                 return unlisted.for_draft(draft).map(Some);
@@ -408,7 +408,7 @@ impl Gh {
         while missing < END_OF_NUMBERS {
             reads = self.unlisted_read(reads, listing.newest)?;
             number = number.saturating_add(1);
-            match self.numbered(number, draft.key()).await? {
+            match Box::pin(self.numbered(number, draft.key())).await? {
                 None => missing = missing.saturating_add(1),
                 Some(unlisted) if unlisted.keyed => return unlisted.for_draft(draft).map(Some),
                 Some(_) => missing = 0,
@@ -463,7 +463,7 @@ impl Gh {
             "--jq",
             &projection,
         ]);
-        let outcome = self.run_spec(&args).await?;
+        let outcome = Box::pin(self.run_spec(&args)).await?;
         if !outcome.succeeded()
             && !outcome.deadline_fired()
             && let Some(status @ (400 | 410 | 422)) = outcome.http_status()
@@ -607,7 +607,7 @@ impl verb::Execute for OpenIssue {
     async fn execute_action(&self, call: (Auth, &IssueDraft)) -> Result<OpenedIssue, EcsError> {
         // The call that carried no flow scope measures on the process's wall
         // clock, which is the live schedule GitHub's bound needs.
-        self.execute_action_on(&Clock::wall(), call).await
+        Box::pin(self.execute_action_on(&Clock::wall(), call)).await
     }
 
     async fn execute_action_on(
@@ -618,7 +618,7 @@ impl verb::Execute for OpenIssue {
         // Checked before `gh` starts, so a denial created and read nothing.
         call.0.check(self.required_caps())?;
         let issues = Issues { gh: &self.gh };
-        let (record, settlement) = keyed::open_once(&issues, call.1, clock)
+        let (record, settlement) = Box::pin(keyed::open_once(&issues, call.1, clock))
             .await
             .map_err(|failure| failure.into_ecs_error(DOMAIN, |gh| gh.into_ecs_error(DOMAIN)))?;
         Ok(record.settled(settlement))

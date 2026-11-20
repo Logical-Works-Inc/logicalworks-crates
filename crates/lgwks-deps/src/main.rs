@@ -122,7 +122,7 @@ USAGE
               [--jobs N]                lookups in flight at once, 1 to 256
                                         (default 32)
               [--index URL]             the sparse index to ask (default
-                                        https://index.crates.io)
+                                        the crates.io sparse index)
   `freshness` ranks versions by SemVer 2.0 precedence, never offers a yanked
   version, offers a pre-release only to a lock already on one, and names the
   direct dependency each package comes through (`via`). It refuses an unknown
@@ -243,7 +243,7 @@ fn report_invariant_audit(
         writeln!(err, "  invariant register: {refusal}")?;
     }
     writeln!(err, "SCOPE  {INVARIANT_SCOPE}")?;
-    if !register.enforce {
+    if !register.enforce() {
         writeln!(
             err,
             "\nNOTE  [policy] enforce = false applies to the combined check; the explicit invariants audit still fails."
@@ -286,24 +286,28 @@ fn dispatch(
     out: &mut impl io::Write,
     err: &mut impl io::Write,
 ) -> io::Result<ExitCode> {
+    let rest: &[String] = match args.split_first() {
+        Some((_, rest)) => rest,
+        None => &[],
+    };
     match command {
-        Some("check") => handle_check(&args[1..], out, err),
-        Some("advisories") => advisories_cmd::run(&args[1..], USAGE, out, err),
-        Some("retire") => handle_retire(&args[1..], out, err),
-        Some("invariants") => handle_invariants(&args[1..], out, err),
-        Some("catalog") => handle_catalog(&args[1..], out, err),
+        Some("check") => handle_check(rest, out, err),
+        Some("advisories") => advisories_cmd::run(rest, USAGE, out, err),
+        Some("retire") => handle_retire(rest, out, err),
+        Some("invariants") => handle_invariants(rest, out, err),
+        Some("catalog") => handle_catalog(rest, out, err),
         Some("request") => run_request(args.get(1), args.get(2), out, err),
-        Some("init") => run_init(args.get(1).map(PathBuf::from), out, err),
+        Some("init") => run_init(args.get(1).map(|text| Path::new(text.as_str())), out, err),
         Some("tiers") => handle_tiers(out),
-        Some("freshness") => handle_freshness(&args[1..], out, err),
-        Some("vendor") => handle_vendor(&args[1..], out, err),
+        Some("freshness") => handle_freshness(rest, out, err),
+        Some("vendor") => handle_vendor(rest, out, err),
         Some("scan") => handle_scan_moved(err),
-        Some("debug") => handle_debug(&args[1..], out, err),
+        Some("debug") => handle_debug(rest, out, err),
         #[cfg(feature = "sqlite")]
-        Some("sqlite") => handle_sqlite(&args[1..], out, err),
+        Some("sqlite") => handle_sqlite(rest, out, err),
         #[cfg(not(feature = "sqlite"))]
         Some("sqlite") => handle_sqlite_disabled(err),
-        Some("gate") => handle_gate(&args[1..], out, err),
+        Some("gate") => handle_gate(rest, out, err),
         Some("-h" | "--help" | "help") => handle_help(out),
         other => handle_unknown(other, err),
     }
@@ -404,7 +408,7 @@ pub(crate) fn report_refusals(
          (`lgwks-deps tiers`);\nif the answer is still a dependency, \
          `lgwks-deps request <crate> <version>` prints the block."
     )?;
-    if !register.enforce {
+    if !register.enforce() {
         writeln!(
             err,
             "\nNOTE  [policy] enforce = false does not make these pass. Adoption mode \
@@ -443,14 +447,14 @@ pub(crate) fn report_ok(
 /// the fail-closed behaviour are identical in both modes, so a consumer that
 /// switches to `--json` cannot accidentally get a laxer gate.
 pub(crate) fn run_check(
-    path: Option<PathBuf>,
-    contract_override: Option<PathBuf>,
+    path: Option<&Path>,
+    contract_override: &Option<PathBuf>,
     json_output: bool,
     out: &mut impl io::Write,
     err: &mut impl io::Write,
 ) -> io::Result<ExitCode> {
-    let start = subject_path(path.as_deref());
-    let mode = PolicyMode::of(&contract_override);
+    let start = subject_path(path);
+    let mode = PolicyMode::of(contract_override);
     let root = match repository_root(&start) {
         Ok(root) => root,
         Err(error) => {
@@ -466,7 +470,7 @@ pub(crate) fn run_check(
             );
         }
     };
-    let dependency = audit_root(&root, &contract_override, err)?;
+    let dependency = audit_root(&root, contract_override, err)?;
     match audit_invariant_root(&root, err)? {
         Ok(None) => report_check(
             &CheckOutcome {
@@ -506,7 +510,10 @@ pub(crate) fn run_check(
 ///
 /// Every refusal path in this binary funnels through here so exit code 2 means
 /// exactly one thing regardless of which check produced it.
-pub(crate) fn refuse(message: &str, err: &mut impl io::Write) -> io::Result<ExitCode> {
+pub(crate) fn refuse(
+    message: &(impl std::fmt::Display + ?Sized),
+    err: &mut impl io::Write,
+) -> io::Result<ExitCode> {
     writeln!(err, "REFUSED  {message}")?;
     Ok(ExitCode::from(2))
 }
@@ -546,9 +553,9 @@ use request_cmd::{run_init, run_request};
 use retire_cmd::handle_retire;
 use vendor_cmd::handle_vendor;
 
-/// Resolves a repository root into the command's string-refusal vocabulary.
-pub(crate) fn resolve_repository_root(start: &Path) -> Result<PathBuf, String> {
-    repository_root(start).map_err(|error| error.to_string())
+/// Resolves a repository root; the gate's own typed error is the refusal.
+pub(crate) fn resolve_repository_root(start: &Path) -> Result<PathBuf, lgwks_deps::GateError> {
+    repository_root(start)
 }
 
 /// The subject a command audits: the path it named, or the directory the
@@ -558,18 +565,45 @@ pub(crate) fn resolve_repository_root(start: &Path) -> Result<PathBuf, String> {
 /// the process was started in, which is the one subject that is always a
 /// repository. Every command resolves its target here so that rule is one fact
 /// about the CLI rather than a substitution repeated at each call site.
-pub(crate) fn subject_path(named: Option<&Path>) -> PathBuf {
+pub(crate) fn subject_path(named: Option<impl Into<PathBuf>>) -> PathBuf {
     match named {
-        Some(path) => path.to_path_buf(),
+        Some(path) => path.into(),
         None => PathBuf::from("."),
     }
 }
 
 /// Reads the lockfile text for commands that audit the resolved dependency set.
-pub(crate) fn read_lock_text(root: &Path) -> Result<String, String> {
-    let lock_path = root.join("Cargo.lock");
-    std::fs::read_to_string(&lock_path)
-        .map_err(|error| format!("cannot read {}: {error}", lock_path.display()))
+pub(crate) fn read_lock_text(root: &Path) -> Result<String, LockReadError> {
+    let path = root.join("Cargo.lock");
+    std::fs::read_to_string(&path).map_err(|cause| LockReadError { path, cause })
+}
+
+/// Why the lockfile could not be read: the path and what the OS said.
+#[derive(Debug)]
+pub(crate) struct LockReadError {
+    /// The lockfile that was being read.
+    path: PathBuf,
+    /// What the operating system said.
+    cause: io::Error,
+}
+
+impl std::fmt::Display for LockReadError {
+    /// Names the lockfile and the operating system's reason.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "cannot read {}: {}",
+            self.path.display(),
+            self.cause
+        )
+    }
+}
+
+impl std::error::Error for LockReadError {
+    /// The OS error behind the refusal.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.cause)
+    }
 }
 
 /// Whether `package` comes from the registry whose sparse index is `index`.
@@ -583,13 +617,10 @@ pub(crate) fn read_lock_text(root: &Path) -> Result<String, String> {
 pub(crate) fn served_by(index: &str, package: &lgwks_deps::lock::Resolved) -> bool {
     match package.source() {
         Some(source) => {
-            matches!(
-                source,
-                "registry+https://github.com/rust-lang/crates.io-index"
-                    | "sparse+https://index.crates.io/"
-            ) || source
-                .strip_prefix("sparse+")
-                .is_some_and(|url| url.trim_end_matches('/') == index.trim_end_matches('/'))
+            package.is_crates_io()
+                || source
+                    .strip_prefix("sparse+")
+                    .is_some_and(|url| url.trim_end_matches('/') == index.trim_end_matches('/'))
         }
         None => false,
     }
@@ -598,17 +629,16 @@ pub(crate) fn served_by(index: &str, package: &lgwks_deps::lock::Resolved) -> bo
 /// The lock's dependency graph, from which `freshness` names the direct
 /// dependency each package comes through.
 pub(crate) fn locked_graph(resolved: &[lgwks_deps::lock::Resolved]) -> freshness_cmd::Graph {
-    freshness_cmd::Graph::new(
-        resolved
-            .iter()
-            .map(|package| freshness_cmd::Node {
-                name: package.name().to_owned(),
-                version: package.version().to_owned(),
-                source: package.source().map(str::to_owned),
-                dependencies: package.dependencies().to_vec(),
-            })
-            .collect(),
-    )
+    let nodes: Vec<freshness_cmd::Node> = resolved
+        .iter()
+        .map(|package| freshness_cmd::Node {
+            name: package.name().to_owned(),
+            version: package.version().to_owned(),
+            source: package.source().map(str::to_owned),
+            dependencies: package.dependencies().to_vec(),
+        })
+        .collect();
+    freshness_cmd::Graph::new(&nodes)
 }
 
 // ── sqlite ──────────────────────────────────────────────────────────────────

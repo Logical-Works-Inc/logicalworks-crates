@@ -142,7 +142,7 @@ fn the_supervisor_waiting_bound_is_global(band: sim::Band) -> TestResult {
 /// The declared default is the ceiling, and a larger declaration is clamped to
 /// it, so no policy can author an unbounded supervisor.
 #[test]
-fn the_waiting_bound_is_declared_and_clamped() -> TestResult {
+fn the_waiting_bound_is_declared_and_clamped() {
     let default = TenancyPolicy::new(1, 1);
     assert_eq!(
         default.queue_total(),
@@ -155,7 +155,6 @@ fn the_waiting_bound_is_declared_and_clamped() -> TestResult {
         MAX_TOTAL_QUEUE,
         "a declaration past the ceiling is clamped to it"
     );
-    Ok(())
 }
 
 band_family::band_family! {

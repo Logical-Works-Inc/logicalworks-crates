@@ -239,42 +239,7 @@ fn build(draft: &RawEntry) -> Result<Pin, ContractError> {
     let patch_digest = draft.get("patch_digest").map(str::to_owned);
     let blast_radius = draft.get("blast_radius").map(str::to_owned);
     let removal_trigger = draft.get("removal_trigger").map(str::to_owned);
-    match kind {
-        PinKind::UpstreamPin => {
-            for field in ["version", "upstream_issue", "upstream_pr", "patch_digest"] {
-                if draft.get(field).is_none_or(|value| value.trim().is_empty()) {
-                    let refusal = Err(lifecycle::missing(draft, &krate, field));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
-                    return refusal;
-                }
-            }
-        }
-        PinKind::ProviderException => {
-            for field in ["blast_radius", "removal_trigger"] {
-                if draft.get(field).is_none_or(|value| value.trim().is_empty()) {
-                    let refusal = Err(lifecycle::missing(draft, &krate, field));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
-                    return refusal;
-                }
-            }
-            let Some(trigger) = removal_trigger.as_deref() else {
-                let refusal = Err(lifecycle::missing(draft, &krate, "removal_trigger"));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
-                return refusal;
-            };
-            if !lifecycle::is_mortgage_sentence(trigger) {
-                let refusal = Err(lifecycle::invalid(
-                    draft,
-                    &krate,
-                    "removal_trigger",
-                    trigger.to_owned(),
-                    "expected a sentence of four or more words ending in a full stop",
-                ));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "build: returning an error to the caller");
-                return refusal;
-            }
-        }
-    }
+    validate_kind_fields(draft, &krate, kind, removal_trigger.as_deref())?;
     let owner = draft.require("owner", Some(&krate))?.to_owned();
     let reason = reason.to_owned();
     let review = draft.require("review", Some(&krate))?.to_owned();
@@ -295,6 +260,47 @@ fn build(draft: &RawEntry) -> Result<Pin, ContractError> {
         removal_trigger,
         krate,
     })
+}
+
+/// The fields a row of `kind` must carry beyond the common ones: an upstream
+/// pin names its upstream work and patch, a provider exception names its blast
+/// radius and a removal trigger written as a sentence.
+fn validate_kind_fields(
+    draft: &RawEntry,
+    krate: &str,
+    kind: PinKind,
+    removal_trigger: Option<&str>,
+) -> Result<(), ContractError> {
+    let required: &[&str] = match kind {
+        PinKind::UpstreamPin => &["version", "upstream_issue", "upstream_pr", "patch_digest"],
+        PinKind::ProviderException => &["blast_radius", "removal_trigger"],
+    };
+    for field in required {
+        if draft.get(field).is_none_or(|value| value.trim().is_empty()) {
+            let refusal = Err(lifecycle::missing(draft, krate, field));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "validate_kind_fields: returning an error to the caller");
+            return refusal;
+        }
+    }
+    if kind == PinKind::ProviderException {
+        let Some(trigger) = removal_trigger else {
+            let refusal = Err(lifecycle::missing(draft, krate, "removal_trigger"));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "validate_kind_fields: returning an error to the caller");
+            return refusal;
+        };
+        if !lifecycle::is_mortgage_sentence(trigger) {
+            let refusal = Err(lifecycle::invalid(
+                draft,
+                krate,
+                "removal_trigger",
+                trigger.to_owned(),
+                "expected a sentence of four or more words ending in a full stop",
+            ));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "validate_kind_fields: returning an error to the caller");
+            return refusal;
+        }
+    }
+    Ok(())
 }
 
 /// Refuses a second row for the same crate: one crate has one ledger entry, so
@@ -429,7 +435,9 @@ pub(crate) fn via_chain(locked: &[Resolved], leaf: &str) -> String {
     }
     let mut chain: Vec<&str> = vec![leaf];
     while chain.len() < 8 {
-        let current = chain[chain.len().saturating_sub(1)];
+        let Some(&current) = chain.last() else {
+            break;
+        };
         let Some(parent) = locked.iter().find(|item| {
             item.dependencies()
                 .iter()
@@ -526,7 +534,7 @@ mod tests {
     fn an_upstream_pin_parses_with_its_provenance() -> TestResult {
         let ledger = Ledger::parse(&pin(""))?;
         assert_eq!(ledger.entries.len(), 1);
-        let parsed = &ledger.entries[0];
+        let parsed = ledger.entries.first().ok_or("one entry was parsed")?;
         assert_eq!(parsed.krate(), "llm-guard");
         assert_eq!(parsed.kind(), PinKind::UpstreamPin);
         assert!(parsed.is_live("2026-10-26"));

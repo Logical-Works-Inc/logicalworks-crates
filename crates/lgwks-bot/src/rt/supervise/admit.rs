@@ -282,16 +282,17 @@ impl Supervisor {
                 let token = self.token.clone();
                 match token.run_until_cancelled(waiter.as_mut()).await {
                     None => Err(SpawnRefused::Cancelled),
-                    Some(permit) if !self.token.is_cancelled() => {
-                        Ok(Lease::tenanted(permit, Arc::clone(shell), tenant.clone()))
-                    }
                     Some(permit) => {
+                        let lease = Lease::tenanted(permit, Arc::clone(shell), tenant.clone());
                         // Cancellation won the race against a grant that had
-                        // already been charged to this tenant. The permit is
-                        // handed back through the round, so the tenant is not
-                        // left holding an admission nobody owns.
-                        drop(Lease::tenanted(permit, Arc::clone(shell), tenant.clone()));
-                        Err(SpawnRefused::Cancelled)
+                        // already been charged to this tenant: the lease drops
+                        // here, handing the permit back through the round, so
+                        // the tenant is not left holding an admission nobody owns.
+                        if self.token.is_cancelled() {
+                            Err(SpawnRefused::Cancelled)
+                        } else {
+                            Ok(lease)
+                        }
                     }
                 }
             }
@@ -611,7 +612,7 @@ impl Supervisor {
             }
             Err(error) if error.is_panic() => {
                 self.panicked = self.panicked.saturating_add(1);
-                let message = panic_message(error.into_panic());
+                let message = panic_message(&*error.into_panic());
                 self.identities
                     .remove(&raw)
                     .map(|task| TaskOutcome::Panicked { task, message })

@@ -398,7 +398,7 @@ mod sim_apps;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_cancel_under_load;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
-mod sim_cap_tokens;
+mod sim_cap_token_policy;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g6"))]
 mod sim_cas;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]

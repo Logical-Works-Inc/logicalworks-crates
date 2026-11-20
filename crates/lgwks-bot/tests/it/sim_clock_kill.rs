@@ -273,7 +273,7 @@ impl Fixture {
 }
 
 /// Assert an *observation* equals what the design says, naming the design claim.
-fn agree<T: std::fmt::Debug + PartialEq>(observed: T, expected: T, claim: &str) {
+fn agree<T: std::fmt::Debug + PartialEq>(observed: &T, expected: &T, claim: &str) {
     assert_eq!(observed, expected, "{claim}");
 }
 
@@ -290,9 +290,9 @@ fn refuse<T, E>(result: Result<T, E>, why: &str) -> Result<E, Box<dyn std::error
 /// The claims the rows assert, named once so a row reads as the check it makes
 /// and the design sentence behind it is edited in one place.
 mod claim {
-    pub const BUDGET_LEFT: &str = "the restart must find the budget the child had left";
-    pub const ONE_ATTEMPT: &str = "the refused replay added no second attempt";
-    pub const RECORD_LENGTH: &str = "the refusal names the length it refused";
+    pub(super) const BUDGET_LEFT: &str = "the restart must find the budget the child had left";
+    pub(super) const ONE_ATTEMPT: &str = "the refused replay added no second attempt";
+    pub(super) const RECORD_LENGTH: &str = "the refusal names the length it refused";
 }
 
 /// One row of the kill/restart family: a scratch name, and what the restart
@@ -346,7 +346,7 @@ fn budget_survives(row: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
         !empty,
         "the acknowledged intent must be on the disk after a SIGKILL"
     );
-    agree(row.recovered_budget()?, LEFT, claim::BUDGET_LEFT);
+    agree(&row.recovered_budget()?, &LEFT, claim::BUDGET_LEFT);
     assert!(
         !clock_from_elapsed(row.child_elapsed()?).is_exhausted(BUDGET),
         "a budget with time left must not read as exhausted after the kill",
@@ -371,8 +371,8 @@ fn budget_is_a_duration(row: &Fixture) -> Result<(), Box<dyn std::error::Error>>
     );
     let expected = (SPENT, LEFT, HALF_LEFT);
     agree(
-        observed,
-        expected,
+        &observed,
+        &expected,
         "the restart reads back the duration the child spent, and the same duration \
          recovers against a different budget too: the value is carried by the record, \
          not by the budget it was spent under",
@@ -399,7 +399,7 @@ fn replay_is_idempotent(row: &Fixture) -> Result<(), Box<dyn std::error::Error>>
         );
     }
     let attempts = FileJournal::open(&row.journal)?.recover().len();
-    agree(attempts, 1, claim::ONE_ATTEMPT);
+    agree(&attempts, &1, claim::ONE_ATTEMPT);
     Ok(())
 }
 
@@ -419,8 +419,8 @@ fn step_did_not_rerun(row: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
     let journal = row.reopened()?;
     let attempts = journal.recover().len();
     agree(
-        attempts,
-        1,
+        &attempts,
+        &1,
         "the restart must find exactly the attempt the killed child admitted: a second \
          copy is a rerun, and a rerun performs the effect twice",
     );
@@ -431,8 +431,8 @@ fn step_did_not_rerun(row: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
     let resumed = Clock::virtual_at(row.child_elapsed()?);
     let remaining = resumed.snapshot().remaining_from(BUDGET);
     agree(
-        remaining,
-        LEFT,
+        &remaining,
+        &LEFT,
         "resuming from the recovered reading must spend nothing: a budget that came back \
          shorter was charged twice, and one that came back longer was never charged at all",
     );
@@ -444,8 +444,12 @@ fn step_did_not_rerun(row: &Fixture) -> Result<(), Box<dyn std::error::Error>> {
 /// The parent asks this test to do its work; the child — re-executed with
 /// `PROBE_ENV` set — must instead append, mark and park to be killed. `index`
 /// is the row's position, so the child does the same row its parent killed.
-fn row_from_env() -> Option<usize> {
-    std::env::var(PROBE_ROW).ok()?.parse().ok()
+fn row_from_env() -> Result<Option<usize>, Box<dyn std::error::Error>> {
+    match std::env::var(PROBE_ROW) {
+        Ok(text) => Ok(Some(text.parse()?)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Build the clock a restart begins from: a virtual clock already advanced to
@@ -464,7 +468,7 @@ fn the_remaining_budget_survives_a_real_sigkill() -> TestResult {
     // Two roles, one name: re-executed with `PROBE_ENV` set, this process is
     // the child that gets killed. Without the row the parent asks every row, so
     // this name is the one the parent spawns.
-    match row_from_env() {
+    match row_from_env()? {
         Some(_) => child_body(),
         None => run_every_row(),
     }
@@ -485,8 +489,8 @@ fn a_torn_snapshot_after_the_kill_is_refused_not_read_as_a_shorter_step() -> Tes
                 a restart silently loses budget";
     let refusal = refuse(fixture.child_elapsed(), torn)?;
     agree(
-        refusal.to_string(),
-        String::from("the child's elapsed record is 4 bytes, not 8"),
+        &refusal.to_string(),
+        &String::from("the child's elapsed record is 4 bytes, not 8"),
         claim::RECORD_LENGTH,
     );
     Ok(())

@@ -154,7 +154,7 @@ replaces = ["glob as a direct edge", "a wildcard matcher written out"]
 [[capability]]
 name = "time"
 path = "lgwks_std::time"
-file = "crates/lgwks-std/src/time/mod.rs"
+file = "crates/lgwks-std/src/time.rs"
 crate = "lgwks_std"
 feature = "core"
 default = "on"
@@ -214,7 +214,7 @@ replaces = ["a cosine loop written out", "a jaccard set intersection written out
 [[capability]]
 name = "fs"
 path = "lgwks_std::fs"
-file = "crates/lgwks-std/src/fs/mod.rs"
+file = "crates/lgwks-std/src/fs.rs"
 crate = "lgwks_std"
 feature = "core"
 default = "on"
@@ -264,7 +264,7 @@ replaces = ["a shift-and-mask varint loop written out"]
 [[capability]]
 name = "script"
 path = "lgwks_bot::script"
-file = "crates/lgwks-bot/src/script/mod.rs"
+file = "crates/lgwks-bot/src/script.rs"
 crate = "lgwks_bot"
 feature = "script"
 default = "on"
@@ -274,7 +274,7 @@ replaces = ["a hand-written orchestration flow"]
 [[capability]]
 name = "async"
 path = "lgwks_bot::rt"
-file = "crates/lgwks-bot/src/rt/mod.rs"
+file = "crates/lgwks-bot/src/rt.rs"
 crate = "lgwks_bot"
 feature = "rt"
 default = "on"
@@ -325,7 +325,7 @@ replaces = ["a hand-rolled poll loop"]
 [[capability]]
 name = "sealed records at rest"
 path = "lgwks_bot::sealed"
-file = "crates/lgwks-bot/src/sealed/mod.rs"
+file = "crates/lgwks-bot/src/sealed.rs"
 crate = "lgwks_bot"
 feature = "sealed"
 default = "off"
@@ -346,7 +346,7 @@ replaces = ["a second reader of the same language", "syn as a direct edge"]
 [[capability]]
 name = "scan"
 path = "lgwks_ast::scan"
-file = "crates/lgwks-ast/src/scan/mod.rs"
+file = "crates/lgwks-ast/src/scan.rs"
 crate = "lgwks_ast"
 feature = "scan"
 default = "on"
@@ -356,7 +356,7 @@ replaces = ["a second detector reading a different tree"]
 [[capability]]
 name = "script reader"
 path = "lgwks_ast::script"
-file = "crates/lgwks-ast/src/script/mod.rs"
+file = "crates/lgwks-ast/src/script.rs"
 crate = "lgwks_ast"
 feature = "script"
 default = "on"

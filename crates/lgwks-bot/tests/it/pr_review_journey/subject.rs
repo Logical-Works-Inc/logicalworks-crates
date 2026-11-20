@@ -218,9 +218,7 @@ fn run_with_large_capture(
 #[test]
 fn a_diff_past_the_file_ceiling_is_an_incomplete_coverage() -> TestResult {
     let scripted = ScriptedGh::install("diff-over-files", HEAD)?;
-    let over = u32::try_from(lgwks_bot::domain::gh::MAX_DIFF_FILES_PER_PULL)
-        .map_err(|_| "the file ceiling must fit the fixture's counter")?
-        .saturating_add(1);
+    let over = u32::try_from(lgwks_bot::domain::gh::MAX_DIFF_FILES_PER_PULL)?.saturating_add(1);
     scripted.configure(Scenario::new(HEAD).with_filler_files(over))?;
 
     let outcome = run_with_large_capture(&scripted)?;
@@ -236,9 +234,7 @@ fn a_diff_past_the_file_ceiling_is_an_incomplete_coverage() -> TestResult {
 #[test]
 fn a_diff_past_the_byte_ceiling_is_an_incomplete_coverage() -> TestResult {
     let scripted = ScriptedGh::install("diff-over-bytes", HEAD)?;
-    let over = u32::try_from(lgwks_bot::domain::gh::MAX_DIFF_BYTES)
-        .map_err(|_| "the byte ceiling must fit the fixture's counter")?
-        .saturating_add(64);
+    let over = u32::try_from(lgwks_bot::domain::gh::MAX_DIFF_BYTES)?.saturating_add(64);
     scripted.configure(Scenario::new(HEAD).with_diff_bytes(over))?;
 
     let outcome = run_with_large_capture(&scripted)?;

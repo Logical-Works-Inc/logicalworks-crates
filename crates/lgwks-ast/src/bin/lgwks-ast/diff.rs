@@ -1,37 +1,24 @@
 //! `lgwks-ast script diff <base> <head>`: the architecture change between two
-//! source roots (#655).
-//!
-//! Every `script!` block emits an `ARCHITECTURE` map: its flows and, per step,
-//! its word, subject and line. `script map` and `script check` read that map
-//! from source without compiling, and this verb reads two maps and compares
-//! them.
-//!
-//! There is no git call here. `<base>` and `<head>` are two source roots the
-//! caller checked out — two directories, or two files — and the verb reads both
-//! from disk. A CI step checks a revision out beside the base revision and asks
-//! for the diff between the two directories, so the command holds no
-//! repository, branch or commit knowledge of its own.
-//!
-//! The comparison is structural: flow name and signature, then each step's
-//! word, subject and nesting path. `line` is never compared, so inserting a
-//! line above a flow is an empty diff. The one marker that matters is
-//! `// lgwks-architecture-approved: <reason>` in the head source: it approves
-//! every widening in the file it is written in. A source marker is chosen over
-//! an `--allow-widening` flag because a flag is one word in a CI recipe that can
-//! be added without a reviewer seeing a reason, while the marker is a reviewed
-//! line that must carry one.
+//! source roots (#655): two directories, or two files, the caller checked out.
+//! Each `script!` block emits an `ARCHITECTURE` map of flows and, per step, its
+//! word, subject and line; this verb reads both maps from source and compares
+//! them structurally (flow name and signature, then each step's word, subject
+//! and nesting path; `line` is never compared). `// lgwks-architecture-approved:
+//! <reason>` in the head source approves every widening in its file: a reviewed
+//! line that must carry a reason, where a flag is one word in a CI recipe.
 
 mod classify;
 mod render;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use lgwks_ast::script::{FlowShape, Kind, StepShape, read_source};
+use lgwks_ast::script::{FlowShape, Kind, Refusal, StepShape, read_source};
 
-use super::{USAGE, Wanted, files_under, read_bounded};
+use super::{ReadingError, USAGE, Wanted, files_under, read_bounded};
 
 /// The comment an author adds to the head source to approve a widening.
 const APPROVAL_PREFIX: &str = "// lgwks-architecture-approved:";
@@ -41,6 +28,67 @@ const EXIT_WIDENING: u8 = 1;
 
 /// The exit status of a usage or parse error, matching the rest of the tool.
 const EXIT_REFUSED: u8 = 2;
+
+/// Why two roots could not be compared.
+#[derive(Debug)]
+enum DiffError {
+    /// A root that cannot be stated.
+    Stat {
+        /// The root.
+        path: PathBuf,
+        /// What the operating system said.
+        cause: io::Error,
+    },
+    /// A root that cannot be walked, or a file that cannot be read.
+    Reading(ReadingError),
+    /// A source the lexer stopped on, or a `script!` the language refused.
+    Source {
+        /// Where it stopped, as `path:line:column` with a 1-based column.
+        place: String,
+        /// Whether the language refused a `script!` the lexer had read.
+        refused: bool,
+        /// The refusal's own message.
+        message: String,
+    },
+    /// One root is a directory and the other a file.
+    Mixed,
+}
+
+impl fmt::Display for DiffError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            Self::Stat {
+                ref path,
+                ref cause,
+            } => write!(formatter, "cannot read {}: {cause}", path.display()),
+            Self::Reading(ref error) => write!(formatter, "{error}"),
+            Self::Source {
+                ref place,
+                refused,
+                ref message,
+            } => {
+                let word = if refused { "refused: " } else { "" };
+                write!(formatter, "{place}: {word}{message}")
+            }
+            Self::Mixed => formatter
+                .write_str("`script diff` takes two directories or two files, not one of each"),
+        }
+    }
+}
+
+/// The refusal `refusal` of the source at `path`, located where it points.
+fn source_error(path: &Path, refusal: &Refusal, refused: bool) -> DiffError {
+    DiffError::Source {
+        place: format!(
+            "{}:{}:{}",
+            path.display(),
+            refusal.line(),
+            refusal.column().saturating_add(1)
+        ),
+        refused,
+        message: refusal.message().to_owned(),
+    }
+}
 
 /// How a change moves the architecture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -150,17 +198,26 @@ struct Context<'a> {
     approved: bool,
 }
 
-/// A step's structural identity among its siblings: its word, the name that
-/// identifies it when the word carries one, and its ordinal among the siblings
-/// with that pair.
+impl<'a> Context<'a> {
+    /// The same file and approval, inside the flow named `flow`.
+    fn at<'b>(&self, flow: &'b str) -> Context<'b>
+    where
+        'a: 'b,
+    {
+        Context {
+            file: self.file,
+            flow,
+            approved: self.approved,
+        }
+    }
+}
+
+/// A step's identity among its siblings: its word, its name when the word
+/// carries one, and its ordinal among the siblings with that pair.
 type Key = (String, String, usize);
 
-/// Run `script diff <base> <head>`.
-///
-/// # Errors
-///
-/// The writer's own error. A usage or parse refusal is a message on `err` and
-/// [`EXIT_REFUSED`], not an I/O error.
+/// Run `script diff <base> <head>`. A usage or parse refusal is a message on
+/// `err` and [`EXIT_REFUSED`]; the error is the writer's own.
 pub(super) fn run(
     base: &Path,
     head: &Path,
@@ -168,40 +225,29 @@ pub(super) fn run(
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> io::Result<ExitCode> {
-    let base_directory = match is_directory(base) {
-        Ok(is_directory) => is_directory,
-        Err(message) => return fail(err, &message),
+    let diff = match read_both(base, head) {
+        Ok(diff) => diff,
+        Err(DiffError::Mixed) => return usage(err, &DiffError::Mixed.to_string()),
+        Err(error) => return fail(err, &error.to_string()),
     };
-    let head_directory = match is_directory(head) {
-        Ok(is_directory) => is_directory,
-        Err(message) => return fail(err, &message),
-    };
-    if base_directory != head_directory {
-        return usage(
-            err,
-            "`script diff` takes two directories or two files, not one of each",
-        );
-    }
-    let base_root = match read_root(base) {
-        Ok(root) => root,
-        Err(message) => return fail(err, &message),
-    };
-    let head_root = match read_root(head) {
-        Ok(root) => root,
-        Err(message) => return fail(err, &message),
-    };
-    let diff = compare(&base_root, &head_root);
     if json {
         render::write_json(&diff, base, head, out)?;
     } else {
         render::write_markdown(&diff, base, head, out)?;
     }
-    let status = if diff.unapproved_widening() == 0 {
-        0
-    } else {
-        EXIT_WIDENING
-    };
-    Ok(ExitCode::from(status))
+    if diff.unapproved_widening() == 0 {
+        return Ok(ExitCode::SUCCESS);
+    }
+    Ok(ExitCode::from(EXIT_WIDENING))
+}
+
+/// Read both roots, which must be two directories or two files, and compare them.
+fn read_both(base: &Path, head: &Path) -> Result<Diff, DiffError> {
+    if is_directory(base)? != is_directory(head)? {
+        lgwks_std::trace::debug!("read_both: base and head are not the same kind of root");
+        return Err(DiffError::Mixed);
+    }
+    Ok(compare(&read_root(base)?, &read_root(head)?))
 }
 
 /// Print a refusal and answer the tool's parse refusal, without the usage:
@@ -220,24 +266,26 @@ fn usage(err: &mut impl Write, message: &str) -> io::Result<ExitCode> {
 
 /// Whether `root` is a directory; a path that cannot be stated is refused by
 /// name, as the walk refuses it.
-fn is_directory(root: &Path) -> Result<bool, String> {
-    std::fs::metadata(root)
-        .map(|metadata| metadata.is_dir())
-        .map_err(|error| format!("cannot read {}: {error}", root.display()))
+fn is_directory(root: &Path) -> Result<bool, DiffError> {
+    match std::fs::metadata(root) {
+        Ok(metadata) => Ok(metadata.is_dir()),
+        Err(cause) => Err(DiffError::Stat {
+            path: root.to_path_buf(),
+            cause,
+        }),
+    }
 }
 
-/// Read every script under `root`, keyed by its path relative to `root`.
-///
-/// # Errors
-///
-/// A root that cannot be walked, a file that cannot be read, or a `script!`
-/// the language refuses: a check that skipped one would compare a tree it did
+/// Every script under `root`, keyed by its path relative to `root`. A root that
+/// cannot be walked, a file that cannot be read or a `script!` the language
+/// refuses is an error: a check that skipped one would compare a tree it did
 /// not read.
-fn read_root(root: &Path) -> Result<Root, String> {
+fn read_root(root: &Path) -> Result<Root, DiffError> {
     let mut files = BTreeMap::new();
-    for file in files_under(root, Wanted::Rust).map_err(|error| error.to_string())? {
-        let text = read_bounded(&file).map_err(|error| error.to_string())?;
-        let invocations = read_source(&text).map_err(|refusal| located(&file, &refusal))?;
+    for file in files_under(root, Wanted::Rust).map_err(DiffError::Reading)? {
+        let text = read_bounded(&file).map_err(DiffError::Reading)?;
+        let invocations =
+            read_source(&text).map_err(|refusal| source_error(&file, &refusal, false))?;
         let mut entry = FileMap {
             approvals: approvals(&text),
             flows: Vec::new(),
@@ -253,37 +301,13 @@ fn read_root(root: &Path) -> Result<Root, String> {
                         error = %refusal.message(),
                         "script diff: a script was refused while reading a root"
                     );
-                    return Err(refused(&file, refusal));
+                    return Err(source_error(&file, refusal, true));
                 }
             }
         }
         files.insert(relative(&file, root), entry);
     }
     Ok(Root { files })
-}
-
-/// Where a refusal points, as `path:line:column` with a 1-based column.
-fn position(path: &Path, refusal: &lgwks_ast::script::Refusal) -> String {
-    format!(
-        "{}:{}:{}",
-        path.display(),
-        refusal.line(),
-        refusal.column().saturating_add(1)
-    )
-}
-
-/// A file the lexer could not read, located where it stopped.
-fn located(path: &Path, refusal: &lgwks_ast::script::Refusal) -> String {
-    format!("{}: {}", position(path, refusal), refusal.message())
-}
-
-/// A `script!` the language refused, prefixed as `script check` prefixes it.
-fn refused(path: &Path, refusal: &lgwks_ast::script::Refusal) -> String {
-    format!(
-        "{}: refused: {}",
-        position(path, refusal),
-        refusal.message()
-    )
 }
 
 /// `file` relative to `root`, without a leading `./`.
@@ -333,25 +357,29 @@ fn compare(base: &Root, head: &Root) -> Diff {
         if let Some(reason) = head_entry.approvals.first() {
             approvals.insert(file.clone(), reason.clone());
         }
-        let approved = !head_entry.approvals.is_empty();
+        let context = Context {
+            file,
+            flow: "",
+            approved: !head_entry.approvals.is_empty(),
+        };
         for flow in &head_entry.flows {
-            let inner = Context {
-                file,
-                flow: flow.name(),
-                approved,
-            };
-            note(
-                &mut changes,
-                &inner,
-                flow.name().to_owned(),
-                "Flow".to_owned(),
-                String::new(),
-                flow.signature().to_owned(),
-                classify::flow_added(),
-            );
+            added_flow(&mut changes, &context, flow);
         }
     }
     Diff { changes, approvals }
+}
+
+/// Report a flow only the head has.
+fn added_flow(changes: &mut Vec<Change>, context: &Context<'_>, flow: &FlowShape) {
+    note(
+        changes,
+        &context.at(flow.name()),
+        flow.name().to_owned(),
+        "Flow".to_owned(),
+        String::new(),
+        flow.signature().to_owned(),
+        classify::flow_added(),
+    );
 }
 
 /// Compare the flows of one file, matching them by name in source order.
@@ -367,66 +395,34 @@ fn compare_flows(
     };
     for base_flow in &base.flows {
         let matched = head.and_then(|entry| {
-            entry
-                .flows
-                .iter()
-                .enumerate()
-                .position(|(index, flow)| {
-                    used.get(index).copied() != Some(true) && flow.name() == base_flow.name()
-                })
-                .map(|index| (index, &entry.flows[index]))
+            entry.flows.iter().enumerate().find(|pair| {
+                used.get(pair.0).copied() != Some(true) && pair.1.name() == base_flow.name()
+            })
         });
-        match matched {
-            Some((index, head_flow)) => {
-                if let Some(slot) = used.get_mut(index) {
-                    *slot = true;
-                }
-                let inner = Context {
-                    file: context.file,
-                    flow: head_flow.name(),
-                    approved: context.approved,
-                };
-                compare_flow(&inner, base_flow, head_flow, changes);
+        if let Some((index, head_flow)) = matched {
+            if let Some(slot) = used.get_mut(index) {
+                *slot = true;
             }
-            None => {
-                let inner = Context {
-                    file: context.file,
-                    flow: base_flow.name(),
-                    approved: context.approved,
-                };
-                note(
-                    changes,
-                    &inner,
-                    base_flow.name().to_owned(),
-                    "Flow".to_owned(),
-                    base_flow.signature().to_owned(),
-                    String::new(),
-                    classify::flow_removed(),
-                );
-            }
+            compare_flow(&context.at(head_flow.name()), base_flow, head_flow, changes);
+        } else {
+            note(
+                changes,
+                &context.at(base_flow.name()),
+                base_flow.name().to_owned(),
+                "Flow".to_owned(),
+                base_flow.signature().to_owned(),
+                String::new(),
+                classify::flow_removed(),
+            );
         }
     }
     let Some(entry) = head else {
         return;
     };
     for (index, head_flow) in entry.flows.iter().enumerate() {
-        if used.get(index).copied() == Some(true) {
-            continue;
+        if used.get(index).copied() != Some(true) {
+            added_flow(changes, context, head_flow);
         }
-        let inner = Context {
-            file: context.file,
-            flow: head_flow.name(),
-            approved: context.approved,
-        };
-        note(
-            changes,
-            &inner,
-            head_flow.name().to_owned(),
-            "Flow".to_owned(),
-            String::new(),
-            head_flow.signature().to_owned(),
-            classify::flow_added(),
-        );
     }
 }
 
@@ -455,15 +451,12 @@ fn compare_flow(
 }
 
 /// One level of the tree: match siblings by structural identity, compare the
-/// matched pairs, and report the rest as added or removed.
-///
-/// A removed block promotes its children into this level, and an added block
-/// absorbs a removed sibling into itself. A child that has no sibling of its
-/// own key and does have a counterpart on the other side is that same step
-/// moved, not a new one: it is compared here, under its new path, and the
-/// block's own addition or removal carries the classification. A step still
-/// inside an added block, or still lost with a removed one, is reported with
-/// that block so a widening nested there cannot hide.
+/// matched pairs, and report the rest as added or removed. A removed block
+/// promotes its children into this level and an added block absorbs a removed
+/// sibling: a child with no sibling of its own key and a counterpart on the
+/// other side is the same step moved, compared here under its new path. A step
+/// still inside an added or removed block is reported with that block, so a
+/// widening nested there cannot hide.
 fn compare_steps(
     context: &Context<'_>,
     parent: &str,
@@ -488,15 +481,7 @@ fn compare_steps(
         match matched {
             Some(base_step) => compare_step(context, &path, base_step, head_step, changes),
             None => {
-                note(
-                    changes,
-                    context,
-                    path.clone(),
-                    format!("{:?}", head_step.kind()),
-                    String::new(),
-                    display_of(head_step),
-                    classify::added(head_step.kind()),
-                );
+                note_added(changes, context, path.clone(), head_step);
                 added_subtree(
                     context,
                     &path,
@@ -514,22 +499,13 @@ fn compare_steps(
             continue;
         }
         let path = join(parent, &segment(base_step));
-        note(
-            changes,
-            context,
-            path.clone(),
-            format!("{:?}", base_step.kind()),
-            display_of(base_step),
-            String::new(),
-            classify::removed(base_step.kind()),
-        );
+        note_removed(changes, context, path.clone(), base_step);
         removed_subtree(context, &path, base_step, &promoted, changes);
     }
 }
 
 /// The children a removed block promotes into this level, keyed by the key of
-/// the added sibling they match. A child with a sibling of its own key stays
-/// where it was, and a child with no added counterpart is gone with its block.
+/// the added sibling they match; one with a sibling of its own key stays put.
 fn promoted_out<'a>(
     base_order: &[(Key, &'a StepShape)],
     base_by_key: &BTreeMap<Key, usize>,
@@ -553,8 +529,7 @@ fn promoted_out<'a>(
 }
 
 /// The removed siblings an added block absorbs, by the key of the child that
-/// absorbs them. A child whose key a sibling already holds is a second step of
-/// that name, not the removed one.
+/// absorbs them; a child whose key a sibling holds is a second step of that name.
 fn absorbed_in(
     head_order: &[(Key, &StepShape)],
     base_by_key: &BTreeMap<Key, usize>,
@@ -600,15 +575,7 @@ fn added_subtree(
             }
             continue;
         }
-        note(
-            changes,
-            context,
-            path.clone(),
-            format!("{:?}", child.kind()),
-            String::new(),
-            display_of(child),
-            classify::added(child.kind()),
-        );
+        note_added(changes, context, path.clone(), child);
         added_subtree(
             context,
             &path,
@@ -635,15 +602,7 @@ fn removed_subtree(
             continue;
         }
         let path = join(parent, &segment(child));
-        note(
-            changes,
-            context,
-            path.clone(),
-            format!("{:?}", child.kind()),
-            display_of(child),
-            String::new(),
-            classify::removed(child.kind()),
-        );
+        note_removed(changes, context, path.clone(), child);
         removed_subtree(context, &path, child, promoted, changes);
     }
 }
@@ -738,6 +697,32 @@ fn join(parent: &str, segment: &str) -> String {
     } else {
         format!("{parent} > {segment}")
     }
+}
+
+/// Report a step only the head has.
+fn note_added(changes: &mut Vec<Change>, context: &Context<'_>, path: String, step: &StepShape) {
+    note(
+        changes,
+        context,
+        path,
+        format!("{:?}", step.kind()),
+        String::new(),
+        display_of(step),
+        classify::added(step.kind()),
+    );
+}
+
+/// Report a step only the base has.
+fn note_removed(changes: &mut Vec<Change>, context: &Context<'_>, path: String, step: &StepShape) {
+    note(
+        changes,
+        context,
+        path,
+        format!("{:?}", step.kind()),
+        display_of(step),
+        String::new(),
+        classify::removed(step.kind()),
+    );
 }
 
 /// Record one change.

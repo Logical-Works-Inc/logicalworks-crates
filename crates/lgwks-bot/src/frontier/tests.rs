@@ -1,5 +1,6 @@
 //! Unit tests for `frontier`, moved verbatim out of frontier.rs.
 
+#[cfg(test)]
 use super::*;
 
 const HOUR: Duration = Duration::from_secs(3_600);
@@ -57,7 +58,7 @@ fn completed(
     outcome: Outcome,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let permit = admitted(frontier, host, Duration::ZERO)?;
-    frontier.complete(permit, outcome)?;
+    frontier.complete(&permit, outcome)?;
     Ok(())
 }
 
@@ -117,7 +118,7 @@ fn rules_states_follow_rfc_9309() -> TestResult {
     // 4xx: unavailable, MAY access any resources.
     frontier.observe_rules(&key, RulesState::NoRules);
     let permit = admitted(&mut frontier, "a.example", HOUR)?;
-    frontier.complete(permit, Outcome::Success)?;
+    frontier.complete(&permit, Outcome::Success)?;
 
     // 5xx: unreachable, MUST assume complete disallow.
     frontier.observe_rules(
@@ -274,7 +275,7 @@ fn retry_after_binds_the_origin_not_just_the_host() -> TestResult {
 
     let permit = admitted(&mut frontier, "a.example", Duration::ZERO)?;
     frontier.observe_retry_after(&permit, Duration::ZERO, Duration::from_secs(30))?;
-    frontier.complete(permit, Outcome::Success)?;
+    frontier.complete(&permit, Outcome::Success)?;
 
     assert_eq!(
         deferral(&frontier.admit("b.example", Duration::from_secs(1))),

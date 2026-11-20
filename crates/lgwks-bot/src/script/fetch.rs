@@ -312,23 +312,7 @@ async fn fetch_in(
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "fetch_in: returning an error to the caller");
         return refusal;
     }
-    let mut exchange = Options::default()
-        .timeout(per_phase)
-        .deadline(per_phase)
-        .max_body_bytes(options.max_body_bytes)
-        .body_policy(BodyPolicy::Whole);
-    for header in options.headers.iter() {
-        exchange = exchange.header(header.0.clone(), header.1.clone());
-    }
-    let client = Client::with_pool(
-        exchange,
-        PoolConfig::default()
-            .max_idle_connections(4)
-            .max_idle_connections_per_host(2),
-    )
-    .map_err(|refused| {
-        FlowError::failed(format!("the fetch client could not be built: {refused}"))
-    })?;
+    let client = fetch_client(options, per_phase)?;
     scope.policy().first_attempt();
     let mut attempt: u32 = 1;
     loop {
@@ -380,6 +364,30 @@ async fn fetch_in(
     }
 }
 
+/// The pooled client one fetch drives: `per_phase` bounds each phase and the
+/// whole, the body is read whole to the declared ceiling, and the declared
+/// headers ride on every attempt.
+fn fetch_client(
+    options: &FetchOptions,
+    per_phase: std::time::Duration,
+) -> Result<Client, FlowError> {
+    let mut exchange = Options::default()
+        .timeout(per_phase)
+        .deadline(per_phase)
+        .max_body_bytes(options.max_body_bytes)
+        .body_policy(BodyPolicy::Whole);
+    for header in options.headers.iter() {
+        exchange = exchange.header(header.0.clone(), header.1.clone());
+    }
+    Client::with_pool(
+        exchange,
+        PoolConfig::default()
+            .max_idle_connections(4)
+            .max_idle_connections_per_host(2),
+    )
+    .map_err(|refused| FlowError::failed(format!("the fetch client could not be built: {refused}")))
+}
+
 /// One attempt: the exchange on the blocking pool, classified.
 async fn exchange_once(
     scope: &Scope,
@@ -420,14 +428,14 @@ fn classify(
 ) -> Result<FetchResponse, FlowError> {
     match answered {
         Ok(response) => {
-            if (200..300).contains(&response.status) {
+            if (200..300).contains(&response.status()) {
                 return Ok(FetchResponse {
-                    status: response.status,
+                    status: response.status(),
                     headers: response.headers().to_vec(),
                     body: response.body().to_vec(),
                 });
             }
-            let status = response.status;
+            let status = response.status();
             if (500..600).contains(&status) {
                 let refusal = Err(transient_at(
                     scope,

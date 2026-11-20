@@ -385,7 +385,7 @@ impl RunFeed {
     #[cfg(feature = "sync")]
     pub(crate) fn settle(
         &self,
-        ticket: RunTicket,
+        ticket: &RunTicket,
         outcome: RunOutcome,
     ) -> Result<(), RunFeedError> {
         let key = key_of(ticket.run);

@@ -29,6 +29,21 @@ fn says_each(answers: &[String], expected: &[&str]) {
     }
 }
 
+/// The trimmed answer at `index`, or why the process gave fewer.
+fn answer(answers: &[String], index: usize) -> Outcome<&str> {
+    let line = answers
+        .get(index)
+        .ok_or_else(|| format!("no answer at {index} in {answers:?}"))?;
+    Ok(line.trim())
+}
+
+/// Require the answer at `index` to say `wanted`.
+fn says(answers: &[String], index: usize, wanted: &str) -> Outcome {
+    let line = answer(answers, index)?;
+    assert!(line.contains(wanted), "{line} should say {wanted}");
+    Ok(())
+}
+
 /// Catches a rebuild that differs from the view a killed process held.
 #[test]
 fn a_view_rebuilt_after_a_kill_has_the_digest_the_dead_process_showed() -> Outcome {
@@ -37,12 +52,12 @@ fn a_view_rebuilt_after_a_kill_has_the_digest_the_dead_process_showed() -> Outco
     let mut owner = Owner::start(&binary(), &arguments)?;
     let answered = owner.answers("fill 2 50\nfill 1 30\ncatch-up\nshow\n")?;
     owner.kill()?;
-    let held = answered[3].trim();
-    assert!(held.contains("\"rows\":2"), "{held}");
-    assert!(held.contains("\"applied\":80"), "{held}");
+    let held = answer(&answered, 3)?;
+    says(&answered, 3, "\"rows\":2")?;
+    says(&answered, 3, "\"applied\":80")?;
 
     let after = session(&binary(), &arguments, "show\n")?;
-    assert_eq!(after[0].trim(), held);
+    assert_eq!(answer(&after, 0)?, held);
     Ok(())
 }
 
@@ -80,16 +95,16 @@ fn a_kill_before_the_sync_loses_what_the_view_showed_and_a_kill_after_keeps_it()
     let mut owner = Owner::start(&binary(), &arguments)?;
     let answered = owner.answers("fill 1 2\nstage 2 3\nshow\nsync\nshow\nstage 3 4\nshow\n")?;
     owner.kill()?;
-    assert!(answered[1].contains("\"staged\":3"), "{}", answered[1]);
-    assert!(answered[2].contains("\"rows\":2"), "{}", answered[2]);
-    assert!(answered[2].contains("\"applied\":5"), "{}", answered[2]);
-    assert!(answered[3].contains("\"synced\":3"), "{}", answered[3]);
-    assert!(answered[6].contains("\"applied\":9"), "{}", answered[6]);
+    says(&answered, 1, "\"staged\":3")?;
+    says(&answered, 2, "\"rows\":2")?;
+    says(&answered, 2, "\"applied\":5")?;
+    says(&answered, 3, "\"synced\":3")?;
+    says(&answered, 6, "\"applied\":9")?;
 
     let after = session(&binary(), &arguments, "show\n")?;
     assert_eq!(
-        after[0].trim(),
-        answered[4].trim(),
+        answer(&after, 0)?,
+        answer(&answered, 4)?,
         "the synced view, and not the one holding what the kill lost"
     );
     Ok(())
@@ -143,10 +158,10 @@ fn a_refused_stage_stages_nothing_and_the_view_keeps_answering() -> Outcome {
         "\"rows\":2",
     ];
     says_each(&answers, &expected);
-    assert!(answers[6].contains("\"applied\":5"), "{}", answers[6]);
+    says(&answers, 6, "\"applied\":5")?;
     assert_eq!(
-        answers[6].trim(),
-        answers[9].trim(),
+        answer(&answers, 6)?,
+        answer(&answers, 9)?,
         "the rebuilt view is the one that refused"
     );
     Ok(())

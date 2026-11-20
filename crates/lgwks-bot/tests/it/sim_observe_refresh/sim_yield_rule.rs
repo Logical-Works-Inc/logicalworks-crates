@@ -75,15 +75,17 @@ fn no_chain_yields_after_one_that_went_pending_across_seeded_ticks() {
         let (wedged, drawn) = drawn_tick(&mut rng);
         let got = armed(&wedged, &drawn);
         let mut pending = false;
-        for (index, &yields) in got.iter().enumerate() {
-            let expected = if pending { 0 } else { drawn[index] };
+        for (index, (&yields, (&is_wedged, &draw))) in
+            got.iter().zip(wedged.iter().zip(drawn.iter())).enumerate()
+        {
+            let expected = if pending { 0 } else { draw };
             assert_eq!(
                 yields, expected,
                 "seed {SEED} tick {tick} chain {index}: wedged {wedged:?} drawn {drawn:?}"
             );
-            if !pending && (wedged[index] || yields > 0) {
+            if !pending && (is_wedged || yields > 0) {
                 pending = true;
-                if wedged[index] {
+                if is_wedged {
                     ended_by_wedge = ended_by_wedge.saturating_add(1);
                 } else {
                     ended_by_yield = ended_by_yield.saturating_add(1);

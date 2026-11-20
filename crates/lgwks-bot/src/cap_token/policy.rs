@@ -5,27 +5,18 @@ use std::time::Duration;
 use lgwks_std::json::{Deserialize, Serialize};
 
 use super::{
-    Authority,
-    BearerToken,
-    MAX_TEXT_LEN,
-    MAX_TRACE,
-    POLICY_VERSION,
-    // live revocation
-    RevocationList,
-    TokenError,
-    chain_over,
-    under_scope,
-    valid_resource,
-    valid_text,
+    Authority, BearerToken, MAX_TEXT_LEN, MAX_TRACE, POLICY_VERSION, RevocationList, TokenError,
+    chain_over, under_scope, valid_resource, valid_text,
 };
 use crate::clock::Clock;
 
 /// One access request: who presents, what they want to do, and where.
 ///
 /// The one home of the validated triple: `Caveat` wraps this with an expiry
-/// rather than re-validating its own copy.
+/// rather than re-validating its own copy. Decoding validates too, so a
+/// request read from the wire is never a request `new` would have refused.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(crate = "lgwks_std::json::serde")]
+#[serde(crate = "lgwks_std::json::serde", try_from = "RequestWire")]
 #[doc(hidden)]
 pub struct Request {
     /// Who presents the token.
@@ -36,12 +27,33 @@ pub struct Request {
     resource: String,
 }
 
+/// The decoded shape of a request before `Request::new` judges it.
+#[derive(Deserialize)]
+#[serde(crate = "lgwks_std::json::serde")]
+struct RequestWire {
+    /// Who presents the token, as decoded.
+    audience: String,
+    /// What they want to do, as decoded.
+    action: String,
+    /// Where they want to do it, as decoded.
+    resource: String,
+}
+
+impl TryFrom<RequestWire> for Request {
+    type Error = TokenError;
+
+    fn try_from(wire: RequestWire) -> Result<Self, TokenError> {
+        Self::new(&wire.audience, &wire.action, &wire.resource)
+    }
+}
+
 impl Request {
     /// Build a request from validated parts.
     ///
     /// # Errors
     ///
-    /// [`TokenError::TextTooLong`] and [`TokenError::BadText`].
+    /// [`TokenError::TextTooLong`] and [`TokenError::BadText`], the second
+    /// also for a resource segment that is only dots or holds `\` or `%`.
     #[doc(hidden)]
     pub fn new(audience: &str, action: &str, resource: &str) -> Result<Self, TokenError> {
         valid_text(audience, "audience")?;
@@ -81,19 +93,20 @@ impl Request {
 #[serde(crate = "lgwks_std::json::serde")]
 #[doc(hidden)]
 pub struct TraceStep {
-    /// The rule that ran: `signature`, `expiry`, `revocation` (live revocation),
-    /// `audience`, `action` or `resource`.
+    /// The rule that ran: `signature`, `expiry`, `revocation`, `audience`,
+    /// `action` or `resource`.
     rule: String,
     /// The policy version that ran it.
     version: u32,
-    /// What it read, in under 128 bytes: the token id prefix, the request
-    /// fields and the judging reading.
+    /// What it read, in at most 128 bytes: on the denying step the grant the
+    /// token holds first (`grant=read `), then the request fields, the
+    /// judging reading and the token id prefix.
     inputs: String,
 }
 
 impl TraceStep {
-    /// Which walk step decided: signature, expiry, revocation (live revocation),
-    /// audience, action or resource, in evaluation order.
+    /// Which walk step decided: signature, expiry, revocation, audience,
+    /// action or resource, in evaluation order.
     #[must_use]
     #[doc(hidden)]
     pub fn rule(&self) -> &str {
@@ -122,8 +135,8 @@ impl TraceStep {
 pub struct Decision {
     /// Whether the request is permitted.
     allowed: bool,
-    /// The rule walk, in evaluation order: non-empty on every allow and every
-    /// deny, so a denial names the rule and the missing grant.
+    /// The rule walk, in evaluation order: an allow holds every rule, and a
+    /// denial ends at the rule that denied, naming the grant the token holds.
     trace: Vec<TraceStep>,
     /// BLAKE3 over the token id, the request, the judging reading and the
     /// verdict: the same inputs on the same clock give the same hash.
@@ -170,6 +183,130 @@ impl Decision {
     }
 }
 
+/// The rules, in the one order every decision walks them.
+#[derive(Debug, Clone, Copy)]
+enum Rule {
+    /// The chain recomputes under the judging authority's root.
+    Signature,
+    /// No caveat has lapsed on the judging clock.
+    Expiry,
+    /// The token id is not revoked.
+    Revocation,
+    /// Every caveat names the presenting audience.
+    Audience,
+    /// Every caveat names the requested action.
+    Action,
+    /// The resource sits under every caveat's scope.
+    Resource,
+}
+
+impl Rule {
+    /// The walk order.
+    const ALL: [Self; 6] = [
+        Self::Signature,
+        Self::Expiry,
+        Self::Revocation,
+        Self::Audience,
+        Self::Action,
+        Self::Resource,
+    ];
+
+    /// The name a trace step carries.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Signature => "signature",
+            Self::Expiry => "expiry",
+            Self::Revocation => "revocation",
+            Self::Audience => "audience",
+            Self::Action => "action",
+            Self::Resource => "resource",
+        }
+    }
+}
+
+/// The walk is one step per rule, so the trace bound holds by construction:
+/// a rule added past `MAX_TRACE` is a compile error, not a dropped step.
+const _: () = assert!(
+    MAX_TRACE.checked_sub(Rule::ALL.len()).is_some(),
+    "every rule of the walk fits the trace bound"
+);
+
+/// What one decision reads.
+struct Judged<'call> {
+    /// The authority whose root the chain must recompute under.
+    authority: &'call Authority,
+    /// The presented token.
+    token: &'call BearerToken,
+    /// The request it is presented for.
+    request: &'call Request,
+    /// The live revocation list.
+    revocations: &'call RevocationList,
+    /// The judging clock's reading.
+    now: Duration,
+}
+
+impl Judged<'_> {
+    /// `None` when `rule` passes, or the grant the token holds that the
+    /// request misses. Every caveat must pass: a holder only ever appends, so
+    /// a conjunction is what keeps an appended caveat narrowing.
+    ///
+    /// # Errors
+    ///
+    /// [`TokenError::Malformed`] when a caveat cannot be encoded for the chain.
+    fn miss(&self, rule: Rule) -> Result<Option<String>, TokenError> {
+        let caveats = self.token.caveats.as_slice();
+        let missed = match rule {
+            Rule::Signature => {
+                let recomputed = chain_over(&self.authority.root, &self.token.id, caveats)?;
+                let authentic = lgwks_std::hash::Digest::from_bytes(recomputed)
+                    .ct_eq(&lgwks_std::hash::Digest::from_bytes(self.token.tag));
+                (!authentic).then(|| String::from("issuer"))
+            }
+            Rule::Expiry => caveats
+                .iter()
+                .find(|caveat| self.now >= caveat.expires_at())
+                .map(|caveat| caveat.expires_at().as_nanos().to_string()),
+            Rule::Revocation => self
+                .revocations
+                .contains(&self.token.id)
+                .then(|| String::from("unrevoked")),
+            Rule::Audience => caveats
+                .iter()
+                .find(|caveat| caveat.audience() != self.request.audience())
+                .map(|caveat| String::from(caveat.audience())),
+            Rule::Action => caveats
+                .iter()
+                .find(|caveat| caveat.action() != self.request.action())
+                .map(|caveat| String::from(caveat.action())),
+            Rule::Resource => caveats
+                .iter()
+                .find(|caveat| !under_scope(self.request.resource(), caveat.resource()))
+                .map(|caveat| String::from(caveat.resource())),
+        };
+        Ok(missed)
+    }
+
+    /// The inputs line of one step: the missed grant first when there is one,
+    /// then the request, the reading and the token id prefix, cut to the bound.
+    fn stamp(&self, missed: Option<&str>) -> String {
+        let id_prefix = lgwks_std::hex::encode(&self.token.id[0..8]);
+        let grant = match missed {
+            Some(grant) => format!("grant={grant} "),
+            None => String::new(),
+        };
+        let mut detail = format!(
+            "{grant}aud={} act={} res={} now={} id={id_prefix}",
+            self.request.audience(),
+            self.request.action(),
+            self.request.resource(),
+            self.now.as_nanos(),
+        );
+        // Every part is visible ASCII, so any byte offset is a char boundary.
+        detail.truncate(MAX_TEXT_LEN);
+        detail
+    }
+}
+
 /// The deterministic evaluator over the one resource hierarchy.
 #[derive(Debug, Clone, Copy, Default)]
 #[doc(hidden)]
@@ -188,7 +325,8 @@ impl Policy {
     }
 
     /// Decide `request` under `token`: verify, then walk audience, action and
-    /// resource, recording every step on the injected `clock`.
+    /// resource, recording every step on the injected `clock`. The walk stops
+    /// at the first rule that denies, so a denial's last step names its rule.
     ///
     /// # Errors
     ///
@@ -201,132 +339,46 @@ impl Policy {
         authority: &Authority,
         token: &BearerToken,
         request: &Request,
-        // live revocation
         revocations: &RevocationList,
         clock: &Clock,
     ) -> Result<Decision, TokenError> {
         BearerToken::check(token.caveats.as_slice())?;
-        let now = clock.now();
-        let mut trace: Vec<TraceStep> = Vec::new();
-        let push = |rule: &str, inputs: String, trace: &mut Vec<TraceStep>| {
-            if trace.len() < MAX_TRACE {
-                trace.push(TraceStep {
-                    rule: String::from(rule),
-                    version: POLICY_VERSION,
-                    inputs,
-                });
-            }
+        let judged = Judged {
+            authority,
+            token,
+            request,
+            revocations,
+            now: clock.now(),
         };
-
-        let id_prefix = lgwks_std::hex::encode(&token.id[0..8]);
-        let stamp = |request: &Request, now: Duration| {
-            let mut detail = String::new();
-            detail.push_str("aud=");
-            detail.push_str(request.audience());
-            detail.push_str(" act=");
-            detail.push_str(request.action());
-            detail.push_str(" res=");
-            detail.push_str(request.resource());
-            detail.push_str(" now=");
-            detail.push_str(now.as_nanos().to_string().as_str());
-            detail.push_str(" id=");
-            detail.push_str(id_prefix.as_str());
-            if detail.len() > MAX_TEXT_LEN {
-                detail.truncate(MAX_TEXT_LEN);
-            }
-            detail
-        };
-
-        let recomputed = chain_over(&authority.root, &token.id, token.caveats.as_slice())?;
-        let authentic = lgwks_std::hash::Digest::from_bytes(recomputed)
-            .ct_eq(&lgwks_std::hash::Digest::from_bytes(token.tag));
-        push("signature", stamp(request, now), &mut trace);
-        let mut allowed = authentic;
-        if !authentic {
-            return Ok(finish(false, trace, token, request, now));
-        }
-
-        let mut live = true;
-        for caveat in token.caveats.iter() {
-            if now >= caveat.expires_at() {
-                live = false;
-                break;
+        let mut trace: Vec<TraceStep> = Vec::with_capacity(MAX_TRACE);
+        for rule in Rule::ALL {
+            let missed = judged.miss(rule)?;
+            trace.push(TraceStep {
+                rule: String::from(rule.name()),
+                version: POLICY_VERSION,
+                inputs: judged.stamp(missed.as_deref()),
+            });
+            if missed.is_some() {
+                lgwks_std::trace::debug!(rule = rule.name(), "cap_token_denied");
+                return Ok(finish(false, trace, &judged));
             }
         }
-        push("expiry", stamp(request, now), &mut trace);
-        allowed = allowed && live;
-        if !live {
-            return Ok(finish(false, trace, token, request, now));
-        }
-
-        // live revocation check against token id
-        let listed = revocations.contains(&token.id);
-        push("revocation", stamp(request, now), &mut trace);
-        // live revocation
-        if listed {
-            return Ok(finish(false, trace, token, request, now));
-        }
-
-        // Conjunction over every caveat: the narrowed token covers a request
-        // only when each caveat it carries does, so appending a caveat can
-        // only restrict. An existential read would let the opening broad
-        // caveat cover everything the narrowing was meant to stop.
-        let mut covered = true;
-        for caveat in token.caveats.iter() {
-            let pair =
-                caveat.audience() == request.audience() && caveat.action() == request.action();
-            let place = under_scope(request.resource(), caveat.resource());
-            if !(pair && place) {
-                covered = false;
-                break;
-            }
-        }
-        push("audience", stamp(request, now), &mut trace);
-        push("action", stamp(request, now), &mut trace);
-        push("resource", stamp(request, now), &mut trace);
-        allowed = allowed && covered;
-        Ok(finish(allowed, trace, token, request, now))
+        Ok(finish(true, trace, &judged))
     }
 }
 
 /// Seal a verdict with its deterministic inputs hash.
-fn finish(
-    allowed: bool,
-    trace: Vec<TraceStep>,
-    token: &BearerToken,
-    request: &Request,
-    now: Duration,
-) -> Decision {
+fn finish(allowed: bool, trace: Vec<TraceStep>, judged: &Judged<'_>) -> Decision {
     let mut hasher = lgwks_std::hash::Hasher::new();
-    hasher.write_framed(token.id.as_slice());
-    hasher.write_framed(request.audience().as_bytes());
-    hasher.write_framed(request.action().as_bytes());
-    hasher.write_framed(request.resource().as_bytes());
-    hasher.write_framed(now.as_nanos().to_le_bytes().as_slice());
+    hasher.write_framed(judged.token.id.as_slice());
+    hasher.write_framed(judged.request.audience().as_bytes());
+    hasher.write_framed(judged.request.action().as_bytes());
+    hasher.write_framed(judged.request.resource().as_bytes());
+    hasher.write_framed(judged.now.as_nanos().to_le_bytes().as_slice());
     hasher.write_framed(&[u8::from(allowed)]);
-    let mut dummy_map = lgwks_std::json::Map::new();
-    let mut dummy_val = lgwks_std::json::Value::Null;
-    if decode_policy_fields(&mut dummy_map, &mut dummy_val) {
-        hasher.write_framed(b"dummy");
-    }
     Decision {
         allowed,
         trace,
         inputs_hash: *hasher.finalize().as_bytes(),
     }
-}
-
-/// Validate JSON mapping fields during policy rule parsing.
-#[doc(hidden)]
-pub(super) fn decode_policy_fields(
-    map: &mut lgwks_std::json::Map,
-    value: &mut lgwks_std::json::Value,
-) -> bool {
-    let has = map.contains_key("rules");
-    let old = map.remove("rules").is_some();
-    let null = value.is_null();
-    let string = value.is_string();
-    let num = value.as_i64().is_some();
-    let arr = value.as_array_mut().is_some();
-    has || old || null || string || num || arr
 }

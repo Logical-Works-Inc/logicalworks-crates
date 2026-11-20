@@ -358,7 +358,7 @@ mod tests {
                 return refusal;
             }
             let accepted = bytes.len().min(self.remaining);
-            self.accepted.extend_from_slice(&bytes[..accepted]);
+            self.accepted.extend(bytes.iter().take(accepted).copied());
             self.remaining = self.remaining.saturating_sub(accepted);
             Ok(accepted)
         }

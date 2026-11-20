@@ -40,110 +40,33 @@ use super::JournalError;
 
 /// A narrowing conversion that saturates instead of failing.
 ///
-/// The frame grammar counts in three widths — a `u32` length prefix on the wire,
-/// a `u64` file offset, and a `usize` buffer — and every count has to cross between
-/// two of them. The question each crossing asks is always the same: *what does
-/// this store do with a number it cannot hold?* and the answer in every case here
-/// is "treat it as the largest one", because every count in this grammar is a
-/// **ceiling** or a **capacity**: a length past what the wire can name is past
-/// every possible frame, an offset past what the host can address is past the end
-/// of the file, and a count past what a `usize` can size is past every buffer this
-/// store admits. Saturating therefore reaches the refusal that is already there,
-/// where a default would reach a *smaller* answer than the input and admit work the
-/// ceiling excludes.
-///
-/// A truncating `as` cast is the wrong tool for the same reason and is forbidden
-/// workspace-wide: it would answer with a small number nobody chose, and a small
-/// number is inside every ceiling here.
-///
-/// One trait rather than a helper per width, because a second spelling of
-/// "saturate" is a second answer to the question above.
+/// Every count in this grammar (a `u32` wire length, a `u64` file offset, a
+/// `usize` buffer) is a ceiling or a capacity, so a number the target cannot hold
+/// is treated as the largest one: that reaches the refusal already there, where a
+/// truncating `as` cast would answer with a small number inside every ceiling.
 pub(crate) trait SaturatingFrom<T> {
     /// `value` narrowed into this type, or this type's ceiling when it does not fit.
     fn saturating_from(value: T) -> Self;
 }
 
-impl SaturatingFrom<usize> for u64 {
-    fn saturating_from(value: usize) -> Self {
-        // `usize` is at most 64 bits on every target this crate builds for, but the
-        // conversion is written to be correct on a wider one rather than assumed to
-        // be: a host whose index type outruns the file-offset type must still reach
-        // the ceiling, which is the refusal.
-        match u64::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_a_file_offset) => Self::MAX,
+/// One `SaturatingFrom` impl per `source => target` pair: a single spelling of
+/// "saturate".
+macro_rules! saturating_pairs {
+    ($($source:ty => $target:ty),* $(,)?) => {$(
+        impl SaturatingFrom<$source> for $target {
+            fn saturating_from(value: $source) -> Self {
+                match <$target>::try_from(value) {
+                    Ok(narrowed) => narrowed,
+                    Err(_wider_than_the_target) => Self::MAX,
+                }
+            }
         }
-    }
+    )*};
 }
 
-impl SaturatingFrom<u64> for usize {
-    fn saturating_from(value: u64) -> Self {
-        match usize::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_an_index) => Self::MAX,
-        }
-    }
-}
-
-impl SaturatingFrom<u32> for usize {
-    fn saturating_from(value: u32) -> Self {
-        match usize::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_an_index) => Self::MAX,
-        }
-    }
-}
-
-impl SaturatingFrom<usize> for u32 {
-    fn saturating_from(value: usize) -> Self {
-        match u32::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_a_length_prefix) => Self::MAX,
-        }
-    }
-}
-
-impl SaturatingFrom<usize> for u16 {
-    fn saturating_from(value: usize) -> Self {
-        // A sealed frame's tenant, bind and short lengths: each is bounded by
-        // the frame ceiling, so saturation names the ceiling the frame bound
-        // then refuses, where a truncating `as` cast would admit a small
-        // number nobody chose.
-        match u16::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_a_prefix) => Self::MAX,
-        }
-    }
-}
-
-impl SaturatingFrom<u64> for u32 {
-    fn saturating_from(value: u64) -> Self {
-        // An attempt ordinal rendered as the count a failure report carries: one
-        // past what the report can name is reported as the most it can, which
-        // overstates how far along the entry is — the side a retry budget absorbs.
-        match u32::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_a_report_count) => Self::MAX,
-        }
-    }
-}
-
-impl SaturatingFrom<u128> for u64 {
-    fn saturating_from(value: u128) -> Self {
-        match u64::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_a_nanosecond_count) => Self::MAX,
-        }
-    }
-}
-
-impl SaturatingFrom<usize> for u8 {
-    fn saturating_from(value: usize) -> Self {
-        match u8::try_from(value) {
-            Ok(narrowed) => narrowed,
-            Err(_wider_than_a_byte) => Self::MAX,
-        }
-    }
+saturating_pairs! {
+    usize => u64, u64 => usize, u32 => usize, usize => u32,
+    usize => u16, u64 => u32, u128 => u64, usize => u8,
 }
 
 /// Read as much of `buf` as the reader will give, and report how much that was.
@@ -162,9 +85,10 @@ pub(crate) fn read_exact_or_eof(
 ) -> Result<Option<usize>, JournalError> {
     let mut filled = 0usize;
     while filled < buf.len() {
-        let read = reader
-            .read(&mut buf[filled..])
-            .map_err(JournalError::Storage)?;
+        let Some(rest) = buf.get_mut(filled..) else {
+            break;
+        };
+        let read = reader.read(rest).map_err(JournalError::Storage)?;
         if read == 0 {
             break;
         }
@@ -241,7 +165,10 @@ pub(crate) fn read_prefix(
 ) -> Result<Prefix, std::io::Error> {
     let mut filled = 0usize;
     while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
+        let Some(rest) = buf.get_mut(filled..) else {
+            break;
+        };
+        match reader.read(rest) {
             Ok(0) => break,
             Ok(read) => filled = filled.saturating_add(read),
             Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {}
@@ -346,7 +273,7 @@ pub(crate) fn encode(payload_len: u32, payload: &[u8], head: &Digest) -> Vec<u8>
 /// Whatever `archive` reports, or whatever `refuse` reports for a payload past
 /// `max_frame_bytes`.
 #[cfg(feature = "wire")]
-pub(crate) fn frame_record<R, A, H, C, E>(
+pub(crate) fn frame_record<R: ?Sized, A, H, C, E>(
     record: &R,
     previous: &Digest,
     max_frame_bytes: usize,
@@ -793,7 +720,9 @@ pub(crate) mod probe {
     #[cfg(feature = "script")]
     impl Drop for Scratch {
         fn drop(&mut self) {
-            drop(std::fs::remove_file(&self.0));
+            if let Err(error) = std::fs::remove_file(&self.0) {
+                lgwks_std::trace::debug!(%error, "a scratch file was not removed");
+            }
         }
     }
 

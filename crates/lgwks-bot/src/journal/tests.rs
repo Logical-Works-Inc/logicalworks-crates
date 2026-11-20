@@ -1,5 +1,6 @@
 //! Unit tests for `journal`, moved verbatim out of journal.rs.
 
+#[cfg(test)]
 use super::*;
 use crate::effect::{
     ActionDigest, ActionId, AttemptId, EnvironmentEpoch, EnvironmentId, FlowRevision, RunId,
@@ -131,12 +132,11 @@ fn applied_journal(key: EffectKey) -> Result<MemoryJournal, Box<dyn std::error::
 }
 
 #[test]
-fn genesis_is_not_a_zero_head() -> TestResult {
+fn genesis_is_not_a_zero_head() {
     let genesis = JournalPosition::genesis();
     assert_eq!(genesis.sequence(), 0);
     assert_ne!(genesis.head(), blake3(&[]));
     assert_eq!(genesis, JournalPosition::genesis());
-    Ok(())
 }
 
 #[test]
@@ -520,8 +520,8 @@ fn recovery_lists_attempts_in_admission_order() -> TestResult {
 
     let attempts = journal.recover().attempts().to_vec();
     assert_eq!(attempts.len(), 2);
-    assert_eq!(attempts[0].key(), second);
-    assert_eq!(attempts[1].key(), first);
+    assert_eq!(attempts.first().map(|attempt| attempt.key()), Some(second));
+    assert_eq!(attempts.get(1).map(|attempt| attempt.key()), Some(first));
     Ok(())
 }
 

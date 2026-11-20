@@ -17,8 +17,8 @@ use crate::seeded_sweep;
 
 use seeded_sweep::seeded_stream;
 use seeded_sweep::{
-    SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays, fold, initial_trace,
-    next_seed,
+    SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays, fold, fold_usize,
+    initial_trace, next_seed,
 };
 
 /// A table position, as the `usize` these sweeps index their own tables with.
@@ -66,8 +66,8 @@ fn reference_tokens(pattern: &str, dialect: GlobDialect) -> Vec<RefToken> {
     let chars: Vec<char> = pattern.chars().collect();
     let mut tokens = Vec::new();
     let mut index = 0;
-    while index < chars.len() {
-        match chars[index] {
+    while let Some(&current) = chars.get(index) {
+        match current {
             '*' if chars.get(index.saturating_add(1)) == Some(&'*') => {
                 let mut run = index;
                 while chars.get(run) == Some(&'*') {
@@ -75,8 +75,8 @@ fn reference_tokens(pattern: &str, dialect: GlobDialect) -> Vec<RefToken> {
                 }
                 if dialect == GlobDialect::Strict
                     && (run.saturating_sub(index) != 2
-                        || (index != 0 && chars[index.saturating_sub(1)] != '/')
-                        || (run != chars.len() && chars[run] != '/'))
+                        || (index != 0 && chars.get(index.saturating_sub(1)) != Some(&'/'))
+                        || (run != chars.len() && chars.get(run) != Some(&'/')))
                 {
                     return Vec::new();
                 }
@@ -102,7 +102,7 @@ fn reference_tokens(pattern: &str, dialect: GlobDialect) -> Vec<RefToken> {
                 if chars.get(close) == Some(&']') {
                     close = close.saturating_add(1);
                 }
-                while close < chars.len() && chars[close] != ']' {
+                while matches!(chars.get(close), Some(&member) if member != ']') {
                     close = close.saturating_add(1);
                 }
                 if close >= chars.len() {
@@ -114,11 +114,15 @@ fn reference_tokens(pattern: &str, dialect: GlobDialect) -> Vec<RefToken> {
                     continue;
                 }
                 let mut ranges = Vec::new();
-                let inner = &chars[body..close];
+                // `close` was found at or after `body` inside `chars`, so the
+                // span exists; an empty answer reads as a refusal and fails the
+                // comparison against the shipped compiler loudly.
+                let Some(inner) = chars.get(body..close) else {
+                    return Vec::new();
+                };
                 let mut at = 0;
-                while at < inner.len() {
-                    if at.saturating_add(2) < inner.len() && inner[at.saturating_add(1)] == '-' {
-                        let (start, end) = (inner[at], inner[at.saturating_add(2)]);
+                while let Some(&member) = inner.get(at) {
+                    if let Some(&[start, '-', end, ..]) = inner.get(at..) {
                         if start > end && dialect == GlobDialect::Strict {
                             return Vec::new();
                         }
@@ -127,7 +131,7 @@ fn reference_tokens(pattern: &str, dialect: GlobDialect) -> Vec<RefToken> {
                         }
                         at = at.saturating_add(3);
                     } else {
-                        ranges.push((inner[at], inner[at]));
+                        ranges.push((member, member));
                         at = at.saturating_add(1);
                     }
                 }
@@ -157,21 +161,21 @@ fn class_accepts(ranges: &[(char, char)], negated: bool, value: char) -> bool {
 /// seeded sweep compares results rather than re-running the same algorithm.
 fn reference_matches(tokens: &[RefToken], path: &[char]) -> bool {
     let mut reachable = vec![false; path.len().saturating_add(1)];
-    reachable[0] = true;
+    mark(&mut reachable, 0);
     for token in tokens {
         let mut next = vec![false; path.len().saturating_add(1)];
         match *token {
             RefToken::Literal(literal) => {
-                for (offset, value) in path.iter().enumerate() {
-                    if reachable[offset] && *value == literal {
-                        next[offset.saturating_add(1)] = true;
+                for (offset, (&live, &value)) in reachable.iter().zip(path).enumerate() {
+                    if live && value == literal {
+                        mark(&mut next, offset.saturating_add(1));
                     }
                 }
             }
             RefToken::Question => {
-                for (offset, value) in path.iter().enumerate() {
-                    if reachable[offset] && *value != '/' {
-                        next[offset.saturating_add(1)] = true;
+                for (offset, (&live, &value)) in reachable.iter().zip(path).enumerate() {
+                    if live && value != '/' {
+                        mark(&mut next, offset.saturating_add(1));
                     }
                 }
             }
@@ -179,31 +183,57 @@ fn reference_matches(tokens: &[RefToken], path: &[char]) -> bool {
                 ref ranges,
                 negated,
             } => {
-                for (offset, value) in path.iter().enumerate() {
-                    if reachable[offset] && *value != '/' && class_accepts(ranges, negated, *value)
-                    {
-                        next[offset.saturating_add(1)] = true;
+                for (offset, (&live, &value)) in reachable.iter().zip(path).enumerate() {
+                    if live && value != '/' && class_accepts(ranges, negated, value) {
+                        mark(&mut next, offset.saturating_add(1));
                     }
                 }
             }
             RefToken::Star => {
-                for offset in 0..=path.len() {
-                    let previous = offset.saturating_sub(1);
-                    let extend = offset > 0 && next[previous] && path[previous] != '/';
-                    next[offset] = reachable[offset] || extend;
+                // `before` is whether the row's previous offset is reachable.
+                let mut before = false;
+                for (offset, &live) in reachable.iter().enumerate() {
+                    let extend =
+                        offset > 0 && before && path.get(offset.saturating_sub(1)) != Some(&'/');
+                    before = live || extend;
+                    if before {
+                        mark(&mut next, offset);
+                    }
                 }
             }
             RefToken::DoubleStar => {
                 let mut any = false;
-                for offset in 0..=path.len() {
-                    any |= reachable[offset];
-                    next[offset] = any;
+                for (offset, &live) in reachable.iter().enumerate() {
+                    any |= live;
+                    if any {
+                        mark(&mut next, offset);
+                    }
                 }
             }
         }
         reachable = next;
     }
-    reachable[path.len()]
+    reachable.get(path.len()) == Some(&true)
+}
+
+/// Marks offset `at` of a reachability row.
+fn mark(row: &mut [bool], at: usize) {
+    if let Some(slot) = row.get_mut(at) {
+        *slot = true;
+    }
+}
+
+/// The entry of `table` a draw names, with `first` its first entry.
+///
+/// The draw is taken below the table's length, so the last of the first
+/// `draw + 1` entries is the one it names; the lookup is total, with no index to
+/// leave the table.
+fn pick<T: Copy>(table: &[T], first: T, draw: u64) -> T {
+    let position = table_index(draw.rem_euclid(draw_bound(table.len())));
+    table
+        .iter()
+        .take(position.saturating_add(1))
+        .fold(first, |_, &entry| entry)
 }
 
 /// Runs the seeded sweep and returns its deterministic trace.
@@ -213,25 +243,30 @@ fn run_seeded_sweep(seed: u64) -> u64 {
 
     let alphabets = ["ab/", "ab/?", "ab/éঈ😀", ".-_", "xyz/[]"];
     let path_fragments = ["a", "b", "x/y", "", "é", "😀", ".", "/", "a/b/c", "-"];
+    let meta = ['*', '?', '[', ']', '/'];
+    let [first_alphabet, ..] = alphabets;
+    let [first_fragment, ..] = path_fragments;
+    let [first_meta, ..] = meta;
 
     for _ in 0..1_500 {
-        let alphabet: Vec<char> = alphabets[table_index(next_seed(&mut state).rem_euclid(5))]
+        let alphabet: Vec<char> = pick(&alphabets, first_alphabet, next_seed(&mut state))
             .chars()
             .collect();
         // The pattern is a seeded run of alphabet scalars.
         let pattern_length = table_index(next_seed(&mut state).rem_euclid(8)).saturating_add(1);
         let mut pattern = String::new();
-        for _ in 0..pattern_length {
-            let pick =
-                alphabet[table_index(next_seed(&mut state).rem_euclid(draw_bound(alphabet.len())))];
-            pattern.push(pick);
+        // Every alphabet above holds scalars; an empty one would leave the
+        // pattern empty, which the reference and the compiler then agree on.
+        if let Some(&first_scalar) = alphabet.first() {
+            for _ in 0..pattern_length {
+                pattern.push(pick(&alphabet, first_scalar, next_seed(&mut state)));
+            }
         }
         // Inject the wildcard and class metacharacters at a seeded position.
-        let meta = ['*', '?', '[', ']', '/'];
         let inject_at = table_index(
             next_seed(&mut state).rem_euclid(draw_bound(pattern.chars().count().saturating_add(1))),
         );
-        let inject = meta[table_index(next_seed(&mut state).rem_euclid(5))];
+        let inject = pick(&meta, first_meta, next_seed(&mut state));
         let pattern: String = {
             let mut chars: Vec<char> = pattern.chars().collect();
             chars.insert(inject_at.min(chars.len()), inject);
@@ -244,8 +279,8 @@ fn run_seeded_sweep(seed: u64) -> u64 {
             GlobDialect::Legacy
         };
         let path: String = {
-            let first = path_fragments[table_index(next_seed(&mut state).rem_euclid(10))];
-            let second = path_fragments[table_index(next_seed(&mut state).rem_euclid(10))];
+            let first = pick(&path_fragments, first_fragment, next_seed(&mut state));
+            let second = pick(&path_fragments, first_fragment, next_seed(&mut state));
             format!("{first}{second}")
         };
 
@@ -265,8 +300,11 @@ fn run_seeded_sweep(seed: u64) -> u64 {
 
         let compiled = match compiled {
             Ok(value) => value,
-            Err(_) => {
+            Err(refusal) => {
+                // A refusal the reference tokenized is folded with its text's
+                // length, so two seeds that refuse differently diverge.
                 fold(&mut trace, u64::MAX);
+                fold_usize(&mut trace, refusal.to_string().len());
                 continue;
             }
         };
@@ -323,7 +361,7 @@ fn different_seeds_produce_different_traces() {
 }
 
 #[test]
-fn the_separator_is_never_consumed_by_any_single_component() -> Result<(), PatternError> {
+fn the_separator_is_never_consumed_by_any_single_component() {
     // `/` is excluded from `?`, `*`, and every class including a negated one, in
     // both dialects and however the class is spelled. `**` is deliberately
     // absent: crossing the separator is what it exists to do.
@@ -346,15 +384,15 @@ fn the_separator_is_never_consumed_by_any_single_component() -> Result<(), Patte
         "a/**/b needs at least an `a` before the separator"
     );
     assert!(matches_slash("/", '/', GlobDialect::Strict));
-    Ok(())
 }
 
 /// Whether a pattern matches the bare separator as its whole path.
 fn matches_slash(pattern: &str, path: char, dialect: GlobDialect) -> bool {
-    match GlobPattern::compile_with_dialect(pattern, dialect) {
-        Ok(compiled) => compiled.is_match(&path.to_string()),
-        Err(_) => false,
-    }
+    // A refused pattern matches nothing, which is what this question asks.
+    let Ok(compiled) = GlobPattern::compile_with_dialect(pattern, dialect) else {
+        return false;
+    };
+    compiled.is_match(&path.to_string())
 }
 
 #[test]

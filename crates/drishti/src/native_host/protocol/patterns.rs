@@ -272,8 +272,8 @@ fn decode_predicate_depth(raw: &JsonValue, depth: usize) -> Option<PayloadPredic
     if let Some(members) = map.get("in") {
         if let Some(items) = members.array_value()
             && items.len() == 2
-            && let Some(keypath) = items[0].string_value()
-            && let Some(values) = items[1].array_value()
+            && let Some(keypath) = items.first().and_then(JsonValue::string_value)
+            && let Some(values) = items.get(1).and_then(JsonValue::array_value)
         {
             return Some(PayloadPredicate::is_in(keypath.clone(), values.clone()));
         }
@@ -298,11 +298,12 @@ fn decode_pair_clause(
 ) -> Option<Option<(String, JsonValue)>> {
     let candidate = map.get(operator)?;
     let items = candidate.array_value()?;
-    let slice = items.as_slice();
-    if slice.len() == 2
-        && let Some(keypath) = slice[0].string_value()
+    if items.len() == 2
+        && let Some(key) = items.first()
+        && let Some(value) = items.get(1)
+        && let Some(keypath) = key.string_value()
     {
-        return Some(Some((keypath.clone(), slice[1].clone())));
+        return Some(Some((keypath.clone(), value.clone())));
     }
     Some(None)
 }

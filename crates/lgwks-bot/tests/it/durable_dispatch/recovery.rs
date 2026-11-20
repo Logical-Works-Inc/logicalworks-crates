@@ -2,6 +2,7 @@
 //! process, and what a reconstructed bot does with the record it finds.
 
 use super::*;
+use crate::sim::nth;
 
 /// The intent and the prepared dispatch are both committed before the effect
 /// runs, and the outcome is committed after it.
@@ -53,29 +54,28 @@ fn the_dispatch_intent_is_recorded_before_the_effect_leaves_the_process() -> Tes
         "the outcome is committed after the handoff, so the run must end with exactly one \
          more event than the action saw: {after:?}"
     );
-    assert_eq!(after[0].key(), at_handoff);
-    assert_eq!(after[1].key(), at_handoff);
-    assert_eq!(after[2].key(), at_handoff);
+    for event in &after {
+        assert_eq!(event.key(), at_handoff);
+    }
+    let outcome = nth(&after, 2)?;
     assert_eq!(
-        after[2].kind(),
+        outcome.kind(),
         EventKind::OutcomeObserved,
         "the third append is what the attempt became, and it is the only one that may \
          follow the handoff"
     );
     assert!(
         matches!(
-            after[2],
+            *outcome,
             EffectEvent::OutcomeObserved {
                 evidence: EffectEvidence::Applied,
                 ..
             }
         ),
-        "an action that returned Ok landed, and the journal must say so: {:?}",
-        after[2]
+        "an action that returned Ok landed, and the journal must say so: {outcome:?}"
     );
     Ok(())
 }
-
 /// A bot rebuilt against a journal refuses to begin an attempt the journal
 /// records as dispatched with no outcome, and reports it instead.
 ///
@@ -107,9 +107,9 @@ fn a_restart_holds_an_uncertain_attempt_rather_than_resending_it() -> TestResult
         "an indeterminate effect records no outcome, so the journal holds exactly the \
          intent and the prepared dispatch: {at_rest:?}"
     );
-    let key = at_rest[0].key();
+    let key = nth(&at_rest, 0)?.key();
     assert_eq!(
-        at_rest[1].key(),
+        nth(&at_rest, 1)?.key(),
         key,
         "both events are about the one attempt"
     );
@@ -164,18 +164,19 @@ fn a_restart_holds_an_uncertain_attempt_rather_than_resending_it() -> TestResult
         1,
         "the held attempt must be reported, not silently absorbed: {held:?}"
     );
+    let entry = nth(&held, 0)?;
     assert_eq!(
-        held[0].key(),
+        entry.key(),
         Some(key),
         "the report a caller acts on must name the same key the tick refused with"
     );
     assert!(
         matches!(
-            held[0].hold(),
+            entry.hold(),
             TransitionHold::UnsettledByRecovery { action } if *action == key.action()
         ),
         "the pending report must agree with the refusal about why the entry is held: {:?}",
-        held[0].hold()
+        entry.hold()
     );
     Ok(())
 }
@@ -319,11 +320,11 @@ fn a_live_settlement_is_journaled_before_it_is_acknowledged() -> TestResult {
         2,
         "intent and prepared dispatch: {at_rest:?}"
     );
-    let key = at_rest[0].key();
+    let key = nth(&at_rest, 0)?.key();
 
     let held = first.pending();
     assert_eq!(held.len(), 1, "one live unknown: {held:?}");
-    assert_eq!(held[0].key(), Some(key));
+    assert_eq!(nth(&held, 0)?.key(), Some(key));
 
     // Live settlement. The call must write the fact down, not only move memory.
     first
@@ -335,16 +336,16 @@ fn a_live_settlement_is_journaled_before_it_is_acknowledged() -> TestResult {
         3,
         "the settlement is a committed event, not an in-memory ack: {after:?}"
     );
+    let settlement = nth(&after, 2)?;
     assert!(
         matches!(
-            after[2],
+            *settlement,
             EffectEvent::OutcomeObserved {
                 evidence: EffectEvidence::Applied,
                 ..
             }
         ),
-        "the third event is the settlement fact: {:?}",
-        after[2]
+        "the third event is the settlement fact: {settlement:?}"
     );
 
     // Reconstruct against the same journal. The settled attempt must not come

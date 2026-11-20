@@ -49,7 +49,7 @@ fn tree(seed: u64) -> Result<Tree, DrawError> {
 /// The issue's own case: the second of four targets refuses, and the third
 /// and fourth are still signalled; the refusal is still the answer.
 #[test]
-fn a_refusal_mid_sweep_still_signals_every_later_target() -> Outcome {
+fn a_refusal_mid_sweep_still_signals_every_later_target() {
     let mut signalled = Vec::new();
     let answer = signal_every([10, 11, 12, 13], |pid| {
         signalled.push(pid);
@@ -64,7 +64,6 @@ fn a_refusal_mid_sweep_still_signals_every_later_target() -> Outcome {
         Err(io::ErrorKind::PermissionDenied),
         "the refusal is reported, not swallowed"
     );
-    Ok(())
 }
 
 /// Every seeded tree is signalled whole, once per target, in order, and the

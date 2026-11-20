@@ -123,16 +123,68 @@ enforce = true
 repository = \"\"
 ";
 
+/// Why `init` wrote no register.
+#[derive(Debug)]
+pub(crate) enum InitError {
+    /// A register is already there, and may carry a human's approvals.
+    Exists {
+        /// The register's path.
+        path: PathBuf,
+    },
+    /// The register's parent directory could not be made.
+    CreateDirectory {
+        /// The directory.
+        path: PathBuf,
+        /// What the operating system said.
+        cause: io::Error,
+    },
+    /// The register could not be written.
+    Write {
+        /// The register's path.
+        path: PathBuf,
+        /// What the operating system said.
+        cause: io::Error,
+    },
+}
+
+impl std::fmt::Display for InitError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Exists { ref path } => write!(
+                formatter,
+                "{} already exists; init will not overwrite it",
+                path.display()
+            ),
+            Self::CreateDirectory {
+                ref path,
+                ref cause,
+            } => write!(formatter, "cannot create {}: {cause}", path.display()),
+            Self::Write {
+                ref path,
+                ref cause,
+            } => write!(formatter, "cannot write {}: {cause}", path.display()),
+        }
+    }
+}
+
+impl std::error::Error for InitError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::Exists { .. } => None,
+            Self::CreateDirectory { ref cause, .. } | Self::Write { ref cause, .. } => Some(cause),
+        }
+    }
+}
+
 /// Refuses when `init` would overwrite an existing register.
 ///
 /// An existing register may carry a human's approvals; `init` never clobbers
-/// one. The caller reports the returned message as a refusal.
-pub(crate) fn check_target_exists(target: &Path) -> Result<(), String> {
+/// one. The caller reports the returned error as a refusal.
+pub(crate) fn check_target_exists(target: &Path) -> Result<(), InitError> {
     if target.exists() {
-        Err(format!(
-            "{} already exists; init will not overwrite it",
-            target.display()
-        ))
+        Err(InitError::Exists {
+            path: target.to_path_buf(),
+        })
     } else {
         Ok(())
     }
@@ -142,34 +194,38 @@ pub(crate) fn check_target_exists(target: &Path) -> Result<(), String> {
 ///
 /// A path with no parent (a bare filename) needs no directory and is not an
 /// error; `create_dir_all` is idempotent, so an existing directory is fine.
-pub(crate) fn create_parent_dirs(target: &Path) -> Result<(), String> {
+pub(crate) fn create_parent_dirs(target: &Path) -> Result<(), InitError> {
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("cannot create {}: {error}", parent.display()))
+        std::fs::create_dir_all(parent).map_err(|cause| InitError::CreateDirectory {
+            path: parent.to_path_buf(),
+            cause,
+        })
     } else {
         Ok(())
     }
 }
 
 /// Writes the starter register, refusing if one is already present.
-pub(crate) fn prepare_init_file(target: &Path) -> Result<(), String> {
+pub(crate) fn prepare_init_file(target: &Path) -> Result<(), InitError> {
     check_target_exists(target)?;
     create_parent_dirs(target)?;
-    std::fs::write(target, STARTER)
-        .map_err(|error| format!("cannot write {}: {error}", target.display()))
+    std::fs::write(target, STARTER).map_err(|cause| InitError::Write {
+        path: target.to_path_buf(),
+        cause,
+    })
 }
 
 /// Writes a fail-closed register at the repository root.
 pub(crate) fn run_init(
-    path: Option<PathBuf>,
+    path: Option<&Path>,
     out: &mut impl io::Write,
     err: &mut impl io::Write,
 ) -> io::Result<ExitCode> {
-    let start = subject_path(path.as_deref());
+    let start = subject_path(path);
     let root = unwrap_or_refuse!(resolve_repository_root(&start), err);
     let target = root.join(CONTRACT_PATH);
-    if let Err(msg) = prepare_init_file(&target) {
-        return refuse(&msg, err);
+    if let Err(error) = prepare_init_file(&target) {
+        return refuse(&error, err);
     }
     writeln!(out, "OK  initialized {}", target.display())?;
     Ok(ExitCode::SUCCESS)

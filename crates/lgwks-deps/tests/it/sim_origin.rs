@@ -19,10 +19,18 @@ use sim::{EmptyTable, Rng};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// A JSON string literal for `value`, or JSON `null` when it is absent.
+fn json_text(value: Option<&str>) -> String {
+    match value {
+        Some(text) => format!("\"{text}\""),
+        None => "null".to_owned(),
+    }
+}
+
 /// One `app` → `engine` edge for `source`/`path` through the public parser.
 fn edge(source: Option<&str>, path: Option<&str>) -> Result<DirectEdge, Box<dyn Error>> {
-    let source_json = source.map_or("null".to_owned(), |value| format!("\"{value}\""));
-    let path_json = path.map_or("null".to_owned(), |value| format!("\"{value}\""));
+    let source_json = json_text(source);
+    let path_json = json_text(path);
     let document = format!(
         r#"{{"packages":[{{"id":"app","name":"app","repository":null,"manifest_path":"/repo/Cargo.toml","dependencies":[{{"name":"engine","source":{source_json},"req":"1.0","kind":null,"optional":false,"path":{path_json}}}]}},{{"id":"lic-engine","name":"engine","license":"MIT OR Apache-2.0","manifest_path":"/dep/Cargo.toml","dependencies":[]}}],"workspace_members":["app"]}}"#
     );
@@ -77,7 +85,7 @@ struct OriginTables<'a> {
 ///
 /// Every draw for the case happens here so the run loop states one step rather
 /// than a chain, and so a refusal names the draw that refused.
-fn draw_case(rng: &mut Rng, tables: OriginTables<'_>) -> Result<OriginCase, Box<dyn Error>> {
+fn draw_case(rng: &mut Rng, tables: &OriginTables<'_>) -> Result<OriginCase, Box<dyn Error>> {
     let family = rng.below(FAMILIES);
     let (approved, observed, edges) = match family {
         0 => {
@@ -162,7 +170,7 @@ fn run(seed: u64) -> Result<(u64, usize, usize), Box<dyn Error>> {
             approved,
             observed,
             edges,
-        } = draw_case(&mut rng, case)?;
+        } = draw_case(&mut rng, &case)?;
         let class = if approved.starts_with("git+") {
             "git"
         } else if approved.starts_with("registry+") {

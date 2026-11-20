@@ -17,7 +17,7 @@ use crate::rng::{SplitMix64, TRACE_SEED, mix};
 
 /// Which faults a scenario injects.
 #[derive(Clone, Copy, Debug)]
-pub struct Faults {
+pub(crate) struct Faults {
     /// Non-finite, negative and huge frame deltas.
     pub malformed_deltas: bool,
     /// NaN, infinite, negative and huge option values.
@@ -30,7 +30,7 @@ pub struct Faults {
 
 impl Faults {
     /// Every fault on.
-    pub const ALL: Self = Self {
+    pub(crate) const ALL: Self = Self {
         malformed_deltas: true,
         hostile_options: true,
         device_faults: true,
@@ -39,7 +39,7 @@ impl Faults {
 }
 
 /// A simulated tenant: one runtime and the state the harness tracks for it.
-pub struct Tenant {
+pub(crate) struct Tenant {
     /// The runtime under test.
     runtime: Runtime,
     /// Its budgets, for invariant checks.
@@ -68,7 +68,7 @@ pub struct Tenant {
 
 impl Tenant {
     /// A tenant seeded by `seed`, hosting only `effects`.
-    pub fn new(seed: u64, effects: &[Effect], faults: Faults) -> Self {
+    pub(crate) fn new(seed: u64, effects: &[Effect], faults: Faults) -> Self {
         let mut rng = SplitMix64::new(seed);
         let mut budgets = Budgets::conservative();
         if faults.tight_budgets && rng.below(2) == 0 {
@@ -99,27 +99,27 @@ impl Tenant {
     }
 
     /// The trace hash so far.
-    pub const fn trace(&self) -> u64 {
+    pub(crate) const fn trace(&self) -> u64 {
         self.trace
     }
 
     /// Presents refused so far.
-    pub const fn refusals(&self) -> u64 {
+    pub(crate) const fn refusals(&self) -> u64 {
         self.refusals
     }
 
     /// The most recent present refusal, if any.
-    pub const fn last_refusal(&self) -> Option<RuntimeError> {
+    pub(crate) const fn last_refusal(&self) -> Option<RuntimeError> {
         self.last_refusal
     }
 
     /// Option sets refused as out of domain so far.
-    pub const fn rejected_options(&self) -> u64 {
+    pub(crate) const fn rejected_options(&self) -> u64 {
         self.rejected_options
     }
 
     /// The runtime, for scenario-specific checks.
-    pub const fn runtime(&self) -> &Runtime {
+    pub(crate) const fn runtime(&self) -> &Runtime {
         &self.runtime
     }
 
@@ -151,14 +151,14 @@ impl Tenant {
     }
 
     /// Run `count` seeded operations.
-    pub fn run(&mut self, count: u64) {
+    pub(crate) fn run(&mut self, count: u64) {
         for _ in 0..count {
             self.operate();
         }
     }
 
     /// Run one seeded operation and check every invariant.
-    pub fn operate(&mut self) {
+    pub(crate) fn operate(&mut self) {
         self.operations = self.operations.wrapping_add(1);
         let roll = self.rng.below(1000);
         let host = self.rng.pick(&self.hosts);
@@ -383,8 +383,12 @@ impl Tenant {
         let after = self.runtime.totals();
         let receipts = report.receipts();
         let uploads = report.uploads();
-        assert_eq!(report.epoch, self.runtime.epoch(), "report epoch is stale");
-        if report.idle {
+        assert_eq!(
+            report.epoch(),
+            self.runtime.epoch(),
+            "report epoch is stale"
+        );
+        if report.idle() {
             assert!(
                 receipts.is_empty() && uploads.is_empty(),
                 "idle frame carried work"
@@ -438,25 +442,28 @@ impl Tenant {
                 "host frame exceeded MAX_SHAPES"
             );
             assert!(
-                frame.alpha.is_finite() && (0.0..=1.0).contains(&frame.alpha),
+                frame.alpha().is_finite() && (0.0..=1.0).contains(&frame.alpha()),
                 "alpha out of range"
             );
-            assert!(frame.blur.is_finite() && frame.blur >= 0.0, "blur invalid");
-            assert!(frame.displacement.is_finite(), "displacement not finite");
+            assert!(
+                frame.blur().is_finite() && frame.blur() >= 0.0,
+                "blur invalid"
+            );
+            assert!(frame.displacement().is_finite(), "displacement not finite");
             for shape in frame.shapes() {
                 assert!(finite(*shape), "non-finite geometry {shape:?}");
             }
             if self.reduce_motion {
                 assert!(
-                    frame.blur.abs() < 1e-12
-                        && frame.displacement.abs() < 1e-12
-                        && (frame.alpha - 1.0).abs() < 1e-12,
+                    frame.blur().abs() < 1e-12
+                        && frame.displacement().abs() < 1e-12
+                        && (frame.alpha() - 1.0).abs() < 1e-12,
                     "reduced motion shipped a mid-liquid frame"
                 );
             }
         }
         for receipt in receipts {
-            assert_eq!(receipt.epoch, report.epoch, "receipt from another epoch");
+            assert_eq!(receipt.epoch, report.epoch(), "receipt from another epoch");
             if receipt.upload_bytes > 0 {
                 assert!(
                     uploads.iter().any(|upload| upload.host == receipt.host),
@@ -514,7 +521,7 @@ fn error_code(error: RuntimeError) -> u64 {
 }
 
 /// Run one seed to completion and return its trace hash.
-pub fn trace_of(seed: u64, effects: &[Effect], faults: Faults, operations: u64) -> u64 {
+pub(crate) fn trace_of(seed: u64, effects: &[Effect], faults: Faults, operations: u64) -> u64 {
     let mut tenant = Tenant::new(seed, effects, faults);
     tenant.run(operations);
     tenant.trace()

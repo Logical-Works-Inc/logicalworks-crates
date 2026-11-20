@@ -7,7 +7,9 @@
 //! proved evening. `the_smoke_binary_proves_the_evening` (`tests/it/estate.rs`) runs it on every
 //! test run and reads the same exit.
 
+use std::future::Future;
 use std::io::Write as _;
+use std::pin::Pin;
 
 use lgwks_bot::app_error::BotError;
 use lgwks_bot::cap::Cap;
@@ -16,10 +18,12 @@ use lgwks_bot::error::KernelError;
 use lgwks_bot::gate::GrantReplacement;
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::rt::estate::{Estate, EstateError, EstateReport};
+use lgwks_bot::rt::runtime::Handle;
 use lgwks_bot::rt::supervise::TaskId;
+use lgwks_bot::script::{FlowError, Scope};
 use lgwks_bot::spec::Bot;
 use lgwks_bot::spec::EffectScope;
-use lgwks_bot::task::{Disposition, task};
+use lgwks_bot::task::{Disposition, Report, Task, task};
 
 /// The script vocabulary on the shipped binary: what each runtime answers
 /// through the public interface. A submodule rather than inline code, so the
@@ -64,28 +68,12 @@ mod sealed_journal;
 #[path = "estate/doors.rs"]
 mod doors;
 
-/// The `run_process` result door, read as a downstream caller reads it.
-async fn read_process_result(
-    supervisor: &mut lgwks_bot::rt::supervise::Supervisor,
-) -> Option<String> {
-    use lgwks_bot::rt::process::{CapturedStream, ProcessRun, ProcessSpec};
-    let run: ProcessRun = match supervisor
-        .run_process(&ProcessSpec::new("/usr/bin/true"))
-        .await
-    {
-        Ok(run) => run,
-        Err(err) => return Some(format!("run_process refused a plain program: {err}")),
-    };
-    let stdout: &CapturedStream = run.stdout();
-    drop(stdout.frames(64));
-    let clean = run.exit_code() == Some(0)
-        && run.signal().is_none()
-        && !run.deadline_fired()
-        && stdout.total_bytes() == 0
-        && stdout.lossy_text().is_empty()
-        && stdout.retained_capacity() == 0;
-    (!clean).then(|| "a plain program must exit zero with no output".to_owned())
-}
+/// The supervisor's process doors, proved on the shipped artifact rather than
+/// trusted from the tests: record-then-release gating, the release handshake,
+/// and every deny-builder refusal arm.
+#[cfg(all(unix, feature = "process"))]
+#[path = "estate/process_doors.rs"]
+mod process_doors;
 
 /// One line to the caller's locked stdout; a write error reaches `main` as an I/O error.
 fn say(line: &str) -> std::io::Result<()> {
@@ -106,187 +94,17 @@ struct RunCheck {
 /// The smoke's doubles, its error and its two directory helpers.
 #[path = "estate/smoke.rs"]
 mod smoke;
-use smoke::{SmokeAction, SmokeError, SmokeSource, make_dir, remove_dir};
+use smoke::{SmokeAction, SmokeError, SmokeSource};
 
-/// The supervisor's process doors, proved on the shipped artifact rather than
-/// trusted from the tests: record-then-release gating, the release handshake,
-/// and every deny-builder refusal arm.
-///
-/// A gated lane that ran before its identity was recorded, an empty denial
-/// the builders accepted, or a profile a control byte slipped into would fail
-/// here rather than in a coordinator. Every line below is asserted, so a
-/// door that stops working fails the smoke.
-#[cfg(all(unix, feature = "process"))]
-async fn process_doors(mismatch: &mut Option<String>) -> std::io::Result<()> {
-    use lgwks_bot::rt::process::{Confinement, DenyBeneath, ProcessSpec, SandboxProfile};
-    use lgwks_bot::rt::supervise::{GatedIdentifiedSpawn, Supervisor, TaskOutcome};
-    use lgwks_bot::rt::time::{Instant, sleep};
-    use std::time::Duration;
+/// The probe's body as a function pointer: a scope and a number in, one more out.
+type ProbeBody = fn(Scope, u64) -> Pin<Box<dyn Future<Output = Result<u64, FlowError>>>>;
 
-    // The deny builders refuse what they cannot confine, before any fork.
-    if DenyBeneath::new().validate().is_ok() {
-        record(
-            mismatch,
-            "an empty denial list must not validate".to_owned(),
-        );
-    }
-    let mut many = DenyBeneath::new();
-    for _ in 0..=DenyBeneath::MAX_PATHS {
-        many.deny("/srv/denied");
-    }
-    if many.validate().is_ok() {
-        record(
-            mismatch,
-            format!(
-                "a denial past {} paths must not validate",
-                DenyBeneath::MAX_PATHS
-            ),
-        );
-    }
-    let mut overlong = DenyBeneath::new();
-    overlong.deny(format!("/{}", "x".repeat(DenyBeneath::MAX_PATH_BYTES)));
-    if overlong.validate().is_ok() {
-        record(
-            mismatch,
-            "a denial past the path bound must not validate".to_owned(),
-        );
-    }
-    let mut one = DenyBeneath::new();
-    one.deny("/srv/denied");
-    if one.validate().is_err() {
-        record(mismatch, "one absolute denial must validate".to_owned());
-    }
-    let Confinement::DenyBeneath(denied) = Confinement::deny_beneath(["/srv/denied"]) else {
-        record(
-            mismatch,
-            "deny_beneath must build the deny variant".to_owned(),
-        );
-        return Ok(());
-    };
-    if denied.validate().is_err() {
-        record(mismatch, "the built denial must validate".to_owned());
-    }
-    // The profile builders refuse what could not confine: empty sources and
-    // control bytes, eagerly at construction and again at validation.
-    if SandboxProfile::try_new(String::new()).is_ok() || SandboxProfile::try_new("a\x01b").is_ok() {
-        record(mismatch, "an invalid profile must not validate".to_owned());
-    }
-    if let Err(error) = SandboxProfile::try_new("(version 1)(allow default)") {
-        record(mismatch, format!("a plain profile must validate: {error}"));
-    }
-    let mut profile = SandboxProfile::allow_default();
-    if profile.validate().is_err() {
-        record(mismatch, "the default profile must validate".to_owned());
-    }
-    // A denial names the resolved directory, quoted for the profile: the
-    // smoke's own scratch tree stands in for a coordinator's state.
-    // A denial names the resolved directory, so the smoke mints a fresh one
-    // with the estate's own entropy source rather than naming a fixed path.
-    let unique = lgwks_std::random::bytes::<8>().map_err(std::io::Error::other)?;
-    let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
-    let deny_dir = std::env::temp_dir().join(format!("lgwks-estate-smoke-deny-{hex}"));
-    let denied = deny_dir.join("denied");
-    make_dir(&denied)
-        .map_err(|error| std::io::Error::other(format!("the smoke denied dir failed: {error}")))?;
-    let denied_read = profile.deny_read_beneath(&denied);
-    remove_dir(&deny_dir);
-    if let Err(error) = denied_read {
-        record(
-            mismatch,
-            format!("a real directory must be deniable: {error}"),
-        );
-    } else if !profile.source().contains("(deny file-read*") {
-        record(
-            mismatch,
-            format!(
-                "the denial is missing from the profile: {:?}",
-                profile.source()
-            ),
-        );
-    }
-    // A gated lane holds its payload until the identity is recorded: the
-    // release below stands in for the durable write, and the assertions
-    // around it are the record-then-release order the coordinator keeps.
-    let mut supervisor = Supervisor::new(1);
-    let mut spec = ProcessSpec::new("/usr/bin/true");
-    if let Ok((reader, _writer)) = std::io::pipe() {
-        spec.inherit_fd(std::os::fd::OwnedFd::from(reader));
-        if spec.inherited_fd_count() != 1 {
-            record(
-                mismatch,
-                "one inherited descriptor must count as one".to_owned(),
-            );
-        }
-        if spec.inherited_raw_fds().len() != 1 {
-            record(
-                mismatch,
-                "one inherited descriptor must list as one raw fd".to_owned(),
-            );
-        }
-    }
-    let mut spawned: GatedIdentifiedSpawn =
-        match supervisor.spawn_process_identified_gated(&spec).await {
-            Ok(spawned) => spawned,
-            Err(error) => {
-                record(mismatch, format!("the gated spawn was refused: {error}"));
-                return Ok(());
-            }
-        };
-    if spawned.is_released() {
-        record(mismatch, "a new gate must read as unreleased".to_owned());
-    }
-    if spawned.leader().pid() <= 0 {
-        record(
-            mismatch,
-            "the identity must be readable while the payload waits".to_owned(),
-        );
-    }
-    if let Err(error) = spawned.release().await {
-        record(
-            mismatch,
-            format!("the gate must release once the record is durable: {error}"),
-        );
-        return Ok(());
-    }
-    if !spawned.is_released() {
-        record(mismatch, "a released gate must read as released".to_owned());
-    }
-    if let Err(error) = spawned.release().await {
-        record(
-            mismatch,
-            format!("a second release must be a no-op, not {error}"),
-        );
-    }
-    let task = spawned.task();
-    let deadline = Instant::now()
-        .checked_add(Duration::from_secs(10))
-        .ok_or_else(|| std::io::Error::other("the gate drain deadline overflowed the clock"))?;
-    let outcome = loop {
-        supervisor.reap();
-        if let Some(outcome) = supervisor.next_report() {
-            break outcome;
-        }
-        if Instant::now() >= deadline {
-            record(mismatch, "the released payload never reported".to_owned());
-            return Ok(());
-        }
-        sleep(Duration::from_millis(1)).await;
-    };
-    if !matches!(outcome, TaskOutcome::Completed { .. }) || outcome.task() != task {
-        record(
-            mismatch,
-            format!("the released payload must complete under its own task, got {outcome:?}"),
-        );
-    }
-    if let Some(problem) = read_process_result(&mut supervisor).await {
-        record(mismatch, problem);
-    }
-    say(&format!(
-        "process doors: gated lane completed under task {}",
-        task.get()
-    ))
-    .map_err(|error| std::io::Error::other(format!("the process doors line failed: {error}")))?;
-    Ok(())
+/// The probe task every tier runs.
+type Probe = Task<ProbeBody>;
+
+/// The probe's body: one more than its input.
+fn probe_body(_scope: Scope, input: u64) -> Pin<Box<dyn Future<Output = Result<u64, FlowError>>>> {
+    Box::pin(async move { Ok(input.saturating_add(1)) })
 }
 
 /// Record the first deviation and keep it: the first mismatch is the root cause, and later ones
@@ -295,6 +113,12 @@ fn record(mismatch: &mut Option<String>, message: String) {
     if mismatch.is_none() {
         *mismatch = Some(message);
     }
+}
+
+/// Eight random bytes as hex, the suffix that keeps one smoke's scratch names its own.
+fn unique_hex() -> std::io::Result<String> {
+    let unique = lgwks_std::random::bytes::<8>().map_err(std::io::Error::other)?;
+    Ok(unique.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// The smoke's scratch directory, removed on every exit — an early `?` return included.
@@ -309,35 +133,85 @@ impl Drop for Scratch {
     }
 }
 
-/// Run one named sub-command, or the whole estate smoke when none is named.
-fn main() -> Result<(), SmokeError> {
+/// The sub-command the arguments name, run; `None` when they name none and the smoke is the job.
+fn subcommand() -> Option<Result<(), SmokeError>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if let Some((first, rest)) = args.split_first() {
-        match first.as_str() {
-            "serve" => {
-                return serve_ref::run(rest).map_err(|cause| SmokeError::command("serve", &cause));
-            }
-            "apps" => return apps::run(rest).map_err(|cause| SmokeError::command("apps", &cause)),
-            "approvals" => {
-                let stdout = std::io::stdout();
-                return approvals::run(rest, &mut stdout.lock())
-                    .map_err(|cause| SmokeError::command("approvals", &cause));
-            }
-            "sealed" => {
-                let stdout = std::io::stdout();
-                return sealed::run(rest, &mut stdout.lock())
-                    .map_err(|cause| SmokeError::command("sealed", &cause));
-            }
-            _ => {}
+    let (first, rest) = args.split_first()?;
+    match first.as_str() {
+        "serve" => Some(serve_ref::run(rest).map_err(|cause| SmokeError::command("serve", &cause))),
+        "apps" => Some(apps::run(rest).map_err(|cause| SmokeError::command("apps", &cause))),
+        "approvals" => {
+            let stdout = std::io::stdout();
+            Some(
+                approvals::run(rest, &mut stdout.lock())
+                    .map_err(|cause| SmokeError::command("approvals", &cause)),
+            )
         }
+        "sealed" => {
+            let stdout = std::io::stdout();
+            Some(
+                sealed::run(rest, &mut stdout.lock())
+                    .map_err(|cause| SmokeError::command("sealed", &cause)),
+            )
+        }
+        _ => None,
     }
-    let mut mismatch: Option<String> = None;
-    let mut estate = Estate::supervised("acme", 8)?;
-    // The process driver (ADR 0006 R2): every block below runs on it, so the binary that proves
-    // the estate holds one runtime, as the estate does.
-    let driver = estate
-        .handle()
-        .ok_or("a supervised estate carries the process driver")?;
+}
+
+/// What one probe run proved, read off its report.
+fn check_of(run: &Report<u64>) -> RunCheck {
+    RunCheck {
+        succeeded: matches!(run.disposition(), Disposition::Succeeded),
+        output: run.output().copied(),
+        error: run.error().map(|error| error.to_string()),
+    }
+}
+
+/// Say one blocking `label` run and assert it succeeded with `want`.
+fn check_blocking_run(
+    label: &str,
+    run: &Report<u64>,
+    want: u64,
+    mismatch: &mut Option<String>,
+) -> Result<(), SmokeError> {
+    say(&format!(
+        "{label} run: disposition={} output={:?}",
+        run.disposition(),
+        run.output(),
+    ))?;
+    if !matches!(run.disposition(), Disposition::Succeeded) || run.output() != Some(&want) {
+        record(
+            mismatch,
+            format!(
+                "the {label} run is not a successful {want}: {:?}",
+                run.error()
+            ),
+        );
+    }
+    Ok(())
+}
+
+/// Assert a `label` drain accounts for exactly the one run it was given.
+fn one_run_admitted(label: &str, report: &EstateReport, mismatch: &mut Option<String>) {
+    if report.runs_admitted() != 1 {
+        record(
+            mismatch,
+            format!(
+                "the {label} drain accounts for one run, not {}",
+                report.runs_admitted(),
+            ),
+        );
+    }
+}
+
+/// The supervised tier: two probe runs through the process driver, a cancel, and the drain that
+/// accounts for both.
+fn supervised_tier(
+    mut estate: Estate,
+    driver: &Handle,
+    probe: &Probe,
+    mismatch: &mut Option<String>,
+) -> Result<(), SmokeError> {
     let supervised = estate.supervisor().is_some();
     say(&format!(
         "estate: tenant={} tier={} runtime={} supervisor={supervised} store={}",
@@ -346,20 +220,9 @@ fn main() -> Result<(), SmokeError> {
         estate.handle().is_some(),
         estate.run_store().is_some(),
     ))?;
-    let probe = task("estate-probe", |_scope, input: u64| async move {
-        Ok(input.saturating_add(1))
-    })
-    .map_err(|error| format!("the probe task is refused: {error}"))?;
-    let (first, second, report): (RunCheck, RunCheck, EstateReport) = driver.block_on(async {
-        let to_check = |run: &lgwks_bot::task::Report<u64>| RunCheck {
-            succeeded: matches!(run.disposition(), Disposition::Succeeded),
-            output: run.output().copied(),
-            error: run.error().map(|error| error.to_string()),
-        };
-        let run = estate.run_task(&probe, 41).await;
-        let first = to_check(&run);
-        let run = estate.run_task(&probe, 42).await;
-        let second = to_check(&run);
+    let (first, second, report) = driver.block_on(async {
+        let first = check_of(&estate.run_task(probe, 41).await);
+        let second = check_of(&estate.run_task(probe, 42).await);
         estate.cancel();
         (first, second, estate.shutdown().await)
     });
@@ -374,7 +237,7 @@ fn main() -> Result<(), SmokeError> {
     for (name, target, check) in [("41", 42u64, &first), ("42", 43u64, &second)] {
         if !check.succeeded || check.output != Some(target) {
             record(
-                &mut mismatch,
+                mismatch,
                 format!(
                     "run {name} is not a successful {target}: succeeded={} output={:?} error={:?}",
                     check.succeeded, check.output, check.error,
@@ -392,7 +255,7 @@ fn main() -> Result<(), SmokeError> {
     ))?;
     if report.runs_admitted() != 2 || report.runs_refused() != 0 {
         record(
-            &mut mismatch,
+            mismatch,
             format!(
                 "the shutdown accounts for two admitted runs, not {} admitted and {} refused",
                 report.runs_admitted(),
@@ -400,181 +263,128 @@ fn main() -> Result<(), SmokeError> {
             ),
         );
     }
+    Ok(())
+}
 
+/// The blocking drain of an estate cancelled before it ran anything: empty, and said so.
+fn blocking_drain(mismatch: &mut Option<String>) -> Result<(), SmokeError> {
     let mut estate = Estate::supervised("acme", 8)?;
     estate.cancel();
-    let report = estate
-        .shutdown_blocking()
-        .map_err(|error| format!("the blocking drain failed: {error}"))?;
+    let report = estate.shutdown_blocking().map_err(std::io::Error::other)?;
     say(&format!(
         "blocking drain: completed={} admitted={}",
         report.supervised().completed,
         report.runs_admitted(),
     ))?;
     if report.supervised().completed != 0 || report.runs_admitted() != 0 {
-        record(
-            &mut mismatch,
-            "the empty cancel drain is not empty".to_owned(),
-        );
+        record(mismatch, "the empty cancel drain is not empty".to_owned());
     }
+    Ok(())
+}
 
+/// The in-process tier: one blocking run, its drain, and an estate dropped inside the driver.
+fn in_process_tier(
+    driver: &Handle,
+    probe: &Probe,
+    mismatch: &mut Option<String>,
+) -> Result<(), SmokeError> {
     let mut bare = Estate::in_process("acme")?;
     say(&format!(
         "in-process: runtime={} supervisor={}",
         bare.handle().is_some(),
         bare.supervisor().is_some(),
     ))?;
-    let run = bare
-        .run_blocking(&probe, 6)
-        .map_err(|error| format!("the in-process run failed: {error}"))?;
-    say(&format!(
-        "in-process run: disposition={} output={:?}",
-        run.disposition(),
-        run.output(),
-    ))?;
-    if !matches!(run.disposition(), Disposition::Succeeded) || run.output() != Some(&7u64) {
-        record(
-            &mut mismatch,
-            format!(
-                "the in-process run is not a successful 7: {:?}",
-                run.error()
-            ),
-        );
-    }
-    let report = bare
-        .shutdown_blocking()
-        .map_err(|error| format!("the in-process drain failed: {error}"))?;
+    let run = bare.run_blocking(probe, 6).map_err(std::io::Error::other)?;
+    check_blocking_run("in-process", &run, 7, mismatch)?;
+    let report = bare.shutdown_blocking().map_err(std::io::Error::other)?;
     say(&format!(
         "in-process drain: tier={} admitted={}",
         report.tier(),
         report.runs_admitted(),
     ))?;
-    if report.runs_admitted() != 1 {
-        record(
-            &mut mismatch,
-            format!(
-                "the in-process drain accounts for one run, not {}",
-                report.runs_admitted(),
-            ),
-        );
-    }
+    one_run_admitted("in-process", &report, mismatch);
     // Dropping a runtime inside async is the panic tokio raises; the estate owns none, so reaching
     // the next line proves dropping it there releases its work and leaves the driver running.
     driver.block_on(async move { drop(bare) });
     say("in-process drop inside a runtime: ok")?;
+    Ok(())
+}
 
-    let unique = lgwks_std::random::bytes::<8>()
-        .map_err(|error| format!("the scratch name failed: {error}"))?;
-    let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
-    let dir = std::env::temp_dir().join(format!("lgwks-estate-smoke-{hex}"));
-    let _scratch = Scratch(dir.clone());
-    let durable = Estate::durable("acme", 8, &dir)?;
+/// The durable tier over the scratch directory: one blocking run and the drain that accounts for it.
+fn durable_tier(
+    driver: &Handle,
+    probe: &Probe,
+    dir: &std::path::Path,
+    mismatch: &mut Option<String>,
+) -> Result<(), SmokeError> {
+    let durable = Estate::durable("acme", 8, dir)?;
     say(&format!("durable: store={}", durable.run_store().is_some()))?;
     let run = durable
-        .run_blocking(&probe, 7)
-        .map_err(|error| format!("the durable run failed: {error}"))?;
-    say(&format!(
-        "durable run: disposition={} output={:?}",
-        run.disposition(),
-        run.output(),
-    ))?;
-    if !matches!(run.disposition(), Disposition::Succeeded) || run.output() != Some(&8u64) {
-        record(
-            &mut mismatch,
-            format!("the durable run is not a successful 8: {:?}", run.error()),
-        );
-    }
+        .run_blocking(probe, 7)
+        .map_err(std::io::Error::other)?;
+    check_blocking_run("durable", &run, 8, mismatch)?;
     let report = driver.block_on(async { durable.shutdown().await });
     say(&format!(
         "durable drain: admitted={}",
-        report.runs_admitted(),
+        report.runs_admitted()
     ))?;
-    if report.runs_admitted() != 1 {
-        record(
-            &mut mismatch,
-            format!(
-                "the durable drain accounts for one run, not {}",
-                report.runs_admitted(),
-            ),
-        );
-    }
+    one_run_admitted("durable", &report, mismatch);
+    Ok(())
+}
 
+/// Every typed refusal of a constructor, then the run events and the unopenable store.
+fn refusals(dir: &std::path::Path, mismatch: &mut Option<String>) -> Result<(), SmokeError> {
     match Estate::supervised("", 8) {
-        Err(EstateError::InvalidTenant { .. }) => {
-            say("refused: an empty tenant")?;
-        }
-        Err(error) => {
-            record(
-                &mut mismatch,
-                format!("an empty tenant is InvalidTenant, not {error}"),
-            );
-        }
-        Ok(_) => {
-            record(&mut mismatch, "an empty tenant must not build".to_owned());
-        }
+        Err(EstateError::InvalidTenant { .. }) => say("refused: an empty tenant")?,
+        Err(error) => record(
+            mismatch,
+            format!("an empty tenant is InvalidTenant, not {error}"),
+        ),
+        Ok(_) => record(mismatch, "an empty tenant must not build".to_owned()),
     }
     match Estate::supervised("acme", 0) {
-        Err(EstateError::Host { .. }) => {
-            say("refused: a zero bound")?;
-        }
-        Err(error) => {
-            record(&mut mismatch, format!("a zero bound is Host, not {error}"));
-        }
-        Ok(_) => {
-            record(&mut mismatch, "a zero bound must not build".to_owned());
-        }
+        Err(EstateError::Host { .. }) => say("refused: a zero bound")?,
+        Err(error) => record(mismatch, format!("a zero bound is Host, not {error}")),
+        Ok(_) => record(mismatch, "a zero bound must not build".to_owned()),
     }
     match Estate::supervised("acme", usize::MAX) {
-        Err(EstateError::Host { .. }) => {
-            say("refused: a bound past the ceiling")?;
-        }
-        Err(error) => {
-            record(
-                &mut mismatch,
-                format!("a bound past the ceiling is Host, not {error}"),
-            );
-        }
-        Ok(_) => {
-            record(
-                &mut mismatch,
-                "a bound past the ceiling must not build".to_owned(),
-            );
-        }
+        Err(EstateError::Host { .. }) => say("refused: a bound past the ceiling")?,
+        Err(error) => record(
+            mismatch,
+            format!("a bound past the ceiling is Host, not {error}"),
+        ),
+        Ok(_) => record(
+            mismatch,
+            "a bound past the ceiling must not build".to_owned(),
+        ),
     }
-    match run_events::run(&dir) {
+    match run_events::run(dir) {
         Ok(line) => say(&line)?,
-        Err(error) => record(&mut mismatch, format!("run events: {error}")),
+        Err(error) => record(mismatch, format!("run events: {error}")),
     }
 
     let blocker = dir.join("blocker");
-    std::fs::write(&blocker, b"a file, not a directory")
-        .map_err(|error| format!("the blocker file failed: {error}"))?;
+    std::fs::write(&blocker, b"a file, not a directory")?;
     match Estate::durable("acme", 8, &blocker) {
-        Err(EstateError::Store { .. }) => {
-            say("refused: an unopenable store")?;
-        }
-        Err(error) => {
-            record(
-                &mut mismatch,
-                format!("an unopenable store is Store, not {error}"),
-            );
-        }
-        Ok(_) => {
-            record(
-                &mut mismatch,
-                "an unopenable store must not build".to_owned(),
-            );
-        }
+        Err(EstateError::Store { .. }) => say("refused: an unopenable store")?,
+        Err(error) => record(
+            mismatch,
+            format!("an unopenable store is Store, not {error}"),
+        ),
+        Ok(_) => record(mismatch, "an unopenable store must not build".to_owned()),
     }
+    Ok(())
+}
 
-    // The #703 owner pattern on the shipped artifact: place probe tasks on the
-    // estate's own supervisor and reconcile the tracked set through the same
-    // accessors an owner reads. Nothing here depends on scheduler timing: the
-    // tracked set changes only on this thread (spawn, reap, wait_idle join),
-    // so a snapshot and the accessors read beside it always agree, and
-    // `wait_idle` ends every placed body before the drain counts its reports.
-    // Every number below is asserted, so a lost report fails the smoke rather
-    // than parking an owner.
+/// The #703 owner pattern on the shipped artifact: place probe tasks on the
+/// estate's own supervisor and reconcile the tracked set through the same
+/// accessors an owner reads. Nothing here depends on scheduler timing: the
+/// tracked set changes only on this thread (spawn, reap, wait_idle join),
+/// so a snapshot and the accessors read beside it always agree, and
+/// `wait_idle` ends every placed body before the drain counts its reports.
+/// Every number below is asserted, so a lost report fails the smoke rather
+/// than parking an owner.
+fn tracked_tasks(driver: &Handle, mismatch: &mut Option<String>) -> Result<(), SmokeError> {
     let mut tracked_estate = Estate::supervised("acme", 8)?;
     let mut seen: Vec<TaskId> = Vec::new();
     let tracking = driver.block_on(async {
@@ -589,7 +399,7 @@ fn main() -> Result<(), SmokeError> {
             != snapshot.live().len().saturating_add(snapshot.live_truncated())
         {
             record(
-                &mut mismatch,
+                mismatch,
                 format!(
                     "the tracking accessors disagree with the snapshot: in_flight={} listed={} truncated={}",
                     supervisor.in_flight(),
@@ -602,7 +412,7 @@ fn main() -> Result<(), SmokeError> {
             seen.push(live.task);
             if supervisor.task_state(live.task).is_none() {
                 record(
-                    &mut mismatch,
+                    mismatch,
                     format!("a listed task has no state: {}", live.task.get()),
                 );
             }
@@ -620,38 +430,32 @@ fn main() -> Result<(), SmokeError> {
         let stats = supervisor.stats();
         Some((stats.spawned, stats.completed, drained, supervisor.in_flight()))
     });
-    match tracking {
-        Some((spawned, completed, drained, live_now)) => {
-            say(&format!(
-                "tracking: placed=3 spawned={spawned} completed={completed} drained={drained} live_now={live_now}"
-            ))?;
-            if spawned != 3 || completed != 3 {
-                record(
-                    &mut mismatch,
-                    format!(
-                        "three placed tasks did not end exactly once: spawned={spawned} completed={completed}"
-                    ),
-                );
-            }
-            if drained != 3 {
-                record(
-                    &mut mismatch,
-                    format!("three placed probe tasks drained {drained} reports, not 3"),
-                );
-            }
-            if live_now != 0 {
-                record(
-                    &mut mismatch,
-                    format!("the drain left {live_now} tasks tracked"),
-                );
-            }
-        }
-        None => {
-            record(
-                &mut mismatch,
-                "the supervised tier has no supervisor to track".to_owned(),
-            );
-        }
+    let Some((spawned, completed, drained, live_now)) = tracking else {
+        record(
+            mismatch,
+            "the supervised tier has no supervisor to track".to_owned(),
+        );
+        return Ok(());
+    };
+    say(&format!(
+        "tracking: placed=3 spawned={spawned} completed={completed} drained={drained} live_now={live_now}"
+    ))?;
+    if spawned != 3 || completed != 3 {
+        record(
+            mismatch,
+            format!(
+                "three placed tasks did not end exactly once: spawned={spawned} completed={completed}"
+            ),
+        );
+    }
+    if drained != 3 {
+        record(
+            mismatch,
+            format!("three placed probe tasks drained {drained} reports, not 3"),
+        );
+    }
+    if live_now != 0 {
+        record(mismatch, format!("the drain left {live_now} tasks tracked"));
     }
     // Joins are consumptive: every task the snapshot listed above left the
     // set through a join, so each has a report and no state.
@@ -659,17 +463,20 @@ fn main() -> Result<(), SmokeError> {
         for task in &seen {
             if supervisor.task_state(*task).is_some() {
                 record(
-                    &mut mismatch,
+                    mismatch,
                     format!("a joined task still has a state: {}", task.get()),
                 );
             }
         }
     }
+    Ok(())
+}
 
-    // Live revocation on the shipped artifact (#716): a firing bot is narrowed
-    // mid-run through `replace_grants`, and its very next tick is denied
-    // naming the withdrawn capability. Every number below is asserted, so a
-    // grant replacement that does not take effect fails the smoke.
+/// Live revocation on the shipped artifact (#716): a firing bot is narrowed
+/// mid-run through `replace_grants`, and its very next tick is denied
+/// naming the withdrawn capability. Every number below is asserted, so a
+/// grant replacement that does not take effect fails the smoke.
+fn grant_replacement(mismatch: &mut Option<String>) -> Result<(), SmokeError> {
     let fired = std::rc::Rc::new(std::cell::Cell::new(0usize));
     let mut bot = Bot::builder("smoke-replace")
         .observe(SmokeSource::gated())
@@ -679,21 +486,15 @@ fn main() -> Result<(), SmokeError> {
                 fired: std::rc::Rc::clone(&fired),
             },
         )
-        .with_effects(
-            EffectScope::ephemeral().map_err(|error| format!("the smoke scope failed: {error}"))?,
-        )
+        .with_effects(EffectScope::ephemeral().map_err(std::io::Error::other)?)
         .build(&GrantSet::empty().grant(Cap::net()))
-        .map_err(|error| format!("the smoke bot was refused: {error}"))?;
+        .map_err(std::io::Error::other)?;
     match bot.tick() {
-        Ok(1) => {
-            say("grant replacement: the bot fired once under its grant")?;
-        }
-        other => {
-            record(
-                &mut mismatch,
-                format!("the smoke bot did not fire once under its grant: {other:?}"),
-            );
-        }
+        Ok(1) => say("grant replacement: the bot fired once under its grant")?,
+        other => record(
+            mismatch,
+            format!("the smoke bot did not fire once under its grant: {other:?}"),
+        ),
     }
     let report: GrantReplacement = bot.replace_grants(&GrantSet::empty());
     say(&format!(
@@ -703,7 +504,7 @@ fn main() -> Result<(), SmokeError> {
     ))?;
     if report.withdrawn().to_vec() != vec![Cap::net()] || !report.added().is_empty() {
         record(
-            &mut mismatch,
+            mismatch,
             format!("the swap did not report exactly the withdrawn net grant: {report:?}"),
         );
     }
@@ -719,19 +520,41 @@ fn main() -> Result<(), SmokeError> {
                 refused.retry_class(),
             ))?;
         }
-        other => {
-            record(
-                &mut mismatch,
-                format!("the tick after the swap must be denied, got {other:?}"),
-            );
-        }
+        other => record(
+            mismatch,
+            format!("the tick after the swap must be denied, got {other:?}"),
+        ),
     }
     if fired.get() != 1 {
         record(
-            &mut mismatch,
+            mismatch,
             format!("the effect ran {} times, not once", fired.get()),
         );
     }
+    Ok(())
+}
+
+/// The whole estate smoke: every tier, every refusal and every door, then the first mismatch.
+fn evening() -> Result<(), SmokeError> {
+    let mut mismatch: Option<String> = None;
+    let estate = Estate::supervised("acme", 8)?;
+    // The process driver (ADR 0006 R2): every block below runs on it, so the binary that proves
+    // the estate holds one runtime, as the estate does.
+    let driver = estate
+        .handle()
+        .ok_or("a supervised estate carries the process driver")?;
+    let body: ProbeBody = probe_body;
+    let probe: Probe = task("estate-probe", body).map_err(std::io::Error::other)?;
+    supervised_tier(estate, &driver, &probe, &mut mismatch)?;
+    blocking_drain(&mut mismatch)?;
+    in_process_tier(&driver, &probe, &mut mismatch)?;
+
+    let dir = std::env::temp_dir().join(format!("lgwks-estate-smoke-{}", unique_hex()?));
+    let _scratch = Scratch(dir.clone());
+    durable_tier(&driver, &probe, &dir, &mut mismatch)?;
+    refusals(&dir, &mut mismatch)?;
+    tracked_tasks(&driver, &mut mismatch)?;
+    grant_replacement(&mut mismatch)?;
 
     // The supervisor's process doors on the shipped artifact (#689, #690,
     // #691): a gated lane runs only after its identity is recorded, and the
@@ -741,18 +564,14 @@ fn main() -> Result<(), SmokeError> {
     // builders accepted but no platform could hold, fails here rather than in
     // a coordinator.
     #[cfg(all(unix, feature = "process"))]
-    driver.block_on(process_doors(&mut mismatch))?;
+    driver.block_on(process_doors::run(&mut mismatch))?;
 
     // The script vocabulary on the shipped artifact (#649, #650, #651, #653,
     // #654, #657, #694): the runtime the words desugar into, exercised through
     // the public interface with every refusal asserted.
     match vocabulary::run(&driver) {
-        Ok(()) => {
-            say("vocabulary: every runtime answered through the public interface")?;
-        }
-        Err(error) => {
-            record(&mut mismatch, format!("the vocabulary failed: {error}"));
-        }
+        Ok(()) => say("vocabulary: every runtime answered through the public interface")?,
+        Err(error) => record(&mut mismatch, format!("the vocabulary failed: {error}")),
     }
 
     // The library doors with no front of their own, on the shipped artifact (#990): each is called
@@ -772,4 +591,12 @@ fn main() -> Result<(), SmokeError> {
         return Err(mismatch.into());
     }
     Ok(())
+}
+
+/// Run one named sub-command, or the whole estate smoke when none is named.
+fn main() -> Result<(), SmokeError> {
+    match subcommand() {
+        Some(done) => done,
+        None => evening(),
+    }
 }

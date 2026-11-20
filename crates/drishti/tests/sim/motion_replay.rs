@@ -178,14 +178,17 @@ fn run_scrub(seed: u64) -> Result<u64, String> {
     let mut scrubs = HashScrubMap::new();
     let mut expected = [0.0_f32; 3];
     for (position, source) in SOURCES.iter().enumerate() {
+        let slot = expected
+            .get_mut(position)
+            .ok_or("a source position is outside the expectations")?;
         if random.below(4) == 0 {
             // Fault: this source stays unwired and reads as zero.
             trace.mix_str("unwired");
-            expected[position] = 0.0;
+            *slot = 0.0;
         } else {
             let value = f32::from(random.below_u16(101)) / 100.0;
             scrubs.insert(String::from(*source), Box::new(ConstantScrub::new(value)));
-            expected[position] = value;
+            *slot = value;
             trace.mix_bits(f64::from(value));
         }
     }
@@ -238,7 +241,10 @@ fn run_scrub(seed: u64) -> Result<u64, String> {
                 first_write.value().as_scalar(),
                 second_write.value().as_scalar(),
             )?;
-            ensure(first_v.to_bits() == expected[position].to_bits(), || {
+            let want = *expected
+                .get(position)
+                .ok_or("a source position is outside the expectations")?;
+            ensure(first_v.to_bits() == want.to_bits(), || {
                 format!("binding must match source {position}")
             })?;
             trace.mix_u64(u64::from(first_v.to_bits()));

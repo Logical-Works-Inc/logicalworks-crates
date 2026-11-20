@@ -152,7 +152,7 @@ mod tests {
 
     /// The boundary map converts once, without touching success.
     #[test]
-    fn the_boundary_map_converts_failure_and_keeps_success() -> TestResult {
+    fn the_boundary_map_converts_failure_and_keeps_success() {
         let ok: Result<u16, DomainFailed> = map_domain(Ok(7_u16));
         assert_eq!(ok, Ok(7_u16), "success crosses the boundary unchanged");
         let failed: Result<u16, FlowError> = Err(FlowError::failed("down"));
@@ -161,6 +161,5 @@ mod tests {
             matches!(mapped, Err(DomainFailed(_))),
             "failure crosses as the domain's error"
         );
-        Ok(())
     }
 }

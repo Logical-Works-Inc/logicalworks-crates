@@ -20,6 +20,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use lgwks_std::json::{self, Value};
 use lgwks_std::{hex, random};
 
 /// What every test here returns.
@@ -28,19 +29,30 @@ use lgwks_std::{hex, random};
 /// a test propagates its failure with `?` instead of aborting the run.
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// The string a receipt field carries, or a refusal naming the field.
+/// The receipt field at `path`, or a refusal naming the key that is missing.
 ///
 /// A receipt that omits a field is not a receipt whose field is empty. Every
 /// assertion below reads a field the receipt's identity is made of, so reading
-/// one as `""` would let the very drift these tests pin — a digest that stopped
-/// being reported — pass as an assertion about an empty string.
-fn receipt_str<'a>(
-    field: &'a lgwks_std::json::Value,
-    name: &str,
-) -> Result<&'a str, Box<dyn Error>> {
-    field
-        .as_str()
-        .ok_or_else(|| format!("the receipt carries no string {name:?}").into())
+/// a missing one as null would let the very drift these tests pin — a digest
+/// that stopped being reported — pass as an assertion about nothing.
+fn at<'a>(root: &'a Value, path: &[&str]) -> Result<&'a Value, Box<dyn Error>> {
+    let mut node = root;
+    for key in path {
+        node = node
+            .get(*key)
+            .ok_or_else(|| format!("the receipt carries no {key:?}"))?;
+    }
+    Ok(node)
+}
+
+/// Asserts `text` contains `needle`, quoting `text` when it does not.
+fn assert_has(text: &str, needle: &str, because: &str) {
+    assert!(text.contains(needle), "{because}: {text:?}");
+}
+
+/// Asserts a stream is empty, quoting it when it is not.
+fn assert_quiet(text: &str, because: &str) {
+    assert!(text.is_empty(), "{because}: {text:?}");
 }
 
 /// The fixture pair's root.
@@ -68,21 +80,17 @@ fn a_lock_block_naming_no_package_is_refused_by_check() -> TestResult {
         2,
         "a lock whose blocks do not all name a package cannot be audited",
     );
-    assert!(
-        outcome.stderr.contains("has no name"),
-        "the refusal must name the defect, not merely the file: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "has no name",
+        "the refusal must name the defect, not merely the file",
     );
-    assert!(
-        outcome.stderr.contains("line"),
-        "the refusal must name the block to repair: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "line",
+        "the refusal must name the block to repair",
     );
-    assert!(
-        outcome.stdout.is_empty(),
-        "a refused audit writes nothing to stdout: {:?}",
-        outcome.stdout
-    );
+    assert_quiet(&outcome.stdout, "a refused audit writes nothing to stdout");
     Ok(())
 }
 
@@ -160,11 +168,6 @@ fn argument(path: &Path) -> Result<&str, Box<dyn Error>> {
 
 /// Runs `lgwks-deps check` with `args`, from `current_dir`.
 fn check_from(current_dir: &Path, args: &[&str]) -> Result<Outcome, Box<dyn Error>> {
-    // Every invocation reads the real tree, so a test that merely reads it must
-    // not run while another has a dependency added: it would answer about a tree
-    // neither test asked about. The mutating tests already hold this lock
-    // through their guard, which is why this is a non-blocking try and not a
-    // plain `lock()` -- taking it twice on one thread would deadlock.
     command_from(current_dir, args, &[])
 }
 
@@ -199,33 +202,27 @@ fn workspace_root() -> Result<PathBuf, Box<dyn Error>> {
         .ok_or_else(|| "crates/lgwks-deps has no workspace root".into())
 }
 
-/// Asserts the run refused `subject` for its unapproved edge to `helper`.
-///
-/// The three assertions are deliberately inseparable. Exit 2 alone is also
-/// what a refusal about the *wrong* repository produces, and a refusal that
-/// names no edge is satisfied by any refusal at all.
-fn assert_refused_subject(outcome: &Outcome) -> TestResult {
+/// Asserts the run refused `subject` for its unapproved edge to `helper`. The
+/// three assertions are deliberately inseparable: exit 2 alone is also what a
+/// refusal about the *wrong* repository produces, and a refusal that names no
+/// edge is satisfied by any refusal at all.
+fn assert_refused_subject(outcome: &Outcome) {
     let refused_edge = format!(
         "subject declares unowned normal edge helper * from path:{}",
         helper().display()
     );
     assert_exit(outcome, 2, "an unapproved edge is a refusal");
-    assert!(
-        outcome.stdout.is_empty(),
-        "a refused audit writes nothing to stdout: {:?}",
-        outcome.stdout
-    );
-    assert!(
-        outcome.stderr.contains(&refused_edge),
-        "the verdict must name subject's edge to helper, not some other tree: {:?}",
-        outcome.stderr
+    assert_quiet(&outcome.stdout, "a refused audit writes nothing to stdout");
+    assert_has(
+        &outcome.stderr,
+        &refused_edge,
+        "the verdict must name subject's edge to helper, not some other tree",
     );
     assert!(
         !outcome.stderr.contains(clean().to_string_lossy().as_ref()),
         "the verdict must not be about the clean repository: {:?}",
         outcome.stderr
     );
-    Ok(())
 }
 
 /// Copies selected fixture files into a disposable workspace tree.
@@ -281,22 +278,27 @@ fn debug_reports_default_sdk_bootstrap_in_json() -> TestResult {
         &[("LGWKS_LOG", "info"), ("LGWKS_LOG_FORMAT", "json")],
     )?;
     assert_exit(&outcome, 0, "debug doctor should pass");
-    assert!(
-        outcome.stderr.contains("debugger installed"),
-        "install event should be emitted to stderr: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "debugger installed",
+        "install event should be emitted to stderr",
     );
-    assert!(
-        outcome.stderr.contains("debug doctor completed"),
-        "doctor lifecycle event should be emitted to stderr: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "debug doctor completed",
+        "doctor lifecycle event should be emitted to stderr",
     );
-    let report: lgwks_std::json::Value = lgwks_std::json::from_str(&outcome.stdout)?;
-    assert_eq!(report["command"], "debug");
-    assert_eq!(report["admitted"], true);
-    assert_eq!(report["format"], "json");
-    assert_eq!(report["checks"]["default_includes_trace"], true);
-    assert_eq!(report["checks"]["trace_includes_tracing_subscriber"], true);
+    let report: Value = json::from_str(&outcome.stdout)?;
+    assert_eq!(*at(&report, &["command"])?, "debug");
+    assert_eq!(*at(&report, &["admitted"])?, true);
+    assert_eq!(*at(&report, &["format"])?, "json");
+    let checks = [
+        "default_includes_trace",
+        "trace_includes_tracing_subscriber",
+    ];
+    for check in checks {
+        assert_eq!(*at(&report, &["checks", check])?, true, "{check}");
+    }
     Ok(())
 }
 
@@ -308,20 +310,16 @@ fn debug_reports_default_sdk_bootstrap_in_json() -> TestResult {
 fn auditing_the_clean_repository_succeeds() -> TestResult {
     let outcome = check_from(&fixtures(), &["check", argument(&clean())?])?;
     assert_exit(&outcome, 0, "a repository with no edge to refuse must pass");
-    assert!(
-        outcome.stderr.is_empty(),
-        "a passing audit writes nothing to stderr: {:?}",
-        outcome.stderr
+    assert_quiet(&outcome.stderr, "a passing audit writes nothing to stderr");
+    assert_has(
+        &outcome.stdout,
+        "semantic approvals",
+        "the success line names the approvals it checked",
     );
-    assert!(
-        outcome.stdout.contains("semantic approvals"),
-        "the success line names the approvals it checked: {:?}",
-        outcome.stdout
-    );
-    assert!(
-        outcome.stdout.contains(clean().to_string_lossy().as_ref()),
-        "the success line names the audited root: {:?}",
-        outcome.stdout
+    assert_has(
+        &outcome.stdout,
+        clean().to_string_lossy().as_ref(),
+        "the success line names the audited root",
     );
     Ok(())
 }
@@ -373,39 +371,26 @@ fn conflicting_approval_keys_cannot_admit_a_real_path_edge() -> TestResult {
         "command = \"fixture: a path crate of one function\" }\n",
         "review = \"2099-01-01\"\n",
     );
+    let audit = || {
+        let target = argument(&subject_root)?;
+        check_from(
+            &subject_root,
+            &["check", target, "--contract", argument(&register)?],
+        )
+    };
     std::fs::write(&register, format!("{prefix}{suffix}"))?;
-    let valid = check_from(
-        &subject_root,
-        &[
-            "check",
-            argument(&subject_root)?,
-            "--contract",
-            argument(&register)?,
-        ],
-    )?;
+    let valid = audit()?;
     assert_eq!(
         valid.code,
         Some(0),
         "one valid approval assignment must admit the actual edge (stderr {:?})",
         valid.stderr
     );
-    assert!(
-        valid.stderr.is_empty(),
-        "valid control must be quiet: {:?}",
-        valid.stderr
-    );
+    assert_quiet(&valid.stderr, "valid control must be quiet");
 
     let conflicting = format!("{prefix}allowed_consumers = \"subject\"\n{suffix}");
     std::fs::write(&register, conflicting)?;
-    let refused = check_from(
-        &subject_root,
-        &[
-            "check",
-            argument(&subject_root)?,
-            "--contract",
-            argument(&register)?,
-        ],
-    )?;
+    let refused = audit()?;
     assert_eq!(
         refused.code,
         Some(2),
@@ -413,10 +398,9 @@ fn conflicting_approval_keys_cannot_admit_a_real_path_edge() -> TestResult {
         refused.stdout,
         refused.stderr
     );
-    assert!(
-        refused.stdout.is_empty(),
-        "a refused contract emits no success output: {:?}",
-        refused.stdout
+    assert_quiet(
+        &refused.stdout,
+        "a refused contract emits no success output",
     );
     assert!(
         refused
@@ -430,15 +414,13 @@ fn conflicting_approval_keys_cannot_admit_a_real_path_edge() -> TestResult {
     Ok(())
 }
 
-/// The defect's primary counterexample: the option's value must not become the
-/// target, and an omitted `PATH` must keep meaning the working directory.
+/// The defect's primary counterexample: the option's value must not become the target.
 #[test]
 fn an_omitted_target_audits_the_working_directory_not_the_register() -> TestResult {
-    let outcome = check_from(
-        &subject(),
-        &["check", "--contract", argument(&clean_register())?],
-    )?;
-    assert_refused_subject(&outcome)
+    let register = clean_register();
+    let outcome = check_from(&subject(), &["check", "--contract", argument(&register)?])?;
+    assert_refused_subject(&outcome);
+    Ok(())
 }
 
 /// The same three invocations the issue lists, all of which must inspect
@@ -446,8 +428,7 @@ fn an_omitted_target_audits_the_working_directory_not_the_register() -> TestResu
 /// target omitted in favour of the working directory.
 #[test]
 fn the_override_and_the_target_are_the_same_audit_in_any_order() -> TestResult {
-    // Bound rather than temporary: the argument list borrows the path strings
-    // for as long as the table below lives.
+    // Bound, not temporary: the argument list borrows these strings.
     let root = fixtures();
     let target_path = subject();
     let target = argument(&target_path)?;
@@ -459,8 +440,7 @@ fn the_override_and_the_target_are_the_same_audit_in_any_order() -> TestResult {
         (&["check", "--contract", register], &target_path),
     ];
     for (args, current_dir) in orderings {
-        let outcome = check_from(current_dir, args)?;
-        assert_refused_subject(&outcome)?;
+        assert_refused_subject(&check_from(current_dir, args)?);
     }
     Ok(())
 }
@@ -469,14 +449,10 @@ fn the_override_and_the_target_are_the_same_audit_in_any_order() -> TestResult {
 /// same refused edge, and a root that identifies `subject`.
 #[test]
 fn json_mode_names_the_audited_root_and_the_refused_edge() -> TestResult {
+    let register = clean_register();
     let outcome = check_from(
         &subject(),
-        &[
-            "check",
-            "--contract",
-            argument(&clean_register())?,
-            "--json",
-        ],
+        &["check", "--contract", argument(&register)?, "--json"],
     )?;
     assert_eq!(
         outcome.code,
@@ -484,32 +460,30 @@ fn json_mode_names_the_audited_root_and_the_refused_edge() -> TestResult {
         "JSON mode carries the same verdict as the table: {:?}",
         outcome.stdout
     );
-    assert!(
-        outcome.stderr.is_empty(),
-        "JSON mode writes nothing to stderr, including for a refusal: {:?}",
-        outcome.stderr
+    assert_quiet(
+        &outcome.stderr,
+        "JSON mode writes nothing to stderr, including for a refusal",
     );
-    assert!(
-        outcome.stdout.contains("\"admitted\": false"),
-        "the refusal is admitted: false, not merely absent: {:?}",
-        outcome.stdout
+    assert_has(
+        &outcome.stdout,
+        "\"admitted\": false",
+        "the refusal is admitted: false, not merely absent",
     );
-    assert!(
-        outcome.stdout.contains("\"crate\": \"helper\""),
-        "the refused edge is named by crate: {:?}",
-        outcome.stdout
+    assert_has(
+        &outcome.stdout,
+        "\"crate\": \"helper\"",
+        "the refused edge is named by crate",
     );
-    assert!(
-        outcome.stdout.contains("\"root\": \".\""),
-        "an omitted target resolves to the working directory, not to the register: {:?}",
-        outcome.stdout
+    assert_has(
+        &outcome.stdout,
+        "\"root\": \".\"",
+        "an omitted target resolves to the working directory, not to the register",
     );
     Ok(())
 }
 
 /// A relative target and an absolute one are the same repository: the verdict
-/// is about the tree the operator named in both spellings, and the two runs
-/// agree on the edge they refuse.
+/// is about the tree the operator named, and the two runs agree on the edge.
 #[test]
 fn a_relative_target_resolves_to_the_same_repository() -> TestResult {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -517,24 +491,22 @@ fn a_relative_target_resolves_to_the_same_repository() -> TestResult {
         manifest_dir,
         &["check", "tests/fixtures/contract-override/subject"],
     )?;
-    assert_refused_subject(&relative)?;
+    assert_refused_subject(&relative);
     let absolute = check_from(manifest_dir, &["check", argument(&subject())?])?;
-    assert_refused_subject(&absolute)?;
+    assert_refused_subject(&absolute);
     // The edge is the identity of the audited repository: both spellings must
     // report the same unapproved dependency, resolved to the same path.
     let refused_edge = format!("from path:{}", helper().display());
     for (spelling, outcome) in [("relative", &relative), ("absolute", &absolute)] {
-        assert!(
-            outcome.stderr.contains(&refused_edge),
-            "the {spelling} target must resolve to the same edge: {:?}",
-            outcome.stderr
+        assert_has(
+            &outcome.stderr,
+            &refused_edge,
+            &format!("the {spelling} target must resolve to the same edge"),
         );
-        assert!(
-            outcome
-                .stderr
-                .contains("subject — 1 dependency-edge violations"),
-            "the {spelling} target must be judged as subject: {:?}",
-            outcome.stderr
+        assert_has(
+            &outcome.stderr,
+            "subject — 1 dependency-edge violations",
+            &format!("the {spelling} target must be judged as subject"),
         );
     }
     Ok(())
@@ -556,11 +528,10 @@ fn a_register_outside_any_cargo_repository_is_read_but_never_audited() -> TestRe
             argument(&register)?,
         ],
     )?;
-    assert_refused_subject(&outcome)?;
+    assert_refused_subject(&outcome);
     // With the target omitted, the working directory is the target, and a
     // scratch directory has no lock file above it: the gate refuses rather
-    // than falling back to whatever repository the register happens to sit in
-    // (it sits in none).
+    // than falling back to the repository the register sits in (none).
     let unmapped = check_from(
         scratch.path(),
         &["check", "--contract", argument(&register)?],
@@ -571,10 +542,10 @@ fn a_register_outside_any_cargo_repository_is_read_but_never_audited() -> TestRe
         "a target with no repository must refuse (stderr {:?})",
         unmapped.stderr
     );
-    assert!(
-        unmapped.stderr.contains("no Cargo.lock"),
-        "the refusal names the missing lock file: {:?}",
-        unmapped.stderr
+    assert_has(
+        &unmapped.stderr,
+        "no Cargo.lock",
+        "the refusal names the missing lock file",
     );
     Ok(())
 }
@@ -585,15 +556,14 @@ fn a_register_outside_any_cargo_repository_is_read_but_never_audited() -> TestRe
 fn a_contract_without_a_value_is_refused_before_any_audit() -> TestResult {
     let outcome = check_from(&clean(), &["check", "--contract"])?;
     assert_exit(&outcome, 2, "a missing option value is a refusal");
-    assert!(
-        outcome.stdout.is_empty(),
-        "no repository may be audited by an invocation that was refused: {:?}",
-        outcome.stdout
+    assert_quiet(
+        &outcome.stdout,
+        "no repository may be audited by an invocation that was refused",
     );
-    assert!(
-        outcome.stderr.contains("--contract needs a value"),
-        "the refusal names the option and what it needs: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "--contract needs a value",
+        "the refusal names the option and what it needs",
     );
     Ok(())
 }
@@ -603,10 +573,10 @@ fn a_contract_without_a_value_is_refused_before_any_audit() -> TestResult {
 fn an_option_as_a_contract_value_is_a_missing_value() -> TestResult {
     let outcome = check_from(&clean(), &["check", "--contract", "--json"])?;
     assert_exit(&outcome, 2, "an option is not a path");
-    assert!(
-        outcome.stderr.contains("which is another option"),
-        "the refusal says why the token is not a value: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "which is another option",
+        "the refusal says why the token is not a value",
     );
     Ok(())
 }
@@ -630,10 +600,10 @@ fn a_repeated_contract_override_is_refused() -> TestResult {
         ],
     )?;
     assert_exit(&outcome, 2, "a repeated override is a refusal");
-    assert!(
-        outcome.stderr.contains("more than once"),
-        "the refusal names the repetition: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "more than once",
+        "the refusal names the repetition",
     );
     Ok(())
 }
@@ -647,10 +617,10 @@ fn a_surplus_positional_is_refused() -> TestResult {
         &["check", argument(&clean())?, argument(&subject())?],
     )?;
     assert_exit(&outcome, 2, "a second path is a refusal");
-    assert!(
-        outcome.stderr.contains("is a second path"),
-        "the refusal names the surplus argument: {:?}",
-        outcome.stderr
+    assert_has(
+        &outcome.stderr,
+        "is a second path",
+        "the refusal names the surplus argument",
     );
     Ok(())
 }
@@ -660,121 +630,10 @@ fn a_surplus_positional_is_refused() -> TestResult {
 fn an_unknown_flag_is_refused() -> TestResult {
     let outcome = check_from(&fixtures(), &["check", "--bogus", argument(&clean())?])?;
     assert_exit(&outcome, 2, "an unknown option is a refusal");
-    assert!(
-        outcome
-            .stderr
-            .contains("unknown option for `check`: --bogus"),
-        "the refusal quotes the token it did not recognise: {:?}",
-        outcome.stderr
-    );
-    Ok(())
-}
-
-/// A complete `check` receipt binds the subject root, the contract identity and
-/// version, the exact metadata subject, the policy mode and the assurance scope.
-#[test]
-fn the_human_receipt_binds_contract_subject_and_mode() -> TestResult {
-    let enforcement = check_from(&clean(), &["check"])?;
-    assert_eq!(enforcement.code, Some(0), "stderr {:?}", enforcement.stderr);
-    for needle in [
-        "CONTRACT  fnv1a128:",
-        "SUBJECT   fnv1a128:",
-        "MODE      enforcement",
-        "SCOPE  ",
-    ] {
-        assert!(
-            enforcement.stdout.contains(needle),
-            "the receipt must carry {needle:?}: {:?}",
-            enforcement.stdout
-        );
-    }
-    assert!(
-        enforcement.stdout.contains(&format!("schema={}", 3_u32)),
-        "the contract version is bound: {:?}",
-        enforcement.stdout
-    );
-
-    let diagnosis = check_from(
-        &subject(),
-        &["check", "--contract", argument(&clean_register())?],
-    )?;
-    assert_eq!(diagnosis.code, Some(2));
-    assert!(
-        diagnosis.stderr.contains("MODE      diagnosis"),
-        "an override is diagnosis, not enforcement: {:?}",
-        diagnosis.stderr
-    );
-    Ok(())
-}
-
-/// The `--json` receipt exposes the same identities under stable keys.
-#[test]
-fn the_json_receipt_has_stable_identity_fields() -> TestResult {
-    let enforcement = check_from(&clean(), &["check", "--json"])?;
-    assert_eq!(enforcement.code, Some(0), "stderr {:?}", enforcement.stderr);
-    let payload: lgwks_std::json::Value = lgwks_std::json::from_str(&enforcement.stdout)?;
-    assert_eq!(payload["mode"], "enforcement");
-    assert_eq!(payload["contract"]["schema"], 3);
-    assert_eq!(payload["contract"]["entries"], 0);
-    assert_eq!(payload["subject"]["resolved"], true);
-    assert_eq!(payload["subject"]["edges"], 0);
-    assert!(
-        receipt_str(&payload["contract"]["digest"], "contract digest")?.starts_with("fnv1a128:"),
-        "the contract digest is present and stable: {}",
-        payload["contract"]["digest"]
-    );
-    assert!(
-        receipt_str(&payload["subject"]["digest"], "subject digest")?.starts_with("fnv1a128:"),
-        "the subject digest is present and stable: {}",
-        payload["subject"]["digest"]
-    );
-    assert!(
-        receipt_str(&payload["scope"], "assurance scope")?.contains("no enforcer"),
-        "the assurance scope travels with the receipt"
-    );
-
-    let diagnosis = check_from(
-        &subject(),
-        &[
-            "check",
-            "--contract",
-            argument(&clean_register())?,
-            "--json",
-        ],
-    )?;
-    let payload: lgwks_std::json::Value = lgwks_std::json::from_str(&diagnosis.stdout)?;
-    assert_eq!(payload["mode"], "diagnosis");
-    assert_eq!(payload["subject"]["resolved"], true);
-    Ok(())
-}
-
-/// A receipt is a binding: changing the register changes its digest, and
-/// changing the graph changes the subject digest.
-#[test]
-fn the_receipt_changes_when_its_subject_changes() -> TestResult {
-    let scratch = Scratch::new("receipt-binding")?;
-    let first = scratch.path().join("first.toml");
-    let second = scratch.path().join("second.toml");
-    std::fs::write(&first, "[policy]\nschema = 2\nenforce = true\n")?;
-    std::fs::write(
-        &second,
-        "[policy]\nschema = 2\nenforce = true\n# a changed register\n",
-    )?;
-
-    let digest_of = |register: &Path| -> Result<String, Box<dyn Error>> {
-        let outcome = check_from(
-            &clean(),
-            &["check", "--contract", argument(register)?, "--json"],
-        )?;
-        let payload: lgwks_std::json::Value = lgwks_std::json::from_str(&outcome.stdout)?;
-        Ok(receipt_str(&payload["contract"]["digest"], "contract digest")?.to_owned())
-    };
-
-    let first_digest = digest_of(&first)?;
-    let second_digest = digest_of(&second)?;
-    assert_ne!(
-        first_digest, second_digest,
-        "a changed register must change the bound contract digest"
+    assert_has(
+        &outcome.stderr,
+        "unknown option for `check`: --bogus",
+        "the refusal quotes the token it did not recognise",
     );
     Ok(())
 }
@@ -822,3 +681,6 @@ impl Drop for Scratch {
 
 /// The copied-tree half: adoption posture and the lgwks_ast edge ceiling.
 mod tree;
+
+/// The receipt half: contract, subject, mode and scope bound in every receipt.
+mod receipt;

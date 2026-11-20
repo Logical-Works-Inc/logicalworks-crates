@@ -2,6 +2,15 @@
 
 use super::sim_yield_rule::PendingTurn;
 use super::*;
+use crate::sim::nth;
+
+/// The cause a seeded draw selects from [`CAUSES`], or why the draw is out of range.
+pub(super) fn cause_of(draw: u32) -> Result<RefreshReason, Box<dyn std::error::Error>> {
+    CAUSES
+        .get(usize::try_from(draw)?)
+        .copied()
+        .ok_or_else(|| format!("the cause table names no draw {draw}").into())
+}
 
 /// A per-poll deadline is accepted at both boundaries and refused one step past
 /// the ceiling, seeded around the edges.
@@ -98,7 +107,7 @@ fn only_the_seeded_wedged_chain_is_reported_stalled() -> TestResult {
     let width = usize::try_from(rng.between(2, ceiling))?;
     let wedged = usize::try_from(rng.below(u32::try_from(width)?))?;
     let holds = Rc::new(Cell::new(false));
-    let mut subject = scripted_bot("sim-observe-one-stalled", 0, width, SIM_DEADLINE, holds)?;
+    let mut subject = scripted_bot("sim-observe-one-stalled", 0, width, SIM_DEADLINE, &holds)?;
     for (index, held) in subject.handles.iter().enumerate() {
         let pace = if index == wedged { WEDGED_PACE } else { 0 };
         let value = u32::try_from(index)?.saturating_add(1);
@@ -124,7 +133,7 @@ fn only_the_seeded_wedged_chain_is_reported_stalled() -> TestResult {
     );
     assert_eq!(
         row.domain(),
-        DOMAINS[0][wedged % 8],
+        domain_of(0, wedged),
         "seed {SEED}: named by its own domain_id, not a neighbour's"
     );
     assert_eq!(
@@ -151,7 +160,7 @@ fn siblings_of_a_wedged_source_act_in_the_same_tick() -> TestResult {
     let wedged = usize::try_from(rng.below(u32::try_from(width)?))?;
     let mover = wedged.saturating_add(1) % width;
     let holds = Rc::new(Cell::new(false));
-    let mut subject = scripted_bot("sim-observe-siblings", 0, width, SIM_DEADLINE, holds)?;
+    let mut subject = scripted_bot("sim-observe-siblings", 0, width, SIM_DEADLINE, &holds)?;
     for (index, held) in subject.handles.iter().enumerate() {
         let value = u32::try_from(index)?.saturating_add(1);
         arm_chain(held, value, 0, None, 0);
@@ -199,11 +208,11 @@ fn a_seeded_reason_per_chain_is_reported_against_its_own_chain() -> TestResult {
     const SEED: u64 = 0x1200_0009;
     let mut rng = Rng::new(SEED);
     let holds = Rc::new(Cell::new(false));
-    let mut subject = scripted_bot("sim-observe-reasons", 0, 3, SIM_DEADLINE, holds)?;
+    let mut subject = scripted_bot("sim-observe-reasons", 0, 3, SIM_DEADLINE, &holds)?;
     let mut expected: Vec<(usize, RefreshReason)> = Vec::new();
     for (index, held) in subject.handles.iter().enumerate() {
         let cause = if rng.chance(700) {
-            let cause = CAUSES[usize::try_from(rng.below(4))?];
+            let cause = cause_of(rng.below(4))?;
             expected.push((index, cause));
             Some(cause)
         } else {
@@ -227,7 +236,7 @@ fn a_seeded_reason_per_chain_is_reported_against_its_own_chain() -> TestResult {
     for row in report.forced() {
         assert_eq!(
             row.domain(),
-            DOMAINS[0][row.chain() % 8],
+            domain_of(0, row.chain()),
             "seed {SEED}: chain {} is named by its own domain",
             row.chain()
         );
@@ -248,13 +257,14 @@ fn a_seeded_reason_per_chain_is_reported_against_its_own_chain() -> TestResult {
 fn a_failed_forced_refresh_keeps_the_mark_until_a_committed_read_spends_it() -> TestResult {
     const SEED: u64 = 0x1200_0010;
     let mut rng = Rng::new(SEED);
-    let cause = CAUSES[usize::try_from(rng.below(4))?];
+    let cause = cause_of(rng.below(4))?;
     let failures = rng.between(2, 4);
     let holds = Rc::new(Cell::new(false));
-    let mut subject = scripted_bot("sim-observe-failed-mark", 0, 2, SIM_DEADLINE, holds)?;
-    arm_chain(&subject.handles[0], 1, 0, Some(cause), 0);
-    subject.handles[0].refusing.set(true);
-    arm_chain(&subject.handles[1], 2, 0, None, 0);
+    let mut subject = scripted_bot("sim-observe-failed-mark", 0, 2, SIM_DEADLINE, &holds)?;
+    let marked = nth(&subject.handles, 0)?;
+    arm_chain(marked, 1, 0, Some(cause), 0);
+    marked.refusing.set(true);
+    arm_chain(nth(&subject.handles, 1)?, 2, 0, None, 0);
 
     for tick in 1..=failures {
         let _outcome = subject.bot.tick();
@@ -276,9 +286,9 @@ fn a_failed_forced_refresh_keeps_the_mark_until_a_committed_read_spends_it() -> 
         );
     }
 
-    subject.handles[0].refusing.set(false);
-    subject.handles[0].declared.set(None);
-    subject.handles[0].value.set(50);
+    marked.refusing.set(false);
+    marked.declared.set(None);
+    marked.value.set(50);
     let _spend = subject.bot.tick();
     assert!(
         subject
@@ -316,13 +326,7 @@ fn a_seeded_value_sequence_under_a_held_action_reports_each_replaced_revision_on
     let mut rng = Rng::new(SEED);
     let steps = rng.between(3, 6);
     let holds = Rc::new(Cell::new(true));
-    let mut subject = scripted_bot(
-        "sim-observe-superseded",
-        0,
-        1,
-        SIM_DEADLINE,
-        Rc::clone(&holds),
-    )?;
+    let mut subject = scripted_bot("sim-observe-superseded", 0, 1, SIM_DEADLINE, &holds)?;
     let mut values: Vec<u32> = Vec::new();
     for step in 0..steps {
         values.push(step.saturating_mul(7).saturating_add(10));
@@ -331,7 +335,7 @@ fn a_seeded_value_sequence_under_a_held_action_reports_each_replaced_revision_on
     let mut superseded: Vec<u64> = Vec::new();
     let mut fired = 0_usize;
     for value in &values {
-        arm_chain(&subject.handles[0], *value, 0, None, 0);
+        arm_chain(nth(&subject.handles, 0)?, *value, 0, None, 0);
         let _outcome = subject.bot.tick();
         let report = subject.bot.tick_report();
         fired = fired.saturating_add(report.fired());
@@ -354,7 +358,7 @@ fn a_seeded_value_sequence_under_a_held_action_reports_each_replaced_revision_on
     );
     assert_eq!(
         subject.ran.borrow().clone(),
-        vec![(0, values[0])],
+        vec![(0, *nth(&values, 0)?)],
         "seed {SEED}: the held generation ran only on the first value, so no \
          superseded value is counted as fired"
     );
@@ -463,13 +467,13 @@ fn two_tenants_interleaved_ticks_never_cross_attribution() -> TestResult {
     let ticks = rng.between(3, 6);
     let holds_left = Rc::new(Cell::new(true));
     let holds_right = Rc::new(Cell::new(true));
-    let mut left = scripted_bot("sim-observe-two-left", 0, 3, SIM_DEADLINE, holds_left)?;
-    let mut right = scripted_bot("sim-observe-two-right", 1, 5, SIM_DEADLINE, holds_right)?;
+    let mut left = scripted_bot("sim-observe-two-left", 0, 3, SIM_DEADLINE, &holds_left)?;
+    let mut right = scripted_bot("sim-observe-two-right", 1, 5, SIM_DEADLINE, &holds_right)?;
     let mut superseded_seen = 0_usize;
 
     for tick in 1..=ticks {
         for subject in [&mut left, &mut right] {
-            let cause = CAUSES[usize::try_from(rng.below(4))?];
+            let cause = cause_of(rng.below(4))?;
             for (index, held) in subject.handles.iter().enumerate() {
                 let pace = if index == 1 { WEDGED_PACE } else { 0 };
                 let declared = if index == 0 { Some(cause) } else { None };
@@ -553,7 +557,7 @@ fn two_tenants_interleaved_ticks_never_cross_attribution() -> TestResult {
 fn the_same_seed_replays_a_deadline_wave() -> TestResult {
     sim::assert_replays(sim::band_of(40), |sim| {
         let holds = Rc::new(Cell::new(false));
-        let mut subject = scripted_bot("sim-observe-deadline-replay", 0, 3, SIM_DEADLINE, holds)?;
+        let mut subject = scripted_bot("sim-observe-deadline-replay", 0, 3, SIM_DEADLINE, &holds)?;
         let ticks = sim.rng().between(2, 3);
         for tick in 1..=ticks {
             let mut turn = PendingTurn::default();

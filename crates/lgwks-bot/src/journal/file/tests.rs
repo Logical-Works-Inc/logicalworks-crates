@@ -1,5 +1,6 @@
 //! Unit tests for the file journal, moved verbatim out of file.rs.
 
+#[cfg(test)]
 use super::*;
 use crate::effect::{
     ActionDigest, ActionId, AttemptId, EnvironmentEpoch, EnvironmentId, FlowRevision, RunId,
@@ -10,19 +11,19 @@ use crate::journal::{AttemptStatus, EventKind};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-/// Removes a test's scratch path when the test ends, however it ends.
-///
-/// The guard is best effort: a scratch file the system refuses to remove
-/// is litter, not a failed observation, so the error is dropped rather
-/// than allowed to mask the test's own verdict.
+/// Removes a test's scratch path when the test ends, however it ends. A path
+/// the system refuses to remove is logged, not allowed to mask the verdict.
 struct TempGuard(std::path::PathBuf);
 
 impl Drop for TempGuard {
     fn drop(&mut self) {
-        if self.0.is_dir() {
-            drop(std::fs::remove_dir_all(&self.0));
+        let removed = if self.0.is_dir() {
+            std::fs::remove_dir_all(&self.0)
         } else {
-            drop(std::fs::remove_file(&self.0));
+            std::fs::remove_file(&self.0)
+        };
+        if let Err(error) = removed {
+            lgwks_std::trace::debug!(%error, "a scratch path was not removed");
         }
     }
 }
@@ -33,12 +34,8 @@ const ENV: &str = "2122232425262728292a2b2c2d2e2f30";
 const FLOW_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 const DIGEST_HEX: &str = "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeffe0e1e2e3e4e5e6e7e8e9eaebecedeeef";
 
-/// A scratch path unique to one test run.
-///
-/// Shared with `journal::owner`'s tests, so the journal's two test suites name
-/// their scratch files one way (INV-DEP-6). The construction itself is
-/// `frame::probe`'s, because the two halves of a unique name are not a detail a
-/// second copy may spell differently.
+/// A scratch path unique to one test run, shared with `journal::owner`'s tests
+/// (INV-DEP-6) and built by `frame::probe`.
 pub(in crate::journal) fn scratch(name: &str) -> Result<PathBuf, std::io::Error> {
     crate::journal::frame::probe::scratch_path("journal-file", name)
 }
@@ -167,10 +164,7 @@ fn a_failed_batch_write_latches_the_poison_like_a_single_append() -> TestResult 
             )
             .into());
         }
-        Ok(acks) => {
-            let _ = acks;
-            return Err("a failed batch write must not acknowledge".into());
-        }
+        Ok(_) => return Err("a failed batch write must not acknowledge".into()),
     }
     match journal.compare_and_append_all(&[event(303)?]) {
         Err(error) => assert!(
@@ -394,10 +388,8 @@ impl Read for FaultyAfter {
             return refusal;
         }
         let remaining = self.serve.saturating_sub(self.inner.position());
-        // A `serve` this host cannot count is at least every byte the buffer
-        // holds, so the ceiling below is what bounds the read either way.
-        let cap = usize::saturating_from(remaining).min(buf.len());
-        self.inner.read(&mut buf[..cap])
+        // `take` caps the read at the bytes still to serve, and at the buffer.
+        Read::take(&mut self.inner, remaining).read(buf)
     }
 }
 
@@ -583,7 +575,11 @@ fn three_frame_file(path: &Path) -> Result<(Vec<u8>, usize), Box<dyn std::error:
         }
     }
     let bytes = std::fs::read(path)?;
-    let first = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let first_prefix = bytes
+        .first_chunk::<LENGTH_BYTES>()
+        .copied()
+        .ok_or("fixture file is shorter than a length prefix")?;
+    let first = u32::from_be_bytes(first_prefix);
     let first_len = crate::journal::frame::framed_len(usize::try_from(first)?);
     let next = first_len;
     let mut second_prefix = [0u8; LENGTH_BYTES];
@@ -599,91 +595,6 @@ fn three_frame_file(path: &Path) -> Result<(Vec<u8>, usize), Box<dyn std::error:
         bytes,
         usize::try_from(first_len.saturating_add(second_len))?,
     ))
-}
-
-#[test]
-fn an_inflated_length_over_a_complete_final_frame_is_refused_not_trimmed() -> TestResult {
-    let (path, _guard) = subject("inflated-length")?;
-    let (mut bytes, third_start) = three_frame_file(&path)?;
-    let before = bytes.len();
-
-    // Every length a scan can meet at the last frame's prefix: the
-    // maximum the frame bound allows, one over it, and zero. None of them
-    // is a torn append — a killed writer leaves a prefix of the bytes it
-    // intended, and its completed prefix is always the true length — so
-    // each must be refused with the file left byte-for-byte alone. The
-    // inflation case is the destructive one: the declared payload runs
-    // past the end of the file, and the tail looks torn to a reader that
-    // trusts the prefix.
-    let inflated = u32::try_from(MAX_FRAME_BYTES)?;
-    let over_limit = inflated.saturating_add(1);
-    for (name, replacement) in [
-        ("the maximum legal length", inflated),
-        ("one byte over the limit", over_limit),
-        ("a zero length", 0u32),
-    ] {
-        for (slot, offset) in bytes[third_start..]
-            .iter_mut()
-            .take(LENGTH_BYTES)
-            .zip(0usize..)
-        {
-            *slot = replacement.to_be_bytes()[offset];
-        }
-        std::fs::write(&path, &bytes)?;
-
-        match FileJournal::open(&path) {
-            Err(JournalError::Corrupt(corruption)) => {
-                assert_eq!(corruption.at(), 2, "{name}: the lying frame is named");
-                assert!(
-                    matches!(corruption.kind(), CorruptionKind::Framed),
-                    "{name}: the refusal names the framing, got {:?}",
-                    corruption.kind()
-                );
-            }
-            Err(other) => {
-                return Err(format!("{name}: expected a corruption refusal, got {other}").into());
-            }
-            Ok(_) => {
-                return Err(format!("{name}: a lying length must not reopen as a journal").into());
-            }
-        }
-        assert_eq!(
-            std::fs::metadata(&path)?.len(),
-            u64::try_from(before)?,
-            "{name}: refused bytes are never trimmed"
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn a_short_final_frame_is_still_repaired_as_a_torn_tail() -> TestResult {
-    let (path, _guard) = subject("torn-tail")?;
-    let (bytes, third_start) = three_frame_file(&path)?;
-    let complete_len = u64::try_from(third_start)?;
-
-    // A real interrupted append: the file ends mid-frame. This tail was
-    // never acknowledged, so the reopen repairs it — and the repair must
-    // survive the corruption distinction, not be swallowed by it.
-    let torn = &bytes[..third_start.saturating_add(10)];
-    std::fs::write(&path, torn)?;
-
-    let reopened = FileJournal::open(&path)?;
-    assert!(
-        reopened.torn_tail_repaired(),
-        "an interrupted append is repaired, not refused"
-    );
-    assert_eq!(
-        reopened.committed()?.len(),
-        2,
-        "the two kept frames survive"
-    );
-    assert_eq!(
-        std::fs::metadata(&path)?.len(),
-        complete_len,
-        "the repair restores the prefix every acknowledgment names"
-    );
-    Ok(())
 }
 
 /// Open `path` and require a refusal as `Corrupt` at frame `at`, leaving the
@@ -715,181 +626,7 @@ fn require_refused_untouched(path: &Path, before: &[u8], at: u64, why: &str) -> 
     Ok(())
 }
 
-/// The acknowledged final frame whose length grows by `k` is the defect #262
-/// reported. `k` in `1..=32` leaves the payload whole and the head short, so the
-/// payload read succeeds and the head read is what ends early; `k` above `32`
-/// ends inside the payload. Both are one lie told two ways, and both refuse.
-#[test]
-fn a_lengthened_acknowledged_final_frame_is_refused_not_trimmed() -> TestResult {
-    let (path, _guard) = subject("lengthened-final")?;
-    let (bytes, third) = three_frame_file(&path)?;
-    let declared = declared_at(&bytes, third);
-    for extra in 1u32..=1024 {
-        let lied = with_prefix(&bytes, third, declared + extra);
-        std::fs::write(&path, &lied)?;
-        require_refused_untouched(&path, &lied, 2, &format!("final frame L+{extra}"))?;
-    }
-    Ok(())
-}
-
-/// The same lie on a successor whose one event follows the seal it carries.
-///
-/// The cut is resolved against the last whole frame, and in a successor with
-/// no event before the lie that frame is the carried seal. Resolved against
-/// the events alone it was the genesis, which the acknowledged event does not
-/// chain from, so the lie read as a torn append and the event was trimmed.
-#[test]
-fn a_lengthened_event_behind_a_carried_seal_is_refused_not_trimmed() -> TestResult {
-    let (dir, _guard) = subject("lengthened-successor")?;
-    let successor = sealed_successor(&dir)?;
-    let bytes = std::fs::read(&successor)?;
-    let event = frame_starts(&bytes, 0)?[1];
-    let declared = declared_at(&bytes, event);
-    for extra in 1u32..=96 {
-        let lied = with_prefix(&bytes, event, declared + extra);
-        std::fs::write(&successor, &lied)?;
-        require_refused_untouched(&successor, &lied, 0, &format!("successor event L+{extra}"))?;
-    }
-    Ok(())
-}
-
-/// The second shape from the same finding: an acknowledged frame with frames
-/// behind it whose length is inflated past the end of the file. The true frame
-/// is still the first thing behind the prefix, so it authenticates and the two
-/// frames after it are not read as one more candidate and dropped.
-#[test]
-fn an_inflated_non_final_length_is_refused_and_every_byte_survives() -> TestResult {
-    let (path, _guard) = subject("inflated-middle")?;
-    let (bytes, _) = three_frame_file(&path)?;
-    let middle = frame_starts(&bytes, 0)?[1];
-    let remaining = u32::try_from(bytes.len() - middle)?;
-    for declared in [
-        remaining,
-        remaining + 1,
-        remaining + 31,
-        remaining + 500,
-        u32::try_from(MAX_FRAME_BYTES)?,
-    ] {
-        let lied = with_prefix(&bytes, middle, declared);
-        std::fs::write(&path, &lied)?;
-        require_refused_untouched(
-            &path,
-            &lied,
-            1,
-            &format!("middle frame declared {declared}"),
-        )?;
-    }
-    Ok(())
-}
-
-/// The control: a genuinely cut append is still repaired. Every byte offset
-/// inside the final frame is a place a killed writer could have stopped, and each
-/// must reopen with the two acknowledged frames, report the repair, and leave the
-/// file at exactly the acknowledged prefix. This is what keeps the refusal above
-/// from being bought by refusing everything.
-#[test]
-fn an_append_cut_at_every_byte_of_the_final_frame_is_repaired() -> TestResult {
-    let (path, _guard) = subject("cut-every-byte")?;
-    let (bytes, third) = three_frame_file(&path)?;
-    for cut in third + 1..bytes.len() {
-        std::fs::write(&path, &bytes[..cut])?;
-        let reopened = FileJournal::open(&path).map_err(|error| {
-            format!(
-                "a final frame cut at byte {cut} of {} was refused: {error}",
-                bytes.len()
-            )
-        })?;
-        assert!(
-            reopened.torn_tail_repaired(),
-            "cut at {cut} was not reported as repaired"
-        );
-        assert_eq!(
-            reopened.committed()?.len(),
-            2,
-            "cut at {cut} lost an acknowledged frame"
-        );
-        drop(reopened);
-        assert_eq!(
-            std::fs::metadata(&path)?.len(),
-            u64::try_from(third)?,
-            "cut at {cut} was not trimmed to the acknowledged prefix"
-        );
-    }
-    Ok(())
-}
-
-/// A middle frame whose length is inflated *and* whose own payload is damaged
-/// authenticates as nothing itself, but the acknowledged frame behind it still
-/// does, so the open refuses rather than trimming both.
-#[test]
-fn a_damaged_cut_frame_with_an_acknowledged_frame_behind_it_is_refused() -> TestResult {
-    let (path, _guard) = subject("damaged-middle")?;
-    let (bytes, _) = three_frame_file(&path)?;
-    let starts = frame_starts(&bytes, 0)?;
-    let middle = starts[1];
-    let remaining = u32::try_from(bytes.len() - middle)?;
-    let mut lied = with_prefix(&bytes, middle, remaining + 7);
-    lied[middle + LENGTH_BYTES + 3] ^= 0x55;
-    std::fs::write(&path, &lied)?;
-    require_refused_untouched(&path, &lied, 1, "damaged middle frame")
-}
-
-/// The stated limit, pinned so the claim is no larger than the test: a final
-/// frame whose length was changed and whose head was also damaged authenticates as
-/// nothing and has nothing behind it, so it is indistinguishable from an append
-/// cut inside its head, and it is trimmed.
-#[test]
-fn a_final_frame_with_a_lying_length_and_a_damaged_head_is_the_stated_limit() -> TestResult {
-    let (path, _guard) = subject("two-faults")?;
-    let (bytes, third) = three_frame_file(&path)?;
-    let declared = declared_at(&bytes, third);
-    let mut lied = with_prefix(&bytes, third, declared + 5);
-    let last = lied.len() - 1;
-    lied[last] ^= 0xff;
-    std::fs::write(&path, &lied)?;
-    let reopened = FileJournal::open(&path)?;
-    assert!(reopened.torn_tail_repaired());
-    assert_eq!(reopened.committed()?.len(), 2);
-    Ok(())
-}
-
-/// The streaming replay answers a lying length as `open` does. It reads from
-/// its own descriptor, so a file changed after `open` is the case it can meet.
-#[test]
-fn a_streaming_replay_refuses_a_lengthened_final_frame_and_then_ends() -> TestResult {
-    let (path, _guard) = subject("replay-lengthened")?;
-    let (bytes, third) = three_frame_file(&path)?;
-    let journal = FileJournal::open(&path)?;
-    let declared = declared_at(&bytes, third);
-    for extra in [1u32, 17, 32, 33, 400] {
-        std::fs::write(&path, with_prefix(&bytes, third, declared + extra))?;
-        let mut replay = journal.replay()?;
-        assert!(
-            matches!(replay.next(), Some(Ok(_))),
-            "L+{extra}: first event"
-        );
-        assert!(
-            matches!(replay.next(), Some(Ok(_))),
-            "L+{extra}: second event"
-        );
-        assert!(
-            matches!(replay.next(), Some(Err(JournalError::Corrupt(_)))),
-            "L+{extra}: the lengthened frame must be a refusal, not the end of the stream"
-        );
-        assert!(
-            replay.next().is_none(),
-            "L+{extra}: a refusal ends the stream"
-        );
-    }
-    std::fs::write(&path, &bytes[..third + 10])?;
-    let events = journal.replay()?.collect::<Result<Vec<_>, _>>()?;
-    assert_eq!(
-        events.len(),
-        2,
-        "a cut append still ends the stream quietly"
-    );
-    Ok(())
-}
+mod frames;
 
 mod refusals;
 

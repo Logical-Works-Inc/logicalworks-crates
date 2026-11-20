@@ -471,48 +471,10 @@ pub(crate) fn print_check_json(
         "mode".to_owned(),
         Value::from(outcome.mode.as_str().to_owned()),
     );
-    let mut contract = Map::new();
-    contract.insert(
-        "digest".to_owned(),
-        match register {
-            Some(register) => Value::from(register.digest().to_owned()),
-            None => Value::Null,
-        },
+    payload.insert(
+        "contract".to_owned(),
+        Value::Object(contract_json(register, entries)),
     );
-    contract.insert(
-        "schema".to_owned(),
-        match register {
-            Some(register) => Value::Number(schema_number(register.schema())),
-            None => Value::Null,
-        },
-    );
-    contract.insert(
-        "entries".to_owned(),
-        Value::Number(serde_json_number(entries)),
-    );
-    contract.insert(
-        "repository".to_owned(),
-        match register.and_then(|register| register.repository.as_ref()) {
-            Some(repository) => Value::from(repository.clone()),
-            None => Value::Null,
-        },
-    );
-    // The licence policy the verdict was judged by, as the register declared
-    // it, so a consumer reading the receipt sees the set that admitted or
-    // refused each edge rather than inferring one the gate does not hold.
-    contract.insert(
-        "accepted_licenses".to_owned(),
-        match register.and_then(Contract::accepted_licenses) {
-            Some(accepted) => Value::Array(
-                accepted
-                    .iter()
-                    .map(|licence| Value::from(licence.clone()))
-                    .collect(),
-            ),
-            None => Value::Null,
-        },
-    );
-    payload.insert("contract".to_owned(), Value::Object(contract));
     let mut subject = Map::new();
     subject.insert(
         "digest".to_owned(),
@@ -534,7 +496,7 @@ pub(crate) fn print_check_json(
     payload.insert(
         "enforce".to_owned(),
         match register {
-            Some(contract) => Value::Bool(contract.enforce),
+            Some(contract) => Value::Bool(contract.enforce()),
             None => Value::Null,
         },
     );
@@ -542,7 +504,7 @@ pub(crate) fn print_check_json(
     let invariant_admitted = invariant.as_ref().is_none_or(|json| {
         json.error.is_none()
             && (json.audit.is_none_or(|audit| audit.refusals().is_empty())
-                || json.register.is_none_or(|register| !register.enforce))
+                || json.register.is_none_or(|register| !register.enforce()))
     });
     // `admitted` is the same predicate the exit code carries: a tree the gate
     // could not read is not admitted, so `error.is_some()` must make this false
@@ -567,76 +529,134 @@ pub(crate) fn print_check_json(
         },
     );
     if let Some(json) = invariant {
-        let mut invariant_rows = Vec::new();
-        if let Some(audit) = json.audit {
-            for refusal in audit.refusals() {
-                let mut row = Map::new();
-                row.insert("id".to_owned(), Value::from(refusal.id().to_owned()));
-                row.insert("detail".to_owned(), Value::from(refusal.to_string()));
-                invariant_rows.push(Value::Object(row));
-            }
-        }
-        let mut outcome_rows = Vec::new();
-        if let Some(audit) = json.audit {
-            for outcome in audit.outcomes() {
-                let mut row = Map::new();
-                row.insert("id".to_owned(), Value::from(outcome.id().to_owned()));
-                row.insert(
-                    "status".to_owned(),
-                    Value::from(outcome.status.as_str().to_owned()),
-                );
-                outcome_rows.push(Value::Object(row));
-            }
-        }
-        let registered = match json.register {
-            Some(found) => found.entry_count(),
-            None => 0,
-        };
-        let (resolved, attested) = match json.audit {
-            Some(audit) => (audit.resolved(), audit.attested()),
-            None => (0, 0),
-        };
-        let mut invariant_payload = Map::new();
-        invariant_payload.insert(
-            "enforce".to_owned(),
-            match json.register {
-                Some(register) => Value::Bool(register.enforce),
-                None => Value::Null,
-            },
+        payload.insert(
+            "invariants".to_owned(),
+            Value::Object(invariants_json(&json)),
         );
-        invariant_payload.insert(
-            "registered".to_owned(),
-            Value::Number(serde_json_number(registered)),
-        );
-        // Counts, not a verdict. There is no `enforced` key and there must
-        // never be one: this command reaches these numbers by reading files and
-        // manifests, so it has no standing to say an invariant holds. The
-        // `scope` string is emitted beside them for the same reason the human
-        // rendering prints it.
-        invariant_payload.insert(
-            "resolved".to_owned(),
-            Value::Number(serde_json_number(resolved)),
-        );
-        invariant_payload.insert(
-            "attested".to_owned(),
-            Value::Number(serde_json_number(attested)),
-        );
-        invariant_payload.insert("scope".to_owned(), Value::from(INVARIANT_SCOPE.to_owned()));
-        invariant_payload.insert("outcomes".to_owned(), Value::Array(outcome_rows));
-        invariant_payload.insert("refusals".to_owned(), Value::Array(invariant_rows));
-        invariant_payload.insert(
-            "error".to_owned(),
-            match json.error {
-                Some(message) => Value::from(message.to_owned()),
-                None => Value::Null,
-            },
-        );
-        payload.insert("invariants".to_owned(), Value::Object(invariant_payload));
     }
 
     let rendered =
         lgwks_std::json::to_string_pretty(&Value::Object(payload)).map_err(io::Error::other)?;
     writeln!(out, "{rendered}")
+}
+
+/// The `contract` object of the receipt: the register's identities and the
+/// licence policy the verdict was judged by.
+///
+/// The policy is shown as the register declared it, so a consumer reading the
+/// receipt sees the set that admitted or refused each edge rather than
+/// inferring one the gate does not hold.
+fn contract_json(register: Option<&Contract>, entries: usize) -> lgwks_std::json::Map {
+    use lgwks_std::json::{Map, Value};
+
+    let mut contract = Map::new();
+    contract.insert(
+        "digest".to_owned(),
+        match register {
+            Some(register) => Value::from(register.digest().to_owned()),
+            None => Value::Null,
+        },
+    );
+    contract.insert(
+        "schema".to_owned(),
+        match register {
+            Some(register) => Value::Number(schema_number(register.schema())),
+            None => Value::Null,
+        },
+    );
+    contract.insert(
+        "entries".to_owned(),
+        Value::Number(serde_json_number(entries)),
+    );
+    contract.insert(
+        "repository".to_owned(),
+        match register.and_then(Contract::repository) {
+            Some(repository) => Value::from(repository.to_owned()),
+            None => Value::Null,
+        },
+    );
+    contract.insert(
+        "accepted_licenses".to_owned(),
+        match register.and_then(Contract::accepted_licenses) {
+            Some(accepted) => Value::Array(
+                accepted
+                    .iter()
+                    .map(|licence| Value::from(licence.clone()))
+                    .collect(),
+            ),
+            None => Value::Null,
+        },
+    );
+    contract
+}
+
+/// The `invariants` object of the receipt.
+///
+/// Counts, not a verdict. There is no `enforced` key and there must never be
+/// one: this command reaches these numbers by reading files and manifests, so
+/// it has no standing to say an invariant holds. The `scope` string is emitted
+/// beside them for the same reason the human rendering prints it.
+fn invariants_json(json: &InvariantJson<'_>) -> lgwks_std::json::Map {
+    use lgwks_std::json::{Map, Value};
+
+    let mut invariant_rows = Vec::new();
+    let mut outcome_rows = Vec::new();
+    if let Some(audit) = json.audit {
+        for refusal in audit.refusals() {
+            let mut row = Map::new();
+            row.insert("id".to_owned(), Value::from(refusal.id().to_owned()));
+            row.insert("detail".to_owned(), Value::from(refusal.to_string()));
+            invariant_rows.push(Value::Object(row));
+        }
+        for outcome in audit.outcomes() {
+            let mut row = Map::new();
+            row.insert("id".to_owned(), Value::from(outcome.id().to_owned()));
+            row.insert(
+                "status".to_owned(),
+                Value::from(outcome.status().as_str().to_owned()),
+            );
+            outcome_rows.push(Value::Object(row));
+        }
+    }
+    let registered = match json.register {
+        Some(found) => found.entry_count(),
+        None => 0,
+    };
+    let (resolved, attested) = match json.audit {
+        Some(audit) => (audit.resolved(), audit.attested()),
+        None => (0, 0),
+    };
+    let mut invariant_payload = Map::new();
+    invariant_payload.insert(
+        "enforce".to_owned(),
+        match json.register {
+            Some(register) => Value::Bool(register.enforce()),
+            None => Value::Null,
+        },
+    );
+    invariant_payload.insert(
+        "registered".to_owned(),
+        Value::Number(serde_json_number(registered)),
+    );
+    invariant_payload.insert(
+        "resolved".to_owned(),
+        Value::Number(serde_json_number(resolved)),
+    );
+    invariant_payload.insert(
+        "attested".to_owned(),
+        Value::Number(serde_json_number(attested)),
+    );
+    invariant_payload.insert("scope".to_owned(), Value::from(INVARIANT_SCOPE.to_owned()));
+    invariant_payload.insert("outcomes".to_owned(), Value::Array(outcome_rows));
+    invariant_payload.insert("refusals".to_owned(), Value::Array(invariant_rows));
+    invariant_payload.insert(
+        "error".to_owned(),
+        match json.error {
+            Some(message) => Value::from(message.to_owned()),
+            None => Value::Null,
+        },
+    );
+    invariant_payload
 }
 
 /// Convert a `usize` count into a JSON number.

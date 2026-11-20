@@ -3,10 +3,11 @@
 use lgwks_std::hash::Digest;
 use lgwks_std::id::Uuid;
 
-use super::{Driver, Failure, Name, Planned, Pos, below, buffer, mint};
+use super::{Cols, Driver, Failure, Name, Planned, Pos, below, buffer, mint};
 use crate::world::MAX_VALUE_BYTES;
 use crate::world::error::{Limit, WorldError};
 use crate::world::state::World;
+use crate::world::tx::Tx;
 
 /// Everything about a world a dropped transaction must leave alone.
 #[derive(Debug, PartialEq, Eq)]
@@ -34,6 +35,19 @@ fn print(world: &World) -> Result<Print, Failure> {
     })
 }
 
+/// A transaction on `world` holding every planned write, buffered and not committed.
+fn buffered<'world>(
+    world: &'world mut World,
+    cols: Cols,
+    planned: &[Planned],
+) -> Result<Tx<'world>, Failure> {
+    let mut tx = world.begin();
+    for write in planned {
+        buffer(&mut tx, cols, write)?;
+    }
+    Ok(tx)
+}
+
 /// How the system under test ends after its writes.
 #[derive(Debug, Clone, Copy)]
 enum Ending {
@@ -47,6 +61,14 @@ enum Ending {
     Panicked,
 }
 
+/// Every way the system ends, in the order the rounds cycle through them.
+const ENDINGS: [Ending; 4] = [
+    Ending::Dropped,
+    Ending::Refused,
+    Ending::Capped,
+    Ending::Panicked,
+];
+
 /// The discriminating test (the pulled plug, for every N in a seeded range): a system buffers N writes and
 /// then drops, is refused, hits a ceiling or panics, and the hash, tick, counts and change feed before and
 /// after are equal. The control commits the same writes and must move the hash, so a hash that never moves
@@ -56,23 +78,14 @@ fn sim_world_dropped_tx_leaves_bytes() -> Result<(), Failure> {
     let mut driver = Driver::new(0x1002_d209, "acme", 50_000, 1 << 24)?;
     driver.run(2_000)?;
     let cols = driver.cols;
-    let endings = [
-        Ending::Dropped,
-        Ending::Refused,
-        Ending::Capped,
-        Ending::Panicked,
-    ];
     let mut moved = 0_usize;
-    for (round, ending) in endings.iter().copied().cycle().take(96).enumerate() {
+    for (round, ending) in ENDINGS.iter().copied().cycle().take(96).enumerate() {
         let count = below(&mut driver.stream, 41)?;
         let before = print(&driver.world)?;
         let planned = driver.plan(count)?;
         match ending {
             Ending::Dropped => {
-                let mut tx = driver.world.begin();
-                for write in &planned {
-                    buffer(&mut tx, cols, write)?;
-                }
+                let tx = buffered(&mut driver.world, cols, &planned)?;
                 let removes = planned
                     .iter()
                     .filter(|write| matches!(write, Planned::Remove(..)))
@@ -86,10 +99,7 @@ fn sim_world_dropped_tx_leaves_bytes() -> Result<(), Failure> {
                 );
             }
             Ending::Refused => {
-                let mut tx = driver.world.begin();
-                for write in &planned {
-                    buffer(&mut tx, cols, write)?;
-                }
+                let mut tx = buffered(&mut driver.world, cols, &planned)?;
                 let unissued = Uuid::from([0_u8; 16]);
                 assert!(
                     matches!(tx.spawn(unissued), Err(WorldError::NotV7 { .. })),
@@ -105,10 +115,7 @@ fn sim_world_dropped_tx_leaves_bytes() -> Result<(), Failure> {
                 );
             }
             Ending::Capped => {
-                let mut tx = driver.world.begin();
-                for write in &planned {
-                    buffer(&mut tx, cols, write)?;
-                }
+                let mut tx = buffered(&mut driver.world, cols, &planned)?;
                 let id = mint(u64::MAX, 9);
                 tx.spawn(id)?;
                 let huge = Name("x".repeat(MAX_VALUE_BYTES.saturating_add(1)));
@@ -128,12 +135,9 @@ fn sim_world_dropped_tx_leaves_bytes() -> Result<(), Failure> {
                 let outcome = std::thread::scope(|scope| {
                     scope
                         .spawn(|| {
-                            let mut tx = world.begin();
-                            for write in &planned {
-                                if buffer(&mut tx, cols, write).is_err() {
-                                    return;
-                                }
-                            }
+                            let Ok(tx) = buffered(world, cols, &planned) else {
+                                return;
+                            };
                             assert_eq!(
                                 tx.pending(),
                                 usize::MAX,
@@ -150,11 +154,7 @@ fn sim_world_dropped_tx_leaves_bytes() -> Result<(), Failure> {
             before,
             "round {round} ({ending:?}, {count} writes) changed the world"
         );
-        let mut tx = driver.world.begin();
-        for write in &planned {
-            buffer(&mut tx, cols, write)?;
-        }
-        tx.commit()?;
+        buffered(&mut driver.world, cols, &planned)?.commit()?;
         let tick = driver.world.tick();
         for write in &planned {
             driver.model.apply(write, tick);

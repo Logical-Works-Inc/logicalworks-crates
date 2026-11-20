@@ -14,7 +14,7 @@ use crate::rng;
 
 #[cfg(feature = "http")]
 mod sim {
-    use std::io::Write;
+    use std::io::{ErrorKind, Write};
     use std::net::TcpListener;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -38,7 +38,13 @@ mod sim {
     /// Derive the reuse script from `seed` alone.
     fn reuse_script(seed: u64) -> ReuseScript {
         let mut rng = Rng::new(seed);
-        let burst = [1_usize, 2, 4, 8, 16, 32][rng.below(6)];
+        // The draw is below six, so the last of the first `draw + 1` bursts is
+        // the burst the draw names.
+        let draw = rng.below(6);
+        let burst = [1_usize, 2, 4, 8, 16, 32]
+            .iter()
+            .take(draw.saturating_add(1))
+            .fold(1, |_, &entry| entry);
         ReuseScript {
             burst,
             zero_age: rng.below(2) == 1,
@@ -61,27 +67,30 @@ mod sim {
         };
         let (accepted, answered) =
             std::thread::scope(|scope| -> Result<_, Box<dyn std::error::Error>> {
-                let server = scope.spawn(move || {
+                let server = scope.spawn(move || -> std::io::Result<(usize, Vec<ErrorKind>)> {
                     let mut connections = 0_usize;
+                    // Every way a connection ended other than a clean close,
+                    // kept so the test can judge each one.
+                    let mut hangups = Vec::new();
                     while served_in.load(Ordering::SeqCst) < burst {
-                        let (mut stream, _) = match listener.accept() {
-                            Ok(served) => served,
-                            Err(_) => return connections,
-                        };
+                        let (mut stream, _) = listener.accept()?;
                         connections = connections.saturating_add(1);
                         loop {
                             let open = match read_request_head(&mut stream) {
                                 Ok(head) => head.windows(4).any(|window| window == b"\r\n\r\n"),
-                                Err(_) => false,
+                                Err(error) => {
+                                    hangups.push(error.kind());
+                                    false
+                                }
                             };
                             if !open {
                                 break;
                             }
                             served_in.fetch_add(1, Ordering::SeqCst);
-                            if stream
-                                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
-                                .is_err()
+                            if let Err(error) =
+                                stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
                             {
+                                hangups.push(error.kind());
                                 break;
                             }
                             if served_in.load(Ordering::SeqCst) >= burst {
@@ -89,15 +98,15 @@ mod sim {
                             }
                         }
                     }
-                    connections
+                    Ok((connections, hangups))
                 });
                 let client = Client::with_pool(Options::default(), pool)?;
                 for _ in 0..burst {
                     let response = client.get_with(&url, client.options())?;
-                    assert_eq!(response.status, 200, "every seeded exchange answers");
+                    assert_eq!(response.status(), 200, "every seeded exchange answers");
                 }
                 drop(client);
-                let accepted = server.join().map_err(|payload| {
+                let (accepted, hangups) = server.join().map_err(|payload| {
                     let message = match payload.downcast_ref::<&str>() {
                         Some(text) => (*text).to_owned(),
                         None => match payload.downcast_ref::<String>() {
@@ -106,7 +115,18 @@ mod sim {
                         },
                     };
                     format!("reuse server panicked: {message}")
-                })?;
+                })??;
+                // A client that drops a pooled connection may reset it; any
+                // other way for a connection to end is a defect.
+                assert!(
+                    hangups.iter().all(|kind| matches!(
+                        kind,
+                        ErrorKind::ConnectionReset
+                            | ErrorKind::ConnectionAborted
+                            | ErrorKind::BrokenPipe
+                    )),
+                    "a connection ended in an unexpected way: {hangups:?}"
+                );
                 Ok((accepted, served.load(Ordering::SeqCst)))
             })?;
         assert_eq!(

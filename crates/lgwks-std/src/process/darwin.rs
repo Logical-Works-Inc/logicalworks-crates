@@ -259,12 +259,14 @@ fn row(record: &[u8; KINFO_PROC_BYTES]) -> io::Result<KinfoRow> {
     let start_sec = field(record, OFFSET_START_SEC)?;
     let start_usec = field(record, OFFSET_START_USEC)?;
     Ok(KinfoRow {
-        pid: i32::from_ne_bytes(pid),
-        ppid: i32::from_ne_bytes(ppid),
-        pgid: i32::from_ne_bytes(pgid),
-        zombie: u8::from_ne_bytes(stat) == SZOMB,
-        start_sec: i64::from_ne_bytes(start_sec),
-        start_usec: i32::from_ne_bytes(start_usec),
+        // Every Apple target the kernel runs on is little-endian, and the
+        // kernel writes this struct in its own byte order.
+        pid: i32::from_le_bytes(pid),
+        ppid: i32::from_le_bytes(ppid),
+        pgid: i32::from_le_bytes(pgid),
+        zombie: u8::from_le_bytes(stat) == SZOMB,
+        start_sec: i64::from_le_bytes(start_sec),
+        start_usec: i32::from_le_bytes(start_usec),
     })
 }
 

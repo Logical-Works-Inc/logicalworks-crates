@@ -141,10 +141,10 @@ impl EffectPolicy for AllowBench {
 }
 
 /// Report one word's overhead distribution.
-fn report(label: &str, samples: &mut [u128]) {
+fn report(label: &str, samples: &mut [u128]) -> std::io::Result<()> {
     let summary = measure::Summary::of(samples);
     let mut out = std::io::stdout().lock();
-    let _written = writeln!(out, "{}", summary.line(&format!("{label} overhead")));
+    writeln!(out, "{}", summary.line(&format!("{label} overhead")))
 }
 
 /// Run the benchmark.
@@ -181,6 +181,51 @@ impl Drop for CancelOnDrop {
     }
 }
 
+/// Answer `bodies` loopback requests with [`BODY`], or fewer once `stop` rises.
+fn serve(listener: &std::net::TcpListener, bodies: usize, stop: &AtomicBool) {
+    for _ in 0..bodies {
+        let mut stream = match listener.accept() {
+            Ok(accepted) => accepted.0,
+            Err(failed) => {
+                lgwks_std::trace::debug!(error = ?failed, "bench server: accept failed");
+                return;
+            }
+        };
+        if stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let mut head = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        loop {
+            let read = match std::io::Read::read(&mut stream, &mut chunk) {
+                Ok(0) => break,
+                Err(failed) => {
+                    lgwks_std::trace::debug!(error = ?failed, "bench server: read failed");
+                    break;
+                }
+                Ok(read) => read,
+            };
+            head.extend_from_slice(chunk.split_at(read).0);
+            if head.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+            if head.len() > 16_384 {
+                break;
+            }
+        }
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            BODY.len()
+        );
+        for part in [head.as_bytes(), BODY] {
+            if let Err(error) = std::io::Write::write_all(&mut stream, part) {
+                lgwks_std::trace::debug!(error = ?error, "bench server: write failed");
+                break;
+            }
+        }
+    }
+}
+
 /// # Errors
 ///
 /// Whatever the host, the loopback server, the store or a mismatched answer
@@ -207,46 +252,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         armed: true,
     };
     let stop = std::sync::Arc::clone(&cancel.stop);
-    let server = lgwks_std::task::try_spawn_blocking(move || {
-        for _ in 0..bodies {
-            let mut stream = match listener.accept() {
-                Ok(accepted) => accepted.0,
-                Err(failed) => {
-                    lgwks_std::trace::debug!(error = ?failed, "bench server: accept failed");
-                    return;
-                }
-            };
-            if stop.load(Ordering::SeqCst) {
-                return;
-            }
-            let mut head = Vec::new();
-            let mut chunk = [0_u8; 1024];
-            loop {
-                let read = match std::io::Read::read(&mut stream, &mut chunk) {
-                    Ok(0) => break,
-                    Err(failed) => {
-                        lgwks_std::trace::debug!(error = ?failed, "bench server: read failed");
-                        break;
-                    }
-                    Ok(read) => read,
-                };
-                head.extend_from_slice(&chunk[..read]);
-                if head.windows(4).any(|window| window == b"\r\n\r\n") {
-                    break;
-                }
-                if head.len() > 16_384 {
-                    break;
-                }
-            }
-            let head = format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                BODY.len()
-            );
-            drop(std::io::Write::write_all(&mut stream, head.as_bytes()));
-            drop(std::io::Write::write_all(&mut stream, BODY));
-        }
-    })
-    .map_err(|refused| format!("no blocking thread for the bench server: {refused}"))?;
+    let server = lgwks_std::task::try_spawn_blocking(move || serve(&listener, bodies, &stop))
+        .map_err(std::io::Error::other)?;
 
     let exchange = Options::default()
         .timeout(Duration::from_secs(30))
@@ -261,6 +268,26 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     )
     .map_err(|refused| format!("the raw client could not be built: {refused}"))?;
 
+    let mut fetch_overhead = fetch_samples(&host, &client, &url)?;
+    report("fetch", &mut fetch_overhead)?;
+    let mut ask_overhead = ask_samples(&host)?;
+    report("ask", &mut ask_overhead)?;
+    let mut send_overhead = send_samples(&host)?;
+    report("send", &mut send_overhead)?;
+
+    lgwks_std::task::block_on(server);
+    cancel.disarm();
+    let mut out = std::io::stdout().lock();
+    writeln!(out, "samples per word: {SAMPLES}")?;
+    Ok(())
+}
+
+/// The `fetch` word's overhead over the raw client exchange, per sample.
+fn fetch_samples(
+    host: &Host,
+    client: &Client,
+    url: &str,
+) -> Result<Vec<u128>, Box<dyn std::error::Error>> {
     let fetch_word = task("bench-fetch", |scope: Scope, url: String| async move {
         let options: FetchOptions = FetchOptions::default();
         let answered = lgwks_bot::script::fetch(&scope, "fetch", &url, &options).await?;
@@ -272,12 +299,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let at = Instant::now();
         let call = client.options().clone();
         let raw = client
-            .get_with(&url, &call)
+            .get_with(url, &call)
             .map_err(|failed| format!("the raw exchange failed: {failed}"))?;
-        if raw.status != 200 || raw.body() != BODY {
+        if raw.status() != 200 || raw.body() != BODY {
             let message = format!(
                 "the raw exchange answered {} with {} bytes",
-                raw.status,
+                raw.status(),
                 raw.body().len()
             );
             lgwks_std::trace::debug!(message = message.as_str(), "run: the raw fetch strayed");
@@ -285,7 +312,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let raw_micros = at.elapsed().as_micros();
         let at = Instant::now();
-        let worded = lgwks_bot::script::block_on(host.run(&fetch_word, url.clone()));
+        let worded = lgwks_bot::script::block_on(host.run(&fetch_word, url.to_owned()));
         let word_micros = at.elapsed().as_micros();
         if worded.output() != Some(&200_u16) {
             let message = format!("the word fetch failed: {:?}", worded.error());
@@ -294,8 +321,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         fetch_overhead.push(word_micros.saturating_sub(raw_micros));
     }
-    report("fetch", &mut fetch_overhead);
+    Ok(fetch_overhead)
+}
 
+/// The `ask` word's overhead over the raw model completion, per sample.
+fn ask_samples(host: &Host) -> Result<Vec<u128>, Box<dyn std::error::Error>> {
     let mut seed = 0_u64;
     let model = loop {
         let candidate = StubModel::from_seed(seed);
@@ -340,8 +370,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         ask_overhead.push(word_micros.saturating_sub(raw_micros));
     }
-    report("ask", &mut ask_overhead);
+    Ok(ask_overhead)
+}
 
+/// The `send` word's overhead over the raw mailer dispatch, per sample.
+fn send_samples(host: &Host) -> Result<Vec<u128>, Box<dyn std::error::Error>> {
     use std::sync::Arc as Shared;
     let mailer = Shared::new(BenchMailer::new());
     let send_word = task(
@@ -379,13 +412,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         send_overhead.push(word_micros.saturating_sub(raw_micros));
     }
-    report("send", &mut send_overhead);
-
-    lgwks_std::task::block_on(server);
-    cancel.disarm();
-    let mut out = std::io::stdout().lock();
-    let _written = writeln!(out, "samples per word: {SAMPLES}");
-    Ok(())
+    Ok(send_overhead)
 }
 
 /// The benchmark's entry: the numbers go to stdout, the refusal to stderr.

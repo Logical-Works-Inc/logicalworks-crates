@@ -13,7 +13,7 @@
 use std::io;
 
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
-use super::unsupported;
+use super::unsupported_for;
 #[cfg(all(any(unix, windows), feature = "process"))]
 use super::{DescendantSet, capture_descendants, kill_process, kill_process_group};
 #[cfg(all(unix, feature = "process"))]
@@ -324,8 +324,10 @@ pub fn identify_process(pid: i32) -> io::Result<Option<ProcessIdentity>> {
 /// [`std::io::ErrorKind::Unsupported`].
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn identify_process(pid: i32) -> io::Result<Option<ProcessIdentity>> {
-    let _ = pid;
-    Err(unsupported("process identify_process is Unix-only"))
+    Err(unsupported_for(
+        "process identify_process is Unix-only",
+        pid,
+    ))
 }
 
 /// What [`reap_orphaned_group`] found and did.
@@ -501,8 +503,10 @@ pub fn reap_orphaned_group(leader: &ProcessIdentity) -> io::Result<OrphanReap> {
 /// [`std::io::ErrorKind::Unsupported`].
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn reap_orphaned_group(leader: &ProcessIdentity) -> io::Result<OrphanReap> {
-    let _ = leader;
-    Err(unsupported("process reap_orphaned_group is Unix-only"))
+    Err(unsupported_for(
+        "process reap_orphaned_group is Unix-only",
+        leader,
+    ))
 }
 
 /// The refusal for a record whose reading only `platform` can make. Every

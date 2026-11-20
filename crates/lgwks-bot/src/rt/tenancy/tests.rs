@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::{
     Arrival, DeficitRoundRobin, GrantOutcome, MAX_QUEUE_PER_TENANT, MAX_TENANT_WEIGHT,
     TenancyError, TenancyPolicy,
@@ -25,8 +26,8 @@ fn all_live(_waiter: &u32) -> bool {
 /// A predicate rather than a value comparison because the queued arm of
 /// [`Arrival`] carries no permit, so there is nothing for the caller to
 /// pattern it against — asking the question is the comparison.
-fn parked<P>(arrival: Arrival<P>) -> bool {
-    matches!(arrival, Arrival::Queued)
+fn parked<P>(arrival: &Arrival<P>) -> bool {
+    matches!(*arrival, Arrival::Queued)
 }
 
 #[test]
@@ -72,7 +73,7 @@ fn a_waiter_is_built_only_for_an_arrival_that_parks() -> Result<(), Box<dyn Erro
     );
     assert_eq!(built.get(), 0, "an immediate admission built no waiter");
     assert!(
-        parked(core.arrive_with(&t0, make, || None::<u32>)),
+        parked(&core.arrive_with(&t0, make, || None::<u32>)),
         "a spent pool parks the arrival"
     );
     assert_eq!(
@@ -141,17 +142,17 @@ fn two_backlogged_tenants_alternate_permits() -> Result<(), Box<dyn Error>> {
     // sweep: alternation is a property of two *waiting* tenants, and a
     // tenant whose queue empties has nothing to be denied.
     let first_arrival = core.arrive(&first, 1, || None::<u32>);
-    assert!(parked(first_arrival), "the first tenant queues");
+    assert!(parked(&first_arrival), "the first tenant queues");
     let second_arrival = core.arrive(&second, 2, || None::<u32>);
-    assert!(parked(second_arrival), "the second tenant queues");
+    assert!(parked(&second_arrival), "the second tenant queues");
     for (tenant, waiter) in [(&first, 3_u32), (&second, 4_u32)] {
         let arrived = core.arrive(tenant, waiter, || None::<u32>);
-        assert!(parked(arrived), "the backlog grows on both tenants");
+        assert!(parked(&arrived), "the backlog grows on both tenants");
     }
     let first_third = core.arrive(&first, 5, || None::<u32>);
-    assert!(parked(first_third), "the first tenant queues a third");
+    assert!(parked(&first_third), "the first tenant queues a third");
     let second_third = core.arrive(&second, 6, || None::<u32>);
-    assert!(parked(second_third), "the second tenant queues a third");
+    assert!(parked(&second_third), "the second tenant queues a third");
     // Four permits from a six-waiter backlog: enough grants to see the
     // pattern repeat without draining either queue.
     let mut served: Vec<u32> = Vec::new();

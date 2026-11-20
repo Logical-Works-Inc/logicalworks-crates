@@ -310,9 +310,16 @@ fn spec_round_trips_json() -> Result<(), EcsError> {
     let back = BotSpec::from_json(&json)?;
     assert_eq!(back.name, "larry");
     assert_eq!(back.chains.len(), 1);
-    assert_eq!(back.chains[0].source, "gh::pr_status");
-    assert_eq!(back.chains[0].on.len(), 1);
-    assert_eq!(back.chains[0].on[0].0, "checks_changed");
+    let chain = back
+        .chains
+        .first()
+        .ok_or_else(|| failed(String::from("the chain survives the round trip")))?;
+    assert_eq!(chain.source, "gh::pr_status");
+    assert_eq!(chain.on.len(), 1);
+    assert_eq!(
+        chain.on.first().map(|entry| entry.0.as_str()),
+        Some("checks_changed")
+    );
     Ok(())
 }
 

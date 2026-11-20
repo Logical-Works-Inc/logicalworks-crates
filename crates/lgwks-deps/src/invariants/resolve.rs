@@ -143,11 +143,11 @@ fn lint_level(value: &str) -> String {
     let tail = tail.trim();
     // The level ends at the first delimiter, or runs to the end of the tail when
     // the writer closed the table on the same line: both are values Cargo wrote.
-    let end = match tail.find([',', '}']) {
-        Some(at) => at,
-        None => tail.len(),
+    let level = match tail.split([',', '}']).next() {
+        Some(head) => head,
+        None => tail,
     };
-    tail[..end].trim().trim_matches('"').to_owned()
+    level.trim().trim_matches('"').to_owned()
 }
 
 /// Returns `line` up to a `#` that is outside a quoted string.
@@ -156,7 +156,12 @@ fn strip_comment(line: &str) -> &str {
     for (index, character) in line.char_indices() {
         match character {
             '"' => quoted = !quoted,
-            '#' if !quoted => return &line[..index],
+            '#' if !quoted => {
+                let Some(head) = line.get(..index) else {
+                    return line;
+                };
+                return head;
+            }
             _ => {}
         }
     }
@@ -343,7 +348,13 @@ fn resolve_module(member_dir: &Path, segments: &[&str]) -> Option<PathBuf> {
             module_directory(&current)
         };
         let candidate = module_file(&directory, segment)?;
-        let declaring = std::fs::read_to_string(&current).ok()?;
+        let declaring = match std::fs::read_to_string(&current) {
+            Ok(text) => text,
+            Err(error) => {
+                lgwks_std::trace::warn!(%error, path = ?current, "a module's declaring file could not be read, so the scope does not resolve");
+                return None;
+            }
+        };
         if !declares_module(&declaring, segment) {
             return None;
         }
@@ -423,9 +434,9 @@ fn strip_item_prefix(line: &str) -> &str {
         if let Some(after) = rest.strip_prefix("pub") {
             let after = after.trim_start();
             if let Some(inside) = after.strip_prefix('(') {
-                match inside.find(')') {
-                    Some(close) => {
-                        rest = inside[close.saturating_add(1)..].trim_start();
+                match inside.split_once(')') {
+                    Some((_, after_close)) => {
+                        rest = after_close.trim_start();
                         continue;
                     }
                     None => return rest,
@@ -475,8 +486,8 @@ fn skip_literal(rest: &str) -> Option<&str> {
     let body = rest
         .strip_prefix('"')
         .or_else(|| rest.strip_prefix("r\""))?;
-    let close = body.find('"')?;
-    Some(&body[close.saturating_add(1)..])
+    let (_, after) = body.split_once('"')?;
+    Some(after)
 }
 
 /// Whether a file declares a test item a runner would actually select.
@@ -526,7 +537,10 @@ pub(super) fn declares_active_test(source: &str) -> bool {
             continue;
         }
         let item = strip_item_prefix(item.trim());
-        if item.starts_with("fn") && item["fn".len()..].starts_with(char::is_whitespace) {
+        if item
+            .strip_prefix("fn")
+            .is_some_and(|after| after.starts_with(char::is_whitespace))
+        {
             return true;
         }
     }
@@ -560,7 +574,7 @@ fn split_attribute(line: &str) -> Option<(&str, &str)> {
                     // byte, so both cuts are on a boundary by construction: the
                     // split is total and needs no substituted empty slice.
                     let (inner, after) = body.split_at(offset);
-                    return Some((inner, &after[CLOSE_BRACKET.len_utf8()..]));
+                    return after.strip_prefix(CLOSE_BRACKET).map(|tail| (inner, tail));
                 }
             }
             _ => {}

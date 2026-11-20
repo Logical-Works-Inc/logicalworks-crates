@@ -131,26 +131,28 @@ fn plan(rng: &mut Rng) -> Result<Plan, Box<dyn Error>> {
         chain: 0,
         movement: Move::Still,
     }; MAX_CELLS];
-    let mut index = 0;
-    for _ in 0..ticks {
-        for chain in 0..CHAINS {
-            let draw = rng.below(100);
-            let movement = match draw {
-                // Roughly a third of the cells move, and the movement kinds are
-                // drawn inside that: a run where every cell moved would prove
-                // nothing about the quiet ticks, and a run with no wraps or
-                // regressions would prove nothing about them either.
-                0..=32 => match rng.below(4) {
-                    0 => Move::Wrap,
-                    1 => Move::Back,
-                    _ => Move::Forward,
-                },
-                33..=36 => Move::Unsound,
-                _ => Move::Still,
-            };
-            cells[index] = Cell_ { chain, movement };
-            index = index.saturating_add(1);
-        }
+    // Tick-major: the cell at position `n` belongs to chain `n % CHAINS`.
+    for (index, slot) in cells
+        .iter_mut()
+        .take(ticks.saturating_mul(CHAINS))
+        .enumerate()
+    {
+        let chain = index.checked_rem(CHAINS).ok_or("the chain count is zero")?;
+        let draw = rng.below(100);
+        let movement = match draw {
+            // Roughly a third of the cells move, and the movement kinds are
+            // drawn inside that: a run where every cell moved would prove
+            // nothing about the quiet ticks, and a run with no wraps or
+            // regressions would prove nothing about them either.
+            0..=32 => match rng.below(4) {
+                0 => Move::Wrap,
+                1 => Move::Back,
+                _ => Move::Forward,
+            },
+            33..=36 => Move::Unsound,
+            _ => Move::Still,
+        };
+        *slot = Cell_ { chain, movement };
     }
     Ok(Plan { ticks, cells })
 }
@@ -370,9 +372,9 @@ impl Subject {
 
     /// Put every chain's revision and value onto `revision` and `value`.
     fn place(&self, revision: u64, value: u64) {
-        for chain in 0..CHAINS {
-            self.current[chain].set(revision);
-            self.value[chain].set(value);
+        for (current, held) in self.current.iter().zip(&self.value) {
+            current.set(revision);
+            held.set(value);
         }
     }
 
@@ -404,7 +406,7 @@ impl Subject {
 
     /// How many polls each chain's source has taken.
     fn poll_counts(&self) -> Vec<usize> {
-        (0..CHAINS).map(|chain| self.polls[chain].get()).collect()
+        self.polls.iter().map(|polls| polls.get()).collect()
     }
 }
 
@@ -457,30 +459,34 @@ fn run(plan: &Plan, revision_engine: bool) -> Result<Log, Box<dyn Error>> {
     let _outcome = subject.bot.tick();
     subject.drain_fired(0, &mut log.fired);
     for tick in 0..plan.ticks {
-        for chain in 0..CHAINS {
-            let current = subject.current[chain].get();
-            let held = subject.value[chain].get();
+        let cells = subject
+            .current
+            .iter()
+            .zip(&subject.value)
+            .zip(&subject.declared)
+            .enumerate();
+        for (chain, ((revision, value), declared)) in cells {
+            let current = revision.get();
+            let held = value.get();
             match plan.cell(chain, tick) {
                 Move::Still => {}
                 Move::Forward => {
-                    subject.current[chain].set(moved_from(current, current.saturating_add(1)));
-                    subject.value[chain].set(held.saturating_add(1));
+                    revision.set(moved_from(current, current.saturating_add(1)));
+                    value.set(held.saturating_add(1));
                 }
                 Move::Wrap => {
-                    subject.current[chain].set(moved_from(current, 0));
-                    subject.value[chain].set(held.saturating_add(1));
+                    revision.set(moved_from(current, 0));
+                    value.set(held.saturating_add(1));
                 }
                 Move::Back => {
                     // Backwards by one. A revision is an identity rather than a
                     // position, so stepping back is a change; an ordering here
                     // would make a source that counts down silently stop being
                     // believed.
-                    subject.current[chain].set(moved_from(current, current.saturating_sub(1)));
-                    subject.value[chain].set(held.saturating_add(1));
+                    revision.set(moved_from(current, current.saturating_sub(1)));
+                    value.set(held.saturating_add(1));
                 }
-                Move::Unsound => {
-                    subject.declared[chain].set(Some(RefreshReason::Disconnected));
-                }
+                Move::Unsound => declared.set(Some(RefreshReason::Disconnected)),
             }
         }
         let _outcome = subject.bot.tick();

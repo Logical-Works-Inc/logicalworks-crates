@@ -29,7 +29,7 @@ use sim::{Band, Rng};
 
 /// A test that needs a parsed value returns `Result` and propagates, because the
 /// crate forbids a panicking path anywhere, tests included.
-pub type TestResult = Result<(), Box<dyn Error>>;
+pub(crate) type TestResult = Result<(), Box<dyn Error>>;
 
 /// The words options and utterances are built from: distinct, lowercase, and
 /// single-spaced once joined, so two distinct phrases never normalize alike.

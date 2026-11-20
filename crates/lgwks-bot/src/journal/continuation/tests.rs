@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::naming::GENERATION_DIGITS;
 use super::watermark::{SHIPPED_BYTE_CEILING, SHIPPED_EVENT_CEILING, watermark_of};
 use super::*;
@@ -38,7 +39,8 @@ fn the_watermark_leaves_a_fifth_of_each_ceiling() {
     assert_eq!(watermark_of(100_000), 80_000);
     assert_eq!(watermark_of(64 * 1024 * 1024), 53_687_091);
     assert_eq!(watermark_of(0), 0);
-    assert_eq!(watermark_of(u64::MAX), watermark_of(u64::MAX));
+    // Four fifths of `u64::MAX`, which is divisible by five: no overflow, no rounding.
+    assert_eq!(watermark_of(u64::MAX), 14_757_395_258_967_641_292);
 }
 
 #[test]
@@ -85,7 +87,7 @@ fn the_watermark_is_either_ceiling_not_both() -> TestResult {
 /// The declared policy is the shipped fraction of the shipped ceilings, and a
 /// policy at a ceiling is refused rather than clamped to one.
 #[test]
-fn the_declared_policy_leaves_the_shipped_headroom_and_a_late_one_is_refused() -> TestResult {
+fn the_declared_policy_leaves_the_shipped_headroom_and_a_late_one_is_refused() {
     let declared = ContinuationPolicy::declared();
     assert_eq!(declared, ContinuationPolicy::default());
     assert_eq!(declared.events_at(), 80_000);
@@ -98,7 +100,6 @@ fn the_declared_policy_leaves_the_shipped_headroom_and_a_late_one_is_refused() -
         ContinuationPolicy::new(SHIPPED_EVENT_CEILING, 1).is_err(),
         "a trigger at the ceiling would ask for a continuation the journal cannot afford"
     );
-    Ok(())
 }
 
 #[test]
@@ -267,7 +268,7 @@ fn an_index_this_build_does_not_name_reads_as_absent_not_as_the_ladder_foot() {
 }
 
 #[test]
-fn a_successor_is_a_fixed_width_name_in_the_predecessors_own_directory() -> TestResult {
+fn a_successor_is_a_fixed_width_name_in_the_predecessors_own_directory() {
     let first = Path::new("/var/run/bot.jrnl");
     let second = successor_path(first);
     assert_eq!(second, Path::new("/var/run/bot.jrnl.cont/000001"));
@@ -305,7 +306,6 @@ fn a_successor_is_a_fixed_width_name_in_the_predecessors_own_directory() -> Test
         "and the successor is this scheme's own, both halves of the name"
     );
     assert!(!is_generation_path(Path::new("/var/run/bot.jrnl.cont/abc")));
-    Ok(())
 }
 
 /// Every `SealPause` names itself and the enum's sweep is the whole enum, so

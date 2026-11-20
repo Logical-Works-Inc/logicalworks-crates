@@ -169,10 +169,8 @@ fn pack_int(val: i64, key_buf: &mut Vec<u8>) {
     if val == 0 {
         key_buf.push(INT_ZERO_CODE);
     } else if val > 0 {
-        let mut unsigned = 0_u64;
-        if let Ok(num) = u64::try_from(val) {
-            unsigned = num;
-        }
+        // Positive here, so the magnitude is the value: no conversion can fail.
+        let unsigned = val.unsigned_abs();
         let len_u8: u8 = if unsigned <= 0xFF {
             1_u8
         } else if unsigned <= 0xFFFF {
@@ -221,10 +219,9 @@ fn pack_int(val: i64, key_buf: &mut Vec<u8>) {
         } else {
             (1_u64 << shift_bits).saturating_sub(1)
         };
-        let mut encoded = 0_u64;
-        if let Ok(num) = u64::try_from(i128::from(max_n).saturating_add(i128::from(val))) {
-            encoded = num;
-        }
+        // `len_u8` was chosen so the magnitude fits in `max_n`, so this is exact:
+        // the ones' complement the tuple layer stores for a negative integer.
+        let encoded = max_n.saturating_sub(val.unsigned_abs());
         let be_bytes = encoded.to_be_bytes();
         let len_usize = usize::from(len_u8);
         if let Some(chunk) = be_bytes.get(8_usize.saturating_sub(len_usize)..) {
@@ -384,14 +381,34 @@ pub(crate) fn pack_element(
     element: &TupleElement<'_>,
     key_buf: &mut Vec<u8>,
 ) -> Result<(), TupleError> {
+    let start = key_buf.len();
     let mut element_count = 0;
-    pack_element_internal(element, key_buf, 0, &mut element_count)?;
-    if key_buf.len() > MAX_TUPLE_KEY_BYTES {
-        return refuse(TupleError::KeyTooLarge {
-            limit: MAX_TUPLE_KEY_BYTES,
-        });
+    let packed = pack_element_internal(element, key_buf, 0, &mut element_count);
+    settle(packed, key_buf, start)
+}
+
+/// Keeps a packed key, or rolls `key_buf` back to `start` on a refusal.
+///
+/// A refusal is all or nothing: the caller's buffer is left as it was handed
+/// in, never holding part of a refused element past the key cap.
+fn settle(
+    packed: Result<(), TupleError>,
+    key_buf: &mut Vec<u8>,
+    start: usize,
+) -> Result<(), TupleError> {
+    let checked = packed.and_then(|()| {
+        if key_buf.len() > MAX_TUPLE_KEY_BYTES {
+            refuse(TupleError::KeyTooLarge {
+                limit: MAX_TUPLE_KEY_BYTES,
+            })
+        } else {
+            Ok(())
+        }
+    });
+    if checked.is_err() {
+        key_buf.truncate(start);
     }
-    Ok(())
+    checked
 }
 
 /// Appends a slice of FoundationDB tuple elements to `key_buf`.
@@ -412,16 +429,12 @@ pub fn pack_elements(
     {
         return pack_element(first, key_buf);
     }
+    let start = key_buf.len();
     let mut element_count = 0;
-    for element in elements {
-        pack_element_internal(element, key_buf, 0, &mut element_count)?;
-    }
-    if key_buf.len() > MAX_TUPLE_KEY_BYTES {
-        return refuse(TupleError::KeyTooLarge {
-            limit: MAX_TUPLE_KEY_BYTES,
-        });
-    }
-    Ok(())
+    let packed = elements
+        .iter()
+        .try_for_each(|element| pack_element_internal(element, key_buf, 0, &mut element_count));
+    settle(packed, key_buf, start)
 }
 
 /// Hands `error` back, logging it under `trace` first.

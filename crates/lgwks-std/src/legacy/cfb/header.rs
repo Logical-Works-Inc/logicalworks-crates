@@ -66,51 +66,11 @@ impl CfbFile {
         let mini_fat_sectors = header_u32(head, 64)?;
         let first_difat = header_u32(head, 68)?;
         let difat_sectors = header_u32(head, 72)?;
-        let mut fat_runs: Vec<u32> = Vec::new();
-        for index in 0..109_usize {
-            let at = 76_usize.saturating_add(index.saturating_mul(4));
-            let Some(sector) = get_u32_le(head, at) else {
-                let refusal = Err(CfbError::Truncated {
-                    offset: at,
-                    need: at.saturating_add(4),
-                });
-                #[cfg(feature = "trace")]
-                crate::trace::debug!("cfb: refusing a header with no DIFAT entry");
-                return refusal;
-            };
-            if sector == FREESECT {
-                break;
-            }
-            fat_runs.push(sector);
-        }
-        if difat_sectors > 0 {
-            read_difat_chain(bytes, first_difat, difat_sectors, sector_len, &mut fat_runs)?;
-        }
-        let sector_count = bytes.len().saturating_sub(HEADER_LEN).div_ceil(sector_len);
-        limits.check_pages(sector_count)?;
-        let mut fat: Vec<u32> = vec![FREESECT; sector_count];
-        for run in fat_runs.iter() {
-            let bytes_at = super::fat::sector_offset(*run, sector_len, bytes.len())?;
-            for index in 0..sector_len.saturating_div(4) {
-                let at = bytes_at.saturating_add(index.saturating_mul(4));
-                let Some(next) = get_u32_le(bytes, at) else {
-                    break;
-                };
-                // The FAT slot this entry fills, from the offset `sector_offset`
-                // already bounded to the file: one sector holds a quarter of
-                // its length in entries.
-                let Some(sector) = bytes_at.saturating_sub(HEADER_LEN).checked_div(sector_len)
-                else {
-                    return crate::legacy::refuse(CfbError::BadFat { sector: *run });
-                };
-                let position = sector
-                    .saturating_mul(sector_len.saturating_div(4))
-                    .saturating_add(index);
-                if let Some(slot) = fat.get_mut(position) {
-                    *slot = next;
-                }
-            }
-        }
+        let difat = DifatHead {
+            first: first_difat,
+            sectors: difat_sectors,
+        };
+        let fat = read_fat(bytes, head, &difat, sector_len, limits)?;
         let mut file = Self {
             sector_len,
             fat,
@@ -134,6 +94,71 @@ impl CfbFile {
         }
         Ok(file)
     }
+}
+
+/// Where the DIFAT chain past the header's 109 entries starts, and how long it is.
+struct DifatHead {
+    /// First sector of the chain.
+    first: u32,
+    /// Sectors in the chain; zero when the header's own entries are all there is.
+    sectors: u32,
+}
+
+/// Reads the FAT: the header's 109 DIFAT entries, then the DIFAT chain, name
+/// the sectors holding the table, whose entries fill a vector with one slot
+/// per sector of the file.
+fn read_fat(
+    bytes: &[u8],
+    head: &[u8],
+    difat: &DifatHead,
+    sector_len: usize,
+    limits: &Limits,
+) -> Result<Vec<u32>, CfbError> {
+    let mut fat_runs: Vec<u32> = Vec::new();
+    for index in 0..109_usize {
+        let at = 76_usize.saturating_add(index.saturating_mul(4));
+        let Some(sector) = get_u32_le(head, at) else {
+            let refusal = Err(CfbError::Truncated {
+                offset: at,
+                need: at.saturating_add(4),
+            });
+            #[cfg(feature = "trace")]
+            crate::trace::debug!("cfb: refusing a header with no DIFAT entry");
+            return refusal;
+        };
+        if sector == FREESECT {
+            break;
+        }
+        fat_runs.push(sector);
+    }
+    if difat.sectors > 0 {
+        read_difat_chain(bytes, difat.first, difat.sectors, sector_len, &mut fat_runs)?;
+    }
+    let sector_count = bytes.len().saturating_sub(HEADER_LEN).div_ceil(sector_len);
+    limits.check_pages(sector_count)?;
+    let mut fat: Vec<u32> = vec![FREESECT; sector_count];
+    for run in &fat_runs {
+        let bytes_at = super::fat::sector_offset(*run, sector_len, bytes.len())?;
+        for index in 0..sector_len.saturating_div(4) {
+            let at = bytes_at.saturating_add(index.saturating_mul(4));
+            let Some(next) = get_u32_le(bytes, at) else {
+                break;
+            };
+            // The FAT slot this entry fills, from the offset `sector_offset`
+            // already bounded to the file: one sector holds a quarter of
+            // its length in entries.
+            let Some(sector) = bytes_at.saturating_sub(HEADER_LEN).checked_div(sector_len) else {
+                return crate::legacy::refuse(CfbError::BadFat { sector: *run });
+            };
+            let position = sector
+                .saturating_mul(sector_len.saturating_div(4))
+                .saturating_add(index);
+            if let Some(slot) = fat.get_mut(position) {
+                *slot = next;
+            }
+        }
+    }
+    Ok(fat)
 }
 
 /// Refuses a header whose first eight bytes are not the magic.

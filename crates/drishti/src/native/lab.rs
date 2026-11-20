@@ -156,7 +156,7 @@ impl InkLab {
 
     /// In a frame-limited session, end with [`NativeError::NoFrames`] when the
     /// platform stops delivering frames, instead of waiting forever.
-    pub(super) fn arm_watchdog(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn arm_watchdog(&mut self, cx: &mut Context<'_, Self>) {
         if self.frame_limit.is_none() {
             return;
         }
@@ -176,7 +176,7 @@ impl InkLab {
     }
 
     /// End the session if no frame arrived within [`STALL_LIMIT`].
-    fn end_if_stalled(&self, cx: &mut Context<Self>) -> bool {
+    fn end_if_stalled(&self, cx: &mut Context<'_, Self>) -> bool {
         let waited = Instant::now().saturating_duration_since(self.last_frame_at);
         if waited < STALL_LIMIT {
             return false;
@@ -211,9 +211,9 @@ impl InkLab {
         let demand = match self.runtime.present(dt_ms) {
             Ok(report) => {
                 self.last_refusal = None;
-                if report.epoch != self.resident_epoch {
+                if report.epoch() != self.resident_epoch {
                     self.resident.clear();
-                    self.resident_epoch = report.epoch;
+                    self.resident_epoch = report.epoch();
                 }
                 for upload in report.uploads() {
                     match self
@@ -228,7 +228,7 @@ impl InkLab {
                         }),
                     }
                 }
-                !report.idle
+                !report.idle()
             }
             Err(error) => {
                 self.refusals = self.refusals.saturating_add(1);
@@ -302,7 +302,7 @@ impl InkLab {
     }
 
     /// The pointer moved over tile `index`.
-    fn pointer_moved(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<Self>) {
+    fn pointer_moved(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<'_, Self>) {
         let local = self.local(index, position);
         if let Some(tile) = self.tiles.get_mut(index) {
             tile.pointer = local;
@@ -313,7 +313,7 @@ impl InkLab {
     }
 
     /// The pointer left tile `index`.
-    fn pointer_left(&mut self, index: usize, cx: &mut Context<Self>) {
+    fn pointer_left(&mut self, index: usize, cx: &mut Context<'_, Self>) {
         if let Some(tile) = self.tiles.get_mut(index) {
             tile.pointer = None;
             let (host, input) = (tile.host, tile.input());
@@ -323,7 +323,7 @@ impl InkLab {
     }
 
     /// Tile `index` was clicked.
-    fn clicked(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<Self>) {
+    fn clicked(&mut self, index: usize, position: Point<Pixels>, cx: &mut Context<'_, Self>) {
         let local = self.local(index, position);
         if let Some(tile) = self.tiles.get_mut(index) {
             tile.click = local;
@@ -334,14 +334,14 @@ impl InkLab {
     }
 
     /// Toggle reduced motion.
-    fn toggle_motion(&mut self, cx: &mut Context<Self>) {
+    fn toggle_motion(&mut self, cx: &mut Context<'_, Self>) {
         self.reduce_motion = !self.reduce_motion;
         self.runtime.set_reduce_motion(self.reduce_motion);
         cx.notify();
     }
 
     /// Toggle the light and graphite themes.
-    fn toggle_theme(&mut self, cx: &mut Context<Self>) {
+    fn toggle_theme(&mut self, cx: &mut Context<'_, Self>) {
         self.palette = if self.palette == Palette::dark() {
             Palette::light()
         } else {
@@ -351,7 +351,7 @@ impl InkLab {
     }
 
     /// Cycle auto, lite and full quality.
-    fn cycle_quality(&mut self, cx: &mut Context<Self>) {
+    fn cycle_quality(&mut self, cx: &mut Context<'_, Self>) {
         self.quality = match self.quality {
             Quality::Auto => Quality::Lite,
             Quality::Lite => Quality::Full,
@@ -362,7 +362,7 @@ impl InkLab {
     }
 
     /// Lose the device, or recover it with a fresh epoch.
-    fn toggle_device(&mut self, cx: &mut Context<Self>) {
+    fn toggle_device(&mut self, cx: &mut Context<'_, Self>) {
         if self.runtime.state() == DeviceState::Ready {
             self.runtime.lose_device();
         } else {
@@ -414,8 +414,8 @@ impl InkLab {
         &self,
         id: &'static str,
         label: &'static str,
-        cx: &mut Context<Self>,
-        action: fn(&mut Self, &mut Context<Self>),
+        cx: &mut Context<'_, Self>,
+        action: fn(&mut Self, &mut Context<'_, Self>),
     ) -> impl IntoElement + use<> {
         let palette = self.palette;
         div()
@@ -433,7 +433,7 @@ impl InkLab {
     }
 
     /// One effect tile.
-    fn tile(&self, index: usize, cx: &mut Context<Self>) -> Option<impl IntoElement + use<>> {
+    fn tile(&self, index: usize, cx: &mut Context<'_, Self>) -> Option<impl IntoElement + use<>> {
         let tile = self.tiles.get(index)?;
         let palette = self.palette;
         let frame = self.resident(tile.host);
@@ -447,7 +447,7 @@ impl InkLab {
         let (shapes, alpha, label): (Vec<Shape>, f64, Option<String>) = match frame {
             Some(frame) => (
                 frame.shapes().to_vec(),
-                frame.alpha,
+                frame.alpha(),
                 frame.label().map(String::from),
             ),
             None => (Vec::new(), 1.0, None),
@@ -541,7 +541,7 @@ impl InkLab {
 impl Render for InkLab {
     /// Present a frame, schedule the next only while there is demand, and
     /// lay out the lab.
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) -> impl IntoElement {
         let demand = self.tick();
         if self.limit_reached(demand) {
             self.finish();

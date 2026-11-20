@@ -20,22 +20,22 @@ use lgwks_std::id::Uuid;
 use crate::fixtures::ensure;
 
 /// First isolation session fixture.
-pub const SESSION_ONE: &str = "55555555-5555-5555-5555-555555555555";
+pub(crate) const SESSION_ONE: &str = "55555555-5555-5555-5555-555555555555";
 /// Second isolation session fixture.
-pub const SESSION_TWO: &str = "66666666-6666-6666-6666-666666666666";
+pub(crate) const SESSION_TWO: &str = "66666666-6666-6666-6666-666666666666";
 /// Shared session fixture for tenant isolation.
-pub const SESSION_SHARED: &str = "77777777-7777-7777-7777-777777777777";
+pub(crate) const SESSION_SHARED: &str = "77777777-7777-7777-7777-777777777777";
 
 /// Frozen millisecond clock shared by the broker under test.
 #[derive(Debug, Default)]
-pub struct FrozenTime {
+pub(crate) struct FrozenTime {
     /// Current millisecond time.
     now_ms: Mutex<u64>,
 }
 
 impl FrozenTime {
     /// Read the frozen time.
-    pub fn get(&self) -> u64 {
+    pub(crate) fn get(&self) -> u64 {
         match self.now_ms.lock() {
             Ok(guard) => *guard,
             Err(poisoned) => *poisoned.into_inner(),
@@ -43,7 +43,7 @@ impl FrozenTime {
     }
 
     /// Move the frozen time.
-    pub fn set(&self, now_ms: u64) {
+    pub(crate) fn set(&self, now_ms: u64) {
         match self.now_ms.lock() {
             Ok(mut guard) => *guard = now_ms,
             Err(poisoned) => *poisoned.into_inner() = now_ms,
@@ -53,7 +53,7 @@ impl FrozenTime {
 
 /// Frozen identity counter shared by the broker under test.
 #[derive(Debug, Default)]
-pub struct FrozenIds {
+pub(crate) struct FrozenIds {
     /// Next counter value.
     next: Mutex<u128>,
 }
@@ -61,14 +61,14 @@ pub struct FrozenIds {
 impl FrozenIds {
     /// A counter whose first identity follows `base`, so a seed picks the
     /// identity space a run mints from.
-    pub fn starting_at(base: u128) -> Self {
+    pub(crate) fn starting_at(base: u128) -> Self {
         Self {
             next: Mutex::new(base),
         }
     }
 
     /// Mint the next deterministic UUID.
-    pub fn mint(&self) -> Uuid {
+    pub(crate) fn mint(&self) -> Uuid {
         let id = match self.next.lock() {
             Ok(mut guard) => {
                 *guard = guard.wrapping_add(1);
@@ -85,7 +85,7 @@ impl FrozenIds {
 }
 
 /// Lock a test mutex, recovering from poisoning by keeping the data.
-pub fn lock_recover<T>(slot: &Arc<Mutex<T>>) -> MutexGuard<'_, T> {
+pub(crate) fn lock_recover<T>(slot: &Arc<Mutex<T>>) -> MutexGuard<'_, T> {
     match slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
@@ -93,7 +93,9 @@ pub fn lock_recover<T>(slot: &Arc<Mutex<T>>) -> MutexGuard<'_, T> {
 }
 
 /// Lock a test envelope log, recovering from poisoning by keeping the data.
-pub fn lock_vec(slot: &Arc<Mutex<Vec<SignalEnvelope>>>) -> MutexGuard<'_, Vec<SignalEnvelope>> {
+pub(crate) fn lock_vec(
+    slot: &Arc<Mutex<Vec<SignalEnvelope>>>,
+) -> MutexGuard<'_, Vec<SignalEnvelope>> {
     lock_recover(slot)
 }
 
@@ -101,7 +103,7 @@ pub fn lock_vec(slot: &Arc<Mutex<Vec<SignalEnvelope>>>) -> MutexGuard<'_, Vec<Si
 /// `(tenant, permission)` grants (`None` grants every tenant) that remembers
 /// every question the broker asked it.
 #[derive(Debug, Default)]
-pub struct GrantBook {
+pub(crate) struct GrantBook {
     /// Current grants; `None` is every tenant.
     held: Mutex<Vec<(Option<String>, Permission)>>,
     /// Every `(tenant, permission)` the broker asked about, in order.
@@ -110,7 +112,7 @@ pub struct GrantBook {
 
 impl GrantBook {
     /// Grant `permission` to `tenant`, or to every tenant with `None`.
-    pub fn grant(&self, tenant: Option<&str>, permission: Permission) {
+    pub(crate) fn grant(&self, tenant: Option<&str>, permission: Permission) {
         match self.held.lock() {
             Ok(mut guard) => guard.push((tenant.map(String::from), permission)),
             Err(poisoned) => poisoned
@@ -120,7 +122,7 @@ impl GrantBook {
     }
 
     /// Revoke every grant.
-    pub fn clear(&self) {
+    pub(crate) fn clear(&self) {
         match self.held.lock() {
             Ok(mut guard) => guard.clear(),
             Err(poisoned) => poisoned.into_inner().clear(),
@@ -128,7 +130,7 @@ impl GrantBook {
     }
 
     /// Every question asked so far.
-    pub fn asked(&self) -> Vec<(String, Permission)> {
+    pub(crate) fn asked(&self) -> Vec<(String, Permission)> {
         match self.asked.lock() {
             Ok(guard) => guard.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
@@ -155,7 +157,7 @@ impl GrantBook {
 
 /// Test harness: broker plus its frozen dependencies, grant store, and audit
 /// capture.
-pub struct Harness {
+pub(crate) struct Harness {
     /// Broker under test.
     broker: Broker,
     /// Frozen clock.
@@ -169,12 +171,12 @@ pub struct Harness {
 impl Harness {
     /// Build a harness whose ML grants verify with `verdict`. The grant store
     /// starts with `intent.emit` granted to every tenant.
-    pub fn with_verdict(verdict: GrantVerificationResult) -> Self {
+    pub(crate) fn with_verdict(verdict: GrantVerificationResult) -> Self {
         Self::build(verdict, FrozenIds::default())
     }
 
     /// Build a harness whose identity space and clock start from `seed`.
-    pub fn seeded(seed: u64) -> Self {
+    pub(crate) fn seeded(seed: u64) -> Self {
         let base = u128::from(seed).wrapping_mul(0x9e37_79b9_7f4a_7c15_u128);
         let harness = Self::build(GrantVerificationResult::Valid, FrozenIds::starting_at(base));
         harness.time().set(seed % 10_000);
@@ -216,32 +218,32 @@ impl Harness {
     }
 
     /// Build a harness with valid grants.
-    pub fn valid() -> Self {
+    pub(crate) fn valid() -> Self {
         Self::with_verdict(GrantVerificationResult::Valid)
     }
 
     /// Broker under test.
-    pub fn broker(&self) -> &Broker {
+    pub(crate) fn broker(&self) -> &Broker {
         &self.broker
     }
 
     /// Frozen clock.
-    pub fn time(&self) -> &Arc<FrozenTime> {
+    pub(crate) fn time(&self) -> &Arc<FrozenTime> {
         &self.time
     }
 
     /// The injected grant store.
-    pub fn grants(&self) -> &Arc<GrantBook> {
+    pub(crate) fn grants(&self) -> &Arc<GrantBook> {
         &self.grants
     }
 
     /// Every audit event, in the order the sink received them.
-    pub fn audit_events(&self) -> Vec<AuditEvent> {
+    pub(crate) fn audit_events(&self) -> Vec<AuditEvent> {
         lock_recover(&self.audit).clone()
     }
 
     /// Signal ids of the routed envelopes, in routing order.
-    pub fn audited(&self) -> Vec<String> {
+    pub(crate) fn audited(&self) -> Vec<String> {
         self.audit_events()
             .iter()
             .filter_map(|event| match *event.action() {
@@ -253,7 +255,7 @@ impl Harness {
 }
 
 /// Tap `caller`'s own scope or fail the test.
-pub fn tap_own(
+pub(crate) fn tap_own(
     harness: &Harness,
     caller: &RegisteredHandle,
     listener: TapListener,
@@ -265,7 +267,11 @@ pub fn tap_own(
 }
 
 /// Cancel a tap as its owner or fail the test.
-pub fn untap_ok(harness: &Harness, caller: &RegisteredHandle, id: &TapId) -> Result<(), String> {
+pub(crate) fn untap_ok(
+    harness: &Harness,
+    caller: &RegisteredHandle,
+    id: &TapId,
+) -> Result<(), String> {
     harness
         .broker()
         .untap(caller, id)
@@ -273,7 +279,7 @@ pub fn untap_ok(harness: &Harness, caller: &RegisteredHandle, id: &TapId) -> Res
 }
 
 /// The subscriptions `caller` may see in its own scope, or fail the test.
-pub fn own_subscriptions(
+pub(crate) fn own_subscriptions(
     harness: &Harness,
     caller: &RegisteredHandle,
 ) -> Result<Vec<Subscription>, String> {
@@ -286,7 +292,7 @@ pub fn own_subscriptions(
 /// The `(tenant, session)` pairs one inspector exposes to `caller` at `reach`
 /// (the outer error is a harness fault, the inner one the broker's refusal).
 /// A tap is judged by what it hears when every emitter emits once.
-pub fn exposure(
+pub(crate) fn exposure(
     harness: &Harness,
     which: Inspector,
     caller: &RegisteredHandle,
@@ -342,14 +348,14 @@ pub fn exposure(
 /// Session fixture binding `tenant` to `session_id` under the fixed work
 /// object, policy bundle and user; a rejected shape comes back as the fixture
 /// fault text rather than a panic.
-pub fn session(tenant: &str, session_id: &str) -> Result<SessionInvariant, String> {
+pub(crate) fn session(tenant: &str, session_id: &str) -> Result<SessionInvariant, String> {
     crate::fixtures::session_in(tenant, session_id)
 }
 
 /// Descriptor of kind `demo.kind` holding exactly `capabilities`, where
 /// `self_listen` decides whether its own emissions reach its own
 /// subscriptions.
-pub fn widget(
+pub(crate) fn widget(
     widget_id: &str,
     capabilities: Vec<Capability>,
     self_listen: bool,
@@ -360,7 +366,7 @@ pub fn widget(
 }
 
 /// Register a widget with an explicit self-listen flag or fail the test.
-pub fn register_with(
+pub(crate) fn register_with(
     harness: &Harness,
     widget_id: &str,
     tenant: &str,
@@ -381,7 +387,7 @@ pub fn register_with(
 }
 
 /// Register a default widget or fail the test.
-pub fn register(
+pub(crate) fn register(
     harness: &Harness,
     widget_id: &str,
     tenant: &str,
@@ -392,7 +398,7 @@ pub fn register(
 
 /// Register a self-listening widget: its own emissions deliver back to it,
 /// so tap and fan-out counts observe the full match set.
-pub fn register_listen(
+pub(crate) fn register_listen(
     harness: &Harness,
     widget_id: &str,
     tenant: &str,
@@ -402,7 +408,7 @@ pub fn register_listen(
 }
 
 /// Collector listener appending every delivery.
-pub fn collector(slot: &Arc<Mutex<Vec<SignalEnvelope>>>) -> SignalListener {
+pub(crate) fn collector(slot: &Arc<Mutex<Vec<SignalEnvelope>>>) -> SignalListener {
     let slot = Arc::clone(slot);
     Arc::new(move |envelope: SignalEnvelope| {
         lock_vec(&slot).push(envelope);
@@ -410,7 +416,7 @@ pub fn collector(slot: &Arc<Mutex<Vec<SignalEnvelope>>>) -> SignalListener {
 }
 
 /// Subscribe a catch-all and return its deliveries.
-pub fn subscribe_all(
+pub(crate) fn subscribe_all(
     harness: &Harness,
     handle: &RegisteredHandle,
 ) -> Result<Arc<Mutex<Vec<SignalEnvelope>>>, String> {

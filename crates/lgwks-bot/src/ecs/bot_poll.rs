@@ -28,6 +28,18 @@ use super::watchdog::bounded_wave;
 #[cfg(doc)]
 use crate::spec::ObserveAny;
 
+/// Whether chain `index` declared a reason that makes its baseline unsound.
+///
+/// A chain that declared nothing is not unsound: that is the ordinary case, and
+/// it hands its baseline over.
+fn baseline_unsound(declared: &[Option<RefreshReason>], index: usize) -> bool {
+    declared
+        .get(index)
+        .copied()
+        .flatten()
+        .is_some_and(|reason| reason.invalidates_baseline())
+}
+
 impl EcsBot {
     /// Poll every source, `MAX_IN_FLIGHT_POLLS` at a time, awaiting each wave
     /// on the caller's executor, appending to `polled`.
@@ -195,11 +207,7 @@ impl EcsBot {
                     let Some(chain) = chains.0.get(index) else {
                         continue;
                     };
-                    let unsound = declared
-                        .get(index)
-                        .copied()
-                        .flatten()
-                        .is_some_and(|reason| reason.invalidates_baseline());
+                    let unsound = baseline_unsound(declared, index);
                     let reported = chain.source.revision();
                     if let Some(slot) = revisions.get_mut(index) {
                         *slot = reported;
@@ -250,7 +258,9 @@ impl EcsBot {
                 for &slot in slots.iter() {
                     {
                         let index = base.saturating_add(slot);
-                        let chain = &chains.0[index];
+                        let Some(chain) = chains.0.get(index) else {
+                            continue;
+                        };
                         let seen = self.world.non_send::<Observed>();
                         let ledger = self.world.non_send::<Ledger>();
                         let grants = self.world.resource::<Grants>();
@@ -262,11 +272,7 @@ impl EcsBot {
                         // `None` and drops the baseline in the first case, which
                         // is how every poll started reading as a fresh read and
                         // every tick looked like a movement.
-                        let unsound = declared
-                            .get(index)
-                            .copied()
-                            .flatten()
-                            .is_some_and(|reason| reason.invalidates_baseline());
+                        let unsound = baseline_unsound(declared, index);
                         let baseline = if unsound {
                             None
                         } else {
@@ -311,21 +317,45 @@ impl EcsBot {
         // after it resolved: a source that reached its failure *inside* the poll
         // has only now recorded it, and asking before the poll would have asked
         // about the previous tick's state.
+        self.mark_after_polls(chains, declared, polled);
+        // The `false` arm of `mark_after_polls` is exactly what a cancelled poll reaches,
+        // and that is deliberate: a stalled poll read nothing, so its baseline is
+        // as unsound as it was and the mark has to outlive this tick, which is
+        // the same rule a failed poll already follows. Clearing the mark on a
+        // stall would re-read the source against the very baseline the stall
+        // left standing, which is the quiet state INV-BOT-120 exists to rule
+        // out.
+        //
+        // Sorted rather than in wave-completion order: a chain's index is its
+        // identity everywhere else in this crate, and a report whose order
+        // depended on which wave finished first could not be compared across two
+        // runs of one seed.
+        stalled.sort_unstable();
+        watchdogs
+    }
+
+    /// Re-read what each polled chain declares, once its poll has resolved.
+    ///
+    /// A chain with no slot in `polled` was skipped, which is an answer of "did
+    /// not move" and counts as a poll that succeeded. When nothing was polled, no
+    /// source had a poll in which to record a failure, so only the chains already
+    /// marked invalid are read again; the rest keep the answer `declared_refresh`
+    /// made a moment ago.
+    fn mark_after_polls(
+        &self,
+        chains: &Chains,
+        declared: &mut [Option<RefreshReason>],
+        polled: &[Result<Option<Erased>, EcsError>],
+    ) {
         let invalidated = self.world.non_send::<Invalidated>();
         let nothing_polled = polled.is_empty();
         for (index, reason) in declared.iter_mut().enumerate() {
             let Some(chain) = chains.0.get(index) else {
                 continue;
             };
-            // Nothing was polled, so no source had a poll in which to record a
-            // failure, and the read `declared_refresh` made a moment ago is still
-            // the answer for every chain it reached. The chains it skipped are the
-            // ones already marked, and they read here as they always did.
             if nothing_polled && !invalidated.is_invalid(index) {
                 continue;
             }
-            // A chain with no slot was skipped, which is an answer of "did not
-            // move" and counts as a poll that succeeded.
             let answered = match polled.get(index) {
                 Some(result) => result.is_ok(),
                 None => true,
@@ -345,20 +375,6 @@ impl EcsBot {
                 _ => {}
             }
         }
-        // The `false` arm above is exactly what a cancelled poll reaches,
-        // and that is deliberate: a stalled poll read nothing, so its baseline is
-        // as unsound as it was and the mark has to outlive this tick, which is
-        // the same rule a failed poll already follows. Clearing the mark on a
-        // stall would re-read the source against the very baseline the stall
-        // left standing, which is the quiet state INV-BOT-120 exists to rule
-        // out.
-        //
-        // Sorted rather than in wave-completion order: a chain's index is its
-        // identity everywhere else in this crate, and a report whose order
-        // depended on which wave finished first could not be compared across two
-        // runs of one seed.
-        stalled.sort_unstable();
-        watchdogs
     }
 
     /// What each of `count` chains declares about its own caching right now.
@@ -381,8 +397,10 @@ impl EcsBot {
             if invalidated.is_invalid(index) {
                 continue;
             }
-            if let Some(reason) = chain.source.cache_state() {
-                declared[index] = Some(reason);
+            if let Some(reason) = chain.source.cache_state()
+                && let Some(slot) = declared.get_mut(index)
+            {
+                *slot = Some(reason);
             }
         }
     }

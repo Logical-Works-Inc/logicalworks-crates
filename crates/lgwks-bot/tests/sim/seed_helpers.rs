@@ -12,14 +12,14 @@
 
 impl super::seed::Rng {
     /// A `bool` that is true with probability `per_mille / 1000`.
-    pub fn chance(&mut self, per_mille: u32) -> bool {
+    pub(crate) fn chance(&mut self, per_mille: u32) -> bool {
         self.below(1000) < per_mille
     }
 }
 
 impl super::seed::Trace {
     /// Whether anything was recorded.
-    pub fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.bytes.is_empty()
     }
 }

@@ -409,7 +409,7 @@ async fn run_repeating(
 
 /// The seed is the receipt: the same seed runs the same plan on the real path.
 #[test]
-fn the_same_seed_replays_the_same_budget_plan() -> Result<(), Box<dyn std::error::Error>> {
+fn the_same_seed_replays_the_same_budget_plan() {
     for seed in seeds() {
         let first = format!("{:?}", plan(seed));
         let second = format!("{:?}", plan(seed));
@@ -419,7 +419,6 @@ fn the_same_seed_replays_the_same_budget_plan() -> Result<(), Box<dyn std::error
              scenario is not a replay receipt"
         );
     }
-    Ok(())
 }
 
 /// The plans really do cover both sides of the boundary.

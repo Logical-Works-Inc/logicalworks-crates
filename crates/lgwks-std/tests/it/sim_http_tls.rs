@@ -48,7 +48,13 @@ mod sim {
     /// One served body, drawn from `seed` alone.
     fn tls_body(seed: u64) -> Result<Vec<u8>, String> {
         let mut rng = Rng::new(seed);
-        let len = [0_usize, 1, 64, 1024][rng.below(4)];
+        // The draw is below four, so the last of the first `draw + 1` lengths
+        // is the length the draw names.
+        let draw = rng.below(4);
+        let len = [0_usize, 1, 64, 1024]
+            .iter()
+            .take(draw.saturating_add(1))
+            .fold(0, |_, &entry| entry);
         let byte = u8::try_from(rng.below(26))
             .map_err(|error| format!("the body draw does not fit a byte: {error:?}"))?;
         Ok(vec![b'B'.wrapping_add(byte); len])
@@ -95,15 +101,18 @@ mod sim {
     }
 
     /// What the test server observed.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     enum Served {
         /// The handshake completed; whether the client proved an identity.
         Completed {
             /// The client presented a certificate chain.
             had_client_cert: bool,
         },
-        /// The handshake never completed.
-        HandshakeFailed,
+        /// The handshake never completed, and why the server saw it end.
+        HandshakeFailed {
+            /// The read failure, or the early close, the server observed.
+            cause: String,
+        },
     }
 
     /// Serve one connection on `listener` with `body`, requiring a client
@@ -115,7 +124,7 @@ mod sim {
     /// form serves a real handshake.
     fn serve_one_tls(
         listener: &TcpListener,
-        body: Vec<u8>,
+        body: &[u8],
         require_client_auth: bool,
         pems: &TestPkiPems,
         server_key: ServerKeyForm,
@@ -154,22 +163,23 @@ mod sim {
         let open = {
             let mut stream = rustls::Stream::new(&mut connection, &mut sock);
             let mut request = [0_u8; 1024];
-            let mut head = Vec::new();
+            let mut head: Vec<u8> = Vec::new();
             loop {
-                match stream.read(&mut request) {
-                    Ok(0) => break false,
-                    Ok(read) => {
-                        head.extend_from_slice(&request[..read]);
-                        if head.windows(4).any(|window| window == b"\r\n\r\n") {
-                            break true;
-                        }
-                    }
-                    Err(_) => break false,
+                let read = match stream.read(&mut request) {
+                    Ok(read) => read,
+                    Err(error) => break Err(error.to_string()),
+                };
+                if read == 0 {
+                    break Err("the peer closed before its request head ended".to_owned());
+                }
+                head.extend(request.iter().take(read));
+                if head.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break Ok(());
                 }
             }
         };
-        if !open {
-            return Ok(Served::HandshakeFailed);
+        if let Err(cause) = open {
+            return Ok(Served::HandshakeFailed { cause });
         }
         let had_client_cert = connection
             .peer_certificates()
@@ -183,7 +193,7 @@ mod sim {
             stream
                 .write_all(reply.as_bytes())
                 .map_err(|error| error.to_string())?;
-            stream.write_all(&body).map_err(|error| error.to_string())?;
+            stream.write_all(body).map_err(|error| error.to_string())?;
             stream.flush().map_err(|error| error.to_string())?;
         }
         Ok(Served::Completed { had_client_cert })
@@ -206,7 +216,7 @@ mod sim {
         let pems = pems.clone();
         let server = std::thread::Builder::new()
             .name("lgwks-tls-server".to_owned())
-            .spawn(move || serve_one_tls(&listener, body, require_client_auth, &pems, server_key))
+            .spawn(move || serve_one_tls(&listener, &body, require_client_auth, &pems, server_key))
             .map_err(|error| format!("the TLS server thread refused to start: {error}"))?;
         let client = Client::new(options)?;
         let answer = client.get_with(&format!("https://127.0.0.1:{port}/"), client.options());
@@ -227,7 +237,7 @@ mod sim {
     }
 
     /// A TLS refusal names the TLS stage and the transport class.
-    fn assert_tls_failure(answer: Result<lgwks_std::http::Response, Error>, what: &str) {
+    fn assert_tls_failure(answer: &Result<lgwks_std::http::Response, Error>, what: &str) {
         assert!(
             matches!(
                 answer,
@@ -243,9 +253,9 @@ mod sim {
 
     /// The handshake completed with the client authenticated, or the test
     /// names the exchange it was proving when it did not.
-    fn assert_completed(served: Served, what: &str) {
+    fn assert_completed(served: &Served, what: &str) {
         assert_eq!(
-            served,
+            *served,
             Served::Completed {
                 had_client_cert: true
             },
@@ -259,22 +269,22 @@ mod sim {
     /// this exchange so their assertions cannot drift apart: one function,
     /// one reading of the reply.
     fn assert_mutual_tls(
-        body: Vec<u8>,
+        body: &[u8],
         options: Options,
         pems: &TestPkiPems,
         server_key: ServerKeyForm,
         what: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let (served, answer) = run_case(body.clone(), true, options, pems, server_key)?;
+        let (served, answer) = run_case(body.to_vec(), true, options, pems, server_key)?;
         assert_completed(
-            served,
+            &served,
             &format!("{what}: the server must see the client's certificate"),
         );
         let response = answer.map_err(|error| format!("{what}: mutual TLS failed: {error:?}"))?;
-        assert_eq!(response.status, 200, "{what}: the exchange answers");
+        assert_eq!(response.status(), 200, "{what}: the exchange answers");
         assert_eq!(
             response.body(),
-            body.as_slice(),
+            body,
             "{what}: the served body arrives whole"
         );
         Ok(())
@@ -294,7 +304,7 @@ mod sim {
                     .with_client_key_pem(pems.client_key.clone()),
             );
             assert_mutual_tls(
-                body,
+                &body,
                 options,
                 &pems,
                 ServerKeyForm::Pkcs8,
@@ -329,12 +339,11 @@ mod sim {
             &pems,
             ServerKeyForm::Pkcs8,
         )?;
-        assert_eq!(
-            served,
-            Served::HandshakeFailed,
-            "the server must reject the unauthenticated peer"
+        assert!(
+            matches!(served, Served::HandshakeFailed { .. }),
+            "the server must reject the unauthenticated peer, saw {served:?}"
         );
-        assert_tls_failure(answer, "no identity against mutual TLS");
+        assert_tls_failure(&answer, "no identity against mutual TLS");
         Ok(())
     }
 
@@ -349,12 +358,11 @@ mod sim {
             &pems,
             ServerKeyForm::Pkcs8,
         )?;
-        assert_eq!(
-            served,
-            Served::HandshakeFailed,
-            "the handshake must fail before any request is served"
+        assert!(
+            matches!(served, Served::HandshakeFailed { .. }),
+            "the handshake must fail before any request is served, saw {served:?}"
         );
-        assert_tls_failure(answer, "a private CA under the system roots");
+        assert_tls_failure(&answer, "a private CA under the system roots");
         Ok(())
     }
 
@@ -371,12 +379,11 @@ mod sim {
             &pems,
             ServerKeyForm::Pkcs8,
         )?;
-        assert_eq!(
-            served,
-            Served::HandshakeFailed,
-            "the handshake must fail before any request is served"
+        assert!(
+            matches!(served, Served::HandshakeFailed { .. }),
+            "the handshake must fail before any request is served, saw {served:?}"
         );
-        assert_tls_failure(answer, "a leaf trusted as a root");
+        assert_tls_failure(&answer, "a leaf trusted as a root");
         Ok(())
     }
 
@@ -419,7 +426,7 @@ mod sim {
                     .with_client_chain_pem(pems.client.clone())
                     .with_client_key_pem(client_key),
             );
-            assert_mutual_tls(b"formed".to_vec(), options, &pems, server_key, what)?;
+            assert_mutual_tls(b"formed", options, &pems, server_key, what)?;
         }
         Ok(())
     }

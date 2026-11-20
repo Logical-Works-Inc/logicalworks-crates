@@ -87,7 +87,7 @@ fn a_span_covers_exactly_the_bytes_between_its_ends() {
     let source = "alpha\nbeta\ngamma\n";
     let index = LineIndex::new(source);
     let span = index.span(6..10);
-    assert_eq!(&source[span.byte_range()], "beta");
+    assert_eq!(source.get(span.byte_range()), Some("beta"));
     assert_eq!(span.start.line, 2);
     assert_eq!(span.end.line, 2);
 }

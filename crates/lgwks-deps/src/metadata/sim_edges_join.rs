@@ -49,7 +49,10 @@ fn drawn_relative(stream: &mut Seeded, depth: usize) -> Result<Drawn, Box<dyn Er
     let mut stack: Option<Vec<String>> =
         Some((0..depth).map(|level| format!("d{level}")).collect());
     for _ in 0..stream.below(8)? {
-        let part = ["a", "b", ".", ".."][stream.index(4)?];
+        let part = ["a", "b", ".", ".."]
+            .get(stream.index(4)?)
+            .copied()
+            .ok_or("the drawn index names a part")?;
         parts.push(part);
         stack = match (stack, part) {
             (held, ".") => held,

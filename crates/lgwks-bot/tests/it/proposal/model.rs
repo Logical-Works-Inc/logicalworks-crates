@@ -92,16 +92,12 @@ fn a_registered_capless_operation_is_admitted() -> TestResult {
         .plan()
         .ok_or("a registered capless operation is admitted")?;
     assert_eq!(plan.wanted().len(), 1, "the plan carries the one operation");
-    assert_eq!(
-        plan.wanted()[0].operation(),
-        PING,
-        "and it is the named one"
-    );
-    assert_eq!(
-        plan.wanted()[0].path(),
-        None,
-        "with no path, because none was given"
-    );
+    let wanted = plan
+        .wanted()
+        .first()
+        .ok_or("the plan carries its operation")?;
+    assert_eq!(wanted.operation(), PING, "and it is the named one");
+    assert_eq!(wanted.path(), None, "with no path, because none was given");
     Ok(())
 }
 

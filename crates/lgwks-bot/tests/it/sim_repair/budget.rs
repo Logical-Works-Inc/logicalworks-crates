@@ -186,6 +186,20 @@ fn every_repair_charges_the_root_budget_once() -> TestResult {
     })
 }
 
+/// No counter was pushed past the ceiling that refused: `counted` is the
+/// (attempts, spend) the run holds, `limits` the pair the host was built with.
+fn assert_under_ceiling(counted: (u64, u64), ceiling: u64, limits: (u64, u64)) {
+    assert!(
+        counted.0 <= ceiling && counted.1 <= ceiling,
+        "no counter was pushed past the ceiling that refused: attempts={} spend={} against \
+         attempts={} spend={}",
+        counted.0,
+        counted.1,
+        limits.0,
+        limits.1
+    );
+}
+
 /// T13: a spent budget is a finite typed refusal, a refused attempt charges
 /// nothing, and the refusal is stable rather than a momentary one.
 ///
@@ -278,12 +292,10 @@ fn a_spent_budget_refuses_every_later_attempt() -> TestResult {
              of the rest, so the refusal lands on the attempt after the last one admitted"
         );
         let exhausted = charged(&host, case.run)?;
-        assert!(
-            exhausted.attempts() <= ceiling && exhausted.spend() <= ceiling,
-            "no counter was pushed past the ceiling that refused: attempts={} spend={} against \
-             attempts={attempts} spend={spend}",
-            exhausted.attempts(),
-            exhausted.spend()
+        assert_under_ceiling(
+            (exhausted.attempts(), exhausted.spend()),
+            ceiling,
+            (attempts, spend),
         );
 
         // Two more attempts of the same run: the refusal is stable, not a single

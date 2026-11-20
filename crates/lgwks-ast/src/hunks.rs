@@ -36,6 +36,12 @@ fn added_lines(diff: &str) -> BTreeMap<String, Vec<(usize, usize)>> {
 /// the work tree at `root`, keyed by its path relative to `root`. A file git
 /// does not track yet is added whole, as the range `(1, usize::MAX)`.
 ///
+/// A tracked file that moved is paired with its old path (git's rename
+/// detection, at its default 50% similarity), so only the lines the move
+/// changed count as added. Moving a file is not writing it: without the pairing,
+/// a `foo/mod.rs` renamed to `foo.rs` read as every line new, and a gate held
+/// text nobody wrote in this change to a bar it was never written against.
+///
 /// # Examples
 ///
 /// ```no_run
@@ -65,7 +71,7 @@ pub fn added_since(
             "--unified=0",
             "--no-color",
             "--no-ext-diff",
-            "--no-renames",
+            "--find-renames",
             "--relative",
             base,
             "--",
@@ -107,9 +113,24 @@ fn hunk_range(hunk: &str) -> Option<(usize, usize)> {
     let added = hunk
         .split_whitespace()
         .find_map(|part| part.strip_prefix('+'))?;
-    let (start, count): (usize, usize) = match added.split_once(',') {
-        Some((start, count)) => (start.parse().ok()?, count.parse().ok()?),
-        None => (added.parse().ok()?, 1),
+    // `+c` alone is one line, as `git diff` writes a single-line hunk.
+    let (start, count) = match added.split_once(',') {
+        Some((start, count)) => (start, count),
+        None => (added, "1"),
+    };
+    let (start, count) = match (start.parse::<usize>(), count.parse::<usize>()) {
+        (Ok(start), Ok(count)) => (start, count),
+        (start, count) => {
+            // The contract above: a header it cannot read is skipped, so a
+            // malformed diff narrows what is judged and never widens it.
+            tracing::debug!(
+                ?start,
+                ?count,
+                hunk,
+                "hunk_range: skipping an unreadable header"
+            );
+            return None;
+        }
     };
     if count == 0 {
         return None;

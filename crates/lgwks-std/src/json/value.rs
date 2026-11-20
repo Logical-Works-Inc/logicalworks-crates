@@ -154,8 +154,10 @@ pub trait ValueIndex: sealed::Sealed {
     fn index_into_mut<'value>(&self, value: &'value mut Value) -> Option<&'value mut Value>;
 }
 
-/// Keeps [`ValueIndex`] to the key and index types this module names.
-mod sealed {
+/// Keeps [`ValueIndex`] to the key and index types this module names. Its trait
+/// is re-exported so the bound on [`ValueIndex`] can be named; it cannot be
+/// implemented outside this crate's types.
+pub(super) mod sealed {
     /// The seal.
     pub trait Sealed {}
     impl Sealed for usize {}

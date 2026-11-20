@@ -73,7 +73,7 @@ fn racing_writers_produce_one_winner_and_typed_conflicts() -> TestResult {
         .map_err(|error| -> Box<dyn Error> { error.into() })?;
     let mut outcomes = Vec::with_capacity(handles.len());
     for handle in handles {
-        outcomes.push(handle.join().map_err(|_| "a racing thread panicked")?);
+        outcomes.push(handle.join().map_err(crate::sim::panicked)?);
     }
     let wins = outcomes.iter().filter(|outcome| outcome.is_ok()).count();
     let losses = outcomes.iter().filter(|outcome| outcome.is_err()).count();

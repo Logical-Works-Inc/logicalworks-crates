@@ -513,9 +513,9 @@ fn a_gated_spawn_holds_its_payload_until_release() -> TestResult {
         );
         // The record-then-release order: the identity is observed first, and
         // only then does the payload run.
-        spawned.release().await?;
+        spawned.release()?;
         assert!(spawned.is_released(), "a released gate reads as released");
-        spawned.release().await?;
+        spawned.release()?;
         let outcome = next_outcome(&mut supervisor, BUDGET)
             .await
             .map_err(std::io::Error::other)?;
@@ -573,12 +573,18 @@ fn identified_spawns_at_scale_report_their_cost() -> TestResult {
     );
     let mut ordered = latencies;
     ordered.sort();
-    let percentile =
-        |ratio: usize| ordered[SPAWNS.saturating_mul(ratio).div_ceil(100).min(SPAWNS - 1)];
-    let fastest = ordered[0];
-    let median = percentile(50);
-    let tail = percentile(99);
-    let slowest = ordered[SPAWNS - 1];
+    let at = |index: usize| {
+        ordered
+            .get(index)
+            .copied()
+            .ok_or_else(|| format!("{SPAWNS} latencies were measured, none at {index}"))
+    };
+    let last = SPAWNS.saturating_sub(1);
+    let percentile = |ratio: usize| at(SPAWNS.saturating_mul(ratio).div_ceil(100).min(last));
+    let fastest = at(0)?;
+    let median = percentile(50)?;
+    let tail = percentile(99)?;
+    let slowest = at(last)?;
     let mut stdout = std::io::stdout().lock();
     writeln!(
         stdout,

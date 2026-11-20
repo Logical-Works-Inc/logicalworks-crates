@@ -12,10 +12,7 @@ use super::capture::{
     BoundedOutput, CaptureFiles, CleanupObligation, CleanupStep, Unresolved, run_bounded,
 };
 use super::collect::Collected;
-use super::faults::{
-    FAULTS, FaultPoint, TestResult, arm_faults, assert_paths_removed, captured_paths,
-    retry_until_resolved,
-};
+use super::faults::{FaultPoint, Faults, TestResult, assert_paths_removed, retry_until_resolved};
 
 /// A controllable stand-in for the `cargo` subprocess: sleep, flood, or
 /// emit, with no network, no lockfile, and no toolchain beyond the
@@ -134,7 +131,14 @@ fn a_hung_subprocess_is_killed_by_the_deadline() -> TestResult {
     let (program, args) = sleeper();
     let timeout = Duration::from_millis(500);
     let started = std::time::Instant::now();
-    let refused = run_bounded(program, &args, Path::new("."), timeout, 1024 * 1024);
+    let refused = run_bounded(
+        program,
+        &args,
+        Path::new("."),
+        timeout,
+        1024 * 1024,
+        &Faults::default(),
+    );
     let elapsed = started.elapsed();
     match refused {
         Err(MetadataError::Timeout { after }) => assert_eq!(after, timeout),
@@ -163,7 +167,7 @@ fn a_hung_subprocess_is_killed_by_the_deadline() -> TestResult {
 #[cfg(unix)]
 #[test]
 fn a_descendant_holding_a_capture_neither_blocks_collection_nor_keeps_its_name() -> TestResult {
-    arm_faults(&[]);
+    let faults = Faults::armed(&[]);
     let started = std::time::Instant::now();
     let output = run_bounded(
         "sh",
@@ -171,6 +175,7 @@ fn a_descendant_holding_a_capture_neither_blocks_collection_nor_keeps_its_name()
         Path::new("."),
         Duration::from_secs(10),
         32 * 1024,
+        &faults,
     )?;
     let elapsed = started.elapsed();
     let pid = String::from_utf8_lossy(&output.stdout).trim().to_owned();
@@ -182,7 +187,7 @@ fn a_descendant_holding_a_capture_neither_blocks_collection_nor_keeps_its_name()
         Ok(Command::new("kill").args(["-0", pid]).status()?.success())
     };
     let grandchild_was_alive = alive(&pid)?;
-    let _signalled = Command::new("kill").args(["-9", &pid]).status();
+    let signalled = Command::new("kill").args(["-9", &pid]).status()?;
     assert!(
         elapsed < Duration::from_secs(5),
         "collection must not wait for a descendant holding the capture: {elapsed:?}"
@@ -191,7 +196,12 @@ fn a_descendant_holding_a_capture_neither_blocks_collection_nor_keeps_its_name()
         grandchild_was_alive,
         "the grandchild must still hold its descriptor when collection returns"
     );
-    assert_paths_removed(&captured_paths())
+    assert!(
+        signalled.success(),
+        "the live grandchild {pid} this test started must accept the kill"
+    );
+    assert_paths_removed(&faults.captured_paths());
+    Ok(())
 }
 
 /// A flooding stdout is refused past its budget instead of retained.
@@ -204,6 +214,7 @@ fn a_flooding_stdout_is_refused_past_its_budget() -> TestResult {
         Path::new("."),
         Duration::from_secs(30),
         32 * 1024,
+        &Faults::default(),
     );
     assert_output_budget_refusal(refused, "stdout")
 }
@@ -218,6 +229,7 @@ fn a_flooding_stderr_is_refused_past_its_budget() -> TestResult {
         Path::new("."),
         Duration::from_secs(30),
         32 * 1024,
+        &Faults::default(),
     );
     assert_output_budget_refusal(refused, "stderr")
 }
@@ -257,6 +269,7 @@ fn a_small_answer_passes_through_unchanged() -> TestResult {
         Path::new("."),
         Duration::from_secs(30),
         32 * 1024,
+        &Faults::default(),
     )?;
     assert!(
         output.status.success(),
@@ -282,13 +295,13 @@ fn an_owned_capture_is_removed_on_early_return() -> TestResult {
         "lgwks-deps-test-{}.capture",
         lgwks_std::hex::encode(token)
     ));
-    let _file = OpenOptions::new()
+    let file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&path)?;
-    let mut captures = CaptureFiles::new();
+    let mut captures = CaptureFiles::new(Faults::default());
     captures.own(path.clone());
-    drop(_file);
+    drop(file);
     drop(captures);
     assert_eq!(
         std::fs::metadata(&path).err().map(|error| error.kind()),
@@ -304,12 +317,20 @@ fn an_owned_capture_is_removed_on_early_return() -> TestResult {
 #[test]
 fn a_dropped_obligation_kills_and_reaps_its_child() -> TestResult {
     let child = std::process::Command::new("sleep").arg("30").spawn()?;
-    let pid = child.id().to_string();
-    drop(CleanupObligation::new(
-        Some(CleanupStep::Kill),
-        Some(child),
-        &mut CaptureFiles::new(),
-    ));
+    let id = child.id();
+    let pid = id.to_string();
+    {
+        let obligation = CleanupObligation::new(
+            Some(CleanupStep::Kill),
+            Some(child),
+            &mut CaptureFiles::new(Faults::default()),
+        );
+        assert_eq!(
+            obligation.report.pid,
+            Some(id),
+            "the obligation owns the child it will kill on drop"
+        );
+    }
     // `kill -0` succeeds for any process that still has a table entry,
     // zombies included, so a failure here means killed *and* reaped.
     let alive = std::process::Command::new("kill")
@@ -330,11 +351,15 @@ fn cleanup_obligation_confirms_an_already_exited_child() -> TestResult {
     let mut child = std::process::Command::new(std::env::current_exe()?)
         .arg("--list")
         .spawn()?;
-    let _status = child.wait()?;
+    let exited = child.wait()?;
+    assert!(
+        exited.success(),
+        "the listing child exits cleanly: {exited:?}"
+    );
     let mut obligation = CleanupObligation::new(
         Some(CleanupStep::Kill),
         Some(child),
-        &mut CaptureFiles::new(),
+        &mut CaptureFiles::new(Faults::default()),
     );
     assert!(
         obligation.retry_cleanup()?,
@@ -343,18 +368,27 @@ fn cleanup_obligation_confirms_an_already_exited_child() -> TestResult {
     Ok(())
 }
 
+/// A ceiling, never the property under test: each injected fault fires on
+/// its first observation, and the small answer must be allowed to exit
+/// first. On hosted Windows that answer was a cold PowerShell start, which
+/// outlasted first the 3 s this used to allow and then 30 s, so the deadline
+/// refusal landed before `ReadStdout` was reached; it is a `cmd` echo now.
+/// The same 30 s the passthrough control allows.
+const FAULT_CEILING: Duration = Duration::from_secs(30);
+
 /// Every fallible collection stage retains and resolves the resources it
-/// already acquired. The injected errors are single-use and thread-local;
-/// the process and capture files are real operating-system resources.
+/// already acquired. Each injected error is single-use and lives in the
+/// plan this test hands the run; the process and capture files are real
+/// operating-system resources.
 #[test]
 fn injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful() -> TestResult {
-    /// A ceiling, never the property under test: each injected fault fires
-    /// on its first observation, and the small answer must be allowed to
-    /// exit first. On hosted Windows that answer was a cold PowerShell start,
-    /// which outlasted first the 3 s this used to allow and then 30 s, so the
-    /// deadline refusal landed before `ReadStdout` was reached; it is a `cmd`
-    /// echo now. The same 30 s the passthrough control allows.
-    const CEILING: Duration = Duration::from_secs(30);
+    a_stage_fault_stays_the_primary_error()?;
+    a_cleanup_step_fault_keeps_the_child_owned()?;
+    an_unlink_fault_is_reported_beside_complete_output()
+}
+
+/// A fault at each collection stage is the refusal, and every capture is gone.
+fn a_stage_fault_stays_the_primary_error() -> TestResult {
     let (small_program, small_args) = small_answer();
     let (sleep_program, sleep_args) = sleeper();
     let stages = [
@@ -368,40 +402,59 @@ fn injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful() -> TestRe
         (FaultPoint::ReadStderr, false),
     ];
     for (fault, running_child) in stages {
-        arm_faults(&[fault]);
+        let faults = Faults::armed(&[fault]);
         let (program, args) = if running_child {
             (sleep_program, sleep_args.as_slice())
         } else {
             (small_program, small_args.as_slice())
         };
-        let result = run_bounded(program, args, Path::new("."), CEILING, 1024 * 1024);
+        let result = run_bounded(
+            program,
+            args,
+            Path::new("."),
+            FAULT_CEILING,
+            1024 * 1024,
+            &faults,
+        );
         let error = match result {
             Err(error) => error,
-            Ok(_) => return Err(format!("fault {fault:?} unexpectedly passed").into()),
+            Ok(_) => {
+                lgwks_std::trace::debug!(
+                    "a_stage_fault_stays_the_primary_error: returning an error to the caller"
+                );
+                return Err(format!("fault {fault:?} unexpectedly passed").into());
+            }
         };
         assert!(
             matches!(error, MetadataError::Spawn(_)),
             "fault {fault:?} should remain the primary collection error: {error}"
         );
-        let paths = captured_paths();
-        assert_paths_removed(&paths)?;
-        assert!(
-            FAULTS.with(|faults| faults.borrow().is_empty()),
-            "fault {fault:?} was not reached"
-        );
+        assert_paths_removed(&faults.captured_paths());
+        assert!(faults.is_spent(), "fault {fault:?} was not reached");
     }
+    Ok(())
+}
 
+/// A failed kill or reap keeps the child in the obligation, named in the refusal.
+fn a_cleanup_step_fault_keeps_the_child_owned() -> TestResult {
+    let (sleep_program, sleep_args) = sleeper();
     for failure in [FaultPoint::Kill, FaultPoint::Reap] {
-        arm_faults(&[FaultPoint::WaitObservation, failure]);
+        let faults = Faults::armed(&[FaultPoint::WaitObservation, failure]);
         let error = match run_bounded(
             sleep_program,
             &sleep_args,
             Path::new("."),
-            CEILING,
+            FAULT_CEILING,
             1024 * 1024,
+            &faults,
         ) {
             Err(error) => error,
-            Ok(_) => return Err(format!("fault {failure:?} unexpectedly passed").into()),
+            Ok(_) => {
+                lgwks_std::trace::debug!(
+                    "a_cleanup_step_fault_keeps_the_child_owned: returning an error to the caller"
+                );
+                return Err(format!("fault {failure:?} unexpectedly passed").into());
+            }
         };
         let text = error.to_string();
         let MetadataError::ProcessCleanup {
@@ -410,6 +463,9 @@ fn injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful() -> TestRe
             ..
         } = error
         else {
+            lgwks_std::trace::debug!(
+                "a_cleanup_step_fault_keeps_the_child_owned: returning an error to the caller"
+            );
             return Err(format!("fault {failure:?} did not expose an obligation").into());
         };
         assert!(process.is_some(), "fault {failure:?} must remain visible");
@@ -430,19 +486,24 @@ fn injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful() -> TestRe
             retry_until_resolved(&mut obligation)?,
             "retry should finish owned cleanup"
         );
-        assert_paths_removed(&captured_paths())?;
-        assert!(FAULTS.with(|faults| faults.borrow().is_empty()));
+        assert_paths_removed(&faults.captured_paths());
+        assert!(faults.is_spent(), "fault {failure:?} was not reached");
     }
+    Ok(())
+}
 
-    // Output read in full and child reaped, then one unlink fails: the
-    // output is returned, and the failure is reported beside it (#193).
-    arm_faults(&[FaultPoint::Unlink]);
+/// Output read in full and child reaped, then one unlink fails: the output
+/// is returned, and the failure is reported beside it (#193).
+fn an_unlink_fault_is_reported_beside_complete_output() -> TestResult {
+    let (small_program, small_args) = small_answer();
+    let faults = Faults::armed(&[FaultPoint::Unlink]);
     let output = run_bounded(
         small_program,
         &small_args,
         Path::new("."),
-        CEILING,
+        FAULT_CEILING,
         1024 * 1024,
+        &faults,
     )
     .map_err(|error| format!("a complete collection was refused over cleanup: {error}"))?;
     assert!(output.status.success(), "the child's own verdict is kept");
@@ -459,20 +520,28 @@ fn injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful() -> TestRe
         ..
     } = error
     else {
+        lgwks_std::trace::debug!(
+            "an_unlink_fault_is_reported_beside_complete_output: returning an error to the caller"
+        );
         return Err("unlink fault did not expose an unresolved cleanup owner".into());
     };
     assert!(cause.is_none(), "nothing was refused before the cleanup");
     assert_eq!(captures.len(), 1, "the unlink failure is retained");
     let retained = obligation.captures.paths.clone();
-    assert_eq!(retained.len(), 1, "the unresolved path stays owned");
+    let (Some(only), 1) = (retained.first(), retained.len()) else {
+        lgwks_std::trace::debug!(
+            "an_unlink_fault_is_reported_beside_complete_output: returning an error to the caller"
+        );
+        return Err("the unresolved path stays owned".into());
+    };
     assert!(
-        text.contains(&format!("could not remove {}: ", retained[0].display())),
+        text.contains(&format!("could not remove {}: ", only.display())),
         "the report names the path it could not remove: {text}"
     );
-    assert!(std::fs::metadata(&retained[0]).is_ok());
+    assert!(std::fs::metadata(only).is_ok());
     assert!(retry_until_resolved(&mut obligation)?);
-    assert_paths_removed(&retained)?;
-    assert!(FAULTS.with(|faults| faults.borrow().is_empty()));
+    assert_paths_removed(&retained);
+    assert!(faults.is_spent(), "the unlink fault was not reached");
     Ok(())
 }
 
@@ -486,7 +555,7 @@ fn a_refusal_after_collection_keeps_the_unresolved_cleanup_attached() -> TestRes
         lgwks_std::hex::encode(lgwks_std::random::bytes::<8>()?)
     ));
     std::fs::write(&path, b"{}")?;
-    let mut captures = CaptureFiles::new();
+    let mut captures = CaptureFiles::new(Faults::default());
     captures.own(path.clone());
     let collected = Collected {
         value: (),
@@ -519,6 +588,6 @@ fn a_refusal_after_collection_keeps_the_unresolved_cleanup_attached() -> TestRes
         obligation.retry_cleanup()?,
         "the retained owner still removes the path"
     );
-    assert_paths_removed(&[path])?;
+    assert_paths_removed(&[path]);
     Ok(())
 }

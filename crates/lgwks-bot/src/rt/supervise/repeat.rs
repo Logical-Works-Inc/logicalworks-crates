@@ -13,7 +13,7 @@ use std::time::Duration;
 /// `panic!` and `assert_eq!` actually produce; anything else is described
 /// rather than dropped, because "this task panicked with something unrecognized"
 /// is still better evidence than an empty string.
-pub(super) fn panic_message(payload: Box<dyn Any + Send + 'static>) -> String {
+pub(super) fn panic_message(payload: &(dyn Any + Send + 'static)) -> String {
     if let Some(text) = payload.downcast_ref::<&'static str>() {
         return truncate_panic_message(text);
     }

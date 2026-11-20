@@ -18,21 +18,21 @@ fn bar(harness: &Harness) -> Result<IntentHandle, String> {
     harness
         .broker()
         .register_command_bar(crate::fixtures::session("tenant")?)
-        .map_err(|error| format!("{error}"))
+        .map_err(crate::motion_kit::describe)
 }
 
 /// Pick one head and append one optional spaced tail.
-fn headed(random: &mut SimRng, heads: &[&str]) -> String {
-    // `heads` is never empty and `below_len` stays below its length, so
-    // the index always exists.
-    let head = heads[random.below_len(heads.len())];
+fn headed(random: &mut SimRng, heads: &[&str]) -> Result<String, String> {
+    let head = random
+        .pick_str(heads)
+        .ok_or_else(|| String::from("heads must not be empty"))?;
     let mut text = String::from(head);
     if random.below(2) == 0 {
         text.push(' ');
         let width = random.below_len(24);
         text.push_str(&random.text(width));
     }
-    text
+    Ok(text)
 }
 
 /// Parse one input, emit it on success, and hash every outcome.
@@ -53,15 +53,15 @@ fn parse_emit(broker: &Broker, bar: &IntentHandle, trace: &mut TraceHash, input:
 }
 
 /// Seeded command text: slashes, words, spacings, and overlong tails.
-fn command(random: &mut SimRng) -> String {
+fn command(random: &mut SimRng) -> Result<String, String> {
     const HEADS: &[&str] = &[
         "/find", "/pin", "/unpin", "/help", "/exec", "/", "", "find", "/FIND",
     ];
-    let mut text = headed(random, HEADS);
+    let mut text = headed(random, HEADS)?;
     if random.below(12) == 0 {
         text.push_str(&"x".repeat(600));
     }
-    text
+    Ok(text)
 }
 
 /// Run one storm from `seed` and hash parse/emit outcomes.
@@ -72,7 +72,7 @@ fn run_storm(seed: u64) -> Result<u64, String> {
     let mut trace = TraceHash::new();
     trace.mix_u64(seed);
     for _ in 0..250 {
-        let input = command(&mut random);
+        let input = command(&mut random)?;
         parse_emit(harness.broker(), &bar, &mut trace, &input);
     }
     Ok(trace.finish())
@@ -173,13 +173,13 @@ fn sim_command_bar_rate_limit_replays_identically() -> Result<(), String> {
 
 /// Seeded faulty command text: empty inputs, bare slashes, unknown verbs, and
 /// overlong tails.
-fn faulty_command(random: &mut SimRng) -> String {
+fn faulty_command(random: &mut SimRng) -> Result<String, String> {
     const HEADS: &[&str] = &["/find", "/pin", "/nope", "/", "", "/FIND", "/exec"];
-    let mut text = headed(random, HEADS);
+    let mut text = headed(random, HEADS)?;
     if random.below(5) == 0 {
         text.push_str(&"x".repeat(600));
     }
-    text
+    Ok(text)
 }
 
 /// Run one parse-fault campaign from `seed`: every seeded input either fails
@@ -192,7 +192,7 @@ fn run_parse_faults(seed: u64) -> Result<u64, String> {
     trace.mix_u64(seed);
     let mut resolved = 0_usize;
     for _ in 0..250 {
-        let input = faulty_command(&mut random);
+        let input = faulty_command(&mut random)?;
         parse_emit(harness.broker(), &bar, &mut trace, &input);
         resolved = resolved.saturating_add(1);
     }

@@ -13,7 +13,7 @@ use drishti::native_host::governance::{
 use lgwks_deps::rusqlite::{self, Connection, params};
 
 use crate::fixtures::governance_entry_in;
-use crate::motion_kit::{describe, ensure};
+use crate::motion_kit::{describe, ensure, pick};
 use crate::native_governance::{cleanup, scratch, stamp};
 use crate::rng::SimRng;
 
@@ -41,8 +41,8 @@ fn sim_governance_count_is_scoped_to_the_tenant() -> Result<(), String> {
         let store = GovernanceStore::open_in_memory().map_err(describe)?;
         let mut held: BTreeMap<(&str, &str), u64> = BTreeMap::new();
         for step in 0..150_u64 {
-            let tenant = TENANTS[random.below_len(TENANTS.len())];
-            let session = SESSIONS[random.below_len(SESSIONS.len())];
+            let tenant = pick(&mut random, TENANTS)?;
+            let session = pick(&mut random, SESSIONS)?;
             let entry = governance_entry_in(
                 tenant,
                 &format!("signal-{step}"),
@@ -53,8 +53,8 @@ fn sim_governance_count_is_scoped_to_the_tenant() -> Result<(), String> {
             store.append(&entry).map_err(describe)?;
             let slot = held.entry((tenant, session)).or_insert(0);
             *slot = slot.saturating_add(1);
-            let probe_tenant = TENANTS[random.below_len(TENANTS.len())];
-            let probe_session = SESSIONS[random.below_len(SESSIONS.len())];
+            let probe_tenant = pick(&mut random, TENANTS)?;
+            let probe_session = pick(&mut random, SESSIONS)?;
             let want: u64 = held
                 .get(&(probe_tenant, probe_session))
                 .into_iter()
@@ -239,8 +239,8 @@ fn sim_governance_legacy_database_migrates_in_place() -> Result<(), String> {
         let mut rows = Vec::new();
         for index in 0..40_u64 {
             rows.push(Legacy {
-                tenant: LEGACY_TENANTS[random.below_len(LEGACY_TENANTS.len())],
-                session: LEGACY_SESSIONS[random.below_len(LEGACY_SESSIONS.len())],
+                tenant: pick(&mut random, &LEGACY_TENANTS)?,
+                session: pick(&mut random, &LEGACY_SESSIONS)?,
                 signal: format!("legacy-{index}"),
                 minute: random.below(1_400),
             });
@@ -251,13 +251,14 @@ fn sim_governance_legacy_database_migrates_in_place() -> Result<(), String> {
             everything(&store)? == legacy_model(&rows),
             &format!("seed {seed}: the migrated log differs from the legacy rows"),
         )?;
-        let owner = rows[3].tenant;
+        let anchor = rows.get(3).ok_or("the legacy file holds a fourth row")?;
+        let owner = anchor.tenant;
         let other = if owner == "tenant-a" {
             "tenant-b"
         } else {
             "tenant-a"
         };
-        let taken = rows[3].signal.clone();
+        let taken = anchor.signal.clone();
         ensure(
             store.append(&governance_entry_in(other, &taken, "s1", "tick", &stamp(5))) == Ok(()),
             &format!("seed {seed}: the other tenant was refused an id the owner holds"),
@@ -304,16 +305,16 @@ fn resolved(raw: &str) -> Result<AttributionSource, GovernanceError> {
 }
 
 /// A seeded near miss of a known name.
-fn near_miss(random: &mut SimRng) -> String {
-    let base = KNOWN_NAMES[random.below_len(KNOWN_NAMES.len())];
-    match random.below(6) {
+fn near_miss(random: &mut SimRng) -> Result<String, String> {
+    let base = pick(random, &KNOWN_NAMES)?;
+    Ok(match random.below(6) {
         0 => base.to_uppercase(),
         1 => format!("{base} "),
         2 => format!(" {base}"),
         3 => format!("{base}\0"),
         4 => base.chars().take(base.len().saturating_sub(1)).collect(),
         _ => format!("{base}{}", random.text(2)),
-    }
+    })
 }
 
 /// Bug caught: an attribution name nobody issued is read as the system, so a
@@ -346,7 +347,7 @@ fn sim_governance_unknown_attribution_is_refused_not_system() -> Result<(), Stri
     }
     for seed in 0..400_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(360_000));
-        let candidate = near_miss(&mut random);
+        let candidate = near_miss(&mut random)?;
         let known = KNOWN_NAMES.contains(&candidate.as_str());
         ensure(
             resolved(&candidate).is_ok() == known,

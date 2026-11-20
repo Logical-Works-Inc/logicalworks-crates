@@ -17,6 +17,7 @@ mod sim {
 
     use lgwks_std::wire::{WireError, access, from_bytes, to_bytes};
 
+    use crate::seeded_bytes::pick;
     use crate::sim_wire::rng::Rng;
     use crate::sim_wire::wire_record::{ArchivedConsumerRecord, ConsumerChild, ConsumerRecord};
 
@@ -36,7 +37,7 @@ mod sim {
         // an offset added to `'a'`, and no conversion sits between the draw and
         // the character it names.
         let position = rng.below(LETTERS.len());
-        char::from(LETTERS[position])
+        char::from(pick(&LETTERS, position, b'a'))
     }
 
     /// A word of `1..=max` letters drawn from the generator.
@@ -130,7 +131,7 @@ mod sim {
                 let mut rng = Rng::new(seed ^ 0xdead_beef);
                 rng.below(bytes.len())
             };
-            let truncated = &bytes[..cut];
+            let truncated = bytes.as_slice().split_at(cut).0;
             assert!(
                 access::<ArchivedConsumerRecord, WireError>(truncated).is_err(),
                 "seed {seed}: access accepted a {cut}-byte prefix of a {}-byte archive",
@@ -158,7 +159,7 @@ mod sim {
             let bytes = to_bytes::<WireError>(&value_for(seed))?;
             // Drop the first byte: the archive is now offset-misaligned against
             // the type's primitive alignment, which checked access must refuse.
-            let shifted = &bytes[1..];
+            let shifted = bytes.as_slice().split_at(1).1;
             assert!(
                 access::<ArchivedConsumerRecord, WireError>(shifted).is_err(),
                 "seed {seed}: access accepted a misaligned {} -byte archive",

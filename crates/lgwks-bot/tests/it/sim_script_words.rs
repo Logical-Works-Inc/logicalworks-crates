@@ -128,7 +128,7 @@ struct Trip {
 
 impl Trip {
     /// Run step `index`, failing when the seed drew it.
-    async fn act(&self, scope: &Scope, index: usize) -> Result<u64, FlowError> {
+    fn act(&self, scope: &Scope, index: usize) -> Result<u64, FlowError> {
         let name = TRIP_STEPS
             .get(index)
             .copied()
@@ -144,7 +144,7 @@ impl Trip {
     }
 
     /// Undo step `index`, failing when the seed drew it.
-    async fn undo(&self, scope: &Scope, index: usize) -> Result<(), FlowError> {
+    fn undo(&self, scope: &Scope, index: usize) -> Result<(), FlowError> {
         let name = TRIP_STEPS
             .get(index)
             .copied()
@@ -180,15 +180,15 @@ lgwks_bot::script! {
     flow book(trip: &Trip) -> u64:
         let ticket = saga booking:
             step reserve:
-                trip.act(scope, 0).await?
+                trip.act(scope, 0)?
             compensate reserve:
-                trip.undo(scope, 0).await?
+                trip.undo(scope, 0)?
             step charge:
-                trip.act(scope, 1).await?
+                trip.act(scope, 1)?
             compensate charge:
-                trip.undo(scope, 1).await?
+                trip.undo(scope, 1)?
             step issue:
-                trip.act(scope, 2).await?
+                trip.act(scope, 2)?
         give back ticket
 
 }
@@ -248,7 +248,7 @@ fn graph_needs_respected(band: Band) -> TestResult {
                     at(&format!("end {need}")).ok_or_else(|| format!("{need} never ended"))?;
                 assert!(
                     ended < started,
-                    "{name} started before its need {need} ended: {events:?}"
+                    "{name} started before its need {need} ended (the seed replays the log)"
                 );
             }
         }
@@ -331,7 +331,7 @@ fn graph_node_scope(band: Band) -> TestResult {
             let path = format!("pipeline/graph/{name}");
             assert!(
                 scopes.iter().any(|entry| entry.0 == path),
-                "{name} ran in {path}: {scopes:?}"
+                "{name} never ran in pipeline/graph/{name} (the seed replays the scopes)"
             );
         }
         sim.record(&format!("limit={limit} scopes={scopes:?}"));

@@ -7,6 +7,7 @@
 //! schedule and the span; the world runs on a virtual clock driven by the same
 //! loop shape the HTTP edge's driver runs, so no real time passes.
 
+#[cfg(test)]
 use std::cell::Cell;
 use std::future::{Future, ready};
 use std::rc::Rc;
@@ -249,12 +250,11 @@ fn sim_every_source_ticks_at_its_deadlines_and_replays_by_seed() -> SimResult {
 }
 
 #[test]
-fn a_zero_every_period_is_refused_at_build() -> SimResult {
+fn a_zero_every_period_is_refused_at_build() {
     let clock = Clock::virtual_at(Duration::ZERO);
     let refused = world(&[Cadence::Every(Duration::ZERO)], &clock);
     assert!(
         refused.is_err(),
         "Every(0) would make every instant a deadline"
     );
-    Ok(())
 }

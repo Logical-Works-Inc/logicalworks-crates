@@ -549,6 +549,21 @@ fn word<T>(answer: &Result<T, BrokerError>) -> &'static str {
     }
 }
 
+/// The broker's epoch, openness and offline spend equal the model's.
+fn assert_agrees(broker: &Broker, id: EnvironmentId, held: &ModelEnvironment, seed: u64) {
+    assert_eq!(
+        broker.epoch(id).map(|epoch| epoch.get()),
+        Some(held.epoch),
+        "seed {seed}"
+    );
+    assert_eq!(broker.is_open(id), !held.closed, "seed {seed}");
+    assert_eq!(
+        broker.offline_spent(id),
+        held.offline.map(|offline| offline.1),
+        "seed {seed}"
+    );
+}
+
 /// Every operation a seed draws, checked against the model, as a trace.
 fn monkey(seed: u64) -> Outcome<Vec<String>> {
     let mut dice = Seeded::from_seed(seed);
@@ -639,17 +654,7 @@ fn monkey(seed: u64) -> Outcome<Vec<String>> {
             }
         };
         if let Some(held) = model.get(&who) {
-            assert_eq!(
-                broker.epoch(id).map(|epoch| epoch.get()),
-                Some(held.epoch),
-                "seed {seed}"
-            );
-            assert_eq!(broker.is_open(id), !held.closed, "seed {seed}");
-            assert_eq!(
-                broker.offline_spent(id),
-                held.offline.map(|offline| offline.1),
-                "seed {seed}"
-            );
+            assert_agrees(&broker, id, held, seed);
         }
         trace.push(format!("{who}:{action}:{number}:{said}"));
     }

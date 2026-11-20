@@ -23,6 +23,29 @@ use crate::scratch::Scratch;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// The part of a JSON `document` at the dotted `path`, where an all-digit
+/// segment is an array index (`changes.0.class`), or a refusal naming the
+/// segment the document lacks. A document that omits a member is a failure,
+/// not a value read as null.
+fn at<'a>(document: &'a Value, path: &str) -> Result<&'a Value, Box<dyn Error>> {
+    let mut node = document;
+    for segment in path.split('.') {
+        let next = if segment.bytes().all(|byte| byte.is_ascii_digit()) {
+            node.get(segment.parse::<usize>()?)
+        } else {
+            node.get(segment)
+        };
+        node = next.ok_or_else(|| format!("the document carries no {segment:?} in {path:?}"))?;
+    }
+    Ok(node)
+}
+
+/// Whether `change` is a `class` change of `kind`.
+fn is_change(change: &Value, kind: &str, class: &str) -> bool {
+    change.get("kind").is_some_and(|found| *found == kind)
+        && change.get("class").is_some_and(|found| *found == class)
+}
+
 /// A script the language accepts, at the top of its file.
 const ACCEPTED: &str =
     "lgwks_bot::script! {\n    flow add(x: u32) -> u32:\n        within 20ms:\n            x\n}\n";
@@ -97,18 +120,18 @@ fn json_is_one_document_an_agent_can_read() -> TestResult {
         "stdout:\n{out}\nstderr:\n{err}"
     );
     let document: Value = lgwks_std::json::from_str(&out)?;
-    assert_eq!(document["verb"], "map");
-    assert_eq!(document["files"], 2);
-    assert_eq!(document["refused"], 1);
-    let accepted = &document["invocations"][0];
-    assert_eq!(accepted["path"], "a.rs");
-    assert_eq!(accepted["map"]["flows"][0]["name"], "add");
-    assert_eq!(accepted["map"]["flows"][0]["line"], 2);
-    assert_eq!(accepted["map"]["flows"][0]["steps"][0]["kind"], "Within");
-    assert_eq!(accepted["map"]["flows"][0]["steps"][0]["line"], 3);
-    let refused = &document["invocations"][1];
-    assert_eq!(refused["refusal"]["line"], 3);
-    assert_eq!(refused["refusal"]["column"], 23);
+    assert_eq!(*at(&document, "verb")?, "map");
+    assert_eq!(*at(&document, "files")?, 2);
+    assert_eq!(*at(&document, "refused")?, 1);
+    let accepted = at(&document, "invocations.0")?;
+    assert_eq!(*at(accepted, "path")?, "a.rs");
+    assert_eq!(*at(accepted, "map.flows.0.name")?, "add");
+    assert_eq!(*at(accepted, "map.flows.0.line")?, 2);
+    assert_eq!(*at(accepted, "map.flows.0.steps.0.kind")?, "Within");
+    assert_eq!(*at(accepted, "map.flows.0.steps.0.line")?, 3);
+    let refused = at(&document, "invocations.1")?;
+    assert_eq!(*at(refused, "refusal.line")?, 3);
+    assert_eq!(*at(refused, "refusal.column")?, 23);
     assert!(
         err.is_empty(),
         "--json writes nothing beside the document:\n{err}"
@@ -323,7 +346,7 @@ fn a_line_shift_is_an_empty_diff() -> TestResult {
     let (document, code) = diff_json(tree.path(), "base", "head")?;
     assert_eq!(code, Some(0), "the JSON exit status agrees:\n{document}");
     assert_eq!(
-        document["changes"],
+        *at(&document, "changes")?,
         Value::Array(Vec::new()),
         "no change is reported:\n{document}"
     );
@@ -349,11 +372,11 @@ fn a_new_act_domain_widens_and_needs_the_source_marker() -> TestResult {
     );
     let (document, code) = diff_json(tree.path(), "base", "head")?;
     assert_eq!(code, Some(1), "the JSON exit status agrees:\n{document}");
-    assert_eq!(document["unapproved_widening"], 1, "{document}");
-    assert_eq!(document["approved"], false, "{document}");
-    assert_eq!(document["changes"][0]["class"], "widening", "{document}");
-    assert_eq!(document["changes"][0]["kind"], "Act", "{document}");
-    assert_eq!(document["changes"][0]["approved"], false, "{document}");
+    assert_eq!(*at(&document, "unapproved_widening")?, 1, "{document}");
+    assert_eq!(*at(&document, "approved")?, false, "{document}");
+    assert_eq!(*at(&document, "changes.0.class")?, "widening", "{document}");
+    assert_eq!(*at(&document, "changes.0.kind")?, "Act", "{document}");
+    assert_eq!(*at(&document, "changes.0.approved")?, false, "{document}");
 
     plant(
         tree.path(),
@@ -366,14 +389,15 @@ fn a_new_act_domain_widens_and_needs_the_source_marker() -> TestResult {
         Some(0),
         "the marker approves the widening:\n{approved}"
     );
-    assert_eq!(approved["approved"], true, "{approved}");
-    assert_eq!(approved["unapproved_widening"], 0, "{approved}");
+    assert_eq!(*at(&approved, "approved")?, true, "{approved}");
+    assert_eq!(*at(&approved, "unapproved_widening")?, 0, "{approved}");
     assert_eq!(
-        approved["approvals"][0]["file"], "src/flows.rs",
+        *at(&approved, "approvals.0.file")?,
+        "src/flows.rs",
         "{approved}"
     );
     assert!(
-        approved["approvals"][0]["reason"]
+        at(&approved, "approvals.0.reason")?
             .as_str()
             .is_some_and(|reason| reason.contains("the store write is the point")),
         "the reason is the text after the marker:\n{approved}"
@@ -389,9 +413,9 @@ fn a_raised_retry_bound_widens_and_a_lowered_one_narrows() -> TestResult {
 
     let (raised, code) = diff_json(tree.path(), "three", "five")?;
     assert_eq!(code, Some(1), "a raised bound is a widening:\n{raised}");
-    assert_eq!(raised["changes"][0]["class"], "widening", "{raised}");
+    assert_eq!(*at(&raised, "changes.0.class")?, "widening", "{raised}");
     assert!(
-        raised["changes"][0]["reason"]
+        at(&raised, "changes.0.reason")?
             .as_str()
             .is_some_and(|reason| reason.contains("raised from 3 to 5")),
         "the reason names both bounds:\n{raised}"
@@ -403,9 +427,9 @@ fn a_raised_retry_bound_widens_and_a_lowered_one_narrows() -> TestResult {
         Some(0),
         "a lowered bound is a narrowing and needs no approval:\n{lowered}"
     );
-    assert_eq!(lowered["changes"][0]["class"], "narrowing", "{lowered}");
+    assert_eq!(*at(&lowered, "changes.0.class")?, "narrowing", "{lowered}");
     assert!(
-        lowered["changes"][0]["reason"]
+        at(&lowered, "changes.0.reason")?
             .as_str()
             .is_some_and(|reason| reason.contains("lowered from 5 to 3")),
         "the reverse direction is named:\n{lowered}"
@@ -419,9 +443,9 @@ fn a_raised_retry_bound_widens_and_a_lowered_one_narrows() -> TestResult {
         Some(1),
         "a longer wait between attempts is a widening:\n{waited}"
     );
-    assert_eq!(waited["changes"][0]["class"], "widening", "{waited}");
+    assert_eq!(*at(&waited, "changes.0.class")?, "widening", "{waited}");
     assert!(
-        waited["changes"][0]["reason"]
+        at(&waited, "changes.0.reason")?
             .as_str()
             .is_some_and(|reason| reason.contains("raised from `10ms` to `50ms`")),
         "the reason names both waits:\n{waited}"
@@ -442,9 +466,9 @@ fn a_new_flow_widens_and_an_approval_marker_clears_it() -> TestResult {
     )?;
     let (document, code) = diff_json(tree.path(), "base", "head")?;
     assert_eq!(code, Some(1), "a new flow is a widening:\n{document}");
-    assert_eq!(document["changes"][0]["class"], "widening", "{document}");
-    assert_eq!(document["changes"][0]["kind"], "Flow", "{document}");
-    assert_eq!(document["changes"][0]["flow"], "audit", "{document}");
+    assert_eq!(*at(&document, "changes.0.class")?, "widening", "{document}");
+    assert_eq!(*at(&document, "changes.0.kind")?, "Flow", "{document}");
+    assert_eq!(*at(&document, "changes.0.flow")?, "audit", "{document}");
 
     plant(
         tree.path(),
@@ -456,7 +480,7 @@ fn a_new_flow_widens_and_an_approval_marker_clears_it() -> TestResult {
     )?;
     let (approved, code) = diff_json(tree.path(), "base", "approved")?;
     assert_eq!(code, Some(0), "the marker clears the gate:\n{approved}");
-    assert_eq!(approved["changes"][0]["approved"], true, "{approved}");
+    assert_eq!(*at(&approved, "changes.0.approved")?, true, "{approved}");
     Ok(())
 }
 
@@ -472,14 +496,15 @@ fn a_removed_within_widens_and_does_not_invent_a_new_retry() -> TestResult {
         "a removed deadline is a widening:\n{document}"
     );
     assert_eq!(
-        document["widening"], 1,
+        *at(&document, "widening")?,
+        1,
         "only the deadline is reported; the retry it held is the same retry:\n{document}"
     );
-    assert_eq!(document["changes"][0]["kind"], "Within", "{document}");
-    assert_eq!(document["changes"][0]["class"], "widening", "{document}");
-    assert_eq!(document["changes"][0]["from"], "20ms", "{document}");
+    assert_eq!(*at(&document, "changes.0.kind")?, "Within", "{document}");
+    assert_eq!(*at(&document, "changes.0.class")?, "widening", "{document}");
+    assert_eq!(*at(&document, "changes.0.from")?, "20ms", "{document}");
     assert!(
-        document["changes"][0]["reason"]
+        at(&document, "changes.0.reason")?
             .as_str()
             .is_some_and(|reason| reason.contains("without a deadline")),
         "the reason says what removing it does:\n{document}"
@@ -506,15 +531,15 @@ fn a_widening_nested_in_a_new_or_removed_block_still_gates() -> TestResult {
         Some(1),
         "an `act` inside a new `within` still widens:\n{added}"
     );
-    let act = added["changes"]
+    let act = at(&added, "changes")?
         .as_array()
         .and_then(|changes| {
             changes
                 .iter()
-                .find(|change| change["kind"] == "Act" && change["class"] == "widening")
+                .find(|change| is_change(change, "Act", "widening"))
         })
         .ok_or("the nested act is not reported as a widening")?;
-    assert_eq!(act["path"], "within 20ms > act", "{added}");
+    assert_eq!(*at(act, "path")?, "within 20ms > act", "{added}");
 
     let (removed, code) = diff_json(tree.path(), "stepped", "plain")?;
     assert_eq!(
@@ -523,9 +548,11 @@ fn a_widening_nested_in_a_new_or_removed_block_still_gates() -> TestResult {
         "a `within` lost with its `step` still widens:\n{removed}"
     );
     assert!(
-        removed["changes"].as_array().is_some_and(|changes| changes
-            .iter()
-            .any(|change| change["kind"] == "Within" && change["class"] == "widening")),
+        at(&removed, "changes")?
+            .as_array()
+            .is_some_and(|changes| changes
+                .iter()
+                .any(|change| is_change(change, "Within", "widening"))),
         "the removed deadline is reported even though its step went too:\n{removed}"
     );
     Ok(())
@@ -555,8 +582,8 @@ fn the_diff_json_has_stable_keys() -> TestResult {
             "the document has the stable key `{key}`:\n{document}"
         );
     }
-    assert_eq!(document["verb"], "diff", "{document}");
-    let change = &document["changes"][0];
+    assert_eq!(*at(&document, "verb")?, "diff", "{document}");
+    let change = at(&document, "changes.0")?;
     for key in [
         "class", "file", "flow", "path", "kind", "from", "to", "reason", "approved",
     ] {
@@ -565,9 +592,9 @@ fn the_diff_json_has_stable_keys() -> TestResult {
             "every change has the stable key `{key}`:\n{document}"
         );
     }
-    assert_eq!(change["file"], "flows.rs", "{document}");
-    assert_eq!(change["flow"], "add", "{document}");
-    assert_eq!(change["path"], "retry 5", "{document}");
+    assert_eq!(*at(change, "file")?, "flows.rs", "{document}");
+    assert_eq!(*at(change, "flow")?, "add", "{document}");
+    assert_eq!(*at(change, "path")?, "retry 5", "{document}");
     Ok(())
 }
 
@@ -638,7 +665,11 @@ fn a_seeded_edit_replays_the_same_classification() -> TestResult {
             Some(0),
             "seed {seed}: a line shift is an empty diff:\n{empty}"
         );
-        assert_eq!(empty["changes"], Value::Array(Vec::new()), "seed {seed}");
+        assert_eq!(
+            *at(&empty, "changes")?,
+            Value::Array(Vec::new()),
+            "seed {seed}"
+        );
 
         let first = diff(tree.path(), "base", "raised", true)?;
         let second = diff(tree.path(), "base", "raised", true)?;
@@ -659,11 +690,11 @@ fn a_seeded_edit_replays_the_same_classification() -> TestResult {
             "seed {seed}: the same seed replays the same status:\n{second_err}"
         );
         let document: Value = lgwks_std::json::from_str(&first_out)?;
-        let change = &document["changes"][0];
-        assert_eq!(change["class"], "widening", "seed {seed}: {document}");
-        assert_eq!(change["kind"], "Retry", "seed {seed}: {document}");
+        let change = at(&document, "changes.0")?;
+        assert_eq!(*at(change, "class")?, "widening", "seed {seed}: {document}");
+        assert_eq!(*at(change, "kind")?, "Retry", "seed {seed}: {document}");
         assert!(
-            change["reason"]
+            at(change, "reason")?
                 .as_str()
                 .is_some_and(|reason| reason.contains("raised from")),
             "seed {seed}: the direction is named:\n{document}"

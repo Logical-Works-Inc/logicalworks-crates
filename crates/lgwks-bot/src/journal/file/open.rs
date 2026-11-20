@@ -15,6 +15,84 @@ use super::{
 #[cfg(feature = "wire")]
 use super::{resolve_ambiguous_tail, scan, successor_is_complete};
 
+/// Open (creating) the journal file at `path`, take its exclusive lock, and
+/// refuse one already past [`MAX_JOURNAL_BYTES`].
+///
+/// Fail closed: a filesystem that cannot supply the lock refuses the open rather
+/// than getting an unfenced journal. The lock is advisory and binds writers
+/// through this constructor; see [`JournalError::Locked`] for the exact reach of
+/// that promise.
+#[cfg(feature = "wire")]
+fn lock_within_bound(path: &Path) -> Result<std::fs::File, JournalError> {
+    let mut options = OpenOptions::new();
+    options.read(true).append(true).create(true);
+    let file = options.open(path).map_err(JournalError::Storage)?;
+    file.try_lock().map_err(|error| match error {
+        std::fs::TryLockError::WouldBlock => JournalError::Locked {
+            path: path.display().to_string(),
+        },
+        std::fs::TryLockError::Error(io) => JournalError::Storage(io),
+    })?;
+    let file_len = file.metadata().map_err(JournalError::Storage)?.len();
+    if file_len > MAX_JOURNAL_BYTES {
+        let refusal = Err(JournalError::CapacityExceeded {
+            resource: JournalLimitKind::Bytes,
+            limit: MAX_JOURNAL_BYTES,
+            requested: file_len,
+        });
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "open_impl: returning an error to the caller");
+        return refusal;
+    }
+    Ok(file)
+}
+
+/// The authority rule, asked before anything is repaired: a journal whose
+/// successor is complete is not this run's journal, and repairing its tail would
+/// be writing to a file this process does not own.
+///
+/// The successor's name is a property of *this* file, read from the path the
+/// caller already opened rather than from the checkpoint: that is what lets the
+/// seal frame be byte-identical in both files.
+#[cfg(feature = "wire")]
+fn refuse_superseded(path: &Path, checkpoint: &Continuation) -> Result<(), JournalError> {
+    let next = successor_path(path);
+    if successor_is_complete(&next, checkpoint).map_err(JournalError::Storage)? {
+        let refusal = Err(JournalError::Superseded {
+            path: next.display().to_string(),
+        });
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "open_impl: this journal is sealed and its successor is authoritative");
+        return refusal;
+    }
+    Ok(())
+}
+
+/// Where the acknowledged prefix ends, and whether a torn tail was cut back to
+/// it. The interrupted append was never acknowledged; taking it back restores
+/// the file to the prefix every acknowledgment still names.
+///
+/// An ambiguous tail is resolved against the last whole frame, whatever it was:
+/// the carried seal of a successor with no event of its own, this file's own
+/// seal, or its last event. Reading it off the events alone named the genesis for
+/// the first two, and a later whole frame chained from a seal would not
+/// authenticate there, so an acknowledged frame under a lying length read as a
+/// torn append.
+#[cfg(feature = "wire")]
+fn repair_tail(
+    file: &mut std::fs::File,
+    stop: &ScanStop,
+    index: u64,
+    tail: JournalPosition,
+) -> Result<(u64, bool), JournalError> {
+    let offset = match *stop {
+        ScanStop::Complete(len) => return Ok((len, false)),
+        ScanStop::Torn(offset) => offset,
+        ScanStop::AmbiguousTail { offset } => resolve_ambiguous_tail(file, offset, tail, index)?,
+    };
+    file.set_len(offset).map_err(JournalError::Storage)?;
+    file.sync_all().map_err(JournalError::Storage)?;
+    Ok((offset, true))
+}
+
 impl FileJournal {
     /// Open the journal at `path`, creating the file when it does not exist
     /// and replaying it when it does.
@@ -145,27 +223,20 @@ impl FileJournal {
             provider,
             tenant: tenant.to_owned(),
         };
-        Self::open_active_impl(path.as_ref(), Some(open))
+        Self::open_active_impl(path.as_ref(), Some(&open))
     }
 
     /// The generation walk both active constructors take: one
     /// [`JournalError::Superseded`] at a time, bounded by
     /// [`MAX_GENERATION_WALK`], sealed or plain as the caller opened.
     #[cfg(feature = "wire")]
-    fn open_active_impl(path: &Path, _sealed: Option<SealedOpen>) -> Result<Self, JournalError> {
+    fn open_active_impl(path: &Path, sealed: Option<&SealedOpen>) -> Result<Self, JournalError> {
         let mut here = path.to_path_buf();
         for _ in 0..MAX_GENERATION_WALK {
-            #[cfg(feature = "sealed")]
-            let open = _sealed.as_ref().map(|named| SealedOpen {
-                provider: std::sync::Arc::clone(&named.provider),
-                tenant: named.tenant.clone(),
-            });
-            #[cfg(not(feature = "sealed"))]
-            let open: Option<SealedOpen> = None;
             match Self::open_impl(
                 &here,
                 OpenKind::Continuing(ContinuationPolicy::declared()),
-                open,
+                sealed,
             ) {
                 Ok(journal) => return Ok(journal),
                 Err(JournalError::Superseded { path: next }) => here = PathBuf::from(next),
@@ -265,41 +336,14 @@ impl FileJournal {
     pub(super) fn open_impl(
         path: &Path,
         kind: OpenKind,
-        sealed: Option<SealedOpen>,
+        sealed: Option<&SealedOpen>,
     ) -> Result<Self, JournalError> {
         let path = path.to_path_buf();
         super::super::continuation::refuse_ambiguous_base(&path)?;
-        let mut file = OpenOptions::new()
-            .read(true)
-            .append(true)
-            .create(true)
-            .open(&path)
-            .map_err(JournalError::Storage)?;
-        // Fail closed: a filesystem that cannot supply the lock refuses the
-        // open rather than getting an unfenced journal. The lock is advisory
-        // and binds writers through this constructor; see
-        // [`JournalError::Locked`] for the exact reach of that promise.
-        file.try_lock().map_err(|error| match error {
-            std::fs::TryLockError::WouldBlock => JournalError::Locked {
-                path: path.display().to_string(),
-            },
-            std::fs::TryLockError::Error(io) => JournalError::Storage(io),
-        })?;
-
-        let file_len = file.metadata().map_err(JournalError::Storage)?.len();
-        if file_len > MAX_JOURNAL_BYTES {
-            let refusal = Err(JournalError::CapacityExceeded {
-                resource: JournalLimitKind::Bytes,
-                limit: MAX_JOURNAL_BYTES,
-                requested: file_len,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "open_impl: returning an error to the caller");
-            return refusal;
-        }
-
+        let mut file = lock_within_bound(&path)?;
         file.seek_read_zero()?;
         let mut reader = BufReader::new(&mut file);
-        let scanned = scan(&mut reader, MAX_JOURNAL_EVENTS, sealed.as_ref())?;
+        let scanned = scan(&mut reader, MAX_JOURNAL_EVENTS, sealed)?;
         drop(reader);
         // Bound fields one by one rather than destructuring: attributes inside
         // a struct pattern are valid Rust the checked parse's grammar version
@@ -321,43 +365,10 @@ impl FileJournal {
         // successor is complete is not this run's journal, and repairing its tail
         // would be writing to a file this process does not own.
         if let Some(checkpoint) = seal.as_ref() {
-            // The successor's name is a property of *this* file, read from the
-            // path the caller already opened rather than from the checkpoint: that
-            // is what lets the seal frame be byte-identical in both files.
-            let next = successor_path(&path);
-            if successor_is_complete(&next, checkpoint).map_err(JournalError::Storage)? {
-                let refusal = Err(JournalError::Superseded {
-                    path: next.display().to_string(),
-                });
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "open_impl: this journal is sealed and its successor is authoritative");
-                return refusal;
-            }
+            refuse_superseded(&path, checkpoint)?;
         }
-
-        let (acked_len, torn_tail_repaired) = match stop {
-            ScanStop::Complete(len) => (len, false),
-            ScanStop::Torn(offset) => {
-                // The interrupted append was never acknowledged; taking it
-                // back restores the file to the prefix every acknowledgment
-                // still names.
-                file.set_len(offset).map_err(JournalError::Storage)?;
-                file.sync_all().map_err(JournalError::Storage)?;
-                (offset, true)
-            }
-            ScanStop::AmbiguousTail { offset } => {
-                let index = u64::saturating_from(entries.len());
-                // The cut is resolved against the last whole frame, whatever it
-                // was: the carried seal of a successor with no event of its own,
-                // this file's own seal, or its last event. Reading it off the
-                // events alone named the genesis for the first two, and a later
-                // whole frame chained from a seal would not authenticate there, so
-                // an acknowledged frame under a lying length read as a torn append.
-                let offset = resolve_ambiguous_tail(&mut file, offset, tail, index)?;
-                file.set_len(offset).map_err(JournalError::Storage)?;
-                file.sync_all().map_err(JournalError::Storage)?;
-                (offset, true)
-            }
-        };
+        let (acked_len, torn_tail_repaired) =
+            repair_tail(&mut file, &stop, u64::saturating_from(entries.len()), tail)?;
 
         let mut ladder: HashMap<crate::effect::EffectKey, EventKind> = entries
             .iter()
@@ -394,8 +405,8 @@ impl FileJournal {
         let view = FileView::read_only(&path)?;
         #[cfg(feature = "sealed")]
         let sealed = sealed.map(|open| super::sealed_impl::SealedJournalState {
-            provider: open.provider,
-            tenant: open.tenant,
+            provider: std::sync::Arc::clone(&open.provider),
+            tenant: open.tenant.clone(),
             slots: sealed_slots,
             burned: sealed_burned.into_iter().collect(),
             frames: sealed_frames,
@@ -482,5 +493,45 @@ impl FileJournal {
     #[must_use]
     pub fn recover(&self) -> Recovered {
         recover_continued(self.carried.as_ref(), self.events())
+    }
+}
+
+#[cfg(all(test, feature = "wire", feature = "script"))]
+mod tests {
+    use super::{JournalError, JournalLimitKind, MAX_JOURNAL_BYTES, lock_within_bound};
+    use crate::journal::frame::probe::Scratch;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// A journal exactly at the byte cap opens and takes its lock; a second open
+    /// of a locked file is refused as locked; one byte past the cap is refused
+    /// naming both numbers. Sparse files reach the cap without writing it.
+    #[test]
+    fn open_admits_the_byte_cap_and_refuses_past_it() -> TestResult {
+        let at_cap = Scratch::new("open-at-cap")?;
+        std::fs::File::create(at_cap.path())?.set_len(MAX_JOURNAL_BYTES)?;
+        let held = lock_within_bound(at_cap.path())?;
+        assert!(
+            matches!(
+                lock_within_bound(at_cap.path()),
+                Err(JournalError::Locked { .. })
+            ),
+            "a second open of a locked journal is refused"
+        );
+        drop(held);
+        let past = Scratch::new("open-past-cap")?;
+        std::fs::File::create(past.path())?.set_len(MAX_JOURNAL_BYTES.saturating_add(1))?;
+        assert!(
+            matches!(
+                lock_within_bound(past.path()),
+                Err(JournalError::CapacityExceeded {
+                    resource: JournalLimitKind::Bytes,
+                    limit,
+                    requested,
+                }) if limit == MAX_JOURNAL_BYTES && requested == MAX_JOURNAL_BYTES.saturating_add(1)
+            ),
+            "one byte past the cap is refused"
+        );
+        Ok(())
     }
 }

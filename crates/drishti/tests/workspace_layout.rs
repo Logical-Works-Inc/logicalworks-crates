@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use drishti::canvas_protocol::workspace_layout::{
     WORKSPACE_LAYOUT_SCHEMA_VERSION, WorkspaceLayout, WorkspaceLayoutError, WorkspaceLayoutIssue,
+    WorkspaceSurface,
 };
 use drishti::canvas_protocol::{
     Capability, ChromePlacement, WidgetSurface, WorkspaceSlot, WorkspaceSurfaceRole,
@@ -33,6 +34,17 @@ fn canonical_layout() -> Result<WorkspaceLayout, String> {
     let bytes = read_file(&path)?;
     lgwks_std::json::from_slice(&bytes)
         .map_err(|error| format!("cannot decode {}: {error}", path.display()))
+}
+
+/// The surface at `index`, mutably; a layout too short fails the test.
+fn surface_mut(
+    layout: &mut WorkspaceLayout,
+    index: usize,
+) -> Result<&mut WorkspaceSurface, String> {
+    layout
+        .surfaces_mut()
+        .get_mut(index)
+        .ok_or_else(|| format!("canonical layout has no surface {index}"))
 }
 
 /// Serialize wire enums to their JSON strings.
@@ -133,7 +145,11 @@ fn workspace_schema_enums_match_rust_wire_values() -> Result<(), String> {
     let path = protocol_path("schema/WorkspaceLayout.json");
     let schema = read_json(&path)?;
 
-    if schema["properties"]["schema_version"]["const"] != WORKSPACE_LAYOUT_SCHEMA_VERSION {
+    let declared = schema
+        .get("properties")
+        .and_then(|properties| properties.get("schema_version"))
+        .and_then(|version| version.get("const"));
+    if !declared.is_some_and(|constant| *constant == WORKSPACE_LAYOUT_SCHEMA_VERSION) {
         return Err(String::from("schema_version const drifted"));
     }
     let cases: &[(&str, Vec<String>)] = &[
@@ -226,7 +242,7 @@ fn web_renderer_input_is_deterministic_and_matches_tracked_artifact() -> Result<
 #[test]
 fn privileged_or_ambiguous_layouts_fail_closed() -> Result<(), String> {
     let mut privileged = canonical_layout()?;
-    privileged.surfaces_mut()[0]
+    surface_mut(&mut privileged, 0)?
         .descriptor_mut()
         .capabilities_mut()
         .push(Capability::TapeRead);
@@ -246,8 +262,11 @@ fn privileged_or_ambiguous_layouts_fail_closed() -> Result<(), String> {
     }
 
     let mut duplicate = canonical_layout()?;
-    let twin = duplicate.surfaces()[0].descriptor().widget_id().to_owned();
-    duplicate.surfaces_mut()[1]
+    let twin = surface_mut(&mut duplicate, 0)?
+        .descriptor()
+        .widget_id()
+        .to_owned();
+    surface_mut(&mut duplicate, 1)?
         .descriptor_mut()
         .set_widget_id(twin);
     let failure = match duplicate.validate() {
@@ -328,7 +347,7 @@ fn unicode_lengths_follow_json_schema_code_points() -> Result<(), String> {
 #[test]
 fn mount_flags_default_off_opt_in_and_keep_validation() -> Result<(), String> {
     let mut layout = canonical_layout()?;
-    let descriptor = layout.surfaces_mut()[0].descriptor_mut();
+    let descriptor = surface_mut(&mut layout, 0)?.descriptor_mut();
     if descriptor.self_listen() || descriptor.pinned() {
         return Err(String::from("mount flags must default off"));
     }
@@ -348,12 +367,9 @@ fn mount_flags_default_off_opt_in_and_keep_validation() -> Result<(), String> {
 fn numeric_identifier_segments_follow_the_wire_schema() -> Result<(), String> {
     let mut layout = canonical_layout()?;
     layout.set_layout_id("workspace.2026".to_owned());
-    layout.surfaces_mut()[0]
-        .descriptor_mut()
-        .set_widget_id("canvas.123".to_owned());
-    layout.surfaces_mut()[0]
-        .descriptor_mut()
-        .set_kind("panel.2-d".to_owned());
+    let first = surface_mut(&mut layout, 0)?.descriptor_mut();
+    first.set_widget_id("canvas.123".to_owned());
+    first.set_kind("panel.2-d".to_owned());
     layout
         .web_renderer_input()
         .map_err(|error| format!("numeric suffix segments must be schema-valid: {error}"))?;

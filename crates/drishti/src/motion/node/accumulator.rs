@@ -476,6 +476,7 @@ impl AccumulatorState {
 /// store.get_or_default(id).set_position(0.5);
 /// assert_eq!(store.get(&id).map(|state| state.position()), Some(0.5));
 /// ```
+#[derive(Debug)]
 pub struct AccumulatorStore {
     /// Live states in key order.
     states: BTreeMap<Uuid, AccumulatorState>,

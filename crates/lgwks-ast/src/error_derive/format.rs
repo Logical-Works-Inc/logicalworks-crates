@@ -16,17 +16,75 @@ fn push_pair(out: &mut String, ch: char) {
     out.push(ch);
 }
 
+/// Why a format string cannot be rewritten onto the variant's fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum FormatError {
+    /// A placeholder names a field index the variant does not have.
+    IndexOutOfBounds {
+        /// Whether the index came from an empty `{}` rather than a written one.
+        is_auto: bool,
+        /// The index the placeholder asked for.
+        index: usize,
+        /// How many fields the variant has.
+        field_count: usize,
+    },
+    /// A `{` with no `}` after it.
+    UnclosedBrace,
+    /// A `}` that closes nothing.
+    UnmatchedBrace,
+    /// A named placeholder in a tuple variant, which has no field names.
+    NamedFieldInTuple {
+        /// The name the placeholder used.
+        name: String,
+    },
+    /// A named placeholder that matches no field.
+    UnknownField {
+        /// The name the placeholder used.
+        name: String,
+    },
+}
+
+impl core::fmt::Display for FormatError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::IndexOutOfBounds {
+                is_auto,
+                index,
+                field_count,
+            } => {
+                let label = if is_auto { "positional index" } else { "index" };
+                write!(formatter, "{label} {index} >= {field_count}")
+            }
+            Self::UnclosedBrace => formatter.write_str("unclosed '{' in format string"),
+            Self::UnmatchedBrace => formatter.write_str("unmatched '}' in format string"),
+            Self::NamedFieldInTuple { ref name } => write!(
+                formatter,
+                "named field '{name}' used in format string for tuple variant"
+            ),
+            Self::UnknownField { ref name } => {
+                write!(
+                    formatter,
+                    "unknown field '{name}' referenced in format string"
+                )
+            }
+        }
+    }
+}
+
 fn validate_and_push_index(
     out: &mut String,
     idx: usize,
     field_count: usize,
     spec_part: &str,
     is_auto: bool,
-) -> Result<(), String> {
+) -> Result<(), FormatError> {
     if idx >= field_count {
-        let label = if is_auto { "positional index" } else { "index" };
         tracing::debug!(idx, field_count, "out of bounds format index");
-        return Err(format!("{label} {idx} >= {field_count}"));
+        return Err(FormatError::IndexOutOfBounds {
+            is_auto,
+            index: idx,
+            field_count,
+        });
     }
     push_field_placeholder(out, idx, spec_part);
     Ok(())
@@ -73,16 +131,7 @@ pub(super) fn unescape_string_literal(lit_str: &str) -> Option<String> {
                     '0' => out.push('\0'),
                     '"' => out.push('"'),
                     '\'' => out.push('\''),
-                    '\n' => {
-                        while let Some(next_ref) = chars.peek() {
-                            let next_ch = *next_ref;
-                            if next_ch.is_whitespace() {
-                                let _ = chars.next();
-                            } else {
-                                break;
-                            }
-                        }
-                    }
+                    '\n' => while chars.next_if(|next_ch| next_ch.is_whitespace()).is_some() {},
                     other => {
                         out.push('\\');
                         out.push(other);
@@ -104,15 +153,14 @@ pub(super) fn rewrite_format_string(
     is_tuple: bool,
     field_names: &[String],
     field_count: usize,
-) -> Result<String, String> {
+) -> Result<String, FormatError> {
     let mut out = String::with_capacity(fmt.len().saturating_add(16));
     let mut chars = fmt.chars().peekable();
     let mut auto_idx: usize = 0;
 
     while let Some(ch) = chars.next() {
         if ch == '{' {
-            if chars.peek() == Some(&'{') {
-                let _ = chars.next();
+            if chars.next_if_eq(&'{').is_some() {
                 push_pair(&mut out, '{');
                 continue;
             }
@@ -127,7 +175,7 @@ pub(super) fn rewrite_format_string(
             }
             if !closed {
                 tracing::debug!("unclosed '{{' in format string");
-                return Err("unclosed '{' in format string".to_owned());
+                return Err(FormatError::UnclosedBrace);
             }
 
             let (arg_part, spec_part) = match inside.find(':') {
@@ -156,15 +204,15 @@ pub(super) fn rewrite_format_string(
                         arg_part,
                         "named field used in format string for tuple variant"
                     );
-                    return Err(format!(
-                        "named field '{arg_part}' used in format string for tuple variant"
-                    ));
+                    return Err(FormatError::NamedFieldInTuple {
+                        name: arg_part.to_owned(),
+                    });
                 }
                 if !field_names.iter().any(|name_item| name_item == arg_part) {
                     tracing::debug!(arg_part, "unknown field referenced in format string");
-                    return Err(format!(
-                        "unknown field '{arg_part}' referenced in format string"
-                    ));
+                    return Err(FormatError::UnknownField {
+                        name: arg_part.to_owned(),
+                    });
                 }
                 out.push('{');
                 out.push_str(arg_part);
@@ -172,13 +220,12 @@ pub(super) fn rewrite_format_string(
                 out.push('}');
             }
         } else if ch == '}' {
-            if chars.peek() == Some(&'}') {
-                let _ = chars.next();
+            if chars.next_if_eq(&'}').is_some() {
                 push_pair(&mut out, '}');
                 continue;
             }
             tracing::debug!("unmatched '}}' in format string");
-            return Err("unmatched '}' in format string".to_owned());
+            return Err(FormatError::UnmatchedBrace);
         } else {
             out.push(ch);
         }

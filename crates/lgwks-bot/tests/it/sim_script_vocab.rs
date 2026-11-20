@@ -32,8 +32,8 @@ use std::time::Duration;
 
 use lgwks_bot::rt::sync::CancellationToken;
 use lgwks_bot::script::{
-    Allowance, FlowError, GraphNode, Justify, NodeOutcome, Overflow, PumpReport, Rule, StreamGate,
-    compensated, graph, pump, retry,
+    Allowance, FlowError, GraphNode, GraphReport, Justify, NodeOutcome, Overflow, PumpReport, Rule,
+    StreamGate, Verdict, compensated, graph, pump, retry,
 };
 
 use crate::band_family;
@@ -42,6 +42,69 @@ use crate::sim_script::{Turns, drive, locked, tenant_scope};
 
 /// A test's result: an error fails it with the error's text.
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// `inner`, decided as itself and recorded as `name:verdict` in `log`.
+fn logged_rule(name: &'static str, inner: Rule, log: &Arc<Mutex<Vec<String>>>) -> Rule {
+    let logged = Arc::clone(log);
+    let inner = Arc::new(Mutex::new(inner));
+    Rule::new(name, move |ctx| {
+        let verdict = match inner.lock() {
+            Ok(held) => held.decide(ctx),
+            Err(poisoned) => {
+                lgwks_std::trace::debug!(error = %poisoned, "logged_rule: the rule was poisoned");
+                return Verdict::Allow;
+            }
+        };
+        let word = match verdict {
+            Verdict::Allow => "allow",
+            Verdict::Slow { .. } => "slow",
+            Verdict::Park { .. } => "park",
+            _ => "block",
+        };
+        if let Ok(mut held) = logged.lock() {
+            held.push(format!("{name}:{word}"));
+        }
+        verdict
+    })
+}
+
+/// The hand-kept model of the rules: the decision log and the (rule, reason)
+/// that stopped the run. `limits` is the allowance, the pacing, the suspension.
+fn modelled_sequence(
+    attempts: u32,
+    limits: (u64, u64, u64),
+) -> (Vec<String>, Option<(&'static str, &'static str)>) {
+    let (cap, every, suspend_after) = limits;
+    let mut pace_seen: u64 = 0;
+    let mut remaining = cap;
+    let mut quiet_seen: u64 = 0;
+    let mut expected: Vec<String> = Vec::new();
+    let mut stopped: Option<(&str, &str)> = None;
+    for _ in 1..=attempts {
+        pace_seen = pace_seen.saturating_add(1);
+        if pace_seen.is_multiple_of(every) {
+            expected.push(String::from("pace:slow"));
+            continue;
+        }
+        expected.push(String::from("pace:allow"));
+        if remaining > 0 {
+            remaining = remaining.saturating_sub(1);
+            expected.push(String::from("budget:allow"));
+        } else {
+            expected.push(String::from("budget:block"));
+            stopped = Some(("budget", "poll-budget-spent"));
+            break;
+        }
+        quiet_seen = quiet_seen.saturating_add(1);
+        if quiet_seen > suspend_after {
+            expected.push(String::from("quiet:park"));
+            stopped = Some(("quiet", "quiet-hours"));
+            break;
+        }
+        expected.push(String::from("quiet:allow"));
+    }
+    (expected, stopped)
+}
 
 /// The justification rules, the allowance they spend, and a seeded attempt
 /// budget: the same seed reaches the same allow/slow/park/block sequence.
@@ -52,42 +115,14 @@ fn justification_sequence_replays(band: Band) -> TestResult {
         let suspend_after = u64::from(sim.rng().between(1, 4));
         let attempts: u32 = 6;
         let log: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        let logged = |name: &'static str, inner: Rule, log: &Arc<Mutex<Vec<String>>>| {
-            let logged = Arc::clone(log);
-            let inner = Arc::new(Mutex::new(inner));
-            Rule::new(name, move |ctx| {
-                let verdict = match inner.lock() {
-                    Ok(held) => held.decide(ctx),
-                    Err(_) => return lgwks_bot::script::Verdict::Allow,
-                };
-                let word = if matches!(verdict, lgwks_bot::script::Verdict::Allow) {
-                    "allow"
-                } else if matches!(verdict, lgwks_bot::script::Verdict::Slow { .. }) {
-                    "slow"
-                } else if matches!(verdict, lgwks_bot::script::Verdict::Park { .. }) {
-                    "park"
-                } else {
-                    "block"
-                };
-                if let Ok(mut held) = logged.lock() {
-                    held.push(format!("{name}:{word}"));
-                }
-                verdict
-            })
-        };
         let allowance = Arc::new(Allowance::new(cap));
+        let pace = Rule::pace("pace", every, Duration::ZERO);
+        let spent = Rule::allowance("budget", Arc::clone(&allowance), "poll-budget-spent");
+        let quiet = Rule::suspend("quiet", suspend_after, "quiet-hours");
         let justify = Justify::new(vec![
-            logged("pace", Rule::pace("pace", every, Duration::ZERO), &log),
-            logged(
-                "budget",
-                Rule::allowance("budget", Arc::clone(&allowance), "poll-budget-spent"),
-                &log,
-            ),
-            logged(
-                "quiet",
-                Rule::suspend("quiet", suspend_after, "quiet-hours"),
-                &log,
-            ),
+            logged_rule("pace", pace, &log),
+            logged_rule("budget", spent, &log),
+            logged_rule("quiet", quiet, &log),
         ]);
         let scope = tenant_scope("acme", CancellationToken::new())?.with_justification(justify);
         let budget = lgwks_bot::script::attempts(attempts)
@@ -99,35 +134,7 @@ fn justification_sequence_replays(band: Band) -> TestResult {
             Duration::ZERO,
             |_, _| async { Err::<(), FlowError>(FlowError::transient("the upstream is down")) },
         ));
-        // The independent model: the same counters, kept by hand.
-        let mut pace_seen: u64 = 0;
-        let mut remaining = cap;
-        let mut quiet_seen: u64 = 0;
-        let mut expected: Vec<String> = Vec::new();
-        let mut stopped: Option<(&str, &str)> = None;
-        for _ in 1..=attempts {
-            pace_seen = pace_seen.saturating_add(1);
-            if pace_seen.is_multiple_of(every) {
-                expected.push(String::from("pace:slow"));
-                continue;
-            }
-            expected.push(String::from("pace:allow"));
-            if remaining > 0 {
-                remaining = remaining.saturating_sub(1);
-                expected.push(String::from("budget:allow"));
-            } else {
-                expected.push(String::from("budget:block"));
-                stopped = Some(("budget", "poll-budget-spent"));
-                break;
-            }
-            quiet_seen = quiet_seen.saturating_add(1);
-            if quiet_seen > suspend_after {
-                expected.push(String::from("quiet:park"));
-                stopped = Some(("quiet", "quiet-hours"));
-                break;
-            }
-            expected.push(String::from("quiet:allow"));
-        }
+        let (expected, stopped) = modelled_sequence(attempts, (cap, every, suspend_after));
         let logged = locked(&log, "the decision log was poisoned")?;
         assert_eq!(
             logged, expected,
@@ -298,6 +305,46 @@ fn ceil_div(value: u64, by: u64) -> Result<u64, String> {
         .ok_or_else(|| String::from("the slot count is zero"))
 }
 
+/// Needs respected: every ran node's needs succeeded, and every blocked node
+/// names only needs it waited on.
+fn assert_needs_respected(
+    report: &GraphReport<u64>,
+    edges: &[(&'static str, Vec<&'static str>)],
+) -> TestResult {
+    for edge in edges {
+        let Some(outcome) = report.outcome(edge.0) else {
+            let refusal = Err(format!("{} has no outcome", edge.0).into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_needs_respected: returning an error to the caller");
+            return refusal;
+        };
+        match *outcome {
+            NodeOutcome::Ran(_) => assert!(
+                edge.1.iter().all(|need| report.succeeded().contains(need)),
+                "{} ran while a need did not succeed",
+                edge.0
+            ),
+            NodeOutcome::Blocked { ref by } => assert!(
+                !by.is_empty()
+                    && by
+                        .iter()
+                        .all(|unmet| edge.1.iter().any(|need| need == unmet)),
+                "{} is blocked by something it never waited on: {by:?}",
+                edge.0
+            ),
+            _ => {
+                lgwks_std::trace::debug!(
+                    "assert_needs_respected: returning an error to the caller"
+                );
+                let refusal =
+                    Err(format!("{} has an outcome this sim does not know", edge.0).into());
+                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "assert_needs_respected: returning an error to the caller");
+                return refusal;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The graph word on the real run path: needs respected, each node once,
 /// bounded concurrency, failures blocking only downstream, and the static
 /// schedule inside the Graham bound.
@@ -331,44 +378,7 @@ fn graph_schedule_respects_needs_capacity_and_bound(band: Band) -> TestResult {
             ran,
             "every ran node started its body once"
         );
-        // Needs respected: every ran node's needs succeeded, and every blocked
-        // node names only needs that did not succeed.
-        for edge in &edges {
-            match report.outcome(edge.0) {
-                Some(outcome) => match *outcome {
-                    NodeOutcome::Ran(_) => {
-                        for need in &edge.1 {
-                            assert!(
-                                report.succeeded().contains(need),
-                                "{} ran while its need {need} did not succeed",
-                                edge.0
-                            );
-                        }
-                    }
-                    NodeOutcome::Blocked { ref by } => {
-                        assert!(!by.is_empty(), "{} is blocked but names nothing", edge.0);
-                        for unmet in by {
-                            assert!(
-                                edge.1.iter().any(|need| need == unmet),
-                                "{} names {unmet}, which it never waited on",
-                                edge.0
-                            );
-                        }
-                    }
-                    _ => {
-                        let refusal: TestResult =
-                            Err(format!("{} has an outcome this sim does not know", edge.0).into());
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "sweep: returning an error to the caller");
-                        return refusal;
-                    }
-                },
-                None => {
-                    let refusal: TestResult = Err(format!("{} has no outcome", edge.0).into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "sweep: returning an error to the caller");
-                    return refusal;
-                }
-            }
-        }
+        assert_needs_respected(&report, &edges)?;
         // The failure blocks exactly its downstream.
         let mut downstream: Vec<&'static str> = Vec::new();
         if let Some(failed) = failing {
@@ -582,12 +592,7 @@ fn compensation_replays_in_reverse(band: Band) -> TestResult {
                     return refusal;
                 }
             }
-            let mut expected: Vec<&'static str> = Vec::new();
-            for (position, step) in steps.iter().enumerate() {
-                if position < fail_at {
-                    expected.push(*step);
-                }
-            }
+            let mut expected: Vec<&'static str> = steps.iter().take(fail_at).copied().collect();
             expected.reverse();
             assert_eq!(
                 undone, expected,
@@ -624,8 +629,6 @@ fn stream_gate_bounds_the_feed(band: Band) -> TestResult {
                     .collect()
             })
             .collect::<Vec<Vec<u32>>>();
-        let scope = tenant_scope("acme", CancellationToken::new())?;
-        let mut gate = StreamGate::new(cap, policy)?;
         let pending: RefCell<Vec<Option<Vec<u32>>>> = RefCell::new(
             std::iter::once(None)
                 .chain(batches.iter().rev().cloned().map(Some))
@@ -633,9 +636,9 @@ fn stream_gate_bounds_the_feed(band: Band) -> TestResult {
         );
         let seen: RefCell<Vec<u32>> = RefCell::new(Vec::new());
         let report: PumpReport = drive(pump(
-            &scope,
+            &tenant_scope("acme", CancellationToken::new())?,
             "prices",
-            &mut gate,
+            &mut StreamGate::new(cap, policy)?,
             || {
                 let batch = pending.borrow_mut().pop().flatten();
                 async move { batch }
@@ -653,8 +656,7 @@ fn stream_gate_bounds_the_feed(band: Band) -> TestResult {
         // The independent model: the same gate, kept by hand. The pump drains
         // the gate after every batch, so each burst starts empty and the
         // policy decides within the burst.
-        let mut kept: Vec<u32> = Vec::new();
-        let mut dropped: u64 = 0;
+        let (mut kept, mut dropped) = (Vec::<u32>::new(), 0_u64);
         for batch in &batches {
             let mut burst: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
             for event in batch {

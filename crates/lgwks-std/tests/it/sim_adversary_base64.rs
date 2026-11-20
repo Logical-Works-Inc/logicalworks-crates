@@ -20,6 +20,7 @@ use crate::adversary::{
     Attacker, TestResult, decoder_campaign, diverges_between_seeds, every_byte_at_every_position,
     replays_under_every_seed, sweep,
 };
+use crate::seeded_bytes::pick;
 
 /// RFC 4648 table 1: the sextet for index `n` is the character at `n`.
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -53,7 +54,7 @@ fn reference_encode(bytes: &[u8]) -> String {
         for index in 0..6 {
             value = value.wrapping_shl(1) | usize::from(group.get(index) == Some(&true));
         }
-        out.push(char::from(ALPHABET[value]));
+        out.push(char::from(pick(ALPHABET.as_slice(), value, b'A')));
     }
     while !out.len().is_multiple_of(4) {
         out.push('=');
@@ -66,7 +67,8 @@ fn reference_encode(bytes: &[u8]) -> String {
 /// characters, or a pad character before the end.
 fn reference_body(input: &[u8]) -> Result<&[u8], DecodeError> {
     let padding = input.iter().rev().take_while(|&&byte| byte == b'=').count();
-    let body = &input[..input.len().saturating_sub(padding)];
+    // The padding count is at most the length, so the split point is in range.
+    let (body, _padding) = input.split_at(input.len().saturating_sub(padding));
     if !input.len().is_multiple_of(4) {
         Err(DecodeError::BadLength {
             len: input.len(),
@@ -128,9 +130,12 @@ fn draw_pair(attacker: &mut Attacker, max: usize) -> (Vec<u8>, String) {
 fn substituted(text: &str, at: usize, attacker: &mut Attacker) -> Vec<u8> {
     let mut bytes = text.as_bytes().to_vec();
     if let Some(slot) = bytes.get_mut(at) {
-        let mut replacement = *attacker.pick(ALPHABET);
+        let mut replacement = *slot;
         while replacement == *slot {
-            replacement = *attacker.pick(ALPHABET);
+            let Some(&drawn) = attacker.pick(ALPHABET) else {
+                break;
+            };
+            replacement = drawn;
         }
         *slot = replacement;
     }
@@ -152,7 +157,9 @@ fn wrapped(text: &str, attacker: &mut Attacker) -> String {
     let mut out = text.to_owned();
     for _ in 0..1_usize.saturating_add(attacker.below(5)) {
         let at = attacker.below(out.len().saturating_add(1));
-        out.insert_str(at, attacker.pick(&BREAKERS));
+        if let Some(breaker) = attacker.pick(&BREAKERS) {
+            out.insert_str(at, breaker);
+        }
     }
     out
 }
@@ -436,7 +443,9 @@ fn sim_adversary_base64_the_url_safe_alphabet_is_refused() -> TestResult {
         };
         converted = converted.saturating_add(1);
         let url_safe = text.replace('+', "-").replace('/', "_");
-        let byte = url_safe.as_bytes()[at];
+        let Some(&byte) = url_safe.as_bytes().get(at) else {
+            return Err(format!("seed {seed:#x} round {round}: {at} is outside {url_safe}").into());
+        };
         assert_eq!(
             decode(&url_safe),
             Err(DecodeError::NotInAlphabet { at, byte }),
@@ -478,12 +487,13 @@ fn sim_adversary_base64_truncation_is_caught_unless_it_lands_on_a_quantum() -> T
     sweep(256, |seed, round, attacker| {
         let (bytes, text) = draw_pair(attacker, 40);
         for cut in 0..text.len() {
-            let prefix = &text.as_bytes()[..cut];
+            let (prefix, _tail) = text.as_bytes().split_at(cut);
             if cut.is_multiple_of(4) {
                 let kept = cut.div_euclid(4).saturating_mul(3);
+                let (kept_bytes, _rest) = bytes.split_at(kept.min(bytes.len()));
                 assert_eq!(
                     decode(prefix),
-                    Ok(bytes[..kept].to_vec()),
+                    Ok(kept_bytes.to_vec()),
                     "seed {seed:#x} round {round}: cut at {cut}"
                 );
             } else {
@@ -649,7 +659,9 @@ fn sim_adversary_base64_a_far_offset_is_reported_exactly() -> TestResult {
     sweep(8, |seed, round, attacker| {
         let position = attacker.below(text.len());
         let mut hostile = text.clone().into_bytes();
-        hostile[position] = b'!';
+        if let Some(slot) = hostile.get_mut(position) {
+            *slot = b'!';
+        }
         assert_eq!(
             decode(&hostile),
             Err(DecodeError::NotInAlphabet {
@@ -692,7 +704,12 @@ fn sim_adversary_base64_a_reported_offset_never_leaves_the_input() -> TestResult
             Err(DecodeError::BadLength { len, at }) => len == hostile.len() && at == len,
             Err(DecodeError::MisplacedPadding { at }) => at <= hostile.len(),
             Ok(_) => true,
-            Err(_) => false,
+            Err(unlisted) => {
+                return Err(format!(
+                    "seed {seed:#x} round {round}: {hostile:02x?} was refused with an unlisted error: {unlisted}"
+                )
+                .into());
+            }
         };
         assert!(inside, "seed {seed:#x} round {round}: {hostile:02x?}");
         Ok(())

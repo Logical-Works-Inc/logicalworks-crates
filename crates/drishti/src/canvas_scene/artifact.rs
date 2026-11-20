@@ -203,7 +203,12 @@ impl Artifact {
     /// ```
     #[must_use]
     pub fn text(&self, view: View) -> &str {
-        &self.texts[view.index()]
+        let [source, proposal, evidence] = self.texts.each_ref();
+        match view {
+            View::Source => source,
+            View::Proposal => proposal,
+            View::Evidence => evidence,
+        }
     }
 
     /// Whether the lens was caller-supplied (false means absence text).
@@ -219,7 +224,12 @@ impl Artifact {
     /// ```
     #[must_use]
     pub fn supplied(&self, view: View) -> bool {
-        self.supplied[view.index()]
+        let [source, proposal, evidence] = self.supplied;
+        match view {
+            View::Source => source,
+            View::Proposal => proposal,
+            View::Evidence => evidence,
+        }
     }
 
     /// Total payload bytes: key plus all three lens texts.

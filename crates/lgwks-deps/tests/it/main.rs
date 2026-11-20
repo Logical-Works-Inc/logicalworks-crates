@@ -45,6 +45,8 @@ mod invariant_citations;
 // stops, which every Unix host has and Windows does not.
 #[cfg(unix)]
 mod ai_authoring;
+/// Every cfg arm held to the lint floor, including those this host never builds.
+mod cfg_arm_silencers;
 mod check_cli;
 mod contract_schema_compat;
 mod default_run;
@@ -115,4 +117,6 @@ mod sim_sqlite_first_open;
 mod sim_vendor_coverage;
 #[cfg(feature = "sqlite")]
 mod sqlite_defaults;
+/// No workflow step idles: a `sleep` in CI spends the run's 300 s wall on nothing.
+mod workflow_idle_sleeps;
 mod workstream_c;

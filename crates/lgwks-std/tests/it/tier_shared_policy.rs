@@ -32,7 +32,8 @@
 //! the tiers run inside a generated consumer package, whose stdout is returned
 //! as a value and asserted here, with the full report embedded in every failure
 //! message. A run whose stderr nobody reads is still fully checked, and the
-//! report travels with the assertion rather than beside it.
+//! report travels with the assertion rather than beside it. The consumer's
+//! source lives in the `probe` child module.
 //!
 //! # Tiers and the ceiling
 //!
@@ -47,10 +48,20 @@ use consumer_probe::{MISSING_MEASUREMENT, build_and_run, manifest, measurement};
 use lgwks_std::glob::{GlobDialect, GlobPattern, GlobScratch};
 use lgwks_std::retry::RetryPolicy;
 use lgwks_std::similarity::{CheckedEvidence, EditDistance, EvidenceVerdict};
+use std::error::Error;
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
+use crate::seeded_bytes::pick;
 use crate::seeded_sweep::{nanos_of, word_of};
+
+mod probe;
+
+use probe::SHARED_POLICY_TIER_PROBE;
+
+/// The monotonic clock a caller's duration is read from, handed in so the
+/// measured code owns no clock of its own.
+type Clock = fn() -> Instant;
 
 /// The attempts the shared retry policy is driven across, one per caller
 /// position modulo the window.
@@ -81,8 +92,23 @@ const STACK_BYTES: usize = 64 * 1024;
 /// value is not a trivial one.
 const SHARED_PATTERN: &str = "*a**/b[0-9]?";
 
+/// The four fixture paths against [`SHARED_PATTERN`]: one matching, one failing
+/// on the class, one failing on the anchor, and one failing on the double star's
+/// directory reach.
+const FIXTURE_PATHS: [&str; 4] = ["a/x/b7z", "a/x/bzz", "abz", "a/b7z/deeper"];
+
+/// The four fixture texts for the shared evidence policy: within budget,
+/// within budget and different, over budget, and empty. The policy is therefore
+/// observed measuring *and* refusing at every tier.
+const FIXTURE_TEXTS: [&str; 4] = [
+    "kitten",
+    "sitting",
+    "an input well past the sixteen character budget",
+    "",
+];
+
 /// The number of distinct fixtures each caller index cycles through.
-const FIXTURES: usize = 4;
+const FIXTURES: usize = FIXTURE_PATHS.len();
 
 /// The compile-time shareability assertion this crate makes about the shared
 /// values.
@@ -167,42 +193,17 @@ struct CallerAnswer {
     delay_nanos: u128,
 }
 
-/// The four fixture paths against [`SHARED_PATTERN`]: one matching, one failing
-/// on the class, one failing on the anchor, and one failing on the double star's
-/// directory reach.
-fn fixture_paths() -> Vec<String> {
-    vec![
-        "a/x/b7z".to_owned(),
-        "a/x/bzz".to_owned(),
-        "abz".to_owned(),
-        "a/b7z/deeper".to_owned(),
-    ]
-}
-
-/// The four fixture texts for the shared evidence policy: within budget,
-/// within budget and different, over budget, and empty. The policy is therefore
-/// observed measuring *and* refusing at every tier.
-fn fixture_texts() -> Vec<String> {
-    vec![
-        "kitten".to_owned(),
-        "sitting".to_owned(),
-        "an input well past the sixteen character budget".to_owned(),
-        String::new(),
-    ]
-}
-
 /// The evidence policy both tiers share: two text components at half weight
 /// each, and a threshold in the middle so accept and refuse both occur.
-fn shared_evidence() -> Option<CheckedEvidence<str>> {
-    CheckedEvidence::new(
+fn shared_evidence() -> Result<CheckedEvidence<str>, Box<dyn Error>> {
+    Ok(CheckedEvidence::new(
         vec![
             Box::new(EditDistance::new(16)),
             Box::new(EditDistance::new(16)),
         ],
         vec![0.5, 0.5],
         0.5,
-    )
-    .ok()
+    )?)
 }
 
 /// Computes one caller's answer against the three shared values, on whichever
@@ -215,8 +216,8 @@ fn answer(
     scratch: &mut GlobScratch,
     index: usize,
 ) -> CallerAnswer {
-    let path = &fixture_paths()[index % FIXTURES];
-    let text = &fixture_texts()[index % FIXTURES];
+    let path = pick(&FIXTURE_PATHS, index, "");
+    let text = pick(&FIXTURE_TEXTS, index, "");
     let verdict = evidence.verdict(text, text);
     // The first refusal's reason, the score's bits and acceptance are each a
     // reading of the verdict; an empty reason and zero bits are what an answer
@@ -245,10 +246,7 @@ fn answer(
         accepted,
         refusal,
         delay_nanos: retry
-            .delay(
-                ATTEMPT_WINDOW[index.rem_euclid(ATTEMPT_WINDOW.len())],
-                word_of(index),
-            )
+            .delay(pick(&ATTEMPT_WINDOW, index, 0), word_of(index))
             .as_nanos(),
     }
 }
@@ -268,14 +266,13 @@ struct Shared {
 }
 
 impl Shared {
-    /// Wraps the three values for sharing, or `None` when either the pattern or
-    /// the evidence policy cannot be constructed.
-    fn new() -> Option<Self> {
-        let pattern =
-            GlobPattern::compile_with_dialect(SHARED_PATTERN, GlobDialect::Legacy).ok()?;
+    /// Wraps the three values for sharing, or the refusal that stopped the
+    /// pattern or the evidence policy being constructed.
+    fn new() -> Result<Self, Box<dyn Error>> {
+        let pattern = GlobPattern::compile_with_dialect(SHARED_PATTERN, GlobDialect::Legacy)?;
         let evidence = shared_evidence()?;
         let retry = RetryPolicy::new(u32::MAX, Duration::from_millis(100), Duration::MAX);
-        Some(Self {
+        Ok(Self {
             pattern: RwLock::new(pattern),
             evidence: RwLock::new(evidence),
             retry: RwLock::new(retry),
@@ -287,11 +284,11 @@ impl Shared {
     /// Each guard is dropped at the end of its own statement, so no guard is
     /// held across another acquisition, and none is held across a call into the
     /// measured code.
-    fn observe(&self, scratch: &mut GlobScratch, index: usize) -> Observation {
+    fn observe(&self, clock: Clock, scratch: &mut GlobScratch, index: usize) -> Observation {
         let pattern = read(&self.pattern);
         let evidence = read(&self.evidence);
         let retry = read(&self.retry);
-        let start = Instant::now();
+        let start = clock();
         let value = answer(&pattern, &evidence, &retry, scratch, index);
         (value, nanos_of(start.elapsed()), scratch.scalar_capacity())
     }
@@ -316,7 +313,7 @@ fn read<T>(lock: &RwLock<T>) -> RwLockReadGuard<'_, T> {
 fn reference_answers(shared: &Shared, callers: usize) -> Vec<CallerAnswer> {
     let mut scratch = GlobScratch::new();
     (0..callers)
-        .map(|index| shared.observe(&mut scratch, index).0)
+        .map(|index| shared.observe(Instant::now, &mut scratch, index).0)
         .collect()
 }
 
@@ -350,7 +347,7 @@ fn run_tier(shared: &Arc<Shared>, tier: usize) -> (Vec<Observation>, Vec<String>
                 // Each caller owns its own scratch: the compiled pattern is the
                 // shared value, the mutable matching state is not.
                 let mut scratch = GlobScratch::new();
-                shared.observe(&mut scratch, index)
+                shared.observe(Instant::now, &mut scratch, index)
             }) {
             Ok(joined) => {
                 // A caller that panicked is a counted divergence, not a lost
@@ -398,87 +395,59 @@ fn percentiles(samples: &[u64]) -> (u64, u64, u64) {
             .div_ceil(100)
             .saturating_sub(1)
             .min(count.saturating_sub(1));
-        // The index is the nearest rank clamped to the last position, so it is a
-        // position this owns rather than an absent value.
-        sorted[index]
+        pick(&sorted, index, 0)
     };
     (rank(50), rank(95), rank(99))
 }
 
-#[test]
-fn one_shared_matcher_evidence_policy_and_retry_policy_serve_every_tier()
--> Result<(), Box<dyn std::error::Error>> {
-    // The bounds the whole file rests on, checked before anything is spawned.
-    assert_shared_across_threads();
-
-    // The same tiers inside a downstream consumer package, whose stdout is
-    // returned as a value rather than printed. Every number the issue asks for
-    // is read back out of it and asserted here.
-    let stdout = build_and_run(
-        &manifest("shared_policy_tiers_probe", &[]),
-        SHARED_POLICY_TIER_PROBE,
-    )?;
-    assert!(
-        !stdout.trim().is_empty(),
-        "the downstream tier probe reported nothing:\n{stdout}"
-    );
-    for tier in TIERS {
-        assert_eq!(
-            measurement(&stdout, &format!("tier{tier}-divergences")),
-            0,
-            "tier {tier}: the downstream run must diverge nowhere:\n{stdout}"
-        );
-        // The report is a word and the tier is an index; the one conversion
-        // between them is propagated, never replaced by a substituted value.
-        let reached = measurement(&stdout, &format!("tier{tier}-reached"));
-        let requested = u64::try_from(tier)?;
-        assert_eq!(
-            reached, requested,
-            "tier {tier}: the host must reach every requested caller:\n{stdout}"
-        );
-        let mut previous = 0_u64;
-        for field in ["p50", "p95", "p99"] {
-            let reported = measurement(&stdout, &format!("tier{tier}-{field}"));
-            assert!(
-                reported >= previous,
-                "tier {tier}: {field} must not be below the previous percentile:\n{stdout}"
-            );
-            previous = reported;
-        }
-        // The two figures are separate on purpose: the bound that matters is
-        // "memory does not scale with the caller count", and that is asserted
-        // below against the in-process baseline and the peak.
-        let baseline = measurement(&stdout, "baseline-rss");
-        let peak = measurement(&stdout, &format!("tier{tier}-rss"));
-        assert!(
-            baseline > 0
-                && baseline < MISSING_MEASUREMENT
-                && peak > 0
-                && peak < MISSING_MEASUREMENT,
-            "tier {tier}: the probe must report a readable resident-size figure, \
-             got baseline={baseline} peak={peak}:\n{stdout}"
-        );
-        assert!(
-            peak <= baseline.saturating_mul(4).saturating_add(512 * 1024 * 1024),
-            "tier {tier}: peak resident size {peak} B exceeded four times the \
-             {baseline} B baseline plus 512 MiB; memory must not scale with \
-             the caller count:\n{stdout}"
-        );
-    }
+/// Asserts what the downstream probe reported for one tier: no divergence,
+/// every requested caller reached, ordered percentiles and a bounded resident
+/// size.
+fn assert_downstream_tier(stdout: &str, tier: usize) -> Result<(), Box<dyn Error>> {
     assert_eq!(
-        measurement(&stdout, "after-drain-divergences"),
+        measurement(stdout, &format!("tier{tier}-divergences")),
         0,
-        "saturation must leave no residue in the shared values:\n{stdout}"
+        "tier {tier}: the downstream run must diverge nowhere:\n{stdout}"
     );
+    // The report is a word and the tier is an index; the one conversion
+    // between them is propagated, never replaced by a substituted value.
+    let reached = measurement(stdout, &format!("tier{tier}-reached"));
+    let requested = u64::try_from(tier)?;
+    assert_eq!(
+        reached, requested,
+        "tier {tier}: the host must reach every requested caller:\n{stdout}"
+    );
+    let mut previous = 0_u64;
+    for field in ["p50", "p95", "p99"] {
+        let reported = measurement(stdout, &format!("tier{tier}-{field}"));
+        assert!(
+            reported >= previous,
+            "tier {tier}: {field} must not be below the previous percentile:\n{stdout}"
+        );
+        previous = reported;
+    }
+    // The two figures are separate on purpose: the bound that matters is
+    // "memory does not scale with the caller count", and that is asserted
+    // below against the in-process baseline and the peak.
+    let baseline = measurement(stdout, "baseline-rss");
+    let peak = measurement(stdout, &format!("tier{tier}-rss"));
+    assert!(
+        baseline > 0 && baseline < MISSING_MEASUREMENT && peak > 0 && peak < MISSING_MEASUREMENT,
+        "tier {tier}: the probe must report a readable resident-size figure, \
+         got baseline={baseline} peak={peak}:\n{stdout}"
+    );
+    assert!(
+        peak <= baseline.saturating_mul(4).saturating_add(512 * 1024 * 1024),
+        "tier {tier}: peak resident size {peak} B exceeded four times the \
+         {baseline} B baseline plus 512 MiB; memory must not scale with \
+         the caller count:\n{stdout}"
+    );
+    Ok(())
+}
 
-    let Some(shared) = Shared::new() else {
-        return Ok(());
-    };
-    let shared = Arc::new(shared);
-    let reference = reference_answers(&shared, TIERS[2]);
-
-    // The reference must itself exercise every state, or a tier that diverges
-    // nowhere would be proving nothing.
+/// Asserts the reference exercises every state, or a tier that diverges nowhere
+/// would be proving nothing.
+fn assert_reference_exercises_every_state(reference: &[CallerAnswer]) {
     assert!(
         reference.iter().any(|answer| answer.matched),
         "the fixtures must include a matching path"
@@ -495,11 +464,14 @@ fn one_shared_matcher_evidence_policy_and_retry_policy_serve_every_tier()
         reference.iter().any(|answer| answer.refusal.is_empty()),
         "the fixtures must include a within-budget text, so the shared policy is observed measuring"
     );
+}
 
-    let baseline_rss = peak_rss_bytes();
+/// Runs every tier against the shared values and compares each caller with the
+/// reference.
+fn run_every_tier(shared: &Arc<Shared>, reference: &[CallerAnswer]) -> Vec<TierOutcome> {
     let mut outcomes: Vec<TierOutcome> = Vec::with_capacity(TIERS.len());
     for tier in TIERS {
-        let (observations, failures) = run_tier(&shared, tier);
+        let (observations, failures) = run_tier(shared, tier);
         let answers: Vec<CallerAnswer> = observations.iter().map(|value| value.0.clone()).collect();
         let divergences: Vec<usize> = answers
             .iter()
@@ -528,8 +500,12 @@ fn one_shared_matcher_evidence_policy_and_retry_policy_serve_every_tier()
             "tier {tier}: scratch capacity must be the caller's own path length, got {distinct:?}"
         );
     }
+    outcomes
+}
 
-    for outcome in &outcomes {
+/// Asserts every tier ran, diverged nowhere and reported ordered percentiles.
+fn assert_outcomes_clean(outcomes: &[TierOutcome]) {
+    for outcome in outcomes {
         assert!(
             outcome.reached > 0,
             "tier {}: no caller ran; refusals were {:?}",
@@ -550,12 +526,14 @@ fn one_shared_matcher_evidence_policy_and_retry_policy_serve_every_tier()
             outcome.percentiles
         );
     }
+}
 
-    // Memory is bounded by what each caller's scratch holds, not by the caller
-    // count: a hundred thousand times the callers must not cost a hundred
-    // thousand times the memory.
+/// Memory is bounded by what each caller's scratch holds, not by the caller
+/// count: a hundred thousand times the callers must not cost a hundred
+/// thousand times the memory.
+fn assert_memory_bounded(baseline_rss: Option<u64>, outcomes: &[TierOutcome]) {
     if let Some(baseline) = baseline_rss {
-        for outcome in &outcomes {
+        for outcome in outcomes {
             if let Some(peak) = outcome.peak_rss {
                 let allowance = baseline.saturating_mul(4).saturating_add(512 * 1024 * 1024);
                 assert!(
@@ -566,23 +544,62 @@ fn one_shared_matcher_evidence_policy_and_retry_policy_serve_every_tier()
             }
         }
     }
+}
 
-    // The drain check: after every tier has joined, one more call on the same
-    // shared values must still equal the reference, so saturation left no
-    // residue in the pattern, the policy or the retry value.
+/// The drain check: after every tier has joined, one more call on the same
+/// shared values must still equal the reference, so saturation left no residue
+/// in the pattern, the policy or the retry value.
+fn assert_drained(shared: &Shared, reference: &[CallerAnswer]) {
     let mut scratch = GlobScratch::new();
     for (index, expected) in reference.iter().enumerate() {
         assert_eq!(
-            shared.observe(&mut scratch, index).0,
+            shared.observe(Instant::now, &mut scratch, index).0,
             *expected,
             "after saturation, caller {index} must still see the reference answer"
         );
     }
+}
+
+#[test]
+fn one_shared_matcher_evidence_policy_and_retry_policy_serve_every_tier()
+-> Result<(), Box<dyn Error>> {
+    // The bounds the whole file rests on, checked before anything is spawned.
+    assert_shared_across_threads();
+
+    // The same tiers inside a downstream consumer package, whose stdout is
+    // returned as a value rather than printed. Every number the issue asks for
+    // is read back out of it and asserted here.
+    let stdout = build_and_run(
+        &manifest("shared_policy_tiers_probe", &[]),
+        SHARED_POLICY_TIER_PROBE,
+    )?;
+    assert!(
+        !stdout.trim().is_empty(),
+        "the downstream tier probe reported nothing:\n{stdout}"
+    );
+    for tier in TIERS {
+        assert_downstream_tier(&stdout, tier)?;
+    }
+    assert_eq!(
+        measurement(&stdout, "after-drain-divergences"),
+        0,
+        "saturation must leave no residue in the shared values:\n{stdout}"
+    );
+
+    let shared = Arc::new(Shared::new()?);
+    let reference = reference_answers(&shared, TIERS[2]);
+    assert_reference_exercises_every_state(&reference);
+
+    let baseline_rss = peak_rss_bytes();
+    let outcomes = run_every_tier(&shared, &reference);
+    assert_outcomes_clean(&outcomes);
+    assert_memory_bounded(baseline_rss, &outcomes);
+    assert_drained(&shared, &reference);
     Ok(())
 }
 
 #[test]
-fn the_shared_values_are_reachable_through_an_arc_clone() {
+fn the_shared_values_are_reachable_through_an_arc_clone() -> Result<(), Box<dyn Error>> {
     // The independent check on the claim the tiers rest on. `Arc<T>` is only
     // constructible for a `Send + Sync` type, so naming each shared value here
     // is a compile-time assertion that does not go through `RwLock`, and so
@@ -591,14 +608,11 @@ fn the_shared_values_are_reachable_through_an_arc_clone() {
         Arc::new(value)
     }
 
-    let Ok(pattern) = GlobPattern::compile_with_dialect(SHARED_PATTERN, GlobDialect::Legacy) else {
-        return;
-    };
-    let Some(evidence) = shared_evidence() else {
-        return;
-    };
-    let pattern = shared(pattern);
-    let evidence = shared(evidence);
+    let pattern = shared(GlobPattern::compile_with_dialect(
+        SHARED_PATTERN,
+        GlobDialect::Legacy,
+    )?);
+    let evidence = shared(shared_evidence()?);
     let retry = shared(RetryPolicy::new(1, Duration::ZERO, Duration::ZERO));
 
     assert_eq!(
@@ -616,279 +630,5 @@ fn the_shared_values_are_reachable_through_an_arc_clone() {
         1,
         "the shared retry policy starts owned by exactly one reference"
     );
+    Ok(())
 }
-
-/// The downstream consumer that runs the tiers and prints their report.
-///
-/// It is a generated package rather than this test binary for one reason: the
-/// workspace forbids printing from a test, and the per-tier p50/p95/p99 and peak
-/// RSS *are* the deliverable of #154's reviewer note. Running them in a
-/// consumer whose stdout is returned as a value keeps the report attached to
-/// the assertion that checks it.
-///
-/// The tiers, the fixtures and the comparison against the single-threaded
-/// reference are deliberately the same code as above, so a downstream run and
-/// an in-process run are two observations of one contract rather than two
-/// contracts.
-const SHARED_POLICY_TIER_PROBE: &str = r##"
-use lgwks_std::glob::{GlobDialect, GlobPattern, GlobScratch};
-use lgwks_std::retry::RetryPolicy;
-use lgwks_std::similarity::{CheckedEvidence, EditDistance};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
-
-const TIERS: [usize; 3] = [100, 1_000, 10_000];
-const STACK_BYTES: usize = 64 * 1024;
-const SHARED_PATTERN: &str = "*a**/b[0-9]?";
-const FIXTURES: usize = 4;
-
-/// The attempts the shared retry policy is driven across, one per caller
-/// position modulo the window: a caller's attempt is a value this names rather
-/// than a narrowing of its position.
-const ATTEMPT_WINDOW: [u32; 40] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-    20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
-];
-
-/// The caller's position read as the word a policy takes entropy in, mixed a
-/// byte at a time so no bit of the position is dropped.
-fn word_of(value: usize) -> u64 {
-    let mut word = 0_u64;
-    for byte in value.to_ne_bytes() {
-        word = word
-            .wrapping_mul(31)
-            .wrapping_add(u64::from(byte));
-    }
-    word
-}
-
-/// An elapsed duration in nanoseconds, read as seconds plus sub-second
-/// nanoseconds so no narrowing of a `u128` nanosecond count is needed.
-fn nanos_of(elapsed: std::time::Duration) -> u64 {
-    elapsed
-        .as_secs()
-        .saturating_mul(1_000_000_000_u64)
-        .saturating_add(u64::from(elapsed.subsec_nanos()))
-}
-
-fn peak_rss_bytes() -> Option<u64> {
-    if let Ok(statm) = std::fs::read_to_string("/proc/self/statm")
-        && let Some(pages) = statm.split_whitespace().nth(1)
-        && let Ok(pages) = pages.parse::<u64>()
-        && let Some(bytes) = pages.checked_mul(4096)
-    {
-        return Some(bytes);
-    }
-    let pid = std::process::id().to_string();
-    let output = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    String::from_utf8(output.stdout).ok()?.split_whitespace().next()?.parse::<u64>().ok()?.checked_mul(1024)
-}
-
-fn fixture_paths() -> Vec<String> {
-    vec![
-        "a/x/b7z".to_owned(),
-        "a/x/bzz".to_owned(),
-        "abz".to_owned(),
-        "a/b7z/deeper".to_owned(),
-    ]
-}
-
-fn fixture_texts() -> Vec<String> {
-    vec![
-        "kitten".to_owned(),
-        "sitting".to_owned(),
-        "an input well past the sixteen character budget".to_owned(),
-        String::new(),
-    ]
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct CallerAnswer {
-    matched: bool,
-    score_bits: u64,
-    accepted: bool,
-    refusal: String,
-    delay_nanos: u128,
-}
-
-fn answer(
-    pattern: &GlobPattern,
-    evidence: &CheckedEvidence<str>,
-    retry: &RetryPolicy,
-    scratch: &mut GlobScratch,
-    index: usize,
-) -> CallerAnswer {
-    let path = &fixture_paths()[index % FIXTURES];
-    let text = &fixture_texts()[index % FIXTURES];
-    let verdict = evidence.verdict(text, text);
-    let refusal = match verdict.as_ref() {
-        Ok(inner) => inner.refusals().first().map_or_else(String::new, |outcome| {
-            outcome.reason().map_or_else(String::new, ToString::to_string)
-        }),
-        Err(reason) => reason.to_string(),
-    };
-    CallerAnswer {
-        matched: pattern.is_match_with(path, scratch),
-        score_bits: verdict.as_ref().ok().and_then(|inner| inner.score()).map_or(0, f64::to_bits),
-        accepted: verdict.as_ref().is_ok_and(|inner| inner.is_accepted()),
-        refusal,
-        delay_nanos: retry
-            .delay(
-                ATTEMPT_WINDOW[index.rem_euclid(ATTEMPT_WINDOW.len())],
-                word_of(index),
-            )
-            .as_nanos(),
-    }
-}
-
-struct Shared {
-    pattern: RwLock<GlobPattern>,
-    evidence: RwLock<CheckedEvidence<str>>,
-    retry: RwLock<RetryPolicy>,
-}
-
-fn read<T>(lock: &RwLock<T>) -> std::sync::RwLockReadGuard<'_, T> {
-    match lock.read() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-fn percentiles(samples: &[u64]) -> (u64, u64, u64) {
-    if samples.is_empty() {
-        return (0, 0, 0);
-    }
-    let mut sorted = samples.to_vec();
-    sorted.sort_unstable();
-    let count = sorted.len();
-    let rank = |percent: usize| -> u64 {
-        let index = percent
-            .saturating_mul(count)
-            .div_ceil(100)
-            .saturating_sub(1)
-            .min(count.saturating_sub(1));
-        // The index is the nearest rank clamped to the last position, so it is a
-        // position this owns rather than an absent value.
-        sorted[index]
-    };
-    (rank(50), rank(95), rank(99))
-}
-
-fn main() {
-    let Ok(pattern) = GlobPattern::compile_with_dialect(SHARED_PATTERN, GlobDialect::Legacy) else {
-        println!("compile-failed 1");
-        return;
-    };
-    let Ok(evidence) = CheckedEvidence::new(
-        vec![Box::new(EditDistance::new(16)), Box::new(EditDistance::new(16))],
-        vec![0.5, 0.5],
-        0.5,
-    ) else {
-        println!("evidence-failed 1");
-        return;
-    };
-    let retry = RetryPolicy::new(u32::MAX, Duration::from_millis(100), Duration::MAX);
-    let shared = Arc::new(Shared {
-        pattern: RwLock::new(pattern),
-        evidence: RwLock::new(evidence),
-        retry: RwLock::new(retry),
-    });
-
-    let mut reference = Vec::with_capacity(TIERS[2]);
-    {
-        let mut scratch = GlobScratch::new();
-        for index in 0..TIERS[2] {
-            let pattern = read(&shared.pattern);
-            let evidence = read(&shared.evidence);
-            let retry = read(&shared.retry);
-            reference.push(answer(&pattern, &evidence, &retry, &mut scratch, index));
-        }
-    }
-
-    // A resident-size figure the platform cannot report is not printed at all:
-    // the caller reads a missing measurement as absent and refuses the tier,
-    // which is what an unread figure means.
-    if let Some(baseline) = peak_rss_bytes() {
-        println!("baseline-rss {baseline}");
-    }
-
-    for tier in TIERS {
-        let mut answers: Vec<CallerAnswer> = Vec::with_capacity(tier);
-        let mut durations: Vec<u64> = Vec::with_capacity(tier);
-        let mut reached = 0usize;
-        for index in 0..tier {
-            let owned = Arc::clone(&shared);
-            let built = std::thread::Builder::new()
-                .name(format!("tier-{index}"))
-                .stack_size(STACK_BYTES)
-                .spawn(move || {
-                    let mut scratch = GlobScratch::new();
-                    let pattern = read(&owned.pattern);
-                    let evidence = read(&owned.evidence);
-                    let retry = read(&owned.retry);
-                    let start = Instant::now();
-                    let value = answer(&pattern, &evidence, &retry, &mut scratch, index);
-                    (value, nanos_of(start.elapsed()))
-                });
-            match built {
-                Ok(joined) => {
-                    let (value, nanos) = match joined.join() {
-                        Ok(observed) => observed,
-                        Err(_) => (
-                            CallerAnswer {
-                                matched: false,
-                                score_bits: 0,
-                                accepted: false,
-                                refusal: String::from("caller panicked"),
-                                delay_nanos: 0,
-                            },
-                            0,
-                        ),
-                    };
-                    answers.push(value);
-                    durations.push(nanos);
-                    reached += 1;
-                }
-                Err(error) => println!("tier{tier}-spawn-refusal {index} {}", error.kind() as i32 as u64),
-            }
-        }
-        let divergences = answers
-            .iter()
-            .zip(reference.iter())
-            .filter(|(answer, expected)| *answer != *expected)
-            .count();
-        let (p50, p95, p99) = percentiles(&durations);
-        let rss = peak_rss_bytes();
-        println!("tier{tier}-reached {reached}");
-        println!("tier{tier}-divergences {divergences}");
-        println!("tier{tier}-p50 {p50}");
-        println!("tier{tier}-p95 {p95}");
-        println!("tier{tier}-p99 {p99}");
-        if let Some(rss) = rss {
-            println!("tier{tier}-rss {rss}");
-        }
-    }
-
-    // The drain check: after every tier has joined, one more call on the same
-    // shared values must still equal the reference.
-    let mut after_drain = 0usize;
-    {
-        let mut scratch = GlobScratch::new();
-        for (index, expected) in reference.iter().enumerate() {
-            let pattern = read(&shared.pattern);
-            let evidence = read(&shared.evidence);
-            let retry = read(&shared.retry);
-            if answer(&pattern, &evidence, &retry, &mut scratch, index) != *expected {
-                after_drain += 1;
-            }
-        }
-    }
-    println!("after-drain-divergences {after_drain}");
-}
-"##;

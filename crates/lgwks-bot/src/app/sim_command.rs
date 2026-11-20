@@ -8,6 +8,7 @@
 //! every permit comes back, no tenant sees another's asker. The fools that need a
 //! full queue or a closing host are in `sim_command_faults`.
 
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::sync_channel;
@@ -46,38 +47,51 @@ pub(super) struct Gate {
 impl Gate {
     /// Arrive, and wait for the way to open.
     pub(super) fn hold(&self) {
-        let Ok(mut state) = self.state.lock() else {
-            return;
+        let mut state = match self.state.lock() {
+            Ok(held) => held,
+            Err(cause) => {
+                lgwks_std::trace::debug!(
+                    reason = broke(&cause),
+                    "a gate holder found the gate broken"
+                );
+                return;
+            }
         };
         state.0 = state.0.saturating_add(1);
         self.bell.notify_all();
         while !state.1 {
             state = match self.bell.wait(state) {
                 Ok(woke) => woke,
-                Err(_) => return,
+                Err(cause) => {
+                    lgwks_std::trace::debug!(
+                        reason = broke(&cause),
+                        "a gate holder lost the gate while waiting"
+                    );
+                    return;
+                }
             };
         }
     }
 
     /// Wait until `count` have arrived.
     pub(super) fn arrived(&self, count: u64) -> Outcome {
-        let mut state = self.state.lock().map_err(broke)?;
+        let mut state = self.state.lock().map_err(|cause| broke(&cause))?;
         while state.0 < count {
-            state = self.bell.wait(state).map_err(broke)?;
+            state = self.bell.wait(state).map_err(|cause| broke(&cause))?;
         }
         Ok(())
     }
 
     /// Let everyone through, now and later.
     pub(super) fn open(&self) -> Outcome {
-        self.state.lock().map_err(broke)?.1 = true;
+        self.state.lock().map_err(|cause| broke(&cause))?.1 = true;
         self.bell.notify_all();
         Ok(())
     }
 }
 
 /// A gate's lock poisoned by a panic, with what the lock said.
-fn broke<T>(cause: std::sync::PoisonError<T>) -> String {
+fn broke<T>(cause: &std::sync::PoisonError<T>) -> String {
     format!("the gate broke: {cause}")
 }
 
@@ -282,8 +296,9 @@ fn sim_command_double_clicker_two_commands_hold_once_and_both_fold() -> Outcome 
                 // The check at start probes this handler with an empty answer.
                 if let EffectResult::Value(ref bytes) = *input.result()
                     && !bytes.is_empty()
+                    && let Err(error) = sent.try_send(bytes.to_vec())
                 {
-                    drop(sent.try_send(bytes.to_vec()));
+                    lgwks_std::trace::debug!(%error, "the test's receiver is gone or full");
                 }
                 vec![Effect::reply(418, b"too late to answer".to_vec())]
             },
@@ -421,7 +436,10 @@ fn sim_command_giant_and_empty_a_command_is_whole_or_not_run() -> Outcome {
         200,
         "an empty command runs"
     );
-    let held = lengths.lock().map_err(|_| "the list broke")?.clone();
+    let held = lengths
+        .lock()
+        .map_err(|cause| format!("the list broke: {cause}"))?
+        .clone();
     assert_eq!(
         held,
         vec![1, MAX_MESSAGE_BYTES, 0],

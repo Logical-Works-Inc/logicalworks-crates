@@ -309,6 +309,8 @@ impl Broker {
             BrokerError::RateLimited
         })?;
         let envelope = stamp_intent(&partial, &registration, now_ms, &signal_id);
+        // The intent is spent once stamped: the envelope owns its payload.
+        drop(partial);
         let throttled = {
             let slot = state
                 .intent_limited_counts

@@ -14,21 +14,21 @@ use drishti::native_host::protocol::{
 use lgwks_std::id::Uuid;
 
 /// Fixed work-object identity: the scope check binds artifact keys to it.
-pub const WORK_OBJECT: &str = "11111111-1111-1111-1111-111111111111";
+pub(crate) const WORK_OBJECT: &str = "11111111-1111-1111-1111-111111111111";
 /// Fixed session identity fixture.
-pub const SESSION_ID: &str = "22222222-2222-2222-2222-222222222222";
+pub(crate) const SESSION_ID: &str = "22222222-2222-2222-2222-222222222222";
 /// Fixed policy bundle fixture.
-pub const POLICY_BUNDLE: &str = "33333333-3333-3333-3333-333333333333";
+pub(crate) const POLICY_BUNDLE: &str = "33333333-3333-3333-3333-333333333333";
 /// Fixed user subject fixture.
-pub const USER_SUB: &str = "44444444-4444-4444-4444-444444444444";
+pub(crate) const USER_SUB: &str = "44444444-4444-4444-4444-444444444444";
 
 /// Session fixture for one tenant in the fixed session.
-pub fn session(tenant: &str) -> Result<SessionInvariant, String> {
+pub(crate) fn session(tenant: &str) -> Result<SessionInvariant, String> {
     session_in(tenant, SESSION_ID)
 }
 
 /// Session fixture for one tenant in one session.
-pub fn session_in(tenant: &str, session_id: &str) -> Result<SessionInvariant, String> {
+pub(crate) fn session_in(tenant: &str, session_id: &str) -> Result<SessionInvariant, String> {
     SessionInvariant::new(
         String::from(WORK_OBJECT),
         String::from(session_id),
@@ -40,10 +40,10 @@ pub fn session_in(tenant: &str, session_id: &str) -> Result<SessionInvariant, St
 }
 
 /// Fixed tenant of the single-tenant governance fixtures.
-pub const TENANT: &str = "tenant-fixture";
+pub(crate) const TENANT: &str = "tenant-fixture";
 
 /// Governance entry fixture in the fixed tenant.
-pub fn governance_entry(
+pub(crate) fn governance_entry(
     signal_id: &str,
     session_id: &str,
     kind: &str,
@@ -55,7 +55,7 @@ pub fn governance_entry(
 /// Governance entry fixture for one tenant: fixed work object, widget
 /// attribution, and description. The store keys on the signal id, so the
 /// entry id only needs to be stable for one signal.
-pub fn governance_entry_in(
+pub(crate) fn governance_entry_in(
     tenant: &str,
     signal_id: &str,
     session_id: &str,
@@ -82,7 +82,7 @@ pub fn governance_entry_in(
 }
 
 /// Widget descriptor fixture with empty signal patterns.
-pub fn widget_descriptor(
+pub(crate) fn widget_descriptor(
     widget_id: &str,
     kind: &str,
     capabilities: Vec<Capability>,
@@ -100,7 +100,7 @@ pub fn widget_descriptor(
 
 /// All 25 non-instant named easing curves in declaration order, shared by the
 /// easing-correctness and float-tolerance suites so both enumerate the same set.
-pub fn all_named_curves() -> Vec<NamedCurve> {
+pub(crate) fn all_named_curves() -> Vec<NamedCurve> {
     vec![
         NamedCurve::Linear,
         NamedCurve::QuadIn,
@@ -131,24 +131,24 @@ pub fn all_named_curves() -> Vec<NamedCurve> {
 }
 
 /// Endpoint tolerance shared by the easing-correctness and float-tolerance suites.
-pub const EASING_TOLERANCE: f32 = 1e-5;
+pub(crate) const EASING_TOLERANCE: f32 = 1e-5;
 
 /// Turn a failed condition into the test's error. The message closure runs
 /// only on failure, so a passing check formats nothing; every suite uses this
 /// instead of a bare early `Err` return so each failure leaves one shape.
-pub fn ensure(cond: bool, msg: impl FnOnce() -> String) -> Result<(), String> {
+pub(crate) fn ensure(cond: bool, msg: impl FnOnce() -> String) -> Result<(), String> {
     cond.then_some(()).ok_or_else(msg)
 }
 
 /// Require bit-identical `f32` values, naming the probe on mismatch.
-pub fn require_same_bits(actual: f32, expected: f32, what: &str) -> Result<(), String> {
+pub(crate) fn require_same_bits(actual: f32, expected: f32, what: &str) -> Result<(), String> {
     ensure(actual.to_bits() == expected.to_bits(), || {
         format!("{what}: got {actual}, want {expected}")
     })
 }
 
 /// Build a one-tween graph over a caller-chosen node id, handle, and duration.
-pub fn tween_graph(
+pub(crate) fn tween_graph(
     node_id: Uuid,
     handle: &str,
     duration_ms: f32,

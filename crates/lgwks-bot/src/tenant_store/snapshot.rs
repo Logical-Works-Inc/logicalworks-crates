@@ -8,8 +8,6 @@
 //! behind it.
 
 use std::collections::BTreeMap;
-use std::fs::OpenOptions;
-use std::io::Read;
 use std::path::Path;
 
 use lgwks_std::json::{Deserialize, Serialize};
@@ -70,8 +68,8 @@ struct SnapshotFile {
 /// device that cannot be read cannot be replayed either.
 pub(super) fn read(dir: &Path) -> Result<Option<Snapshot>, TenantStoreError> {
     let path = dir.join(SNAPSHOT_FILE);
-    let mut file = match OpenOptions::new().read(true).open(&path) {
-        Ok(file) => file,
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(cause) => {
             lgwks_std::trace::warn!(
@@ -82,15 +80,6 @@ pub(super) fn read(dir: &Path) -> Result<Option<Snapshot>, TenantStoreError> {
             return Err(TenantStoreError::storage(cause));
         }
     };
-    let mut bytes = Vec::new();
-    if let Err(cause) = file.read_to_end(&mut bytes) {
-        lgwks_std::trace::warn!(
-            path = %path.display(),
-            %cause,
-            "tenant_store: snapshot unreadable; falling back to the full replay"
-        );
-        return Err(TenantStoreError::storage(cause));
-    }
     let stored: SnapshotFile = match crate::json::from_slice(&bytes) {
         Ok(stored) => stored,
         Err(error) => {

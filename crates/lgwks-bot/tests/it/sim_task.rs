@@ -224,15 +224,35 @@ impl Ctx {
 /// The input every level passes on: a value and how many levels are left.
 type Step = (u32, u32);
 
+/// One level of the tree: a task named `$name` that descends from `$depth`,
+/// capturing the level below it (`$inner`) and the leaf.
+///
+/// A macro rather than a function because every level is its own closure type
+/// and a function would have to name the one it returns.
+macro_rules! level {
+    ($name:literal, $depth:literal, $base:ident, $inner:ident, $leaf:ident) => {{
+        let (ctx, inner, leaf) = ($base.clone(), Rc::clone(&$inner), Rc::clone(&$leaf));
+        Rc::new(task($name, move |_scope: Scope, step: Step| {
+            descend(
+                ctx.clone(),
+                $depth,
+                Rc::clone(&inner),
+                Rc::clone(&leaf),
+                step,
+            )
+        })?)
+    }};
+}
+
 /// Build the leaf and the four levels above it.
-fn build(host: &Host, plan: &Plan, observed: Rc<Observed>) -> Result<Tree, Box<dyn Error>> {
+fn build(host: &Host, plan: &Plan, observed: &Rc<Observed>) -> Result<Tree, Box<dyn Error>> {
     let fan_out = plan.fan_out;
     let mut levels = Vec::new();
 
     // The leaf: an `each` over `fan_out` items, the width of the tree. It sums
     // into a scalar, so the chain's value is one number rather than a vector per
     // level.
-    let leaf_observed = Rc::clone(&observed);
+    let leaf_observed = Rc::clone(observed);
     let leaf: Shared<_> = Rc::new(task("leaf", move |scope: Scope, step: Step| {
         let items: Vec<u32> = (0..fan_out)
             .map(|index| step.0.wrapping_add(index))
@@ -278,54 +298,12 @@ fn build(host: &Host, plan: &Plan, observed: Rc<Observed>) -> Result<Tree, Box<d
     let base = Ctx {
         host: host.clone(),
         plan: plan.clone(),
-        observed: Rc::clone(&observed),
+        observed: Rc::clone(observed),
     };
-    let leaf_for_1 = Rc::clone(&leaf);
-    let leaf_for_2 = Rc::clone(&leaf);
-    let leaf_for_3 = Rc::clone(&leaf);
-    let leaf_for_4 = Rc::clone(&leaf);
-    let level_1 = Rc::new({
-        let (ctx, leaf) = (base.clone(), Rc::clone(&leaf_for_1));
-        task("level-1", move |_scope: Scope, step: Step| {
-            descend(ctx.clone(), 1, Rc::clone(&leaf), Rc::clone(&leaf), step)
-        })?
-    });
-    let level_2 = Rc::new({
-        let (ctx, inner) = (base.clone(), Rc::clone(&level_1));
-        task("level-2", move |_scope: Scope, step: Step| {
-            descend(
-                ctx.clone(),
-                2,
-                Rc::clone(&inner),
-                Rc::clone(&leaf_for_2),
-                step,
-            )
-        })?
-    });
-    let level_3 = Rc::new({
-        let (ctx, inner) = (base.clone(), Rc::clone(&level_2));
-        task("level-3", move |_scope: Scope, step: Step| {
-            descend(
-                ctx.clone(),
-                3,
-                Rc::clone(&inner),
-                Rc::clone(&leaf_for_3),
-                step,
-            )
-        })?
-    });
-    let level_4 = Rc::new({
-        let (ctx, inner) = (base, Rc::clone(&level_3));
-        task("level-4", move |_scope: Scope, step: Step| {
-            descend(
-                ctx.clone(),
-                4,
-                Rc::clone(&inner),
-                Rc::clone(&leaf_for_4),
-                step,
-            )
-        })?
-    });
+    let level_1 = level!("level-1", 1, base, leaf, leaf);
+    let level_2 = level!("level-2", 2, base, level_1, leaf);
+    let level_3 = level!("level-3", 3, base, level_2, leaf);
+    let level_4 = level!("level-4", 4, base, level_3, leaf);
     levels.extend([
         "level-1".to_owned(),
         "level-2".to_owned(),
@@ -457,7 +435,7 @@ fn permits_conserve(band: Band) -> TestResult {
             .clock(virtual_clock())
             .build()?;
         let observed = Rc::new(Observed::default());
-        let tree = build(&host, &plan, Rc::clone(&observed))?;
+        let tree = build(&host, &plan, &observed)?;
 
         let report = run(&host, &tree, 7);
         assert_eq!(
@@ -512,7 +490,7 @@ fn disposition_matches_the_fault(band: Band) -> TestResult {
             .clock(virtual_clock())
             .build()?;
         let observed = Rc::new(Observed::default());
-        let tree = build(&host, &plan, Rc::clone(&observed))?;
+        let tree = build(&host, &plan, &observed)?;
 
         let report = run(&host, &tree, 11);
         // The disposition the report must carry is decided by the first event the tree
@@ -621,7 +599,7 @@ fn provision_and_observe(plan: &Plan, index: u32) -> Result<Vec<(String, String)
         .clock(virtual_clock())
         .build()?;
     let observed = Rc::new(Observed::default());
-    let tree = build(&host, plan, Rc::clone(&observed))?;
+    let tree = build(&host, plan, &observed)?;
     run(&host, &tree, 3);
     for seen in observed.tenants.borrow().iter() {
         assert_eq!(
@@ -667,7 +645,7 @@ fn keys_never_collide_across_tenants(band: Band) -> TestResult {
             .clock(virtual_clock())
             .build()?;
         let again = Rc::new(Observed::default());
-        let tree = build(&host, &plan, Rc::clone(&again))?;
+        let tree = build(&host, &plan, &again)?;
         run(&host, &tree, 3);
         assert_eq!(
             all.first().map(Vec::len),
@@ -722,7 +700,7 @@ fn ceiling_binds_the_peak(band: Band) -> TestResult {
         if matches!(measured.fault, Fault::Overrun) {
             measured.fault = Fault::Permanent;
         }
-        let tree = build(&host, &measured, Rc::clone(&observed))?;
+        let tree = build(&host, &measured, &observed)?;
         let reports = (0..runs)
             .map(|index| Ok((tree.run)(&host, u32::try_from(index)?)))
             .collect::<Result<Vec<Report<u32>>, std::num::TryFromIntError>>()?;
@@ -769,7 +747,7 @@ fn the_same_seed_replays(band: Band) -> TestResult {
             .clock(virtual_clock())
             .build()?;
         let observed = Rc::new(Observed::default());
-        let tree = build(&host, &plan, Rc::clone(&observed))?;
+        let tree = build(&host, &plan, &observed)?;
         let report = run(&host, &tree, 5);
 
         sim.record(&format!(

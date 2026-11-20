@@ -108,7 +108,11 @@ fn deps_are_approved_leaves() -> TestResult {
                 );
             }
         }
-        assert!(declared[0].starts_with("lgwks_std ="));
+        assert!(
+            declared
+                .first()
+                .is_some_and(|first| first.starts_with("lgwks_std ="))
+        );
     }
 
     // lgwks-std may only declare deps on this approved list.

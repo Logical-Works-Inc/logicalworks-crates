@@ -258,7 +258,12 @@ pub fn check(
     for index in 0..count {
         // The two tenants alternate; which one goes first is symmetric.
         let side = index.is_multiple_of(2);
-        let tenant = TENANTS[usize::from(side)];
+        let [first, second] = TENANTS;
+        let (tenant, other) = if side {
+            (second, first)
+        } else {
+            (first, second)
+        };
         let Ok((id, key)) = provider.provision(tenant) else {
             kit.step(1, Some(Violation::ProvisionRefused));
             continue;
@@ -282,7 +287,7 @@ pub fn check(
         };
         let opened = opens(provider.unwrap_key(&record.id, &record.wrapped), &record);
         kit.step(5, (!opened).then_some(Violation::RoundTripMismatch));
-        let foreign = KeyId::new(TENANTS[usize::from(!side)].to_owned(), record.id.id());
+        let foreign = KeyId::new(other.to_owned(), record.id.id());
         let leaked = provider.unwrap_key(&foreign, &record.wrapped).is_ok();
         kit.step(6, leaked.then_some(Violation::ForeignTenantOpens));
         records.push(record);

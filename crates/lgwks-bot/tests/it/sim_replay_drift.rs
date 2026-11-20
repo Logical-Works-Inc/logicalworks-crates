@@ -283,7 +283,9 @@ struct Scratch(std::path::PathBuf);
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        drop(std::fs::remove_dir_all(&self.0));
+        if let Err(error) = std::fs::remove_dir_all(&self.0) {
+            lgwks_std::trace::debug!(error = %error, "a scratch directory was not removed");
+        }
     }
 }
 
@@ -304,14 +306,9 @@ fn store_path(dir: &Path, tenant: &str) -> PathBuf {
 }
 
 /// The identity the first attempt records under.
-fn first_identity(
-    host: &Host,
-    input: u32,
-    codec: &str,
-) -> Result<DefinitionIdentity, Box<dyn Error>> {
-    Ok(host
-        .definition(TASK, FIRST_REVISION, Some(input_digest_value(input)), STEPS)
-        .with_codec(codec))
+fn first_identity(host: &Host, input: u32, codec: &str) -> DefinitionIdentity {
+    host.definition(TASK, FIRST_REVISION, Some(input_digest_value(input)), STEPS)
+        .with_codec(codec)
 }
 
 /// The content digest of one integer, as [`Host::definition`] is given it.
@@ -357,7 +354,7 @@ fn attempt(
 ) -> Result<Observed, Box<dyn Error>> {
     let host = host_for(tenant, dir)?;
     let work = drift_task()?;
-    let first = first_identity(&host, input, codec)?;
+    let first = first_identity(&host, input, codec);
     let second = drift.declare(&first);
     let job = Job {
         input,

@@ -212,7 +212,9 @@ fn sim_adversary_time_a_non_digit_in_any_field_is_named_exactly() {
     for (at, field) in POSITIONS {
         for &junk in b"x -:/+.zZT\x7f\x00\x1f" {
             let mut bytes = BASE.as_bytes().to_vec();
-            bytes[at] = junk;
+            if let Some(slot) = bytes.get_mut(at) {
+                *slot = junk;
+            }
             assert_eq!(
                 parse_rfc3339(&as_text(&bytes)),
                 Err(ParseError::NonDigit {
@@ -289,7 +291,7 @@ fn sim_adversary_time_a_fraction_bomb_is_refused_with_its_width() {
 fn sim_adversary_time_a_tail_after_zulu_is_refused_at_its_first_byte() {
     for byte in 0_u8..128 {
         for zulu in ['Z', 'z'] {
-            let mut text = String::from(&BASE[..AFTER_SECONDS]);
+            let mut text = String::from(BASE.split_at(AFTER_SECONDS).0);
             text.push(zulu);
             text.push(char::from(byte));
             assert_eq!(
@@ -322,7 +324,11 @@ fn sim_adversary_time_a_truncated_offset_is_a_missing_offset() {
     for sign in ['+', '-'] {
         let full = format!("{sign}02:00");
         for keep in 1..full.len() {
-            let text = format!("{}{}", &BASE[..AFTER_SECONDS], &full[..keep]);
+            let text = format!(
+                "{}{}",
+                BASE.split_at(AFTER_SECONDS).0,
+                full.split_at(keep).0
+            );
             assert_eq!(
                 parse_rfc3339(&text),
                 Err(ParseError::MissingOffset { at: AFTER_SECONDS }),
@@ -356,13 +362,13 @@ fn sim_adversary_time_leading_padding_is_refused_at_offset_zero() {
 fn sim_adversary_time_a_short_prefix_names_its_length() {
     for len in 0..AFTER_SECONDS {
         assert_eq!(
-            parse_rfc3339(&BASE[..len]),
+            parse_rfc3339(BASE.split_at(len).0),
             Err(ParseError::TooShort { len, at: len }),
             "a {len}-byte prefix is below the minimum stamp length"
         );
     }
     assert_eq!(
-        parse_rfc3339(&BASE[..AFTER_SECONDS]),
+        parse_rfc3339(BASE.split_at(AFTER_SECONDS).0),
         Err(ParseError::MissingOffset { at: AFTER_SECONDS }),
         "the stamp without its offset is a missing offset"
     );
@@ -374,11 +380,13 @@ fn sim_adversary_time_a_short_prefix_names_its_length() {
 fn sim_adversary_time_a_wrong_separator_is_named() {
     for at in [4_usize, 7, 13, 16] {
         for &junk in b"x/_.: +" {
-            if junk == BASE.as_bytes()[at] {
+            if BASE.as_bytes().get(at) == Some(&junk) {
                 continue;
             }
             let mut bytes = BASE.as_bytes().to_vec();
-            bytes[at] = junk;
+            if let Some(slot) = bytes.get_mut(at) {
+                *slot = junk;
+            }
             assert_eq!(
                 parse_rfc3339(&as_text(&bytes)),
                 Err(ParseError::Malformed { at, byte: junk }),
@@ -388,7 +396,9 @@ fn sim_adversary_time_a_wrong_separator_is_named() {
     }
     for &junk in b"x/_.:-+Zz" {
         let mut bytes = BASE.as_bytes().to_vec();
-        bytes[10] = junk;
+        if let Some(slot) = bytes.get_mut(10) {
+            *slot = junk;
+        }
         assert_eq!(
             parse_rfc3339(&as_text(&bytes)),
             Err(ParseError::Malformed { at: 10, byte: junk }),
@@ -618,12 +628,20 @@ fn sim_adversary_time_accepted_input_renders_in_one_canonical_shape() -> TestRes
             bytes.len() == 20 || (22..=30).contains(&bytes.len()),
             "seed {seed:#x} round {round}: {text:?} has a length no canonical stamp has"
         );
-        assert_eq!(bytes[10], b'T', "seed {seed:#x}: {text:?} separator");
-        assert_eq!(bytes[last], b'Z', "seed {seed:#x}: {text:?} zulu");
+        assert_eq!(
+            bytes.get(10),
+            Some(&b'T'),
+            "seed {seed:#x}: {text:?} separator"
+        );
+        assert_eq!(
+            bytes.get(last),
+            Some(&b'Z'),
+            "seed {seed:#x}: {text:?} zulu"
+        );
         if bytes.len() > 20 {
             assert_ne!(
-                bytes[last.saturating_sub(1)],
-                b'0',
+                bytes.get(last.saturating_sub(1)),
+                Some(&b'0'),
                 "seed {seed:#x}: {text:?} has a trailing zero in its fraction"
             );
         }

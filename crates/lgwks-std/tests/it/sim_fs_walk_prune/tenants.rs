@@ -23,7 +23,7 @@ type TenantView = (Vec<PathBuf>, bool);
 /// One tenant's walk, run through the public API.
 fn tenant_walk(root: &Path, tenant: &Tenant) -> io::Result<TenantView> {
     let mut offered = 0_usize;
-    let report = walk_dir_entries_tolerant(root, &unbounded(), None, |path, _kind| {
+    let report = walk_dir_entries_tolerant(root, &deepest(), None, |path, _kind| {
         let index = offered;
         offered = offered.saturating_add(1);
         if Some(index) == tenant.stop_at {
@@ -199,7 +199,7 @@ fn scenario(seed: u64) -> Result<u64, Box<dyn Error>> {
         stop_at: Some(stop_at),
     };
     let mut offered = 0_usize;
-    let report = walk_dir_entries_tolerant(&tree.root, &unbounded(), None, |path, _kind| {
+    let report = walk_dir_entries_tolerant(&tree.root, &deepest(), None, |path, _kind| {
         let index = offered;
         offered = offered.saturating_add(1);
         if Some(index) == plan.stop_at {

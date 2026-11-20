@@ -1,5 +1,6 @@
 //! ECS bot unit tests, part 02.
 
+#[cfg(test)]
 use super::*;
 
 #[test]
@@ -225,7 +226,7 @@ fn an_attempt_whose_outcome_was_never_recorded_is_held_not_replayed() -> TestRes
 }
 
 #[test]
-fn an_action_identity_is_framed_and_portable() -> TestResult {
+fn an_action_identity_is_framed_and_portable() {
     // Two different parses that an unframed concatenation collapses:
     // "ab"+"c" and "a"+"bc" are the same byte string with no lengths, and
     // the same ActionId for two different declarations (issue #101).
@@ -238,9 +239,11 @@ fn an_action_identity_is_framed_and_portable() -> TestResult {
     // The index is u64 either way, so this is the 32-/64-bit vector in
     // one target's clothes: the same declaration always derives the same
     // identity, and a different position never does.
+    let derived = derive_action_id("bot", 2, 3, "dom");
+    let rederived = derive_action_id("bot", 2, 3, "dom");
     assert_eq!(
-        derive_action_id("bot", 2, 3, "dom"),
-        derive_action_id("bot", 2, 3, "dom")
+        derived, rederived,
+        "the same declaration derives one identity"
     );
     assert_ne!(
         derive_action_id("bot", 2, 3, "dom"),
@@ -259,7 +262,6 @@ fn an_action_identity_is_framed_and_portable() -> TestResult {
         derive_action_id("bo", 0, 0, "tdom"),
         "length framing keeps \"bot\"+\"dom\" apart from \"bo\"+\"tdom\""
     );
-    Ok(())
 }
 
 #[test]
@@ -314,10 +316,16 @@ fn a_condition_that_cannot_be_evaluated_holds_the_chain_without_claiming_anythin
         .on(|value: &u16| *value >= 200, Record(Rc::clone(&log)))
         .with_effects(test_effects()?)
         .build(&net_grants())?;
-    bot.world.non_send_mut::<Chains>().0[0].entries.insert(
-        0,
-        typed_entry::<_, _, String>(|value: &String| value.len() >= 3, Record(Rc::clone(&log))),
-    );
+    bot.world
+        .non_send_mut::<Chains>()
+        .0
+        .first_mut()
+        .ok_or("the bot declares one chain")?
+        .entries
+        .insert(
+            0,
+            typed_entry::<_, _, String>(|value: &String| value.len() >= 3, Record(Rc::clone(&log))),
+        );
 
     let error = refused(bot.tick(), |fired| {
         format!("an evaluate error was reported as {fired} fired")
@@ -520,8 +528,15 @@ fn a_mismatched_pairing_costs_one_attempt_not_the_retry_budget() -> TestResult {
         .on(|value: &u16| *value >= 200, Record(Rc::clone(&log)))
         .with_effects(test_effects()?)
         .build(&net_grants())?;
-    bot.world.non_send_mut::<Chains>().0[0].entries[0] =
-        typed_entry::<_, _, u16>(|value: &u16| *value >= 200, CountsU32(Rc::clone(&ran)));
+    {
+        let mut chains = bot.world.non_send_mut::<Chains>();
+        let entry = chains
+            .0
+            .first_mut()
+            .and_then(|chain| chain.entries.first_mut())
+            .ok_or("the bot declares one chain with one entry")?;
+        *entry = typed_entry::<_, _, u16>(|value: &u16| *value >= 200, CountsU32(Rc::clone(&ran)));
+    }
 
     let error = refused(bot.tick(), |fired| {
         format!("a wiring mismatch was reported as {fired} fired")

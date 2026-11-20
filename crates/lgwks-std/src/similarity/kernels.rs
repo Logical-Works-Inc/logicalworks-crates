@@ -107,11 +107,9 @@ pub(super) fn char_sequence_similarity(left: &[char], right: &[char]) -> f64 {
 /// such as `é` at `U+00E9` fits a `u8` and would index past the table (a test
 /// caught exactly that as an out-of-bounds index of 223).
 fn ascii_slot(character: char) -> Option<usize> {
-    let code = u32::from(character);
-    if code < 128 {
-        usize::try_from(code).ok()
-    } else {
-        None
+    match u8::try_from(character) {
+        Ok(byte) if byte < 128 => Some(usize::from(byte)),
+        _ => None,
     }
 }
 
@@ -128,8 +126,10 @@ fn myers_distance(pattern: &[char], text: &[char]) -> usize {
     let mut others: Vec<(char, u64)> = Vec::new();
     for (index, character) in pattern.iter().enumerate() {
         let bit = 1u64 << index;
-        match ascii_slot(*character) {
-            Some(slot) => ascii[slot] |= bit,
+        // A character the table cannot hold goes to `others`, and
+        // `equality_mask` reads it back the same way, so the two agree.
+        match ascii_slot(*character).and_then(|slot| ascii.get_mut(slot)) {
+            Some(mask) => *mask |= bit,
             None => match others.iter_mut().find(|entry| entry.0 == *character) {
                 Some(entry) => entry.1 |= bit,
                 None => others.push((*character, bit)),
@@ -162,8 +162,8 @@ fn myers_distance(pattern: &[char], text: &[char]) -> usize {
 
 /// The positions in `pattern` that hold `character`, as one bit vector.
 fn equality_mask(character: char, ascii: &[u64; 128], others: &[(char, u64)]) -> u64 {
-    if let Some(slot) = ascii_slot(character) {
-        return ascii[slot];
+    if let Some(&mask) = ascii_slot(character).and_then(|slot| ascii.get(slot)) {
+        return mask;
     }
     let mut found = 0u64;
     for &(known, mask) in others {
@@ -176,7 +176,7 @@ fn equality_mask(character: char, ascii: &[u64; 128], others: &[(char, u64)]) ->
 
 /// The rolling-row distance, used for a pattern wider than one machine word and
 /// as the reference the bit-parallel search is tested against.
-fn usize_distance(rows: &[char], columns: &[char]) -> usize {
+fn usize_distance<T: PartialEq>(rows: &[T], columns: &[T]) -> usize {
     let width = columns.len().saturating_add(1);
     let mut buffer = vec![0usize; width.saturating_mul(2)];
     distance_rows(rows, columns, &mut buffer)
@@ -184,13 +184,15 @@ fn usize_distance(rows: &[char], columns: &[char]) -> usize {
 
 /// `distance` divided by the longer length, as the contract's `1 - d / n`.
 fn normalized(distance: usize, length: usize) -> f64 {
-    let denominator = match u32::try_from(length) {
-        Ok(value) => f64::from(value),
-        Err(_) => f64::from(u32::MAX),
+    let denominator = if let Ok(value) = u32::try_from(length) {
+        f64::from(value)
+    } else {
+        f64::from(u32::MAX)
     };
-    let distance = match u32::try_from(distance) {
-        Ok(value) => f64::from(value),
-        Err(_) => denominator,
+    let distance = if let Ok(value) = u32::try_from(distance) {
+        f64::from(value)
+    } else {
+        denominator
     };
     unit_score(1.0 - (distance / denominator))
 }
@@ -216,14 +218,15 @@ pub(super) fn sequence_similarity<T: PartialEq>(left: &[T], right: &[T]) -> f64 
         (right, left)
     };
 
-    let distance = if columns.len() < WORD_BITS {
-        let width = columns.len().saturating_add(1);
-        let mut buffer = [0usize; 2 * (WORD_BITS + 1)];
-        distance_rows(rows, columns, &mut buffer[..width.saturating_mul(2)])
-    } else {
-        let width = columns.len().saturating_add(1);
-        let mut buffer = vec![0usize; width.saturating_mul(2)];
-        distance_rows(rows, columns, &mut buffer)
+    // A comparison narrower than one word fits the stack buffer; any other, or
+    // one the buffer cannot window, takes the heap rows.
+    let mut stack = [0usize; 2 * (WORD_BITS + 1)];
+    let window = stack
+        .get_mut(..columns.len().saturating_add(1).saturating_mul(2))
+        .filter(|_| columns.len() < WORD_BITS);
+    let distance = match window {
+        Some(rows_buffer) => distance_rows(rows, columns, rows_buffer),
+        None => usize_distance(rows, columns),
     };
 
     normalized(distance, columns.len())
@@ -236,26 +239,40 @@ pub(super) fn sequence_similarity<T: PartialEq>(left: &[T], right: &[T]) -> f64 
 /// rather than a row copy: exchanging the elements instead read 1 247 ns for a
 /// 28-character pair, where this reads 351 ns.
 fn distance_rows<T: PartialEq>(rows: &[T], columns: &[T], row_buffer: &mut [usize]) -> usize {
+    // The largest distance two sequences can have, answered if the buffer is
+    // not two rows wide: a score of zero, never a better one than the truth.
+    let worst = rows.len().max(columns.len());
     let width = columns.len().saturating_add(1);
-    let (first, second) = row_buffer.split_at_mut(width);
+    let Some((first, second)) = row_buffer.split_at_mut_checked(width) else {
+        return worst;
+    };
     let mut source: &mut [usize] = first;
     let mut target: &mut [usize] = second;
     for (index, slot) in source.iter_mut().enumerate() {
         *slot = index;
     }
     for (row_index, row_value) in rows.iter().enumerate() {
-        target[0] = row_index.saturating_add(1);
-        for (column_index, column_value) in columns.iter().enumerate() {
+        let mut left = row_index.saturating_add(1);
+        if let Some(edge) = target.first_mut() {
+            *edge = left;
+        }
+        let diagonals = source.iter();
+        let ups = source.iter().skip(1);
+        let cells = target.iter_mut().skip(1);
+        for (((&diagonal, &up), column_value), slot) in diagonals.zip(ups).zip(columns).zip(cells) {
             let cost = usize::from(row_value != column_value);
-            let index = column_index.saturating_add(1);
-            let deletion = source[index].saturating_add(1);
-            let insertion = target[column_index].saturating_add(1);
-            let substitution = source[column_index].saturating_add(cost);
-            target[index] = deletion.min(insertion).min(substitution);
+            let deletion = up.saturating_add(1);
+            let insertion = left.saturating_add(1);
+            let substitution = diagonal.saturating_add(cost);
+            left = deletion.min(insertion).min(substitution);
+            *slot = left;
         }
         core::mem::swap(&mut source, &mut target);
     }
-    source[columns.len()]
+    match source.last() {
+        Some(&cell) => cell,
+        None => worst,
+    }
 }
 
 /// Counts distinct values without requiring a hashing policy.
@@ -266,7 +283,9 @@ pub(super) fn unique_count<T: PartialEq>(values: &[T]) -> f64 {
         .filter(|item| {
             let index = item.0;
             let value = item.1;
-            !values[..index].iter().any(|previous| previous == value)
+            !values
+                .get(..index)
+                .is_some_and(|earlier| earlier.iter().any(|previous| previous == value))
         })
         .fold(0.0, |count, _| count + 1.0)
 }

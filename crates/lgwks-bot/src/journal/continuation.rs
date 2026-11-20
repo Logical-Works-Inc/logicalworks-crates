@@ -101,6 +101,8 @@ use super::{
 mod naming;
 #[cfg(all(test, feature = "wire"))]
 mod sim_naming;
+#[cfg(test)]
+mod sim_watermark;
 mod watermark;
 
 #[cfg(feature = "wire")]

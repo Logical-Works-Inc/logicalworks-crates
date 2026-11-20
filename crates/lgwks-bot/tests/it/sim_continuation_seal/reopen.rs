@@ -81,41 +81,57 @@ pub(super) fn positions_read_back(sim: &mut sim::Sim) -> TestResult {
     Ok(())
 }
 
+/// One tenant's live journal, its oracle and its progress through the interleave.
+struct InterleavedLane {
+    /// The journal the tenant appends to, replaced by each successor.
+    journal: FileJournal,
+    /// What the tenant's journal must recover.
+    oracle: Oracle,
+    /// The next attempt number the tenant writes.
+    next: u64,
+    /// How many times the tenant's journal has continued.
+    continued: u64,
+}
+
 /// Two tenants interleaved flush by flush in one directory continue on their own
 /// triggers and never cross.
 pub(super) fn tenants_interleaved(sim: &mut sim::Sim) -> TestResult {
     let dir = sim.scratch("interleave")?;
-    let paths = [dir.join("tenant-1.jrnl"), dir.join("tenant-2.jrnl")];
-    let mut journals = [
-        continuing(&paths[0], 96, QUIET_BYTES)?,
-        continuing(&paths[1], 96, QUIET_BYTES)?,
-    ];
-    let mut oracles = [Oracle::default(), Oracle::default()];
-    let mut next = [1_u64, 1];
-    let mut continued = [0_u64, 0];
+    let mut lanes = Vec::new();
+    for name in ["tenant-1.jrnl", "tenant-2.jrnl"] {
+        lanes.push(InterleavedLane {
+            journal: continuing(&dir.join(name), 96, QUIET_BYTES)?,
+            oracle: Oracle::default(),
+            next: 1,
+            continued: 0,
+        });
+    }
     let steps = draw(sim, 24, 24);
     for _ in 0..steps {
         let who = usize::try_from(sim.rng().below(2))?;
         let action = u64::MAX.saturating_sub(u64::try_from(who)?);
         let count = draw(sim, 1, 8);
+        let lane = lanes
+            .get_mut(who)
+            .ok_or("the draw names a tenant of the two")?;
         write_drawn(
             sim,
-            &mut journals[who],
-            &mut oracles[who],
+            &mut lane.journal,
+            &mut lane.oracle,
             action,
-            (next[who], count),
+            (lane.next, count),
         )?;
-        next[who] = next[who].saturating_add(count);
-        if let Some(successor) = continue_if_due(&mut journals[who])? {
-            journals[who] = successor;
-            continued[who] = continued[who].saturating_add(1);
+        lane.next = lane.next.saturating_add(count);
+        if let Some(successor) = continue_if_due(&mut lane.journal)? {
+            lane.journal = successor;
+            lane.continued = lane.continued.saturating_add(1);
         }
     }
-    for (who, journal) in journals.iter().enumerate() {
+    for (who, lane) in lanes.iter().enumerate() {
         let tenant = u64::try_from(who)?;
-        assert_fold_agrees(journal, &oracles[who], tenant.saturating_add(1))?;
+        assert_fold_agrees(&lane.journal, &lane.oracle, tenant.saturating_add(1))?;
         let mine = action_of(u64::MAX.saturating_sub(tenant))?;
-        for held in journal.recover().attempts() {
+        for held in lane.journal.recover().attempts() {
             assert_eq!(
                 held.key().action(),
                 mine,
@@ -123,11 +139,15 @@ pub(super) fn tenants_interleaved(sim: &mut sim::Sim) -> TestResult {
             );
         }
         sim.trace
-            .record_number(&format!("interleave-{who}-continued"), continued[who]);
+            .record_number(&format!("interleave-{who}-continued"), lane.continued);
     }
+    let Ok([first, second]) = <[InterleavedLane; 2]>::try_from(lanes) else {
+        lgwks_std::trace::debug!("tenants_interleaved: returning an error to the caller");
+        return Err("two tenants interleave in one directory".into());
+    };
     assert_ne!(
-        journals[0].path(),
-        journals[1].path(),
+        first.journal.path(),
+        second.journal.path(),
         "the two tenants never share a live file"
     );
     sim.record("interleaved-tenants-never-cross");

@@ -41,7 +41,7 @@ fn an_empty_run_is_refused_by_the_sweep_band_03() -> TestResult {
 }
 
 #[test]
-fn the_generator_replays_and_stays_in_bounds_band_04() -> TestResult {
+fn the_generator_replays_and_stays_in_bounds_band_04() {
     the_generator_replays_and_stays_in_bounds(Band::new(
         sim::band_of(4).first,
         sim::band_of(4).count,
@@ -49,7 +49,7 @@ fn the_generator_replays_and_stays_in_bounds_band_04() -> TestResult {
 }
 
 #[test]
-fn the_generator_replays_and_stays_in_bounds_band_05() -> TestResult {
+fn the_generator_replays_and_stays_in_bounds_band_05() {
     the_generator_replays_and_stays_in_bounds(Band::new(
         sim::band_of(5).first,
         sim::band_of(5).count,
@@ -57,7 +57,7 @@ fn the_generator_replays_and_stays_in_bounds_band_05() -> TestResult {
 }
 
 #[test]
-fn the_generator_replays_and_stays_in_bounds_band_06() -> TestResult {
+fn the_generator_replays_and_stays_in_bounds_band_06() {
     the_generator_replays_and_stays_in_bounds(Band::new(
         sim::band_of(6).first,
         sim::band_of(6).count,
@@ -65,7 +65,7 @@ fn the_generator_replays_and_stays_in_bounds_band_06() -> TestResult {
 }
 
 #[test]
-fn the_generator_replays_and_stays_in_bounds_band_07() -> TestResult {
+fn the_generator_replays_and_stays_in_bounds_band_07() {
     the_generator_replays_and_stays_in_bounds(Band::new(
         sim::band_of(7).first,
         sim::band_of(7).count,
@@ -73,22 +73,22 @@ fn the_generator_replays_and_stays_in_bounds_band_07() -> TestResult {
 }
 
 #[test]
-fn the_weighted_coin_is_calibrated_band_08() -> TestResult {
+fn the_weighted_coin_is_calibrated_band_08() {
     the_weighted_coin_is_calibrated(Band::new(sim::band_of(8).first, sim::band_of(8).count))
 }
 
 #[test]
-fn the_weighted_coin_is_calibrated_band_09() -> TestResult {
+fn the_weighted_coin_is_calibrated_band_09() {
     the_weighted_coin_is_calibrated(Band::new(sim::band_of(9).first, sim::band_of(9).count))
 }
 
 #[test]
-fn the_weighted_coin_is_calibrated_band_10() -> TestResult {
+fn the_weighted_coin_is_calibrated_band_10() {
     the_weighted_coin_is_calibrated(Band::new(sim::band_of(10).first, sim::band_of(10).count))
 }
 
 #[test]
-fn the_weighted_coin_is_calibrated_band_11() -> TestResult {
+fn the_weighted_coin_is_calibrated_band_11() {
     the_weighted_coin_is_calibrated(Band::new(sim::band_of(11).first, sim::band_of(11).count))
 }
 
@@ -226,7 +226,7 @@ fn a_run_that_recorded_nothing_is_refused(band: Band) -> TestResult {
 /// algorithm from drifting, so a seed recorded against any crate's simulations
 /// draws the same words through the public API.
 #[test]
-fn the_substrate_and_lgwks_std_seeded_draw_one_stream() -> TestResult {
+fn the_substrate_and_lgwks_std_seeded_draw_one_stream() {
     for seed in (0..10_000_u64).chain([1 << 63, u64::MAX - 1, u64::MAX]) {
         let mut substrate = Rng::new(seed);
         let mut seeded = lgwks_std::seeded::Seeded::from_seed(seed);
@@ -238,12 +238,11 @@ fn the_substrate_and_lgwks_std_seeded_draw_one_stream() -> TestResult {
             );
         }
     }
-    Ok(())
 }
 
 /// Two generators on one seed draw the same sequence, and every bounded draw
 /// lands where it was asked to.
-fn the_generator_replays_and_stays_in_bounds(band: Band) -> TestResult {
+fn the_generator_replays_and_stays_in_bounds(band: Band) {
     for seed in band.seeds() {
         let mut first = Rng::new(seed);
         let mut second = Rng::new(seed);
@@ -266,7 +265,6 @@ fn the_generator_replays_and_stays_in_bounds(band: Band) -> TestResult {
         }
         assert_eq!(first.below(1), 0, "seed {seed}: below(1) has one value");
     }
-    Ok(())
 }
 
 /// `chance(p)` fires about `p` times in a thousand, never at zero and always
@@ -275,7 +273,7 @@ fn the_generator_replays_and_stays_in_bounds(band: Band) -> TestResult {
 /// The window is wide enough that a calibrated coin cannot miss it on any seed
 /// (over five standard deviations) and narrow enough that a coin reading a
 /// biased or phase-locked bit would.
-fn the_weighted_coin_is_calibrated(band: Band) -> TestResult {
+fn the_weighted_coin_is_calibrated(band: Band) {
     const DRAWS: u32 = 4_000;
     for seed in band.seeds() {
         let mut rng = Rng::new(seed);
@@ -292,7 +290,6 @@ fn the_weighted_coin_is_calibrated(band: Band) -> TestResult {
         assert!(!rng.chance(0), "seed {seed}: chance(0) fired");
         assert!(rng.chance(1_000), "seed {seed}: chance(1000) did not fire");
     }
-    Ok(())
 }
 
 /// Splitting the same bytes into records differently hashes differently.

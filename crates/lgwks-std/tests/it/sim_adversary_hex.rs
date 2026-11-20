@@ -379,7 +379,9 @@ fn sim_adversary_hex_a_far_offset_is_reported_exactly() -> TestResult {
     sweep(8, |seed, round, attacker| {
         let position = attacker.below(size);
         let mut input = base.clone();
-        input[position] = b'G';
+        if let Some(slot) = input.get_mut(position) {
+            *slot = b'G';
+        }
         assert_eq!(
             decode(&input),
             Err(DecodeError::NotHexDigit {
@@ -552,7 +554,12 @@ fn sim_adversary_hex_a_reported_offset_never_leaves_the_input() -> TestResult {
             Err(DecodeError::NotHexDigit { at, byte }) => noise.get(at) == Some(&byte),
             Err(DecodeError::OddLength { len, at }) => len == noise.len() && at == noise.len(),
             Err(DecodeError::OutputLength { .. }) | Ok(_) => true,
-            Err(_) => false,
+            Err(unlisted) => {
+                return Err(format!(
+                    "seed {seed:#x} round {round}: a refusal this test does not know: {unlisted:?}"
+                )
+                .into());
+            }
         };
         assert!(inside, "seed {seed:#x} round {round}: {noise:02x?}");
         Ok(())

@@ -17,9 +17,7 @@ fn a_review_list_past_the_ceiling_is_refused_not_truncated() -> TestResult {
     // happily produces exactly this, and the question is not whether the bytes
     // fit — they do — but whether a *clean decode* of a partial history is
     // reported as the history.
-    let over = u32::try_from(lgwks_bot::domain::gh::MAX_REVIEWS_PER_PULL)
-        .map_err(|_| "the ceiling must fit the fixture's counter")?
-        .saturating_add(1);
+    let over = u32::try_from(lgwks_bot::domain::gh::MAX_REVIEWS_PER_PULL)?.saturating_add(1);
     script.configure(Scenario::new(HEAD).with_filler_reviews(over))?;
     let gh = gh_for(&script, 4 * 1024 * 1024, HANG_BOUND)?;
 
@@ -72,8 +70,7 @@ fn a_review_list_exactly_at_the_ceiling_is_read() -> TestResult {
     let script = ScriptedGh::install("ceiling-edge", HEAD)?;
     // The boundary: exactly the ceiling is the largest list the adapter accepts,
     // and refusing it would make the bound a fiction rather than a declaration.
-    let at = u32::try_from(lgwks_bot::domain::gh::MAX_REVIEWS_PER_PULL)
-        .map_err(|_| "the ceiling must fit the fixture's counter")?;
+    let at = u32::try_from(lgwks_bot::domain::gh::MAX_REVIEWS_PER_PULL)?;
     script.configure(Scenario::new(HEAD).with_filler_reviews(at))?;
     let gh = gh_for(&script, 4 * 1024 * 1024, HANG_BOUND)?;
 

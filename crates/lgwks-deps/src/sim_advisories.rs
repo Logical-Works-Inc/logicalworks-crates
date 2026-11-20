@@ -26,7 +26,7 @@ const SWEEP_SEEDS: [u64; 4] = [
 type Outcome = Result<(), String>;
 
 /// Asserts equality without panicking, returning an informative error on mismatch.
-fn check_eq<T: PartialEq + fmt::Debug>(actual: T, expected: T, context: &str) -> Outcome {
+fn check_eq<T: Copy + PartialEq + fmt::Debug>(actual: T, expected: T, context: &str) -> Outcome {
     if actual != expected {
         lgwks_std::trace::debug!(context, "assertion mismatch");
         return Err(format!("{context}: expected {expected:?}, got {actual:?}"));
@@ -528,8 +528,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
         .map(|found| found.advisory_id())
         .collect();
     check_eq(
-        matched,
-        vec!["RUSTSEC-2026-P02"],
+        matched.as_slice(),
+        ["RUSTSEC-2026-P02"].as_slice(),
         "only the beta, gated out of `< 1.0.0`, is vulnerable",
     )?;
 
@@ -552,176 +552,188 @@ fn sim_advisories_fuzzy_match_sweep() -> Outcome {
         for case_idx in 0..cases_per_seed {
             total_cases = total_cases.saturating_add(1);
 
-            // Generate 3 to 6 synthetic packages
-            let pkg_count_u64 = draw_below(&mut stream, 4).saturating_add(3);
-            let mut pkg_count = 3_usize;
-            if let Ok(count_val) = usize::try_from(pkg_count_u64) {
-                pkg_count = count_val;
-            }
-            let mut synthetic_packages: Vec<SyntheticPackage> = Vec::with_capacity(pkg_count);
-            let mut lock_content = String::new();
-
-            for pkg_idx in 0..pkg_count {
-                let mut pool_len_u64 = 8_u64;
-                if let Ok(len_val) = u64::try_from(PACKAGE_POOL.len()) {
-                    pool_len_u64 = len_val;
-                }
-                let name_idx_u64 = draw_below(&mut stream, pool_len_u64);
-                let mut name_idx = 0_usize;
-                if let Ok(idx_val) = usize::try_from(name_idx_u64) {
-                    name_idx = idx_val;
-                }
-                let mut pkg_name = "tokio";
-                if let Some(name_ref) = PACKAGE_POOL.get(name_idx) {
-                    pkg_name = *name_ref;
-                }
-
-                let major = draw_below(&mut stream, 3);
-                let minor = draw_below(&mut stream, 5);
-                let patch = draw_below(&mut stream, 10);
-                let version_str = format!("{major}.{minor}.{patch}");
-
-                let is_local = draw_below(&mut stream, 4) == 0;
-                synthetic_packages.push(SyntheticPackage {
-                    name: format!("{pkg_name}_{pkg_idx}"),
-                    is_local,
-                });
-
-                if is_local {
-                    std::fmt::Write::write_fmt(
-                        &mut lock_content,
-                        format_args!(
-                            "[[package]]\nname = \"{pkg_name}_{pkg_idx}\"\nversion = \"{version_str}\"\n\n"
-                        ),
-                    )
-                    .map_err(|err_val| format!("{err_val}"))?;
-                } else {
-                    std::fmt::Write::write_fmt(
-                        &mut lock_content,
-                        format_args!(
-                            "[[package]]\nname = \"{pkg_name}_{pkg_idx}\"\nversion = \"{version_str}\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\n\n"
-                        ),
-                    )
-                    .map_err(|err_val| format!("{err_val}"))?;
-                }
-            }
-
-            // Generate 2 to 4 synthetic advisories
-            let adv_count_u64 = draw_below(&mut stream, 3).saturating_add(2);
-            let mut adv_count = 2_usize;
-            if let Ok(count_val) = usize::try_from(adv_count_u64) {
-                adv_count = count_val;
-            }
-            let mut advisories: Vec<Advisory> = Vec::with_capacity(adv_count);
-
-            for adv_idx in 0..adv_count {
-                let mut pkg_count_bound = 1_u64;
-                if let Ok(bound_val) = u64::try_from(pkg_count) {
-                    pkg_count_bound = bound_val;
-                }
-                let p_ref_u64 = draw_below(&mut stream, pkg_count_bound);
-                let mut p_ref = 0_usize;
-                if let Ok(ref_val) = usize::try_from(p_ref_u64) {
-                    p_ref = ref_val;
-                }
-                let mut target_name = "tokio_0".to_owned();
-                if let Some(pkg_entry) = synthetic_packages.get(p_ref) {
-                    target_name = pkg_entry.name.clone();
-                }
-
-                let is_withdrawn = draw_below(&mut stream, 4) == 0;
-                let withdrawn = if is_withdrawn {
-                    Some("2026-03-01".to_owned())
-                } else {
-                    None
-                };
-
-                let is_info = draw_below(&mut stream, 4) == 0;
-                let kind = if is_info {
-                    AdvisoryKind::Informational("notice".to_owned())
-                } else {
-                    AdvisoryKind::Vulnerability
-                };
-
-                let patched_min = draw_below(&mut stream, 5);
-                let patched = vec![format!(">= 1.{patched_min}.0")];
-                let unaffected = vec!["< 0.5.0".to_owned()];
-
-                advisories.push(Advisory::new(
-                    format!("RUSTSEC-2026-{case_idx:04}-{adv_idx}"),
-                    target_name,
-                    Some("2026-01-01".to_owned()),
-                    withdrawn,
-                    kind,
-                    patched,
-                    unaffected,
-                ));
-            }
-
-            // Verify database digest computation is deterministic
-            let file_records: Vec<(&str, &str)> = vec![
-                ("crates/a/RUSTSEC-0001.md", "content_a"),
-                ("crates/b/RUSTSEC-0002.md", "content_b"),
-            ];
-            let digest_one = compute_db_digest(file_records.iter().copied());
-            let digest_two = compute_db_digest(file_records.iter().copied());
-            check_eq(&digest_one, &digest_two, "deterministic db_digest")?;
-            check_true(digest_one.starts_with("fnv1a128:"), "digest prefix")?;
-
-            // Parse lock packages
-            let lock_packages =
-                crate::lock::parse(&lock_content).map_err(|err_val| format!("{err_val}"))?;
-
-            // Evaluate lock against advisories
-            let report = evaluate_lock(&lock_packages, &advisories, digest_one)
-                .map_err(|err_val| format!("{err_val}"))?;
-
-            // Verify loaded count and audited packages count
-            check_eq(
-                report.database().advisories(),
-                advisories.len(),
-                "advisories_loaded count",
-            )?;
-
-            let expected_audited = synthetic_packages
-                .iter()
-                .filter(|pkg_entry| !pkg_entry.is_local)
-                .count();
-            check_eq(
-                report.packages_audited(),
-                expected_audited,
-                "packages_audited count",
-            )?;
-
-            // Verify local packages are never in matches
-            for matched_entry in report.matches() {
-                let mut is_matching_pkg_local = false;
-                if let Some(pkg_entry) = synthetic_packages
-                    .iter()
-                    .find(|pkg_entry| pkg_entry.name == matched_entry.package())
-                {
-                    is_matching_pkg_local = pkg_entry.is_local;
-                }
-                check_true(!is_matching_pkg_local, "local packages are never matched")?;
-            }
-
-            // Verify withdrawn advisories are never in matches
-            for matched_entry in report.matches() {
-                let is_matching_adv_withdrawn = advisories
-                    .iter()
-                    .find(|adv_entry| adv_entry.id() == matched_entry.advisory_id())
-                    .and_then(|adv_entry| adv_entry.withdrawn())
-                    .is_some();
-                check_true(
-                    !is_matching_adv_withdrawn,
-                    "withdrawn advisories are skipped",
-                )?;
-            }
+            let (synthetic_packages, lock_content) =
+                draw_packages(&mut stream).map_err(|err_val| format!("{err_val}"))?;
+            let advisories = draw_advisories(&mut stream, &synthetic_packages, case_idx);
+            verify_case(&synthetic_packages, &lock_content, &advisories)?;
         }
     }
 
     check_eq(total_cases, 500, "total sweep cases executed")?;
     Ok(())
+}
+
+/// Checks one drawn case against the oracle.
+fn verify_case(
+    synthetic_packages: &[SyntheticPackage],
+    lock_content: &str,
+    advisories: &[Advisory],
+) -> Outcome {
+    // Verify database digest computation is deterministic
+    let file_records: Vec<(&str, &str)> = vec![
+        ("crates/a/RUSTSEC-0001.md", "content_a"),
+        ("crates/b/RUSTSEC-0002.md", "content_b"),
+    ];
+    let digest_one = compute_db_digest(file_records.iter().copied());
+    let digest_two = compute_db_digest(file_records.iter().copied());
+    check_eq(&digest_one, &digest_two, "deterministic db_digest")?;
+    check_true(digest_one.starts_with("fnv1a128:"), "digest prefix")?;
+
+    // Parse lock packages
+    let lock_packages = crate::lock::parse(lock_content).map_err(|err_val| format!("{err_val}"))?;
+
+    // Evaluate lock against advisories
+    let report = evaluate_lock(&lock_packages, advisories, digest_one)
+        .map_err(|err_val| format!("{err_val}"))?;
+
+    // Verify loaded count and audited packages count
+    check_eq(
+        report.database().advisories(),
+        advisories.len(),
+        "advisories_loaded count",
+    )?;
+
+    let expected_audited = synthetic_packages
+        .iter()
+        .filter(|pkg_entry| !pkg_entry.is_local)
+        .count();
+    check_eq(
+        report.packages_audited(),
+        expected_audited,
+        "packages_audited count",
+    )?;
+
+    // Verify local packages are never in matches
+    for matched_entry in report.matches() {
+        let is_matching_pkg_local = synthetic_packages
+            .iter()
+            .find(|pkg_entry| pkg_entry.name == matched_entry.package())
+            .is_some_and(|pkg_entry| pkg_entry.is_local);
+        check_true(!is_matching_pkg_local, "local packages are never matched")?;
+    }
+
+    // Verify withdrawn advisories are never in matches
+    for matched_entry in report.matches() {
+        let is_matching_adv_withdrawn = advisories
+            .iter()
+            .find(|adv_entry| adv_entry.id() == matched_entry.advisory_id())
+            .and_then(|adv_entry| adv_entry.withdrawn())
+            .is_some();
+        check_true(
+            !is_matching_adv_withdrawn,
+            "withdrawn advisories are skipped",
+        )?;
+    }
+    Ok(())
+}
+
+/// The `source` line a non-local package declares; a local one declares none.
+const REGISTRY_SOURCE: &str =
+    "source = \"registry+https://github.com/rust-lang/crates.io-index\"\n";
+
+/// Draws 3 to 6 synthetic packages and the lockfile text that declares them.
+fn draw_packages(stream: &mut Seeded) -> Result<(Vec<SyntheticPackage>, String), fmt::Error> {
+    let pkg_count_u64 = draw_below(stream, 4).saturating_add(3);
+    let mut pkg_count = 3_usize;
+    if let Ok(count_val) = usize::try_from(pkg_count_u64) {
+        pkg_count = count_val;
+    }
+    let mut synthetic_packages: Vec<SyntheticPackage> = Vec::with_capacity(pkg_count);
+    let mut lock_content = String::new();
+
+    for pkg_idx in 0..pkg_count {
+        let mut pool_len_u64 = 8_u64;
+        if let Ok(len_val) = u64::try_from(PACKAGE_POOL.len()) {
+            pool_len_u64 = len_val;
+        }
+        let name_idx_u64 = draw_below(stream, pool_len_u64);
+        let mut name_idx = 0_usize;
+        if let Ok(idx_val) = usize::try_from(name_idx_u64) {
+            name_idx = idx_val;
+        }
+        let mut pkg_name = "tokio";
+        if let Some(name_ref) = PACKAGE_POOL.get(name_idx) {
+            pkg_name = *name_ref;
+        }
+
+        let major = draw_below(stream, 3);
+        let minor = draw_below(stream, 5);
+        let patch = draw_below(stream, 10);
+        let version_str = format!("{major}.{minor}.{patch}");
+
+        let is_local = draw_below(stream, 4) == 0;
+        synthetic_packages.push(SyntheticPackage {
+            name: format!("{pkg_name}_{pkg_idx}"),
+            is_local,
+        });
+        let source = if is_local { "" } else { REGISTRY_SOURCE };
+        std::fmt::Write::write_fmt(
+            &mut lock_content,
+            format_args!(
+                "[[package]]\nname = \"{pkg_name}_{pkg_idx}\"\nversion = \"{version_str}\"\n{source}\n"
+            ),
+        )?;
+    }
+    Ok((synthetic_packages, lock_content))
+}
+
+/// Draws 2 to 4 synthetic advisories, each about one of `synthetic_packages`.
+fn draw_advisories(
+    stream: &mut Seeded,
+    synthetic_packages: &[SyntheticPackage],
+    case_idx: usize,
+) -> Vec<Advisory> {
+    let adv_count_u64 = draw_below(stream, 3).saturating_add(2);
+    let mut adv_count = 2_usize;
+    if let Ok(count_val) = usize::try_from(adv_count_u64) {
+        adv_count = count_val;
+    }
+    let mut advisories: Vec<Advisory> = Vec::with_capacity(adv_count);
+
+    for adv_idx in 0..adv_count {
+        let mut pkg_count_bound = 1_u64;
+        if let Ok(bound_val) = u64::try_from(synthetic_packages.len()) {
+            pkg_count_bound = bound_val;
+        }
+        let p_ref_u64 = draw_below(stream, pkg_count_bound);
+        let mut p_ref = 0_usize;
+        if let Ok(ref_val) = usize::try_from(p_ref_u64) {
+            p_ref = ref_val;
+        }
+        let mut target_name = "tokio_0".to_owned();
+        if let Some(pkg_entry) = synthetic_packages.get(p_ref) {
+            target_name = pkg_entry.name.clone();
+        }
+
+        let is_withdrawn = draw_below(stream, 4) == 0;
+        let withdrawn = if is_withdrawn {
+            Some("2026-03-01".to_owned())
+        } else {
+            None
+        };
+
+        let is_info = draw_below(stream, 4) == 0;
+        let kind = if is_info {
+            AdvisoryKind::Informational("notice".to_owned())
+        } else {
+            AdvisoryKind::Vulnerability
+        };
+
+        let patched_min = draw_below(stream, 5);
+        let patched = vec![format!(">= 1.{patched_min}.0")];
+        let unaffected = vec!["< 0.5.0".to_owned()];
+
+        advisories.push(Advisory::new(
+            format!("RUSTSEC-2026-{case_idx:04}-{adv_idx}"),
+            target_name,
+            Some("2026-01-01".to_owned()),
+            withdrawn,
+            kind,
+            patched,
+            unaffected,
+        ));
+    }
+    advisories
 }
 
 #[test]
@@ -731,7 +743,7 @@ fn sim_db_digest_determinism() -> Outcome {
     let expected_empty = format!("fnv1a128:{OFFSET:032x}");
 
     let empty_digest = compute_db_digest([]);
-    check_eq(empty_digest, expected_empty, "empty database digest")?;
+    check_eq(&empty_digest, &expected_empty, "empty database digest")?;
 
     let set_a = [
         ("crates/foo/RUSTSEC-2026-0001.md", "hello"),

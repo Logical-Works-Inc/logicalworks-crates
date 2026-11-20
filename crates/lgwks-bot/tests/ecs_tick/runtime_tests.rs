@@ -394,7 +394,7 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
     /// failed. Naming it is what lets the one arm that is genuinely different --
     /// the write, which fails `Unsettled` because the connection existed -- read
     /// as the exception it is.
-    fn not_delivered(error: std::io::Error) -> EcsError {
+    fn not_delivered(error: &std::io::Error) -> EcsError {
         EcsError::Kernel(KernelError::DomainError {
             domain: DOMAIN.to_owned(),
             certainty: DispatchCertainty::NotDelivered,
@@ -411,8 +411,12 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
     /// already have reached the peer. Inline, that distinction sat in the middle
     /// of the chain where it was easiest to read as one more of the same.
     async fn round_trip(listener: &TcpListener) -> Result<u8, EcsError> {
-        let peer = listener.local_addr().map_err(not_delivered)?;
-        let mut client = TcpStream::connect(peer).await.map_err(not_delivered)?;
+        let peer = listener
+            .local_addr()
+            .map_err(|error| not_delivered(&error))?;
+        let mut client = TcpStream::connect(peer)
+            .await
+            .map_err(|error| not_delivered(&error))?;
         if let Err(error) = client.write_all(b"7").await {
             let refusal = Err(EcsError::Kernel(KernelError::DomainError {
                 domain: DOMAIN.to_owned(),
@@ -422,10 +426,13 @@ pub(super) fn socket_source_on_the_shipped_runtime() -> TestResult {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "round_trip: returning an error to the caller");
             return refusal;
         }
-        let (mut server, _origin) = listener.accept().await.map_err(not_delivered)?;
+        let (mut server, _origin) = listener
+            .accept()
+            .await
+            .map_err(|error| not_delivered(&error))?;
         let mut byte = [0u8; 1];
         if let Err(error) = server.read_exact(&mut byte).await {
-            let refusal = Err(not_delivered(error));
+            let refusal = Err(not_delivered(&error));
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "round_trip: returning an error to the caller");
             return refusal;
         }

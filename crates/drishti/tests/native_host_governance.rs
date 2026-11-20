@@ -327,7 +327,9 @@ fn tape_reads_scope_limit_and_clamp() -> Result<(), String> {
     let newest: Vec<GovernanceEntrySnapshot> = reader
         .recent_entries(&scope("session"), 3, 1.0, 3_600_000)
         .map_err(|error| format!("{error}"))?;
-    if newest.len() != 3 || newest[2].signal_id() != "signal-4" {
+    if newest.len() != 3
+        || newest.get(2).map(GovernanceEntrySnapshot::signal_id) != Some("signal-4")
+    {
         return Err(String::from("limit must take the newest suffix"));
     }
     let all: Vec<GovernanceEntrySnapshot> = reader

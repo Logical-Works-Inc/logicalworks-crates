@@ -1,5 +1,6 @@
 //! Unit tests for `semantic`, moved verbatim out of semantic.rs.
 
+#[cfg(test)]
 use super::{Alias, Embedder, EmbedderIdentity, SemanticError, SemanticPolicy, SemanticResolver};
 use crate::session::{AnswerDomain, DegradedReason, MatchTier, Question, Resolution, Resolver};
 use std::cell::Cell;
@@ -748,7 +749,7 @@ fn the_default_embed_batch_preserves_input_order() -> Result<(), Box<dyn std::er
 
     let batch = embedder
         .embed_batch(&["Cancel", "the usual"])
-        .map_err(|_| "the stub was configured not to fail")?;
+        .map_err(|refusal| format!("the stub was configured not to fail: {refusal:?}"))?;
 
     let expected = [vec![0.0_f32, 1.0], vec![1.0, 0.0]];
     assert_eq!(batch.len(), expected.len(), "batch length changed");

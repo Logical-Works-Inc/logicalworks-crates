@@ -77,7 +77,7 @@ fn the_pinned_channel_is_the_one_the_image_is_built_from() -> TestResult {
 }
 
 #[test]
-fn the_image_is_the_debian_whose_setpriv_applies_landlock() -> TestResult {
+fn the_image_is_the_debian_whose_setpriv_applies_landlock() {
     // util-linux 2.40 added Landlock to setpriv; trixie ships 2.41.5 and bookworm 2.38.1
     // (observed with `setpriv --version` in each image, 2026-10-13). On bookworm the
     // Landlock simulations fail with `Unsupported` (run 38455031363).
@@ -88,11 +88,10 @@ fn the_image_is_the_debian_whose_setpriv_applies_landlock() -> TestResult {
         "a trixie build never shares a volume with a bookworm one: {}",
         layout.target_volume
     );
-    Ok(())
 }
 
 #[test]
-fn a_runner_keeps_the_volume_names_it_already_has() -> TestResult {
+fn a_runner_keeps_the_volume_names_it_already_has() {
     // The names below are the volumes `docker volume ls` lists on the CI machine for
     // lwc-9 and lwc-8, so a runner finds its warm build output on the first run.
     let bot = names(
@@ -121,11 +120,10 @@ fn a_runner_keeps_the_volume_names_it_already_has() -> TestResult {
     assert_eq!(owner(None), "local", "outside CI");
     assert_eq!(owner(Some("")), "local", "an empty runner name");
     assert_eq!(owner(Some("a b/c")), "a-b-c", "a name Docker would refuse");
-    Ok(())
 }
 
 #[test]
-fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
+fn no_two_runners_or_suite_sets_share_a_writable_volume() {
     // One writer per target volume: two runners on one volume relinked a test binary
     // while another executed it (`No such file or directory`, bot-full).
     let sets: Vec<Vec<String>> = {
@@ -178,7 +176,6 @@ fn no_two_runners_or_suite_sets_share_a_writable_volume() -> TestResult {
         one.tools_image, other.tools_image,
         "the derived image is shared by every runner"
     );
-    Ok(())
 }
 
 #[test]
@@ -629,7 +626,7 @@ fn a_measuring_run_is_capped_by_cgroup_with_no_swap_and_a_small_tmpfs() {
 }
 
 #[test]
-fn a_profile_missing_a_part_is_refused_by_name() -> TestResult {
+fn a_profile_missing_a_part_is_refused_by_name() {
     let one_of_each = format!("{MINIMAL}\n[[report]]\nargv = [\"nproc\"]\n");
     assert!(
         vps::parse(&one_of_each).is_ok(),
@@ -695,7 +692,6 @@ fn a_profile_missing_a_part_is_refused_by_name() -> TestResult {
         refusal(&many).contains("65 doors"),
         "one door past the bound"
     );
-    Ok(())
 }
 
 /// `text` without the line that sets `key`.

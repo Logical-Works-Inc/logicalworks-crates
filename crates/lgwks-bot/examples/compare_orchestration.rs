@@ -509,6 +509,68 @@ fn arg_or<'a>(args: &'a [String], index: usize, default: &'a str) -> &'a str {
     }
 }
 
+/// The tenant count the scenario names, as an index range this host can address.
+fn tenant_count(ctx: &Ctx) -> Result<usize, FlowError> {
+    usize::try_from(ctx.spec.tenants).map_err(|error| {
+        FlowError::failed(format!("a tenant count this host cannot address: {error}"))
+    })
+}
+
+/// The host way is local (non-`Send`), so its tenants are awaited on this task
+/// rather than spawned. The cancellation race is driven by `join!`, so one
+/// tenant's cancel reaches the others through the shared stop.
+async fn drive_host(ctx: &Arc<Ctx>, stop: &CancellationToken) -> Result<u64, FlowError> {
+    let names: Vec<Arc<str>> = ["acme", "globex"]
+        .iter()
+        .take(tenant_count(ctx)?)
+        .map(|n| Arc::from(*n))
+        .collect();
+    let runs = lgwks_std::task::join_all(
+        names
+            .iter()
+            .map(|name| tenant_run_host(Arc::clone(ctx), Arc::clone(name), stop.clone())),
+    );
+    let cancel = async {
+        if let Some(after) = ctx.spec.cancel_after {
+            ctx.clock.sleep(after).await;
+            stop.cancel();
+        }
+    };
+    let ((), results) = lgwks_bot::rt::join!(cancel, runs);
+    let mut total: u64 = 0;
+    for outcome in results {
+        total = total.saturating_add(outcome?);
+    }
+    Ok(total)
+}
+
+/// The spawned ways: one task per tenant, joined as they finish.
+async fn drive_spawned(
+    way: &Arc<str>,
+    ctx: &Arc<Ctx>,
+    stop: &CancellationToken,
+) -> Result<u64, FlowError> {
+    let mut tenants = JoinSet::new();
+    for tenant in ["acme", "globex"].iter().take(tenant_count(ctx)?) {
+        tenants.spawn(tenant_run(
+            Arc::clone(way),
+            Arc::clone(ctx),
+            Arc::from(*tenant),
+            stop.clone(),
+        ));
+    }
+    if let Some(after) = ctx.spec.cancel_after {
+        ctx.clock.sleep(after).await;
+        stop.cancel();
+    }
+    let mut total: u64 = 0;
+    while let Some(joined) = tenants.join_next().await {
+        let outcome = joined.map_err(|error| FlowError::failed(format!("tenant task: {error}")))?;
+        total = total.saturating_add(outcome?);
+    }
+    Ok(total)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     let way = arg_or(&args, 1, "script").to_owned();
@@ -534,59 +596,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let started = Instant::now();
     let way: Arc<str> = Arc::from(way.as_str());
     let outcome: Result<u64, FlowError> = runtime.block_on(async {
-        // The host way is local (non-`Send`), so its tenants are awaited on this
-        // task rather than spawned. The cancellation race is driven by `join!`,
-        // so one tenant's cancel reaches the others through the shared stop.
         if &*way == "host" {
-            let tenants = usize::try_from(ctx.spec.tenants).map_err(|error| {
-                FlowError::failed(format!("a tenant count this host cannot address: {error}"))
-            })?;
-            let names: Vec<Arc<str>> = ["acme", "globex"]
-                .iter()
-                .take(tenants)
-                .map(|n| Arc::from(*n))
-                .collect();
-            let runs = lgwks_std::task::join_all(
-                names
-                    .iter()
-                    .map(|name| tenant_run_host(Arc::clone(&ctx), Arc::clone(name), stop.clone())),
-            );
-            let cancel = async {
-                if let Some(after) = ctx.spec.cancel_after {
-                    ctx.clock.sleep(after).await;
-                    stop.cancel();
-                }
-            };
-            let ((), results) = lgwks_bot::rt::join!(cancel, runs);
-            let mut total: u64 = 0;
-            for outcome in results {
-                total = total.saturating_add(outcome?);
-            }
-            return Ok(total);
+            drive_host(&ctx, &stop).await
+        } else {
+            drive_spawned(&way, &ctx, &stop).await
         }
-        let mut tenants = JoinSet::new();
-        let tenant_count = usize::try_from(ctx.spec.tenants).map_err(|error| {
-            FlowError::failed(format!("a tenant count this host cannot address: {error}"))
-        })?;
-        for tenant in ["acme", "globex"].iter().take(tenant_count) {
-            tenants.spawn(tenant_run(
-                Arc::clone(&way),
-                Arc::clone(&ctx),
-                Arc::from(*tenant),
-                stop.clone(),
-            ));
-        }
-        if let Some(after) = ctx.spec.cancel_after {
-            ctx.clock.sleep(after).await;
-            stop.cancel();
-        }
-        let mut total: u64 = 0;
-        while let Some(joined) = tenants.join_next().await {
-            let outcome =
-                joined.map_err(|error| FlowError::failed(format!("tenant task: {error}")))?;
-            total = total.saturating_add(outcome?);
-        }
-        Ok(total)
     });
     let elapsed = started.elapsed();
     let probe = &ctx.probe;

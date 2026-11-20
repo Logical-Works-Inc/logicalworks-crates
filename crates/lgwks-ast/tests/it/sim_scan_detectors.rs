@@ -171,7 +171,7 @@ fn a_rule_selection_is_the_whole_scan_filtered() -> TestResult {
 /// Every rule names itself and a name selects it back, in either case; a name no
 /// detector reports selects nothing rather than a default.
 #[test]
-fn every_rule_name_round_trips() -> TestResult {
+fn every_rule_name_round_trips() {
     for rule in Rule::ALL.into_iter().chain(Rule::OPT_IN) {
         assert_eq!(
             Rule::from_name(rule.name()),
@@ -188,7 +188,6 @@ fn every_rule_name_round_trips() -> TestResult {
     }
     assert_eq!(Rule::from_name("no-such-rule"), None);
     assert_eq!(Rule::from_name(""), None);
-    Ok(())
 }
 
 // ── Cross-cutting ───────────────────────────────────────────────────────────

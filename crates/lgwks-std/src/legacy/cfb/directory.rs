@@ -57,6 +57,21 @@ fn check_link(link: u32, count: usize) -> Result<(), CfbError> {
     Ok(())
 }
 
+/// The little-endian `u32` at `at` in a directory entry, or the truncation
+/// that names the four bytes it needed.
+fn need_u32(window: &[u8], at: usize) -> Result<u32, CfbError> {
+    let Some(value) = get_u32_le(window, at) else {
+        let refusal = Err(CfbError::Truncated {
+            offset: at,
+            need: at.saturating_add(4),
+        });
+        #[cfg(feature = "trace")]
+        crate::trace::debug!(at, "cfb: refusing a directory entry cut before a field");
+        return refusal;
+    };
+    Ok(value)
+}
+
 /// Parses one 128-byte directory entry: UTF-16LE name, kind, links, span.
 fn parse_dir_entry(window: &[u8], index: usize) -> Result<DirEntry, CfbError> {
     if window.len() < DIR_ENTRY_LEN {
@@ -113,60 +128,12 @@ fn parse_dir_entry(window: &[u8], index: usize) -> Result<DirEntry, CfbError> {
         crate::trace::debug!("cfb: refusing a directory entry with no kind");
         return refusal;
     };
-    let Some(left) = get_u32_le(window, 68) else {
-        let refusal = Err(CfbError::Truncated {
-            offset: 68,
-            need: 72,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("cfb: refusing a directory entry with no left link");
-        return refusal;
-    };
-    let Some(right) = get_u32_le(window, 72) else {
-        let refusal = Err(CfbError::Truncated {
-            offset: 72,
-            need: 76,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("cfb: refusing a directory entry with no right link");
-        return refusal;
-    };
-    let Some(child) = get_u32_le(window, 76) else {
-        let refusal = Err(CfbError::Truncated {
-            offset: 76,
-            need: 80,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("cfb: refusing a directory entry with no child link");
-        return refusal;
-    };
-    let Some(start) = get_u32_le(window, 116) else {
-        let refusal = Err(CfbError::Truncated {
-            offset: 116,
-            need: 120,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("cfb: refusing a directory entry with no start sector");
-        return refusal;
-    };
-    let Some(low) = get_u32_le(window, 120) else {
-        let refusal = Err(CfbError::Truncated {
-            offset: 120,
-            need: 124,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("cfb: refusing a directory entry with no size");
-        return refusal;
-    };
-    let Some(high) = get_u32_le(window, 124) else {
-        let refusal = Err(CfbError::Truncated {
-            offset: 124,
-            need: 128,
-        });
-        #[cfg(feature = "trace")]
-        crate::trace::debug!("cfb: refusing a directory entry with no high size");
-        return refusal;
-    };
+    let left = need_u32(window, 68)?;
+    let right = need_u32(window, 72)?;
+    let child = need_u32(window, 76)?;
+    let start = need_u32(window, 116)?;
+    let low = need_u32(window, 120)?;
+    let high = need_u32(window, 124)?;
     Ok(DirEntry {
         name,
         kind,

@@ -674,7 +674,7 @@ mod pool_tests {
     /// and every value comes back in input order on every root. The bound
     /// holds in every schedule: the pool refuses past the ceiling atomically,
     /// and a root takes its floor body only with nothing of its own running.
-    fn sim_concurrent_roots_divide_the_one_pool() -> Outcome {
+    fn sim_concurrent_roots_divide_the_one_pool() {
         const ROOTS: usize = 4;
         let ceiling = machine_ceiling();
         let items = ceiling.saturating_add(1);
@@ -708,7 +708,7 @@ mod pool_tests {
                 .filter_map(|handle| match handle.join() {
                     Ok(Ok(())) => None,
                     Ok(Err(failure)) => Some(failure),
-                    Err(_) => Some("a root's thread failed".to_owned()),
+                    Err(panicked) => Some(format!("a root's thread failed: {panicked:?}")),
                 })
                 .collect()
         });
@@ -727,6 +727,5 @@ mod pool_tests {
             watch.peak.load(Ordering::Relaxed) <= ceiling.saturating_add(ROOTS),
             "four roots peaked past the one shared pool plus their floor bodies"
         );
-        Ok(())
     }
 }

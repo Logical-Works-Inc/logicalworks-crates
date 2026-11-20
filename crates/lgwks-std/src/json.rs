@@ -30,6 +30,7 @@ pub use map::{IntoIter, Iter, Map};
 pub use serde::{self, Deserialize, Serialize};
 pub use serde_json::{Deserializer, Error, Number};
 pub use text::Text;
+pub use value::sealed::Sealed;
 pub use value::{Value, ValueIndex};
 
 /// Builds a [`Value`] from JSON-shaped tokens, as `serde_json::json!` does:

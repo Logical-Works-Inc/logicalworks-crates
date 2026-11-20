@@ -160,7 +160,7 @@ fn a_symlink_loop_terminates_under_follow() -> TestResult {
     };
     let mut count = 0_usize;
     for item in walk_dir_iter(&root, &options, OmissionPolicy::default())? {
-        let _ = item.map_err(|error| format!("the stream reported: {error}"))?;
+        item.map_err(|error| format!("the stream reported: {error}"))?;
         count = count.saturating_add(1);
         if count > 1_000 {
             return Err("a two-link loop must terminate after entering each directory once".into());
@@ -259,7 +259,13 @@ fn an_unresolvable_root_is_refused() -> TestResult {
     let options = WalkOptions::default();
     match walk_dir_iter(&missing, &options, OmissionPolicy::default()) {
         Ok(_) => Err("an unresolvable root must be refused".into()),
-        Err(_) => Ok(()),
+        Err(refusal) => {
+            assert!(
+                refusal.to_string().contains(&*missing.to_string_lossy()),
+                "the refusal of an unresolvable root names it: {refusal}"
+            );
+            Ok(())
+        }
     }
 }
 

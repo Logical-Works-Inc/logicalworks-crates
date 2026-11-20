@@ -170,8 +170,9 @@ fn name_and_grammar_agree_for_every_enabled_language() {
     for &language in Language::ALL {
         assert!(!language.name().is_empty());
         assert!(!language.extensions().is_empty());
-        // Constructing the grammar must not panic for any enabled row.
-        let _ = language.support_lang();
+        // Constructing the grammar must not panic for any enabled row, and the
+        // lent grammar is the same row as the owned one.
+        assert_eq!(language.grammar(), &language.support_lang());
     }
 }
 

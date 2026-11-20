@@ -172,9 +172,20 @@ pub fn fill_bytes(buf: &mut [u8]) -> Result<(), EntropyError> {
 /// caller to read; the error carries the same kind, code and classification as
 /// [`fill_bytes`].
 pub fn bytes<const N: usize>() -> Result<[u8; N], EntropyError> {
-    let mut out = [0u8; N];
-    fill_bytes(&mut out)?;
-    Ok(out)
+    // No literal seeds the array: it starts uninitialised and every byte copied out is the
+    // OS's, so no constant can stand in for a key or a nonce drawn here.
+    let mut out = [std::mem::MaybeUninit::<u8>::uninit(); N];
+    let filled = getrandom::fill_uninit(&mut out).map_err(typed)?;
+    whole(filled)
+}
+
+/// The first `N` bytes of `filled` as an array; a fill shorter than `N` is a backend
+/// fault ([`EntropyErrorKind::BackendInternal`]), never a partly random value.
+fn whole<const N: usize>(filled: &[u8]) -> Result<[u8; N], EntropyError> {
+    filled
+        .first_chunk::<N>()
+        .copied()
+        .ok_or_else(|| from_backend(None, false))
 }
 
 /// Narrows a backend status to this crate's declared `Option<i32>` width.
@@ -222,12 +233,15 @@ where
     if buf.is_empty() {
         return Ok(());
     }
-    source(buf).map_err(|failure| {
-        from_backend(
-            narrow_status(failure.raw_os_error()),
-            failure == getrandom::Error::UNSUPPORTED,
-        )
-    })
+    source(buf).map_err(typed)
+}
+
+/// The typed error for a backend failure: the one conversion every draw shares.
+fn typed(failure: getrandom::Error) -> EntropyError {
+    from_backend(
+        narrow_status(failure.raw_os_error()),
+        failure == getrandom::Error::UNSUPPORTED,
+    )
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -267,6 +281,18 @@ mod tests {
             "buffer looks unwritten"
         );
         Ok(())
+    }
+
+    /// A fill that comes back shorter than the array asked for (a backend bug, CWE-457:
+    /// use of uninitialised memory if it were copied out) is a typed backend fault and
+    /// never an array, and a full fill copies back byte for byte.
+    #[test]
+    fn a_short_fill_is_a_backend_fault_never_an_array() {
+        let short = whole::<16>(&[0x5A; 15]).err().map(|refusal| refusal.kind());
+        assert_eq!(short, Some(EntropyErrorKind::BackendInternal));
+        let drawn: [u8; 4] = [1, 2, 3, 4];
+        assert_eq!(whole::<4>(&[1, 2, 3, 4, 5]).ok(), Some(drawn));
+        assert_eq!(whole::<0>(&[]).ok(), Some([]));
     }
 
     /// Requirement #526 (a doc example that named the crate moved into a test):

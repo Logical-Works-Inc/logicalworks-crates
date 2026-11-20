@@ -550,11 +550,11 @@ fn sim_reduced_motion_resolves_the_engine_then_it_sleeps() {
             for render in &renders {
                 let frame = &render.frame;
                 assert!(
-                    frame.blur.abs() < 1e-12,
+                    frame.blur().abs() < 1e-12,
                     "seed {seed}: {} blurred",
                     effect.name()
                 );
-                assert!((frame.alpha - 1.0).abs() < 1e-12, "seed {seed}: faded");
+                assert!((frame.alpha() - 1.0).abs() < 1e-12, "seed {seed}: faded");
             }
         }
         let after = ink.step(FRAME);

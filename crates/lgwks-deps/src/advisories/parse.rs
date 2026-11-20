@@ -197,6 +197,120 @@ fn process_array_syntax(
     }
 }
 
+/// An array value whose closing bracket has not been read yet: the key it
+/// belongs to and the items collected so far.
+type PendingArray = (&'static str, Vec<String>);
+
+/// Every value the frontmatter wrote, before any of it is judged.
+#[derive(Default)]
+struct Scanned {
+    /// `[advisory] id`.
+    id: Option<String>,
+    /// `[advisory] package`.
+    package: Option<String>,
+    /// `[advisory] title`.
+    title: Option<String>,
+    /// `[advisory] date`.
+    date: Option<String>,
+    /// `[advisory] informational`.
+    informational: Option<String>,
+    /// `[advisory] withdrawn`.
+    withdrawn: Option<String>,
+    /// `[versions] patched`.
+    patched: Vec<String>,
+    /// `[versions] unaffected`.
+    unaffected: Vec<String>,
+    /// `[affected]` os and arch.
+    affected: Affected,
+}
+
+impl Scanned {
+    /// Reads every line of the frontmatter.
+    fn read(frontmatter: &str) -> Self {
+        let mut scanned = Self::default();
+        let mut section = FrontmatterSection::None;
+        let mut in_array: Option<PendingArray> = None;
+        for raw_line in frontmatter.lines() {
+            let line = strip_comment(raw_line).trim();
+            if line.is_empty() {
+                continue;
+            }
+            if let Some(pending) = in_array.take() {
+                in_array = scanned.continue_array(pending, line);
+            } else if let Some(header) = section_header(line) {
+                section = header;
+            } else if let Some((key_raw, val_raw)) = line.split_once('=') {
+                in_array = scanned.assign(section, &unquote(key_raw), val_raw.trim());
+            }
+        }
+        scanned
+    }
+
+    /// Reads one line of a multi-line array; the array stays pending until a
+    /// line carries its closing bracket.
+    fn continue_array(&mut self, pending: PendingArray, line: &str) -> Option<PendingArray> {
+        let (target, mut items) = pending;
+        let Some((inside, _)) = line.split_once(']') else {
+            parse_items(line, &mut items);
+            return Some((target, items));
+        };
+        parse_items(inside, &mut items);
+        match target {
+            "patched" => self.patched.extend(items),
+            "unaffected" => self.unaffected.extend(items),
+            "os" => self.affected.os.extend(items),
+            "arch" => self.affected.arch.extend(items),
+            _ => {}
+        }
+        None
+    }
+
+    /// Reads one `key = value` line of `section`; an array that opens on this
+    /// line and closes on a later one comes back pending.
+    fn assign(
+        &mut self,
+        section: FrontmatterSection,
+        key: &str,
+        val: &str,
+    ) -> Option<PendingArray> {
+        match (section, key) {
+            (FrontmatterSection::Advisory, "id") => self.id = Some(unquote(val)),
+            (FrontmatterSection::Advisory, "package") => self.package = Some(unquote(val)),
+            (FrontmatterSection::Advisory, "title") => self.title = Some(unquote(val)),
+            (FrontmatterSection::Advisory, "date") => self.date = Some(unquote(val)),
+            (FrontmatterSection::Advisory, "informational") => {
+                self.informational = Some(unquote(val));
+            }
+            (FrontmatterSection::Advisory, "withdrawn") => self.withdrawn = Some(unquote(val)),
+            (FrontmatterSection::Versions, "patched") => {
+                return process_array_syntax(val, "patched", &mut self.patched);
+            }
+            (FrontmatterSection::Versions, "unaffected") => {
+                return process_array_syntax(val, "unaffected", &mut self.unaffected);
+            }
+            (FrontmatterSection::Affected, "os") => {
+                return process_array_syntax(val, "os", &mut self.affected.os);
+            }
+            (FrontmatterSection::Affected, "arch") => {
+                return process_array_syntax(val, "arch", &mut self.affected.arch);
+            }
+            _ => {}
+        }
+        None
+    }
+}
+
+/// The section a `[header]` line opens, or `None` when the line is not a header.
+fn section_header(line: &str) -> Option<FrontmatterSection> {
+    let inside = line.strip_prefix('[')?.strip_suffix(']')?;
+    Some(match inside.trim() {
+        "advisory" => FrontmatterSection::Advisory,
+        "versions" => FrontmatterSection::Versions,
+        "affected" => FrontmatterSection::Affected,
+        _ => FrontmatterSection::Other,
+    })
+}
+
 /// Parses the frontmatter text of an advisory Markdown file into an [`Advisory`].
 pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, AdvisoryError> {
     let frontmatter = match extract_frontmatter(text) {
@@ -204,108 +318,17 @@ pub(crate) fn parse_advisory(path: &Path, text: &str) -> Result<Advisory, Adviso
         None => return err_frontmatter(path, "no frontmatter block found"),
     };
 
-    let mut section = FrontmatterSection::None;
-    let mut in_array: Option<(&'static str, Vec<String>)> = None;
-
-    let mut id_opt: Option<String> = None;
-    let mut package_opt: Option<String> = None;
-    let mut title_opt: Option<String> = None;
-    let mut date_opt: Option<String> = None;
-    let mut informational_opt: Option<String> = None;
-    let mut withdrawn_opt: Option<String> = None;
-    let mut patched: Vec<String> = Vec::new();
-    let mut unaffected: Vec<String> = Vec::new();
-    let mut affected = Affected::default();
-
-    for raw_line in frontmatter.lines() {
-        let line = strip_comment(raw_line).trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        if let Some((target, mut items)) = in_array.take() {
-            if let Some(pos) = line.find(']') {
-                let mut inside = "";
-                if let Some(sub_str) = line.get(..pos) {
-                    inside = sub_str;
-                }
-                parse_items(inside, &mut items);
-                match target {
-                    "patched" => patched.extend(items),
-                    "unaffected" => unaffected.extend(items),
-                    "os" => affected.os.extend(items),
-                    "arch" => affected.arch.extend(items),
-                    _ => {}
-                }
-            } else {
-                parse_items(line, &mut items);
-                in_array = Some((target, items));
-            }
-            continue;
-        }
-
-        if line.starts_with('[') && line.ends_with(']') {
-            let mut inside = "";
-            if let Some(sub_str) = line.get(1..line.len().saturating_sub(1)) {
-                inside = sub_str;
-            }
-            let header = inside.trim();
-            match header {
-                "advisory" => section = FrontmatterSection::Advisory,
-                "versions" => section = FrontmatterSection::Versions,
-                "affected" => section = FrontmatterSection::Affected,
-                _ => section = FrontmatterSection::Other,
-            }
-            continue;
-        }
-
-        if let Some((key_raw, val_raw)) = line.split_once('=') {
-            let key = unquote(key_raw);
-            let val = val_raw.trim();
-
-            match section {
-                FrontmatterSection::Advisory => match key.as_str() {
-                    "id" => id_opt = Some(unquote(val)),
-                    "package" => package_opt = Some(unquote(val)),
-                    "title" => title_opt = Some(unquote(val)),
-                    "date" => date_opt = Some(unquote(val)),
-                    "informational" => informational_opt = Some(unquote(val)),
-                    "withdrawn" => withdrawn_opt = Some(unquote(val)),
-                    _ => {}
-                },
-                FrontmatterSection::Versions => match key.as_str() {
-                    "patched" => {
-                        if let Some(pending) = process_array_syntax(val, "patched", &mut patched) {
-                            in_array = Some(pending);
-                        }
-                    }
-                    "unaffected" => {
-                        if let Some(pending) =
-                            process_array_syntax(val, "unaffected", &mut unaffected)
-                        {
-                            in_array = Some(pending);
-                        }
-                    }
-                    _ => {}
-                },
-                FrontmatterSection::Affected => match key.as_str() {
-                    "os" => {
-                        if let Some(pending) = process_array_syntax(val, "os", &mut affected.os) {
-                            in_array = Some(pending);
-                        }
-                    }
-                    "arch" => {
-                        if let Some(pending) = process_array_syntax(val, "arch", &mut affected.arch)
-                        {
-                            in_array = Some(pending);
-                        }
-                    }
-                    _ => {}
-                },
-                FrontmatterSection::None | FrontmatterSection::Other => {}
-            }
-        }
-    }
+    let Scanned {
+        id: id_opt,
+        package: package_opt,
+        title: title_opt,
+        date: date_opt,
+        informational: informational_opt,
+        withdrawn: withdrawn_opt,
+        patched,
+        unaffected,
+        affected,
+    } = Scanned::read(frontmatter);
 
     let advisory_id = match id_opt {
         Some(val) if !val.is_empty() => val,

@@ -236,10 +236,14 @@ struct LocalPage;
 
 impl LocalPage {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self))
+    fn from_target(_target: &str) -> Action {
+        Action::new(Self)
     }
 }
+
+/// The registry's constructor for [`LocalPage`], which cannot fail.
+const LOCAL_PAGE: fn(&str) -> Result<Action, EcsError> =
+    |target| Ok(LocalPage::from_target(target));
 
 impl Execute for LocalPage {
     type Input = u16;
@@ -278,7 +282,7 @@ domains! {
     pub(crate) GATED_DOMAINS {
         observe {}
         execute {
-            "test::local_page" => LocalPage::from_target,
+            "test::local_page" => LOCAL_PAGE,
         }
     }
 }

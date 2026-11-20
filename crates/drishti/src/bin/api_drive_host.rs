@@ -29,8 +29,8 @@ use drishti::native_host::attest::{
 };
 use drishti::native_host::attest::{apple, der, trustzone};
 use drishti::native_host::broker::{
-    BrokerError, Inspector, Limit, Permission, Reach, RegisteredHandle, Scope, Subscription,
-    SubscriptionId,
+    Broker, BrokerError, Inspector, Limit, Permission, Reach, RegisteredHandle, Scope,
+    Subscription, SubscriptionId,
 };
 use drishti::native_host::cbor::decode_attestation;
 use drishti::native_host::governance::{
@@ -107,10 +107,8 @@ fn drive_entry(
     entry
 }
 
-/// Drive the broker: registry, fan-out, ML peers, and the command bar.
-fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), Failure> {
-    let (broker, events, open) = frozen_broker();
-    note(digest, "broker", &"built")?;
+/// Drive the widget descriptor and return it for registration.
+fn drive_descriptor(digest: &mut String) -> Result<WidgetDescriptor, Failure> {
     let mut descriptor = WidgetDescriptor::new(
         String::from("demo.kind"),
         String::from("widget.drive"),
@@ -137,27 +135,20 @@ fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), F
             descriptor.pinned(),
         ),
     )?;
-    let handle: RegisteredHandle = must(
-        digest,
-        "registered",
-        broker.register(descriptor, session.clone()),
-    )?;
-    note(
-        digest,
-        "handle",
-        &(
-            handle.nonce(),
-            handle.descriptor_id(),
-            handle.session_id(),
-            handle.tenant_id(),
-            handle.user_sub(),
-        ),
-    )?;
-    let subscription: SubscriptionId = lifecycle::subscribe(digest, &broker, &events, &handle)?;
+    Ok(descriptor)
+}
+
+/// Drive a widget emit and the envelope validators, with a bad-envelope control.
+fn drive_emit(
+    digest: &mut String,
+    broker: &Broker,
+    handle: &RegisteredHandle,
+    session: &SessionInvariant,
+) -> Result<(), Failure> {
     let envelope = must(
         digest,
         "emitted",
-        broker.emit(&handle, "drive.ping", JsonValue::Bool(true)),
+        broker.emit(handle, "drive.ping", JsonValue::Bool(true)),
     )?;
     note(
         digest,
@@ -194,32 +185,11 @@ fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), F
         validate_envelope(&bad_envelope),
         "bad signal id must fail validation",
     )?;
-    note(digest, "envelope-error", &envelope_error)?;
-    audit_drive::scope_counts(digest, &broker, &handle)?;
-    lifecycle::unsubscribe(digest, &broker, &events, &handle, &subscription)?;
-    audit_drive::tap_events(digest, &broker, &handle)?;
-    let wide = broker.registered_subscriptions(&handle, Reach::AllTenants);
-    ensure(
-        matches!(wide, Err(BrokerError::CrossTenantDenied)),
-        "an ungranted wide read must be refused",
-    )?;
-    open.store(true, Ordering::SeqCst);
-    let listed = broker
-        .registered_subscriptions(&handle, Reach::AllTenants)
-        .map_err(|error| Failure::from(format!("granted wide read refused: {error}")))?;
-    for subscription in listed {
-        note(
-            digest,
-            "snapshot",
-            &(
-                subscription.id(),
-                describe_subscription(&subscription),
-                subscription.pattern().kind_glob(),
-                subscription.descriptor_id(),
-            ),
-        )?;
-    }
-    lifecycle::ml_peer(digest, &broker, &events, session)?;
+    note(digest, "envelope-error", &envelope_error)
+}
+
+/// Drive the intent and prediction envelopes.
+fn drive_envelopes(digest: &mut String, session: &SessionInvariant) -> Result<(), Failure> {
     let mut intent_envelope = IntentEnvelope::new(
         String::from("intent.drive"),
         String::from("33333333-3333-3333-3333-333333333333"),
@@ -275,7 +245,58 @@ fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), F
             prediction_envelope.reasoning(),
             prediction_envelope.view_directive(),
         ),
+    )
+}
+
+/// Drive the broker: registry, fan-out, ML peers, and the command bar.
+fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), Failure> {
+    let (broker, events, open) = frozen_broker();
+    note(digest, "broker", &"built")?;
+    let descriptor = drive_descriptor(digest)?;
+    let handle: RegisteredHandle = must(
+        digest,
+        "registered",
+        broker.register(descriptor, session.clone()),
     )?;
+    note(
+        digest,
+        "handle",
+        &(
+            handle.nonce(),
+            handle.descriptor_id(),
+            handle.session_id(),
+            handle.tenant_id(),
+            handle.user_sub(),
+        ),
+    )?;
+    let subscription: SubscriptionId = lifecycle::subscribe(digest, &broker, &events, &handle)?;
+    drive_emit(digest, &broker, &handle, session)?;
+    audit_drive::scope_counts(digest, &broker, &handle)?;
+    lifecycle::unsubscribe(digest, &broker, &events, &handle, &subscription)?;
+    audit_drive::tap_events(digest, &broker, &handle)?;
+    let wide = broker.registered_subscriptions(&handle, Reach::AllTenants);
+    ensure(
+        matches!(wide, Err(BrokerError::CrossTenantDenied)),
+        "an ungranted wide read must be refused",
+    )?;
+    open.store(true, Ordering::SeqCst);
+    let listed = broker
+        .registered_subscriptions(&handle, Reach::AllTenants)
+        .map_err(|error| Failure::from(format!("granted wide read refused: {error}")))?;
+    for subscription in listed {
+        note(
+            digest,
+            "snapshot",
+            &(
+                subscription.id(),
+                describe_subscription(&subscription),
+                subscription.pattern().kind_glob(),
+                subscription.descriptor_id(),
+            ),
+        )?;
+    }
+    lifecycle::ml_peer(digest, &broker, &events, session)?;
+    drive_envelopes(digest, session)?;
     lifecycle::command_bar(digest, &broker, &events, &open, session)?;
     let forged_widget = forged_nonce(&handle.nonce());
     note(digest, "forged-widget", &forged_widget)?;
@@ -309,6 +330,15 @@ fn drive_broker(digest: &mut String, session: &SessionInvariant) -> Result<(), F
 
 /// Drive the host stores, telemetry, governance, and attestation.
 fn drive_host(digest: &mut String) -> Result<(), Failure> {
+    let governance = drive_governance(digest)?;
+    drive_snapshots(digest, &governance)?;
+    drive_telemetry(digest)?;
+    let receipt_value = drive_attest_receipt(digest)?;
+    drive_attest_packages(digest, &receipt_value)
+}
+
+/// Drive the governance store: entries, the query and the recorded tape.
+fn drive_governance(digest: &mut String) -> Result<GovernanceStore, Failure> {
     let governance = must(digest, "governance", GovernanceStore::open_in_memory())?;
     let entry = drive_entry(
         "entry-drive-1",
@@ -343,7 +373,7 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
     must(
         digest,
         "appended-policy",
-        governance.append_with_policy(&second, String::from(POLICY_BUNDLE)),
+        governance.append_with_policy(&second, POLICY_BUNDLE),
     )?;
     refused(governance.append(&entry), "duplicate signal id must fail")?;
     let query = must(
@@ -392,6 +422,11 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         )?;
     }
     audit_drive::recent_tape(digest, &governance, "tenant-drive", SESSION_ID)?;
+    Ok(governance)
+}
+
+/// Drive the bare snapshot, the attribution sources and the governance errors.
+fn drive_snapshots(digest: &mut String, governance: &GovernanceStore) -> Result<(), Failure> {
     let mut bare_snapshot = GovernanceEntrySnapshot::new(
         String::from(SESSION_ID),
         String::from("entry-drive-9"),
@@ -408,10 +443,10 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         digest,
         "attribution-sources",
         &(
-            AttributionSource::resolve("user").map_err(|error| format!("{error}")),
-            AttributionSource::resolve("ml").map_err(|error| format!("{error}")),
-            AttributionSource::resolve("widget").map_err(|error| format!("{error}")),
-            AttributionSource::resolve("nope").map_err(|error| format!("{error}")),
+            AttributionSource::resolve("user"),
+            AttributionSource::resolve("ml"),
+            AttributionSource::resolve("widget"),
+            AttributionSource::resolve("nope"),
             AttributionSource::Widget.raw_value(),
         ),
     )?;
@@ -425,6 +460,11 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         "governance-count",
         governance.count("tenant-drive", SESSION_ID),
     )?;
+    Ok(())
+}
+
+/// Drive the file-backed store, the telemetry tap, the ring and the tape reader.
+fn drive_telemetry(digest: &mut String) -> Result<(), Failure> {
     let file_store_path = std::env::temp_dir().join("api-drive-governance.sqlite");
     let file_store = must(
         digest,
@@ -516,6 +556,11 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         reader.recent_entries(&scope, 10, 1.0, 86_400_000),
     )?;
     note(digest, "tape-len", &entries.len())?;
+    Ok(())
+}
+
+/// Drive attestation parsing and the boot challenge receipt; return the receipt.
+fn drive_attest_receipt(digest: &mut String) -> Result<BootChallengeReceipt, Failure> {
     let attest_error: AppAttestError =
         refused(decode_attestation(&[]), "empty attestation must fail")?;
     note(digest, "attest-error", &attest_error)?;
@@ -553,6 +598,14 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
             receipt_value.issue_mac(),
         ),
     )?;
+    Ok(receipt_value)
+}
+
+/// Drive the attestation evidence packages built from one receipt.
+fn drive_attest_packages(
+    digest: &mut String,
+    receipt_value: &BootChallengeReceipt,
+) -> Result<(), Failure> {
     let signing = device_key()?;
     let point = compressed_point(signing.verifying_key());
     let package: AppleSecureEnclaveEvidencePackage = must(
@@ -561,7 +614,7 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         apple::make_package(
             vec![0x30, 0x03, 0x01, 0x02],
             vec![vec![0x30, 0x03, 0x01, 0x03]],
-            &receipt_value,
+            receipt_value,
             point.as_slice(),
             &signing,
         ),
@@ -579,7 +632,7 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         ),
     )?;
     refused(
-        apple::make_package(vec![1], vec![], &receipt_value, &[0x04; 33], &signing),
+        apple::make_package(vec![1], vec![], receipt_value, &[0x04; 33], &signing),
         "uncompressed key must fail",
     )?;
     let quote = must(
@@ -593,7 +646,7 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
         "tz-package",
         trustzone::make_package(
             "drive-oem",
-            &receipt_value,
+            receipt_value,
             &[0x30, 0x03],
             point.as_slice(),
             vec![vec![0x30, 0x03, 0x01, 0x04]],
@@ -623,7 +676,7 @@ fn drive_host(digest: &mut String) -> Result<(), Failure> {
     )?;
     note(digest, "attest-supported", &app_attest_is_supported())?;
     let production_error: AppAttestProductionError = refused(
-        produce_app_attest_evidence(&receipt_value),
+        produce_app_attest_evidence(receipt_value),
         "off-device production must fail",
     )?;
     note(digest, "production-error", &production_error)?;

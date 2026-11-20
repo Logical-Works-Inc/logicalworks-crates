@@ -17,6 +17,14 @@ type TestResult = Result<(), Box<dyn Error>>;
 /// A registry source the approvals name.
 const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
+/// A JSON string literal for `value`, or JSON `null` when it is absent.
+fn json_text(value: Option<&str>) -> String {
+    match value {
+        Some(text) => format!("\"{text}\""),
+        None => "null".to_owned(),
+    }
+}
+
 /// One `app` → package edge for the given upstream package, with an optional
 /// local rename key, through the public parser.
 fn edge(
@@ -24,8 +32,8 @@ fn edge(
     rename: Option<&str>,
     source: Option<&str>,
 ) -> Result<Vec<DirectEdge>, Box<dyn Error>> {
-    let source_json = source.map_or("null".to_owned(), |value| format!("\"{value}\""));
-    let rename_json = rename.map_or("null".to_owned(), |value| format!("\"{value}\""));
+    let source_json = json_text(source);
+    let rename_json = json_text(rename);
     let document = format!(
         r#"{{"packages":[{{"id":"app","name":"app","repository":null,"manifest_path":"/repo/Cargo.toml","dependencies":[{{"name":"{package}","source":{source_json},"req":"1.0","kind":null,"rename":{rename_json},"optional":false,"uses_default_features":true,"features":[],"target":null,"path":null}}]}},{{"id":"lic-{package}","name":"{package}","license":"MIT OR Apache-2.0","manifest_path":"/dep/Cargo.toml","dependencies":[]}}],"workspace_members":["app"]}}"#
     );
@@ -42,7 +50,10 @@ fn path_edge(package: &str, path: &str) -> Result<Vec<DirectEdge>, Box<dyn Error
 
 /// One `[[approved]]` block approving `krate` for `app`, with an optional alias.
 fn entry_text(krate: &str, aliases: Option<&str>) -> String {
-    let alias_line = aliases.map_or(String::new(), |value| format!("aliases = \"{value}\"\n"));
+    let alias_line = match aliases {
+        Some(value) => format!("aliases = \"{value}\"\n"),
+        None => String::new(),
+    };
     format!(
         concat!(
             "[[approved]]\n",
@@ -134,7 +145,10 @@ fn two_fold_alike_packages_are_two_authorities() -> TestResult {
 fn a_rename_is_preserved_but_is_not_the_upstream_identity() -> TestResult {
     let upstream = register("engine-core", None)?;
     let renamed = edge("engine-core", Some("local_engine"), Some(REGISTRY))?;
-    assert_eq!(renamed[0].rename(), Some("local_engine"));
+    assert_eq!(
+        renamed.first().and_then(|edge| edge.rename()),
+        Some("local_engine")
+    );
     assert!(audit_direct(&renamed, &upstream).is_empty());
 
     let alias_only = register("local_engine", None)?;

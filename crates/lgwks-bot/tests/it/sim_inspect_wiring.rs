@@ -320,7 +320,7 @@ fn sim_seeded_host_admission_peak_is_bounded() -> TestResult<()> {
                 .map(|handle| {
                     handle
                         .join()
-                        .map_err(|_| "a worker thread panicked".to_owned())
+                        .map_err(|panic| format!("a worker thread panicked: {panic:?}"))
                 })
                 .collect::<Vec<_>>()
         });

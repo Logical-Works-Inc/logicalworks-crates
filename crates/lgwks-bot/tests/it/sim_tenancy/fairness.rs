@@ -82,6 +82,91 @@ fn depth_for(tenants: u32) -> Result<usize, Box<dyn Error>> {
     }
 }
 
+/// Park `depth` waiters for every tenant, so each is continuously backlogged
+/// and none can drain across the tier's sweep.
+fn backlog_every_tenant(
+    core: &mut DeficitRoundRobin<u64>,
+    named: &[Tenant],
+    depth: usize,
+    tenants: u32,
+) -> Result<(), Box<dyn Error>> {
+    let mut next_waiter = 0_u64;
+    for tenant in named {
+        for _ in 0..depth {
+            let arrival = core.arrive(tenant, next_waiter, || None::<u64>);
+            match arrival {
+                Arrival::Queued => {}
+                Arrival::Refused { limit } => {
+                    let refusal = Err(format!(
+                        "at tier {tenants} a backlogged tenant hit its own queue bound \
+                         of {limit} on its {next_waiter}th arrival"
+                    )
+                    .into());
+                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "backlog_every_tenant: returning an error to the caller");
+                    return refusal;
+                }
+                Arrival::Immediate(_) => {
+                    let refusal =
+                        Err("a backlogged tenant was admitted against a spent pool".into());
+                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "backlog_every_tenant: returning an error to the caller");
+                    return refusal;
+                }
+                Arrival::SupervisorFull { limit } => {
+                    let refusal = Err(format!(
+                        "at tier {tenants} a backlogged tenant hit the supervisor's own \
+                         bound of {limit} on its {next_waiter}th arrival"
+                    )
+                    .into());
+                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "backlog_every_tenant: returning an error to the caller");
+                    return refusal;
+                }
+                _ => {
+                    let refusal = Err("an unknown arrival outcome".into());
+                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "backlog_every_tenant: returning an error to the caller");
+                    return refusal;
+                }
+            }
+            next_waiter = next_waiter.saturating_add(1);
+        }
+    }
+    Ok(())
+}
+
+/// Invariant 2 at a round boundary: every tenant's cumulative grants stay
+/// within one round of its weight's ideal share. `at` is the tier, the grants
+/// handed out and the total weight; returns the widest deviation read.
+fn boundary_deviation(
+    grants: &[u64],
+    weights: &[u64],
+    at: (u32, u64, u64),
+) -> Result<u64, Box<dyn Error>> {
+    let (tenants, handed_out, total_weight) = at;
+    let mut worst = 0_u64;
+    for (position, count) in grants.iter().copied().enumerate() {
+        let Some(weight) = weights.get(position).copied() else {
+            let refusal = Err("the round named a tenant this sweep never drew a weight for".into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "boundary_deviation: returning an error to the caller");
+            return refusal;
+        };
+        let above = count
+            .saturating_mul(total_weight)
+            .saturating_sub(weight.saturating_mul(handed_out));
+        let below = weight
+            .saturating_mul(handed_out)
+            .saturating_sub(count.saturating_mul(total_weight));
+        let deviation = above.max(below);
+        worst = worst.max(deviation);
+        assert!(
+            deviation <= total_weight,
+            "at tier {tenants}, after {handed_out} grants, tenant {position} \
+             took {count} at weight {weight} of {total_weight}, which is \
+             {deviation} shares of one grant away from its ideal -- more than \
+             one round"
+        );
+    }
+    Ok(worst)
+}
+
 /// One weighted round at `tenants` tenants, with the fairness invariants checked
 /// at every grant.
 ///
@@ -133,45 +218,7 @@ fn fair_round(tenants: u32, seed: u64) -> Result<Fairness, Box<dyn Error>> {
     let mut core: DeficitRoundRobin<u64> = DeficitRoundRobin::new(policy);
     // Backlog every tenant deeply enough that a tier's whole sweep cannot drain
     // any of them.
-    let mut next_waiter = 0_u64;
-    for tenant in &named {
-        for _ in 0..depth {
-            let arrival = core.arrive(tenant, next_waiter, || None::<u64>);
-            match arrival {
-                Arrival::Queued => {}
-                Arrival::Refused { limit } => {
-                    let refusal = Err(format!(
-                        "at tier {tenants} a backlogged tenant hit its own queue bound \
-                         of {limit} on its {next_waiter}th arrival"
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "fair_round: returning an error to the caller");
-                    return refusal;
-                }
-                Arrival::Immediate(_) => {
-                    let refusal =
-                        Err("a backlogged tenant was admitted against a spent pool".into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "fair_round: returning an error to the caller");
-                    return refusal;
-                }
-                Arrival::SupervisorFull { limit } => {
-                    let refusal = Err(format!(
-                        "at tier {tenants} a backlogged tenant hit the supervisor's own \
-                         bound of {limit} on its {next_waiter}th arrival"
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "fair_round: returning an error to the caller");
-                    return refusal;
-                }
-                _ => {
-                    let refusal = Err("an unknown arrival outcome".into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "fair_round: returning an error to the caller");
-                    return refusal;
-                }
-            }
-            next_waiter = next_waiter.saturating_add(1);
-        }
-    }
+    backlog_every_tenant(&mut core, &named, depth, tenants)?;
 
     let mut grants: Vec<u64> = vec![0; named.len()];
     // The last grant count at which each tenant was served, so a wait is a
@@ -227,29 +274,9 @@ fn fair_round(tenants: u32, seed: u64) -> Result<Fairness, Box<dyn Error>> {
         // Invariant 2, at every round boundary and over every tenant. The last
         // boundary is the sweep's end, so the final share is read at one too.
         if handed_out.is_multiple_of(total_weight) || handed_out == target {
-            for (position, count) in grants.iter().copied().enumerate() {
-                let Some(weight) = weights.get(position).copied() else {
-                    let refusal =
-                        Err("the round named a tenant this sweep never drew a weight for".into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "fair_round: returning an error to the caller");
-                    return refusal;
-                };
-                let above = count
-                    .saturating_mul(total_weight)
-                    .saturating_sub(weight.saturating_mul(handed_out));
-                let below = weight
-                    .saturating_mul(handed_out)
-                    .saturating_sub(count.saturating_mul(total_weight));
-                let deviation = above.max(below);
-                worst_deviation = worst_deviation.max(deviation);
-                assert!(
-                    deviation <= total_weight,
-                    "at tier {tenants}, after {handed_out} grants, tenant {position} \
-                     took {count} at weight {weight} of {total_weight}, which is \
-                     {deviation} shares of one grant away from its ideal -- more than \
-                     one round"
-                );
-            }
+            let at_boundary = (tenants, handed_out, total_weight);
+            worst_deviation =
+                worst_deviation.max(boundary_deviation(&grants, &weights, at_boundary)?);
         }
     }
     assert!(

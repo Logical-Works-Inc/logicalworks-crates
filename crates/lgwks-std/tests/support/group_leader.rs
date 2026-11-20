@@ -9,7 +9,7 @@
 ///
 /// Its own group, or a group kill would name a group the test does not lead and
 /// every member would outlive the test.
-pub fn spawn_group_leader(script: &str) -> std::io::Result<std::process::Child> {
+pub(crate) fn spawn_group_leader(script: &str) -> std::io::Result<std::process::Child> {
     use std::os::unix::process::CommandExt as _;
     std::process::Command::new("sh")
         .arg("-c")

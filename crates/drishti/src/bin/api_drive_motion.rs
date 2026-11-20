@@ -42,6 +42,16 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
     let property: PropertyKey = String::from("opacity");
     note(digest, "target", &target)?;
     note(digest, "property", &property)?;
+    let tween = drive_tween(digest)?;
+    drive_springs(digest)?;
+    let mut store = drive_store(digest, node_id)?;
+    let graph = drive_graph(digest, node_id, property, tween)?;
+    drive_patch(digest, node_id, graph, &mut store)?;
+    drive_interpolation(digest)
+}
+
+/// Drive the clock, easing and tween, and return the tween.
+fn drive_tween(digest: &mut String) -> Result<TweenComponent, Failure> {
     let clock = Clock::deterministic(0.0);
     note(digest, "clock", &clock.wall_clock_ms())?;
     let later = clock.advance_ms(16.0);
@@ -74,6 +84,11 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
         TweenComponent::new(0.0, 1.0, 0.0, 0.0, Easing::named(NamedCurve::Linear)),
         "zero-duration tween must fail",
     )?;
+    Ok(tween_error)
+}
+
+/// Drive the animated value, the motion error, the spring and the accumulators.
+fn drive_springs(digest: &mut String) -> Result<(), Failure> {
     let value = AnimValue::new(0.25);
     note(digest, "anim-value", &value.value())?;
     let code = MotionErrorCode::PatchInvalid;
@@ -116,6 +131,11 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
         AccumulatorComponent::new_scrub(String::new()),
         "empty scrub source must fail",
     )?;
+    Ok(())
+}
+
+/// Drive the accumulator store and the critical spring; return the store.
+fn drive_store(digest: &mut String, node_id: NodeHandle) -> Result<AccumulatorStore, Failure> {
     let mut store = AccumulatorStore::new();
     let state = store.get_or_default(node_id);
     state.set_position(0.5);
@@ -142,10 +162,20 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
     note(digest, "spring-settled", &spring.is_settled())?;
     spring.snap();
     refused(CriticalSpring::new(0.0, 0.001), "fast response must fail")?;
+    Ok(store)
+}
+
+/// Drive bindings, nodes and graph edits; return the built graph.
+fn drive_graph(
+    digest: &mut String,
+    node_id: NodeHandle,
+    property: PropertyKey,
+    tween: TweenComponent,
+) -> Result<MotionGraph, Failure> {
     let target_binding = BindingTarget::new(String::from("view.drive"), property.clone());
     note(digest, "binding-handle", &target_binding.handle())?;
     note(digest, "binding-property", &target_binding.property())?;
-    let mut tween_node = MotionNode::new(node_id, target_binding, NodeKind::Tween(tween_error));
+    let mut tween_node = MotionNode::new(node_id, target_binding, NodeKind::Tween(tween));
     note(digest, "node-id", &tween_node.node_id())?;
     note(digest, "node-kind", &tween_node.kind())?;
     note(digest, "node-target", &tween_node.target().handle())?;
@@ -194,6 +224,16 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
         shrunk.add_node(tween_node.clone()).replace_node(tween_node),
     )?;
     note(digest, "replaced-version", &replaced.version())?;
+    Ok(graph)
+}
+
+/// Drive a patch, the scrub maps, frame evaluation and the direct write.
+fn drive_patch(
+    digest: &mut String,
+    node_id: NodeHandle,
+    graph: MotionGraph,
+    store: &mut AccumulatorStore,
+) -> Result<(), Failure> {
     let patch = MotionPatch::new(
         uuid(digest, "patch-id", "88888888-8888-8888-8888-888888888888")?,
         node_id,
@@ -204,7 +244,7 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
     note(digest, "patch-node", &patch.node_id())?;
     note(digest, "patch-ops", &patch.ops().len())?;
     note(digest, "patch-preserve", &patch.preserve_velocity())?;
-    let op = &patch.ops()[0];
+    let op = patch.ops().first().ok_or("drive patch must keep its op")?;
     note(digest, "op-path", &op.path())?;
     note(digest, "op-value-float", &op.value())?;
     note(
@@ -234,7 +274,7 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
     let empty_map: &dyn ScrubSourceMap = &empty;
     note(digest, "scrub-miss", &empty_map.get("nope").is_none())?;
     let evaluated: MotionFrame =
-        evaluate_frame(&patched, &Clock::deterministic(50.0), &mut store, scrubbed);
+        evaluate_frame(&patched, &Clock::deterministic(50.0), store, scrubbed);
     note(digest, "frame-wall", &evaluated.t_wall_ms())?;
     for binding in evaluated.bindings() {
         note(digest, "binding-node", &binding.node_id())?;
@@ -243,6 +283,11 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
     let direct = BindingWrite::new(node_id, BindingValue::Scalar(0.5));
     note(digest, "direct-node", &direct.node_id())?;
     note(digest, "direct-value", &direct.value())?;
+    Ok(())
+}
+
+/// Drive every interpolation family.
+fn drive_interpolation(digest: &mut String) -> Result<(), Failure> {
     note(digest, "lerp", &lerp_scalar(0.0, 1.0, 0.25))?;
     let from2 = Vec2::new(0.0, 0.0);
     let to2 = Vec2::new(1.0, 2.0);
@@ -284,7 +329,8 @@ fn drive_motion(digest: &mut String) -> Result<(), Failure> {
     let mut out_path = [Point2::new(0.0, 0.0); 2];
     let written = interp_path(&from_path, &to_path, 0.5, &mut out_path);
     note(digest, "path-written", &written)?;
-    note(digest, "path-point", &(out_path[0].x(), out_path[0].y()))?;
+    let [first_point, _] = out_path;
+    note(digest, "path-point", &(first_point.x(), first_point.y()))?;
     let from_color = SRgb::new(1.0, 0.0, 0.0);
     let to_color = SRgb::new(0.0, 0.0, 1.0);
     note(digest, "srgb-red", &from_color.red())?;

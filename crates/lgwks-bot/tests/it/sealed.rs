@@ -247,7 +247,10 @@ fn a_torn_shred_leaves_live_or_erased_never_readable_without_a_key() -> TestResu
     let middle = header.saturating_add(full.saturating_sub(header) >> 1);
     let cuts = [header, middle, full.saturating_sub(1), full];
     for cut in cuts {
-        std::fs::write(&path, &file_bytes[..cut.min(full)])?;
+        let kept = file_bytes
+            .get(..cut.min(full))
+            .ok_or("the cut lies inside the file")?;
+        std::fs::write(&path, kept)?;
         let reopened = open_store(scratch.path(), Arc::clone(&provider))?;
         // The shredded record reads erased while its frame survives, and as
         // an unknown refusal once the tear took its frame.
@@ -629,16 +632,8 @@ fn sealed_journal_seals_shreds_and_verifies() -> TestResult {
     if entries.len() != 2 {
         return Err(format!("the shredded journal keeps two frames, got {entries:?}").into());
     }
-    match entries[0].clone() {
-        SealedJournalRead::Erased { .. } => {}
-        _ => {
-            return Err(
-                format!("the shredded journal reads erased-then-live, got {entries:?}").into(),
-            );
-        }
-    }
-    match entries[1].clone() {
-        SealedJournalRead::Live { event, .. } => {
+    match (entries.first().cloned(), entries.get(1).cloned()) {
+        (Some(SealedJournalRead::Erased { .. }), Some(SealedJournalRead::Live { event, .. })) => {
             assert_eq!(event.key(), second.key());
         }
         _ => {
@@ -654,14 +649,8 @@ fn sealed_journal_seals_shreds_and_verifies() -> TestResult {
     if entries.len() != 2 {
         return Err(format!("the erasure keeps two frames, got {entries:?}").into());
     }
-    match entries[0].clone() {
-        SealedJournalRead::Erased { .. } => {}
-        _ => {
-            return Err(format!("the erasure survives a restart, got {entries:?}").into());
-        }
-    }
-    match entries[1].clone() {
-        SealedJournalRead::Live { event, .. } => {
+    match (entries.first().cloned(), entries.get(1).cloned()) {
+        (Some(SealedJournalRead::Erased { .. }), Some(SealedJournalRead::Live { event, .. })) => {
             assert_eq!(event.key(), second.key());
         }
         _ => {

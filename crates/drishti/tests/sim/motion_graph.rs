@@ -12,8 +12,8 @@ use lgwks_std::id::Uuid;
 
 use crate::fixtures::all_named_curves;
 use crate::motion_kit::{
-    describe, ensure, eval_at, linear_tween, node_id, reference_linear, scalar_of, single_node,
-    within,
+    describe, ensure, eval_at, linear_tween, node_id, pick, reference_linear, scalar_of,
+    single_node, within,
 };
 use crate::rng::SimRng;
 
@@ -97,7 +97,7 @@ fn sim_motion_graph_version_counts_every_mutation() -> Result<(), String> {
         let mut policies = BTreeMap::new();
         let mut version = 0_u64;
         for step in 0..300_u64 {
-            let id = pool[random.below_len(pool.len())];
+            let id = pick(&mut random, &pool)?;
             match random.below(4) {
                 0 => {
                     graph = graph.add_node(tween_node(&mut random, id)?);
@@ -121,7 +121,7 @@ fn sim_motion_graph_version_counts_every_mutation() -> Result<(), String> {
                     }
                 }
                 _ => {
-                    let property = PROPERTIES[random.below_len(PROPERTIES.len())];
+                    let property = pick(&mut random, &PROPERTIES)?;
                     let policy = match random.below(3) {
                         0 => ConflictPolicy::LastWrite,
                         1 => ConflictPolicy::Compose,
@@ -159,14 +159,15 @@ fn sim_motion_graph_branches_never_leak_into_siblings() -> Result<(), String> {
         for _ in 0..10 {
             pool.push(node_id(&mut random));
         }
-        let base = single_node(pool[0], tween_node(&mut random, pool[0])?.kind().clone());
+        let anchor = *pool.first().ok_or("the pool holds node ids")?;
+        let base = single_node(anchor, tween_node(&mut random, anchor)?.kind().clone());
         let mut branches: Vec<(MotionGraph, BTreeSet<Uuid>, u64)> = Vec::new();
         for _ in 0..8 {
-            branches.push((base.clone(), BTreeSet::from([pool[0]]), base.version()));
+            branches.push((base.clone(), BTreeSet::from([anchor]), base.version()));
         }
         for _ in 0..400 {
             let index = random.below_len(branches.len());
-            let id = pool[random.below_len(pool.len())];
+            let id = pick(&mut random, &pool)?;
             let node = tween_node(&mut random, id)?;
             let add = random.below(2) == 0;
             let Some(branch) = branches.get_mut(index) else {
@@ -240,7 +241,7 @@ fn sim_motion_graph_builder_policy_is_last_declaration_per_property() -> Result<
         let mut last: BTreeMap<&str, ConflictPolicy> = BTreeMap::new();
         let declarations = random.below(12);
         for _ in 0..declarations {
-            let property = PROPERTIES[random.below_len(PROPERTIES.len())];
+            let property = pick(&mut random, &PROPERTIES)?;
             let policy = if random.below(2) == 0 {
                 ConflictPolicy::Compose
             } else {
@@ -329,8 +330,13 @@ fn sim_motion_tween_sampling_order_does_not_matter() -> Result<(), String> {
         let mut shuffled = vec![0_u32; instants.len()];
         let mut fresh = AccumulatorStore::new();
         for position in visit {
-            shuffled[position] =
-                scalar_of(&eval_at(&graph, instants[position], &mut fresh), id)?.to_bits();
+            let instant = *instants
+                .get(position)
+                .ok_or("a visit position is outside the instants")?;
+            *shuffled
+                .get_mut(position)
+                .ok_or("a visit position is outside the samples")? =
+                scalar_of(&eval_at(&graph, instant, &mut fresh), id)?.to_bits();
         }
         ensure(
             in_order == shuffled,

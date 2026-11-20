@@ -146,10 +146,10 @@ impl ApprovalId {
     ///
     /// # Errors
     ///
-    /// [`DecisionError::Unknown`] when the text is not an id: a malformed id
+    /// [`DecisionError::NoPending`] when the text is not an id: a malformed id
     /// names no pending approval.
     pub fn parse(text: &str) -> Result<Self, DecisionError> {
-        let unknown = || DecisionError::Unknown {
+        let unknown = || DecisionError::NoPending {
             id: text.to_owned(),
         };
         let (run, key) = text.split_once(':').ok_or_else(unknown)?;
@@ -230,6 +230,12 @@ impl ApprovalDecision {
         &self.by
     }
 
+    /// Who decided, moved out so the record written for the decision owns it.
+    #[must_use]
+    pub(crate) fn into_by(self) -> String {
+        self.by
+    }
+
     /// Whether the payload is released.
     #[must_use]
     pub fn verdict(&self) -> ApprovalVerdict {
@@ -272,7 +278,7 @@ pub enum DecisionError {
         id: String,
     },
     /// No pending approval reads as this id.
-    Unknown {
+    NoPending {
         /// The id that was asked for.
         id: String,
     },
@@ -305,7 +311,7 @@ impl fmt::Display for DecisionError {
                 formatter,
                 "approval {id} lapsed before it was decided; the lapse is recorded"
             ),
-            Self::Unknown { ref id } => {
+            Self::NoPending { ref id } => {
                 write!(formatter, "no pending approval reads as {id:?}")
             }
             Self::Store { ref source } => {
@@ -559,7 +565,8 @@ pub(crate) fn park_app_approval(
     limit: Duration,
 ) -> Result<ApprovalId, FlowError> {
     let naming = approval_digest(format!("lgwks.bot/app-approval:{tenant}:{what}").as_bytes());
-    let run = RunId::from_hex(&naming.to_hex()[..32]).map_err(|cause| {
+    let named: String = naming.to_hex().chars().take(32).collect();
+    let run = RunId::from_hex(&named).map_err(|cause| {
         FlowError::failed(format!("an app approval's run could not be named: {cause}"))
     })?;
     let key = step_key(tenant, &format!("app/approval/{what}"));

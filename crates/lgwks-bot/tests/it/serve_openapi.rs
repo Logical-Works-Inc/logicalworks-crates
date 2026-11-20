@@ -445,8 +445,11 @@ fn serve_openapi_stub_status_is_acceptable_not_a_blocker() -> Result<(), String>
     let document =
         emit_openapi(routes.as_slice()).map_err(|error| format!("a stub is blocked: {error}"))?;
     assert_eq!(
-        document["paths"]["/drafts"]["post"]
-            .get("x-doc-status")
+        document
+            .get("paths")
+            .and_then(|paths| paths.get("/drafts"))
+            .and_then(|path| path.get("post"))
+            .and_then(|post| post.get("x-doc-status"))
             .and_then(|status| status.as_str()),
         Some("stub"),
         "a stub operation is marked, not blocked"

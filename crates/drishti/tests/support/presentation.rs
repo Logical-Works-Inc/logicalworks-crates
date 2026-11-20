@@ -8,7 +8,7 @@
 use drishti::canvas_scene::{Action, Artifact, Canvas, Delta, Frame, Limits};
 
 /// Canvas fixture with a three-line source artifact.
-pub fn canvas(tenant: &str, limits: Limits) -> Result<Canvas, String> {
+pub(crate) fn canvas(tenant: &str, limits: Limits) -> Result<Canvas, String> {
     let artifact = Artifact::new(
         crate::fixtures::WORK_OBJECT,
         1,
@@ -23,7 +23,7 @@ pub fn canvas(tenant: &str, limits: Limits) -> Result<Canvas, String> {
 }
 
 /// Prepare and acknowledge one frame.
-pub fn present(scene: &mut Canvas, dt: f64) -> Result<Frame, String> {
+pub(crate) fn present(scene: &mut Canvas, dt: f64) -> Result<Frame, String> {
     let frame = scene
         .prepare(dt, 900, 600, false)
         .map_err(|error| format!("prepare rejected: {error}"))?
@@ -35,7 +35,7 @@ pub fn present(scene: &mut Canvas, dt: f64) -> Result<Frame, String> {
 }
 
 /// Enqueue one action at the current base revision.
-pub fn queue(scene: &mut Canvas, action: Action) -> Result<(), String> {
+pub(crate) fn queue(scene: &mut Canvas, action: Action) -> Result<(), String> {
     let base = scene
         .next_base_revision()
         .map_err(|error| format!("base revision rejected: {error}"))?;
@@ -51,7 +51,7 @@ pub fn queue(scene: &mut Canvas, action: Action) -> Result<(), String> {
 
 /// Fail unless two floats are bit-identical, so `-0.0` and `0.0` differ and a
 /// NaN equals itself.
-pub fn assert_bits(actual: f64, expected: f64, what: &str) -> Result<(), String> {
+pub(crate) fn assert_bits(actual: f64, expected: f64, what: &str) -> Result<(), String> {
     crate::fixtures::ensure(actual.to_bits() == expected.to_bits(), || {
         format!("{what}: got {actual}, want {expected}")
     })

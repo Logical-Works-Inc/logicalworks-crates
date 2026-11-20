@@ -12,7 +12,7 @@
 /// of the bands is a contiguous sweep of the whole space, so no seed is
 /// quietly untested because of how the bands were cut.
 #[derive(Clone, Copy, Debug)]
-pub struct Band {
+pub(crate) struct Band {
     /// The first seed, inclusive.
     pub first: u64,
     /// How many seeds the band covers.
@@ -21,12 +21,12 @@ pub struct Band {
 
 impl Band {
     /// A band of `count` seeds starting at `first`.
-    pub const fn new(first: u64, count: u64) -> Self {
+    pub(crate) const fn new(first: u64, count: u64) -> Self {
         Self { first, count }
     }
 
     /// Every seed in the band.
-    pub fn seeds(&self) -> impl Iterator<Item = u64> + '_ {
+    pub(crate) fn seeds(&self) -> impl Iterator<Item = u64> + '_ {
         self.first..self.first.saturating_add(self.count)
     }
 }
@@ -39,9 +39,9 @@ impl Band {
 /// alongside the band count, so every band holds eight seeds rather than eight
 /// families sharing one — a family registered against band 30 would otherwise
 /// silently sweep the same eight seeds as band 14.
-pub const SEED_SPACE: u64 = 256;
+pub(crate) const SEED_SPACE: u64 = 256;
 /// How many bands [`SEED_SPACE`] is cut into.
-pub const BANDS: u64 = 32;
+pub(crate) const BANDS: u64 = 32;
 
 /// The one band of seeds a declared test sweeps.
 ///
@@ -51,7 +51,7 @@ pub const BANDS: u64 = 32;
 /// [`SEED_SPACE`], one band per index. Folding indices past the table onto its
 /// last band made families 32 to 44 sweep the same eight seeds (#401), and a
 /// table widened for them would double every sweep that walks the whole table.
-pub fn band_of(index: usize) -> Band {
+pub(crate) fn band_of(index: usize) -> Band {
     let table = bands(SEED_SPACE, BANDS);
     if let Some(band) = table.get(index) {
         return *band;
@@ -74,7 +74,7 @@ pub fn band_of(index: usize) -> Band {
 /// are contiguous, disjoint, and together cover every seed with no gap and no
 /// overlap. A suite that leaves a hole in the seed space would be reporting a
 /// coverage it does not have. Zero parts is no bands.
-pub fn bands(total: u64, parts: u64) -> Vec<Band> {
+pub(crate) fn bands(total: u64, parts: u64) -> Vec<Band> {
     let (Some(base), Some(remainder)) = (total.checked_div(parts), total.checked_rem(parts)) else {
         return Vec::new();
     };

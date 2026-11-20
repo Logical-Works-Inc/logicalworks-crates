@@ -42,7 +42,9 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
-        drop(std::fs::remove_dir_all(self.0.path()));
+        if let Err(error) = std::fs::remove_dir_all(self.0.path()) {
+            lgwks_std::trace::debug!(%error, "command_journal_cli: scratch not removed");
+        }
     }
 }
 
@@ -97,7 +99,7 @@ impl Server {
 
     /// Close its stdin and require a clean exit.
     fn close(&mut self) -> Outcome {
-        drop(self.input.take());
+        self.input = None;
         let status = self.child.wait()?;
         assert!(status.success(), "{status}");
         Ok(())
@@ -361,7 +363,7 @@ fn a_hundred_clients_with_one_key_land_one_write_and_all_hear_it() -> Outcome {
     });
     let mut bodies = Vec::new();
     for joined in answers {
-        let (status, text) = joined.map_err(|_| "a client panicked")?;
+        let (status, text) = joined.map_err(crate::sim::panicked)?;
         assert_eq!(status, 200, "{text}");
         bodies.push(text);
     }

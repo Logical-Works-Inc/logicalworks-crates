@@ -118,7 +118,7 @@ fn a_deadline_the_parse_fits_inside_answers_like_try_parse() -> TestResult {
 
 #[test]
 /// A deadline past what the clock can represent never arrives.
-fn an_unrepresentable_deadline_runs_the_parse_to_completion() -> TestResult {
+fn an_unrepresentable_deadline_runs_the_parse_to_completion() {
     let parsed = try_parse_within(
         "package main\n\nfunc main() {}\n",
         Language::Go,
@@ -129,5 +129,4 @@ fn an_unrepresentable_deadline_runs_the_parse_to_completion() -> TestResult {
         "Duration::MAX is no deadline, got {:?}",
         parsed.err()
     );
-    Ok(())
 }

@@ -15,6 +15,7 @@
 //! | `tenants_are_isolated` | a second tenant can neither resume nor read the first tenant's run, and its step body never runs |
 //! | `refused_append_changes_nothing` | an identical append is idempotent, and a conflicting or foreign-tenant append leaves the committed record and the count as they were, across a reopen |
 //! | `drift_is_reported` | a resume under another definition is refused as a typed drift before any body runs |
+//! | `first_attempt_is_compatible` | a run the store holds nothing for is compatible, and has no drift to name, as [`RunRecords::compatibility`] requires |
 //!
 //! [`check`] runs every check every time, whatever an earlier one found, and the
 //! [`Conformance`] it returns names each one that passed and each [`Violation`].
@@ -62,6 +63,12 @@ pub struct Opened {
     /// Arm a one-shot failure of the next read a durable step makes through this
     /// handle: [`RunRecords::lookup`] or [`RunRecords::compatibility`].
     fail_next_read: Box<dyn Fn() + Send + Sync>,
+}
+
+impl std::fmt::Debug for Opened {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Opened").finish_non_exhaustive()
+    }
 }
 
 impl Opened {
@@ -169,7 +176,7 @@ impl Conformance {
 /// found; each records its runs under run ids of its own, so no check reads
 /// another's records.
 pub fn check(open: &mut dyn FnMut() -> Result<Opened, OpenError>) -> Conformance {
-    let checks: [(&'static str, Check); 5] = [
+    let checks: [(&'static str, Check); 6] = [
         ("append_is_durable", append_is_durable),
         ("read_failure_is_not_absence", read_failure_is_not_absence),
         ("tenants_are_isolated", tenants_are_isolated),
@@ -178,6 +185,7 @@ pub fn check(open: &mut dyn FnMut() -> Result<Opened, OpenError>) -> Conformance
             refused_append_changes_nothing,
         ),
         ("drift_is_reported", drift_is_reported),
+        ("first_attempt_is_compatible", first_attempt_is_compatible),
     ];
     let mut outcomes = Vec::with_capacity(checks.len());
     for (name, run) in checks {
@@ -492,4 +500,39 @@ fn drift_is_reported(open: &mut dyn FnMut() -> Result<Opened, OpenError>) -> Res
         });
     }
     ran_once(&bodies, "the resume under revision 2")
+}
+
+/// A run the store holds nothing for is a first attempt: compatible, with no
+/// drift to name.
+///
+/// Asked of the trait directly, on a run id no other check uses: a store that
+/// answers `false` here refuses the first step of every run it is given, so
+/// the run's first record is unreachable, and a store that names a drift has
+/// invented a recorded identity it does not hold.
+fn first_attempt_is_compatible(
+    open: &mut dyn FnMut() -> Result<Opened, OpenError>,
+) -> Result<(), Violation> {
+    let opened = open_for(open, "the first attempt")?;
+    let run = RunId::mint().map_err(|refusal| setup("minting a run id")(&refusal))?;
+    let definition =
+        DefinitionIdentity::new("conformance-first", 1, Digest::from_bytes([3; 32]), 1);
+    match opened.records.compatibility(run, &definition) {
+        Ok(true) => {}
+        other => {
+            return violated(Violation::Answered {
+                during: "the compatibility of a run with no records",
+                found: format!("{other:?}, not Ok(true)"),
+            });
+        }
+    }
+    match opened.records.drift(run, &definition) {
+        Err(refusal) => {
+            lgwks_std::trace::debug!(error = %refusal, "run-store conformance: a first attempt has no drift, as it must not");
+            Ok(())
+        }
+        Ok(axis) => violated(Violation::Answered {
+            during: "the drift of a run with no records",
+            found: format!("{axis:?}, not a refusal"),
+        }),
+    }
 }

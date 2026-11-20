@@ -317,7 +317,10 @@ mod process {
         let mut stream: &[u8] = &[0, 0, 0, 2, 7, 9, 0, 0, 0, 5];
         let frames = read_frames(&mut stream, 64)?;
         assert_eq!(frames.records().len(), 1, "the whole record before the cut");
-        assert_eq!(frames.records()[0].payload(), Some(&[7, 9][..]));
+        assert_eq!(
+            frames.records().first().and_then(|record| record.payload()),
+            Some(&[7, 9][..])
+        );
         assert_eq!(
             frames.ended(),
             &FrameRead::TruncatedPayload {

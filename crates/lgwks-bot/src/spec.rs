@@ -86,7 +86,7 @@ pub struct BotSpec {
     /// partially interpreted, because a later version may give an existing field
     /// a meaning this one does not have.
     #[serde(default = "current_spec_version")]
-    pub version: u32,
+    pub(crate) version: u32,
     /// The bot's unique name. Must be non-empty: both builder entry points
     /// refuse an empty name with [`EcsError::IncompleteSpec`]. `from_json`
     /// accepts one because it validates shape only; the build-time check is

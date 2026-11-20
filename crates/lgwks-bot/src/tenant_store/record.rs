@@ -406,7 +406,7 @@ fn decode_stored(payload: &[u8], at: u64) -> Result<Stored, TenantStoreError> {
 fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool, TenantStoreError> {
     let mut filled = 0usize;
     while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
+        match reader.read(buf.split_at_mut(filled).1) {
             Ok(0) => return Ok(false),
             Ok(read) => filled = filled.saturating_add(read),
             Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {}

@@ -10,9 +10,19 @@ pub mod base64 {
     use std::error::Error;
     use std::fmt;
 
-    /// The 64 characters of the RFC 4648 standard alphabet in sextet order:
-    /// index `n` is the character that encodes the six-bit value `n`.
-    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    /// The character of the RFC 4648 standard alphabet that encodes the six-bit
+    /// value `six`: `A`-`Z` for 0-25, `a`-`z` for 26-51, `0`-`9` for 52-61,
+    /// then `+` and `/`. The value is masked to six bits, so every input maps
+    /// to one of the 64 characters and none can fall outside the alphabet.
+    fn alphabet_char(six: u8) -> char {
+        char::from(match six & 0x3f {
+            low @ 0..=25 => b'A'.saturating_add(low),
+            mid @ 26..=51 => b'a'.saturating_add(mid.saturating_sub(26)),
+            digit @ 52..=61 => b'0'.saturating_add(digit.saturating_sub(52)),
+            62 => b'+',
+            _ => b'/',
+        })
+    }
 
     /// Emits the first two characters of a quantum.
     ///
@@ -20,15 +30,15 @@ pub mod base64 {
     /// low bits of `b0` and, when the quantum holds a second byte, the top four
     /// bits of `b1` above them. A short final quantum has no second byte, so
     /// those four bits are zero and the sextet is the first byte's alone. Both
-    /// indices are six bits wide by construction, so they always index inside
-    /// `ALPHABET`.
+    /// values are six bits wide by construction, so each maps to one alphabet
+    /// character.
     fn encode_first_pair(b0: u8, b1: Option<u8>, out: &mut String) {
         let second_sextet = match b1 {
             Some(first) => ((b0 & 0x03) << 4) | (first >> 4),
             None => (b0 & 0x03) << 4,
         };
-        out.push(char::from(ALPHABET[usize::from(b0 >> 2)]));
-        out.push(char::from(ALPHABET[usize::from(second_sextet)]));
+        out.push(alphabet_char(b0 >> 2));
+        out.push(alphabet_char(second_sextet));
     }
 
     /// Emits the third character of a quantum, or `=` when the quantum holds
@@ -46,7 +56,7 @@ pub mod base64 {
                 return;
             }
         };
-        out.push(char::from(ALPHABET[usize::from(sextet)]));
+        out.push(alphabet_char(sextet));
     }
 
     /// Emits the fourth character of a quantum, or `=` when the quantum holds
@@ -57,7 +67,7 @@ pub mod base64 {
     /// rather than as data.
     fn encode_fourth_char(b2: Option<u8>, out: &mut String) {
         match b2 {
-            Some(second) => out.push(char::from(ALPHABET[usize::from(second & 0x3f)])),
+            Some(second) => out.push(alphabet_char(second)),
             None => out.push('='),
         }
     }
@@ -192,7 +202,8 @@ pub mod base64 {
     /// octet is therefore exact, and naming it here keeps that narrowing a
     /// documented property rather than a silent `as` cast.
     fn low_byte(value: u32) -> u8 {
-        value.to_le_bytes()[0]
+        let [low, ..] = value.to_le_bytes();
+        low
     }
 
     /// Folds one body character into the accumulator and emits a byte for
@@ -254,7 +265,10 @@ pub mod base64 {
         check_base64_quantum(input.len())?;
         let padding = inspect_padding(input)?;
         // `padding` is a count of trailing bytes, so it is at most `len`.
-        let body = &input[..input.len().saturating_sub(padding)];
+        let body_len = input.len().saturating_sub(padding);
+        let body = input
+            .get(..body_len)
+            .ok_or(DecodeError::MisplacedPadding { at: body_len })?;
         check_interior_padding(body)?;
 
         // Three bytes out per four characters in. `check_base64_quantum` has
@@ -325,7 +339,10 @@ pub mod percent {
     /// by construction; RFC 3986 requires uppercase digits, which is why the
     /// table is not the crate's lowercase `hex` encoder.
     fn upper_nibble(value: u8) -> char {
-        char::from(b"0123456789ABCDEF"[usize::from(value)])
+        char::from(match value & 0x0f {
+            digit @ 0..=9 => b'0'.saturating_add(digit),
+            letter => b'A'.saturating_add(letter.saturating_sub(10)),
+        })
     }
 
     /// Why a percent-encoded string could not be decoded.
@@ -391,13 +408,18 @@ pub mod percent {
     /// Consumes one input position, copying a literal byte or decoding an
     /// escape, and advances `i` past what it consumed.
     ///
-    /// `i` indexes inside `bytes` and grows by at most three per call, so the
-    /// increment cannot overflow; the range lookup is what turns a `%` with
-    /// fewer than two characters left into `TruncatedEscape` instead of a
-    /// panic.
-    fn decode_step(bytes: &[u8], i: &mut usize, out: &mut Vec<u8>) -> Result<(), DecodeError> {
-        if bytes[*i] != b'%' {
-            out.push(bytes[*i]);
+    /// `current` is the byte at `i`, which indexes inside `bytes` and grows by
+    /// at most three per call, so the increment cannot overflow; the range
+    /// lookup is what turns a `%` with fewer than two characters left into
+    /// `TruncatedEscape` instead of a panic.
+    fn decode_step(
+        bytes: &[u8],
+        current: u8,
+        i: &mut usize,
+        out: &mut Vec<u8>,
+    ) -> Result<(), DecodeError> {
+        if current != b'%' {
+            out.push(current);
             *i = i.saturating_add(1);
             Ok(())
         } else {
@@ -431,8 +453,8 @@ pub mod percent {
         let bytes = text.as_bytes();
         let mut out = Vec::with_capacity(bytes.len());
         let mut cursor = 0;
-        while cursor < bytes.len() {
-            decode_step(bytes, &mut cursor, &mut out)?;
+        while let Some(&current) = bytes.get(cursor) {
+            decode_step(bytes, current, &mut cursor, &mut out)?;
         }
         String::from_utf8(out).map_err(|utf8_err| DecodeError::NotUtf8 {
             decoded_at: utf8_err.utf8_error().valid_up_to(),

@@ -20,9 +20,11 @@ mod capture_tests;
 /// The edge extraction's tests.
 #[cfg(test)]
 mod edges_tests;
-/// The single-use faults the collection tests inject, and the checks they share.
-#[cfg(test)]
+/// The fault plan a collection run carries (empty outside tests), and the checks the tests share.
 mod faults;
+/// Seeded adversarial simulations of the fault plan and the capture owner.
+#[cfg(test)]
+mod sim_capture_faults;
 /// Seeded sweeps over `lexical_join` against a component-stack model.
 #[cfg(test)]
 mod sim_edges_join;

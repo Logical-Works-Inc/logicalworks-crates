@@ -63,14 +63,10 @@ fn read_tlv(input: &[u8]) -> Result<(Tlv<'_>, &[u8]), Error> {
         let header_len = 2_usize.saturating_add(count_usize);
         (length, header_len)
     };
-    let body_len_usize = match usize::try_from(body_len) {
-        Ok(fits) => fits,
-        Err(int_error) => {
-            #[cfg(feature = "trace")]
-            crate::trace::debug!(?int_error, "DER length does not fit this target");
-            let _ = int_error;
-            return refused("DER length does not fit this target");
-        }
+    // The conversion carries no detail beyond "does not fit", which is the
+    // refusal's own text, and `refused` announces that through `trace`.
+    let Ok(body_len_usize) = usize::try_from(body_len) else {
+        return refused("DER length does not fit this target");
     };
     let total_len = match header_len.checked_add(body_len_usize) {
         Some(total) => total,
@@ -144,6 +140,8 @@ fn read_time(child: &Tlv<'_>) -> Result<(), Error> {
 
 /// Raw OID bodies this loader admits, compared byte for byte.
 mod oid {
+    /// 1.2.840.113549.1.1, the PKCS#1 arc every RSA signature scheme sits under.
+    pub(super) const PKCS1_ARC: &[u8] = &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01];
     /// 1.2.840.113549.1.1.1, RSA encryption.
     pub(super) const RSA_ENCRYPTION: &[u8] =
         &[0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x01];
@@ -215,81 +213,89 @@ pub(super) fn parse_certificate(der: &[u8]) -> Result<CertifiedPublic, Error> {
         return refused("certificate is not one DER sequence");
     }
     let outer_children = read_children(outer.body)?;
-    if outer_children.len() != 3 {
+    let [ref tbs, ref signature, ref signature_value] = *outer_children.as_slice() else {
         return refused("certificate is not three parts");
-    }
-    let (tbs, signature, signature_value) =
-        (&outer_children[0], &outer_children[1], &outer_children[2]);
+    };
     if tbs.tag != 0x30 || signature.tag != 0x30 || signature_value.tag != 0x03 {
         return refused("certificate parts are mistagged");
     }
     let signature_oid = signature_oid_of(signature)?;
     let tbs_children = read_children(tbs.body)?;
-    let mut at = 0_usize;
-    if tbs_children.first().is_some_and(|child| child.tag == 0xA0) {
-        let version_children = read_children(tbs_children[0].body)?;
-        if version_children.len() != 1 {
+    let mut fields = tbs_children.as_slice();
+    if let Some((explicit, after_version)) = fields.split_first()
+        && explicit.tag == 0xA0
+    {
+        let version_children = read_children(explicit.body)?;
+        let [ref version_child] = *version_children.as_slice() else {
             return refused("certificate version is not one integer");
-        }
-        let version = read_integer(&version_children[0], "certificate version is not v1..v3", 1)?;
-        if version.len() != 1 || version[0] > 2 {
+        };
+        let version = read_integer(version_child, "certificate version is not v1..v3", 1)?;
+        if version.len() != 1 || !version.first().is_some_and(|&byte| byte <= 2) {
             return refused("certificate version is not v1..v3");
         }
-        at = at.saturating_add(1);
+        fields = after_version;
     }
-    let serial_at = at;
-    let signature_at = at.saturating_add(1);
-    let issuer_at = at.saturating_add(2);
-    let validity_at = at.saturating_add(3);
-    let subject_at = at.saturating_add(4);
-    let spki_at = at.saturating_add(5);
-    if tbs_children.len() < spki_at.saturating_add(1) {
+    let [
+        ref serial,
+        ref inner_signature,
+        ref issuer,
+        ref validity,
+        ref subject,
+        ref spki,
+        ..,
+    ] = *fields
+    else {
         return refused("certificate tbs is too short");
-    }
-    read_integer(
-        &tbs_children[serial_at],
-        "certificate serial is not an integer",
-        20,
-    )?;
-    let inner_signature = &tbs_children[signature_at];
+    };
+    read_integer(serial, "certificate serial is not an integer", 20)?;
     if inner_signature.tag != 0x30 || inner_signature.span != signature.span {
         return refused("certificate signatures disagree");
     }
     if signature_oid_of(inner_signature)? != signature_oid {
         return refused("certificate signatures disagree");
     }
-    for name_at in [issuer_at, subject_at] {
-        if tbs_children[name_at].tag != 0x30 {
+    for name in [issuer, subject] {
+        if name.tag != 0x30 {
             return refused("certificate issuer or subject is mistagged");
         }
     }
-    let validity_children = read_children(tbs_children[validity_at].body)?;
-    if tbs_children[validity_at].tag != 0x30 || validity_children.len() != 2 {
+    let validity_children = read_children(validity.body)?;
+    let [ref not_before, ref not_after] = *validity_children.as_slice() else {
+        return refused("certificate validity is not two times");
+    };
+    if validity.tag != 0x30 {
         return refused("certificate validity is not two times");
     }
-    read_time(&validity_children[0])?;
-    read_time(&validity_children[1])?;
-    parse_public(&tbs_children[spki_at])
+    read_time(not_before)?;
+    read_time(not_after)?;
+    parse_public(spki)
+}
+
+/// Whether `parameters` is exactly one DER NULL.
+fn is_null_parameter(parameters: &[Tlv<'_>]) -> bool {
+    matches!(*parameters, [ref null] if null.span == [0x05, 0x00])
 }
 
 /// Read the OID out of a signature AlgorithmIdentifier, checking its shape.
 fn signature_oid_of<'bytes>(identifier: &Tlv<'bytes>) -> Result<&'bytes [u8], Error> {
     let children = read_children(identifier.body)?;
-    if children.is_empty() || children[0].tag != 0x06 {
+    let Some((algorithm, parameters)) = children.split_first() else {
+        return refused("certificate signature is not an OID");
+    };
+    if algorithm.tag != 0x06 {
         return refused("certificate signature is not an OID");
     }
-    if !admitted_signature(children[0].body) {
+    if !admitted_signature(algorithm.body) {
         return refused("certificate signature scheme is not admitted");
     }
-    let is_rsa = children[0].body.starts_with(&oid::SHA256_RSA[..8]);
-    if is_rsa {
-        if children.len() != 2 || children[1].span != [0x05, 0x00] {
+    if algorithm.body.starts_with(oid::PKCS1_ARC) {
+        if !is_null_parameter(parameters) {
             return refused("RSA signature parameters are not NULL");
         }
-    } else if children.len() != 1 {
+    } else if !parameters.is_empty() {
         return refused("ECDSA signature takes no parameters");
     }
-    Ok(children[0].body)
+    Ok(algorithm.body)
 }
 
 /// Parse a SubjectPublicKeyInfo into its comparable public half.
@@ -298,18 +304,24 @@ fn parse_public(spki: &Tlv<'_>) -> Result<CertifiedPublic, Error> {
         return refused("subject key is not a sequence");
     }
     let children = read_children(spki.body)?;
-    if children.len() != 2 || children[0].tag != 0x30 || children[1].tag != 0x03 {
+    let [ref algorithm_id, ref key_bits] = *children.as_slice() else {
+        return refused("subject key is not an algorithm and a bit string");
+    };
+    if algorithm_id.tag != 0x30 || key_bits.tag != 0x03 {
         return refused("subject key is not an algorithm and a bit string");
     }
-    let algorithm = read_children(children[0].body)?;
-    if algorithm.is_empty() || algorithm[0].tag != 0x06 {
+    let algorithm = read_children(algorithm_id.body)?;
+    let Some((algorithm_oid, parameters)) = algorithm.split_first() else {
+        return refused("subject key algorithm is not an OID");
+    };
+    if algorithm_oid.tag != 0x06 {
         return refused("subject key algorithm is not an OID");
     }
-    if algorithm[0].body == oid::RSA_ENCRYPTION {
-        if algorithm.len() != 2 || algorithm[1].span != [0x05, 0x00] {
+    if algorithm_oid.body == oid::RSA_ENCRYPTION {
+        if !is_null_parameter(parameters) {
             return refused("RSA parameters are not NULL");
         }
-        let key_bytes = match children[1].body.get(1..) {
+        let key_bytes = match key_bits.body.get(1..) {
             Some(key_bytes) => key_bytes,
             None => return refused("subject key bit string is empty"),
         };
@@ -320,19 +332,22 @@ fn parse_public(spki: &Tlv<'_>) -> Result<CertifiedPublic, Error> {
         return rsa_public(&read_children(key_seq.body)?, 0)
             .map(|(modulus, exponent)| CertifiedPublic::Rsa { modulus, exponent });
     }
-    if algorithm[0].body == oid::EC_PUBLIC_KEY {
-        if algorithm.len() != 2 || algorithm[1].tag != 0x06 {
+    if algorithm_oid.body == oid::EC_PUBLIC_KEY {
+        let [ref curve] = *parameters else {
+            return refused("EC parameters are not a curve");
+        };
+        if curve.tag != 0x06 {
             return refused("EC parameters are not a curve");
         }
-        if !admitted_curve(algorithm[1].body) {
+        if !admitted_curve(curve.body) {
             return refused("EC curve is not admitted");
         }
-        let point = children[1].body;
-        if point.is_empty() || point[0] != 0x00 {
+        let point = key_bits.body;
+        if point.first() != Some(&0x00) {
             return refused("EC point is not a byte string");
         }
         return Ok(CertifiedPublic::Ec {
-            curve: algorithm[1].body.to_vec(),
+            curve: curve.body.to_vec(),
             point: point.to_vec(),
         });
     }
@@ -388,13 +403,19 @@ pub(super) fn parse_private_key(der: &[u8]) -> Result<KeyPublic, Error> {
         return refused("private key is not one DER sequence");
     }
     let children = read_children(outer.body)?;
-    if children.is_empty() || children[0].tag != 0x02 {
+    let Some((version_tlv, after_version)) = children.split_first() else {
+        return refused("private key has no version");
+    };
+    if version_tlv.tag != 0x02 {
         return refused("private key has no version");
     }
-    if children.len() >= 2 && children[1].tag == 0x30 {
+    if after_version
+        .first()
+        .is_some_and(|second| second.tag == 0x30)
+    {
         return parse_pkcs8(&children);
     }
-    let version = read_integer(&children[0], "private key version is not an integer", 1)?;
+    let version = read_integer(version_tlv, "private key version is not an integer", 1)?;
     if version == [1] {
         return parse_sec1(&children, None);
     }
@@ -403,10 +424,10 @@ pub(super) fn parse_private_key(der: &[u8]) -> Result<KeyPublic, Error> {
 
 /// Parse a PKCS#1 `RSAPrivateKey`.
 fn parse_pkcs1(children: &[Tlv<'_>]) -> Result<KeyPublic, Error> {
-    if children.len() < 3 {
+    let [ref version_tlv, _, _, ..] = *children else {
         return refused("RSA key is too short");
-    }
-    let version = read_integer(&children[0], "RSA version is not an integer", 1)?;
+    };
+    let version = read_integer(version_tlv, "RSA version is not an integer", 1)?;
     if version != [0] {
         return refused("RSA version is not zero");
     }
@@ -417,31 +438,37 @@ fn parse_pkcs1(children: &[Tlv<'_>]) -> Result<KeyPublic, Error> {
 /// Parse a SEC1 `ECPrivateKey`, with the curve from `outer_curve` when the
 /// key itself omits its parameters (PKCS#8 carries the curve instead).
 fn parse_sec1(children: &[Tlv<'_>], outer_curve: Option<&[u8]>) -> Result<KeyPublic, Error> {
-    if children.len() < 2 {
+    let [ref version_tlv, ref private_value, ref optional @ ..] = *children else {
         return refused("EC key is too short");
-    }
-    let version = read_integer(&children[0], "EC version is not an integer", 1)?;
+    };
+    let version = read_integer(version_tlv, "EC version is not an integer", 1)?;
     if version != [1] {
         return refused("EC version is not one");
     }
-    if children[1].tag != 0x04 || children[1].body.is_empty() {
+    if private_value.tag != 0x04 || private_value.body.is_empty() {
         return refused("EC key has no private value");
     }
     let mut curve = outer_curve;
     let mut point: Option<&[u8]> = None;
-    for child in children.iter().skip(2) {
+    for child in optional {
         if child.tag == 0xA0 {
             let parameters = read_children(child.body)?;
-            if parameters.len() != 1 || parameters[0].tag != 0x06 {
+            let [ref named] = *parameters.as_slice() else {
+                return refused("EC parameters are not a curve");
+            };
+            if named.tag != 0x06 {
                 return refused("EC parameters are not a curve");
             }
-            curve = Some(parameters[0].body);
+            curve = Some(named.body);
         } else if child.tag == 0xA1 {
             let keys = read_children(child.body)?;
-            if keys.len() != 1 || keys[0].tag != 0x03 {
+            let [ref bits] = *keys.as_slice() else {
+                return refused("EC public key is not a bit string");
+            };
+            if bits.tag != 0x03 {
                 return refused("EC public key is not a bit string");
             }
-            point = Some(keys[0].body);
+            point = Some(bits.body);
         }
     }
     let Some(curve) = curve else {
@@ -453,7 +480,7 @@ fn parse_sec1(children: &[Tlv<'_>], outer_curve: Option<&[u8]>) -> Result<KeyPub
     let Some(point) = point else {
         return refused("EC key carries no public point");
     };
-    if point.is_empty() || point[0] != 0x00 {
+    if point.first() != Some(&0x00) {
         return refused("EC point is not a byte string");
     }
     Ok(KeyPublic::Ec {
@@ -464,40 +491,42 @@ fn parse_sec1(children: &[Tlv<'_>], outer_curve: Option<&[u8]>) -> Result<KeyPub
 
 /// Parse a PKCS#8 `PrivateKeyInfo`, dispatching on its algorithm.
 fn parse_pkcs8(children: &[Tlv<'_>]) -> Result<KeyPublic, Error> {
-    if children.len() != 3 {
+    let [ref version_tlv, ref algorithm_id, ref private_value] = *children else {
         return refused("PKCS#8 key is not three parts");
-    }
-    let version = read_integer(&children[0], "PKCS#8 version is not an integer", 1)?;
-    if version.len() != 1 || version[0] > 1 {
+    };
+    let version = read_integer(version_tlv, "PKCS#8 version is not an integer", 1)?;
+    if version.len() != 1 || !version.first().is_some_and(|&byte| byte <= 1) {
         return refused("PKCS#8 version is not zero or one");
     }
-    if children[1].tag != 0x30 {
+    if algorithm_id.tag != 0x30 {
         return refused("PKCS#8 algorithm is not a sequence");
     }
-    let algorithm = read_children(children[1].body)?;
-    if algorithm.is_empty() || algorithm[0].tag != 0x06 {
+    let identifier_parts = read_children(algorithm_id.body)?;
+    let Some((algorithm_oid, parameters)) = identifier_parts.split_first() else {
+        return refused("PKCS#8 algorithm is not an OID");
+    };
+    if algorithm_oid.tag != 0x06 {
         return refused("PKCS#8 algorithm is not an OID");
     }
-    if children[2].tag != 0x04 || children[2].body.is_empty() {
+    if private_value.tag != 0x04 || private_value.body.is_empty() {
         return refused("PKCS#8 key has no private value");
     }
-    if algorithm[0].body == oid::RSA_ENCRYPTION {
-        let (inner, trailing) = read_tlv(children[2].body)?;
+    if algorithm_oid.body == oid::RSA_ENCRYPTION {
+        let (inner, trailing) = read_tlv(private_value.body)?;
         if inner.tag != 0x30 || !trailing.is_empty() {
             return refused("PKCS#8 RSA key is not one sequence");
         }
         return parse_pkcs1(&read_children(inner.body)?);
     }
-    if algorithm[0].body == oid::EC_PUBLIC_KEY {
-        let curve = if algorithm.len() > 1 {
-            if algorithm[1].tag != 0x06 {
+    if algorithm_oid.body == oid::EC_PUBLIC_KEY {
+        let curve = match parameters.first() {
+            Some(named) if named.tag != 0x06 => {
                 return refused("PKCS#8 EC parameters are not a curve");
             }
-            Some(algorithm[1].body)
-        } else {
-            None
+            Some(named) => Some(named.body),
+            None => None,
         };
-        let (inner, trailing) = read_tlv(children[2].body)?;
+        let (inner, trailing) = read_tlv(private_value.body)?;
         if inner.tag != 0x30 || !trailing.is_empty() {
             return refused("PKCS#8 EC key is not one sequence");
         }

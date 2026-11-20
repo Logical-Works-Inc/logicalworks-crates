@@ -1,5 +1,6 @@
 //! ECS bot unit tests, part 00.
 
+#[cfg(test)]
 use super::*;
 
 #[test]
@@ -59,12 +60,11 @@ fn a_change_tick_source_fires_once_per_movement_and_is_not_polled_otherwise() ->
 }
 
 #[test]
-fn hash_parts_frames_distinct_variable_length_splits() -> TestResult {
+fn hash_parts_frames_distinct_variable_length_splits() {
     let left = hash_parts(&[b"ab", b"c"]);
     let right = hash_parts(&[b"a", b"bc"]);
     assert_ne!(left, right, "distinct field splits must not collide");
     assert_eq!(left, hash_parts(&[b"ab", b"c"]));
-    Ok(())
 }
 
 #[test]
@@ -95,7 +95,10 @@ fn an_ambiguous_commit_then_error_is_idempotent() -> TestResult {
     ));
     // A public repeat of the same evidence is the same fact, not a
     // refusal: the journal answers it from the committed record.
-    let key = committed[0].key();
+    let key = committed
+        .first()
+        .ok_or("the readback committed one event")?
+        .key();
     bot.resolve_effect(&key, EffectEvidence::Applied)?;
 
     assert_eq!(bot.tick()?, 0);

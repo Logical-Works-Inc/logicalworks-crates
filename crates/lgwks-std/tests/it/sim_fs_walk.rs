@@ -160,7 +160,10 @@ impl SimTree {
         let min_width = u32::from(level == 1);
         let width = rng.between(min_width, MAX_WIDTH);
         for index in 0..width {
-            let stem = STEMS[drawn_count(rng.below(draw_bound(STEMS.len())))];
+            let Some(&stem) = STEMS.get(drawn_count(rng.below(draw_bound(STEMS.len())))) else {
+                lgwks_std::trace::debug!("grow_dir: returning an error to the caller");
+                return Err(io::Error::other("a draw below the stem table indexes it"));
+            };
             let rel = rel_dir.join(format!("{stem}{index}"));
             if level < max_level && rng.chance(400) {
                 fs::create_dir(self.root.join(&rel))?;

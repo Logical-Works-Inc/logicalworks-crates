@@ -94,12 +94,12 @@ fn slot_kind(picture: &super::Picture) -> SlotKind {
 
 /// Expands the level tree into laid-out fields with offsets.
 pub(crate) fn expand_tree(
-    roots: Vec<Node>,
+    roots: &[Node],
     limits: &Limits,
 ) -> Result<super::RecordLayout, CopybookError> {
     let mut expander = Expander::new(limits);
     let mut cursor: usize = 0;
-    for root in roots.iter() {
+    for root in roots {
         cursor = expander.node(root, cursor, 1)?;
     }
     limits.check_bytes(cursor)?;

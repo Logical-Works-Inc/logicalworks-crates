@@ -49,6 +49,78 @@ const MOST_DISTINCT: u32 = 8;
 /// The most attempts a seed makes after the ceiling.
 const MOST_LATER: u32 = 8;
 
+/// The first `repeat` sightings of `fingerprint` are admitted and counted
+/// exactly, with seeded evidence beside them; returns the evidence recorded.
+fn tolerated_up_to_the_ceiling(
+    sim: &mut sim::Sim,
+    ledger: &mut RepairLedger,
+    fingerprint: &str,
+    repeat: u32,
+) -> u64 {
+    let seed = sim.seed;
+    let mut evidence = 0_u64;
+    for attempt in 1..=repeat {
+        let outcome = ledger.record_failure(fingerprint);
+        assert!(
+            outcome.is_admitted(),
+            "seed {seed}: attempt {attempt} of {repeat} may still be repaired: {outcome}"
+        );
+        assert_eq!(
+            ledger.repetitions(fingerprint),
+            attempt,
+            "seed {seed}: the count is the number of sightings"
+        );
+        if sim.rng().chance(500) {
+            let spent = ledger.spent();
+            assert!(
+                ledger.record_evidence(fingerprint),
+                "seed {seed}: evidence for a fingerprint that failed is recorded"
+            );
+            evidence = evidence.saturating_add(1);
+            assert_eq!(
+                ledger.spent(),
+                spent,
+                "seed {seed}: evidence is not a failure, so it costs no spend"
+            );
+            assert_eq!(
+                ledger.repetitions(fingerprint),
+                attempt,
+                "seed {seed}: and it does not lower the count the ceiling is measured against"
+            );
+            assert!(
+                ledger.has_progress(fingerprint),
+                "seed {seed}: it is visible as progress"
+            );
+        }
+    }
+    evidence
+}
+
+/// One fingerprint past the `distinct` the ledger holds is its own
+/// intervention, is not recorded, and takes no evidence.
+fn assert_ledger_full(ledger: &mut RepairLedger, seed: u64, distinct: usize) {
+    let overflow = format!("overflow-{seed}");
+    let outcome = ledger.record_failure(&overflow);
+    assert_eq!(
+        outcome.intervention(),
+        Some(&Intervention::LedgerFull { held: distinct }),
+        "seed {seed}: one fingerprint past the {distinct} the ledger holds is its own intervention: {outcome}"
+    );
+    assert_eq!(
+        ledger.repetitions(&overflow),
+        0,
+        "seed {seed}: a fingerprint the full ledger refused is not recorded"
+    );
+    assert!(
+        !ledger.record_evidence(&overflow),
+        "seed {seed}: so evidence for it is refused: the run has not got there"
+    );
+    assert!(
+        !ledger.record_evidence(&format!("never-failed-{seed}")),
+        "seed {seed}: and so is evidence for a fingerprint nobody failed under"
+    );
+}
+
 /// The ledger tolerates `repeat` unchanged failures, then returns a typed
 /// intervention for every further one, whatever evidence arrived in between.
 fn unchanged_failure_reaches_a_finite_intervention(band: Band) -> TestResult {
@@ -63,42 +135,7 @@ fn unchanged_failure_reaches_a_finite_intervention(band: Band) -> TestResult {
             LedgerLimits::new(repeat, distinct),
             support::provenance(payload.as_bytes()),
         );
-        let mut evidence = 0_u64;
-
-        for attempt in 1..=repeat {
-            let outcome = ledger.record_failure(&fingerprint);
-            assert!(
-                outcome.is_admitted(),
-                "seed {seed}: attempt {attempt} of {repeat} may still be repaired: {outcome}"
-            );
-            assert_eq!(
-                ledger.repetitions(&fingerprint),
-                attempt,
-                "seed {seed}: the count is the number of sightings"
-            );
-            if sim.rng().chance(500) {
-                let spent = ledger.spent();
-                assert!(
-                    ledger.record_evidence(&fingerprint),
-                    "seed {seed}: evidence for a fingerprint that failed is recorded"
-                );
-                evidence = evidence.saturating_add(1);
-                assert_eq!(
-                    ledger.spent(),
-                    spent,
-                    "seed {seed}: evidence is not a failure, so it costs no spend"
-                );
-                assert_eq!(
-                    ledger.repetitions(&fingerprint),
-                    attempt,
-                    "seed {seed}: and it does not lower the count the ceiling is measured against"
-                );
-                assert!(
-                    ledger.has_progress(&fingerprint),
-                    "seed {seed}: it is visible as progress"
-                );
-            }
-        }
+        let mut evidence = tolerated_up_to_the_ceiling(sim, &mut ledger, &fingerprint, repeat);
         assert!(
             ledger.may_repair(&fingerprint),
             "seed {seed}: at the ceiling the fingerprint may still be repaired, not past it"
@@ -152,26 +189,7 @@ fn unchanged_failure_reaches_a_finite_intervention(band: Band) -> TestResult {
                 evidence = evidence.saturating_add(1);
             }
         }
-        let overflow = format!("overflow-{seed}");
-        let outcome = ledger.record_failure(&overflow);
-        assert_eq!(
-            outcome.intervention(),
-            Some(&Intervention::LedgerFull { held: distinct }),
-            "seed {seed}: one fingerprint past the {distinct} the ledger holds is its own intervention: {outcome}"
-        );
-        assert_eq!(
-            ledger.repetitions(&overflow),
-            0,
-            "seed {seed}: a fingerprint the full ledger refused is not recorded"
-        );
-        assert!(
-            !ledger.record_evidence(&overflow),
-            "seed {seed}: so evidence for it is refused: the run has not got there"
-        );
-        assert!(
-            !ledger.record_evidence(&format!("never-failed-{seed}")),
-            "seed {seed}: and so is evidence for a fingerprint nobody failed under"
-        );
+        assert_ledger_full(&mut ledger, seed, distinct);
 
         let others = u64::try_from(distinct.saturating_sub(1))?;
         assert_eq!(

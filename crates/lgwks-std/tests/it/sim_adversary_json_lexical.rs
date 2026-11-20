@@ -23,6 +23,16 @@ use crate::json_attacks::{accepts, draw_text};
 /// The decimal digits.
 const DIGITS: [char; 10] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
+/// The decimal digits that may lead a multi-digit integer.
+const LEADING_DIGITS: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+/// Appends one character the attacker picks from `table`.
+fn push_pick(out: &mut String, attacker: &mut Attacker, table: &[char]) {
+    if let Some(&picked) = attacker.pick(table) {
+        out.push(picked);
+    }
+}
+
 /// Numbers the grammar forbids or that sit at an edge of it.
 const HOSTILE_NUMBERS: [&str; 30] = [
     "01",
@@ -118,18 +128,22 @@ fn grammar_accepts(text: &str) -> bool {
 
 /// Whether the standard library reads `text` as a finite float, which is the
 /// facade's condition for a number that is not out of range.
-fn finite(text: &str) -> bool {
-    match text.parse::<f64>() {
-        Ok(number) => number.is_finite(),
-        Err(_) => false,
-    }
+///
+/// The grammar admits only spellings the standard library parses, so a refusal
+/// here is a defect in the reference grammar, carried to the caller by name.
+fn finite(text: &str) -> Result<bool, std::num::ParseFloatError> {
+    text.parse::<f64>().map(f64::is_finite)
 }
 
 /// The answer the grammar and the float range give for a document of one number
 /// with optional surrounding whitespace.
-fn number_reference(text: &str) -> bool {
+fn number_reference(text: &str) -> Result<bool, std::num::ParseFloatError> {
     let bare = text.trim_matches(|ch| matches!(ch, ' ' | '\t' | '\n' | '\r'));
-    grammar_accepts(bare) && finite(bare)
+    if grammar_accepts(bare) {
+        finite(bare)
+    } else {
+        Ok(false)
+    }
 }
 
 /// A number spelled as the grammar allows, of a drawn shape.
@@ -141,26 +155,26 @@ fn draw_number_text(attacker: &mut Attacker) -> String {
     if attacker.below(3) == 0 {
         out.push('0');
     } else {
-        out.push(*attacker.pick(&DIGITS[1..]));
+        push_pick(&mut out, attacker, &LEADING_DIGITS);
         for _ in 0..attacker.below(20) {
-            out.push(*attacker.pick(&DIGITS));
+            push_pick(&mut out, attacker, &DIGITS);
         }
     }
     if attacker.below(2) == 0 {
         out.push('.');
         for _ in 0..attacker.below(10).saturating_add(1) {
-            out.push(*attacker.pick(&DIGITS));
+            push_pick(&mut out, attacker, &DIGITS);
         }
     }
     if attacker.below(3) == 0 {
-        out.push(*attacker.pick(&['e', 'E']));
+        push_pick(&mut out, attacker, &['e', 'E']);
         match attacker.below(3) {
             0 => out.push('+'),
             1 => out.push('-'),
             _ => {}
         }
         for _ in 0..attacker.below(4).saturating_add(1) {
-            out.push(*attacker.pick(&DIGITS));
+            push_pick(&mut out, attacker, &DIGITS);
         }
     }
     out
@@ -269,9 +283,9 @@ fn sim_adversary_json_integer_boundaries_are_exact() -> TestResult {
 fn sim_adversary_json_typed_integers_are_exact_or_refused() -> TestResult {
     sweep(4_096, |seed, round, attacker| {
         let mut digits = String::new();
-        digits.push(*attacker.pick(&DIGITS[1..]));
+        push_pick(&mut digits, attacker, &LEADING_DIGITS);
         for _ in 0..attacker.below(24) {
-            digits.push(*attacker.pick(&DIGITS));
+            push_pick(&mut digits, attacker, &DIGITS);
         }
         let negative = format!("-{digits}");
         for text in [digits, negative] {
@@ -298,7 +312,7 @@ fn sim_adversary_json_numbers_follow_the_rfc_grammar() -> TestResult {
     for text in HOSTILE_NUMBERS {
         assert_eq!(
             accepts(text),
-            number_reference(text),
+            number_reference(text)?,
             "table entry {text:?}"
         );
     }
@@ -306,14 +320,14 @@ fn sim_adversary_json_numbers_follow_the_rfc_grammar() -> TestResult {
         let base = draw_number_text(attacker);
         assert_eq!(
             accepts(&base),
-            number_reference(&base),
+            number_reference(&base)?,
             "seed {seed:#x} round {round}: valid {base:?}"
         );
         let rounds = attacker.below(4);
         let hostile = as_text(&attacker.mutate_n(base.as_bytes(), rounds));
         assert_eq!(
             accepts(&hostile),
-            number_reference(&hostile),
+            number_reference(&hostile)?,
             "seed {seed:#x} round {round}: mutated {hostile:?}"
         );
         Ok(())
@@ -396,7 +410,16 @@ fn sim_adversary_json_raw_bytes_in_strings_follow_the_rfc() {
 fn sim_adversary_json_escape_letters_are_exactly_the_rfc_set() {
     for byte in 0..=u8::MAX {
         let document = [b'"', b'\\', byte, b'"'];
-        let read = from_slice::<String>(&document).ok();
+        let read = match from_slice::<String>(&document) {
+            Ok(text) => Some(text),
+            Err(refusal) => {
+                assert!(
+                    !refusal.to_string().is_empty(),
+                    "escape letter {byte:#04x}: a refusal must say why"
+                );
+                None
+            }
+        };
         let expected = ESCAPES
             .iter()
             .find(|entry| entry.0 == byte)
@@ -413,13 +436,24 @@ fn sim_adversary_json_unicode_escape_digits_are_hex_only() {
         if !(3..7).contains(&position) {
             return;
         }
-        let read = from_slice::<String>(&input).ok();
+        let read = match from_slice::<String>(&input) {
+            Ok(text) => Some(text),
+            Err(refusal) => {
+                assert!(
+                    !refusal.to_string().is_empty(),
+                    "{candidate:#04x} at digit {position}: a refusal must say why"
+                );
+                None
+            }
+        };
         let Some(digit) = char::from(candidate).to_digit(16) else {
             assert_eq!(read, None, "{candidate:#04x} at digit {position}");
             return;
         };
         let mut digits = [0_u32, 0, 4, 1];
-        digits[position.saturating_sub(3)] = digit;
+        if let Some(slot) = digits.get_mut(position.saturating_sub(3)) {
+            *slot = digit;
+        }
         let code = digits.iter().fold(0_u32, |sum, &next| {
             sum.saturating_mul(16).saturating_add(next)
         });

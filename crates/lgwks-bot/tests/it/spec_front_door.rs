@@ -101,7 +101,10 @@ fn a_chain_reads_back_its_source_its_target_and_its_actions() {
     );
     assert_eq!(chain.source(), "gh::pr_status");
     assert_eq!(chain.target(), "owner/repo");
-    assert_eq!(chain.on()[0].1.domain(), "notify::slack");
+    assert_eq!(
+        chain.on().first().map(|entry| entry.1.domain()),
+        Some("notify::slack")
+    );
 }
 
 #[test]

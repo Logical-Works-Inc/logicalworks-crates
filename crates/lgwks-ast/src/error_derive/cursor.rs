@@ -112,6 +112,13 @@ impl TokenCursor {
         tok
     }
 
+    /// Step past the current token, and do nothing at the end of the stream.
+    pub(super) fn advance(&mut self) {
+        if !self.is_empty() {
+            self.pos = self.pos.saturating_add(1);
+        }
+    }
+
     /// Current span, defaulting to call site if at end of stream.
     pub(super) fn current_span(&self) -> Span {
         if let Some(tok_tree) = self.peek() {
@@ -126,11 +133,11 @@ impl TokenCursor {
         if let Some(TokenTree::Ident(ref ident_tok)) = self.peek()
             && ident_tok == "pub"
         {
-            let _ = self.next();
+            self.advance();
             if let Some(TokenTree::Group(ref grp)) = self.peek()
                 && grp.delimiter() == Delimiter::Parenthesis
             {
-                let _ = self.next();
+                self.advance();
             }
         }
     }

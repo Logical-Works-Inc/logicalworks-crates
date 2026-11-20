@@ -38,23 +38,23 @@ impl Gate {
 
     /// Wait until one has arrived.
     fn arrived(&self) -> Result<(), JourneyFailed> {
-        let mut state = self.state.lock().map_err(broke)?;
+        let mut state = self.state.lock().map_err(|cause| broke(&cause))?;
         while state.0 == 0 {
-            state = self.bell.wait(state).map_err(broke)?;
+            state = self.bell.wait(state).map_err(|cause| broke(&cause))?;
         }
         Ok(())
     }
 
     /// Let everyone through.
     fn open(&self) -> Result<(), JourneyFailed> {
-        self.state.lock().map_err(broke)?.1 = true;
+        self.state.lock().map_err(|cause| broke(&cause))?.1 = true;
         self.bell.notify_all();
         Ok(())
     }
 }
 
 /// A gate's lock poisoned by a panic, said before the journey fails on it.
-fn broke<T>(cause: std::sync::PoisonError<T>) -> JourneyFailed {
+fn broke<T>(cause: &std::sync::PoisonError<T>) -> JourneyFailed {
     lgwks_std::trace::warn!(error = %cause, "app_command: the gate broke");
     JourneyFailed::Panicked
 }
@@ -133,7 +133,10 @@ fn a_held_request_answers_from_the_on_handler_while_the_worker_serves_others()
             client.answers("GET", "/t/acme/folded", b"", 200, "0")?;
             client.answers("GET", "/t/globex/folded", b"", 200, "0")?;
             gate.open()?;
-            let answered = asked.join().map_err(|_| JourneyFailed::Panicked)??;
+            let answered = asked.join().map_err(|panic| {
+                lgwks_std::trace::warn!(panic = ?panic, "app_command: the asking thread panicked");
+                JourneyFailed::Panicked
+            })??;
             assert_eq!(answered, (200, String::from("acme:None:x")));
             client.answers("GET", "/t/acme/folded", b"", 200, "1")
         })

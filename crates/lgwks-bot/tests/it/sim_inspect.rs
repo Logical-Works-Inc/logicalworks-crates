@@ -179,7 +179,7 @@ fn sim_permuting_statements_preserves_the_finding_set() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn sim_node_budget_tiers_refuse_deterministically() -> Result<(), Box<dyn std::error::Error>> {
+fn sim_node_budget_tiers_refuse_deterministically() {
     let wide = dense_subject(32);
     for budget in 1..9_usize {
         let request =
@@ -203,11 +203,10 @@ fn sim_node_budget_tiers_refuse_deterministically() -> Result<(), Box<dyn std::e
             first.resources().nodes
         );
     }
-    Ok(())
 }
 
 #[test]
-fn sim_depth_budget_refuses_a_deep_tree() -> Result<(), Box<dyn std::error::Error>> {
+fn sim_depth_budget_refuses_a_deep_tree() {
     for depth in 1..24_usize {
         let source = deep_subject(depth);
         let request = InspectRequest::new("deep.rs", &source).budgets(Budgets::new().with_depth(3));
@@ -228,11 +227,10 @@ fn sim_depth_budget_refuses_a_deep_tree() -> Result<(), Box<dyn std::error::Erro
             report.resources().max_depth
         );
     }
-    Ok(())
 }
 
 #[test]
-fn sim_finding_density_is_capped_deterministically() -> Result<(), Box<dyn std::error::Error>> {
+fn sim_finding_density_is_capped_deterministically() {
     let source = dense_subject(64);
     for cap in 1..6_usize {
         let request =
@@ -256,7 +254,6 @@ fn sim_finding_density_is_capped_deterministically() -> Result<(), Box<dyn std::
             first.verdict()
         );
     }
-    Ok(())
 }
 
 #[test]

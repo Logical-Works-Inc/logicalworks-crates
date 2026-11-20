@@ -7,26 +7,26 @@ use lgwks_bot::rt::apps::OpRegistry;
 use lgwks_bot::script::{FlowError, Scope};
 
 /// Fetch and return the input uppercased.
-pub async fn fetch_step(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> {
+pub(crate) async fn fetch_step(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> {
     Ok(input.to_ascii_uppercase())
 }
 
 /// Reverse the input.
-pub async fn render_step(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> {
+pub(crate) async fn render_step(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> {
     let mut out = input;
     out.reverse();
     Ok(out)
 }
 
 /// Mark the input reviewed.
-pub async fn preview_step(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> {
+pub(crate) async fn preview_step(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> {
     let mut out = input;
     out.extend_from_slice(b"?");
     Ok(out)
 }
 
 /// The demo registry: `fetch` and `render` free, `preview` needing `bot.net`.
-pub fn demo_registry() -> Result<OpRegistry, String> {
+pub(crate) fn demo_registry() -> Result<OpRegistry, String> {
     let registry = OpRegistry::new()
         .operation("fetch", &[], fetch_step)
         .map_err(|error| format!("the demo registry is refused: {error}"))?;

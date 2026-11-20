@@ -55,8 +55,7 @@ pub(crate) fn code_only(text: &str) -> String {
     let mut out = chars.clone();
     let length = chars.len();
     let mut index = 0_usize;
-    while index < length {
-        let ch = chars[index];
+    while let Some(&ch) = chars.get(index) {
         let after = chars.get(index.saturating_add(1)).copied();
         if ch == '/' && after == Some('/') {
             let end = find_char_or_end(&chars, '\n', index);
@@ -105,8 +104,10 @@ pub(crate) fn code_only(text: &str) -> String {
             }
         } else if ch == '"' {
             let mut cursor = index.saturating_add(1);
-            while cursor < length && chars[cursor] != '"' {
-                cursor = cursor.saturating_add(if chars[cursor] == '\\' { 2 } else { 1 });
+            while let Some(&inside) = chars.get(cursor)
+                && inside != '"'
+            {
+                cursor = cursor.saturating_add(if inside == '\\' { 2 } else { 1 });
             }
             blank(&mut out, index, cursor.saturating_add(1));
             index = cursor.saturating_add(1);
@@ -127,10 +128,7 @@ pub(crate) fn code_only(text: &str) -> String {
                 };
                 blank(&mut out, index, end);
                 index = end;
-            } else if index.saturating_add(2) < length
-                && chars[index.saturating_add(2)] == '\''
-                && after != Some('\n')
-            {
+            } else if chars.get(index.saturating_add(2)) == Some(&'\'') && after != Some('\n') {
                 blank(&mut out, index, index.saturating_add(3));
                 index = index.saturating_add(3);
             } else {

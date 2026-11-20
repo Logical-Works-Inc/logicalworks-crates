@@ -211,7 +211,7 @@ impl ConsentStore {
 
     /// The newest grant for `tenant` and `workspace`, or none.
     fn latest(&self, tenant: &str, workspace: &str) -> Result<Option<Consent>, CeremonyFailed> {
-        let _ = tenant_key(tenant)?;
+        tenant_key(tenant)?;
         check_bound("workspace", workspace.len(), MAX_WORKSPACE_BYTES)?;
         let mut best: Option<&Consent> = None;
         for record in self.records.iter() {
@@ -236,14 +236,14 @@ impl ConsentStore {
 }
 
 /// An empty consent store for one test.
-fn consent_fixture() -> Result<ConsentStore, CeremonyFailed> {
-    Ok(ConsentStore::new())
+fn consent_fixture() -> ConsentStore {
+    ConsentStore::new()
 }
 
 /// Ports `consent_latest_wins`: a re-grant supersedes, history is kept.
 #[test]
 fn consent_latest_wins() -> Result<(), CeremonyFailed> {
-    let mut store = consent_fixture()?;
+    let mut store = consent_fixture();
     store.record(Consent::new(
         "tenant-a",
         "ws-1",
@@ -281,7 +281,7 @@ fn consent_latest_wins() -> Result<(), CeremonyFailed> {
 /// Ports `consent_is_tenant_isolated`: the workspace id alone grants nothing.
 #[test]
 fn consent_is_tenant_isolated() -> Result<(), CeremonyFailed> {
-    let mut store = consent_fixture()?;
+    let mut store = consent_fixture();
     store.record(Consent::new(
         "tenant-a", "ws-42", "u-1", "a@x.io", "key-A", 1,
     )?)?;
@@ -299,7 +299,7 @@ fn consent_is_tenant_isolated() -> Result<(), CeremonyFailed> {
 /// Ports `consent_is_workspace_scoped_within_tenant` and the unknown case.
 #[test]
 fn consent_is_workspace_scoped() -> Result<(), CeremonyFailed> {
-    let mut store = consent_fixture()?;
+    let mut store = consent_fixture();
     store.record(Consent::new(
         "tenant-a",
         "ws-granted",
@@ -397,7 +397,7 @@ impl GovernanceLog {
         from_secs: u64,
         to_secs: u64,
     ) -> Result<Vec<GovEntry>, CeremonyFailed> {
-        let _ = tenant_key(tenant)?;
+        tenant_key(tenant)?;
         if session.is_empty() {
             lgwks_std::trace::warn!("ceremony: a missing session is refused");
             return Err(CeremonyFailed::Mismatch {
@@ -584,8 +584,11 @@ fn signals_refuse_a_forged_tag_and_a_drifted_stamp() -> Result<(), CeremonyFaile
     if let Some(slot) = bad_bytes.get_mut(last) {
         *slot = if *slot == b'0' { b'1' } else { b'0' };
     }
-    let bad = String::from_utf8(bad_bytes).map_err(|_| CeremonyFailed::Mismatch {
-        what: "tag is text",
+    let bad = String::from_utf8(bad_bytes).map_err(|error| {
+        lgwks_std::trace::warn!(%error, "ceremony: the flipped tag is not text");
+        CeremonyFailed::Mismatch {
+            what: "tag is text",
+        }
     })?;
     match validate_signal(&key, body.as_slice(), bad.as_str()) {
         Err(CeremonyFailed::Mismatch { .. }) => {}
@@ -627,7 +630,7 @@ fn signals_reject_malformed_inputs_typed() -> Result<(), CeremonyFailed> {
 /// The restart case: the newest grant wins and binds its exact bytes.
 #[test]
 fn consent_latest_wins_survives_restart_and_binds_exact_bytes() -> Result<(), CeremonyFailed> {
-    let mut store = consent_fixture()?;
+    let mut store = consent_fixture();
     store.record(Consent::new(
         "tenant-a", "ws-7", "u-1", "a@x.io", "key-1", 1,
     )?)?;

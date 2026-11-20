@@ -53,6 +53,7 @@ pub enum IntentParseError {
 /// assert_eq!(intent.text(), "acme");
 /// # Ok::<(), drishti::native_host::command_bar::IntentParseError>(())
 /// ```
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct IntentPipeline;
 
@@ -88,14 +89,9 @@ impl IntentPipeline {
         let trimmed = input.trim();
         if let Some(without_slash) = trimmed.strip_prefix('/') {
             // Split at the first space; no space means the command stands
-            // alone with no rest. `find` returns the byte index of the
-            // one-byte space, so the split lands on a char boundary and
-            // `[1..]` drops exactly the delimiter.
-            let (command, rest) = match without_slash.find(' ') {
-                Some(index) => {
-                    let (head, tail) = without_slash.split_at(index);
-                    (head, &tail[1..])
-                }
+            // alone with no rest.
+            let (command, rest) = match without_slash.split_once(' ') {
+                Some(pair) => pair,
                 None => (without_slash, ""),
             };
             return parse_slash_command(command, rest);
@@ -153,6 +149,7 @@ fn single_field_intent(kind: &str, field: &str, rest: &str) -> PartialIntent {
 ///
 /// assert_eq!(CommandSuggestions::suggestions("/un"), vec![String::from("/unpin")]);
 /// ```
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct CommandSuggestions;
 

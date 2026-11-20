@@ -26,8 +26,7 @@
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use lgwks_bot::journal::{DurabilityPromise, EffectEvent, EffectJournal, FileJournal};
@@ -194,7 +193,12 @@ fn measure_thread_capacity() -> Option<u64> {
             .spawn(std::thread::park)
         {
             Ok(handle) => parked.push(handle),
-            Err(_) => break,
+            Err(refused) => {
+                // The OS saying no is the measurement, not a failure: the level
+                // reached so far is the answer.
+                lgwks_std::trace::debug!(error = %refused, "the thread probe reached the host's limit");
+                break;
+            }
         }
     }
     let reached = parked.len();
@@ -220,16 +224,43 @@ fn measure_thread_capacity() -> Option<u64> {
 /// this process's limits.
 #[cfg(unix)]
 fn read_ulimit(flag: &str) -> Option<u64> {
-    let output = std::process::Command::new("sh")
+    shell_reading(&format!("ulimit {flag}"))
+}
+
+/// A number read off the text, or `None` with the refusal logged: an unreadable
+/// number is "not measured", and the log says which text it was.
+#[cfg(unix)]
+fn parse_reading(text: &str) -> Option<u64> {
+    match text.trim().parse::<u64>() {
+        Ok(number) => Some(number),
+        Err(error) => {
+            lgwks_std::trace::debug!(error = %error, text = text, "a host reading was not a number");
+            None
+        }
+    }
+}
+
+/// The number `script` prints, run in the shell this process spawns.
+#[cfg(unix)]
+fn shell_reading(script: &str) -> Option<u64> {
+    let output = match std::process::Command::new("sh")
         .arg("-c")
-        .arg(format!("ulimit {flag}"))
+        .arg(script)
         .output()
-        .ok()?;
-    std::str::from_utf8(&output.stdout)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    {
+        Ok(output) => output,
+        Err(error) => {
+            lgwks_std::trace::debug!(error = %error, "the shell could not run for a host reading");
+            return None;
+        }
+    };
+    match std::str::from_utf8(&output.stdout) {
+        Ok(text) => parse_reading(text),
+        Err(error) => {
+            lgwks_std::trace::debug!(error = %error, "a host reading was not UTF-8");
+            None
+        }
+    }
 }
 
 /// No shell limit to read off Unix; the ceiling falls back to the thread probe.
@@ -245,10 +276,16 @@ fn read_ulimit(_flag: &str) -> Option<u64> {
 /// correct on both platforms.
 #[cfg(target_os = "linux")]
 fn read_rss_kb() -> Option<u64> {
-    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let status = match std::fs::read_to_string("/proc/self/status") {
+        Ok(status) => status,
+        Err(error) => {
+            lgwks_std::trace::debug!(error = %error, "the process status could not be read");
+            return None;
+        }
+    };
     for line in status.lines() {
         if let Some(rest) = line.strip_prefix("VmHWM:") {
-            return rest.split_whitespace().next()?.parse().ok();
+            return parse_reading(rest.split_whitespace().next()?);
         }
     }
     None
@@ -263,16 +300,7 @@ fn read_rss_kb() -> Option<u64> {
 /// therefore refused by the `std`-first gate.
 #[cfg(all(unix, not(target_os = "linux")))]
 fn read_rss_kb() -> Option<u64> {
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg("ps -o rss= -p $PPID")
-        .output()
-        .ok()?;
-    std::str::from_utf8(&output.stdout)
-        .ok()?
-        .trim()
-        .parse()
-        .ok()
+    shell_reading("ps -o rss= -p $PPID")
 }
 
 /// No resident-set reading on a non-Unix host.
@@ -297,8 +325,8 @@ fn larger_reading(peak: Option<u64>, reading: u64) -> u64 {
 /// thread is owned: it is joined on [`RssPeak::stop`], and [`Drop`] stops it
 /// too, so an early return cannot leak a spinning sampler.
 struct RssPeak {
-    /// Set when the sampler should stop.
-    stop: Arc<AtomicBool>,
+    /// The sampler's stop signal: dropping it wakes the sampler out of its wait.
+    stop: Option<std::sync::mpsc::SyncSender<()>>,
     /// The sampler thread, yielding the peak it read or `None` if it read none.
     handle: Option<std::thread::JoinHandle<Option<u64>>>,
 }
@@ -306,44 +334,68 @@ struct RssPeak {
 impl RssPeak {
     /// Start sampling the process's resident set.
     fn start() -> Self {
-        let stop = Arc::new(AtomicBool::new(false));
-        let flag = Arc::clone(&stop);
-        let handle = std::thread::Builder::new()
+        // One slot is the whole bound: the signal carries no data, and the
+        // sender is dropped, never sent on, so nothing is ever queued.
+        let (stop, stopped) = std::sync::mpsc::sync_channel::<()>(1);
+        let spawned = std::thread::Builder::new()
             .name("rss-peak".to_owned())
             .spawn(move || {
                 // The peak is the largest reading this host actually took. A
                 // sample it could not read leaves the peak alone rather than
                 // lowering it, and a host with no reading at all reports none.
                 let mut peak: Option<u64> = None;
-                while !flag.load(Ordering::Relaxed) {
+                loop {
                     if let Some(kb) = read_rss_kb() {
                         peak = Some(larger_reading(peak, kb));
                     }
-                    std::thread::park_timeout(Duration::from_millis(RSS_SAMPLE_MS));
+                    // The wait is on the stop signal itself, so a stop ends it
+                    // at once rather than at the next tick.
+                    match stopped.recv_timeout(Duration::from_millis(RSS_SAMPLE_MS)) {
+                        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                        Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
                 }
                 if let Some(kb) = read_rss_kb() {
                     peak = Some(larger_reading(peak, kb));
                 }
                 peak
-            })
-            .ok();
-        Self { stop, handle }
+            });
+        let handle = match spawned {
+            Ok(handle) => Some(handle),
+            // No sampler means no peak, reported as unmeasured, never a zero.
+            Err(refused) => {
+                lgwks_std::trace::debug!(error = %refused, "the rss sampler could not start");
+                None
+            }
+        };
+        Self {
+            stop: Some(stop),
+            handle,
+        }
     }
 
     /// Stop sampling and report the peak, if anything was sampled.
     fn stop(mut self) -> Option<u64> {
-        self.stop.store(true, Ordering::Relaxed);
+        self.halt()
+    }
+
+    /// Signal the sampler and collect what it read; idempotent.
+    fn halt(&mut self) -> Option<u64> {
+        self.stop = None;
         let handle = self.handle.take()?;
-        handle.join().ok().flatten()
+        match handle.join() {
+            Ok(peak) => peak,
+            Err(panic) => {
+                lgwks_std::trace::debug!(panic = ?panic, "the rss sampler panicked");
+                None
+            }
+        }
     }
 }
 
 impl Drop for RssPeak {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.handle.take() {
-            drop(handle.join());
-        }
+        self.halt();
     }
 }
 
@@ -482,129 +534,9 @@ fn run_tier(requested: usize, ceiling: usize) -> Result<TierReport, Box<dyn Erro
     })
 }
 
-/// The size of the bare write beside each append, near one framed event.
-const CONTROL_BYTES: usize = 128;
+mod poison;
 
-/// A bare durable write that is reached and answered the way an append is.
-///
-/// An append is handed to its storage owner's thread and answered back: the owner
-/// wakes, writes and syncs, and the caller wakes again, so a host with a long run
-/// queue charges it a wait at each wake. A bare write on the caller's own thread
-/// is charged none of those waits, so on a loaded host it read about a quarter of
-/// the path (run 38938628208: append p50 13,488us against 3,251us bare, where an
-/// idle host reads 78us against 68us) and every stall the run queue dealt landed
-/// on the path alone. This control makes the same two hand-offs around the same
-/// write and `sync_all`, so the two differ by what the path adds and not by how
-/// many times each waits to be scheduled.
-struct HoppedWrite {
-    /// What the caller asked for and what the writer answered.
-    slot: Arc<Slot>,
-    /// The writer's thread, joined on drop so it never outlives the test.
-    writer: Option<std::thread::JoinHandle<()>>,
-}
-
-/// The hand-off state and the one condition variable both sides wait on, as the
-/// storage owner's request slot has them.
-struct Slot {
-    /// One request in flight, one answer waiting.
-    state: Mutex<Handoff>,
-    /// Woken on every change of `state`.
-    signal: Condvar,
-}
-
-/// The control's hand-off state: one request in flight, one answer waiting.
-#[derive(Default)]
-struct Handoff {
-    /// A write was asked for and the writer has not taken it yet.
-    asked: bool,
-    /// The outcome of the last write, until the caller takes it.
-    answered: Option<std::io::Result<()>>,
-    /// The caller is done with the writer.
-    stop: bool,
-}
-
-/// A poisoned hand-off slot, as the error a test reports.
-fn poisoned<T>(error: std::sync::PoisonError<T>) -> String {
-    format!("the control's hand-off slot was poisoned: {error}")
-}
-
-impl HoppedWrite {
-    /// Start the writer thread on `file`.
-    fn start(mut file: std::fs::File) -> std::io::Result<Self> {
-        use std::io::Write as _;
-
-        let slot = Arc::new(Slot {
-            state: Mutex::new(Handoff::default()),
-            signal: Condvar::new(),
-        });
-        let theirs = Arc::clone(&slot);
-        let writer = std::thread::Builder::new()
-            .name(String::from("control-writer"))
-            .spawn(move || {
-                loop {
-                    let Ok(held) = theirs.state.lock() else {
-                        return;
-                    };
-                    let Ok(mut held) = theirs
-                        .signal
-                        .wait_while(held, |state| !state.asked && !state.stop)
-                    else {
-                        return;
-                    };
-                    if held.stop {
-                        return;
-                    }
-                    held.asked = false;
-                    drop(held);
-                    let outcome = file
-                        .write_all(&[0xA5; CONTROL_BYTES])
-                        .and_then(|()| file.sync_all());
-                    let Ok(mut held) = theirs.state.lock() else {
-                        return;
-                    };
-                    held.answered = Some(outcome);
-                    drop(held);
-                    theirs.signal.notify_all();
-                }
-            })?;
-        Ok(Self {
-            slot,
-            writer: Some(writer),
-        })
-    }
-
-    /// One durable write, in microseconds from the request to the answer.
-    fn timed(&self) -> Result<u128, Box<dyn Error>> {
-        let start = Instant::now();
-        let mut held = self.slot.state.lock().map_err(poisoned)?;
-        held.asked = true;
-        self.slot.signal.notify_all();
-        let mut held = self
-            .slot
-            .signal
-            .wait_while(held, |state| state.answered.is_none())
-            .map_err(poisoned)?;
-        let outcome = held
-            .answered
-            .take()
-            .ok_or("the control writer gave no answer")?;
-        drop(held);
-        outcome?;
-        Ok(start.elapsed().as_micros())
-    }
-}
-
-impl Drop for HoppedWrite {
-    fn drop(&mut self) {
-        if let Ok(mut held) = self.slot.state.lock() {
-            held.stop = true;
-        }
-        self.slot.signal.notify_all();
-        if let Some(writer) = self.writer.take() {
-            drop(writer.join());
-        }
-    }
-}
+use poison::HoppedWrite;
 
 /// A durable write that took this many microseconds or more is a stall: a
 /// quarter of a second blocked on the device, which a healthy host never costs.

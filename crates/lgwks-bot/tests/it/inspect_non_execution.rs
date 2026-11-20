@@ -58,8 +58,7 @@ fn a_subject_that_deletes_a_file_deletes_nothing() -> Result<(), Box<dyn std::er
 /// A build script inspected as data writes nothing, and a subject full of
 /// non-terminating constructs never runs.
 #[test]
-fn a_build_script_and_non_terminating_subject_run_nothing() -> Result<(), Box<dyn std::error::Error>>
-{
+fn a_build_script_and_non_terminating_subject_run_nothing() {
     let sentinel = marker_path("build");
     let shown = sentinel.display();
     let source = format!(
@@ -89,7 +88,6 @@ fn a_build_script_and_non_terminating_subject_run_nothing() -> Result<(), Box<dy
             .any(|found| found.rule_id() == "rust/no-unwrap"),
         "the `unwrap` in the build script is reported, never executed"
     );
-    Ok(())
 }
 
 /// A subject that opens a socket opens nothing: an independent listener

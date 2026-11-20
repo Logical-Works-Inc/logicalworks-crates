@@ -95,6 +95,22 @@ impl Resolved {
     pub fn dependencies(&self) -> &[String] {
         &self.dependencies
     }
+
+    /// Whether the `source` is the crates.io registry in either spelling Cargo
+    /// writes it. A local package has no source, so it is not.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let lock = std::fs::read_to_string("Cargo.lock")?;
+    /// let resolved = lgwks_deps::lock::parse(&lock)?;
+    /// let registry = resolved.iter().filter(|package| package.is_crates_io()).count();
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn is_crates_io(&self) -> bool {
+        self.source().is_some_and(crate::audit::is_crates_io)
+    }
 }
 
 /// A `[[package]]` block that could not be read.
@@ -579,7 +595,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
     fn a_checksum_key_is_captured_for_registry_packages() -> TestResult {
         let input = "[[package]]\nname = \"serde\"\nversion = \"1.0.219\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"abc123def456\"\n";
         let pkgs = parse(input)?;
-        assert_eq!(pkgs[0].checksum(), Some("abc123def456"));
+        let first = pkgs.first().ok_or("one package was parsed")?;
+        assert_eq!(first.checksum(), Some("abc123def456"));
         Ok(())
     }
 
@@ -621,7 +638,7 @@ version = "0.1.0"
 "#;
         let pkgs = parse(input)?;
         assert_eq!(pkgs.len(), 1);
-        assert_eq!(pkgs[0].name(), "lgwks_std");
+        assert_eq!(pkgs.first().map(Resolved::name), Some("lgwks_std"));
         Ok(())
     }
 
@@ -631,8 +648,9 @@ version = "0.1.0"
     fn a_dependencies_array_is_read_in_order_with_the_source_beside_it() -> TestResult {
         let input = "[[package]]\nname = \"a\"\nversion = \"1.0.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\ndependencies = [\n \"b\",\n \"c 2.0.0\",\n \"c 3.0.0 (registry+https://github.com/rust-lang/crates.io-index)\",\n]\n";
         let pkgs = parse(input)?;
+        let first = pkgs.first().ok_or("one package was parsed")?;
         assert_eq!(
-            pkgs[0].dependencies(),
+            first.dependencies(),
             [
                 "b",
                 "c 2.0.0",
@@ -640,7 +658,7 @@ version = "0.1.0"
             ]
         );
         assert_eq!(
-            pkgs[0].source(),
+            first.source(),
             Some("registry+https://github.com/rust-lang/crates.io-index")
         );
         Ok(())
@@ -651,8 +669,10 @@ version = "0.1.0"
     fn a_dependencies_array_is_read_in_the_other_spellings_toml_allows() -> TestResult {
         let input = "[[package]]\nname = \"a\"\nversion = \"1.0.0\"\n\"dependencies\" = [\"b\", 'c 1.0.0', ] # two\n\n[[package]]\nname = \"d\"\nversion = \"1.0.0\"\ndependencies = [ # open\n \"e\", # one\n # between\n \"f\" ,\n ] # closed\n";
         let pkgs = parse(input)?;
-        assert_eq!(pkgs[0].dependencies(), ["b", "c 1.0.0"]);
-        assert_eq!(pkgs[1].dependencies(), ["e", "f"]);
+        let first = pkgs.first().ok_or("two packages were parsed")?;
+        let second = pkgs.get(1).ok_or("two packages were parsed")?;
+        assert_eq!(first.dependencies(), ["b", "c 1.0.0"]);
+        assert_eq!(second.dependencies(), ["e", "f"]);
         Ok(())
     }
 
@@ -662,7 +682,8 @@ version = "0.1.0"
         let input =
             "[metadata]\ndependencies = [\"x\"]\n[[package]]\nname = \"a\"\nversion = \"1.0.0\"\n";
         let pkgs = parse(input)?;
-        assert!(pkgs[0].dependencies().is_empty(), "the block declared none");
+        let first = pkgs.first().ok_or("one package was parsed")?;
+        assert!(first.dependencies().is_empty(), "the block declared none");
         Ok(())
     }
 

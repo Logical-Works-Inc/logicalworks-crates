@@ -11,14 +11,14 @@ use drishti::native_host::governance::{
 use drishti::native_host::protocol::{Attribution, AttributionKind, GovernanceEntry};
 
 use crate::fixtures::{WORK_OBJECT, governance_entry_in};
-use crate::motion_kit::{describe, ensure};
+use crate::motion_kit::{describe, ensure, pick};
 use crate::rng::SimRng;
 
 /// Milliseconds in a day.
 const DAY_MS: u64 = 86_400_000;
 
 /// ISO stamp of a minute counted from the epoch (three days at most).
-pub fn stamp(minute: u64) -> String {
+pub(crate) fn stamp(minute: u64) -> String {
     format!(
         "1970-01-{:02}T{:02}:{:02}:00Z",
         minute.wrapping_div(1_440).saturating_add(1),
@@ -85,6 +85,91 @@ fn glob_says(glob: &str, kind: &str) -> bool {
     }
 }
 
+/// The kind globs the read sim draws from.
+const GLOBS: &[&str] = &["intent.*", "tick", "*", "forms.*"];
+
+/// Read one seeded window of one tenant session through `query` and `recent`,
+/// and compare both with the plain row model.
+fn check_read(
+    store: &GovernanceStore,
+    rows: &[Row],
+    random: &mut SimRng,
+    scope: (&str, &str),
+    at: (u64, usize),
+) -> Result<(), String> {
+    let (tenant, session) = scope;
+    let (seed, step) = at;
+    let from = random.below(DAY_MS.saturating_mul(2));
+    let width = random.below(DAY_MS);
+    let to = from.saturating_add(width);
+    let filter = if random.below(3) == 0 {
+        Some(match random.below(4) {
+            0 => AttributionSource::User,
+            1 => AttributionSource::Widget,
+            2 => AttributionSource::Ml,
+            _ => AttributionSource::System,
+        })
+    } else {
+        None
+    };
+    let glob = if random.below(3) == 0 {
+        Some(String::from(pick(random, GLOBS)?))
+    } else {
+        None
+    };
+    let query = GovernanceQuery::new(
+        String::from(tenant),
+        String::from(session),
+        from,
+        to,
+        filter,
+        glob.clone(),
+    )
+    .map_err(describe)?;
+    let mut kept: Vec<&Row> = rows
+        .iter()
+        .filter(|row| {
+            row.tenant == tenant
+                && row.session == session
+                && row.at_ms >= from
+                && row.at_ms <= to
+                && filter.is_none_or(|wanted| {
+                    AttributionSource::resolve(raw_name(row.source)) == Ok(wanted)
+                })
+                && glob.as_deref().is_none_or(|text| glob_says(text, row.kind))
+        })
+        .collect();
+    kept.sort_by_key(|row| row.at_ms);
+    let all: Vec<String> = kept.iter().map(|row| row.signal.clone()).collect();
+    let got: Vec<String> = store
+        .query(&query)
+        .map_err(describe)?
+        .iter()
+        .map(|row| String::from(row.signal_id()))
+        .collect();
+    ensure(
+        got == all,
+        &format!("seed {seed} step {step}: query read {got:?}, model {all:?}"),
+    )?;
+    let limit = if random.below(8) == 0 {
+        usize::MAX
+    } else {
+        random.below_len(12)
+    };
+    let cut = all.len().saturating_sub(limit.min(MAX_RECENT_ROWS));
+    let newest: Vec<String> = all.iter().skip(cut).cloned().collect();
+    let recent: Vec<String> = store
+        .recent(&query, limit)
+        .map_err(describe)?
+        .iter()
+        .map(|row| String::from(row.signal_id()))
+        .collect();
+    ensure(
+        recent == newest,
+        &format!("seed {seed} step {step}: recent({limit}) read {recent:?}, model {newest:?}"),
+    )
+}
+
 /// Bug caught: a read that leaks a neighbour tenant's row, mis-orders ties,
 /// cuts the limit before the kind filter, or disagrees with a plain list
 /// about which rows a window holds.
@@ -93,7 +178,6 @@ fn sim_governance_matches_the_model_over_random_operations() -> Result<(), Strin
     const TENANTS: &[&str] = &["tenant-a", "tenant-b", "tenant-c"];
     const SESSIONS: &[&str] = &["session-1", "session-2"];
     const KINDS: &[&str] = &["intent.find", "intent.pin", "forms.submitted", "tick"];
-    const GLOBS: &[&str] = &["intent.*", "tick", "*", "forms.*"];
     const SOURCES: [AttributionKind; 4] = [
         AttributionKind::User,
         AttributionKind::Widget,
@@ -107,13 +191,13 @@ fn sim_governance_matches_the_model_over_random_operations() -> Result<(), Strin
         let mut duplicates = 0_usize;
         let mut reads = 0_usize;
         for step in 0..300_usize {
-            let tenant = TENANTS[random.below_len(TENANTS.len())];
-            let session = SESSIONS[random.below_len(SESSIONS.len())];
+            let tenant = pick(&mut random, TENANTS)?;
+            let session = pick(&mut random, SESSIONS)?;
             if random.below(10) < 6 {
                 let signal = format!("signal-{}", random.below(40));
-                let kind = KINDS[random.below_len(KINDS.len())];
+                let kind = pick(&mut random, KINDS)?;
                 let minute = random.below(4_320);
-                let source = SOURCES[random.below_len(SOURCES.len())];
+                let source = pick(&mut random, &SOURCES)?;
                 let entry = attributed(tenant, session, &signal, kind, &stamp(minute), source);
                 let taken = rows
                     .iter()
@@ -142,77 +226,7 @@ fn sim_governance_matches_the_model_over_random_operations() -> Result<(), Strin
                 continue;
             }
             reads = reads.saturating_add(1);
-            let from = random.below(DAY_MS.saturating_mul(2));
-            let width = random.below(DAY_MS);
-            let to = from.saturating_add(width);
-            let filter = if random.below(3) == 0 {
-                Some(match random.below(4) {
-                    0 => AttributionSource::User,
-                    1 => AttributionSource::Widget,
-                    2 => AttributionSource::Ml,
-                    _ => AttributionSource::System,
-                })
-            } else {
-                None
-            };
-            let glob = if random.below(3) == 0 {
-                Some(String::from(GLOBS[random.below_len(GLOBS.len())]))
-            } else {
-                None
-            };
-            let query = GovernanceQuery::new(
-                String::from(tenant),
-                String::from(session),
-                from,
-                to,
-                filter,
-                glob.clone(),
-            )
-            .map_err(describe)?;
-            let mut kept: Vec<&Row> = rows
-                .iter()
-                .filter(|row| {
-                    row.tenant == tenant
-                        && row.session == session
-                        && row.at_ms >= from
-                        && row.at_ms <= to
-                        && filter.is_none_or(|wanted| {
-                            AttributionSource::resolve(raw_name(row.source)) == Ok(wanted)
-                        })
-                        && glob.as_deref().is_none_or(|text| glob_says(text, row.kind))
-                })
-                .collect();
-            kept.sort_by_key(|row| row.at_ms);
-            let all: Vec<String> = kept.iter().map(|row| row.signal.clone()).collect();
-            let got: Vec<String> = store
-                .query(&query)
-                .map_err(describe)?
-                .iter()
-                .map(|row| String::from(row.signal_id()))
-                .collect();
-            ensure(
-                got == all,
-                &format!("seed {seed} step {step}: query read {got:?}, model {all:?}"),
-            )?;
-            let limit = if random.below(8) == 0 {
-                usize::MAX
-            } else {
-                random.below_len(12)
-            };
-            let cut = all.len().saturating_sub(limit.min(MAX_RECENT_ROWS));
-            let newest: Vec<String> = all.iter().skip(cut).cloned().collect();
-            let recent: Vec<String> = store
-                .recent(&query, limit)
-                .map_err(describe)?
-                .iter()
-                .map(|row| String::from(row.signal_id()))
-                .collect();
-            ensure(
-                recent == newest,
-                &format!(
-                    "seed {seed} step {step}: recent({limit}) read {recent:?}, model {newest:?}"
-                ),
-            )?;
+            check_read(&store, &rows, &mut random, (tenant, session), (seed, step))?;
         }
         ensure(
             duplicates > 0 && reads > 20,
@@ -416,17 +430,15 @@ fn sim_governance_append_refusals_are_typed_and_ordered() -> Result<(), String> 
     let first = store.append(&governance_entry_in("", "", "session", "k", "bad"));
     let second = store.append(&governance_entry_in("", "x", "session", "k", "bad"));
     let third = store.append(&governance_entry_in("tenant-g", "x", "session", "k", "bad"));
-    let reasons: Vec<String> = [first, second, third]
-        .into_iter()
-        .map(|outcome| match outcome {
-            Err(GovernanceError::MalformedEntry(reason)) => reason,
-            other => format!("{other:?}"),
-        })
-        .collect();
+    let reasons = [first, second, third].map(|outcome| match outcome {
+        Err(GovernanceError::MalformedEntry(reason)) => reason,
+        other => format!("{other:?}"),
+    });
+    let [by_signal, by_tenant, by_stamp] = reasons.each_ref();
     ensure(
-        reasons[0].contains("signalId")
-            && reasons[1].contains("tenantId")
-            && reasons[2].contains("recordedAt"),
+        by_signal.contains("signalId")
+            && by_tenant.contains("tenantId")
+            && by_stamp.contains("recordedAt"),
         &format!("the first defect must be named: {reasons:?}"),
     )?;
     ensure(
@@ -499,7 +511,7 @@ fn sim_governance_attribution_filter_returns_only_its_source() -> Result<(), Str
 }
 
 /// A unique scratch database path for one sim step.
-pub fn scratch(label: &str, seed: u64) -> PathBuf {
+pub(crate) fn scratch(label: &str, seed: u64) -> PathBuf {
     std::env::temp_dir().join(format!(
         "drishti-sim-gov-{label}-{seed}-{}.db",
         lgwks_std::id::Uuid::now_v7()
@@ -507,7 +519,7 @@ pub fn scratch(label: &str, seed: u64) -> PathBuf {
 }
 
 /// Remove a database and its journal files.
-pub fn cleanup(base: &Path) -> Result<(), String> {
+pub(crate) fn cleanup(base: &Path) -> Result<(), String> {
     for suffix in ["", "-journal", "-wal", "-shm"] {
         let mut name = base.as_os_str().to_os_string();
         name.push(suffix);
@@ -619,7 +631,8 @@ fn sim_governance_torn_and_garbage_files_fail_typed() -> Result<(), String> {
         let bytes = std::fs::read(&path).map_err(describe)?;
         ensure(bytes.len() > 4_096, "the file must span several pages")?;
         let cut = random.below_len(bytes.len());
-        std::fs::write(&path, &bytes[..cut]).map_err(describe)?;
+        let kept = bytes.get(..cut).ok_or("the cut is past the file")?;
+        std::fs::write(&path, kept).map_err(describe)?;
         match GovernanceStore::open(&path) {
             Err(error) => ensure(
                 matches!(error, GovernanceError::Store(_)),

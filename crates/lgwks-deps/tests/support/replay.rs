@@ -8,7 +8,7 @@
 use crate::sim::{Rng, Trace, receipt};
 
 /// Why a scenario failed, as every family reports it.
-pub type Failure = Box<dyn std::error::Error>;
+pub(crate) type Failure = Box<dyn std::error::Error>;
 
 /// A scenario failure carrying `cause`, emitted before it is returned so a
 /// failing seed is visible in the trace log as well as in the test result.
@@ -16,7 +16,7 @@ pub type Failure = Box<dyn std::error::Error>;
 /// # Errors
 ///
 /// Always: this is the refusal.
-pub fn refuse<T>(cause: impl Into<String>) -> Result<T, Failure> {
+pub(crate) fn refuse<T>(cause: impl Into<String>) -> Result<T, Failure> {
     let refusal: Result<T, Failure> = Err(cause.into().into());
     lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "sim: a scenario failed");
     refusal
@@ -29,7 +29,7 @@ pub fn refuse<T>(cause: impl Into<String>) -> Result<T, Failure> {
 ///
 /// The first seed whose run fails, whose run records nothing, or whose replay
 /// records a different trace, named with `name` and the seed.
-pub fn replay_sweep(
+pub(crate) fn replay_sweep(
     name: &str,
     seeds: u64,
     mut body: impl FnMut(&mut Rng, &mut Trace) -> Result<(), Failure>,

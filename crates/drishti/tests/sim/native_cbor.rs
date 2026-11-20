@@ -79,7 +79,7 @@ fn bytes_up_to(random: &mut SimRng, most: usize) -> Vec<u8> {
 }
 
 /// Seeded value tree no deeper than three levels.
-fn gen_cbor(random: &mut SimRng, depth: usize) -> CborValue {
+fn gen_cbor(random: &mut SimRng, depth: usize) -> Result<CborValue, String> {
     const NUMBERS: &[u64] = &[
         0,
         1,
@@ -94,8 +94,12 @@ fn gen_cbor(random: &mut SimRng, depth: usize) -> CborValue {
         u64::MAX,
     ];
     let kinds = if depth >= 3 { 3 } else { 5 };
-    match random.below(kinds) {
-        0 => CborValue::Unsigned(NUMBERS[random.below_len(NUMBERS.len())]),
+    Ok(match random.below(kinds) {
+        0 => CborValue::Unsigned(
+            *NUMBERS
+                .get(random.below_len(NUMBERS.len()))
+                .ok_or("number index out of range")?,
+        ),
         1 => CborValue::ByteString(bytes_up_to(random, 30)),
         2 => {
             let length = random.below_len(10);
@@ -105,7 +109,7 @@ fn gen_cbor(random: &mut SimRng, depth: usize) -> CborValue {
             let count = random.below_len(4);
             let mut items = Vec::new();
             for _ in 0..count {
-                items.push(gen_cbor(random, depth.saturating_add(1)));
+                items.push(gen_cbor(random, depth.saturating_add(1))?);
             }
             CborValue::Array(items)
         }
@@ -115,11 +119,11 @@ fn gen_cbor(random: &mut SimRng, depth: usize) -> CborValue {
             for _ in 0..count {
                 let length = random.below_len(6);
                 let key = random.text(length);
-                map.insert(key, gen_cbor(random, depth.saturating_add(1)));
+                map.insert(key, gen_cbor(random, depth.saturating_add(1))?);
             }
             CborValue::Map(map)
         }
-    }
+    })
 }
 
 /// Bug caught: a reader that mis-sizes a head (1, 2, 4 or 8 byte arguments)
@@ -128,7 +132,7 @@ fn gen_cbor(random: &mut SimRng, depth: usize) -> CborValue {
 fn sim_cbor_roundtrips_seeded_trees() -> Result<(), String> {
     for seed in 0..400_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(130_000));
-        let value = gen_cbor(&mut random, 0);
+        let value = gen_cbor(&mut random, 0)?;
         let bytes = encode(&value)?;
         ensure(
             bytes.len() <= MAX_ATTEST_BYTES,
@@ -148,10 +152,11 @@ fn sim_cbor_roundtrips_seeded_trees() -> Result<(), String> {
 fn sim_cbor_every_strict_prefix_is_truncated() -> Result<(), String> {
     for seed in 0..60_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(140_000));
-        let value = gen_cbor(&mut random, 0);
+        let value = gen_cbor(&mut random, 0)?;
         let bytes = encode(&value)?;
         for cut in 0..bytes.len() {
-            let outcome = decode_attestation(&bytes[..cut]);
+            let prefix = bytes.get(..cut).ok_or("the cut is past the encoding")?;
+            let outcome = decode_attestation(prefix);
             ensure(
                 outcome == Err(AppAttestError::Truncated),
                 &format!(
@@ -174,7 +179,7 @@ fn sim_cbor_garbage_and_bit_flips_never_panic_and_reread() -> Result<(), String>
         let bytes = if seed.wrapping_rem(2) == 0 {
             bytes_up_to(&mut random, 40)
         } else {
-            let mut good = encode(&gen_cbor(&mut random, 0))?;
+            let mut good = encode(&gen_cbor(&mut random, 0)?)?;
             let flips = random.below_len(3).saturating_add(1);
             for _ in 0..flips {
                 let position = random.below_len(good.len());
@@ -339,7 +344,7 @@ fn sim_cbor_duplicate_keys_and_trailing_bytes_are_refused() -> Result<(), String
     )?;
     for seed in 0..120_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(160_000));
-        let value = gen_cbor(&mut random, 0);
+        let value = gen_cbor(&mut random, 0)?;
         let mut bytes = encode(&value)?;
         ensure(
             decode_attestation(&bytes) == Ok(value),
@@ -400,6 +405,7 @@ fn sim_attest_object_refusals_are_total_and_ordered() -> Result<(), String> {
     let missing = |key: &str| AppAttestError::MissingKey(String::from(key));
     let wrong = |what: &str| AppAttestError::UnexpectedType(String::from(what));
     let text = || CborValue::TextString(String::from("x"));
+    let stmt = |chain: CborValue| statement(Some(chain), None);
     /// One labelled object and the refusal it must draw.
     type Case = (&'static str, Result<Vec<u8>, String>, AppAttestError);
     let cases: Vec<Case> = vec![
@@ -429,10 +435,7 @@ fn sim_attest_object_refusals_are_total_and_ordered() -> Result<(), String> {
         (
             "x5c entry text",
             object(
-                Some(statement(
-                    Some(CborValue::Array(vec![blob(&[1]), text()])),
-                    None,
-                )),
+                Some(stmt(CborValue::Array(vec![blob(&[1]), text()]))),
                 Some(auth.clone()),
             ),
             wrong("x5c entry"),
@@ -440,20 +443,14 @@ fn sim_attest_object_refusals_are_total_and_ordered() -> Result<(), String> {
         (
             "x5c entry number",
             object(
-                Some(statement(
-                    Some(CborValue::Array(vec![CborValue::Unsigned(4)])),
-                    None,
-                )),
+                Some(stmt(CborValue::Array(vec![CborValue::Unsigned(4)]))),
                 Some(auth.clone()),
             ),
             wrong("x5c entry"),
         ),
         (
             "x5c empty",
-            object(
-                Some(statement(Some(CborValue::Array(Vec::new())), None)),
-                Some(auth),
-            ),
+            object(Some(stmt(CborValue::Array(Vec::new()))), Some(auth)),
             AppAttestError::EmptyCertChain,
         ),
         (
@@ -520,10 +517,11 @@ fn sim_attest_object_fields_survive_parsing() -> Result<(), String> {
             Some(blob(&auth)),
         )?;
         let parsed = AppAttestAttestation::parse(&bytes).map_err(describe)?;
+        let (leaf, intermediates) = chain.split_first().ok_or("the chain holds no leaf")?;
         ensure(
             parsed.chain() == chain.as_slice()
-                && parsed.leaf_cert_der() == chain[0].as_slice()
-                && parsed.intermediate_certs_der() == &chain[1..]
+                && parsed.leaf_cert_der() == leaf.as_slice()
+                && parsed.intermediate_certs_der() == intermediates
                 && parsed.auth_data() == auth.as_slice()
                 && parsed.receipt() == receipt.as_ref(),
             &format!("seed {seed}: parsed fields drifted from the object"),

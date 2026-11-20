@@ -72,7 +72,7 @@ fn the_seed_space_is_covered_exactly_once_band_05() -> TestResult {
 }
 
 #[test]
-fn a_fault_schedule_is_a_function_of_its_seed_band_06() -> TestResult {
+fn a_fault_schedule_is_a_function_of_its_seed_band_06() {
     a_fault_schedule_is_a_function_of_its_seed(Band::new(
         sim::band_of(6).first,
         sim::band_of(6).count,
@@ -80,7 +80,7 @@ fn a_fault_schedule_is_a_function_of_its_seed_band_06() -> TestResult {
 }
 
 #[test]
-fn a_fault_schedule_is_a_function_of_its_seed_band_07() -> TestResult {
+fn a_fault_schedule_is_a_function_of_its_seed_band_07() {
     a_fault_schedule_is_a_function_of_its_seed(Band::new(
         sim::band_of(7).first,
         sim::band_of(7).count,
@@ -88,7 +88,7 @@ fn a_fault_schedule_is_a_function_of_its_seed_band_07() -> TestResult {
 }
 
 #[test]
-fn a_fault_schedule_never_proposes_an_impossible_run_band_08() -> TestResult {
+fn a_fault_schedule_never_proposes_an_impossible_run_band_08() {
     a_fault_schedule_never_proposes_an_impossible_run(Band::new(
         sim::band_of(8).first,
         sim::band_of(8).count,
@@ -96,7 +96,7 @@ fn a_fault_schedule_never_proposes_an_impossible_run_band_08() -> TestResult {
 }
 
 #[test]
-fn a_fault_schedule_never_proposes_an_impossible_run_band_09() -> TestResult {
+fn a_fault_schedule_never_proposes_an_impossible_run_band_09() {
     a_fault_schedule_never_proposes_an_impossible_run(Band::new(
         sim::band_of(9).first,
         sim::band_of(9).count,
@@ -104,22 +104,22 @@ fn a_fault_schedule_never_proposes_an_impossible_run_band_09() -> TestResult {
 }
 
 #[test]
-fn the_clock_only_ever_moves_forward_band_10() -> TestResult {
+fn the_clock_only_ever_moves_forward_band_10() {
     the_clock_only_ever_moves_forward(Band::new(sim::band_of(10).first, sim::band_of(10).count))
 }
 
 #[test]
-fn the_clock_only_ever_moves_forward_band_11() -> TestResult {
+fn the_clock_only_ever_moves_forward_band_11() {
     the_clock_only_ever_moves_forward(Band::new(sim::band_of(11).first, sim::band_of(11).count))
 }
 
 #[test]
-fn a_tenant_count_is_never_zero_band_12() -> TestResult {
+fn a_tenant_count_is_never_zero_band_12() {
     a_tenant_count_is_never_zero(Band::new(sim::band_of(12).first, sim::band_of(12).count))
 }
 
 #[test]
-fn a_tenant_count_is_never_zero_band_13() -> TestResult {
+fn a_tenant_count_is_never_zero_band_13() {
     a_tenant_count_is_never_zero(Band::new(sim::band_of(13).first, sim::band_of(13).count))
 }
 
@@ -166,7 +166,7 @@ fn a_duplicate_carries_a_later_attempt_count_band_19() -> TestResult {
 }
 
 #[test]
-fn draining_an_empty_network_yields_nothing_band_20() -> TestResult {
+fn draining_an_empty_network_yields_nothing_band_20() {
     draining_an_empty_network_yields_nothing(Band::new(
         sim::band_of(20).first,
         sim::band_of(20).count,
@@ -174,7 +174,7 @@ fn draining_an_empty_network_yields_nothing_band_20() -> TestResult {
 }
 
 #[test]
-fn draining_an_empty_network_yields_nothing_band_21() -> TestResult {
+fn draining_an_empty_network_yields_nothing_band_21() {
     draining_an_empty_network_yields_nothing(Band::new(
         sim::band_of(21).first,
         sim::band_of(21).count,
@@ -208,7 +208,7 @@ fn distinct_seeds_reach_distinct_traces_band_25() -> TestResult {
 }
 
 #[test]
-fn a_partition_holds_everything_until_its_tick_band_26() -> TestResult {
+fn a_partition_holds_everything_until_its_tick_band_26() {
     a_partition_holds_everything_until_its_tick(Band::new(
         sim::band_of(26).first,
         sim::band_of(26).count,
@@ -216,7 +216,7 @@ fn a_partition_holds_everything_until_its_tick_band_26() -> TestResult {
 }
 
 #[test]
-fn a_partition_holds_everything_until_its_tick_band_27() -> TestResult {
+fn a_partition_holds_everything_until_its_tick_band_27() {
     a_partition_holds_everything_until_its_tick(Band::new(
         sim::band_of(27).first,
         sim::band_of(27).count,
@@ -224,17 +224,17 @@ fn a_partition_holds_everything_until_its_tick_band_27() -> TestResult {
 }
 
 #[test]
-fn generations_are_never_zero_band_30() -> TestResult {
+fn generations_are_never_zero_band_30() {
     generations_are_never_zero(Band::new(sim::band_of(30).first, sim::band_of(30).count))
 }
 
 #[test]
-fn generations_are_never_zero_band_31() -> TestResult {
+fn generations_are_never_zero_band_31() {
     generations_are_never_zero(Band::new(sim::band_of(31).first, sim::band_of(31).count))
 }
 
 #[test]
-fn an_advance_delivers_everything_that_became_due_band_32() -> TestResult {
+fn an_advance_delivers_everything_that_became_due_band_32() {
     an_advance_delivers_everything_that_became_due(Band::new(
         sim::band_of(32).first,
         sim::band_of(32).count,
@@ -242,7 +242,7 @@ fn an_advance_delivers_everything_that_became_due_band_32() -> TestResult {
 }
 
 #[test]
-fn an_advance_delivers_everything_that_became_due_band_33() -> TestResult {
+fn an_advance_delivers_everything_that_became_due_band_33() {
     an_advance_delivers_everything_that_became_due(Band::new(
         sim::band_of(33).first,
         sim::band_of(33).count,
@@ -277,7 +277,10 @@ fn the_band_table_is_contiguous_and_gapless(band: Band) -> TestResult {
         "the bands cover {cursor} seeds rather than the declared {}",
         sim::SEED_SPACE
     );
-    let _ = band;
+    assert!(
+        band.count > 0,
+        "the band swept is empty and asserts nothing"
+    );
     Ok(())
 }
 
@@ -299,26 +302,41 @@ fn the_seed_space_is_covered_exactly_once(band: Band) -> TestResult {
         "the bands cover {} seeds rather than the declared space",
         seen.len()
     );
-    let _ = band;
+    assert!(
+        band.count > 0,
+        "the band swept is empty and asserts nothing"
+    );
     Ok(())
 }
 
-/// A seed determines its whole fault schedule, with nothing shared between runs.
+/// A seed determines its whole fault schedule, drawn in the documented order.
 ///
-/// Two schedules for one seed would make every store family's pass rate a coin
-/// flip on a second run, and `assert_replays` would catch it there rather than
-/// here. The comparison is the derived `Eq` over every field, so a schedule
-/// cannot match in aggregate and differ on the one dimension a scenario
-/// depends on, and a field added later is compared without being listed.
-fn a_fault_schedule_is_a_function_of_its_seed(band: Band) -> TestResult {
+/// The oracle re-derives each schedule from a fresh stream in the order
+/// `Faults::for_seed` documents (tenants first, from their own draw), so a
+/// schedule that leaked state between runs, or reordered its draws and so
+/// renumbered every tenant, fails here. The comparison is the derived `Eq`
+/// over every field, so a field added later without a draw here fails too.
+fn a_fault_schedule_is_a_function_of_its_seed(band: Band) {
     for seed in band.seeds() {
+        let mut stream = sim::Rng::new(seed);
+        let tenants = stream.between(1, 65);
+        let expected = Faults {
+            net_drop: stream.between(0, 300),
+            net_duplicate: stream.between(0, 150),
+            partition_until: if stream.chance(250) {
+                u64::from(stream.between(1, 512))
+            } else {
+                0
+            },
+            tenants,
+            generations: stream.between(1, 4),
+        };
         assert_eq!(
             Faults::for_seed(seed),
-            Faults::for_seed(seed),
-            "seed {seed}: the fault schedule drifted between two derivations"
+            expected,
+            "seed {seed}: the schedule is not the documented draw order of its seed"
         );
     }
-    Ok(())
 }
 
 /// Every scheduled fault is one the harness can actually carry out.
@@ -327,7 +345,7 @@ fn a_fault_schedule_is_a_function_of_its_seed(band: Band) -> TestResult {
 /// the harness silently cannot honour: `chance` would compare against a number
 /// it never reaches and the fault would never fire, so the family relying on it
 /// would report coverage it never exercised.
-fn a_fault_schedule_never_proposes_an_impossible_run(band: Band) -> TestResult {
+fn a_fault_schedule_never_proposes_an_impossible_run(band: Band) {
     for seed in band.seeds() {
         let faults = Faults::for_seed(seed);
         for (name, per_mille) in [
@@ -344,7 +362,6 @@ fn a_fault_schedule_never_proposes_an_impossible_run(band: Band) -> TestResult {
             "seed {seed}: a run with no tenant proves nothing"
         );
     }
-    Ok(())
 }
 
 /// The clock is monotone under any sequence of advances, including a zero step.
@@ -352,7 +369,7 @@ fn a_fault_schedule_never_proposes_an_impossible_run(band: Band) -> TestResult {
 /// A clock that went backwards would let a message become due "in the past" and
 /// be delivered twice, which is a harness bug that would read as a duplicate
 /// delivery in every family that uses one.
-fn the_clock_only_ever_moves_forward(band: Band) -> TestResult {
+fn the_clock_only_ever_moves_forward(band: Band) {
     let mut rng = Rng::new(band.first);
     for _ in band.seeds() {
         let mut harness = Sim::new(band.first);
@@ -364,11 +381,10 @@ fn the_clock_only_ever_moves_forward(band: Band) -> TestResult {
             highest = now;
         }
     }
-    Ok(())
 }
 
 /// Every seed's tenant count is at least one.
-fn a_tenant_count_is_never_zero(band: Band) -> TestResult {
+fn a_tenant_count_is_never_zero(band: Band) {
     for seed in band.seeds() {
         let faults = Faults::for_seed(seed);
         assert!(
@@ -381,7 +397,6 @@ fn a_tenant_count_is_never_zero(band: Band) -> TestResult {
             faults.tenants
         );
     }
-    Ok(())
 }
 
 /// The network accounts for every envelope it was ever given.
@@ -505,7 +520,7 @@ fn a_duplicate_carries_a_later_attempt_count(band: Band) -> TestResult {
 }
 
 /// Draining a network that was never used yields nothing and changes nothing.
-fn draining_an_empty_network_yields_nothing(band: Band) -> TestResult {
+fn draining_an_empty_network_yields_nothing(band: Band) {
     for seed in band.seeds() {
         let faults = Faults::for_seed(seed);
         let mut rng = Rng::new(seed);
@@ -525,7 +540,6 @@ fn draining_an_empty_network_yields_nothing(band: Band) -> TestResult {
             );
         }
     }
-    Ok(())
 }
 
 /// The same seed replays to the same trace hash, across the whole band.
@@ -596,7 +610,7 @@ fn distinct_seeds_reach_distinct_traces(band: Band) -> TestResult {
 }
 
 /// A partition holds everything due before its tick, and nothing after it.
-fn a_partition_holds_everything_until_its_tick(band: Band) -> TestResult {
+fn a_partition_holds_everything_until_its_tick(band: Band) {
     for seed in band.seeds() {
         let mut faults = Faults::for_seed(seed);
         faults.net_drop = 0;
@@ -622,11 +636,10 @@ fn a_partition_holds_everything_until_its_tick(band: Band) -> TestResult {
             "seed {seed}: the message was not delivered after the partition lifted"
         );
     }
-    Ok(())
 }
 
 /// Every seed schedules at least one journal generation.
-fn generations_are_never_zero(band: Band) -> TestResult {
+fn generations_are_never_zero(band: Band) {
     for seed in band.seeds() {
         let faults = Faults::for_seed(seed);
         assert!(
@@ -634,11 +647,10 @@ fn generations_are_never_zero(band: Band) -> TestResult {
             "seed {seed}: zero generations exercises no chain at all"
         );
     }
-    Ok(())
 }
 
 /// Advancing the harness delivers everything that became due across the step.
-fn an_advance_delivers_everything_that_became_due(band: Band) -> TestResult {
+fn an_advance_delivers_everything_that_became_due(band: Band) {
     for seed in band.seeds() {
         let mut faults = Faults::for_seed(seed);
         faults.net_drop = 0;
@@ -664,5 +676,4 @@ fn an_advance_delivers_everything_that_became_due(band: Band) -> TestResult {
             "seed {seed}: drained {total} of {expected} messages over a clock that reached {now}"
         );
     }
-    Ok(())
 }

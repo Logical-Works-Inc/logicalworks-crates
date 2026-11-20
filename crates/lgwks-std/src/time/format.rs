@@ -213,7 +213,7 @@ pub fn from_unix_parts_lossy(secs: i64, nanos: u32) -> SystemTime {
             #[cfg(feature = "trace")]
             crate::trace::debug!(error = ?error, "from_unix_parts_lossy: clamping a refused pair to the Unix epoch");
             #[cfg(not(feature = "trace"))]
-            let _ = error;
+            drop(error);
             UNIX_EPOCH
         }
     }
@@ -246,17 +246,15 @@ fn write_four_digits(out: &mut String, value: i64) {
 /// into `.5` and `120_000_000` into `.12`, matching what the parser accepts.
 fn extract_fraction_digits(nanos: i64, buf: &mut [u8; 9]) -> usize {
     let mut remainder = nanos;
-    for index in (0..9).rev() {
-        buf[index] = digit_byte(remainder.rem_euclid(10));
+    for slot in buf.iter_mut().rev() {
+        *slot = digit_byte(remainder.rem_euclid(10));
         remainder = remainder.div_euclid(10);
     }
-    let mut length: usize = 9;
-    // `length > 0` on entry to each iteration, so `length - 1` is in bounds and
-    // cannot underflow.
-    while length > 0 && buf[length.saturating_sub(1)] == b'0' {
-        length = length.saturating_sub(1);
+    // Trailing zeros are trimmed: the length is one past the last nonzero digit.
+    match buf.iter().rposition(|&byte| byte != b'0') {
+        Some(last) => last.saturating_add(1),
+        None => 0,
     }
-    length
 }
 
 /// Appends the trimmed fractional digits of `nanos`.
@@ -266,7 +264,7 @@ fn extract_fraction_digits(nanos: i64, buf: &mut [u8; 9]) -> usize {
 fn write_fraction(out: &mut String, nanos: i64) {
     let mut buf = [0u8; 9];
     let length = extract_fraction_digits(nanos, &mut buf);
-    for &byte in &buf[..length] {
+    for &byte in buf.iter().take(length) {
         // `digit_byte` only ever produces `b'0'..=b'9'`, so the widening to
         // `char` is exact.
         out.push(char::from(byte));

@@ -162,6 +162,34 @@ fn a_configured_ceiling_above_the_operators_is_refused_rather_than_clamped() -> 
     Ok(())
 }
 
+/// A ceiling of exactly `total` admits the whole script: the boundary from the
+/// accepting side.
+fn exact_ceiling_admits_the_script(total: usize) -> TestResult {
+    let exact = ResourceLimits::shipped().tighten(ResourceAxis::Session, total);
+    let (journal, _) = SharedJournal::new();
+    let mut session = Session::with_components_and_limits(
+        "exact",
+        loop_flow()?,
+        LanguageResolver::new(),
+        journal,
+        exact,
+    )?;
+    session.answer("again")?;
+    session.answer("again")?;
+    session.answer("stop")?;
+    assert_eq!(
+        session.retained_bytes(),
+        total,
+        "the script that fits exactly is run to completion"
+    );
+    assert_eq!(
+        session.terminal(),
+        Some(&Terminal::Completed),
+        "and reaches its terminal"
+    );
+    Ok(())
+}
+
 #[test]
 fn cumulative_records_are_charged_against_the_session_ceiling() -> TestResult {
     // Every turn of this loop is a handful of individually acceptable records.
@@ -195,30 +223,7 @@ fn cumulative_records_are_charged_against_the_session_ceiling() -> TestResult {
         "the loop recorded repeated prompts, which is what accumulates"
     );
 
-    // A ceiling of exactly that total admits the whole script: the boundary
-    // from the accepting side.
-    let exact = ResourceLimits::shipped().tighten(ResourceAxis::Session, total);
-    let (journal, _) = SharedJournal::new();
-    let mut session = Session::with_components_and_limits(
-        "exact",
-        loop_flow()?,
-        LanguageResolver::new(),
-        journal,
-        exact,
-    )?;
-    session.answer("again")?;
-    session.answer("again")?;
-    session.answer("stop")?;
-    assert_eq!(
-        session.retained_bytes(),
-        total,
-        "the script that fits exactly is run to completion"
-    );
-    assert_eq!(
-        session.terminal(),
-        Some(&Terminal::Completed),
-        "and reaches its terminal"
-    );
+    exact_ceiling_admits_the_script(total)?;
 
     // Half of it does not, and what was written before the refusal is a prefix
     // of what the full run wrote: no partial record, no hole.
@@ -280,8 +285,8 @@ fn cumulative_records_are_charged_against_the_session_ceiling() -> TestResult {
         full.len()
     );
     assert_eq!(
-        written.as_slice(),
-        &full[..written.len()],
+        Some(written.as_slice()),
+        full.get(..written.len()),
         "and what it wrote is a prefix of the full run, with no partial record at the end"
     );
     drop(written);

@@ -1,15 +1,12 @@
 use super::*;
 
 use std::fs as stdfs;
-use std::io::Read;
 use std::io::Write;
 use std::os::unix::fs::symlink;
 
 /// Read a capability-opened file to a string.
 fn read_all(file: &mut std::fs::File) -> io::Result<String> {
-    let mut text = String::new();
-    file.read_to_string(&mut text)?;
-    Ok(text)
+    io::read_to_string(file)
 }
 
 #[test]

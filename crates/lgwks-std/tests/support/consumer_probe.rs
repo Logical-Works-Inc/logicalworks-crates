@@ -22,7 +22,7 @@ mod target_dir;
 ///
 /// # Errors
 /// Returns the refusal when the workspace root cannot be located.
-pub fn target_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+pub(crate) fn target_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     target_dir::workspace_target_dir()
 }
 
@@ -32,7 +32,10 @@ pub fn target_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
 /// # Errors
 /// Returns the refusal when lock generation or the run fails, with the child's
 /// stderr attached.
-pub fn build_and_run(manifest: &str, main_rs: &str) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn build_and_run(
+    manifest: &str,
+    main_rs: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
     let directory = tempfile::tempdir()?;
     std::fs::create_dir(directory.path().join("src"))?;
     let manifest_path = directory.path().join("Cargo.toml");
@@ -76,7 +79,7 @@ pub fn build_and_run(manifest: &str, main_rs: &str) -> Result<String, Box<dyn st
 
 /// Render a probe manifest named `package_name` that depends on this crate with
 /// default features off and exactly `features` on.
-pub fn manifest(package_name: &str, features: &[&str]) -> String {
+pub(crate) fn manifest(package_name: &str, features: &[&str]) -> String {
     let features = if features.is_empty() {
         String::new()
     } else {
@@ -101,12 +104,12 @@ pub fn manifest(package_name: &str, features: &[&str]) -> String {
 /// be. The sentinel is named rather than inlined so "a missing measurement
 /// fails closed" is one fact in one place, and [`measurement`] is the only
 /// place that decides it.
-pub const MISSING_MEASUREMENT: u64 = u64::MAX;
+pub(crate) const MISSING_MEASUREMENT: u64 = u64::MAX;
 
 /// The value of the `<label> <integer>` line named `label` in probe output, or
 /// [`MISSING_MEASUREMENT`] when no line names it.
 #[must_use]
-pub fn measurement(stdout: &str, label: &str) -> u64 {
+pub(crate) fn measurement(stdout: &str, label: &str) -> u64 {
     let named = stdout
         .lines()
         .filter_map(|line| {

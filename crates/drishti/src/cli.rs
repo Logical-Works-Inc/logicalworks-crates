@@ -113,6 +113,13 @@ pub struct Streams<'sink> {
     err: &'sink mut dyn Write,
 }
 
+impl std::fmt::Debug for Streams<'_> {
+    /// The sinks are opaque writers, so only the type is named.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Streams").finish_non_exhaustive()
+    }
+}
+
 impl Streams<'_> {
     /// Build streams over locked standard output and error. Only [`run`]
     /// calls this; binaries receive the streams.

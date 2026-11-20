@@ -111,27 +111,7 @@ fn run_monkey(seed: u64) -> Result<Trail, String> {
                     held.subs.push(made);
                 }
             }
-            2 => {
-                let actor = live
-                    .get(random.below_len(live.len()))
-                    .map(|held| held.handle.clone());
-                let owned = live.get(pick).and_then(|held| held.subs.last().copied());
-                if let (Some(actor), Some(sub)) = (actor, owned) {
-                    let result = harness.broker().unsubscribe(&actor, &sub);
-                    let by_owner = live.get(pick).is_some_and(|held| held.handle == actor);
-                    match (by_owner, result) {
-                        (true, Ok(())) => {
-                            if let Some(held) = live.get_mut(pick) {
-                                held.subs.pop();
-                            }
-                        }
-                        (false, Err(BrokerError::InvalidHandle)) => {}
-                        (state, other) => ensure(false, || {
-                            format!("unsubscribe: owner {state} met {other:?}")
-                        })?,
-                    }
-                }
-            }
+            2 => unsubscribe_step(&harness, &mut live, pick, &mut random)?,
             3 => {
                 if pick < live.len() {
                     let gone = live.swap_remove(pick);
@@ -154,38 +134,8 @@ fn run_monkey(seed: u64) -> Result<Trail, String> {
                     }
                 }
             }
-            5 => {
-                if let Some(held) = live.get(pick) {
-                    let wanted: BTreeSet<SubscriptionId> = live
-                        .iter()
-                        .filter(|other| other.tenant == held.tenant)
-                        .flat_map(|other| other.subs.iter().copied())
-                        .collect();
-                    ensure(
-                        ids_of(&harness, &held.handle, Reach::Own) == Ok(wanted),
-                        || String::from("own read must equal the model"),
-                    )?;
-                    ensure(
-                        ids_of(&harness, &held.handle, Reach::AllTenants)
-                            == Err(BrokerError::CrossTenantDenied),
-                        || String::from("a wide read needs the grant"),
-                    )?;
-                }
-            }
-            _ => {
-                if let Some(held) = live.get(pick) {
-                    let tap = harness
-                        .broker()
-                        .tap(&held.handle, Reach::Own, quiet_tap())
-                        .map_err(|error| format!("tap: {error}"))?;
-                    let first = harness.broker().untap(&held.handle, &tap);
-                    let second = harness.broker().untap(&held.handle, &tap);
-                    ensure(
-                        first == Ok(()) && second == Err(BrokerError::InvalidHandle),
-                        || String::from("a tap is cancelled once"),
-                    )?;
-                }
-            }
+            5 => read_step(&harness, &live, pick)?,
+            _ => tap_step(&harness, &live, pick)?,
         }
         trace.mix_len(live.len());
     }
@@ -194,6 +144,74 @@ fn run_monkey(seed: u64) -> Result<Trail, String> {
         harness,
         routed,
     })
+}
+
+/// A seeded actor tries to cancel the newest subscription of widget `pick`;
+/// only the owner may, and a stranger is refused with an invalid handle.
+fn unsubscribe_step(
+    harness: &Harness,
+    live: &mut [Live],
+    pick: usize,
+    random: &mut SimRng,
+) -> Result<(), String> {
+    let actor = live
+        .get(random.below_len(live.len()))
+        .map(|held| held.handle.clone());
+    let owned = live.get(pick).and_then(|held| held.subs.last().copied());
+    if let (Some(actor), Some(sub)) = (actor, owned) {
+        let result = harness.broker().unsubscribe(&actor, &sub);
+        let by_owner = live.get(pick).is_some_and(|held| held.handle == actor);
+        match (by_owner, result) {
+            (true, Ok(())) => {
+                if let Some(held) = live.get_mut(pick) {
+                    held.subs.pop();
+                }
+            }
+            (false, Err(BrokerError::InvalidHandle)) => {}
+            (state, other) => ensure(false, || {
+                format!("unsubscribe: owner {state} met {other:?}")
+            })?,
+        }
+    }
+    Ok(())
+}
+
+/// Widget `pick` reads its own subscriptions, which must equal the model, and
+/// is refused the wide read.
+fn read_step(harness: &Harness, live: &[Live], pick: usize) -> Result<(), String> {
+    if let Some(held) = live.get(pick) {
+        let wanted: BTreeSet<SubscriptionId> = live
+            .iter()
+            .filter(|other| other.tenant == held.tenant)
+            .flat_map(|other| other.subs.iter().copied())
+            .collect();
+        ensure(
+            ids_of(harness, &held.handle, Reach::Own) == Ok(wanted),
+            || String::from("own read must equal the model"),
+        )?;
+        ensure(
+            ids_of(harness, &held.handle, Reach::AllTenants) == Err(BrokerError::CrossTenantDenied),
+            || String::from("a wide read needs the grant"),
+        )?;
+    }
+    Ok(())
+}
+
+/// Widget `pick` opens a tap and cancels it twice; only the first succeeds.
+fn tap_step(harness: &Harness, live: &[Live], pick: usize) -> Result<(), String> {
+    if let Some(held) = live.get(pick) {
+        let tap = harness
+            .broker()
+            .tap(&held.handle, Reach::Own, quiet_tap())
+            .map_err(|error| format!("tap: {error}"))?;
+        let first = harness.broker().untap(&held.handle, &tap);
+        let second = harness.broker().untap(&held.handle, &tap);
+        ensure(
+            first == Ok(()) && second == Err(BrokerError::InvalidHandle),
+            || String::from("a tap is cancelled once"),
+        )?;
+    }
+    Ok(())
 }
 
 /// The monkey's hash, for replay.

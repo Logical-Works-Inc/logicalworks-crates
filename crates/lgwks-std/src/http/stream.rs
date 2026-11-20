@@ -34,6 +34,7 @@
 //! # }
 //! ```
 
+use std::fmt;
 use std::io::Read;
 
 use super::{BodyPolicy, Error, FailureKind, FailureStage, Options};
@@ -52,7 +53,7 @@ use sse_decode::SseDecoder;
 /// to the pool: only a fully consumed stream pools.
 pub struct StreamResponse {
     /// HTTP status code, including 4xx/5xx.
-    pub status: u16,
+    status: u16,
     /// The shared head: headers and provenance, read the same way as a
     /// buffered [`Response`](super::Response).
     head: super::Head,
@@ -62,7 +63,37 @@ pub struct StreamResponse {
     body: StreamedBody,
 }
 
+impl fmt::Debug for StreamResponse {
+    /// Names the status and the body's state; headers are withheld because a
+    /// value such as `Set-Cookie` is a credential.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StreamResponse")
+            .field("status", &self.status)
+            .field("line_cap", &self.line_cap)
+            .field("body", &self.body)
+            .finish_non_exhaustive()
+    }
+}
+
 impl StreamResponse {
+    /// HTTP status code, including 4xx/5xx.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use lgwks_std::http::{Client, Options};
+    ///
+    /// let client = Client::new(Options::default())?;
+    /// let stream = client.get_stream("https://example.com/events")?;
+    /// let found = stream.status() == 200;
+    /// # Ok::<(), lgwks_std::http::Error>(())
+    /// ```
+    #[must_use]
+    pub const fn status(&self) -> u16 {
+        self.status
+    }
+
     /// Compatibility projection of headers, lossy UTF-8 like
     /// [`Response::headers`](super::Response::headers).
     #[must_use]
@@ -153,6 +184,21 @@ pub struct StreamedBody {
     end: Option<super::Truncation>,
 }
 
+impl fmt::Debug for StreamedBody {
+    /// Names the budget and the terminal state; the transport reader is not
+    /// rendered.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("StreamedBody")
+            .field("open", &self.reader.is_some())
+            .field("remaining", &self.remaining)
+            .field("ceiling", &self.ceiling)
+            .field("policy", &self.policy)
+            .field("end", &self.end)
+            .finish()
+    }
+}
+
 impl StreamedBody {
     /// Wrap one transport reader under `options`' ceiling and policy.
     pub(super) fn new(reader: ureq::BodyReader<'static>, options: &Options) -> Self {
@@ -188,18 +234,26 @@ impl StreamedBody {
             self.end = Some(super::Truncation::Complete);
             return Ok(None);
         };
-        match reader.read(&mut buf[..allowed]) {
+        let window = buf.get_mut(..allowed).ok_or(Error::Failure {
+            stage: FailureStage::Body,
+            kind: FailureKind::Transport,
+            cause: None,
+        })?;
+        match reader.read(window) {
             Ok(0) => {
                 self.reader = None;
                 self.end = Some(super::Truncation::Complete);
                 Ok(None)
             }
+            // A reader that reports more than its window held is refused: the
+            // count would pass the ceiling and name bytes `buf` never received.
+            Ok(read) if read > allowed => Err(super::exchange::window_error()),
             Ok(read) => {
                 self.remaining = self.remaining.saturating_sub(read);
                 Ok(Some(read))
             }
             Err(read_error) => Err(super::exchange::map_read_error(
-                read_error,
+                &read_error,
                 FailureStage::Body,
             )),
         }
@@ -249,7 +303,7 @@ impl StreamedBody {
                 Ok(None)
             }
             Err(read_error) => Err(super::exchange::map_read_error(
-                read_error,
+                &read_error,
                 FailureStage::EofProbe,
             )),
         }
@@ -361,6 +415,16 @@ pub struct SseStream {
     body: StreamedBody,
     /// The bytes-in, events-out decoder the body feeds.
     decoder: SseDecoder,
+}
+
+impl fmt::Debug for SseStream {
+    /// Names the body's state; the decoder's buffered bytes are not rendered.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("SseStream")
+            .field("body", &self.body)
+            .finish_non_exhaustive()
+    }
 }
 
 impl SseStream {

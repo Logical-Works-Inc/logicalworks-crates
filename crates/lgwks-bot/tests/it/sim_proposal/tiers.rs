@@ -30,10 +30,9 @@ fn saturation_reaches_100_1000_and_10000() -> TestResult {
             // so collecting through an adapter would keep that borrow alive past
             // the collect and the scope would not accept it.
             let mut handles = Vec::new();
-            for index in 0..workers {
+            for tenant in TENANTS.iter().cycle().take(workers).copied() {
                 let store = store.clone();
                 handles.push(scope.spawn(move || {
-                    let tenant = TENANTS[index % TENANTS.len()];
                     store.artifacts(tenant) + usize::from(store.holds(tenant, &digest))
                 }));
             }
@@ -48,7 +47,7 @@ fn saturation_reaches_100_1000_and_10000() -> TestResult {
 
         let mut reported = 0_usize;
         for seen in reads {
-            reported = reported.saturating_add(seen.map_err(|_| "a worker thread panicked")?);
+            reported = reported.saturating_add(seen.map_err(sim::panicked)?);
         }
 
         // Each worker reports `artifacts(its tenant) + holds(its tenant, digest)`:
@@ -56,11 +55,11 @@ fn saturation_reaches_100_1000_and_10000() -> TestResult {
         // contended artifact. The workers are spread across the tenant set, so the
         // total is checked against the store rather than assumed to be the worker
         // count — a number nobody can derive is a number nobody can check.
-        let expected = (0..workers)
-            .map(|index| {
-                let tenant = TENANTS[index % TENANTS.len()];
-                store.artifacts(tenant) + usize::from(store.holds(tenant, &digest))
-            })
+        let expected = TENANTS
+            .iter()
+            .cycle()
+            .take(workers)
+            .map(|tenant| store.artifacts(tenant) + usize::from(store.holds(tenant, &digest)))
             .sum::<usize>();
         assert_eq!(
             reported, expected,
@@ -136,7 +135,7 @@ fn two_tenant_saturation_keeps_its_shelves_apart() -> TestResult {
     });
     let mut wrote = 0_usize;
     for ok in writes {
-        if ok.map_err(|_| "a writer thread panicked")? {
+        if ok.map_err(sim::panicked)? {
             wrote = wrote.saturating_add(1);
         }
     }

@@ -254,16 +254,16 @@ fn check_text_door(
 fn check_slice_door(
     seed: u64,
     ron_style: bool,
-    bytes: Vec<u8>,
+    bytes: &[u8],
     value: &str,
     what: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if ron_style {
-        let decoded: Borrowed<'_> = ron::from_slice(&bytes)?;
-        assert_field_borrows(seed, &bytes, &decoded, value, what);
+        let decoded: Borrowed<'_> = ron::from_slice(bytes)?;
+        assert_field_borrows(seed, bytes, &decoded, value, what);
     } else {
-        let decoded: Borrowed<'_> = json::from_slice(&bytes)?;
-        assert_field_borrows(seed, &bytes, &decoded, value, what);
+        let decoded: Borrowed<'_> = json::from_slice(bytes)?;
+        assert_field_borrows(seed, bytes, &decoded, value, what);
     }
     Ok(())
 }
@@ -287,7 +287,10 @@ fn sweep_borrowed_field(
         let document = borrowed_document(&value, ron_style);
         match door {
             Door::Text => check_text_door(seed, ron_style, &document, &value, what)?,
-            Door::Slice => check_slice_door(seed, ron_style, document.into_bytes(), &value, what)?,
+            Door::Slice => {
+                let bytes = document.into_bytes();
+                check_slice_door(seed, ron_style, &bytes, &value, what)?;
+            }
         }
     }
     Ok(())
@@ -335,7 +338,8 @@ fn an_unescaped_ron_field_borrows_from_the_supplied_input() -> Result<(), Box<dy
 /// An **escaped** string cannot be borrowed: it needs decoded storage that the
 /// input does not contain. A borrowed decode of such a field is refused, which
 /// is how a caller learns to ask for an owned `String` instead.
-fn an_escaped_field_is_refused_as_a_borrow_in_both_codecs() {
+fn an_escaped_field_is_refused_as_a_borrow_in_both_codecs() -> Result<(), Box<dyn std::error::Error>>
+{
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..24 {
@@ -344,7 +348,9 @@ fn an_escaped_field_is_refused_as_a_borrow_in_both_codecs() {
             // escape forms that make a field unborrowable: each needs decoded
             // storage that the input does not literally contain.
             let escapes = ["\\n", "\\\\", "\\\"", "\\t"];
-            let escape = escapes[below(&mut state, escapes.len())];
+            let Some(&escape) = escapes.get(below(&mut state, escapes.len())) else {
+                return Err("a draw below the table's length indexes the table".into());
+            };
             let json_text = format!(r#"{{"value":"line{escape}feed"}}"#);
             let json_result: Result<Borrowed<'_>, _> = json::from_str(&json_text);
             assert!(
@@ -360,6 +366,7 @@ fn an_escaped_field_is_refused_as_a_borrow_in_both_codecs() {
             );
         }
     }
+    Ok(())
 }
 
 #[test]
@@ -390,7 +397,7 @@ fn a_malformed_document_is_refused_by_both_the_borrowing_and_owned_paths() {
 /// A byte slice that is not UTF-8 is refused by RON as a *transport* fault,
 /// distinct from a content fault: `from_slice` keeps `Utf8` and `Ron` apart, so
 /// a caller can tell "this is not text" from "this is not valid RON".
-fn a_non_utf8_slice_is_refused_as_a_transport_fault() -> Result<(), Box<dyn std::error::Error>> {
+fn a_non_utf8_slice_is_refused_as_a_transport_fault() {
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..32 {
@@ -414,7 +421,6 @@ fn a_non_utf8_slice_is_refused_as_a_transport_fault() -> Result<(), Box<dyn std:
             );
         }
     }
-    Ok(())
 }
 
 #[test]

@@ -375,11 +375,12 @@ pub(crate) fn is_replacement_shape(value: &str) -> bool {
 /// knows. Anything else is a path nothing owns.
 fn replacement_resolves(replacement: &str, members: &[String], root: &Path) -> bool {
     let parts: Vec<&str> = replacement.split("::").collect();
-    if parts.len() < 2 {
+    let Some((&head, rest)) = parts.split_first() else {
+        return false;
+    };
+    if rest.is_empty() {
         return false;
     }
-    let head = parts[0];
-    let rest = &parts[1..];
     if head == "core" || head == "alloc" {
         return true;
     }

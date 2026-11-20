@@ -51,7 +51,7 @@ fn trace_line(scope: &Scope) -> String {
 /// A poisoned trace means a body already panicked, which fails the test on its
 /// own; the body's error carries that fact rather than replacing it with a
 /// second one.
-async fn record(records: &Mutex<Vec<String>>, scope: &Scope) -> Result<String, FlowError> {
+fn record(records: &Mutex<Vec<String>>, scope: &Scope) -> Result<String, FlowError> {
     let line = trace_line(scope);
     match records.lock() {
         Ok(mut held) => held.push(line.clone()),
@@ -83,7 +83,7 @@ async fn trace_each(
     each(scope, "page", None, 0..4_usize, |item_scope, item| {
         let records = Arc::clone(records);
         async move {
-            record(&records, &item_scope).await?;
+            record(&records, &item_scope)?;
             Ok::<usize, FlowError>(item)
         }
     })
@@ -167,7 +167,7 @@ fn retry_attempts_share_one_tenant_and_key() -> TestResult {
         |attempt_scope, attempt| {
             let records = Arc::clone(&records);
             async move {
-                record(&records, &attempt_scope).await?;
+                record(&records, &attempt_scope)?;
                 if attempt < 3 {
                     Err(FlowError::transient("not yet"))
                 } else {
@@ -199,7 +199,7 @@ fn retry_attempts_share_one_tenant_and_key() -> TestResult {
         );
     }
     assert!(
-        trace[0] == trace[1] && trace[1] == trace[2],
+        trace.windows(2).all(|pair| pair.first() == pair.last()),
         "every attempt shares one tenant and one step key, got {trace:?}"
     );
     Ok(())
@@ -347,7 +347,7 @@ fn the_same_scope_trace_replays() -> TestResult {
             |attempt_scope, _attempt| {
                 let records = Arc::clone(&records);
                 async move {
-                    record(&records, &attempt_scope).await?;
+                    record(&records, &attempt_scope)?;
                     Ok::<&str, FlowError>("sent")
                 }
             },

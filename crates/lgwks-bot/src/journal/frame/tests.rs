@@ -1,16 +1,30 @@
 //! Unit tests for the journal frame codec, moved verbatim out of frame.rs.
 
+#[cfg(test)]
 use super::{
     Digest, HEAD_BYTES, LENGTH_BYTES, Piece, Prefix, SaturatingFrom, declared_length, encode,
     framed_len, is_possible_length, read_piece, read_prefix, writable_length,
 };
 use std::io::Cursor;
+use std::slice::SliceIndex;
 
 /// These tests mix two error domains — the reader's `io::Error` and the
 /// fixture's own `&str` — so they report `Box<dyn Error>` and propagate each
 /// with `?` rather than reducing a failed read to a classification that
 /// would read as a clean end.
 type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+/// `items[range]`, or the refusal of a range the fixture did not size.
+fn part<T>(items: &[T], range: impl SliceIndex<[T], Output = [T]>) -> Result<&[T], &'static str> {
+    items
+        .get(range)
+        .ok_or("the fixture's range lies outside its bytes")
+}
+
+/// The head the first frame of a `chain_of` chained from.
+fn first_head(from: &[Digest]) -> Result<&Digest, &'static str> {
+    from.first().ok_or("chain_of made no heads")
+}
 
 /// A head, for the encode tests. Any 32 bytes; nothing here hashes.
 fn head() -> Digest {
@@ -37,12 +51,12 @@ fn a_frame_round_trips_through_the_shared_grammar() -> TestResult {
         .map(u8::try_from)
         .collect::<Result<Vec<u8>, _>>()?;
     let bytes = framed(&payload)?;
-    assert_eq!(&bytes[..LENGTH_BYTES], &200u32.to_be_bytes());
+    assert_eq!(part(&bytes, ..LENGTH_BYTES)?, &200u32.to_be_bytes());
     assert_eq!(
-        &bytes[LENGTH_BYTES..LENGTH_BYTES + payload.len()],
+        part(&bytes, LENGTH_BYTES..LENGTH_BYTES + payload.len())?,
         &payload[..]
     );
-    assert_eq!(&bytes[bytes.len() - HEAD_BYTES..], head().as_bytes());
+    assert_eq!(part(&bytes, bytes.len() - HEAD_BYTES..)?, head().as_bytes());
     Ok(())
 }
 
@@ -55,15 +69,14 @@ fn a_prefix_classifies_eof_full_and_torn() -> TestResult {
     let mut buffer = [0u8; LENGTH_BYTES];
     assert_eq!(read_prefix(&mut clean, &mut buffer)?, Prefix::Eof);
 
-    let mut whole = Cursor::new(bytes.clone());
+    let mut whole = Cursor::new(bytes);
     assert_eq!(read_prefix(&mut whole, &mut buffer)?, Prefix::Full);
     assert_eq!(declared_length(&buffer), 3);
 
     // Any prefix cut is an interrupted append, including one whose bytes are
     // zero: the count is what decides, never the values.
     for cut in 1..LENGTH_BYTES {
-        let zeroed: Vec<u8> = bytes[..cut].iter().map(|_| 0u8).collect();
-        let mut torn = Cursor::new(zeroed);
+        let mut torn = Cursor::new(vec![0u8; cut]);
         let mut scratch = [0u8; LENGTH_BYTES];
         assert_eq!(read_prefix(&mut torn, &mut scratch)?, Prefix::Torn);
     }
@@ -79,7 +92,7 @@ fn a_frame_cut_inside_a_piece_is_interrupted() -> TestResult {
     // what "the source ended before the buffer did" means: the read wanted more
     // than arrived, rather than wanting a fixed eight bytes that happened to fit.
     for cut in [LENGTH_BYTES + 1, LENGTH_BYTES + 8, bytes.len() - HEAD_BYTES] {
-        let mut source = Cursor::new(bytes[..cut].to_vec());
+        let mut source = Cursor::new(part(&bytes, ..cut)?.to_vec());
         let wanted = bytes.len().saturating_sub(cut).saturating_add(1);
         let mut piece = vec![0u8; wanted];
         assert_eq!(read_piece(&mut source, &mut piece)?, Piece::Interrupted);
@@ -112,9 +125,12 @@ fn a_frames_bytes_are_prefix_payload_and_head() -> TestResult {
         let payload = vec![7u8; size];
         let bytes = framed(&payload)?;
         assert_eq!(bytes.len(), LENGTH_BYTES + size + HEAD_BYTES);
-        assert_eq!(&bytes[LENGTH_BYTES..LENGTH_BYTES + size], &payload[..]);
         assert_eq!(
-            &bytes[bytes.len() - HEAD_BYTES..],
+            part(&bytes, LENGTH_BYTES..LENGTH_BYTES + size)?,
+            &payload[..]
+        );
+        assert_eq!(
+            part(&bytes, bytes.len() - HEAD_BYTES..)?,
             head().as_bytes(),
             "the stored head is the frame's last {HEAD_BYTES} bytes"
         );
@@ -124,11 +140,18 @@ fn a_frames_bytes_are_prefix_payload_and_head() -> TestResult {
 
 /// The head a store of plain chaining would store: a hash of the previous head
 /// and the payload, over the bytes as written.
-fn chained(previous: &Digest, payload: &[u8]) -> Option<Digest> {
+fn chained(previous: &Digest, payload: &[u8]) -> Digest {
     let mut hasher = lgwks_std::hash::Hasher::new();
     hasher.update(previous.as_bytes());
     hasher.update(payload);
-    Some(hasher.finalize())
+    hasher.finalize()
+}
+
+/// Whether the bytes behind a prefix hold an acknowledged frame of the plain chain.
+fn holds(behind_prefix: &[u8], previous: &Digest) -> bool {
+    super::holds_acknowledged_frame(behind_prefix, previous, CEILING, |before, payload| {
+        Some(chained(before, payload))
+    })
 }
 
 /// `count` chained frames laid out end to end, and the head each chained from.
@@ -137,7 +160,7 @@ fn chain_of(payloads: &[&[u8]]) -> Result<(Vec<u8>, Vec<Digest>), Box<dyn std::e
     let mut previous = Digest::from_bytes([0u8; HEAD_BYTES]);
     let mut chained_from = Vec::new();
     for payload in payloads {
-        let head = chained(&previous, payload).ok_or("chained refused to hash a head")?;
+        let head = chained(&previous, payload);
         let length =
             writable_length(payload.len(), CEILING).ok_or("the grammar framed this payload")?;
         bytes.extend_from_slice(&encode(length, payload, &head));
@@ -155,17 +178,12 @@ const CEILING: usize = 64 * 1024;
 fn the_cut_frame_authenticates_only_when_it_is_whole_behind_a_lying_prefix() -> TestResult {
     let payload: Vec<u8> = (0u8..100).collect();
     let (bytes, from) = chain_of(&[&payload])?;
-    let previous = from[0];
-    let behind_prefix = &bytes[LENGTH_BYTES..];
-    assert!(super::holds_acknowledged_frame(
-        behind_prefix,
-        &previous,
-        CEILING,
-        chained
-    ));
+    let previous = *first_head(&from)?;
+    let behind_prefix = part(&bytes, LENGTH_BYTES..)?;
+    assert!(holds(behind_prefix, &previous));
     for cut in 0..behind_prefix.len() {
         assert!(
-            !super::holds_acknowledged_frame(&behind_prefix[..cut], &previous, CEILING, chained),
+            !holds(part(behind_prefix, ..cut)?, &previous),
             "a frame cut {cut} bytes in, short of its head, is an interrupted append"
         );
     }
@@ -178,15 +196,10 @@ fn the_cut_frame_authenticates_only_when_it_is_whole_behind_a_lying_prefix() -> 
 fn a_whole_payload_with_a_short_head_authenticates_nothing() -> TestResult {
     let payload = vec![9u8; 64];
     let (bytes, from) = chain_of(&[&payload])?;
-    let behind_prefix = &bytes[LENGTH_BYTES..];
+    let behind_prefix = part(&bytes, LENGTH_BYTES..)?;
     for missing in 1..=HEAD_BYTES {
         let cut = behind_prefix.len() - missing;
-        assert!(!super::holds_acknowledged_frame(
-            &behind_prefix[..cut],
-            &from[0],
-            CEILING,
-            chained
-        ));
+        assert!(!holds(part(behind_prefix, ..cut)?, first_head(&from)?));
     }
     Ok(())
 }
@@ -196,19 +209,14 @@ fn a_whole_payload_with_a_short_head_authenticates_nothing() -> TestResult {
 #[test]
 fn a_later_frame_authenticates_when_the_cut_frame_cannot() -> TestResult {
     let (bytes, from) = chain_of(&[&[1u8; 40], &[2u8; 50], &[3u8; 60]])?;
-    let mut behind_prefix = bytes[LENGTH_BYTES..].to_vec();
-    behind_prefix[5] ^= 0x80;
-    assert!(super::holds_acknowledged_frame(
-        &behind_prefix,
-        &from[0],
-        CEILING,
-        chained
-    ));
+    let mut behind_prefix = part(&bytes, LENGTH_BYTES..)?.to_vec();
+    *behind_prefix
+        .get_mut(5)
+        .ok_or("the frame has a sixth byte")? ^= 0x80;
+    assert!(holds(&behind_prefix, first_head(&from)?));
     // The same bytes with the later frames cut away leave nothing to find.
-    let first_only = &behind_prefix[..40 + HEAD_BYTES];
-    assert!(!super::holds_acknowledged_frame(
-        first_only, &from[0], CEILING, chained
-    ));
+    let first_only = part(&behind_prefix, ..40 + HEAD_BYTES)?;
+    assert!(!holds(first_only, first_head(&from)?));
     Ok(())
 }
 
@@ -217,14 +225,11 @@ fn a_later_frame_authenticates_when_the_cut_frame_cannot() -> TestResult {
 #[test]
 fn a_frame_behind_a_damaged_head_chains_from_the_head_its_payload_implies() -> TestResult {
     let (bytes, from) = chain_of(&[&[1u8; 40], &[2u8; 50]])?;
-    let mut behind_prefix = bytes[LENGTH_BYTES..].to_vec();
-    behind_prefix[40 + 7] ^= 0x01;
-    assert!(super::holds_acknowledged_frame(
-        &behind_prefix,
-        &from[0],
-        CEILING,
-        chained
-    ));
+    let mut behind_prefix = part(&bytes, LENGTH_BYTES..)?.to_vec();
+    *behind_prefix
+        .get_mut(40 + 7)
+        .ok_or("the frame has a payload and a head")? ^= 0x01;
+    assert!(holds(&behind_prefix, first_head(&from)?));
     Ok(())
 }
 
@@ -233,25 +238,18 @@ fn a_frame_behind_a_damaged_head_chains_from_the_head_its_payload_implies() -> T
 #[test]
 fn noise_and_the_longest_possible_tail_hold_nothing() -> TestResult {
     let previous = Digest::from_bytes([5u8; HEAD_BYTES]);
-    assert!(!super::holds_acknowledged_frame(
-        &[],
-        &previous,
-        CEILING,
-        chained
-    ));
+    assert!(!holds(&[], &previous));
     // Noise, not a frame: every third byte is 250, which no `u32` length this
     // grammar writes could produce in that position.
     let longest: Vec<u8> = (0..CEILING + HEAD_BYTES)
         .map(|index| u8::saturating_from(index % 251))
         .collect();
-    assert!(!super::holds_acknowledged_frame(
-        &longest, &previous, CEILING, chained
-    ));
+    assert!(!holds(&longest, &previous));
     // A head function that refuses every payload can authenticate nothing.
     let (bytes, from) = chain_of(&[&[7u8; 30]])?;
     assert!(!super::holds_acknowledged_frame(
-        &bytes[LENGTH_BYTES..],
-        &from[0],
+        part(&bytes, LENGTH_BYTES..)?,
+        first_head(&from)?,
         CEILING,
         |_previous, _payload| None
     ));

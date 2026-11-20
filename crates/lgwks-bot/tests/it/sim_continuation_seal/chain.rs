@@ -260,7 +260,7 @@ pub(super) fn stopped_seal(sim: &mut sim::Sim) -> TestResult {
     let base = dir.join("run.jrnl");
     let successor = dir.join("run.jrnl.cont").join("000001");
     let boundaries = SealPause::all();
-    let boundary = boundaries[usize::try_from(sim.rng().below(4))?];
+    let boundary = *crate::sim::nth(&boundaries, usize::try_from(sim.rng().below(4))?)?;
     let attempts = draw(sim, 2, 20);
     let unknown = attempts.saturating_add(1);
     let mut journal = quiet(&base)?;

@@ -30,6 +30,10 @@ fn peak_rss_bytes() -> Option<u64> {
     pages.checked_mul(4096)
 }
 
+/// The monotonic clock a measurement reads, handed in by the test so the
+/// measuring code owns no clock of its own.
+type Clock = fn() -> Instant;
+
 /// Collects every sample duration, in nanoseconds.
 struct Percentiles {
     /// Every observed duration.
@@ -45,10 +49,10 @@ impl Percentiles {
     /// conversion per sample is a cost the measurement itself would be charging
     /// the path it measures. The range's exact size hint sizes the collection in
     /// one allocation.
-    fn measure(iterations: u32, mut work: impl FnMut(u32)) -> Self {
+    fn measure(clock: Clock, iterations: u32, mut work: impl FnMut(u32)) -> Self {
         let samples: Vec<u64> = (0..iterations)
             .map(|index| {
-                let start = Instant::now();
+                let start = clock();
                 work(index);
                 nanos(start.elapsed())
             })
@@ -66,6 +70,7 @@ impl Percentiles {
     /// Alternating puts every burst on both arms, so their ratio is the paths'
     /// own.
     fn measure_paired(
+        clock: Clock,
         iterations: u32,
         mut first: impl FnMut(u32),
         mut second: impl FnMut(u32),
@@ -74,10 +79,10 @@ impl Percentiles {
         // each, as `measure` does for one.
         let (first_samples, second_samples) = (0..iterations)
             .map(|index| {
-                let start = Instant::now();
+                let start = clock();
                 first(index);
                 let first_elapsed = nanos(start.elapsed());
-                let start = Instant::now();
+                let start = clock();
                 second(index);
                 (first_elapsed, nanos(start.elapsed()))
             })
@@ -108,9 +113,12 @@ impl Percentiles {
         let index = rank.saturating_sub(1).min(count.saturating_sub(1));
         let mut sorted = self.samples.clone();
         sorted.sort_unstable();
-        // The index is the nearest rank clamped to the last position, so it is a
-        // position this owns rather than an absent value.
-        sorted[index]
+        // The index is the nearest rank clamped to the last position, so the
+        // prefix it takes is never empty and its last sample is the one named.
+        sorted
+            .iter()
+            .take(index.saturating_add(1))
+            .fold(0, |_, &sample| sample)
     }
 
     /// The largest sample, or zero when nothing was observed.
@@ -146,7 +154,7 @@ impl Percentiles {
             // The mean of samples is at most the largest of them, so a mean past
             // the trace word is the accumulator's arithmetic rather than a
             // measurement, and the largest sample is the reading inside the word.
-            Err(_) => self.slowest(),
+            Err(_wider_than_a_word) => self.slowest(),
         }
     }
 }
@@ -184,6 +192,7 @@ fn retry_delay_latency_is_flat_across_the_attempt_range() {
     let mut small_total = Duration::ZERO;
     let mut large_total = Duration::ZERO;
     let (small, large) = Percentiles::measure_paired(
+        Instant::now,
         iterations,
         |index| small_total += policy.delay(index % 2, u64::from(index)),
         |index| large_total += policy.delay(u32::MAX, u64::from(index)),
@@ -213,12 +222,10 @@ fn retry_delay_latency_is_flat_across_the_attempt_range() {
 }
 
 #[test]
-fn glob_match_latency_is_linear_after_the_repair() {
+fn glob_match_latency_is_linear_after_the_repair() -> Result<(), Box<dyn std::error::Error>> {
     // #154 G1: the repaired matcher is one pass per token, so doubling the
     // path must roughly double the time: a quadratic matcher quadruples it.
-    let Ok(pattern) = GlobPattern::compile_with_dialect("*a**/b[0-9]?", GlobDialect::Legacy) else {
-        return;
-    };
+    let pattern = GlobPattern::compile_with_dialect("*a**/b[0-9]?", GlobDialect::Legacy)?;
     // Each arm owns its scratch, as each caller does (INV-GLOB-1).
     let mut short_scratch = GlobScratch::new();
     let mut long_scratch = GlobScratch::new();
@@ -234,6 +241,7 @@ fn glob_match_latency_is_linear_after_the_repair() {
     let mut small_hits = 0_u32;
     let mut large_hits = 0_u32;
     let (small, large) = Percentiles::measure_paired(
+        Instant::now,
         iterations,
         |_| small_hits += u32::from(pattern.is_match_with(&short, &mut short_scratch)),
         |_| large_hits += u32::from(pattern.is_match_with(&long, &mut long_scratch)),
@@ -267,25 +275,22 @@ fn glob_match_latency_is_linear_after_the_repair() {
             "peak RSS must be readable where the platform exposes it, got {rss}"
         );
     }
+    Ok(())
 }
 
 #[test]
-fn checked_composition_latency_is_a_single_pass_over_its_components() {
+fn checked_composition_latency_is_a_single_pass_over_its_components()
+-> Result<(), Box<dyn std::error::Error>> {
     // #160 S2: the checked path evaluates each component once and folds the
     // outcomes, so its cost tracks the component count rather than any
     // renormalization or retry.
-    let Ok(policy) = CheckedEvidence::new(vec![Box::new(Cosine::new())], vec![1.0], 0.0) else {
-        return;
-    };
-    let Ok(text) = CheckedEvidence::new(vec![Box::new(EditDistance::new(64))], vec![1.0], 0.0)
-    else {
-        return;
-    };
+    let policy = CheckedEvidence::new(vec![Box::new(Cosine::new())], vec![1.0], 0.0)?;
+    let text = CheckedEvidence::new(vec![Box::new(EditDistance::new(64))], vec![1.0], 0.0)?;
     let left: Vec<f32> = (0_u16..128).map(f32::from).collect();
     let iterations = 20_000;
     let bounded = lgwks_std::similarity::BoundedJaccard::<u32>::new(64);
     let mut verdicts = 0_u32;
-    let measured = Percentiles::measure(iterations, |index| {
+    let measured = Percentiles::measure(Instant::now, iterations, |index| {
         let offset = index % 8;
         verdicts += u32::from(policy.verdict(&left, &left).is_ok());
         verdicts += u32::from(text.verdict("kitten", "sitting").is_ok());
@@ -302,6 +307,7 @@ fn checked_composition_latency_is_a_single_pass_over_its_components() {
         "a checked composition must stay in the microsecond range: \
          p50/p95/p99 {p50}/{p95}/{p99}ns"
     );
+    Ok(())
 }
 
 #[test]
@@ -310,7 +316,7 @@ fn every_reported_percentile_is_ordered_and_bounded() {
     // is a broken measurement rather than a slow path.
     let policy = RetryPolicy::new(5, Duration::from_millis(1), Duration::from_secs(60));
     let mut total = Duration::ZERO;
-    let measured = Percentiles::measure(10_000, |index| {
+    let measured = Percentiles::measure(Instant::now, 10_000, |index| {
         total += policy.delay(index % 8, 0);
     });
     assert!(

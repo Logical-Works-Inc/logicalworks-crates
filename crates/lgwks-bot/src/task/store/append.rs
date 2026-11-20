@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
+use crate::effect::RunId;
 use crate::journal::frame::SaturatingFrom;
 use crate::journal::owner::{self, Stage};
 use crate::script::StepKey;
@@ -39,18 +40,15 @@ pub(super) fn append_on_owner(
     decide_and_write(file, &mut index, staged)
 }
 
-/// The decision, the write, and the fold this record owes its batch's flush.
-fn decide_and_write(
-    file: &mut File,
-    index: &mut Index,
-    staged: &Staged,
-) -> std::io::Result<Stage<Appended, Arc<Mutex<Index>>>> {
-    let stored = &staged.record;
-    let key = staged.key;
-    #[cfg(feature = "sealed")]
-    let sealed = staged.sealed.as_ref();
-    let owned = index.runs.get(&stored.run);
-    if let Some(owned) = owned {
+/// The answer the store already has for `stored` before anything is written, or
+/// `None` when the record is new and must be framed and appended.
+///
+/// A record for another tenant's run, a step whose slot is burned and a run at
+/// its record ceiling are refused. A step already held, or already staged in
+/// this batch, answers as recorded when the bytes match and as conflicting when
+/// they do not.
+fn prior_answer(index: &Index, stored: &Stored, key: StepKey) -> std::io::Result<Option<Appended>> {
+    if let Some(owned) = index.runs.get(&stored.run) {
         if owned.tenant != stored.tenant {
             let refusal = Err(refusal(StoreError::ForeignTenant {
                 owner: owned.tenant.clone(),
@@ -62,14 +60,9 @@ fn decide_and_write(
         if let Some(step) = owned.steps.get(&key.to_hex()) {
             #[cfg(feature = "sealed")]
             if let Some(sealed) = step.sealed.as_ref() {
-                let answer = sealed_impl::sealed_duplicate(sealed, &stored.value);
-                return Ok(Stage::Settled(Ok(answer)));
+                return Ok(Some(sealed_impl::sealed_duplicate(sealed, &stored.value)));
             }
-            return Ok(Stage::Settled(Ok(if step.bytes == stored.value {
-                Appended::AlreadyRecorded
-            } else {
-                Appended::Conflicting
-            })));
+            return Ok(Some(echoed(&step.bytes, &stored.value)));
         }
         #[cfg(feature = "sealed")]
         if let Some(burned) = sealed_impl::refuse_if_burned(index, stored.run, &key.to_hex()) {
@@ -87,15 +80,68 @@ fn decide_and_write(
             return refusal;
         }
     }
-
-    let staged_key = (stored.run, key.to_hex());
-    if let Some(bytes) = index.staged.get(&staged_key) {
-        return Ok(Stage::Settled(Ok(if *bytes == stored.value {
-            Appended::AlreadyRecorded
-        } else {
-            Appended::Conflicting
-        })));
+    match index.staged.get(&(stored.run, key.to_hex())) {
+        Some(bytes) => Ok(Some(echoed(bytes, &stored.value))),
+        None => Ok(None),
     }
+}
+
+/// The answer to a record whose step already holds `held`: recorded when
+/// `offered` is the same bytes, conflicting when it is not.
+fn echoed<T: PartialEq>(held: &T, offered: &T) -> Appended {
+    if held == offered {
+        Appended::AlreadyRecorded
+    } else {
+        Appended::Conflicting
+    }
+}
+
+/// The store size once `framed_len` more bytes are on the file, checked before
+/// they are written: refused past the store bound, and refused as corrupt when
+/// the file is not the length the index committed.
+fn room_for(file: &File, index: &Index, run: RunId, framed_len: usize) -> std::io::Result<u64> {
+    let next = index
+        .committed
+        .checked_add(u64::saturating_from(framed_len))
+        .ok_or_else(|| refusal(store_full(u64::MAX)))?;
+    if next > MAX_STORE_BYTES {
+        let refusal = Err(refusal(store_full(next)));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
+        return refusal;
+    }
+    let on_disk = file
+        .metadata()
+        .map_err(StoreError::storage)
+        .map_err(refusal)?
+        .len();
+    if on_disk != index.committed {
+        let held = match index.runs.get(&run) {
+            Some(held_run) => held_run.steps.len(),
+            None => 0,
+        };
+        let refusal = Err(refusal(StoreError::Corrupt {
+            at: u64::saturating_from(held),
+        }));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
+        return refusal;
+    }
+    Ok(next)
+}
+
+/// The decision, the write, and the fold this record owes its batch's flush.
+fn decide_and_write(
+    file: &mut File,
+    index: &mut Index,
+    staged: &Staged,
+) -> std::io::Result<Stage<Appended, Arc<Mutex<Index>>>> {
+    let stored = &staged.record;
+    let key = staged.key;
+    #[cfg(feature = "sealed")]
+    let sealed = staged.sealed.as_ref();
+    if let Some(answer) = prior_answer(index, stored, key)? {
+        return Ok(Stage::Settled(Ok(answer)));
+    }
+    let staged_key = (stored.run, key.to_hex());
 
     let previous = tail_head(index);
     #[cfg(feature = "sealed")]
@@ -106,34 +152,7 @@ fn decide_and_write(
     #[cfg(not(feature = "sealed"))]
     let _sealed_slot: Option<()> = None;
 
-    let staged_bytes = u64::saturating_from(framed.len());
-    let next = index
-        .committed
-        .checked_add(staged_bytes)
-        .ok_or_else(|| refusal(store_full(u64::MAX)))?;
-    if next > MAX_STORE_BYTES {
-        let refusal = Err(refusal(store_full(next)));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
-        return refusal;
-    }
-
-    let on_disk = file
-        .metadata()
-        .map_err(StoreError::storage)
-        .map_err(refusal)?
-        .len();
-    if on_disk != index.committed {
-        let held = match index.runs.get(&stored.run) {
-            Some(run) => run.steps.len(),
-            None => 0,
-        };
-        let refusal = Err(refusal(StoreError::Corrupt {
-            at: u64::saturating_from(held),
-        }));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "decide_and_write: returning an error to the caller");
-        return refusal;
-    }
-
+    let next = room_for(file, index, stored.run, framed.len())?;
     index.committed = next;
     index.tail = head;
     index.staged.insert(staged_key, stored.value.clone());

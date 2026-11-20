@@ -417,14 +417,13 @@ mod resolution_tests {
     }
 
     #[test]
-    fn a_relative_working_directory_stays_bare() -> io::Result<()> {
+    fn a_relative_working_directory_stays_bare() {
         // `Command` would read a relative program against the child's working
         // directory again, doubling it.
         let mut spec = ProcessSpec::new("witness");
         spec.current_dir("relative-lgwks-dir");
         spec.env("PATH", "");
         assert_eq!(spec.resolved_program(), PathBuf::from("witness"));
-        Ok(())
     }
 
     #[test]

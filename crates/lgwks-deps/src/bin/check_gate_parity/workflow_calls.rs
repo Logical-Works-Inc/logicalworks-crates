@@ -61,10 +61,20 @@ mod tests {
     /// both pins are 64 lowercase hex digits, so a half-done re-pin fails here
     /// before the job ever downloads.
     fn inline_gate_problems(workflow: &str, adr: &str) -> Vec<String> {
-        let mut problems = Vec::new();
         let Some(tag) = env_value(workflow, "LCI_RELEASE") else {
             return vec!["logical_ci.yml sets no LCI_RELEASE".to_owned()];
         };
+        let mut problems = release_problems(workflow, adr, tag);
+        problems.extend(engine_setup_problems(workflow));
+        problems.extend(prebuild_problems(workflow));
+        problems.extend(record_and_setup_problems(workflow, adr));
+        problems
+    }
+
+    /// The release `tag` named in the header, the runner comment and the ADR,
+    /// and both pins as 64 lowercase hex digits.
+    fn release_problems(workflow: &str, adr: &str, tag: &str) -> Vec<String> {
+        let mut problems = Vec::new();
         let named = [
             (
                 "the header",
@@ -107,6 +117,13 @@ mod tests {
                 None => problems.push(format!("logical_ci.yml sets no {key}")),
             }
         }
+        problems
+    }
+
+    /// What the engine needs installed, downloaded and configured to run cold
+    /// inside its lane cap.
+    fn engine_setup_problems(workflow: &str) -> Vec<String> {
+        let mut problems = Vec::new();
         // ci/property-and-loom probes nextest first; without it A02 seals
         // UNMEASURED in 142 ms (run 43232168262), and a held one is kept.
         for needle in [
@@ -162,6 +179,12 @@ mod tests {
                     .to_owned(),
             );
         }
+        problems
+    }
+
+    /// The prebuild step: selected targets only, and before the engine runs.
+    fn prebuild_problems(workflow: &str) -> Vec<String> {
+        let mut problems = Vec::new();
         // A `nextest --no-run` naming no target compiles every test binary
         // whatever the filter: it built all 51 and outlasted the job's 10
         // minutes (run 43282569391). One naming the lane's targets is what the
@@ -193,6 +216,13 @@ mod tests {
                     .to_owned(),
             );
         }
+        problems
+    }
+
+    /// The show step's record guard, the ADR's account of the prebuild, and the
+    /// hosted-rust setup that must precede the engine.
+    fn record_and_setup_problems(workflow: &str, adr: &str) -> Vec<String> {
+        let mut problems = Vec::new();
         // The show step runs if: always(); with no record jq exited 2 and
         // named a second failure that was not one (run 43296258554).
         if !workflow.contains("test -f \"$RUNNER_TEMP/logical_ci-record.json\" || exit 0") {
@@ -236,6 +266,15 @@ mod tests {
             Vec::<String>::new(),
             "the committed inline gate names one release"
         );
+        release_controls(&gate, &adr);
+        engine_controls(&gate, &adr);
+        record_controls(&gate, &adr);
+        every_workflow_is_checked()
+    }
+
+    /// A tag moved alone, an ADR line left behind, and a malformed pin.
+    fn release_controls(gate: &str, adr: &str) {
+        let (gate, adr) = (gate.to_owned(), adr.to_owned());
         let half = gate.replacen("LCI_RELEASE: v", "LCI_RELEASE: v9", 1);
         assert_ne!(
             half, gate,
@@ -262,6 +301,12 @@ mod tests {
                 .all(|problem| problem.starts_with("LCI_VERIFIER_SHA256 is not 64")),
             "a malformed verifier pin is named: {swapped_problems:?}"
         );
+    }
+
+    /// A copy that drops the nextest install, the hosted-rust setup, a download,
+    /// the cached target, or the selected prebuild.
+    fn engine_controls(gate: &str, adr: &str) {
+        let (gate, adr) = (gate.to_owned(), adr.to_owned());
         let bare = gate.replacen("tool: nextest@0.9.149", "tool: cargo-hack", 1);
         assert_eq!(
             inline_gate_problems(&bare, &adr),
@@ -333,6 +378,12 @@ mod tests {
             ],
             "a copy with no selected prebuild before the engine is named"
         );
+    }
+
+    /// A copy that loses the record guard, lints the build, builds optimised,
+    /// has no `CARGO_HOME`, drops an ADR run, or clobbers a held nextest.
+    fn record_controls(gate: &str, adr: &str) {
+        let (gate, adr) = (gate.to_owned(), adr.to_owned());
         let unguarded = gate.replacen(
             "test -f \"$RUNNER_TEMP/logical_ci-record.json\" || exit 0\n",
             "",
@@ -389,6 +440,11 @@ mod tests {
             1,
             "a copy that writes over a held nextest is named"
         );
+    }
+
+    /// Every committed workflow passes the checker, and a call to another
+    /// repository's workflow is named by its line.
+    fn every_workflow_is_checked() -> TestResult {
         let mut out = Vec::new();
         let mut err = Vec::new();
         assert_eq!(

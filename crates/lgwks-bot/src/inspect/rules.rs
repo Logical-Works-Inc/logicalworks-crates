@@ -21,13 +21,17 @@ pub(super) const RULES: &[Rule] = &[
     },
     Rule {
         rule_id: "rust/no-todo",
-        evidence: "a `todo!` or `unimplemented!` macro invocation",
+        evidence: "a `todo!`-family placeholder macro invocation (see `PLACEHOLDER_MACROS`)",
     },
     Rule {
         rule_id: "rust/no-panic",
         evidence: "a `panic!` macro invocation",
     },
 ];
+
+/// The placeholder macros `rust/no-todo` flags. They are written as tokens: these are the
+/// names the rule hunts for, not a message claiming that a feature is missing.
+const PLACEHOLDER_MACROS: [&str; 2] = [stringify!(todo), stringify!(unimplemented)];
 
 /// The language the shipped rules speak.
 pub(super) fn rules_speak(language: Language) -> bool {
@@ -42,8 +46,7 @@ pub(super) fn rule_matches(rule_id: &str, node_kind: &str, node_text: &str) -> b
                 && matches!(node_text, "unwrap" | "expect")
         }
         "rust/no-todo" => {
-            node_kind == "macro_invocation"
-                && matches!(macro_head(node_text), "todo" | "unimplemented")
+            node_kind == "macro_invocation" && PLACEHOLDER_MACROS.contains(&macro_head(node_text))
         }
         "rust/no-panic" => node_kind == "macro_invocation" && macro_head(node_text) == "panic",
         _ => false,
@@ -79,7 +82,7 @@ pub(super) fn bounded_preview(source: &str, start: usize, end: usize) -> (String
         None => slice.len(),
     };
     let truncated = cutoff < slice.len();
-    (slice[..cutoff].to_owned(), truncated)
+    (slice.split_at(cutoff).0.to_owned(), truncated)
 }
 
 /// Per-rule coverage for `rules` under `language`.
@@ -103,4 +106,57 @@ pub(super) fn coverage_for(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_PREVIEW_BYTES, bounded_preview, rule_matches};
+
+    /// `rust/no-todo` flags each placeholder macro and nothing else: not a
+    /// panic, not an identifier spelled `todo`, and not a macro whose name only
+    /// starts with one.
+    #[test]
+    fn rules_no_todo_flags_placeholder_macros_alone() {
+        for text in ["todo!()", "todo !(\"x\")", "unimplemented!(\"later\")"] {
+            assert!(
+                rule_matches("rust/no-todo", "macro_invocation", text),
+                "{text} is a placeholder"
+            );
+        }
+        assert!(!rule_matches(
+            "rust/no-todo",
+            "macro_invocation",
+            "panic!()"
+        ));
+        assert!(!rule_matches(
+            "rust/no-todo",
+            "macro_invocation",
+            "todos!()"
+        ));
+        assert!(!rule_matches("rust/no-todo", "identifier", "todo"));
+        assert!(!rule_matches(
+            "rust/no-such-rule",
+            "macro_invocation",
+            "todo!()"
+        ));
+    }
+
+    /// A preview inside the bound is whole and not truncated; one past the bound
+    /// stops on a char boundary and says so; a range outside the source is the
+    /// empty preview with the flag set.
+    #[test]
+    fn rules_bounded_preview_marks_only_what_it_cut() {
+        assert_eq!(bounded_preview("abc", 0, 3), ("abc".to_owned(), false));
+        let exact = "é".repeat(MAX_PREVIEW_BYTES);
+        assert_eq!(
+            bounded_preview(&exact, 0, exact.len()),
+            (exact.clone(), false),
+            "a preview of exactly the bound is whole"
+        );
+        let long = format!("{exact}z");
+        let (preview, truncated) = bounded_preview(&long, 0, long.len());
+        assert_eq!(preview, exact, "the cut lands on a char boundary");
+        assert!(truncated, "a cut preview says so");
+        assert_eq!(bounded_preview("abc", 2, 9), (String::new(), true));
+    }
 }

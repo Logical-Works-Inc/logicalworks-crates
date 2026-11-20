@@ -344,11 +344,11 @@ pub(super) fn bounded_host(
 /// replay. This one reaches before any work, so it is refused at the admission
 /// boundary and the store holds nothing. Both are the reach mechanism the front
 /// door offers, and only the second has been swept.
-pub(super) fn first_step_task(needs: Vec<Cap>) -> Result<Journey, Box<dyn Error>> {
+pub(super) fn first_step_task(needs: &[Cap]) -> Result<Journey, Box<dyn Error>> {
     // The binding is what turns the fn item into the fn pointer the journey type
     // names; `journey_task` above gets the same coercion from its own signature.
     let body: fn(Scope, JourneyInput) -> BodyFuture = reach_first;
-    Ok(task("reach-first", body)?.requiring(&needs))
+    Ok(task("reach-first", body)?.requiring(needs))
 }
 
 /// The body [`first_step_task`] declares: it reaches, then counts one poll.

@@ -163,7 +163,7 @@ fn two_tenants_over_http_never_read_each_others_state() -> TestResult {
             journey.map_err(|error| error.to_string())
         });
         serve(&mut world, &feed, listener, &stop)?;
-        client.join().map_err(|_| "the client thread panicked")??;
+        client.join().map_err(crate::sim::panicked)??;
         Ok(())
     })?;
     let counts = feed.counts();

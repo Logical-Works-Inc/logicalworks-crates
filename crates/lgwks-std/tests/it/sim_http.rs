@@ -36,7 +36,13 @@ mod sim {
             if read == 0 {
                 break;
             }
-            head.extend_from_slice(&request[..read]);
+            let Some(received) = request.get(..read) else {
+                lgwks_std::trace::debug!("read_request_head: returning an error to the caller");
+                return Err(std::io::Error::other(
+                    "a read is never longer than the buffer it filled",
+                ));
+            };
+            head.extend_from_slice(received);
             if head.windows(4).any(|window| window == b"\r\n\r\n") {
                 break;
             }
@@ -83,10 +89,20 @@ mod sim {
         preview: bool,
     }
 
+    /// A ceiling drawn from [`CEILINGS`]: the last of the first `draw + 1`
+    /// entries, so the lookup is total and no index can leave the table.
+    fn draw_ceiling(rng: &mut Rng) -> usize {
+        let draw = rng.below(CEILINGS.len());
+        CEILINGS
+            .iter()
+            .take(draw.saturating_add(1))
+            .fold(0, |_, &entry| entry)
+    }
+
     /// Derive the ceiling script from `seed` alone.
     fn ceiling_script(seed: u64) -> CeilingScript {
         let mut rng = Rng::new(seed);
-        let ceiling = CEILINGS[rng.below(CEILINGS.len())];
+        let ceiling = draw_ceiling(&mut rng);
         let body_len = match rng.below(5) {
             0 => ceiling,
             1 => ceiling.saturating_sub(1),
@@ -149,7 +165,8 @@ mod sim {
                         Truncation::Complete
                     };
                     assert_eq!(
-                        response.truncation, expected_truncation,
+                        response.truncation(),
+                        expected_truncation,
                         "seed {seed}: truncation must be a fact about the body, not the policy"
                     );
                 }
@@ -195,7 +212,7 @@ mod sim {
     /// Derive the torn-transport script from `seed` alone.
     fn torn_script(seed: u64) -> TornScript {
         let mut rng = Rng::new(seed ^ 0x7011_0000);
-        let content_length = CEILINGS[rng.below(CEILINGS.len())];
+        let content_length = draw_ceiling(&mut rng);
         let complete = rng.below(2) == 1;
         let sent = if complete {
             content_length
@@ -266,7 +283,7 @@ mod sim {
                     "seed {seed}: every declared body byte is retained"
                 );
                 assert_eq!(
-                    response.truncation,
+                    response.truncation(),
                     Truncation::Complete,
                     "seed {seed}: a body that ended at its declared length is complete"
                 );
@@ -297,23 +314,23 @@ mod sim {
     /// One tenant request: send `id` as the tenant header, return the status.
     fn tenant_request(url: &str, id: &str) -> Result<u16, Error> {
         let options = Options::default().header("X-Tenant", id).max_body_bytes(64);
-        http::get_with(url, &options).map(|response| response.status)
+        http::get_with(url, &options).map(|response| response.status())
     }
 
     /// Accept `count` connections and return each request head.
     ///
-    /// A refused connection ends the round: both tenants have been answered by
-    /// then, and a server that cannot accept a third connection is the one fact
-    /// the heads would otherwise hide.
-    fn serve_many(listener: &TcpListener, reply: &[u8], count: usize) -> Vec<Vec<u8>> {
+    /// A connection the server cannot serve is carried to the caller as the
+    /// error it was, so a short list of heads never hides why it is short.
+    fn serve_many(
+        listener: &TcpListener,
+        reply: &[u8],
+        count: usize,
+    ) -> std::io::Result<Vec<Vec<u8>>> {
         let mut heads = Vec::new();
-        for _ in 0..count {
-            match serve_once(listener, reply) {
-                Ok(head) => heads.push(head),
-                Err(_) => break,
-            }
+        while heads.len() < count {
+            heads.push(serve_once(listener, reply)?);
         }
-        heads
+        Ok(heads)
     }
 
     /// Two tenants sharing one endpoint keep their headers to themselves.
@@ -344,9 +361,15 @@ mod sim {
                     let left = scope.spawn(move || tenant_request(&left_url, &left_tenant));
                     let right_tenant = right_id.clone();
                     let right = scope.spawn(move || tenant_request(&url, &right_tenant));
-                    let left_status = left.join().map_err(|_| "left tenant panicked")??;
-                    let right_status = right.join().map_err(|_| "right tenant panicked")??;
-                    let heads = server.join().map_err(|_| "tenant server panicked")?;
+                    let left_status = left
+                        .join()
+                        .map_err(|panic| format!("left tenant panicked: {panic:?}"))??;
+                    let right_status = right
+                        .join()
+                        .map_err(|panic| format!("right tenant panicked: {panic:?}"))??;
+                    let heads = server
+                        .join()
+                        .map_err(|panic| format!("tenant server panicked: {panic:?}"))??;
                     Ok((left_status, right_status, heads))
                 })?;
             assert_eq!(
@@ -363,12 +386,13 @@ mod sim {
                     .filter(|entry| entry.0.trim() == "x-tenant")
                     .map(|entry| entry.1.trim().to_owned())
                     .collect();
-                assert_eq!(
-                    values.len(),
-                    1,
-                    "seed {seed}: each request carries exactly one tenant header, saw {values:?}"
-                );
-                seen.push(values[0].clone());
+                let [ref value] = *values.as_slice() else {
+                    return Err(format!(
+                        "seed {seed}: each request carries exactly one tenant header, saw {values:?}"
+                    )
+                    .into());
+                };
+                seen.push(value.clone());
             }
             seen.sort();
             let mut expected = vec![left_id.to_ascii_lowercase(), right_id.to_ascii_lowercase()];
@@ -406,7 +430,9 @@ mod sim {
             let mut options = Options::default();
             let mut sent = Vec::new();
             for _ in 0..=rng.below(SECRET_HEADERS.len()) {
-                let name = SECRET_HEADERS[rng.below(SECRET_HEADERS.len())];
+                let Some(&name) = SECRET_HEADERS.get(rng.below(SECRET_HEADERS.len())) else {
+                    return Err("a draw below the table's length indexes the table".into());
+                };
                 let name = if rng.below(2) == 0 {
                     name.to_ascii_lowercase()
                 } else {

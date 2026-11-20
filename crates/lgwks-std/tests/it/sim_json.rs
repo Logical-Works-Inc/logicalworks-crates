@@ -368,7 +368,7 @@ fn edge_texts() -> Vec<String> {
 
 /// `text.parse::<Value>()` returns what `json::from_str::<Value>` returns: the
 /// same tree, or a refusal with the same message, line and column.
-fn assert_reads_as_serde(text: &str) -> Outcome {
+fn assert_reads_as_serde(text: &str) {
     let direct = text.parse::<Value>();
     let through_serde = json::from_str::<Value>(text);
     match (direct, through_serde) {
@@ -384,7 +384,6 @@ fn assert_reads_as_serde(text: &str) -> Outcome {
             "{text:?}: direct {ours:?}, serde {theirs:?}"
         ),
     }
-    Ok(())
 }
 
 #[test]
@@ -393,7 +392,7 @@ fn assert_reads_as_serde(text: &str) -> Outcome {
 /// does (#831): one tree, or `serde_json`'s refusal.
 fn sim_the_direct_reader_reads_as_serde_json_reads() -> Outcome {
     for text in edge_texts() {
-        assert_reads_as_serde(&text)?;
+        assert_reads_as_serde(&text);
     }
     sweep(|seed, state, document| {
         let compact = json::to_string(document)?;
@@ -403,7 +402,7 @@ fn sim_the_direct_reader_reads_as_serde_json_reads() -> Outcome {
             document,
             "seed {seed:#018x}: {compact}"
         );
-        assert_reads_as_serde(&pretty)?;
+        assert_reads_as_serde(&pretty);
         let boundaries: Vec<usize> = (0..compact.len())
             .filter(|cut| compact.is_char_boundary(*cut))
             .collect();
@@ -411,8 +410,8 @@ fn sim_the_direct_reader_reads_as_serde_json_reads() -> Outcome {
             .get(below(state, boundaries.len()))
             .copied()
             .ok_or("a boundary")?;
-        assert_reads_as_serde(compact.get(..cut).ok_or("a char boundary")?)?;
-        assert_reads_as_serde(&repeated_member_text(state)?)?;
+        assert_reads_as_serde(compact.get(..cut).ok_or("a char boundary")?);
+        assert_reads_as_serde(&repeated_member_text(state)?);
         Ok(())
     })
 }

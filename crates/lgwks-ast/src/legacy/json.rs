@@ -44,117 +44,84 @@ pub fn program_json(program: &CobolProgram, limits: &LegacyLimits) -> Result<Val
     let calls = call_graph(program, limits)?;
     let flow = data_flow(program, limits)?;
     let summary = summarize_program(program, limits)?;
-    let mut paragraphs: Vec<Value> = Vec::new();
-    for paragraph in program.paragraphs.iter() {
-        paragraphs.push(object([
+    let paragraphs = array(&program.paragraphs, |paragraph| {
+        object([
             ("name", Value::from(paragraph.name.as_str())),
-            (
-                "section",
-                match paragraph.section.clone() {
-                    Some(section) => Value::from(section.as_str()),
-                    None => Value::Null,
-                },
-            ),
+            ("section", text_or_null(paragraph.section.as_deref())),
             ("lines", line_json(paragraph.lines)),
-        ]));
-    }
-    let mut statements: Vec<Value> = Vec::new();
-    for statement in program.statements.iter() {
-        statements.push(object([
+        ])
+    });
+    let statements = array(&program.statements, |statement| {
+        object([
             ("kind", Value::from(statement.kind.kind_name())),
             ("text", Value::from(statement.text.as_str())),
             ("lines", line_json(statement.lines)),
-        ]));
-    }
-    let mut copies: Vec<Value> = Vec::new();
-    for copy in program.copies.iter() {
-        copies.push(object([
+        ])
+    });
+    let copies = array(&program.copies, |copy| {
+        object([
             ("name", Value::from(copy.name.as_str())),
             ("line", Value::from(copy.line)),
             ("resolved", Value::from(copy.resolved)),
-        ]));
-    }
-    let mut directives: Vec<Value> = Vec::new();
-    for directive in program.unknown_directives.iter() {
-        directives.push(object([
+        ])
+    });
+    let directives = array(&program.unknown_directives, |directive| {
+        object([
             ("text", Value::from(directive.text.as_str())),
             ("line", Value::from(directive.line)),
-        ]));
-    }
-    let mut performed: Vec<Value> = Vec::new();
-    for edge in perform.edges.iter() {
-        performed.push(object([
+        ])
+    });
+    let performed = array(&perform.edges, |edge| {
+        object([
             ("from", Value::from(edge.from.as_str())),
             ("to", Value::from(edge.to.as_str())),
             ("via", Value::from(transfer_name(edge.via))),
             ("lines", line_json(edge.lines)),
-        ]));
-    }
-    let mut called: Vec<Value> = Vec::new();
-    for edge in calls.edges.iter() {
-        called.push(object([
+        ])
+    });
+    let called = array(&calls.edges, |edge| {
+        object([
             ("from", Value::from(edge.from.as_str())),
-            (
-                "to",
-                match edge.to.clone() {
-                    Some(name) => Value::from(name.as_str()),
-                    None => Value::Null,
-                },
-            ),
+            ("to", text_or_null(edge.to.as_deref())),
             ("lines", line_json(edge.lines)),
-        ]));
-    }
-    let mut reads: Vec<Value> = Vec::new();
-    for read in flow.reads.iter() {
-        reads.push(object([
+        ])
+    });
+    let reads = array(&flow.reads, |read| {
+        object([
             ("file", Value::from(read.file.as_str())),
-            (
-                "into_field",
-                match read.into_field.clone() {
-                    Some(field) => Value::from(field.as_str()),
-                    None => Value::Null,
-                },
-            ),
+            ("into_field", text_or_null(read.into_field.as_deref())),
             ("lines", line_json(read.lines)),
-        ]));
-    }
-    let mut writes: Vec<Value> = Vec::new();
-    for write in flow.writes.iter() {
-        writes.push(object([
+        ])
+    });
+    let writes = array(&flow.writes, |write| {
+        object([
             ("record", Value::from(write.record.as_str())),
-            (
-                "from_field",
-                match write.from_field.clone() {
-                    Some(field) => Value::from(field.as_str()),
-                    None => Value::Null,
-                },
-            ),
+            ("from_field", text_or_null(write.from_field.as_deref())),
             ("lines", line_json(write.lines)),
-        ]));
-    }
-    let mut moves: Vec<Value> = Vec::new();
-    for movement in flow.moves.iter() {
-        moves.push(object([
+        ])
+    });
+    let moves = array(&flow.moves, |movement| {
+        object([
             ("from_field", Value::from(movement.from_field.as_str())),
             ("to_field", Value::from(movement.to_field.as_str())),
             ("lines", line_json(movement.lines)),
-        ]));
-    }
+        ])
+    });
     Ok(object([
         ("name", Value::from(program.name.as_str())),
         ("dialect", Value::from(program.dialect.name())),
-        ("paragraphs", Value::Array(paragraphs)),
-        ("statements", Value::Array(statements)),
-        ("copies", Value::Array(copies)),
-        ("unknown_directives", Value::Array(directives)),
+        ("paragraphs", paragraphs),
+        ("statements", statements),
+        ("copies", copies),
+        ("unknown_directives", directives),
         (
             "graphs",
             object([
-                ("perform", Value::Array(performed)),
-                ("call", Value::Array(called)),
-                ("reads", Value::Array(reads)),
-                ("writes", Value::Array(writes)),
-                ("moves", Value::Array(moves)),
+                ("perform", performed),
+                ("call", called),
+                ("reads", reads),
+                ("writes", writes),
+                ("moves", moves),
             ]),
         ),
         ("sentences", sentences_json(summary.as_slice())),
@@ -184,127 +151,84 @@ pub fn program_json(program: &CobolProgram, limits: &LegacyLimits) -> Result<Val
 pub fn job_json(job: &Job, limits: &LegacyLimits) -> Result<Value, LegacyError> {
     let graph = job_graph(job, limits)?;
     let summary = summarize_job(job, limits)?;
-    let mut steps: Vec<Value> = Vec::new();
-    for step in job.steps.iter() {
-        let mut datasets: Vec<Value> = Vec::new();
-        for dataset in step.core.datasets.iter() {
-            datasets.push(object([
+    let steps = array(&job.steps, |step| {
+        let datasets = array(&step.core.datasets, |dataset| {
+            object([
                 ("name", Value::from(dataset.name.as_str())),
-                (
-                    "dsn",
-                    match dataset.dsn.clone() {
-                        Some(name) => Value::from(name.as_str()),
-                        None => Value::Null,
-                    },
-                ),
+                ("dsn", text_or_null(dataset.dsn.as_deref())),
                 ("disp", Value::from(dataset.disp.as_str())),
                 ("reads", Value::from(dataset.reads)),
                 ("writes", Value::from(dataset.writes)),
                 ("lines", line_json(dataset.lines)),
-            ]));
-        }
-        steps.push(object([
+            ])
+        });
+        object([
             ("name", Value::from(step.core.name.as_str())),
-            (
-                "program",
-                match step.core.program.clone() {
-                    Some(name) => Value::from(name.as_str()),
-                    None => Value::Null,
-                },
-            ),
-            (
-                "procedure",
-                match step.core.procedure.clone() {
-                    Some(name) => Value::from(name.as_str()),
-                    None => Value::Null,
-                },
-            ),
+            ("program", text_or_null(step.core.program.as_deref())),
+            ("procedure", text_or_null(step.core.procedure.as_deref())),
             ("overrides", symbols_json(step.core.overrides.as_slice())),
-            ("datasets", Value::Array(datasets)),
-            (
-                "unresolved",
-                Value::Array(
-                    step.core
-                        .unresolved
-                        .iter()
-                        .map(|name| Value::from(name.as_str()))
-                        .collect(),
-                ),
-            ),
+            ("datasets", datasets),
+            ("unresolved", names_json(step.core.unresolved.as_slice())),
             ("note", Value::from(step.note.as_str())),
             ("lines", line_json(step.lines)),
-        ]));
-    }
-    let mut procs: Vec<Value> = Vec::new();
-    for proc_def in job.procs.iter() {
-        let mut body: Vec<Value> = Vec::new();
-        for inner in proc_def.steps.iter() {
-            body.push(object([
+        ])
+    });
+    let procs = array(&job.procs, |proc_def| {
+        let body = array(&proc_def.steps, |inner| {
+            object([
                 ("name", Value::from(inner.core.name.as_str())),
-                (
-                    "program",
-                    match inner.core.program.clone() {
-                        Some(name) => Value::from(name.as_str()),
-                        None => Value::Null,
-                    },
-                ),
-                (
-                    "procedure",
-                    match inner.core.procedure.clone() {
-                        Some(name) => Value::from(name.as_str()),
-                        None => Value::Null,
-                    },
-                ),
+                ("program", text_or_null(inner.core.program.as_deref())),
+                ("procedure", text_or_null(inner.core.procedure.as_deref())),
                 ("overrides", symbols_json(inner.core.overrides.as_slice())),
-                (
-                    "unresolved",
-                    Value::Array(
-                        inner
-                            .core
-                            .unresolved
-                            .iter()
-                            .map(|name| Value::from(name.as_str()))
-                            .collect(),
-                    ),
-                ),
-            ]));
-        }
-        procs.push(object([
+                ("unresolved", names_json(inner.core.unresolved.as_slice())),
+            ])
+        });
+        object([
             ("name", Value::from(proc_def.name.as_str())),
             ("defaults", symbols_json(proc_def.defaults.as_slice())),
-            ("steps", Value::Array(body)),
-        ]));
-    }
-    let mut edges: Vec<Value> = Vec::new();
-    for edge in graph.edges.iter() {
-        edges.push(object([
+            ("steps", body),
+        ])
+    });
+    let includes = array(&job.includes, |include| {
+        object([
+            ("member", Value::from(include.member.as_str())),
+            ("line", Value::from(include.line)),
+        ])
+    });
+    let edges = array(&graph.edges, |edge| {
+        object([
             ("from", Value::from(edge.from.as_str())),
             ("to", Value::from(edge.to.as_str())),
             ("lines", line_json(edge.lines)),
-        ]));
-    }
+        ])
+    });
     Ok(object([
         ("name", Value::from(job.name.as_str())),
-        ("steps", Value::Array(steps)),
+        ("steps", steps),
         ("symbols", symbols_json(job.symbols.as_slice())),
-        ("procs", Value::Array(procs)),
-        (
-            "includes",
-            Value::Array(
-                job.includes
-                    .iter()
-                    .map(|include| {
-                        object([
-                            ("member", Value::from(include.member.as_str())),
-                            ("line", Value::from(include.line)),
-                        ])
-                    })
-                    .collect(),
-            ),
-        ),
-        ("edges", Value::Array(edges)),
+        ("procs", procs),
+        ("includes", includes),
+        ("edges", edges),
         ("sentences", sentences_json(summary.as_slice())),
     ]))
+}
+
+/// A JSON array holding `each` of `items`, in order.
+fn array<Item>(items: &[Item], each: impl Fn(&Item) -> Value) -> Value {
+    Value::Array(items.iter().map(each).collect())
+}
+
+/// A string, or `null` when there is none.
+fn text_or_null(text: Option<&str>) -> Value {
+    match text {
+        Some(text) => Value::from(text),
+        None => Value::Null,
+    }
+}
+
+/// Names as a JSON array of strings, in order.
+fn names_json(names: &[String]) -> Value {
+    array(names, |name| Value::from(name.as_str()))
 }
 
 /// The transfer name the verdict prints: `perform` or `go`.
@@ -317,33 +241,22 @@ fn transfer_name(via: super::graph::Transfer) -> &'static str {
 
 /// Sentences as JSON: the text beside the lines that prove it.
 fn sentences_json(sentences: &[super::summary::Sentence]) -> Value {
-    let mut out: Vec<Value> = Vec::new();
-    for sentence in sentences.iter() {
-        let mut ranges: Vec<Value> = Vec::new();
-        for range in sentence.lines().iter() {
-            ranges.push(line_json(*range));
-        }
-        out.push(object([
+    array(sentences, |sentence| {
+        object([
             ("text", Value::from(sentence.text())),
-            ("lines", Value::Array(ranges)),
-        ]));
-    }
-    Value::Array(out)
+            ("lines", array(sentence.lines(), |range| line_json(*range))),
+        ])
+    })
 }
 
 /// Symbols as JSON: name-value pairs in source order.
 fn symbols_json(symbols: &[super::jcl::Symbol]) -> Value {
-    Value::Array(
-        symbols
-            .iter()
-            .map(|symbol| {
-                object([
-                    ("name", Value::from(symbol.name.as_str())),
-                    ("value", Value::from(symbol.value.as_str())),
-                ])
-            })
-            .collect(),
-    )
+    array(symbols, |symbol| {
+        object([
+            ("name", Value::from(symbol.name.as_str())),
+            ("value", Value::from(symbol.value.as_str())),
+        ])
+    })
 }
 
 /// One line range as JSON.

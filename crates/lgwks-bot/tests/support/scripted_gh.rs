@@ -33,11 +33,11 @@ static DIR_SEQ: AtomicU64 = AtomicU64::new(0);
 /// 69 s on the same host. Two of nextest's 60 s periods keeps a real hang a
 /// typed `Deadline` that names what was being read, well inside the five
 /// periods after which nextest ends the test itself.
-pub const HANG_BOUND: std::time::Duration = std::time::Duration::from_secs(120);
+pub(crate) const HANG_BOUND: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Why a [`ScriptedGh::binding`] could not be built.
 #[derive(Debug)]
-pub enum BindingError {
+pub(crate) enum BindingError {
     /// The repository reference was refused.
     Repository(GhError),
     /// The capture ceiling was zero, which an unbounded capture would be.
@@ -75,7 +75,7 @@ impl From<std::env::JoinPathsError> for BindingError {
 /// The directory is created under the system temp directory, removed on drop,
 /// and never depends on a path the repository owns — the fixture is portable
 /// and a test leaves nothing behind.
-pub struct ScriptedGh {
+pub(crate) struct ScriptedGh {
     /// The directory to place first on `PATH`.
     dir: PathBuf,
     /// The file the script appends one argv line to per invocation.
@@ -89,7 +89,7 @@ impl ScriptedGh {
     /// and no create landing, so a scenario that changes nothing gets a
     /// coherent "GitHub has this pull request and no review" world rather than
     /// an empty one the script has to interpret.
-    pub fn install(name: &str, head_sha: &str) -> std::io::Result<Self> {
+    pub(crate) fn install(name: &str, head_sha: &str) -> std::io::Result<Self> {
         // Random rather than a process id: the OS reuses process ids, and two
         // fixtures sharing a directory would read each other's argv log — which
         // is the one thing these tests measure.
@@ -106,7 +106,7 @@ impl ScriptedGh {
         std::fs::write(&log, b"")?;
 
         let behaviour = dir.join("behaviour.json");
-        std::fs::write(&behaviour, Scenario::new(head_sha).to_behaviour())?;
+        std::fs::write(&behaviour, Scenario::new(head_sha).into_behaviour())?;
 
         let script = dir.join("gh");
         std::fs::write(&script, format!("#!{}\n{SCRIPT_BODY}", interpreter()))?;
@@ -121,17 +121,17 @@ impl ScriptedGh {
     /// reading would still be present in one test's literal and absent in
     /// another's, and the difference would look like a behaviour difference.
     /// An unspecified field takes the value the script already defaults to.
-    pub fn configure(&self, scenario: Scenario) -> std::io::Result<()> {
-        std::fs::write(self.behaviour(), scenario.to_behaviour())
+    pub(crate) fn configure(&self, scenario: Scenario) -> std::io::Result<()> {
+        std::fs::write(self.behaviour(), scenario.into_behaviour())
     }
 
     /// The behaviour file the script reads on each invocation.
-    pub fn behaviour(&self) -> PathBuf {
+    pub(crate) fn behaviour(&self) -> PathBuf {
         self.dir.join("behaviour.json")
     }
 
     /// The directory to place first on `PATH`.
-    pub fn dir(&self) -> &Path {
+    pub(crate) fn dir(&self) -> &Path {
         &self.dir
     }
 
@@ -140,7 +140,7 @@ impl ScriptedGh {
     ///
     /// Handed to a binding as a per-child variable rather than set on this
     /// process, which keeps tests independent and needs no `unsafe`.
-    pub fn search_path(&self) -> Result<std::ffi::OsString, std::env::JoinPathsError> {
+    pub(crate) fn search_path(&self) -> Result<std::ffi::OsString, std::env::JoinPathsError> {
         let ambient = match std::env::var_os("PATH") {
             Some(path) => path,
             None => std::ffi::OsString::new(),
@@ -154,7 +154,7 @@ impl ScriptedGh {
     ///
     /// A bare `gh`, so the test exercises real `PATH` resolution rather than
     /// pinning an absolute path — which is exactly what a deployment does.
-    pub const fn program(&self) -> &'static str {
+    pub(crate) const fn program(&self) -> &'static str {
         "gh"
     }
 
@@ -163,7 +163,7 @@ impl ScriptedGh {
     /// One definition rather than a per-test builder, because the two lines of
     /// binding are what make a test "run through the adapter", and a copy is a
     /// place for one test to quietly stop doing it.
-    pub fn binding(&self, repository: &str, capture: usize) -> Result<Gh, BindingError> {
+    pub(crate) fn binding(&self, repository: &str, capture: usize) -> Result<Gh, BindingError> {
         let ceiling = std::num::NonZeroUsize::new(capture).ok_or(BindingError::ZeroCapture)?;
         Ok(Gh::new(Repository::new(repository)?)
             .program(self.program())
@@ -173,7 +173,7 @@ impl ScriptedGh {
     }
 
     /// Every invocation's argv, in order, one per line with tab separators.
-    pub fn calls(&self) -> std::io::Result<Vec<Vec<String>>> {
+    pub(crate) fn calls(&self) -> std::io::Result<Vec<Vec<String>>> {
         let text = std::fs::read_to_string(&self.log)?;
         Ok(text
             .lines()
@@ -184,19 +184,20 @@ impl ScriptedGh {
 
     /// How many invocations used `--method POST` — that is, how many reviews
     /// were *created*, which is the number a duplicate-post defect doubles.
-    pub fn creates(&self) -> std::io::Result<usize> {
+    pub(crate) fn creates(&self) -> std::io::Result<usize> {
         Ok(self
             .calls()?
             .iter()
             .filter(|argv| {
-                argv.windows(2)
-                    .any(|pair| pair[0] == "--method" && pair[1] == "POST")
+                argv.windows(2).any(
+                    |pair| matches!(pair, [flag, verb] if flag == "--method" && verb == "POST"),
+                )
             })
             .count())
     }
 
     /// How many invocations used `--method GET` against `suffix`.
-    pub fn reads_of(&self, suffix: &str) -> std::io::Result<usize> {
+    pub(crate) fn reads_of(&self, suffix: &str) -> std::io::Result<usize> {
         Ok(self
             .calls()?
             .iter()
@@ -209,7 +210,7 @@ impl ScriptedGh {
     /// Read from the receiver's own record rather than from the staged file,
     /// because the adapter removes that file as soon as the child exits — a
     /// test that read it afterwards would be asserting on nothing.
-    pub fn received(&self) -> std::io::Result<Vec<String>> {
+    pub(crate) fn received(&self) -> std::io::Result<Vec<String>> {
         let path = self.dir.join("received.jsonl");
         if !path.exists() {
             return Ok(Vec::new());
@@ -283,27 +284,27 @@ use body::SCRIPT_BODY;
 /// the defaults are stated once, and a scenario reads as the difference from a
 /// working world rather than as a wall of escaped braces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Scenario {
+pub(crate) struct Scenario {
     /// The head the first pull-request read reports.
     head: String,
     /// The head every read after the first reports, modelling a push landing
     /// between two reads. `None` leaves the head fixed.
-    pub head_after_first: Option<String>,
+    pub(crate) head_after_first: Option<String>,
     /// What a create does: `accept`, `accept_then_drop`, or anything else,
     /// which is treated as a refusal.
-    pub create: &'static str,
+    pub(crate) create: &'static str,
     /// The body a created review carries, which is what the read-back returns
     /// and therefore what the verification compares against.
     created_body: String,
     /// The state a created review reports.
-    pub created_state: &'static str,
+    pub(crate) created_state: &'static str,
     /// How many pull-request reads are refused before one succeeds.
-    pub fail_reads: u32,
+    pub(crate) fail_reads: u32,
     /// How long a call hangs, for the deadline probe. `0` hangs not at all.
-    pub hang_seconds: u32,
+    pub(crate) hang_seconds: u32,
     /// How many padding lines a call writes to stdout before its answer, for
     /// the bounded-capture probe.
-    pub flood_bytes: u32,
+    pub(crate) flood_bytes: u32,
     /// How many filler reviews the receiver reports on a review read, over and
     /// above whatever it actually applied.
     ///
@@ -312,45 +313,45 @@ pub struct Scenario {
     /// `--paginate` following page after page; the script emits the same *shape*
     /// in one document, because what is under test is the adapter's refusal to
     /// treat a clean decode as proof of completeness.
-    pub filler_reviews: u32,
+    pub(crate) filler_reviews: u32,
     /// The page size the review endpoint serves, `0` for one page however long.
     ///
     /// With a size set, a read without `--paginate` sees only the first page,
     /// so a review on a later page is visible only to a client that follows
     /// every page. That is the falsifier for pagination: an adapter that read
     /// one page would decode a clean, short, wrong list.
-    pub review_page: u32,
+    pub(crate) review_page: u32,
     /// What the review read emits instead of a JSON list: `""` for a real list,
     /// `garbage` for something that is not JSON, or `truncated` for a JSON
     /// document whose closing bracket was lost.
-    pub reviews_shape: &'static str,
+    pub(crate) reviews_shape: &'static str,
     /// What the pull-request read emits instead of a pull request: `""` for the
     /// real object, `moved` for a renamed-repository redirect naming the
     /// canonical location, or `denied-<status>` for a receiver refusing the
     /// credential with that status.
-    pub snapshot_shape: &'static str,
+    pub(crate) snapshot_shape: &'static str,
     /// What the changed-file read emits: `""` for a real list, or `unavailable`
     /// for a server that declines to render the diff (a `406`).
-    pub files_shape: &'static str,
+    pub(crate) files_shape: &'static str,
     /// How many filler files the changed-file read reports, for the file-count
     /// ceiling.
-    pub filler_files: u32,
+    pub(crate) filler_files: u32,
     /// The bytes of patch text one reported file carries, for the byte ceiling.
-    pub diff_bytes: u32,
+    pub(crate) diff_bytes: u32,
     /// How many inline comments a `partial` create lands, when it lands fewer
     /// than the payload intended.
-    pub applied_comments: u32,
+    pub(crate) applied_comments: u32,
     /// Whether the review read is denied with a `403` permission answer.
-    pub deny_reads: bool,
+    pub(crate) deny_reads: bool,
     /// Whether the changed-file inventory names a `build.rs` whose patch text
     /// would perform an effect if it were ever executed.
-    pub build_script: bool,
+    pub(crate) build_script: bool,
 }
 
 impl Scenario {
     /// A world where the head is fixed, creates are accepted and no read fails.
     #[must_use]
-    pub fn new(head: &str) -> Self {
+    pub(crate) fn new(head: &str) -> Self {
         Self {
             head: head.to_owned(),
             head_after_first: None,
@@ -376,7 +377,7 @@ impl Scenario {
     /// Accept a create request and then drop the response, which leaves the
     /// caller unsure whether the review exists.
     #[must_use]
-    pub fn accept_then_drop(mut self) -> Self {
+    pub(crate) fn accept_then_drop(mut self) -> Self {
         self.create = "accept_then_drop";
         self
     }
@@ -384,14 +385,14 @@ impl Scenario {
     /// Refuse every create request outright, so the caller must report a
     /// refusal with nothing published.
     #[must_use]
-    pub fn refuse_creates(mut self) -> Self {
+    pub(crate) fn refuse_creates(mut self) -> Self {
         self.create = "refuse";
         self
     }
 
     /// Every read before the `n`th is refused.
     #[must_use]
-    pub fn fail_reads(mut self, count: u32) -> Self {
+    pub(crate) fn fail_reads(mut self, count: u32) -> Self {
         self.fail_reads = count;
         self
     }
@@ -399,7 +400,7 @@ impl Scenario {
     /// Set the body the script reports for a review it created, so a test can
     /// compare it with the body that was sent.
     #[must_use]
-    pub fn created_body(mut self, body: &str) -> Self {
+    pub(crate) fn created_body(mut self, body: &str) -> Self {
         body.clone_into(&mut self.created_body);
         self
     }
@@ -407,21 +408,21 @@ impl Scenario {
     /// Make the pull request's head commit become `head` after the first read,
     /// which simulates a push landing mid-review.
     #[must_use]
-    pub fn head_moves_to(mut self, head: &str) -> Self {
+    pub(crate) fn head_moves_to(mut self, head: &str) -> Self {
         self.head_after_first = Some(head.to_owned());
         self
     }
 
     /// A call hangs for `seconds` before it answers.
     #[must_use]
-    pub fn hangs_for(mut self, seconds: u32) -> Self {
+    pub(crate) fn hangs_for(mut self, seconds: u32) -> Self {
         self.hang_seconds = seconds;
         self
     }
 
     /// A call writes `bytes` padding lines before its answer.
     #[must_use]
-    pub fn floods(mut self, bytes: u32) -> Self {
+    pub(crate) fn floods(mut self, bytes: u32) -> Self {
         self.flood_bytes = bytes;
         self
     }
@@ -433,14 +434,14 @@ impl Scenario {
     /// particular body: it only has to be a review the adapter would have had to
     /// read to call the list complete.
     #[must_use]
-    pub fn with_filler_reviews(mut self, count: u32) -> Self {
+    pub(crate) fn with_filler_reviews(mut self, count: u32) -> Self {
         self.filler_reviews = count;
         self
     }
 
     /// The review endpoint serves its list in pages of `size` records.
     #[must_use]
-    pub fn with_review_pages(mut self, size: u32) -> Self {
+    pub(crate) fn with_review_pages(mut self, size: u32) -> Self {
         self.review_page = size;
         self
     }
@@ -451,7 +452,7 @@ impl Scenario {
     /// closing bracket was lost, which is the shape a truncated stream takes
     /// when the client managed to emit valid-looking JSON first.
     #[must_use]
-    pub fn answers_reviews_with(mut self, shape: &'static str) -> Self {
+    pub(crate) fn answers_reviews_with(mut self, shape: &'static str) -> Self {
         self.reviews_shape = shape;
         self
     }
@@ -464,7 +465,7 @@ impl Scenario {
     /// state a reconciliation must report as a draft, never as a publication and
     /// never as no effect.
     #[must_use]
-    pub fn records_pending_draft(mut self) -> Self {
+    pub(crate) fn records_pending_draft(mut self) -> Self {
         self.create = "pending";
         self
     }
@@ -475,7 +476,7 @@ impl Scenario {
     /// The submitted review is real and about the right commit, but fewer
     /// comments landed than intended — the partial submission PR-08 names.
     #[must_use]
-    pub fn records_partial_comments(mut self, applied: u32) -> Self {
+    pub(crate) fn records_partial_comments(mut self, applied: u32) -> Self {
         self.create = "partial";
         self.applied_comments = applied;
         self
@@ -483,7 +484,7 @@ impl Scenario {
 
     /// The repository answers with a renamed-repository redirect.
     #[must_use]
-    pub fn repository_moved(mut self) -> Self {
+    pub(crate) fn repository_moved(mut self) -> Self {
         self.snapshot_shape = "moved";
         self
     }
@@ -491,21 +492,21 @@ impl Scenario {
     /// The changed-file read answers with a server that declines to render the
     /// diff (a `406`).
     #[must_use]
-    pub fn diff_unavailable(mut self) -> Self {
+    pub(crate) fn diff_unavailable(mut self) -> Self {
         self.files_shape = "unavailable";
         self
     }
 
     /// The changed-file read reports `count` filler files.
     #[must_use]
-    pub fn with_filler_files(mut self, count: u32) -> Self {
+    pub(crate) fn with_filler_files(mut self, count: u32) -> Self {
         self.filler_files = count;
         self
     }
 
     /// One reported file carries `bytes` of patch text.
     #[must_use]
-    pub fn with_diff_bytes(mut self, bytes: u32) -> Self {
+    pub(crate) fn with_diff_bytes(mut self, bytes: u32) -> Self {
         self.diff_bytes = bytes;
         self
     }
@@ -515,7 +516,7 @@ impl Scenario {
     /// scope, `404` for a resource it can no longer see. Any other status is
     /// not a credential refusal and leaves the read answering normally.
     #[must_use]
-    pub fn deny_credential(mut self, status: u16) -> Self {
+    pub(crate) fn deny_credential(mut self, status: u16) -> Self {
         self.snapshot_shape = match status {
             401 => "denied-401",
             403 => "denied-403",
@@ -531,7 +532,7 @@ impl Scenario {
     /// the adapter reports as its own typed permission failure rather than as a
     /// transport outage.
     #[must_use]
-    pub fn deny_reads(mut self) -> Self {
+    pub(crate) fn deny_reads(mut self) -> Self {
         self.deny_reads = true;
         self
     }
@@ -543,7 +544,7 @@ impl Scenario {
     /// `LGWKS_TEST_MARKER`, so a non-execution oracle can observe whether the
     /// review path ran it. Nothing here runs it: the inventory is read as data.
     #[must_use]
-    pub fn hostile_build_script(mut self) -> Self {
+    pub(crate) fn hostile_build_script(mut self) -> Self {
         self.build_script = true;
         self
     }
@@ -554,7 +555,7 @@ impl Scenario {
     /// looks up are the keys that exist, which is the failure mode a literal
     /// per test invites.
     #[must_use]
-    pub fn to_behaviour(&self) -> String {
+    pub(crate) fn into_behaviour(self) -> String {
         let base = "b".repeat(40);
         let after = match self.head_after_first.as_ref() {
             Some(head) => format!("\"head_after_first\":\"{head}\","),

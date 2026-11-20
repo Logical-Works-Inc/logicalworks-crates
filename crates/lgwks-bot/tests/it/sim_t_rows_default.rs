@@ -414,8 +414,12 @@ fn tickets_apply_once_for_every_seed_t24() -> TestResult {
     check_deterministic(|pass| {
         let mut trace = Vec::new();
         for seed in 0..SEEDS_PER_SWEEP {
-            let first_need = NEEDS[usize::try_from(seed)? % NEEDS.len()];
-            let second_need = NEEDS[usize::try_from(seed)?.saturating_add(1) % NEEDS.len()];
+            let first_need = *NEEDS
+                .get(usize::try_from(seed)? % NEEDS.len())
+                .ok_or("a need index lands inside the list")?;
+            let second_need = *NEEDS
+                .get(usize::try_from(seed)?.saturating_add(1) % NEEDS.len())
+                .ok_or("a need index lands inside the list")?;
             let (_scratch, host) = repairable_pair(&format!("s24-{pass}-{seed}"), "acme")?;
             let bonus = u32::try_from(seed)?;
             let declared = task(
@@ -498,7 +502,11 @@ fn torn_records_are_refused_at_every_cut_for_every_seed_t27() -> TestResult {
                 // Ceiling division, the estate's sanctioned integer division:
                 // eight distinct cut points strictly inside the record.
                 let at = bytes.len().saturating_mul(cut).div_ceil(cuts + 1);
-                let torn = Checkpoint::from_record(&bytes[..at.min(bytes.len())]);
+                let torn = Checkpoint::from_record(
+                    bytes
+                        .get(..at.min(bytes.len()))
+                        .ok_or("a cut lies inside the record")?,
+                );
                 assert!(
                     torn.is_err() || at == bytes.len(),
                     "seed {seed} cut {at}: a torn record is refused, never partially decoded"

@@ -448,10 +448,16 @@ impl<'src> LineIndex<'src> {
         // `line_starts` always holds at least one entry and `line_of` returns a
         // count in `1..=line_starts.len()`, so the index is in range. A byte
         // landing exactly on a line start resolves to that line, and `saturating_sub`
-        // covers the first line, whose start is the 0th entry.
-        let line_start = self.line_starts[line.saturating_sub(1)];
-        let column = self.source[line_start..byte].chars().count();
-        Pos::new(line.saturating_sub(1), column, byte)
+        // covers the first line, whose start is the 0th entry. Both lookups are
+        // checked: a miss reports column 0 of that line rather than panicking.
+        let row = line.saturating_sub(1);
+        let Some(&line_start) = self.line_starts.get(row) else {
+            return Pos::new(row, 0, byte);
+        };
+        let Some(text) = self.source.get(line_start..byte) else {
+            return Pos::new(row, 0, byte);
+        };
+        Pos::new(row, text.chars().count(), byte)
     }
 
     /// The span covering `range`, with every end clamped into the source.

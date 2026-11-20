@@ -6,8 +6,9 @@
 //! [`SessionError::Kernel`] carries a kernel failure unchanged, so `retry_class`
 //! of a wrapped failure is the kernel's own.
 
+use self::display::TerminalText;
 use super::{JournalError, ResourceAxis, Terminal};
-use crate::error::{DispatchCertainty, KernelError, RetryClass};
+use crate::error::{DispatchCertainty, Escaped, KernelError, RetryClass};
 
 /// Error from loading a flow or driving a session.
 ///
@@ -22,12 +23,15 @@ use crate::error::{DispatchCertainty, KernelError, RetryClass};
 /// let refusal = SessionError::SessionTerminated;
 /// assert!(!refusal.to_string().is_empty());
 /// ```
-#[derive(Debug)]
+#[derive(Debug, lgwks_macros::Error)]
 #[non_exhaustive]
 pub enum SessionError {
-    /// A kernel failure, carried unchanged.
-    Kernel(KernelError),
+    /// A kernel failure, carried unchanged: the wrapper adds no words, and its
+    /// cause chain is the carried error's.
+    #[error(transparent)]
+    Kernel(#[from] KernelError),
     /// The serialized flow exceeds [`crate::session::MAX_FLOW_BYTES`].
+    #[error("flow is {bytes} bytes, over the {limit}-byte limit")]
     FlowTooLarge {
         /// Observed length in bytes.
         bytes: usize,
@@ -35,11 +39,17 @@ pub enum SessionError {
         limit: usize,
     },
     /// The serialized flow is not valid JSON for the flow schema.
+    #[error("malformed flow: {}", Escaped(cause))]
     MalformedFlow {
         /// The parser's escaped diagnostic.
         cause: String,
     },
     /// A flow transition points at a node that is not in the node map.
+    #[error(
+        "flow transition from {} targets missing node {}",
+        Escaped(from),
+        Escaped(target)
+    )]
     InvalidTransitionTarget {
         /// The node or field that owns the transition.
         from: String,
@@ -47,6 +57,11 @@ pub enum SessionError {
         target: String,
     },
     /// An ask option is missing its route.
+    #[error(
+        "ask node {} has no route for option {}",
+        Escaped(node),
+        Escaped(option)
+    )]
     MissingAskRoute {
         /// The ask node id.
         node: String,
@@ -54,6 +69,7 @@ pub enum SessionError {
         option: String,
     },
     /// A declared variable has no ask node that writes it.
+    #[error("declared variable {} is never written", Escaped(name))]
     VariableNeverWritten {
         /// The declared variable name.
         name: String,
@@ -66,6 +82,11 @@ pub enum SessionError {
     /// load-time defect where a writer exists but executes only *after* the
     /// read, or only on another branch: the document is accepted, and the
     /// session then fails on its first step with no provider involved.
+    #[error(
+        "flow node {} reads variable {} before any reaching assignment",
+        Escaped(node),
+        Escaped(name)
+    )]
     VariableReadBeforeInit {
         /// The node performing the read.
         node: String,
@@ -73,16 +94,19 @@ pub enum SessionError {
         name: String,
     },
     /// A flow reads a variable that was not declared.
+    #[error("flow reads undeclared variable {}", Escaped(name))]
     UndeclaredVariable {
         /// The variable name that was read.
         name: String,
     },
     /// A node in the flow document cannot be reached from the entry node.
+    #[error("flow node {} is unreachable", Escaped(node))]
     UnreachableNode {
         /// The unreachable node id.
         node: String,
     },
     /// The number of flow nodes exceeds the declared execution budget.
+    #[error("flow declares {steps} nodes over its {budget}-step budget")]
     FlowBudgetExceeded {
         /// The number of declared nodes.
         steps: usize,
@@ -90,6 +114,7 @@ pub enum SessionError {
         budget: usize,
     },
     /// A node kind in a JSON flow is outside the closed node language.
+    #[error("flow node {} has unknown kind {}", Escaped(node), Escaped(kind))]
     UnknownNodeKind {
         /// The node carrying the unknown kind.
         node: String,
@@ -97,11 +122,13 @@ pub enum SessionError {
         kind: String,
     },
     /// A non-terminal node has no continuation.
+    #[error("flow node {} has no continuation", Escaped(node))]
     MissingTransition {
         /// The node without a continuation.
         node: String,
     },
     /// A flow template is syntactically invalid.
+    #[error("flow node {} has malformed {field} template", Escaped(node))]
     MalformedTemplate {
         /// The node containing the template.
         node: String,
@@ -109,6 +136,7 @@ pub enum SessionError {
         field: &'static str,
     },
     /// A declared variable is used with a value of the wrong type.
+    #[error("value for variable {} has the wrong type", Escaped(name))]
     VariableTypeMismatch {
         /// The variable name.
         name: String,
@@ -121,6 +149,13 @@ pub enum SessionError {
     /// document is loaded: there is no answer the person could give that would
     /// repair it, and asking them is charging a conversation step for an
     /// authoring error.
+    #[error(
+        "ask node {} offers option {option:?} for {expected} variable {}, which cannot store \
+         it: {}",
+        Escaped(node),
+        Escaped(variable),
+        Escaped(cause)
+    )]
     AskOptionNotAssignable {
         /// The ask node carrying the candidate.
         node: String,
@@ -144,6 +179,13 @@ pub enum SessionError {
     /// produces a permissive handoff classification, so the conflict is
     /// refused where it was authored. A declaration that *repeats* the node's
     /// outcome is accepted and is what the session executes.
+    #[error(
+        "terminal declaration on node {} contradicts the outcome its kind carries: {} declared \
+         as {}",
+        Escaped(node),
+        TerminalText(intrinsic),
+        TerminalText(declared)
+    )]
     ConflictingTerminalDeclaration {
         /// The node carrying both outcomes.
         node: String,
@@ -157,6 +199,7 @@ pub enum SessionError {
     /// Checked at the ingress, before the utterance reaches the resolver, the
     /// journal, or the retained transcript, so an oversized line costs one
     /// comparison rather than a copy of itself.
+    #[error("answer utterance of {bytes} bytes exceeds the {limit}-byte utterance limit")]
     UtteranceTooLarge {
         /// Bytes offered.
         bytes: usize,
@@ -165,6 +208,10 @@ pub enum SessionError {
     },
     /// A value decoded from an accepted candidate is larger than the scope may
     /// retain.
+    #[error(
+        "value for variable {} occupies {bytes} bytes, over the {limit}-byte value limit",
+        Escaped(variable)
+    )]
     ValueTooLarge {
         /// The variable being written.
         variable: String,
@@ -181,6 +228,12 @@ pub enum SessionError {
     /// and the applied ceiling are both known when the document loads, so an ask
     /// whose answer could never be stored is refused there rather than after the
     /// person has answered it.
+    #[error(
+        "ask node {} offers option {option:?} storing {bytes} bytes for variable {}, over the \
+         {limit}-byte value limit",
+        Escaped(node),
+        Escaped(variable)
+    )]
     AskOptionTooLarge {
         /// The ask node carrying the candidate.
         node: String,
@@ -194,6 +247,10 @@ pub enum SessionError {
         limit: usize,
     },
     /// One rendered record payload is larger than the session may retain.
+    #[error(
+        "record for node {} is {bytes} bytes, over the {limit}-byte record limit",
+        Escaped(node)
+    )]
     RecordTooLarge {
         /// The node whose text this is.
         node: String,
@@ -211,6 +268,10 @@ pub enum SessionError {
     /// amplification that would materialise a multi-gigabyte string from a
     /// sub-megabyte document costs one checked addition per template part and
     /// allocates nothing.
+    #[error(
+        "template on node {} would expand to {bytes} bytes, over the {limit}-byte record limit",
+        Escaped(node)
+    )]
     TemplateExpansionTooLarge {
         /// The node whose template this is.
         node: String,
@@ -224,6 +285,7 @@ pub enum SessionError {
     /// The aggregate bound. The per-record ceiling bounds one write; this one
     /// bounds the sum, so a flow whose graph lets the cursor loop cannot retain
     /// an unbounded conversation out of individually acceptable records.
+    #[error("session would retain {bytes} bytes, over the {limit}-byte session limit")]
     SessionRetentionExceeded {
         /// Bytes that would be retained by the refused write.
         bytes: usize,
@@ -238,6 +300,10 @@ pub enum SessionError {
     /// flow that asks for ten gigabytes and silently receives the shipped eight
     /// mebibytes has been neither obeyed nor corrected, and the next reader of
     /// that document would have to run it to find out which happened.
+    #[error(
+        "{} limit of {requested} bytes exceeds the operator's {ceiling}-byte ceiling",
+        axis.label()
+    )]
     ResourceLimitAboveCeiling {
         /// The byte axis the limit applies to.
         axis: ResourceAxis,
@@ -247,13 +313,20 @@ pub enum SessionError {
         ceiling: usize,
     },
     /// A predicate could not compare values of different types.
+    #[error("predicate values have incompatible types")]
     PredicateTypeMismatch,
     /// A predicate or interpolation needs a variable that has no value yet.
+    #[error("variable {} has no value", Escaped(name))]
     VariableUnset {
         /// The variable name.
         name: String,
     },
     /// An answer could not be converted to the declared variable type.
+    #[error(
+        "value {value:?} cannot be assigned to variable {}: {}",
+        Escaped(variable),
+        Escaped(reason)
+    )]
     InvalidVariableValue {
         /// The variable receiving the answer.
         variable: String,
@@ -267,10 +340,13 @@ pub enum SessionError {
         reason: String,
     },
     /// A session has already reached a terminal outcome.
+    #[error("session has already terminated")]
     SessionTerminated,
     /// The current session node is not an ask node.
+    #[error("session is not awaiting an answer")]
     SessionNotAwaitingAnswer,
     /// A resolver returned an option index outside the candidate list.
+    #[error("resolver returned an invalid option for node {}", Escaped(node))]
     ResolverReturnedInvalidOption {
         /// The current ask node id.
         node: String,
@@ -283,6 +359,11 @@ pub enum SessionError {
     /// because a receipt and a transition are one event: a session that moved
     /// while nothing recorded why would be a run whose transcript describes
     /// something the run never decided.
+    #[error(
+        "decision at node {} was not recorded: {}",
+        Escaped(node),
+        Escaped(&cause.to_string())
+    )]
     ReceiptNotRecorded {
         /// The current ask node id.
         node: String,
@@ -290,19 +371,13 @@ pub enum SessionError {
         cause: JournalError,
     },
     /// A session attempted to execute more nodes than its flow budget allows.
+    #[error("session attempted {steps} steps over its {budget}-step budget")]
     SessionBudgetExceeded {
         /// The number of attempted steps.
         steps: usize,
         /// The flow's declared maximum.
         budget: usize,
     },
-}
-
-impl From<KernelError> for SessionError {
-    /// Lets `?` carry a kernel failure up into the session layer unchanged.
-    fn from(source: KernelError) -> Self {
-        Self::Kernel(source)
-    }
 }
 
 impl SessionError {

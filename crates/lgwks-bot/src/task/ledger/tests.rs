@@ -1,6 +1,7 @@
 //! The run ledger's tail rules: a lying prefix over an acknowledged entry is
 //! refused untouched, and only a torn final append is repaired.
 
+#[cfg(test)]
 use super::*;
 use crate::journal::frame::probe::{Scratch, declared_at, frame_starts, with_prefix};
 
@@ -34,7 +35,9 @@ fn written(path: &Path, count: u64) -> Result<Vec<u8>, Box<dyn std::error::Error
 fn a_lengthened_acknowledged_final_entry_is_refused_not_trimmed() -> TestResult {
     let scratch = Scratch::new("ledger-lengthened")?;
     let bytes = written(scratch.path(), 3)?;
-    let last = frame_starts(&bytes, LEDGER_MAGIC.len())?[2];
+    let last = *frame_starts(&bytes, LEDGER_MAGIC.len())?
+        .get(2)
+        .ok_or("three entries were written")?;
     let declared = declared_at(&bytes, last);
     for extra in (1u32..=40).chain([100, 1024]) {
         let lied = with_prefix(&bytes, last, declared + extra);
@@ -62,7 +65,9 @@ fn a_lengthened_acknowledged_final_entry_is_refused_not_trimmed() -> TestResult 
 fn a_damaged_lengthened_entry_with_an_acknowledged_one_behind_it_is_refused() -> TestResult {
     let scratch = Scratch::new("ledger-damaged")?;
     let bytes = written(scratch.path(), 3)?;
-    let middle = frame_starts(&bytes, LEDGER_MAGIC.len())?[1];
+    let middle = *frame_starts(&bytes, LEDGER_MAGIC.len())?
+        .get(1)
+        .ok_or("three entries were written")?;
     let mut lied = with_prefix(&bytes, middle, u32::try_from(bytes.len() - middle)? + 9);
     if let Some(byte) = lied.get_mut(middle + 10) {
         *byte ^= 0x55;
@@ -82,7 +87,9 @@ fn a_damaged_lengthened_entry_with_an_acknowledged_one_behind_it_is_refused() ->
 fn an_append_cut_inside_the_final_entry_is_repaired() -> TestResult {
     let scratch = Scratch::new("ledger-cut")?;
     let bytes = written(scratch.path(), 3)?;
-    let last = frame_starts(&bytes, LEDGER_MAGIC.len())?[2];
+    let last = *frame_starts(&bytes, LEDGER_MAGIC.len())?
+        .get(2)
+        .ok_or("three entries were written")?;
     let whole = bytes.len() - last;
     // Inside the prefix, inside the payload, and on each side of the 32-byte
     // head that closes the frame.

@@ -510,8 +510,8 @@ fn argument_vectors_r64() -> TestResult {
     ];
     let mut hashes = Vec::new();
     for index in 0..64u64 {
-        let method = methods[pick(index, methods.len())?];
-        let path = paths[pick(index, paths.len())?];
+        let method = *crate::sim::nth(&methods, pick(index, methods.len())?)?;
+        let path = *crate::sim::nth(&paths, pick(index, paths.len())?)?;
         let extra: &[&str] = if index % 3 == 0 { &["--paginate"] } else { &[] };
         let mut rest = vec!["--method", method, path];
         rest.extend_from_slice(extra);
@@ -668,7 +668,7 @@ fn repository_segments_r64() -> TestResult {
     let dots = [".", ".."];
     for index in 0..64u64 {
         let name = format!("repo-{index}");
-        let dot = dots[pick(index, dots.len())?];
+        let dot = *crate::sim::nth(&dots, pick(index, dots.len())?)?;
         let spec = if index % 2 == 0 {
             format!("{dot}/{name}")
         } else {

@@ -40,16 +40,26 @@ struct KeepAlive {
 /// The request headers the server logs, by lowercase name.
 const WATCHED: [&str; 2] = ["x-tenant", "user-agent"];
 
+/// Records why a fixture thread stopped: the peer going away, a refused
+/// accept or a poisoned lock each ends the thread, and the reason is traced
+/// rather than dropped.
+fn ended(error: impl std::fmt::Display) {
+    #[cfg(feature = "trace")]
+    crate::trace::debug!(%error, "pool fixture: the thread ended");
+    #[cfg(not(feature = "trace"))]
+    drop(error);
+}
+
 /// Serve one connection until the peer goes away, counting requests.
 fn serve_connection(
     mut stream: TcpStream,
-    requests: Arc<AtomicUsize>,
-    seen: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    requests: &AtomicUsize,
+    seen: &std::sync::Mutex<Vec<(String, String)>>,
 ) {
     loop {
         let head = match read_request_head(&mut stream) {
             Ok(head) => head,
-            Err(_) => return,
+            Err(error) => return ended(error),
         };
         if head.is_empty() {
             return;
@@ -64,7 +74,7 @@ fn serve_connection(
             Ok(mut seen) => {
                 seen.extend(watched.map(|(name, value)| (name, value.to_owned())));
             }
-            Err(_) => return,
+            Err(error) => return ended(error),
         }
         requests.fetch_add(1, Ordering::SeqCst);
         if stream
@@ -95,7 +105,7 @@ fn serve_keep_alive() -> std::io::Result<KeepAlive> {
             loop {
                 let (stream, _) = match listener.accept() {
                     Ok(served) => served,
-                    Err(_) => return,
+                    Err(error) => return ended(error),
                 };
                 if stop.load(Ordering::SeqCst) {
                     return;
@@ -104,14 +114,14 @@ fn serve_keep_alive() -> std::io::Result<KeepAlive> {
                 let requests = Arc::clone(&requests);
                 let seen = Arc::clone(&seen);
                 let handler = match fixture_thread(move || {
-                    serve_connection(stream, requests, seen);
+                    serve_connection(stream, &requests, &seen);
                 }) {
                     Ok(handler) => handler,
-                    Err(_) => return,
+                    Err(error) => return ended(error),
                 };
                 match handlers.lock() {
                     Ok(mut handlers) => handlers.push(handler),
-                    Err(_) => return,
+                    Err(error) => return ended(error),
                 };
             }
         })?

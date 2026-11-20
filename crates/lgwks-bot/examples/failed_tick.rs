@@ -181,16 +181,16 @@ fn main() -> Result<(), TickFailure> {
         1,
         "one entry is left owing an answer: {pending:?}"
     );
+    let hold = pending.first().map(|entry| entry.hold());
     assert!(
         matches!(
-            pending[0].hold(),
-            TransitionHold::Abandoned {
+            hold,
+            Some(TransitionHold::Abandoned {
                 reason: AbandonReason::AttemptsExhausted { .. },
                 ..
-            }
+            })
         ),
-        "it was given up on, not quietly dropped: {:?}",
-        pending[0].hold()
+        "it was given up on, not quietly dropped: {hold:?}"
     );
     // And the chain is not clean while it stands. The abandoned entry asks the
     // tick for nothing — it will not be attempted again — but it is work nobody

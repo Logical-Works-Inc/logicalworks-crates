@@ -13,8 +13,7 @@ use lgwks_bot::task::Report;
 
 use super::scripted_gh::{Scenario, ScriptedGh};
 use super::{
-    BODY, CAPTURE, HEAD, TestResult, gh_spawned_directly, host_named, request, review_task_send,
-    why_unknown,
+    BODY, CAPTURE, HEAD, gh_spawned_directly, host_named, request, review_task_send, why_unknown,
 };
 
 /// How many runs of a saturation tier share one receiver.
@@ -130,12 +129,7 @@ impl ReceiverRecord {
     /// Every run here has a fault-free scenario, so this is `==`, not `<=`. The
     /// weaker bound is what let the big tiers pass while most of their runs
     /// published nothing at all.
-    fn assert_no_fault_receiver(
-        self,
-        receiver: usize,
-        tier: usize,
-        unknown_reason: &str,
-    ) -> TestResult {
+    fn assert_no_fault_receiver(self, receiver: usize, tier: usize, unknown_reason: &str) {
         let runs = self.runs;
         let creates = self.creates;
         let published = self.published;
@@ -160,7 +154,6 @@ impl ReceiverRecord {
              for {creates} creates — a publication was reported without an \
              independent read"
         );
-        Ok(())
     }
 }
 
@@ -193,7 +186,7 @@ fn read_receiver(
     }
     record.creates = scripted.creates()?;
     record.reads = scripted.reads_of("/pulls/7/reviews")?;
-    record.assert_no_fault_receiver(receiver, tier, &first_unknown_reason(reports))?;
+    record.assert_no_fault_receiver(receiver, tier, &first_unknown_reason(reports));
     Ok(record)
 }
 
@@ -211,6 +204,54 @@ fn first_unknown_reason(reports: &[Report<ReviewOutcome>]) -> String {
         Some(reason) => reason,
         None => String::from("no run reported an unknown outcome"),
     }
+}
+
+/// Log the tier's latency percentiles, queueing included, from the samples every
+/// run recorded.
+fn log_latency(
+    label: &str,
+    concurrency: usize,
+    in_flight: usize,
+    elapsed: std::time::Duration,
+    latencies: &std::sync::Mutex<Vec<std::time::Duration>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // A poisoned recorder means a run panicked while timing itself; that is a
+    // failed tier, not an empty sample set.
+    let mut samples = latencies
+        .lock()
+        .map_err(|poisoned| format!("a run panicked while recording its latency: {poisoned}"))?
+        .clone();
+    assert_eq!(
+        samples.len(),
+        concurrency,
+        "concurrency {concurrency}: every run must record exactly one latency sample"
+    );
+    samples.sort_unstable();
+    let at = |per_mille: usize| -> Result<std::time::Duration, String> {
+        let rank = samples.len().saturating_mul(per_mille).div_ceil(1000);
+        samples
+            .get(rank.saturating_sub(1).min(samples.len().saturating_sub(1)))
+            .copied()
+            .ok_or_else(|| format!("no latency sample at {per_mille} per mille"))
+    };
+    let (p50, p95, p99, max) = (at(500)?, at(950)?, at(990)?, at(1000)?);
+    // `install_default` fails once a subscriber exists (the second tier in this
+    // binary), which is the expected case, so the failure is a debug record.
+    if let Err(error) = lgwks_std::trace::install_default("lgwks-saturation") {
+        lgwks_std::trace::debug!(error = %error, "saturation: subscriber already installed");
+    }
+    lgwks_std::trace::info!(
+        label = label,
+        runs = concurrency,
+        in_flight = in_flight,
+        wall_ms = elapsed.as_millis(),
+        p50_ms = p50.as_millis(),
+        p95_ms = p95.as_millis(),
+        p99_ms = p99.as_millis(),
+        max_ms = max.as_millis(),
+        "SATURATION latency per run, queueing included"
+    );
+    Ok(())
 }
 
 /// Run one saturation tier, sharded across receivers, and assert each record.
@@ -293,38 +334,7 @@ pub(super) fn run_saturation_tier(
     let reports = lgwks_bot::rt::runtime::Runtime::new()?
         .block_on(lgwks_bot::rt::task::join_all_bounded(in_flight, futures))?;
     let elapsed = started.elapsed();
-    // A poisoned recorder means a run panicked while timing itself; that is a
-    // failed tier, not an empty sample set.
-    let mut samples = latencies
-        .lock()
-        .map_err(|poisoned| format!("a run panicked while recording its latency: {poisoned}"))?
-        .clone();
-    assert_eq!(
-        samples.len(),
-        concurrency,
-        "concurrency {concurrency}: every run must record exactly one latency sample"
-    );
-    samples.sort_unstable();
-    let at = |per_mille: usize| {
-        let rank = samples.len().saturating_mul(per_mille).div_ceil(1000);
-        samples[rank.saturating_sub(1).min(samples.len().saturating_sub(1))]
-    };
-    // `install_default` fails once a subscriber exists (the second tier in this
-    // binary), which is the expected case, so the failure is a debug record.
-    if let Err(error) = lgwks_std::trace::install_default("lgwks-saturation") {
-        lgwks_std::trace::debug!(error = %error, "saturation: subscriber already installed");
-    }
-    lgwks_std::trace::info!(
-        label = label,
-        runs = concurrency,
-        in_flight = in_flight,
-        wall_ms = elapsed.as_millis(),
-        p50_ms = at(500).as_millis(),
-        p95_ms = at(950).as_millis(),
-        p99_ms = at(990).as_millis(),
-        max_ms = at(1000).as_millis(),
-        "SATURATION latency per run, queueing included"
-    );
+    log_latency(label, concurrency, in_flight, elapsed, &latencies)?;
 
     // The output is in input order and the inputs were receiver-major, so one
     // cursor walks both: no size is recomputed here and no slice can drift from
@@ -333,7 +343,10 @@ pub(super) fn run_saturation_tier(
     let mut cursor = 0usize;
     for (receiver, (scripted, shard)) in installed.iter().zip(&sizes).enumerate() {
         let end = cursor.saturating_add(*shard);
-        let record = read_receiver(scripted, receiver, concurrency, &reports[cursor..end])?;
+        let window = reports
+            .get(cursor..end)
+            .ok_or("a receiver's reports lie inside the output")?;
+        let record = read_receiver(scripted, receiver, concurrency, window)?;
         cursor = end;
         total = record.plus(total);
     }
@@ -343,7 +356,7 @@ pub(super) fn run_saturation_tier(
         "concurrency {concurrency}: the owner must join every run it started, not \
          drop the ones still in flight"
     );
-    total.assert_no_fault_receiver(concurrency, concurrency, "n/a")?;
+    total.assert_no_fault_receiver(concurrency, concurrency, "n/a");
 
     lgwks_std::trace::info!(
         concurrency = concurrency,

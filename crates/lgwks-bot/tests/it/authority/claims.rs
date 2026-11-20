@@ -121,7 +121,7 @@ const DRISHTI_PROTOCOL: &str = "the Canvas protocol's capability.revoked signal 
 /// R6): each mention is a requirement Drishti's blocked proof gates G01–G15 must
 /// meet, about Drishti's own sessions, so none states what `lgwks_bot` ships.
 ///
-/// The three `cap_token` entries are the same bargain for bearer tokens (#779):
+/// The five `cap_token` entries are the same bargain for bearer tokens (#779):
 /// an offline token-id ledger with an explicit tested verify, attenuate and
 /// decide surface is a different subject from `GrantSet` capability lifetime,
 /// which has no `revoke` and is what this scan protects. A mention there claims
@@ -138,7 +138,7 @@ const DRISHTI_PROTOCOL: &str = "the Canvas protocol's capability.revoked signal 
 /// broker's audited `Revoke` action for the handles it issued. Each name is a
 /// public identifier or a frozen protocol string, so the prose cannot dodge it;
 /// every other drishti mention was reworded (ADR 0058).
-const NOT_AUTHORITY_CLAIMS: [(&str, &str); 49] = [
+const NOT_AUTHORITY_CLAIMS: [(&str, &str); 51] = [
     (
         "crates/lgwks-bot/src/broker.rs",
         "the broker's refusals name its shipped withdrawal of an operation, not GrantSet",
@@ -294,6 +294,15 @@ const NOT_AUTHORITY_CLAIMS: [(&str, &str); 49] = [
         "crates/lgwks-bot/src/bin/cap_token_cost.rs",
         "the measurement harness driving the bearer-token ledger above, not a capability claim",
     ),
+    (
+        "crates/lgwks-bot/src/cap_token/policy.rs",
+        "the bearer-token decision walk, whose revocation rule reads the ledger above, \
+         not GrantSet capability revocation",
+    ),
+    (
+        "crates/lgwks-bot/tests/it/sim_cap_token_policy.rs",
+        "the simulation proof of the bearer-token ledger above, not a capability claim",
+    ),
 ];
 
 /// File extensions the scan reads. A revocation claim is prose or code; a
@@ -348,30 +357,33 @@ fn flatten(text: &str) -> String {
 fn unqualified_mentions(file: &str, text: &str) -> Vec<String> {
     let flat = flatten(text);
     let mut flagged = Vec::new();
-    let mut cursor = 0usize;
 
-    while let Some(found) = flat
-        .get(cursor..)
-        .and_then(|rest| rest.find(REVOCATION_STEM))
-    {
-        let at = cursor.saturating_add(found);
+    for (at, _) in flat.match_indices(REVOCATION_STEM) {
         // The context is taken in whole characters from boundaries `char_indices`
-        // reports, and both ends are clamped to the text, so the slice is total:
-        // a mention at either edge still gets its window rather than a
-        // substitute for one.
-        // A mention nearer an edge than the window starts or ends the context
-        // at that edge: the text itself is the bound, not a substituted value.
-        let start = match flat[..at].char_indices().nth_back(WINDOW) {
+        // reports. A mention nearer an edge than the window starts or ends the
+        // context at that edge: the text itself is the bound.
+        let Some((before, after)) = flat.split_at_checked(at) else {
+            flagged.push(format!(
+                "{file}: a mention at byte {at} is off a character boundary"
+            ));
+            continue;
+        };
+        let start = match before.char_indices().nth_back(WINDOW) {
             Some((offset, _)) => offset,
             None => 0,
         };
-        let end = match flat[at..].char_indices().nth(WINDOW) {
+        let end = match after.char_indices().nth(WINDOW) {
             Some((offset, character)) => at
                 .saturating_add(offset)
                 .saturating_add(character.len_utf8()),
             None => flat.len(),
         };
-        let window = &flat[start..end];
+        let Some(window) = flat.get(start..end) else {
+            flagged.push(format!(
+                "{file}: a mention at byte {at} has no whole-character window"
+            ));
+            continue;
+        };
         let qualified = DENIALS
             .iter()
             .chain(OTHER_SUBJECTS.iter())
@@ -380,7 +392,6 @@ fn unqualified_mentions(file: &str, text: &str) -> Vec<String> {
         if !qualified {
             flagged.push(format!("{file}: {window}"));
         }
-        cursor = at.saturating_add(REVOCATION_STEM.len());
     }
 
     flagged
@@ -437,7 +448,7 @@ fn first_party_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 }
 
 #[test]
-fn the_claim_guard_flags_the_claim_it_was_written_for() -> TestResult {
+fn the_claim_guard_flags_the_claim_it_was_written_for() {
     // The sentence this guard exists for, quoted from `docs/general-bot-fold.md`
     // as it stood when #41 was filed: a live-revocation guarantee with no
     // operation behind it. A guard that does not flag this one is a no-op, and
@@ -488,7 +499,6 @@ fn the_claim_guard_flags_the_claim_it_was_written_for() -> TestResult {
             "the guard must report a claim written with either spelling: {probe}"
         );
     }
-    Ok(())
 }
 
 #[test]

@@ -91,9 +91,10 @@ fn draw_source(sim: &mut sim::Sim) -> Result<String, Box<dyn Error>> {
     };
     let mut source = String::new();
     for _ in 0..length {
-        source.push(char::from(
-            PROFILE_BYTES[draw_index(sim, PROFILE_BYTES.len())?],
-        ));
+        source.push(char::from(*sim::nth(
+            PROFILE_BYTES,
+            draw_index(sim, PROFILE_BYTES.len())?,
+        )?));
     }
     Ok(source)
 }
@@ -105,7 +106,7 @@ fn shape_band(index: usize) -> TestResult {
 
 /// One seed: draw a spec shape, check the accessors against the draw.
 fn shape_case(sim: &mut sim::Sim) -> TestResult {
-    let program = PROGRAMS[draw_index(sim, PROGRAMS.len())?];
+    let program = *sim::nth(&PROGRAMS, draw_index(sim, PROGRAMS.len())?)?;
     let mut spec = ProcessSpec::new(program);
     sim.trace.record(&format!("program {program}"));
     assert_eq!(
@@ -116,7 +117,7 @@ fn shape_case(sim: &mut sim::Sim) -> TestResult {
 
     let mut drawn_args = 0_usize;
     for _ in 0..draw_index(sim, 4)? {
-        let word = WORDS[draw_index(sim, WORDS.len())?];
+        let word = *sim::nth(&WORDS, draw_index(sim, WORDS.len())?)?;
         spec.arg(word);
         drawn_args = drawn_args.saturating_add(1);
         sim.trace.record(&format!("arg {word}"));
@@ -128,7 +129,7 @@ fn shape_case(sim: &mut sim::Sim) -> TestResult {
     );
 
     for _ in 0..draw_index(sim, 4)? {
-        let key = WORDS[draw_index(sim, WORDS.len())?];
+        let key = *sim::nth(&WORDS, draw_index(sim, WORDS.len())?)?;
         match sim.rng().below(3) {
             0 => {
                 spec.env(key, "drawn");
@@ -229,7 +230,8 @@ fn the_confinement_bands_cover_every_seed_exactly_once() -> TestResult {
     covered.sort_unstable();
     covered.dedup();
     assert_eq!(
-        u64::try_from(covered.len()).map_err(|_| "the seed count fits u64")?,
+        u64::try_from(covered.len())
+            .map_err(|error| format!("the seed count fits u64: {error}"))?,
         SEEDS,
         "every seed is swept exactly once"
     );

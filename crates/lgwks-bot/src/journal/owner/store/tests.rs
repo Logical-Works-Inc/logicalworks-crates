@@ -10,6 +10,7 @@
 //! Beside it, the awaited answer's lost-wakeup probe (INV-BOT-140), which needs
 //! no task feature: it drives the owner directly.
 
+#[cfg(test)]
 use super::{Stage, StorageOwner};
 use crate::journal::owner::{lock, wait_timeout_while};
 use lgwks_std::task::spawn_blocking;
@@ -81,8 +82,8 @@ fn a_failed_batch_flush_acknowledges_nobody_and_folds_nothing() -> Result<(), Bo
     // door so the record is exactly what `remember` would commit.
     let mut runs = Vec::with_capacity(MEMBERS);
     let mut outstanding = Vec::with_capacity(MEMBERS);
-    for index in 0..MEMBERS {
-        let run = RunId::from_hex(RUN_HEX[index])?;
+    for (run_hex, payload) in RUN_HEX.iter().zip(PAYLOAD).take(MEMBERS) {
+        let run = RunId::from_hex(run_hex)?;
         runs.push(run);
         let record = RunRecords::stage(
             &store,
@@ -91,7 +92,7 @@ fn a_failed_batch_flush_acknowledges_nobody_and_folds_nothing() -> Result<(), Bo
             key,
             "step",
             &step_definition,
-            vec![PAYLOAD[index]],
+            vec![payload],
         );
         outstanding.push(RunRecords::append_async(&store, record));
     }
@@ -180,7 +181,9 @@ fn a_failed_batch_flush_acknowledges_nobody_and_folds_nothing() -> Result<(), Bo
         );
     }
     drop(reopened);
-    drop(std::fs::remove_dir_all(&dir));
+    if let Err(error) = std::fs::remove_dir_all(&dir) {
+        lgwks_std::trace::debug!(error = %error, dir = ?dir, "the scratch dir was not removed");
+    }
     Ok(())
 }
 

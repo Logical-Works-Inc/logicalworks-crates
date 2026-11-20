@@ -1,5 +1,6 @@
 //! Admission and the report stream: capacity, cancellation, panics and the retention cap.
 
+#[cfg(test)]
 #[cfg(all(unix, feature = "process"))]
 use super::super::SupervisorCancelled;
 use super::super::outcome::TaskOutcome;
@@ -236,14 +237,6 @@ fn a_cancelled_supervisor_starts_no_process() {
         assert!(
             !marker.exists(),
             "no child ran: the marker {} must be absent",
-            marker.display()
-        );
-        // The absence above is the assertion; the removal only avoids
-        // litter, and either outcome leaves the path gone.
-        let removed = std::fs::remove_file(&marker);
-        assert!(
-            removed.is_ok() || !marker.exists(),
-            "the marker path must be gone: {}",
             marker.display()
         );
     });
@@ -488,11 +481,7 @@ fn cooperative_cancellation_and_abort_are_told_apart() {
         // Not cooperative: the body never looks at its token and never
         // finishes, so the only way it ends is the abort.
         supervisor
-            .spawn(|_token| async {
-                loop {
-                    yield_now().await;
-                }
-            })
+            .spawn(|_token| std::future::pending::<()>())
             .await;
 
         let report = supervisor.shutdown().await;

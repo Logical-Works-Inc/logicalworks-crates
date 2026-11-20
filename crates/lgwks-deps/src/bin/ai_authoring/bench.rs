@@ -376,6 +376,103 @@ fn model_of(table: &Table) -> Result<ModelCli, BenchError> {
     Ok(model)
 }
 
+/// The `[[arm]]` tables, each with its reference surface (its own name when none
+/// is written).
+fn arms_of(tables: &[Table]) -> Result<Vec<Arm>, BenchError> {
+    let mut arms = Vec::new();
+    for table in each(tables, "arm")? {
+        let name = required(table, "name")?;
+        let reference = match text(table, "reference") {
+            Some(surface) if !surface.is_empty() => surface.to_owned(),
+            Some(_) | None => name.clone(),
+        };
+        arms.push(Arm {
+            name,
+            sheet: required(table, "sheet")?,
+            reference,
+        });
+    }
+    Ok(arms)
+}
+
+/// The `[[task]]` tables.
+fn tasks_of(tables: &[Table]) -> Result<Vec<Task>, BenchError> {
+    let mut tasks = Vec::new();
+    for table in each(tables, "task")? {
+        tasks.push(Task {
+            name: required(table, "name")?,
+            drop_clause: required(table, "drop_clause")?,
+            mutant_base: required(table, "mutant_base")?,
+        });
+    }
+    Ok(tasks)
+}
+
+/// The `[[borrowed]]` and `[[exclusion]]` tables, which are optional.
+fn exceptions_of(tables: &[Table]) -> Result<(Vec<Borrowed>, Vec<Exclusion>), BenchError> {
+    let mut borrowed = Vec::new();
+    for table in elements(tables, "borrowed") {
+        borrowed.push(Borrowed {
+            arm: required(table, "arm")?,
+            task: required(table, "task")?,
+            surface: required(table, "surface")?,
+        });
+    }
+    let mut exclusions = Vec::new();
+    for table in elements(tables, "exclusion") {
+        exclusions.push(Exclusion {
+            task: required(table, "task")?,
+            arm: required(table, "arm")?,
+            why: required(table, "why")?,
+        });
+    }
+    Ok((borrowed, exclusions))
+}
+
+/// The `[limits]` table.
+fn limits_of(table: &Table) -> Result<Limits, BenchError> {
+    let seconds = |key: &str| number(table, key).map(Duration::from_secs);
+    let model_call = seconds("model_call_s")?;
+    let build = seconds("build_s")?;
+    let oracle = seconds("oracle_s")?;
+    let git = seconds("git_s")?;
+    let token_budget = number(table, "token_budget")?;
+    let call_tokens = number(table, "call_tokens")?;
+    Ok(Limits {
+        model_call,
+        build,
+        oracle,
+        git,
+        token_budget,
+        call_tokens,
+    })
+}
+
+/// The `[defaults]` table; `parallel` must fit this target's `usize`, and the
+/// refusal carries the conversion's own cause.
+fn defaults_of(table: &Table) -> Result<Defaults, BenchError> {
+    let parallel = match usize::try_from(number(table, "parallel")?) {
+        Ok(workers) => workers,
+        Err(cause) => {
+            return fail(
+                BenchError::Manifest(format!("[defaults] parallel does not fit: {cause}")),
+                "defaults_of",
+            );
+        }
+    };
+    Ok(Defaults {
+        models: required_list(table, "models")?,
+        trials: count(table, "trials")?,
+        parallel,
+        max_repairs: count(table, "max_repairs")?,
+    })
+}
+
+/// The names of `items`, as `name` reads them.
+fn names<T>(items: &[T], name: impl Fn(&T) -> &str) -> Vec<&str> {
+    items.iter().map(name).collect()
+}
+
 impl Bench {
     /// Reads `bench.toml` in `root`.
     pub(super) fn load(root: &Path) -> Result<Self, BenchError> {
@@ -403,43 +500,9 @@ impl Bench {
                 text: required(table, "text")?,
             });
         }
-        let mut arms = Vec::new();
-        for table in each(&tables, "arm")? {
-            let name = required(table, "name")?;
-            let reference = match text(table, "reference") {
-                Some(surface) if !surface.is_empty() => surface.to_owned(),
-                Some(_) | None => name.clone(),
-            };
-            arms.push(Arm {
-                name,
-                sheet: required(table, "sheet")?,
-                reference,
-            });
-        }
-        let mut tasks = Vec::new();
-        for table in each(&tables, "task")? {
-            tasks.push(Task {
-                name: required(table, "name")?,
-                drop_clause: required(table, "drop_clause")?,
-                mutant_base: required(table, "mutant_base")?,
-            });
-        }
-        let mut borrowed = Vec::new();
-        for table in elements(&tables, "borrowed") {
-            borrowed.push(Borrowed {
-                arm: required(table, "arm")?,
-                task: required(table, "task")?,
-                surface: required(table, "surface")?,
-            });
-        }
-        let mut exclusions = Vec::new();
-        for table in elements(&tables, "exclusion") {
-            exclusions.push(Exclusion {
-                task: required(table, "task")?,
-                arm: required(table, "arm")?,
-                why: required(table, "why")?,
-            });
-        }
+        let arms = arms_of(&tables)?;
+        let tasks = tasks_of(&tables)?;
+        let (borrowed, exclusions) = exceptions_of(&tables)?;
         let bench = Self {
             root: root.to_path_buf(),
             framing: required(top, "framing")?,
@@ -454,28 +517,8 @@ impl Bench {
                 paths,
             },
             model: model_of(only(&tables, "model")?)?,
-            limits: Limits {
-                model_call: Duration::from_secs(number(limits, "model_call_s")?),
-                build: Duration::from_secs(number(limits, "build_s")?),
-                oracle: Duration::from_secs(number(limits, "oracle_s")?),
-                git: Duration::from_secs(number(limits, "git_s")?),
-                token_budget: number(limits, "token_budget")?,
-                call_tokens: number(limits, "call_tokens")?,
-            },
-            defaults: Defaults {
-                models: required_list(defaults, "models")?,
-                trials: count(defaults, "trials")?,
-                parallel: match usize::try_from(number(defaults, "parallel")?) {
-                    Ok(workers) => workers,
-                    Err(_) => {
-                        return fail(
-                            BenchError::Manifest("[defaults] parallel does not fit".to_owned()),
-                            "load",
-                        );
-                    }
-                },
-                max_repairs: count(defaults, "max_repairs")?,
-            },
+            limits: limits_of(limits)?,
+            defaults: defaults_of(defaults)?,
             profiles,
             arms,
             borrowed,
@@ -489,30 +532,9 @@ impl Bench {
 
     /// Refuses a manifest whose names collide, are unsafe, or point at nothing it declares.
     fn validate(&self) -> Result<(), BenchError> {
-        distinct(
-            "profile",
-            &self
-                .profiles
-                .iter()
-                .map(|item| item.name.as_str())
-                .collect::<Vec<_>>(),
-        )?;
-        distinct(
-            "arm",
-            &self
-                .arms
-                .iter()
-                .map(|item| item.name.as_str())
-                .collect::<Vec<_>>(),
-        )?;
-        distinct(
-            "task",
-            &self
-                .tasks
-                .iter()
-                .map(|item| item.name.as_str())
-                .collect::<Vec<_>>(),
-        )?;
+        distinct("profile", &names(&self.profiles, |item| item.name.as_str()))?;
+        distinct("arm", &names(&self.arms, |item| item.name.as_str()))?;
+        distinct("task", &names(&self.tasks, |item| item.name.as_str()))?;
         let pairs = self
             .exclusions
             .iter()
@@ -585,209 +607,4 @@ impl Bench {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::{Bench, Setting, fill};
-    use crate::sim_kit::{BENCH_DIR, COMMITTED, committed};
-
-    /// Whether parsing `edited` is refused with a message naming `needle`.
-    fn refused(edited: &str, needle: &str) -> bool {
-        match Bench::parse(Path::new(BENCH_DIR), edited) {
-            Ok(_) => false,
-            Err(error) => error.to_string().contains(needle),
-        }
-    }
-
-    /// bench/ai-authoring/README.md and tasks.md: six arms, six tasks, five
-    /// required profiles, and the three cells the old and futures sheets cannot
-    /// express (#270).
-    #[test]
-    fn the_committed_manifest_declares_the_benchmark_the_readme_describes()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let bench = committed()?;
-        let arms: Vec<&str> = bench.arms.iter().map(|arm| arm.name.as_str()).collect();
-        assert_eq!(
-            arms,
-            ["old", "new", "fan", "futures", "script", "lexicon"],
-            "the six arms, in the order the README tables list them"
-        );
-        assert_eq!(bench.tasks.len(), 6, "six held-out tasks");
-        assert_eq!(bench.profiles.len(), 5, "the five required user profiles");
-        assert_eq!(
-            bench.exclusions.len(),
-            3,
-            "three cells no sheet can express"
-        );
-        assert_eq!(
-            bench.defaults.trials, 1,
-            "one trial per profile: two trials of one cell put the same prompt twice, a repeat in meaning the Director's order of 2026-10-17 forbids"
-        );
-        assert!(
-            bench.limits.token_budget < 10_000_000
-                && bench.limits.token_budget >= bench.limits.call_tokens,
-            "the budget is under the Director's 10M tokens and holds at least one reply"
-        );
-        assert!(
-            bench.excludes("old", "capture") && bench.excludes("futures", "recovery"),
-            "the old sheet has no process spawn and the futures sheet no durable store"
-        );
-        assert!(
-            bench
-                .protocol
-                .iter()
-                .any(|statement| statement.0 == "hidden_oracle"
-                    && matches!(statement.1, Setting::Flag(true))),
-            "the protocol states the oracle is hidden as a flag"
-        );
-        Ok(())
-    }
-
-    /// The lexicon arm authors `script!` from the generated lexicon, and the fan
-    /// arm's recovery reference is a new-surface solution (trial.py, 2026-10-11).
-    #[test]
-    fn a_reference_comes_from_the_arm_then_from_what_it_borrows()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let bench = committed()?;
-        let lexicon = bench.arm("lexicon").ok_or("no lexicon arm")?;
-        let fan = bench.arm("fan").ok_or("no fan arm")?;
-        assert_eq!(
-            bench.reference_surface(lexicon, "aggregate"),
-            "script",
-            "the lexicon arm compiles the script reference"
-        );
-        assert_eq!(
-            bench.reference_surface(fan, "recovery"),
-            "new",
-            "fan borrows the new reference for recovery"
-        );
-        assert_eq!(
-            bench.reference_surface(fan, "aggregate"),
-            "fan",
-            "fan keeps its own reference elsewhere"
-        );
-        Ok(())
-    }
-
-    /// A benchmark that names a file that is not there fails its first trial,
-    /// hours into a run; every file the manifest and its layout name must exist.
-    #[test]
-    fn every_file_the_manifest_names_exists() -> Result<(), Box<dyn std::error::Error>> {
-        let bench = committed()?;
-        let mut missing = Vec::new();
-        let mut want = |path: std::path::PathBuf| {
-            if !path.is_file() {
-                missing.push(path.display().to_string());
-            }
-        };
-        want(bench.path(&bench.layout.lock));
-        want(bench.path(&bench.layout.template).join("Cargo.toml"));
-        for arm in &bench.arms {
-            want(bench.path(&arm.sheet));
-        }
-        for task in &bench.tasks {
-            want(bench.path(&fill(&bench.layout.prompt, &[("task", &task.name)])));
-            want(bench.path(&fill(&bench.layout.oracle, &[("task", &task.name)])));
-            want(bench.path(&fill(&bench.layout.mutant, &[("task", &task.name)])));
-            want(bench.path(&fill(
-                &bench.layout.reference,
-                &[("surface", &task.mutant_base), ("task", &task.name)],
-            )));
-            for arm in &bench.arms {
-                if !bench.excludes(&arm.name, &task.name) {
-                    let surface = bench.reference_surface(arm, &task.name);
-                    want(bench.path(&fill(
-                        &bench.layout.reference,
-                        &[("surface", &surface), ("task", &task.name)],
-                    )));
-                }
-            }
-        }
-        for entry in &bench.template.paths {
-            if !bench.path(&entry.target).is_dir() {
-                missing.push(entry.target.clone());
-            }
-        }
-        assert!(
-            missing.is_empty(),
-            "the manifest names files that are not there: {missing:?}"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn a_name_declared_twice_is_refused() {
-        assert!(
-            refused(
-                &COMMITTED.replacen("name = \"fan\"", "name = \"old\"", 1),
-                "declared twice"
-            ),
-            "two arms called old"
-        );
-    }
-
-    /// A name becomes a directory, a package and a file name, so one with a
-    /// separator or a dot-dot would let a manifest reach outside its work root.
-    #[test]
-    fn a_name_that_could_leave_its_directory_is_refused() {
-        assert!(
-            refused(
-                &COMMITTED.replacen("name = \"fan\"", "name = \"../escape\"", 1),
-                "use only"
-            ),
-            "a path separator in an arm name"
-        );
-        assert!(
-            refused(
-                &COMMITTED.replacen("name = \"fan\"", "name = \"..\"", 1),
-                "use only"
-            ),
-            "a dot-dot arm name"
-        );
-    }
-
-    #[test]
-    fn a_missing_key_is_refused_naming_it() {
-        assert!(
-            refused(&COMMITTED.replacen("framing =", "framed =", 1), "framing"),
-            "the reply contract is required"
-        );
-    }
-
-    #[test]
-    fn an_exclusion_of_an_undeclared_cell_is_refused() {
-        let edited = COMMITTED.replacen(
-            "task = \"recovery\"\narm = \"old\"",
-            "task = \"nonesuch\"\narm = \"old\"",
-            1,
-        );
-        assert!(
-            refused(&edited, "does not declare"),
-            "an exclusion of a task nobody declared"
-        );
-    }
-
-    #[test]
-    fn a_limit_that_is_not_a_positive_whole_number_is_refused() {
-        // The committed value is the one replaced, so a limit changed in the
-        // manifest cannot leave this edit a no-op that the test then misreads.
-        let edited = COMMITTED.replacen("oracle_s = 300", "oracle_s = 0", 1);
-        assert_ne!(
-            edited, COMMITTED,
-            "the committed manifest declares `oracle_s = 300`"
-        );
-        assert!(
-            refused(&edited, "oracle_s"),
-            "an oracle bound of zero seconds would time out every trial"
-        );
-    }
-
-    #[test]
-    fn fill_replaces_every_named_placeholder_and_only_those() {
-        assert_eq!(
-            fill("tasks/{task}/{task}.rs {other}", &[("task", "aggregate")]),
-            "tasks/aggregate/aggregate.rs {other}",
-            "each occurrence of a named placeholder is replaced and an unnamed one is left"
-        );
-    }
-}
+mod tests;

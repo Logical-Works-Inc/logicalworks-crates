@@ -57,7 +57,7 @@ fn request(arguments: &[String]) -> Request {
 
 /// Route the request to its subcommand.
 fn dispatch(
-    request: Request,
+    request: &Request,
     out: &mut impl Write,
     err: &mut impl Write,
 ) -> std::io::Result<ExitCode> {
@@ -108,5 +108,5 @@ fn main() -> ExitCode {
     let mut out = stdout.lock();
     let stderr = std::io::stderr();
     let mut err = stderr.lock();
-    settle(dispatch(request(arguments.as_slice()), &mut out, &mut err))
+    settle(dispatch(&request(arguments.as_slice()), &mut out, &mut err))
 }

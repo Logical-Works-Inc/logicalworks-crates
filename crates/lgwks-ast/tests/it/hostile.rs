@@ -222,7 +222,7 @@ fn refusal_name(error: &ParseError) -> String {
 #[test]
 /// Every adversarial shape of every compiled grammar answers with a `ParseError`
 /// or a tree, and never with a panic, a hang or a silent empty answer.
-fn every_adversarial_shape_answers_typed() -> TestResult {
+fn every_adversarial_shape_answers_typed() {
     let mut checked = 0_usize;
     let mut tilings_refused_for_syntax = 0_usize;
     let mut tilings_accepted = 0_usize;
@@ -322,7 +322,6 @@ fn every_adversarial_shape_answers_typed() -> TestResult {
          source, and {tilings_refused_for_syntax} refused it for syntax; the byte-ceiling shape \
          is not proving that a 2 MiB source can be parsed"
     );
-    Ok(())
 }
 
 #[test]
@@ -363,7 +362,7 @@ fn the_byte_ceiling_is_refused_before_any_tree_exists() -> TestResult {
 #[test]
 /// Every refusal renders as a located diagnostic rather than as text, including
 /// the ones the byte, depth and deadline bounds produce.
-fn every_refusal_renders_as_a_located_diagnostic() -> TestResult {
+fn every_refusal_renders_as_a_located_diagnostic() {
     let source = "fn main() {}\n";
     let refusals = [
         ParseError::SourceTooLarge {
@@ -400,13 +399,12 @@ fn every_refusal_renders_as_a_located_diagnostic() -> TestResult {
             "{refusal} rendered a span past the end of its own source"
         );
     }
-    Ok(())
 }
 
 #[test]
 /// An unchecked parse of the same hostile shapes does not hang or panic, which
 /// is what `parse` exists for: inspecting a malformed tree on purpose.
-fn the_unchecked_parse_of_the_same_shapes_still_answers() -> TestResult {
+fn the_unchecked_parse_of_the_same_shapes_still_answers() {
     for source in [
         "(".repeat(MAX_AST_DEPTH.saturating_mul(8)),
         ")".repeat(MAX_AST_DEPTH.saturating_mul(8)),
@@ -430,12 +428,11 @@ fn the_unchecked_parse_of_the_same_shapes_still_answers() -> TestResult {
             source.len()
         );
     }
-    Ok(())
 }
 
 #[test]
 /// Multi-byte and truncated UTF-8 boundaries are answered, not panicked on.
-fn multibyte_and_truncated_sources_are_answered() -> TestResult {
+fn multibyte_and_truncated_sources_are_answered() {
     for source in [
         // A multibyte character cut in half is not a `&str`; the truncated form
         // is the one a caller reading bytes can actually hand over.
@@ -453,7 +450,6 @@ fn multibyte_and_truncated_sources_are_answered() -> TestResult {
             );
         }
     }
-    Ok(())
 }
 
 // ── The markdown guard ──────────────────────────────────────────────────────

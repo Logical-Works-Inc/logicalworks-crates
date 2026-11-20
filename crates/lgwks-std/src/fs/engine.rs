@@ -449,7 +449,7 @@ where
 /// name it cannot classify, and guessing "file" would misreport a directory
 /// the walk then fails to descend into.
 fn process_entry<E, P>(
-    entry: DirEntry,
+    entry: &DirEntry,
     dir: &Path,
     logical_dir: &Path,
     current_depth: usize,
@@ -461,7 +461,7 @@ where
 {
     let path = entry.path();
     let logical_path = logical_dir.join(entry.file_name());
-    let stat = match E::stat(&entry) {
+    let stat = match E::stat(entry) {
         Ok(stat) => stat,
         Err(error) => {
             omit(
@@ -639,7 +639,7 @@ where
     };
     let budget_reached_during_listing = ctx.budget_exhausted;
     let mut cut = false;
-    for entry in listed {
+    for entry in &listed {
         if ctx.stopped || (ctx.budget_exhausted && !budget_reached_during_listing) {
             break;
         }

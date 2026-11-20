@@ -27,10 +27,10 @@ use lgwks_bot::task::{Task, task};
 /// `Pin<Box<dyn Future>>` rather than the concrete anonymous future: the point of
 /// these files is to prove what the store and the report do, and a boxed future is
 /// the only spelling of "a task body" that can be named in a signature.
-pub type BodyFuture = Pin<Box<dyn Future<Output = Result<u32, FlowError>>>>;
+pub(crate) type BodyFuture = Pin<Box<dyn Future<Output = Result<u32, FlowError>>>>;
 
 /// The task type both files build over [`BodyFuture`].
-pub type OneStep = Task<fn(Scope, u32) -> BodyFuture>;
+pub(crate) type OneStep = Task<fn(Scope, u32) -> BodyFuture>;
 
 /// The marker file naming one step's body.
 ///
@@ -38,12 +38,12 @@ pub type OneStep = Task<fn(Scope, u32) -> BodyFuture>;
 /// about a body that was *not* polled, and a counter in the process that would
 /// have polled it is a claim about nothing. The file also survives the reopen a
 /// resume performs, which is the whole of the observation.
-pub fn marker(dir: &Path, step: &str) -> PathBuf {
+pub(crate) fn marker(dir: &Path, step: &str) -> PathBuf {
     dir.join(format!("{step}.ran"))
 }
 
 /// How many times a step's body has run, as the filesystem records it.
-pub fn ran(dir: &Path, step: &str) -> Result<u32, Box<dyn Error>> {
+pub(crate) fn ran(dir: &Path, step: &str) -> Result<u32, Box<dyn Error>> {
     match std::fs::read_to_string(marker(dir, step)) {
         Ok(text) => Ok(text.trim().parse::<u32>()?),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(0),
@@ -52,7 +52,7 @@ pub fn ran(dir: &Path, step: &str) -> Result<u32, Box<dyn Error>> {
 }
 
 /// Append one to a step's marker. The file is the count, so it survives the kill.
-pub fn record_run(dir: &Path, step: &str) -> Result<(), FlowError> {
+pub(crate) fn record_run(dir: &Path, step: &str) -> Result<(), FlowError> {
     let next = ran(dir, step).map_err(FlowError::failed)?.saturating_add(1);
     std::fs::write(marker(dir, step), next.to_string()).map_err(FlowError::failed)
 }
@@ -62,12 +62,12 @@ pub fn record_run(dir: &Path, step: &str) -> Result<(), FlowError> {
 /// One task rather than one per test, because the durable claim is about the
 /// `remember` and not about the body around it, and two differently-shaped bodies
 /// would be two different things being measured.
-pub fn one_step_task() -> Result<OneStep, FlowError> {
+pub(crate) fn one_step_task() -> Result<OneStep, FlowError> {
     task("step", boxed_body)
 }
 
 /// The one-step body behind its nameable return type.
-pub fn boxed_body(scope: Scope, value: u32) -> BodyFuture {
+pub(crate) fn boxed_body(scope: Scope, value: u32) -> BodyFuture {
     Box::pin(
         async move { remember(&scope, "v", || async move { Ok::<_, FlowError>(value) }).await },
     )
@@ -89,7 +89,7 @@ pub fn boxed_body(scope: Scope, value: u32) -> BodyFuture {
 /// The pair is `(found, expected)` rather than the error itself so a caller can
 /// assert on the two numbers without re-matching.
 #[must_use]
-pub fn format_version(error: &lgwks_bot::task::StoreError) -> Option<(u8, u8)> {
+pub(crate) fn format_version(error: &lgwks_bot::task::StoreError) -> Option<(u8, u8)> {
     match error {
         &lgwks_bot::task::StoreError::FormatVersion { found, expected } => Some((found, expected)),
         _ => None,
@@ -110,7 +110,7 @@ pub fn format_version(error: &lgwks_bot::task::StoreError) -> Option<(u8, u8)> {
 /// borrowed error is a lint error in one direction or the other, and three
 /// copies of the same discrimination is the block the commit guard refuses.
 #[must_use]
-pub fn store_refusal(error: &FlowError) -> Option<&lgwks_bot::task::StoreError> {
+pub(crate) fn store_refusal(error: &FlowError) -> Option<&lgwks_bot::task::StoreError> {
     match *error {
         FlowError::Store { ref source, .. } => Some(&**source),
         _ => None,
@@ -123,7 +123,7 @@ pub fn store_refusal(error: &FlowError) -> Option<&lgwks_bot::task::StoreError> 
 /// not, so a seeded scenario that recorded the label would report a trace
 /// difference for a change that never affected what the scenario decided.
 #[must_use]
-pub fn disposition_code(disposition: lgwks_bot::task::Disposition) -> u64 {
+pub(crate) fn disposition_code(disposition: lgwks_bot::task::Disposition) -> u64 {
     match disposition {
         lgwks_bot::task::Disposition::Succeeded => 0,
         lgwks_bot::task::Disposition::Failed => 1,
@@ -140,13 +140,13 @@ pub fn disposition_code(disposition: lgwks_bot::task::Disposition) -> u64 {
 /// the file only has to be findable, and a host built over the same directory
 /// names its own file after the tenant, which no family calls `runs`.
 #[must_use]
-pub fn store_file(dir: &Path) -> PathBuf {
+pub(crate) fn store_file(dir: &Path) -> PathBuf {
     dir.join("runs.runstore")
 }
 
 /// The percentiles of one measurement, in microseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Summary {
+pub(crate) struct Summary {
     /// Median.
     pub p50: u128,
     /// 95th.
@@ -159,7 +159,7 @@ impl Summary {
     /// The percentiles of `samples`, sorted in place, or `None` for an empty
     /// sample: nothing measured has no percentile, and a zero would claim one.
     #[must_use]
-    pub fn of(samples: &mut [u128]) -> Option<Self> {
+    pub(crate) fn of(samples: &mut [u128]) -> Option<Self> {
         use crate::journal_fixtures::percentile;
         samples.sort_unstable();
         Some(Self {
@@ -171,7 +171,7 @@ impl Summary {
 
     /// The summary as one line, for a harness that reports rather than asserts.
     #[must_use]
-    pub fn line(&self, label: &str) -> String {
+    pub(crate) fn line(&self, label: &str) -> String {
         format!(
             "{label}: p50={}us p95={}us p99={}us",
             self.p50, self.p95, self.p99
@@ -184,12 +184,12 @@ impl Summary {
 /// "unavailable on this platform" rather than a zero: a measurement that reports
 /// zero where it measured nothing is the one number a reader must not be shown.
 #[must_use]
-pub fn peak_rss_mib() -> String {
+pub(crate) fn peak_rss_mib() -> String {
     const MIB: u128 = 1024 * 1024;
-    peak_rss_bytes().map_or_else(
-        || String::from("unavailable on this platform"),
-        |bytes| format!("{} MiB", u128::from(bytes).div_ceil(MIB)),
-    )
+    match peak_rss_bytes() {
+        Some(bytes) => format!("{} MiB", u128::from(bytes).div_ceil(MIB)),
+        None => String::from("unavailable on this platform"),
+    }
 }
 
 /// Peak resident set size of this process, or `None` where nothing reports it.

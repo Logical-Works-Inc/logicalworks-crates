@@ -3,6 +3,7 @@
 
 use super::scripted_journal::ScriptedJournal;
 use super::*;
+use crate::sim::nth;
 
 /// The event-shaped counterpart of [`NeverSettles`].
 struct NeverSettlesEvent(Rc<Cell<u32>>);
@@ -112,7 +113,7 @@ fn assembly_refuses_a_tail_that_advanced_after_recovery() -> TestResult {
         2,
         "the unknown handoff has intent and prepare"
     );
-    let key = events[0].key();
+    let key = nth(&events, 0)?.key();
 
     let result = Bot::builder(NAME)
         .observe(Requests(Rc::new(RefCell::new(EventId::new(2, 2)))))
@@ -217,18 +218,18 @@ fn a_successor_dispatches_after_a_settled_handoff() -> TestResult {
         3,
         "intent, prepare, and a settled outcome: {after_first:?}"
     );
+    let settled = nth(&after_first, 2)?;
     assert!(
         matches!(
-            after_first[2],
+            *settled,
             EffectEvent::OutcomeObserved {
                 evidence: EffectEvidence::Applied,
                 ..
             }
         ),
-        "a definite effect settles as applied, which is what makes this a transfer: {:?}",
-        after_first[2]
+        "a definite effect settles as applied, which is what makes this a transfer: {settled:?}"
     );
-    let first_key = after_first[0].key();
+    let first_key = nth(&after_first, 0)?.key();
 
     // The successor is built over the advanced journal, so its fold includes
     // the settled attempt rather than remaining ignorant of it.
@@ -253,11 +254,11 @@ fn a_successor_dispatches_after_a_settled_handoff() -> TestResult {
         6,
         "the successor appended its own ladder: {after_second:?}"
     );
-    assert_eq!(after_second[3].key(), after_second[4].key());
-    assert_eq!(after_second[4].key(), after_second[5].key());
+    let successor_key = nth(&after_second, 3)?.key();
+    assert_eq!(successor_key, nth(&after_second, 4)?.key());
+    assert_eq!(nth(&after_second, 4)?.key(), nth(&after_second, 5)?.key());
     assert_ne!(
-        after_second[3].key(),
-        first_key,
+        successor_key, first_key,
         "a distinct input is a distinct key, which is what makes the stale-controller \
          falsifier a real one and this transfer a real transfer"
     );

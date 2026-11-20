@@ -151,8 +151,8 @@ fn replacement_borrows_no_match_and_preserves_capture_rules()
     let captures = Regex::with_config(r"(a)?()", config(32, 32))?
         .captures("b")?
         .ok_or("empty capture missing")?;
-    assert_eq!(captures[1], None);
-    assert_eq!(captures[2], Some(""));
+    assert_eq!(captures.get(1), Some(&None));
+    assert_eq!(captures.get(2), Some(&Some("")));
     let expansion = Regex::with_config(r"(?<left>a)(?<right>b)", config(32, 32))?;
     assert_eq!(expansion.replace("ab", "${right}$left$$")?, "ba$");
     let unicode = Regex::with_config("é", config(32, 32))?
@@ -291,10 +291,10 @@ fn find_returns_first_match() -> Result<(), Box<dyn std::error::Error>> {
 fn find_all_returns_every_match() -> Result<(), PatternError> {
     let re = Regex::new(r"\d+")?;
     let matches: Vec<Match<'_>> = re.find_all("a1b22c333").collect();
-    assert_eq!(matches.len(), 3);
-    assert_eq!(matches[0].text, "1");
-    assert_eq!(matches[1].text, "22");
-    assert_eq!(matches[2].text, "333");
+    assert_eq!(
+        matches.iter().map(|found| found.text).collect::<Vec<_>>(),
+        ["1", "22", "333"]
+    );
     Ok(())
 }
 
@@ -322,9 +322,9 @@ fn captures_extracts_groups() -> Result<(), Box<dyn std::error::Error>> {
     let captures = re
         .captures("user@host.com")
         .ok_or("the three-group pattern must match user@host.com")?;
-    assert_eq!(captures[1], Some("user"));
-    assert_eq!(captures[2], Some("host"));
-    assert_eq!(captures[3], Some("com"));
+    assert_eq!(captures.get(1), Some(&Some("user")));
+    assert_eq!(captures.get(2), Some(&Some("host")));
+    assert_eq!(captures.get(3), Some(&Some("com")));
     Ok(())
 }
 

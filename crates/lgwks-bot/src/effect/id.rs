@@ -269,12 +269,19 @@ impl Id128 {
 /// copies, so the three cannot drift: a role that gains a parse rule or loses
 /// its `Display` gains or loses it everywhere, in one edit.
 macro_rules! id_role {
-    ($(#[$meta:meta])* $name:ident) => {
+    ($(#[$meta:meta])* $name:ident, $archived:ident, $resolver:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[cfg_attr(feature = "wire", derive(lgwks_std::wire::Archive, lgwks_std::wire::Serialize, lgwks_std::wire::Deserialize))]
-        #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug)))]
+        #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug), archived = $archived, resolver = $resolver))]
         pub struct $name(pub(super) Id128);
+
+        #[cfg(feature = "wire")]
+        impl fmt::Debug for $resolver {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct(stringify!($resolver)).finish_non_exhaustive()
+            }
+        }
 
         impl $name {
             /// Wrap an identifier already known to be non-zero.
@@ -311,7 +318,9 @@ macro_rules! id_role {
 id_role! {
     /// Identifies one run: a host-generated value persisted before the first
     /// admission, so that two runs of the same flow are distinguishable.
-    RunId
+    RunId,
+    ArchivedRunId,
+    RunIdResolver
 }
 
 id_role! {
@@ -320,7 +329,9 @@ id_role! {
     /// Distinct from a content digest on purpose: identical content does not
     /// imply identical intent, so two actions with the same [`ActionDigest`](super::ActionDigest) are
     /// still two actions and must not collapse into one settlement.
-    ActionId
+    ActionId,
+    ArchivedActionId,
+    ActionIdResolver
 }
 
 id_role! {
@@ -329,7 +340,9 @@ id_role! {
     /// Not a PID and not a display name. Both of those are reused by the
     /// operating system, so a settlement naming one can be delivered to a
     /// different process than the one it was about.
-    EnvironmentId
+    EnvironmentId,
+    ArchivedEnvironmentId,
+    EnvironmentIdResolver
 }
 
 /// A fresh run identity, minted from the operating system's entropy source.

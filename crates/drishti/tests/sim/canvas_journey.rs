@@ -75,7 +75,12 @@ fn prepare_ack(scene: &mut Canvas, trace: &mut TraceHash) -> Result<(), String> 
 /// Seeded local action.
 fn action(random: &mut SimRng) -> Action {
     const VIEWS: [View; 3] = [View::Source, View::Proposal, View::Evidence];
-    let view = VIEWS[random.below_len(VIEWS.len())];
+    let [source, proposal, evidence] = VIEWS;
+    let view = match random.below(3) {
+        0 => source,
+        1 => proposal,
+        _ => evidence,
+    };
     match random.below(7) {
         0 => Action::Navigate(view),
         1 => Action::Step(if random.below(2) == 0 { 1 } else { -1 }),
@@ -88,6 +93,27 @@ fn action(random: &mut SimRng) -> Action {
         5 => Action::OptimisticTransition(drishti::canvas_scene::CommitStatus::Running),
         _ => Action::RevertOptimistic,
     }
+}
+
+/// The tenant name of one side of a journey.
+fn tenant_of(tenants: &[&'static str], side: usize) -> Result<&'static str, String> {
+    tenants
+        .get(side)
+        .copied()
+        .ok_or_else(|| String::from("side out of range"))
+}
+
+/// Advance the per-side revision floor to `revision`; a revision below the
+/// floor is a monotonicity failure.
+fn raise_floor(floors: &mut [u64], side: usize, revision: u64) -> Result<(), String> {
+    let floor = floors
+        .get_mut(side)
+        .ok_or_else(|| String::from("side out of range"))?;
+    ensure(revision >= *floor, || {
+        String::from("revision must be monotonic")
+    })?;
+    *floor = revision;
+    Ok(())
 }
 
 /// Two-tenant journey campaign state: seeded RNG, tenant names, scenes,
@@ -152,7 +178,7 @@ fn run_journey(seed: u64) -> Result<u64, String> {
                 .next_base_revision()
                 .map_err(|error| format!("{error}"))?;
             let probe = probed.enqueue(Delta::new(
-                session(tenants[revoked], crate::fixtures::SESSION_ID)?,
+                session(tenant_of(&tenants, revoked)?, crate::fixtures::SESSION_ID)?,
                 probed.generation(),
                 base,
                 Action::Navigate(View::Source),
@@ -179,14 +205,11 @@ fn run_journey(seed: u64) -> Result<u64, String> {
             scene.resume_without_replay();
             trace.mix_str("resume");
         }
-        ensure(scene.revision() >= last_revision[side], || {
-            String::from("revision must be monotonic")
-        })?;
-        last_revision[side] = scene.revision();
+        raise_floor(&mut last_revision, side, scene.revision())?;
         let base = scene
             .next_base_revision()
             .map_err(|error| format!("{error}"))?;
-        let tenant = tenants[side];
+        let tenant = tenant_of(&tenants, side)?;
         let refused = scene.enqueue(Delta::new(
             session(tenant, crate::fixtures::SESSION_ID)?,
             scene.generation(),
@@ -243,17 +266,14 @@ fn run_isolation(seed: u64) -> Result<u64, String> {
         let scene = scenes
             .get_mut(side)
             .ok_or_else(|| String::from("side out of range"))?;
-        ensure(scene.revision() >= last_revision[side], || {
-            String::from("revision must be monotonic")
-        })?;
-        last_revision[side] = scene.revision();
-        ensure(scene.session().tenant_id() == tenants[side], || {
+        raise_floor(&mut last_revision, side, scene.revision())?;
+        let tenant = tenant_of(&tenants, side)?;
+        ensure(scene.session().tenant_id() == tenant, || {
             String::from("scene must keep its tenant")
         })?;
         let base = scene
             .next_base_revision()
             .map_err(|error| format!("{error}"))?;
-        let tenant = tenants[side];
         match scene.enqueue(Delta::new(
             session(tenant, crate::fixtures::SESSION_ID)?,
             scene.generation(),

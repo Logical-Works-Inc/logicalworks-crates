@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
 /// A test's outcome: setup failures propagate instead of panicking.
-pub type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
+pub(crate) type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
 /// A built binary, read at run time because an archived run moves it between shards.
-pub fn located(names: [&str; 2], built: &str) -> PathBuf {
+pub(crate) fn located(names: [&str; 2], built: &str) -> PathBuf {
     for name in names {
         if let Some(found) = std::env::var_os(name) {
             return found.into();
@@ -22,7 +22,7 @@ pub fn located(names: [&str; 2], built: &str) -> PathBuf {
 }
 
 /// Feed `script` to one process and read every line it answered.
-pub fn session<A: AsRef<OsStr>>(
+pub(crate) fn session<A: AsRef<OsStr>>(
     binary: &PathBuf,
     arguments: &[A],
     script: &str,
@@ -51,7 +51,7 @@ pub fn session<A: AsRef<OsStr>>(
 }
 
 /// A running process to feed and then kill, with the line it last answered.
-pub struct Owner {
+pub(crate) struct Owner {
     /// The process.
     child: Child,
     /// Held open so the process keeps reading.
@@ -62,7 +62,7 @@ pub struct Owner {
 
 impl Owner {
     /// Start one, with its pipes taken.
-    pub fn start<A: AsRef<OsStr>>(binary: &PathBuf, arguments: &[A]) -> Outcome<Self> {
+    pub(crate) fn start<A: AsRef<OsStr>>(binary: &PathBuf, arguments: &[A]) -> Outcome<Self> {
         let mut child = Command::new(binary)
             .args(arguments)
             .stdin(Stdio::piped())
@@ -79,7 +79,7 @@ impl Owner {
     }
 
     /// Write `script`, and read one answer for each of its lines.
-    pub fn answers(&mut self, script: &str) -> Outcome<Vec<String>> {
+    pub(crate) fn answers(&mut self, script: &str) -> Outcome<Vec<String>> {
         self.input.write_all(script.as_bytes())?;
         self.input.flush()?;
         let mut answers = Vec::new();
@@ -92,7 +92,7 @@ impl Owner {
     }
 
     /// Kill the process with no warning, and reap it.
-    pub fn kill(mut self) -> Outcome {
+    pub(crate) fn kill(mut self) -> Outcome {
         self.child.kill()?;
         self.child.wait()?;
         Ok(())

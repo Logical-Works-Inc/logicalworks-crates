@@ -73,9 +73,9 @@ fn stopped(kind: &str, why: &dyn std::fmt::Display) -> String {
 }
 
 /// A stage moved, or why not.
-fn moved(result: Result<CancelStage, CancelError>) -> String {
-    match result {
-        Ok(stage) => format!("{{\"ok\":true,\"stage\":\"{stage:?}\"}}"),
+fn moved(result: &Result<CancelStage, CancelError>) -> String {
+    match *result {
+        Ok(ref stage) => format!("{{\"ok\":true,\"stage\":\"{stage:?}\"}}"),
         Err(ref cause @ CancelError::OutOfOrder { .. }) => stopped("out_of_order", cause),
         Err(ref cause) => stopped("journal", cause),
     }
@@ -139,9 +139,9 @@ impl Session {
         let number = words.next().and_then(|word| word.parse::<u64>().ok());
         match (command, number) {
             (Some("work"), Some(value)) => self.work(value),
-            (Some("request"), None) => moved(self.stop.request()),
-            (Some("begin"), None) => moved(self.stop.begin()),
-            (Some("finish"), None) => moved(self.stop.finish()),
+            (Some("request"), None) => moved(&self.stop.request()),
+            (Some("begin"), None) => moved(&self.stop.begin()),
+            (Some("finish"), None) => moved(&self.stop.finish()),
             (Some("status"), None) => self.status(),
             (Some("advance"), Some(position)) => self.advance(position),
             (Some("cursor"), None) => self.cursor(),

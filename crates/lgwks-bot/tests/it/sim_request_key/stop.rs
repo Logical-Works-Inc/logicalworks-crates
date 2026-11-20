@@ -25,6 +25,46 @@ impl StopPoint {
 /// How many requests one seeded stop sweep drives.
 const MAX_STOP_REQUESTS: u32 = 3;
 
+/// What the reopened host reports for a request stopped at `point`: in flight
+/// (`None`), or the disposition of an execution. A reattach is the defect this
+/// family exists to catch.
+fn reopened_disposition<Output: std::fmt::Debug>(
+    sim_run: &mut sim::Sim,
+    seen: &Submission<Output>,
+    point: StopPoint,
+) -> Result<Option<Disposition>, Box<dyn std::error::Error>> {
+    match *seen {
+        Submission::Reattached(ref report) => {
+            let refusal = Err(format!(
+                "a request stopped at {point:?} reattached to {:?}; a host stop is not the \
+             request's outcome",
+                report.disposition()
+            )
+            .into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "reopened_disposition: returning an error to the caller");
+            refusal
+        }
+        Submission::InFlight(ref in_flight) => {
+            sim_run
+                .trace
+                .record_number("in-flight-records", u64::try_from(in_flight.records())?);
+            Ok(None)
+        }
+        Submission::Executed(ref report) => Ok(Some(report.disposition())),
+        // `Submission` is `#[non_exhaustive]`: a new arm is a compile-time
+        // prompt here, and a request whose settlement this family has not
+        // been taught to read is not silently treated as unsettled.
+        ref other => {
+            let refusal = Err(format!(
+                "a request this family does not know how to read came back as {other:?}"
+            )
+            .into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "reopened_disposition:returning an error to the caller");
+            refusal
+        }
+    }
+}
+
 /// One request of the stop sweep: draw a host stop, reopen, settle, and reattach.
 fn stop_request(
     sim_run: &mut sim::Sim,
@@ -90,36 +130,7 @@ fn stop_request(
     // verdict would reattach here, forever.
     let reopened = host_on(tenant, store.clone())?;
     let seen = lgwks_bot::script::block_on(reopened.submit(&key, &released, payload))?;
-    let seen_disposition = match seen {
-        Submission::Reattached(report) => {
-            let refusal = Err(format!(
-                "a request stopped at {point:?} reattached to {:?}; a host stop is not the \
-             request's outcome",
-                report.disposition()
-            )
-            .into());
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "stop_scenario: returning an error to the caller");
-            return refusal;
-        }
-        Submission::InFlight(ref in_flight) => {
-            sim_run
-                .trace
-                .record_number("in-flight-records", u64::try_from(in_flight.records())?);
-            None
-        }
-        Submission::Executed(ref report) => Some(report.disposition()),
-        // `Submission` is `#[non_exhaustive]`: a new arm is a compile-time
-        // prompt here, and a request whose settlement this family has not
-        // been taught to read is not silently treated as unsettled.
-        other => {
-            let refusal = Err(format!(
-                "a request this family does not know how to read came back as {other:?}"
-            )
-            .into());
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "stop_scenario: returning an error to the caller");
-            return refusal;
-        }
-    };
+    let seen_disposition = reopened_disposition(sim_run, &seen, point)?;
     sim_run.trace.record(&format!("after-stop {seen:?}"));
     assert_eq!(
         seen_disposition, None,

@@ -103,12 +103,17 @@ fn a_pre_version_store_is_refused_naming_both_versions() -> TestResult {
     // real committed frames, which is the artifact a pre-version deployment has.
     let mut bytes = std::fs::read(&path)?;
     assert_eq!(
-        &bytes[..VERSION_BYTE],
-        &V1_HEADER[..VERSION_BYTE],
+        bytes.get(..VERSION_BYTE),
+        V1_HEADER.get(..VERSION_BYTE),
         "the shipped store and the pre-version header must share their magic, or this \
          test would be refused as a foreign file and would not be testing the version"
     );
-    bytes[VERSION_BYTE] = V1_HEADER[VERSION_BYTE];
+    *bytes
+        .get_mut(VERSION_BYTE)
+        .ok_or("the store holds its version byte")? = V1_HEADER
+        .get(VERSION_BYTE)
+        .copied()
+        .ok_or("the pre-version header holds its version byte")?;
     std::fs::write(&path, &bytes)?;
     let before = std::fs::read(&path)?;
 
@@ -198,7 +203,9 @@ fn a_store_corrupt_before_the_tail_is_refused_not_trimmed() -> TestResult {
     // Flip a byte inside the first record's payload. Its stored head no longer
     // follows, so the frame is committed evidence and is refused.
     let mut bytes = std::fs::read(&path)?;
-    bytes[20] ^= 0xff;
+    *bytes
+        .get_mut(20)
+        .ok_or("the store holds a first record to flip")? ^= 0xff;
     std::fs::write(&path, &bytes)?;
 
     match Host::builder("acme")?.run_store(&store_dir) {
@@ -232,7 +239,19 @@ fn an_oversized_record_is_refused_naming_the_ceiling() -> TestResult {
     })?;
     let report = lgwks_bot::script::block_on(host.run(&huge, scratch.path().to_path_buf()));
     assert_eq!(report.disposition(), Disposition::Failed);
-    let text = format!("{:?}", report.error());
+    let error = report
+        .error()
+        .ok_or("a refused record must report its error")?;
+    assert!(
+        matches!(*error, FlowError::Store { ref source, .. }
+            if matches!(**source, StoreError::Limit { .. })),
+        "the refusal must reach the caller as the store's own ceiling, got: {error:?}"
+    );
+    let top: &(dyn std::error::Error + 'static) = error;
+    let text = std::iter::successors(Some(top), |&link| link.source())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(
         text.contains("exceeds the ceiling"),
         "the refusal must name the ceiling, got: {text}"

@@ -287,6 +287,13 @@ pub struct Broker {
     state: Mutex<BrokerState>,
 }
 
+impl std::fmt::Debug for Broker {
+    /// The injected closures and guarded state do not print.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.debug_struct("Broker").finish_non_exhaustive()
+    }
+}
+
 impl Broker {
     /// Build a broker over injected time, identity, ML grant verification,
     /// the permission grant store, and the audit sink (required: there is no
@@ -426,10 +433,11 @@ impl Broker {
             .capabilities()
             .iter()
             .find(|capability| is_ml_only(capability) || is_privileged(capability));
-        match elevated {
-            Some(capability) => Err(BrokerError::CapabilityElevation(capability.clone())),
-            None => Ok(()),
-        }?;
+        if let Some(capability) = elevated {
+            let refusal = Err(BrokerError::CapabilityElevation(capability.clone()));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admit_widget: returning an error to the caller");
+            return refusal;
+        }
         let nonce = (self.new_id)();
         let registration = WidgetRegistration {
             descriptor,

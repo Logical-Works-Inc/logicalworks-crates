@@ -4,7 +4,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use lgwks_deps::invariants::{self, Audit, ErrorKind, Refusal, Register, Status};
+use lgwks_deps::invariants::{self, Audit, ErrorKind, Outcome, Refusal, Register, Status};
 
 type TestResult = Result<(), Box<dyn Error>>;
 
@@ -86,7 +86,11 @@ fn each_refusal_rule_has_a_register_fixture() -> TestResult {
     for (fixture_name, expected_id) in cases {
         let refusals = refusals_of(fixture_name)?;
         assert_eq!(refusals.len(), 1, "fixture {fixture_name}");
-        assert_eq!(refusals[0].id(), expected_id, "fixture {fixture_name}");
+        assert_eq!(
+            refusals.first().map(Refusal::id),
+            Some(expected_id),
+            "fixture {fixture_name}"
+        );
     }
     Ok(())
 }
@@ -110,7 +114,10 @@ fn a_valid_register_resolves_without_claiming_enforcement() -> TestResult {
     assert_eq!(audit.resolved(), 1, "a reference is not a run");
     assert_eq!(audit.attested(), 0);
     assert_eq!(audit.refused(), 0);
-    assert_eq!(audit.outcomes()[0].status, Status::Resolved);
+    assert_eq!(
+        audit.outcomes().first().map(Outcome::status),
+        Some(Status::Resolved)
+    );
     Ok(())
 }
 

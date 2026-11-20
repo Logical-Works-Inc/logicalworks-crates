@@ -85,7 +85,7 @@ Lane ids are from `scripts/gate-lanes.toml`. Full set: `tests-bot-full`, `tests-
 `lgwks-ast scan` has no repeated-block rule, so this census used its own: 8 code lines in a row, string contents
 emptied, 6 of them at least 12 characters, found in two modules. Two blocks pass. One is the `Verb` impl prologue at
 `crates/lgwks-bot/src/domain/cas.rs:147` and `crates/lgwks-bot/src/idempotent.rs:230`. The other is 9 lines at
-`crates/lgwks-bot/src/rt/estate.rs:547` and `crates/lgwks-bot/src/task/admit.rs:43`.
+`crates/lgwks-bot/src/rt/estate.rs:553` and `crates/lgwks-bot/src/task/admit.rs:43`.
 
 `tests/` holds 34 pairs of `x.rs` and `sim_x.rs`: 19,804 and 16,785 lines. Two pairs assert the same thing:
 `serve.rs` and `sim_serve.rs` share three test names, `estate.rs` and `sim_estate.rs` share three assert lines.
@@ -99,9 +99,9 @@ all 18. They were `api_path`; `with_language`, `with_language_version`, `with_ru
 `into_receipts`.
 
 ## Merge: same job twice
-- `genesis_head`, one signature, three copies: `crates/lgwks-bot/src/task/ledger.rs:85`,
+- `genesis_head`, one signature, three copies: `crates/lgwks-bot/src/task/ledger.rs:81`,
   `crates/lgwks-bot/src/task/store.rs:143`, `crates/lgwks-bot/src/tenant_store/record.rs:30`.
-- `auto_workers`, one signature: `crates/lgwks-bot/src/app.rs:477` and `crates/lgwks-bot/src/ecs/requests.rs:290`.
+- `auto_workers`, one signature: `crates/lgwks-bot/src/app.rs:487` and `crates/lgwks-bot/src/ecs/requests.rs:290`.
 - The two repeated blocks above, and the `serve` and `estate` test pairs.
 
 ## Move: wrong layer

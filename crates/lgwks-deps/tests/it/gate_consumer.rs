@@ -195,10 +195,8 @@ impl Scratch {
             "CARGO_TARGET_DIR".to_owned(),
             self.target.to_string_lossy().into_owned(),
         );
-        let output = Command::new(&argv[0])
-            .args(&argv[1..])
-            .envs(&env)
-            .output()?;
+        let (program, arguments) = argv.split_first().ok_or("the gate command is empty")?;
+        let output = Command::new(program).args(arguments).envs(&env).output()?;
         let code = output.status.code().ok_or("the gate has no exit code")?;
         let document = String::from_utf8_lossy(&output.stdout).into_owned();
         if document.trim().is_empty() {
@@ -292,6 +290,25 @@ fn sim_a_widening_change_fails_the_gate() -> TestResult {
     assert_leg(&document, "arch-diff", "fail", "a widening change")?;
     assert_leg(&document, "admission", "pass", "a widening change")?;
     assert_leg(&document, "script-check", "pass", "a widening change")?;
+    Ok(())
+}
+
+#[test]
+/// A consumer whose `target` is a regular file leaves the clippy leg no
+/// directory for its log. The leg errs and says why, naming the directory and
+/// the operating system's refusal, while the other legs still judge the code:
+/// a dropped error here would read as a bare "no log file" with no cause.
+fn sim_a_target_file_names_why_the_clippy_leg_errs() -> TestResult {
+    let scratch = Scratch::make("")?;
+    scratch.plant("target", "not a directory\n")?;
+    let (code, document) = scratch.gate("", &[])?;
+    assert_ne!(code, 0, "no clippy log must fail the gate:\n{document}");
+    assert_leg(&document, "clippy", "error", "a target file")?;
+    assert_leg(&document, "admission", "pass", "a target file")?;
+    assert!(
+        document.contains("could not be created"),
+        "the clippy leg must name why its log directory failed:\n{document}"
+    );
     Ok(())
 }
 

@@ -253,13 +253,14 @@ fn a_tampered_committed_frame_is_refused_rather_than_trimmed() -> TestResult {
         // interrupted append; it is committed bytes that no longer mean what
         // the chain says.
         let mut bytes = std::fs::read(&journal_path)?;
-        let first_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+        let (prefix, _) = bytes
+            .split_first_chunk::<4>()
+            .ok_or("the journal holds a whole length prefix")?;
         assert!(
-            first_len > 16,
+            u32::from_be_bytes(*prefix) > 16,
             "the first frame carries a real event, so the framing is real"
         );
-        let last = bytes.len() - 1;
-        bytes[last] ^= 0x01;
+        *bytes.last_mut().ok_or("the journal holds a last byte")? ^= 0x01;
         std::fs::write(&journal_path, &bytes)?;
     }
 

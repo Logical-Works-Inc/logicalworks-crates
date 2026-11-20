@@ -19,7 +19,7 @@
 
 use std::error::Error;
 
-use crate::seeded_bytes::{below, fold_bytes, fold_refusal, next_byte, next_text};
+use crate::seeded_bytes::{below, fold_bytes, fold_refusal, next_byte, next_text, pick};
 use crate::seeded_sweep::{
     SWEEP_SEEDS, assert_distinct_seeds_diverge, assert_same_seed_replays, fold, fold_usize,
     initial_trace, seeded_stream,
@@ -82,7 +82,7 @@ fn scrambled_case(state: &mut Seeded, name: &str) -> String {
 fn blank_name(state: &mut Seeded) -> String {
     let span = below(state, 12);
     (0..span)
-        .map(|_| BLANKS[below(state, BLANKS.len())])
+        .map(|_| pick(&BLANKS, below(state, BLANKS.len()), ' '))
         .collect()
 }
 
@@ -111,7 +111,16 @@ fn unbalanced_filter(state: &mut Seeded) -> String {
 
 /// A format drawn uniformly from the three documented ones.
 fn drawn_format(state: &mut Seeded) -> DebugFormat {
-    DOCUMENTED[below(state, DOCUMENTED.len())].1
+    drawn_documented(state).1
+}
+
+/// A documented name beside its format, drawn uniformly.
+fn drawn_documented(state: &mut Seeded) -> (&'static str, DebugFormat) {
+    pick(
+        &DOCUMENTED,
+        below(state, DOCUMENTED.len()),
+        ("compact", DebugFormat::Compact),
+    )
 }
 
 /// The refusal a config `install` must return, as the trace arm it folds as.
@@ -131,7 +140,7 @@ fn debug_trace(seed: u64) -> u64 {
     let mut state = seeded_stream(seed);
     let mut trace = initial_trace();
     for _ in 0..DRAWS {
-        let name = DOCUMENTED[below(&mut state, DOCUMENTED.len())].0;
+        let name = drawn_documented(&mut state).0;
         let spelled = scrambled_case(&mut state, name);
         let parsed = DebugFormat::parse(&spelled);
         assert_eq!(
@@ -165,7 +174,7 @@ fn every_case_spelling_of_a_documented_name_parses_to_its_format() {
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..DRAWS {
-            let (name, format) = DOCUMENTED[below(&mut state, DOCUMENTED.len())];
+            let (name, format) = drawn_documented(&mut state);
             let spelled = scrambled_case(&mut state, name);
             assert_eq!(
                 DebugFormat::parse(&spelled),
@@ -206,8 +215,8 @@ fn padding_prefixes_and_suffixes_are_refused_rather_than_trimmed() {
     for seed in SWEEP_SEEDS {
         let mut state = seeded_stream(seed);
         for _ in 0..DRAWS {
-            let (name, _) = DOCUMENTED[below(&mut state, DOCUMENTED.len())];
-            let pad = BLANKS[below(&mut state, BLANKS.len())];
+            let (name, _) = drawn_documented(&mut state);
+            let pad = pick(&BLANKS, below(&mut state, BLANKS.len()), ' ');
             let extra = visible_name(&mut state);
             for variant in [
                 format!("{pad}{name}"),

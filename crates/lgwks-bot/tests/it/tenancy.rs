@@ -332,6 +332,100 @@ fn percentile_over(
         .max(measured.min(baseline.saturating_mul(2)))
 }
 
+/// Every loud submission was admitted or refused by name, none was refused
+/// (`counts` is submitted, admitted, tenant and supervisor refusals), the loud
+/// tenant reached its whole ceiling and no more (`ceiling` is peak and half),
+/// and every quiet task was admitted and timed.
+fn assert_flood_accounted(
+    counts: (usize, usize, usize, usize),
+    ceiling: (usize, usize),
+    quiet_timed: usize,
+) {
+    let (submitted, admitted, refused_tenant, refused_supervisor) = counts;
+    assert_eq!(
+        submitted, LOUD_TOTAL,
+        "the flood submitted exactly the issue's volume"
+    );
+    assert_eq!(
+        admitted
+            .saturating_add(refused_tenant)
+            .saturating_add(refused_supervisor),
+        LOUD_TOTAL,
+        "every loud submission is either admitted or refused by name: nothing was \\
+         dropped on the floor"
+    );
+    assert_eq!(
+        refused_tenant, 0,
+        "a loud submission past the ceiling parks in the loud tenant's own queue and \
+         is admitted after one controlled completion; the queue bound is never reached"
+    );
+    assert!(
+        refused_supervisor == 0,
+        "the supervisor's own waiting bound was reached with only {submitted} \\
+         submissions across two tenants, so a per-tenant bound is not enough"
+    );
+    assert_eq!(
+        quiet_timed, QUIET_FLOOD_TOTAL,
+        "the quiet tenant's every task was admitted and timed"
+    );
+    assert_eq!(
+        ceiling.0, ceiling.1,
+        "the loud tenant reached its whole ceiling and no more"
+    );
+}
+
+/// One quiet admission while the loud tenant holds its ceiling, and how long
+/// it waited.
+async fn time_quiet_admission(
+    supervisor: &mut Supervisor,
+    quiet: &Tenant,
+) -> Result<Duration, String> {
+    let started = Instant::now();
+    let admitted_quiet = bounded(
+        FLOOD_BOUND,
+        "submitting the quiet tenant",
+        supervisor.spawn_for(quiet, |_token| async move {
+            sleep(QUIET_HOLD).await;
+        }),
+    )
+    .await?;
+    let waited = started.elapsed();
+    admitted_quiet.map_err(|refusal| {
+        format!(
+            "the quiet tenant was refused while the loud tenant held its \
+             ceiling: {refusal}"
+        )
+    })?;
+    Ok(waited)
+}
+
+/// The quiet tenant alone on the same supervisor shape: its admission wait's
+/// p50 and p99, the baseline the flood is compared with.
+fn quiet_baseline(
+    runtime: &Runtime,
+    quiet: &Tenant,
+    half: usize,
+) -> Result<(Duration, Duration), String> {
+    runtime.block_on(async {
+        let mut supervisor = Supervisor::with_tenancy(POOL, TenancyPolicy::new(half, FLOOD_QUEUE));
+        let mut waits: Vec<Duration> = Vec::with_capacity(QUIET_FLOOD_TOTAL);
+        for _ in 0..QUIET_FLOOD_TOTAL {
+            let started = Instant::now();
+            supervisor
+                .spawn_for(quiet, |_token| async move {
+                    sleep(QUIET_HOLD).await;
+                })
+                .await
+                .map_err(|refusal| {
+                    format!("the quiet tenant was refused at baseline: {refusal}")
+                })?;
+            waits.push(started.elapsed());
+        }
+        let _drained = supervisor.shutdown().await;
+        Ok((percentile(&waits, 50), percentile(&waits, 99)))
+    })
+}
+
 /// Acceptance (#268): a tenant that submits ten thousand tasks cannot starve
 /// another.
 ///
@@ -363,24 +457,7 @@ fn a_tenant_that_submits_ten_thousand_tasks_cannot_starve_another() -> TestResul
     let runtime = Runtime::new()?;
 
     // The baseline: the quiet tenant alone, on the same supervisor shape.
-    let (base_p50, base_p99) = runtime.block_on(async {
-        let mut supervisor = Supervisor::with_tenancy(POOL, TenancyPolicy::new(half, FLOOD_QUEUE));
-        let mut waits: Vec<Duration> = Vec::with_capacity(QUIET_FLOOD_TOTAL);
-        for _ in 0..QUIET_FLOOD_TOTAL {
-            let started = Instant::now();
-            supervisor
-                .spawn_for(&quiet, |_token| async move {
-                    sleep(QUIET_HOLD).await;
-                })
-                .await
-                .map_err(|refusal| {
-                    format!("the quiet tenant was refused at baseline: {refusal}")
-                })?;
-            waits.push(started.elapsed());
-        }
-        let _drained = supervisor.shutdown().await;
-        Ok::<(Duration, Duration), String>((percentile(&waits, 50), percentile(&waits, 99)))
-    })?;
+    let (base_p50, base_p99) = quiet_baseline(&runtime, &quiet, half)?;
 
     // The flood: the loud tenant saturates its own ceiling with bodies that park
     // on a gate -- slow work, created rather than raced -- and then submits ten
@@ -452,22 +529,7 @@ fn a_tenant_that_submits_ten_thousand_tasks_cannot_starve_another() -> TestResul
                 );
             }
             if quiet_waits.len() < QUIET_FLOOD_TOTAL {
-                let started = Instant::now();
-                let admitted_quiet = bounded(
-                    FLOOD_BOUND,
-                    "submitting the quiet tenant",
-                    supervisor.spawn_for(&quiet, |_token| async move {
-                        sleep(QUIET_HOLD).await;
-                    }),
-                )
-                .await?;
-                quiet_waits.push(started.elapsed());
-                admitted_quiet.map_err(|refusal| {
-                    format!(
-                        "the quiet tenant was refused while the loud tenant held its \
-                         ceiling: {refusal}"
-                    )
-                })?;
+                quiet_waits.push(time_quiet_admission(&mut supervisor, &quiet).await?);
             }
         }
         gate.release();
@@ -492,44 +554,34 @@ fn a_tenant_that_submits_ten_thousand_tasks_cannot_starve_another() -> TestResul
 
     let (submitted, admitted, refused_tenant, refused_supervisor, _rounds, peak, quiet_waits) =
         flooded;
-    assert_eq!(
-        submitted, LOUD_TOTAL,
-        "the flood submitted exactly the issue's volume"
-    );
-    assert_eq!(
-        admitted
-            .saturating_add(refused_tenant)
-            .saturating_add(refused_supervisor),
-        LOUD_TOTAL,
-        "every loud submission is either admitted or refused by name: nothing was \\
-         dropped on the floor"
-    );
-    assert_eq!(
-        refused_tenant, 0,
-        "a loud submission past the ceiling parks in the loud tenant's own queue and \
-         is admitted after one controlled completion; the queue bound is never reached"
-    );
-    assert!(
-        refused_supervisor == 0,
-        "the supervisor's own waiting bound was reached with only {submitted} \\
-         submissions across two tenants, so a per-tenant bound is not enough"
-    );
-    assert_eq!(
+    assert_flood_accounted(
+        (submitted, admitted, refused_tenant, refused_supervisor),
+        (peak, half),
         quiet_waits.len(),
-        QUIET_FLOOD_TOTAL,
-        "the quiet tenant's every task was admitted and timed"
-    );
-    assert_eq!(
-        peak, half,
-        "the loud tenant reached its whole ceiling and no more"
     );
 
-    // The measurement: the quiet tenant's admission wait under the flood, against
-    // the same workload alone.
-    let flood_p50 = percentile(&quiet_waits, 50);
-    let flood_p99 = percentile(&quiet_waits, 99);
-    let floor = QUIET_HOLD;
-    let ceiling_p99 = percentile_over(&quiet_waits, 99, base_p99, floor);
+    let flood = (submitted, peak, half);
+    report_noisy_neighbour(
+        &quiet_waits,
+        (base_p50, base_p99),
+        (flood, (refused_tenant, refused_supervisor)),
+    )
+}
+
+/// The measurement: the quiet tenant's admission wait under the flood, against
+/// the same workload alone (`alone` is its p50 and p99). `flood` is the
+/// submissions, the loud in-flight peak and the ceiling, then the tenant and
+/// supervisor refusals.
+fn report_noisy_neighbour(
+    quiet_waits: &[Duration],
+    alone: (Duration, Duration),
+    flood: ((usize, usize, usize), (usize, usize)),
+) -> TestResult {
+    let ((base_p50, base_p99), ((submitted, peak, half), (refused_tenant, refused_supervisor))) =
+        (alone, flood);
+    let flood_p50 = percentile(quiet_waits, 50);
+    let flood_p99 = percentile(quiet_waits, 99);
+    let ceiling_p99 = percentile_over(quiet_waits, 99, base_p99, QUIET_HOLD);
     // The measured line the readiness section quotes: per-mille in integers,
     // this workspace forbids the float casts a ratio of durations would take.
     let ratio_per_mille = match flood_p99
@@ -538,16 +590,19 @@ fn a_tenant_that_submits_ten_thousand_tasks_cannot_starve_another() -> TestResul
         .checked_div(base_p99.as_nanos().max(1))
     {
         Some(ratio) => ratio,
-        None => return Err("the flood p99 has no ratio against the baseline".into()),
+        None => {
+            lgwks_std::trace::debug!("report_noisy_neighbour: returning an error to the caller");
+            return Err("the flood p99 has no ratio against the baseline".into());
+        }
     };
     let mut line = std::io::stdout().lock();
-    let _written = writeln!(
+    writeln!(
         line,
         "noisy-neighbour 10k-flood: quiet alone p50 {base_p50:?} p99 {base_p99:?}, under flood \
          p50 {flood_p50:?} p99 {flood_p99:?} (ratio {ratio_per_mille}\u{2030} of alone, bound \
          2000\u{2030}); loud in-flight peak {peak} of {half}, refusals tenant {refused_tenant} \
          supervisor {refused_supervisor}",
-    );
+    )?;
     assert!(
         flood_p99 <= ceiling_p99,
         "the quiet tenant's p99 admission wait under a {submitted}-submission flood \

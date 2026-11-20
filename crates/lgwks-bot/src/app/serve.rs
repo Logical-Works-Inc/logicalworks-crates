@@ -34,7 +34,7 @@ struct Edge<S: Clone + Default + Send + 'static> {
 
 /// Serve `host` on `listener` until `stop`, then close the host.
 pub(super) fn serve_host<S>(
-    host: Arc<CellHost<AppCell<S>>>,
+    host: &Arc<CellHost<AppCell<S>>>,
     authenticator: Option<Authenticate>,
     held_for: Option<Duration>,
     listener: TcpListener,
@@ -44,7 +44,7 @@ where
     S: Clone + Default + Send + 'static,
 {
     let edge = Edge {
-        host: Arc::clone(&host),
+        host: Arc::clone(host),
         authenticator,
         stop: stop.token().clone(),
         held_for,

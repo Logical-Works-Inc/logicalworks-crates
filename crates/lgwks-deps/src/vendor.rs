@@ -272,17 +272,34 @@ pub fn tree_for(repo: &Path) -> Result<PathBuf, VendorError> {
 /// the crate read as missing, and a directory whose only `"package"` was a file
 /// entry read as hashed. Anything without a top-level string member is a
 /// broken tree, refused rather than guessed at.
-fn package_hash(checksum_file: &Path) -> Result<String, String> {
-    let text =
-        std::fs::read_to_string(checksum_file).map_err(|cause| format!("unreadable: {cause}"))?;
-    let hash =
-        top_level_string(&text, "package").ok_or_else(|| "no \"package\" hash".to_owned())?;
+fn package_hash(checksum_file: &Path) -> Result<String, HashError> {
+    let text = std::fs::read_to_string(checksum_file).map_err(HashError::Unreadable)?;
+    let hash = top_level_string(&text, "package").ok_or(HashError::NoPackageHash)?;
     if hash.is_empty() {
-        let refusal = Err("no \"package\" hash".to_owned());
+        let refusal = Err(HashError::NoPackageHash);
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "package_hash: returning an error to the caller");
         return refusal;
     }
     Ok(hash)
+}
+
+/// Why a `.cargo-checksum.json` gave no package hash.
+#[derive(Debug)]
+enum HashError {
+    /// The file could not be read.
+    Unreadable(std::io::Error),
+    /// The file has no non-empty top-level `"package"` string.
+    NoPackageHash,
+}
+
+impl std::fmt::Display for HashError {
+    /// The reason as the refusal renders it.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::Unreadable(ref cause) => write!(formatter, "unreadable: {cause}"),
+            Self::NoPackageHash => formatter.write_str("no \"package\" hash"),
+        }
+    }
 }
 
 /// The raw text of the string member `key` of the top-level JSON object in
@@ -354,7 +371,13 @@ fn skip_whitespace(bytes: &[u8], pos: usize) -> usize {
 /// Registry manifests are standalone (no workspace inheritance), so the
 /// first `name`/`version` pair under `[package]` is authoritative.
 fn manifest_identity(manifest: &Path) -> Option<(String, String)> {
-    let text = std::fs::read_to_string(manifest).ok()?;
+    let text = match std::fs::read_to_string(manifest) {
+        Ok(text) => text,
+        Err(error) => {
+            lgwks_std::trace::warn!(%error, path = ?manifest, "a vendored manifest could not be read, so its identity is unknown");
+            return None;
+        }
+    };
     let mut in_package = false;
     let (mut name, mut version) = (None, None);
     for line in text.lines() {
@@ -423,7 +446,7 @@ fn index_tree(tree: &Path) -> Result<Index, VendorError> {
         let hash = package_hash(&dir.join(".cargo-checksum.json")).map_err(|cause| {
             VendorError::ChecksumUnreadable {
                 dir: dir.clone(),
-                cause,
+                cause: cause.to_string(),
             }
         })?;
         index.by_hash.insert(hash, dir.clone());
@@ -622,7 +645,9 @@ source = "git+https://example.com/org/git-crate#abc123"
 
     impl Drop for Fixture {
         fn drop(&mut self) {
-            std::fs::remove_dir_all(&self.root).ok();
+            if let Err(error) = std::fs::remove_dir_all(&self.root) {
+                lgwks_std::trace::debug!(error = ?error, "vendor fixture: cleanup failed");
+            }
         }
     }
 

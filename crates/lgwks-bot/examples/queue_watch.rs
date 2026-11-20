@@ -85,10 +85,14 @@ struct QueueDepth;
 
 impl QueueDepth {
     /// Build the source from the name a flow gives after `of`.
-    fn from_target(_queue: &str) -> Result<Source, EcsError> {
-        Ok(Source::ordered(Self))
+    fn from_target(_queue: &str) -> Source {
+        Source::ordered(Self)
     }
 }
+
+/// The registry's constructor for [`QueueDepth`], which cannot fail.
+const DEPTH_SOURCE: fn(&str) -> Result<Source, EcsError> =
+    |queue| Ok(QueueDepth::from_target(queue));
 
 impl Observe for QueueDepth {
     type Output = u32;
@@ -116,12 +120,15 @@ struct Page {
 
 impl Page {
     /// Build the action from the name a flow gives after `on`.
-    fn from_target(_who: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self {
+    fn from_target(_who: &str) -> Action {
+        Action::new(Self {
             caps: [Cap::notify()],
-        }))
+        })
     }
 }
+
+/// The registry's constructor for [`Page`], which cannot fail.
+const PAGE_ACTION: fn(&str) -> Result<Action, EcsError> = |who| Ok(Page::from_target(who));
 
 impl Execute for Page {
     type Input = u32;
@@ -153,10 +160,10 @@ domains! {
     /// What the flow below may name: one source and one action.
     QUEUE_DOMAINS {
         observe {
-            "queue::depth" => QueueDepth::from_target,
+            "queue::depth" => DEPTH_SOURCE,
         }
         execute {
-            "notify::page" => Page::from_target,
+            "notify::page" => PAGE_ACTION,
         }
     }
 }

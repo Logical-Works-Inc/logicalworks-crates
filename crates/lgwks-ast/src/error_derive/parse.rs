@@ -46,6 +46,8 @@ pub(super) struct ParsedField {
     pub(super) is_source: bool,
     /// Type of the field as tokens.
     pub(super) ty: TokenStream,
+    /// Whether the type is written `Box<..>`, by any path to `Box`.
+    pub(super) is_boxed: bool,
     /// Span of the field.
     pub(super) span: Span,
 }
@@ -110,7 +112,7 @@ pub(super) fn parse_attributes(
                     };
                     let extra_args = if let Some(TokenTree::Punct(punct)) = paren_cursor.peek() {
                         if punct.as_char() == ',' {
-                            let _ = paren_cursor.next();
+                            paren_cursor.advance();
                             let mut extra_tokens = Vec::new();
                             while let Some(tok) = paren_cursor.next() {
                                 extra_tokens.push(tok);
@@ -209,7 +211,7 @@ pub(super) fn parse_fields(
             if let TokenTree::Punct(punct) = tok_ref
                 && punct.as_char() == ','
             {
-                let _ = cursor.next();
+                cursor.advance();
                 break;
             }
             if let Some(tok) = cursor.next() {
@@ -221,16 +223,36 @@ pub(super) fn parse_fields(
             break;
         }
 
+        let is_boxed = spells_box(&ty_tokens);
         fields.push(ParsedField {
             name,
             is_from,
             is_source,
+            is_boxed,
             ty: ty_tokens.into_iter().collect(),
             span,
         });
     }
 
     Ok(fields)
+}
+
+/// Whether the type tokens spell `Box<..>`: a path whose last segment before the
+/// first `<` is `Box`. A derive sees only the written type, so an alias for
+/// `Box` is not recognised.
+fn spells_box(ty_tokens: &[TokenTree]) -> bool {
+    let mut last: Option<&Ident> = None;
+    for tree in ty_tokens {
+        match *tree {
+            TokenTree::Ident(ref ident) => last = Some(ident),
+            TokenTree::Punct(ref punct) if punct.as_char() == '<' => {
+                return last.is_some_and(|name| name == "Box");
+            }
+            TokenTree::Punct(ref punct) if punct.as_char() == ':' => {}
+            TokenTree::Punct(_) | TokenTree::Group(_) | TokenTree::Literal(_) => return false,
+        }
+    }
+    false
 }
 
 /// Parse generics from `cursor` if leading token is `<`.
@@ -243,7 +265,7 @@ pub(super) fn parse_generics(
     if punct.as_char() != '<' {
         return Ok((None, None));
     }
-    let _ = cursor.next();
+    cursor.advance();
 
     let mut depth: usize = 1;
     let mut generics_tokens = Vec::new();
@@ -334,7 +356,7 @@ pub(super) fn parse_where_clause(cursor: &mut TokenCursor) -> Option<TokenStream
     if let Some(TokenTree::Ident(ident_tok)) = cursor.peek()
         && ident_tok == "where"
     {
-        let _ = cursor.next();
+        cursor.advance();
         let mut where_tokens = Vec::new();
         while let Some(tok_ref) = cursor.peek() {
             match tok_ref {

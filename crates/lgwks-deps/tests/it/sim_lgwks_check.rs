@@ -388,8 +388,7 @@ fn bound_refused(trace: &mut Trace, rng: &mut Rng, seed: u64) -> TestResult {
 }
 
 /// The untouched reference app is admitted.
-fn reference_admitted(trace: &mut Trace, rng: &mut Rng, seed: u64) -> TestResult {
-    let _ = rng;
+fn reference_admitted(trace: &mut Trace, seed: u64) -> TestResult {
     let scratch = Scratch::fresh("valid").map_err(|error| format!("no scratch: {error}"))?;
     let name = format!("valid{seed}");
     let reference = reference_app(scratch.dir(), name.as_str())?;
@@ -450,6 +449,6 @@ fn unbounded_constructs_name_their_ceiling() -> Result<(), Box<dyn Error>> {
 fn reference_app_is_admitted() -> Result<(), Box<dyn Error>> {
     replay_sweep("reference", SEEDS, |rng, trace| {
         let seed = rng.next_u64();
-        reference_admitted(trace, rng, seed)
+        reference_admitted(trace, seed)
     })
 }

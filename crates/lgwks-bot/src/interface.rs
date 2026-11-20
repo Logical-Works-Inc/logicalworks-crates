@@ -647,8 +647,14 @@ impl RecognitionVector {
                     }
                 }
                 1 => {
-                    let index = hits[0];
-                    let score = self.scorer.score(target, &candidates[index]);
+                    // A hit is an index into `candidates`; one that is not is no hit.
+                    let Some((index, candidate)) = hits
+                        .first()
+                        .and_then(|&index| candidates.get(index).map(|found| (index, found)))
+                    else {
+                        continue;
+                    };
+                    let score = self.scorer.score(target, candidate);
                     return Recognition::Resolved {
                         index,
                         score,
@@ -658,19 +664,23 @@ impl RecognitionVector {
                 _ => {
                     let mut scored: Vec<(usize, f64)> = hits
                         .iter()
-                        .map(|&index| (index, self.scorer.score(target, &candidates[index])))
+                        .filter_map(|&index| {
+                            candidates
+                                .get(index)
+                                .map(|found| (index, self.scorer.score(target, found)))
+                        })
                         .collect();
                     scored.sort_by(|left, right| {
                         right.1.total_cmp(&left.1).then(left.0.cmp(&right.0))
                     });
-                    let (best, score) = scored[0];
-                    let (runner_up, runner_up_score) = scored[1];
-                    return Recognition::Ambiguous {
-                        best,
-                        runner_up: Some(runner_up),
-                        score,
-                        lead: score - runner_up_score,
-                    };
+                    if let [(best, score), (runner_up, runner_up_score), ..] = *scored.as_slice() {
+                        return Recognition::Ambiguous {
+                            best,
+                            runner_up: Some(runner_up),
+                            score,
+                            lead: score - runner_up_score,
+                        };
+                    }
                 }
             }
         }

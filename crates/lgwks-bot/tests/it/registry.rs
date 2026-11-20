@@ -155,7 +155,7 @@ fn building_a_source_reaches_the_domain() -> Result<(), Box<dyn std::error::Erro
 }
 
 #[test]
-fn the_target_reaches_the_constructor() -> Result<(), Box<dyn std::error::Error>> {
+fn the_target_reaches_the_constructor() {
     // The constructor is the only place a spec's `target` is interpreted, so a
     // constructor that refuses an empty one must refuse it through the registry
     // too. Reaching the constructor is what this asserts.
@@ -170,7 +170,6 @@ fn the_target_reaches_the_constructor() -> Result<(), Box<dyn std::error::Error>
             .is_ok(),
         "a well-formed target was refused"
     );
-    Ok(())
 }
 
 #[test]

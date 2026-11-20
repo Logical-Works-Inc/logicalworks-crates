@@ -42,17 +42,17 @@ impl Graph {
     /// An entry that names no package of the lock is ignored: Cargo writes none,
     /// and a hand-edited lock that holds one has an edge to nowhere, which
     /// reaches nothing.
-    pub(crate) fn new(nodes: Vec<Node>) -> Self {
-        let edges = edges(&nodes);
-        let ambiguous = ambiguous_names(&nodes);
-        let directs = direct_dependencies(&nodes, &edges);
+    pub(crate) fn new(nodes: &[Node]) -> Self {
+        let edges = edges(nodes);
+        let ambiguous = ambiguous_names(nodes);
+        let directs = direct_dependencies(nodes, &edges);
         let mut via: Vec<BTreeSet<String>> = nodes.iter().map(|_| BTreeSet::new()).collect();
         for direct in &directs {
             let Some(node) = nodes.get(*direct) else {
                 continue;
             };
             let label = label(node, &ambiguous);
-            for reached in reachable(*direct, &nodes, &edges) {
+            for reached in reachable(*direct, nodes, &edges) {
                 if let Some(slot) = via.get_mut(reached) {
                     slot.insert(label.clone());
                 }
