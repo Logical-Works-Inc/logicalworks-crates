@@ -149,6 +149,13 @@ jobs:
       # the job's 10 minutes and the lane runs on built targets.
       - name: Build the property lane's targets
         run: cargo nextest run --locked -p lgwks_ast -p lgwks_bot -p lgwks_deps -p lgwks_std --bin lgwks-deps --lib --test it --no-run
+      # The lane's loom probe is `cargo test --release -p lgwks_std --lib loom`: loom
+      # runs under --release, a profile the step above never builds. Cold, that
+      # compile outlasted the probe's 97 279 ms and sealed A02 UNMEASURED on a
+      # commit that changed two strings (run 44733566537), where its warm parent
+      # passed (run 44730131277). Built here, the probe only runs its tests.
+      - name: Build the loom probe's release target
+        run: cargo test --locked --release -p lgwks_std --lib --no-run
       - name: Run ci and keep the sealed record
         id: ci
         continue-on-error: true

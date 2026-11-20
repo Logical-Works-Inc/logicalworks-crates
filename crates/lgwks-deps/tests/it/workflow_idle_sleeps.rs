@@ -90,6 +90,30 @@ fn idle_steps(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(found)
 }
 
+/// logical_ci's A02 lane probes `cargo test --release -p lgwks_std --lib loom` inside a 97 279 ms
+/// timer. loom runs under `--release`, so the job builds that exact target before the engine runs:
+/// cold, the probe's own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537).
+#[test]
+fn the_loom_probe_release_target_is_built_before_the_engine() -> TestResult {
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    let prebuild = "cargo test --locked --release -p lgwks_std --lib --no-run";
+    let built = text
+        .find(prebuild)
+        .ok_or("logical_ci.yml builds no release target for the loom probe")?;
+    let engine = text
+        .find("- name: Run ci and keep the sealed record")
+        .ok_or("logical_ci.yml has no engine step")?;
+    assert!(
+        built < engine,
+        "the loom probe's release target is built after the engine already timed it"
+    );
+    // The prebuild is the probe's own target: same package, same lib, same profile, from the lockfile.
+    for part in ["--release", "-p lgwks_std --lib", "--locked"] {
+        assert!(prebuild.contains(part), "the prebuild lost `{part}`");
+    }
+    Ok(())
+}
+
 #[test]
 fn no_workflow_step_sleeps() -> TestResult {
     let found = idle_steps(&workflows())?;
