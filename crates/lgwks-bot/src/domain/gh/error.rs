@@ -14,7 +14,7 @@ use crate::error::KernelError;
 /// that never ran, a client that ran and failed, an answer that was not the
 /// shape expected, and an answer that was truncated. None of them is a claim
 /// about whether an effect landed — that is
-/// [`Gh::read_reviews`](super::Gh::read_reviews)'s question.
+/// `Gh::read_reviews`'s question (the `process` feature).
 #[derive(Debug, lgwks_macros::Error)]
 #[non_exhaustive]
 pub enum GhError {

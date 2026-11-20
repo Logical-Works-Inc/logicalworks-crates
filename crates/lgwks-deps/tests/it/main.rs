@@ -45,6 +45,8 @@ mod invariant_citations;
 // stops, which every Unix host has and Windows does not.
 #[cfg(unix)]
 mod ai_authoring;
+/// Every cfg arm held to the lint floor, including those this host never builds.
+mod cfg_arm_silencers;
 mod check_cli;
 mod contract_schema_compat;
 mod default_run;

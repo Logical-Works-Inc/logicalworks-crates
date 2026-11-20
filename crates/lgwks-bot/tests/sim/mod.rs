@@ -61,8 +61,8 @@ pub(crate) use seed::{Rng, Trace};
 
 /// Item `index` of `items`, or why the run produced fewer: a test's total form
 /// of `items[index]`, which names the shortfall instead of panicking. Built
-/// with its callers, the `ecs` and `wire` sims.
-#[cfg(all(feature = "ecs", feature = "wire"))]
+/// with its callers, the `ecs` and `wire` sims and the `process` confinement sim.
+#[cfg(any(feature = "process", all(feature = "ecs", feature = "wire")))]
 pub(crate) fn nth<T>(items: &[T], index: usize) -> Result<&T, Box<dyn Error>> {
     items
         .get(index)

@@ -561,6 +561,13 @@ unsafe impl Send for ProcessJob {}
 // SAFETY: as for `Send`; every method takes `&self` and only calls the kernel.
 unsafe impl Sync for ProcessJob {}
 
+impl std::fmt::Debug for ProcessJob {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The handle is a kernel address and the table is function pointers: neither tells a reader anything.
+        f.debug_struct("ProcessJob").finish_non_exhaustive()
+    }
+}
+
 impl Drop for ProcessJob {
     fn drop(&mut self) {
         // SAFETY: `handle` came from a successful `CreateJobObjectW` and is

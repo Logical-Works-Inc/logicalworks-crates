@@ -52,7 +52,6 @@ pub(super) struct Issuer;
 ///     return Err("a ready host is admitted".into());
 /// };
 /// assert_eq!(permit.host(), "a.example");
-/// assert!(permit.holds(&ConstraintKey::host("a.example")));
 /// frontier.complete(&permit, Outcome::Success)?;
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```

@@ -12,7 +12,8 @@
 //!
 //! - **Transport evidence is not publication.** A non-zero exit says the child
 //!   failed; it says nothing about whether a review landed. Publication is
-//!   established by [`Gh::read_reviews`], which is a separate call.
+//!   established by `Gh::read_reviews` (the `process` feature), which is a
+//!   separate call.
 //! - **Capability is checked before the fork.** Every verb takes an [`Auth`](crate::cap::Auth)
 //!   covering `bot.sys` (process control, which is what running `gh` is) and
 //!   `bot.net` (which is what the CLI reaches), and refuses without starting

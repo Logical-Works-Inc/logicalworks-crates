@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 use std::io;
 
 #[cfg(all(not(unix), feature = "process"))]
-use super::unsupported;
+use super::unsupported_for;
 #[cfg(all(unix, feature = "process"))]
 use super::{errno_to_io, invalid_pid, pid_from_raw};
 
@@ -305,8 +305,10 @@ pub fn capture_descendants(root: i32) -> io::Result<DescendantSet> {
 /// because an empty set and a tree nobody looked for are different facts.
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn capture_descendants(root: i32) -> io::Result<DescendantSet> {
-    let _ = root;
-    Err(unsupported("process capture_descendants is Unix-only"))
+    Err(unsupported_for(
+        "process capture_descendants is Unix-only",
+        root,
+    ))
 }
 
 /// Send SIGKILL to the single process `pid`.
@@ -346,8 +348,7 @@ pub fn kill_process(pid: i32) -> io::Result<()> {
 /// [`std::io::ErrorKind::Unsupported`].
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn kill_process(pid: i32) -> io::Result<()> {
-    let _ = pid;
-    Err(unsupported("process kill_process is Unix-only"))
+    Err(unsupported_for("process kill_process is Unix-only", pid))
 }
 
 /// Send SIGCONT to the single process `pid`, resuming it if it is stopped.
@@ -381,8 +382,10 @@ pub fn continue_process(pid: i32) -> io::Result<()> {
 /// nothing.
 #[cfg(all(not(unix), feature = "process"))]
 pub fn continue_process(pid: i32) -> io::Result<()> {
-    let _ = pid;
-    Err(unsupported("process continue_process is Unix-only"))
+    Err(unsupported_for(
+        "process continue_process is Unix-only",
+        pid,
+    ))
 }
 
 /// Whether `pid` currently names a process.
@@ -430,8 +433,7 @@ pub fn process_exists(pid: i32) -> io::Result<bool> {
 /// [`std::io::ErrorKind::Unsupported`].
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn process_exists(pid: i32) -> io::Result<bool> {
-    let _ = pid;
-    Err(unsupported("process process_exists is Unix-only"))
+    Err(unsupported_for("process process_exists is Unix-only", pid))
 }
 
 /// Every pid in `pids` that is still running, read in one pass of the table.
@@ -546,6 +548,8 @@ pub fn running_processes(pids: &[i32]) -> io::Result<BTreeSet<i32>> {
 /// [`std::io::ErrorKind::Unsupported`].
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn running_processes(pids: &[i32]) -> io::Result<BTreeSet<i32>> {
-    let _ = pids;
-    Err(unsupported("process running_processes is Unix-only"))
+    Err(unsupported_for(
+        "process running_processes is Unix-only",
+        pids.len(),
+    ))
 }

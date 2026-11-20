@@ -1,6 +1,8 @@
 //! Batch descendant capture across multiple root processes in one snapshot (#798).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+#[cfg(any(unix, windows))]
+use std::collections::BTreeSet;
 use std::io;
 
 #[cfg(all(any(unix, windows), feature = "process"))]
@@ -8,7 +10,7 @@ use super::capture::{ContainmentMechanism, DescendantSet, MAX_CAPTURED_DESCENDAN
 #[cfg(all(any(unix, windows), feature = "process"))]
 use super::invalid_pid;
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
-use super::unsupported;
+use super::{capture::DescendantSet, unsupported_for};
 
 /// The most root process ids one batch descendant capture accepts.
 ///
@@ -88,10 +90,14 @@ fn parse_stat_ppid(stat: &str) -> Option<i32> {
 
 #[cfg(all(windows, feature = "process"))]
 fn read_table_pairs() -> io::Result<Vec<(i32, i32)>> {
-    Ok(super::windows::snapshot(&super::windows::NATIVE)?
+    // An id this API cannot name is refused, never skipped: a skipped row is a process the descendant sweep never kills.
+    let wide = |id: u32| {
+        i32::try_from(id).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+    };
+    super::windows::snapshot(&super::windows::NATIVE)?
         .into_iter()
-        .filter_map(|(pid, parent)| Some((i32::try_from(pid).ok()?, i32::try_from(parent).ok()?)))
-        .collect())
+        .map(|(pid, parent)| Ok((wide(pid)?, wide(parent)?)))
+        .collect()
 }
 
 /// Linux and macOS: traverses each root in `roots`, bounded by [`MAX_CAPTURE_ROOTS`].
@@ -170,8 +176,10 @@ pub fn capture_descendants_many(roots: &[i32]) -> io::Result<BTreeMap<i32, Desce
 #[doc(hidden)]
 #[cfg(all(not(any(unix, windows)), feature = "process"))]
 pub fn capture_descendants_many(roots: &[i32]) -> io::Result<BTreeMap<i32, DescendantSet>> {
-    let _ = roots;
-    let refusal = Err(unsupported("process capture_descendants_many is Unix-only"));
+    let refusal = Err(unsupported_for(
+        "process capture_descendants_many is Unix-only",
+        roots.len(),
+    ));
     #[cfg(feature = "trace")]
     crate::trace::debug!(
         error = ?refusal.as_ref().err(),

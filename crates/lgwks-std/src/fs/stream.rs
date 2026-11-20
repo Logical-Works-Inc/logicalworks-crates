@@ -228,7 +228,9 @@ fn root_dir_id(canonical_root: &Path) -> io::Result<DirId> {
     }
     #[cfg(not(unix))]
     {
-        Ok(DirId::Canonical(canonical_root.to_path_buf()))
+        // The same stat the Unix arm takes: a root removed since it was canonicalized fails here, not later by a stale name.
+        fs::symlink_metadata(canonical_root)
+            .map(|_stat| DirId::Canonical(canonical_root.to_path_buf()))
     }
 }
 

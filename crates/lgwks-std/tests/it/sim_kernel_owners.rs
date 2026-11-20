@@ -341,10 +341,10 @@ fn an_adopted_orphan_is_named_by_its_adoption() -> TestResult {
         let _removed = std::fs::remove_dir_all(&dir);
         return Err("the middle shell never exited".into());
     }
-    let grandchild: i32 = text.trim().parse().map_err(|_| {
+    let grandchild: i32 = text.trim().parse().map_err(|error| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("the middle shell recorded no pid: {text:?}"),
+            format!("the middle shell recorded no pid: {text:?}: {error}"),
         )
     })?;
     assert!(
