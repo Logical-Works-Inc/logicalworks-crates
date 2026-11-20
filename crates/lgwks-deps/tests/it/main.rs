@@ -117,4 +117,6 @@ mod sim_sqlite_first_open;
 mod sim_vendor_coverage;
 #[cfg(feature = "sqlite")]
 mod sqlite_defaults;
+/// No workflow step idles: a `sleep` in CI spends the run's 300 s wall on nothing.
+mod workflow_idle_sleeps;
 mod workstream_c;
