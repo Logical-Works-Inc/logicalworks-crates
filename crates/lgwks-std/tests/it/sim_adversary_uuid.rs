@@ -311,7 +311,7 @@ fn sim_adversary_uuid_any_sixteen_bytes_survive_a_print_parse_cycle() -> TestRes
         assert_eq!(
             Uuid::parse(&uuid.to_string())?,
             uuid,
-            "seed {seed:#x} round {round}: {uuid}"
+            "seed {seed:#x} round {round}: the parsed id is not the one written (the seed replays it)"
         );
         Ok(())
     })
@@ -335,7 +335,10 @@ fn sim_adversary_uuid_the_printed_form_has_the_canonical_shape() -> TestResult {
             } else {
                 byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
             };
-            assert!(expected, "seed {seed:#x} round {round}: {text} at {at}");
+            assert!(
+                expected,
+                "seed {seed:#x} round {round}: byte {at} breaks the 8-4-4-4-12 form"
+            );
         }
         Ok(())
     })

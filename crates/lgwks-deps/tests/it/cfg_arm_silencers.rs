@@ -9,6 +9,11 @@
 //! compilation"), so this test reads the source instead and holds every arm to
 //! the idiom that is clean on every target: an unused parameter is named `_x` in
 //! that arm's signature, and an unused local with a destructor is `drop`ped.
+//!
+//! The next run failed the WASI job the same way: the `not(unix)` arm of
+//! `lgwks_bot::durable::sync_directory` was `Ok(())` and nothing else, which
+//! clippy's denied `unnecessary_wraps` refuses on WASI alone. An arm whose whole
+//! body is a bare `Ok(())` is that shape on whichever target builds it.
 
 use std::error::Error;
 use std::fs;
@@ -58,8 +63,40 @@ fn is_silencer(line: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '&' | '(' | ')' | ',' | ' '))
 }
 
-/// Each silencer in the non-test source of every crate, as `path:line: text`.
-fn silencers(root: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+/// Whether the function opening at `rows[at]` is a cfg arm whose whole body is
+/// `Ok(())`: a `#[cfg(..not(..))]` on the item, a signature returning a
+/// `Result`, then `Ok(())` and the closing brace.
+fn is_bare_ok_arm(rows: &[&str], at: usize) -> bool {
+    let row = |offset: usize| {
+        at.checked_add(offset)
+            .and_then(|index| rows.get(index))
+            .map(|line| line.trim())
+    };
+    let signature = row(0).is_some_and(|line| {
+        line.contains("fn ") && line.contains("Result<") && line.ends_with('{')
+    });
+    if !signature || row(1) != Some("Ok(())") || row(2) != Some("}") {
+        return false;
+    }
+    // The attributes sit directly above the signature; a doc line or a blank one ends them.
+    rows.iter()
+        .take(at)
+        .rev()
+        .map(|line| line.trim())
+        .take_while(|line| line.starts_with("#["))
+        .any(|line| line.starts_with("#[cfg(") && line.contains("not("))
+}
+
+/// Whether `pair` is a `#[cfg(test)]` line followed by a `mod`: the test module that closes a file's production part.
+fn opens_test_module(pair: &[&str]) -> bool {
+    matches!(pair, [cfg, next] if cfg.trim() == "#[cfg(test)]" && next.trim_start().starts_with("mod "))
+}
+
+/// One source file as shown in a finding (its workspace-relative path) and its production rows.
+type ProductionFile = (String, Vec<String>);
+
+/// The production rows of every crate's source: each file's lines up to its `#[cfg(test)]` module.
+fn production_files(root: &Path) -> Result<Vec<ProductionFile>, Box<dyn Error>> {
     let mut files = Vec::new();
     for krate in fs::read_dir(root.join("crates"))? {
         let src = krate?.path().join("src");
@@ -68,23 +105,36 @@ fn silencers(root: &Path) -> Result<Vec<String>, Box<dyn Error>> {
         }
     }
     files.sort();
-    let mut found = Vec::new();
+    let mut read = Vec::new();
     for file in &files {
         let text = fs::read_to_string(file)?;
         let shown = match file.strip_prefix(root) {
             Ok(relative) => relative.display().to_string(),
             Err(_outside) => file.display().to_string(),
         };
-        let mut rows = text.lines().enumerate().peekable();
-        while let Some((index, line)) = rows.next() {
-            // A `#[cfg(test)]` module closes the production part of the file.
-            let test_module = rows
-                .peek()
-                .is_some_and(|&(_, next)| next.trim_start().starts_with("mod "));
-            if line.trim() == "#[cfg(test)]" && test_module {
-                break;
-            }
-            if is_silencer(line) {
+        let rows: Vec<&str> = text.lines().collect();
+        let end = match rows.windows(2).position(opens_test_module) {
+            Some(end) => end,
+            None => rows.len(),
+        };
+        read.push((
+            shown,
+            rows.iter()
+                .take(end)
+                .map(|line| (*line).to_owned())
+                .collect(),
+        ));
+    }
+    Ok(read)
+}
+
+/// Each row a `judge` flags, as `path:line: text`.
+fn flagged(root: &Path, judge: fn(&[&str], usize) -> bool) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut found = Vec::new();
+    for (shown, owned) in production_files(root)? {
+        let rows: Vec<&str> = owned.iter().map(String::as_str).collect();
+        for (index, line) in rows.iter().enumerate() {
+            if judge(&rows, index) {
                 found.push(format!(
                     "{shown}:{}: {}",
                     index.saturating_add(1),
@@ -96,9 +146,14 @@ fn silencers(root: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(found)
 }
 
+/// [`is_silencer`] in the row form [`flagged`] takes.
+fn silencer_row(rows: &[&str], at: usize) -> bool {
+    rows.get(at).is_some_and(|line| is_silencer(line))
+}
+
 #[test]
 fn no_cfg_arm_silences_a_binding_with_let_underscore() -> TestResult {
-    let found = silencers(&workspace_root())?;
+    let found = flagged(&workspace_root(), silencer_row)?;
     assert!(
         found.is_empty(),
         "{} cfg-arm silencer(s); name the parameter `_x` in that arm, or `drop` a local:\n{}",
@@ -118,5 +173,55 @@ fn no_cfg_arm_silences_a_binding_with_let_underscore() -> TestResult {
     assert!(is_test_file(Path::new("crates/x/src/a/tests.rs")));
     assert!(is_test_file(Path::new("crates/x/src/sim_walk.rs")));
     assert!(!is_test_file(Path::new("crates/x/src/process.rs")));
+    Ok(())
+}
+
+#[test]
+fn no_cfg_arm_wraps_a_bare_ok_in_a_result() -> TestResult {
+    let found = flagged(&workspace_root(), is_bare_ok_arm)?;
+    assert!(
+        found.is_empty(),
+        "{} cfg arm(s) return only `Ok(())`, which `unnecessary_wraps` refuses on the target that builds them; \
+         give the arm the work its other arm does (a stat, a check) or a typed refusal:\n{}",
+        found.len(),
+        found.join("\n")
+    );
+    // The reader itself, on the WASI arm PR #1103 shipped and on the shapes beside it.
+    let wasi_arm = [
+        "#[cfg(not(unix))]",
+        "pub(crate) fn sync_directory(_dir: &Path) -> io::Result<()> {",
+        "    Ok(())",
+        "}",
+    ];
+    assert!(
+        is_bare_ok_arm(&wasi_arm, 1),
+        "the shipped WASI arm is the shape"
+    );
+    let stat_arm = [
+        "#[cfg(not(unix))]",
+        "pub(crate) fn sync_directory(dir: &Path) -> io::Result<()> {",
+        "    std::fs::metadata(dir).map(|_metadata| ())",
+        "}",
+    ];
+    assert!(!is_bare_ok_arm(&stat_arm, 1), "an arm that stats does work");
+    let unix_arm = [
+        "#[cfg(unix)]",
+        "pub(crate) fn sync_directory(_dir: &Path) -> io::Result<()> {",
+        "    Ok(())",
+        "}",
+    ];
+    assert!(
+        !is_bare_ok_arm(&unix_arm, 1),
+        "an arm this host builds is clippy's to judge"
+    );
+    let trait_method = [
+        "    fn flush(&mut self) -> io::Result<()> {",
+        "        Ok(())",
+        "    }",
+    ];
+    assert!(
+        !is_bare_ok_arm(&trait_method, 0),
+        "a trait's signature is not the arm's to change"
+    );
     Ok(())
 }

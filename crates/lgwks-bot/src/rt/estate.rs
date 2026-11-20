@@ -365,10 +365,10 @@ fn make_private(file: &std::path::Path) -> Result<(), EstateError> {
     std::fs::set_permissions(file, std::fs::Permissions::from_mode(0o600)).map_err(store_io)
 }
 
-/// Platforms without modes keep what the store was created with.
+/// Platforms without modes keep the store as created; a store already gone is still an error.
 #[cfg(all(feature = "ephemeral", not(unix)))]
-fn make_private(_file: &std::path::Path) -> Result<(), EstateError> {
-    Ok(())
+fn make_private(file: &std::path::Path) -> Result<(), EstateError> {
+    std::fs::metadata(file).map(drop).map_err(store_io)
 }
 
 impl Drop for Estate {

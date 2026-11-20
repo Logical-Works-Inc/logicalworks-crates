@@ -384,7 +384,8 @@ fn justify_governs_its_block(band: Band) -> TestResult {
         for path in &asked {
             assert!(
                 path.starts_with("siblings/justify"),
-                "the rules were asked about {path}, outside their block"
+                "the rules were asked about a path outside their block ({} bytes long)",
+                path.len()
             );
         }
         let calls = api.calls.load(Ordering::Relaxed);

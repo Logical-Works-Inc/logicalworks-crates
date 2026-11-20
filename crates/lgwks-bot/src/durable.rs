@@ -69,10 +69,11 @@ pub(crate) fn sync_directory(dir: &Path) -> io::Result<()> {
     std::fs::File::open(dir)?.sync_all()
 }
 
-/// [`sync_directory`] where the platform has no directory sync to make.
+/// [`sync_directory`] where the platform has no directory sync to make: it still
+/// stats `dir`, so a parent removed under the rename is reported, never claimed durable.
 #[cfg(not(unix))]
-pub(crate) fn sync_directory(_dir: &Path) -> io::Result<()> {
-    Ok(())
+pub(crate) fn sync_directory(dir: &Path) -> io::Result<()> {
+    std::fs::metadata(dir).map(|_metadata| ())
 }
 
 #[cfg(test)]

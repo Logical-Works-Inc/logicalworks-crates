@@ -13,18 +13,18 @@
 use std::error::Error;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::time::Duration;
 
 use lgwks_bot::rt::supervise::{CleanupReceipt, ContainmentMechanism, ShutdownReport, TaskOutcome};
-use lgwks_bot::rt::time::{Instant, sleep};
+use lgwks_bot::rt::task::yield_now;
+use lgwks_bot::rt::time::Instant;
 
 use super::BUDGET;
 
 /// The file the shell writes once every background process has been started.
-pub const UP: &str = "up.txt";
+pub(crate) const UP: &str = "up.txt";
 
 /// A script tail that outlives every test: the shell stays until it is stopped.
-pub const STAY: &str = "ping -n 600 127.0.0.1 >nul";
+pub(crate) const STAY: &str = "ping -n 600 127.0.0.1 >nul";
 
 /// The file background process `index` holds open.
 fn held_name(index: usize) -> String {
@@ -33,7 +33,7 @@ fn held_name(index: usize) -> String {
 
 /// A shell script that starts `held` background pings, each holding a file of its
 /// own, says so in [`UP`], and then runs `tail`.
-pub fn script(held: usize, tail: &str) -> String {
+pub(crate) fn script(held: usize, tail: &str) -> String {
     (0..held)
         .map(|index| format!("start /b ping -n 600 127.0.0.1 >{}", held_name(index)))
         .chain([format!("echo up> {UP}"), String::from(tail)])
@@ -46,7 +46,7 @@ pub fn script(held: usize, tail: &str) -> String {
 /// The second is the shell's own work and nothing a test waits for: it keeps the
 /// shell alive while the supervisor assigns it to its job, which a shell that
 /// exited at once could beat on a stalled host. No assertion reads the clock.
-pub fn exit_after_a_second(code: u8) -> String {
+pub(crate) fn exit_after_a_second(code: u8) -> String {
     format!("ping -n 2 127.0.0.1 >nul & exit {code}")
 }
 
@@ -56,13 +56,13 @@ pub fn exit_after_a_second(code: u8) -> String {
 /// A file that does delete is gone for good, so every later question about it
 /// answers "not held". That is the right reading after a stop, and it is why the
 /// question is asked of a tree that is still running only once.
-pub fn is_held(dir: &Path, index: usize) -> bool {
+pub(crate) fn is_held(dir: &Path, index: usize) -> bool {
     let path = dir.join(held_name(index));
     path.exists() && std::fs::remove_file(&path).is_err()
 }
 
 /// Whether every one of the `held` files is held now.
-pub fn all_held(dir: &Path, held: usize) -> bool {
+pub(crate) fn all_held(dir: &Path, held: usize) -> bool {
     (0..held).all(|index| is_held(dir, index))
 }
 
@@ -70,7 +70,7 @@ pub fn all_held(dir: &Path, held: usize) -> bool {
 ///
 /// Every file is asked on every pass, so one that has been released is deleted
 /// and stays released while the others are waited for.
-pub async fn all_released(dir: &Path, held: usize) -> bool {
+pub(crate) async fn all_released(dir: &Path, held: usize) -> bool {
     let started = Instant::now();
     loop {
         if (0..held).filter(|index| is_held(dir, *index)).count() == 0 {
@@ -79,7 +79,9 @@ pub async fn all_released(dir: &Path, held: usize) -> bool {
         if started.elapsed() >= BUDGET {
             break false;
         }
-        sleep(Duration::from_millis(10)).await;
+        // The release is another process's exit, which no clock here drives: hand the
+        // runtime back and ask again, bounded by BUDGET, rather than guess a nap length.
+        yield_now().await;
     }
 }
 
@@ -89,7 +91,7 @@ pub async fn all_released(dir: &Path, held: usize) -> bool {
 /// test has just started cannot run until the test yields, so a stop requested
 /// after this call is requested before that task has run at all. The shell is
 /// another process and runs on regardless.
-pub fn up_without_yielding(dir: &Path) -> Result<(), Box<dyn Error>> {
+pub(crate) fn up_without_yielding(dir: &Path) -> Result<(), Box<dyn Error>> {
     let started = std::time::Instant::now();
     loop {
         if dir.join(UP).exists() {
@@ -103,7 +105,7 @@ pub fn up_without_yielding(dir: &Path) -> Result<(), Box<dyn Error>> {
 }
 
 /// `Ok` when `holds`, and `what` as the failure otherwise.
-pub fn require(holds: bool, what: &str) -> Result<(), String> {
+pub(crate) fn require(holds: bool, what: &str) -> Result<(), String> {
     if holds {
         Ok(())
     } else {
@@ -117,7 +119,7 @@ pub fn require(holds: bool, what: &str) -> Result<(), String> {
 /// It is a floor and never an equality, because a console host can join the job
 /// on some images. The text returned holds only facts that do not vary with the
 /// host, so a simulation may hash it.
-pub fn settled(outcome: &TaskOutcome, at_least: usize) -> Result<String, String> {
+pub(crate) fn settled(outcome: &TaskOutcome, at_least: usize) -> Result<String, String> {
     let containment = outcome
         .containment()
         .ok_or_else(|| String::from("a stopped process carries a containment report"))?;
@@ -162,7 +164,7 @@ pub fn settled(outcome: &TaskOutcome, at_least: usize) -> Result<String, String>
 
 /// Whether `outcome` is the shell's own exit with `code`: a success for zero, and
 /// otherwise a process failure that names that code.
-pub fn exited_with(outcome: &TaskOutcome, code: u8) -> Result<(), String> {
+pub(crate) fn exited_with(outcome: &TaskOutcome, code: u8) -> Result<(), String> {
     let reported = outcome.exit_status().and_then(|status| status.code());
     let right = if code == 0 {
         matches!(*outcome, TaskOutcome::Completed { .. })
@@ -181,7 +183,7 @@ pub fn exited_with(outcome: &TaskOutcome, code: u8) -> Result<(), String> {
 /// The receipt of the one tree a shutdown drained: exactly one outcome, reported
 /// cancelled, whose job settled as [`settled`] reads it with `held` background
 /// processes behind a shell.
-pub fn stopped_tree(report: &ShutdownReport, held: usize) -> Result<String, String> {
+pub(crate) fn stopped_tree(report: &ShutdownReport, held: usize) -> Result<String, String> {
     let outcomes = report.outcomes();
     require(outcomes.len() == 1, "one tree must drain as one outcome")?;
     let drained = outcomes
@@ -196,11 +198,11 @@ pub fn stopped_tree(report: &ShutdownReport, held: usize) -> Result<String, Stri
 
 /// A process the test started on its own, outside every job: the unrelated
 /// process that no stop of a supervised tree may reach.
-pub struct Outsider(Child);
+pub(crate) struct Outsider(Child);
 
 impl Outsider {
     /// Start a `ping` that outlives every test, with no stream shared with it.
-    pub fn start() -> std::io::Result<Self> {
+    pub(crate) fn start() -> std::io::Result<Self> {
         Command::new("ping")
             .args(["-n", "600", "127.0.0.1"])
             .stdin(Stdio::null())
@@ -211,7 +213,7 @@ impl Outsider {
     }
 
     /// Whether it is still running: it has not exited and its state is readable.
-    pub fn is_running(&mut self) -> bool {
+    pub(crate) fn is_running(&mut self) -> bool {
         matches!(self.0.try_wait(), Ok(None))
     }
 }
@@ -219,7 +221,12 @@ impl Outsider {
 impl Drop for Outsider {
     /// Stop and collect it, so a failed test leaves no process behind.
     fn drop(&mut self) {
-        drop(self.0.kill());
-        drop(self.0.wait());
+        // A drop cannot return the error, so each one is traced with the step that failed.
+        if let Err(error) = self.0.kill() {
+            lgwks_std::trace::warn!(%error, "outsider: kill failed; it may already have exited");
+        }
+        if let Err(error) = self.0.wait() {
+            lgwks_std::trace::warn!(%error, "outsider: wait failed; the process may be left unreaped");
+        }
     }
 }

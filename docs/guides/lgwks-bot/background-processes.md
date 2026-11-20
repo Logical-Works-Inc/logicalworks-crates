@@ -63,7 +63,7 @@ to them is a record written before the kill.
 (`crates/lgwks-bot/src/rt/supervise/run.rs:134`): the pid **and** the instant the OS
 records that pid's process started. Store `leader().to_string()` durably — a
 database row, written before the lane does work — and a successor parses it back
-and calls `reap_orphaned_group` (`crates/lgwks-std/src/process/identity.rs:386`):
+and calls `reap_orphaned_group` (`crates/lgwks-std/src/process/identity.rs:388`):
 
 `a_stored_leader_identity_parses_back_and_a_gone_group_is_not_signalled`
 (`crates/lgwks-bot/tests/it/rt_front_door.rs`) runs it: `spawn_process_identified`

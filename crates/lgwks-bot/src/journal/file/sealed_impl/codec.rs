@@ -262,7 +262,7 @@ mod tests {
         let _guard = DirGuard(dir.clone());
         let provider: Arc<dyn KeyProvider> = Arc::new(SoftwareProvider::open(&dir)?);
         let (id, data_key) = provider.provision("acme")?;
-        let nonce = [7_u8; 12];
+        let nonce: [u8; 12] = lgwks_std::random::bytes::<12>()?;
         let plaintext = event()?.to_bytes()?.as_ref().to_vec();
         let ciphertext = seal(&data_key, &nonce, &plaintext)?;
         let wrapped = provider.wrap_key(&id)?;

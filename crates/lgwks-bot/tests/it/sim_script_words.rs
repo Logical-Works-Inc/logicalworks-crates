@@ -248,7 +248,8 @@ fn graph_needs_respected(band: Band) -> TestResult {
                     at(&format!("end {need}")).ok_or_else(|| format!("{need} never ended"))?;
                 assert!(
                     ended < started,
-                    "{name} started before its need {need} ended: {events:?}"
+                    "{name} started before its need {need} ended ({} events recorded)",
+                    events.len()
                 );
             }
         }
@@ -331,7 +332,8 @@ fn graph_node_scope(band: Band) -> TestResult {
             let path = format!("pipeline/graph/{name}");
             assert!(
                 scopes.iter().any(|entry| entry.0 == path),
-                "{name} ran in {path}: {scopes:?}"
+                "{name} never ran in {path} ({} scopes recorded)",
+                scopes.len()
             );
         }
         sim.record(&format!("limit={limit} scopes={scopes:?}"));
