@@ -10,7 +10,7 @@ use drishti::canvas_scene::{
 
 use crate::canvas_kit::{artifact, limits, scene};
 use crate::fixtures::{POLICY_BUNDLE, SESSION_ID, USER_SUB, WORK_OBJECT};
-use crate::motion_kit::{describe, ensure, with_member};
+use crate::motion_kit::{describe, ensure, pick, with_member};
 use crate::rng::SimRng;
 
 /// Hostile identifier text: empty, edge lengths, control bytes, bidi and
@@ -126,7 +126,7 @@ fn sim_canvas_lease_refuses_wire_decoded_sessions_with_bad_identities() -> Resul
     let long = format!("\"{}\"", "a".repeat(600));
     for seed in 0..200_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(430_000));
-        let field = FIELDS[random.below_len(FIELDS.len())];
+        let field = pick(&mut random, &FIELDS)?;
         let bad = match random.below(6) {
             0 => String::from("\"not-a-uuid\""),
             1 => String::from("\"\""),
@@ -277,7 +277,10 @@ fn sim_canvas_artifact_payload_budget_is_exact_to_the_byte() -> Result<(), Strin
         )?;
         let roomy = limits(4)?;
         for slot in 0..3_u64 {
-            let poisoned = format!("{}\0{}", &source[..1], &source[1..]);
+            let (head, tail) = source
+                .split_at_checked(1)
+                .ok_or("the source holds a leading character")?;
+            let poisoned = format!("{head}\0{tail}");
             let attempt = match slot {
                 0 => Artifact::new(
                     WORK_OBJECT,

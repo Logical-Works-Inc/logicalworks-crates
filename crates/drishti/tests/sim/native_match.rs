@@ -199,11 +199,15 @@ fn payload(random: &mut SimRng, depth: usize) -> JsonValue {
 }
 
 /// Seeded predicate tree of bounded size.
-fn predicate(random: &mut SimRng, depth: usize) -> PayloadPredicate {
+fn predicate(random: &mut SimRng, depth: usize) -> Result<PayloadPredicate, String> {
     const KEYPATHS: &[&str] = &["a", "b", "c", "a.b", "a.b.c", "b.c", ".a", "a..b", "", "d"];
-    let keypath = String::from(KEYPATHS[random.below_len(KEYPATHS.len())]);
+    let keypath = String::from(
+        random
+            .pick_str(KEYPATHS)
+            .ok_or_else(|| String::from("keypaths must not be empty"))?,
+    );
     let kinds = if depth >= 3 { 4 } else { 6 };
-    match random.below(kinds) {
+    Ok(match random.below(kinds) {
         0 => PayloadPredicate::eq(keypath, scalar(random)),
         1 => PayloadPredicate::neq(keypath, scalar(random)),
         2 => {
@@ -219,7 +223,7 @@ fn predicate(random: &mut SimRng, depth: usize) -> PayloadPredicate {
             let count = random.below_len(4);
             let mut children = Vec::new();
             for _ in 0..count {
-                children.push(predicate(random, depth.saturating_add(1)));
+                children.push(predicate(random, depth.saturating_add(1))?);
             }
             if other == 4 {
                 PayloadPredicate::And(children)
@@ -227,7 +231,7 @@ fn predicate(random: &mut SimRng, depth: usize) -> PayloadPredicate {
                 PayloadPredicate::Or(children)
             }
         }
-    }
+    })
 }
 
 /// Bug caught: an operator that treats a missing key as a mismatch for
@@ -240,7 +244,7 @@ fn sim_match_predicates_agree_with_the_reference() -> Result<(), String> {
     for seed in 0..3_000_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(80_000));
         let body = payload(&mut random, 0);
-        let tree = predicate(&mut random, 0);
+        let tree = predicate(&mut random, 0)?;
         let pattern = SignalPattern::new(String::from("k.**"), Some(tree.clone()));
         ensure(
             validate_pattern(&pattern),

@@ -350,6 +350,7 @@ impl Default for MotionGraph {
 ///     .build();
 /// assert_eq!(graph.conflict_policy("opacity"), Some(&ConflictPolicy::Compose));
 /// ```
+#[derive(Debug)]
 pub struct MotionGraphBuilder {
     /// Graph under construction.
     graph: MotionGraph,

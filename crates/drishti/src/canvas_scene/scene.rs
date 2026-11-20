@@ -34,6 +34,7 @@ mod query;
 /// assert_eq!(canvas.stats().presented(), 1);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
+#[derive(Debug)]
 pub struct Canvas {
     /// Bound session.
     session: SessionInvariant,
@@ -263,22 +264,24 @@ impl Canvas {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn enqueue(&mut self, delta: Delta) -> Result<(), Error> {
+        let Delta {
+            session,
+            generation,
+            base_revision,
+            action,
+        } = delta;
         Error::require(!self.revoked, Error::Revoked)?;
-        Error::require(delta.session == self.session, Error::WrongScope)?;
+        Error::require(session == self.session, Error::WrongScope)?;
         Error::require(
-            delta.generation == self.generation
-                && delta.base_revision == self.next_base_revision()?,
+            generation == self.generation && base_revision == self.next_base_revision()?,
             Error::Stale,
         )?;
         Error::require(
             self.inbox.len() != self.limits.queued_commands(),
             Error::QueueFull,
         )?;
-        delta
-            .base_revision
-            .checked_add(1)
-            .ok_or(Error::InvalidInput)?;
-        self.inbox.push_back(delta.action);
+        base_revision.checked_add(1).ok_or(Error::InvalidInput)?;
+        self.inbox.push_back(action);
         self.stats.accepted = self.stats.accepted.saturating_add(1);
         Ok(())
     }
@@ -309,7 +312,7 @@ impl Canvas {
     /// ```
     pub fn input(&mut self, token: FrameToken, action: Action) -> Result<(), Error> {
         Error::require(!self.revoked, Error::Revoked)?;
-        Error::require(self.presented.as_ref() == Some(&token), Error::Stale)?;
+        Error::require(self.presented == Some(token), Error::Stale)?;
         Error::require(
             !matches!(
                 action,
@@ -348,12 +351,18 @@ impl Canvas {
                 Action::Scroll { view, lines } => {
                     let max = self.artifact.text(view).lines().count().saturating_sub(1);
                     let max_line = i64::try_from(max)?;
-                    let current = i64::try_from(self.scroll[view.index()])?;
+                    let [source, proposal, evidence] = self.scroll.each_mut();
+                    let slot = match view {
+                        View::Source => source,
+                        View::Proposal => proposal,
+                        View::Evidence => evidence,
+                    };
+                    let current = i64::try_from(*slot)?;
                     let scrolled = current
                         .checked_add(i64::from(lines))
                         .ok_or(Error::InvalidInput)?;
                     let clamped = scrolled.clamp(0, max_line);
-                    self.scroll[view.index()] = usize::try_from(clamped)?;
+                    *slot = usize::try_from(clamped)?;
                 }
                 Action::Transition(status) => {
                     self.commit_status = status;

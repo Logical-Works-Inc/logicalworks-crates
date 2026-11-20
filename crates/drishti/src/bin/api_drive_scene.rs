@@ -42,19 +42,8 @@ use drishti::native_host::session::{
 };
 use drishti::native_host::time::{MAX_WINDOW_MILLIS, TimeError, format_millis, parse_millis};
 
-/// Drive the workspace-layout vocabulary.
-fn drive_layout(digest: &mut String) -> Result<(), Failure> {
-    note(digest, "schema-version", &WORKSPACE_LAYOUT_SCHEMA_VERSION)?;
-    let chrome = WorkspaceChrome::new(
-        ChromePlacement::Top,
-        vec![ChromePlacement::Top, ChromePlacement::Bottom],
-        true,
-        WorkspaceTheme::Calm,
-    );
-    note(digest, "chrome-placement", &chrome.default_placement())?;
-    note(digest, "chrome-allowed", &chrome.allowed_placements().len())?;
-    note(digest, "chrome-collapsible", &chrome.collapsible())?;
-    note(digest, "chrome-theme", &chrome.default_theme())?;
+/// Drive the widget descriptor and return it with its capabilities extended.
+fn drive_widget(digest: &mut String) -> Result<WorkspaceWidgetDescriptor, Failure> {
     let mut descriptor = WorkspaceWidgetDescriptor::new(
         String::from("demo.widget"),
         String::from("widget.demo"),
@@ -85,6 +74,23 @@ fn drive_layout(digest: &mut String) -> Result<(), Failure> {
     descriptor
         .capabilities_mut()
         .push(Capability::SignalSubscribe);
+    Ok(descriptor)
+}
+
+/// Drive the workspace-layout vocabulary.
+fn drive_layout(digest: &mut String) -> Result<(), Failure> {
+    note(digest, "schema-version", &WORKSPACE_LAYOUT_SCHEMA_VERSION)?;
+    let chrome = WorkspaceChrome::new(
+        ChromePlacement::Top,
+        vec![ChromePlacement::Top, ChromePlacement::Bottom],
+        true,
+        WorkspaceTheme::Calm,
+    );
+    note(digest, "chrome-placement", &chrome.default_placement())?;
+    note(digest, "chrome-allowed", &chrome.allowed_placements().len())?;
+    note(digest, "chrome-collapsible", &chrome.collapsible())?;
+    note(digest, "chrome-theme", &chrome.default_theme())?;
+    let descriptor = drive_widget(digest)?;
     let mut surface = WorkspaceSurface::new(
         descriptor,
         WorkspacePresentation::new(
@@ -129,11 +135,21 @@ fn drive_layout(digest: &mut String) -> Result<(), Failure> {
     layout.set_layout_id(String::from("workspace.drive2"));
     layout.set_title(String::from("Drive 2"));
     layout.set_subtitle(String::from("second"));
-    layout.surfaces_mut()[0]
+    layout
+        .surfaces_mut()
+        .first_mut()
+        .ok_or("drive layout must keep its surface")?
         .descriptor_mut()
         .set_version(String::from("1.0.2"));
-    layout.tools_mut()[0].set_tool_id(String::from("canvas.drive2"));
-    let tool = &layout.tools()[0];
+    layout
+        .tools_mut()
+        .first_mut()
+        .ok_or("drive layout must keep its tool")?
+        .set_tool_id(String::from("canvas.drive2"));
+    let tool = layout
+        .tools()
+        .first()
+        .ok_or("drive layout must keep its tool")?;
     note(digest, "tool-id", &tool.tool_id())?;
     note(digest, "tool-label", &tool.label())?;
     note(digest, "tool-icon", &tool.icon())?;
@@ -250,8 +266,8 @@ fn drive_capability(digest: &mut String, session: &SessionInvariant) -> Result<(
     Ok(())
 }
 
-/// Drive the scene reducer.
-fn drive_scene(digest: &mut String, session: &SessionInvariant) -> Result<(), Failure> {
+/// Drive the resource envelope and the view and status vocabularies.
+fn drive_limits(digest: &mut String) -> Result<Limits, Failure> {
     let limits = must(digest, "scene-limits", Limits::new(262_144, 32, 8_847_360))?;
     note(digest, "limits-text", &limits.text_bytes())?;
     note(digest, "limits-queue", &limits.queued_commands())?;
@@ -266,6 +282,11 @@ fn drive_scene(digest: &mut String, session: &SessionInvariant) -> Result<(), Fa
     for status in CommitStatus::ALL {
         note(digest, "status-label", &status.label())?;
     }
+    Ok(limits)
+}
+
+/// Drive both artifact constructors and return the first artifact.
+fn drive_artifact(digest: &mut String, limits: Limits) -> Result<Artifact, Failure> {
     let artifact = must(
         digest,
         "artifact",
@@ -302,20 +323,11 @@ fn drive_scene(digest: &mut String, session: &SessionInvariant) -> Result<(), Fa
         ),
     )?;
     note(digest, "stated-status", &stated.commit_status())?;
-    let lease = must(
-        digest,
-        "lease",
-        PresentationLease::new("lease-drive", "surface-drive", session.clone(), 1, limits),
-    )?;
-    must(digest, "lease-valid", lease.validate())?;
-    note(digest, "lease-schema", &lease.schema_version())?;
-    note(digest, "lease-id", &lease.lease_id())?;
-    note(digest, "lease-surface", &lease.surface_id())?;
-    note(digest, "lease-generation", &lease.generation())?;
-    note(digest, "lease-limits", &lease.limits().pixels())?;
-    let mut scene = Canvas::with_lease(lease, artifact)
-        .map_err(|error| Failure::from(format!("scene refused: {error}")))?;
-    note(digest, "scene-built", &"ok")?;
+    Ok(artifact)
+}
+
+/// Record a freshly built scene's accessors and counters.
+fn note_scene(digest: &mut String, scene: &Canvas) -> Result<(), Failure> {
     note(digest, "scene-generation", &scene.generation())?;
     note(digest, "scene-revision", &scene.revision())?;
     note(digest, "scene-status", &scene.commit_status())?;
@@ -331,6 +343,51 @@ fn drive_scene(digest: &mut String, session: &SessionInvariant) -> Result<(), Fa
     note(digest, "stats-sampled", &stats.sampled())?;
     note(digest, "stats-prepared", &stats.prepared())?;
     note(digest, "stats-presented", &stats.presented())?;
+    Ok(())
+}
+
+/// Record a stepped frame's accessors.
+fn note_stepped(digest: &mut String, stepped: &Frame) -> Result<(), Failure> {
+    note(digest, "stepped-target", &stepped.target())?;
+    note(digest, "stepped-position", &stepped.position())?;
+    note(digest, "stepped-velocity", &stepped.velocity())?;
+    note(digest, "stepped-animating", &stepped.animating())?;
+    note(digest, "stepped-reduced", &stepped.reduced_motion())?;
+    note(digest, "stepped-width", &stepped.width())?;
+    note(digest, "stepped-height", &stepped.height())?;
+    note(digest, "stepped-scroll", &stepped.scroll())?;
+    note(digest, "stepped-optimistic", &stepped.optimistic())?;
+    note(
+        digest,
+        "stepped-confirmed",
+        &stepped.confirmed_commit_status(),
+    )?;
+    note(digest, "stepped-status-label", &stepped.status_label())?;
+    note(digest, "stepped-scene-revision", &stepped.scene_revision())?;
+    note(digest, "stepped-hit", &stepped.hit_test(450.0, 590.0))?;
+    note(digest, "stepped-artifact-key", &stepped.artifact().key())?;
+    Ok(())
+}
+
+/// Drive the scene reducer.
+fn drive_scene(digest: &mut String, session: &SessionInvariant) -> Result<(), Failure> {
+    let limits = drive_limits(digest)?;
+    let artifact = drive_artifact(digest, limits)?;
+    let lease = must(
+        digest,
+        "lease",
+        PresentationLease::new("lease-drive", "surface-drive", session.clone(), 1, limits),
+    )?;
+    must(digest, "lease-valid", lease.validate())?;
+    note(digest, "lease-schema", &lease.schema_version())?;
+    note(digest, "lease-id", &lease.lease_id())?;
+    note(digest, "lease-surface", &lease.surface_id())?;
+    note(digest, "lease-generation", &lease.generation())?;
+    note(digest, "lease-limits", &lease.limits().pixels())?;
+    let mut scene = Canvas::with_lease(lease, artifact)
+        .map_err(|error| Failure::from(format!("scene refused: {error}")))?;
+    note(digest, "scene-built", &"ok")?;
+    note_scene(digest, &scene)?;
     let base = must(digest, "base-revision", scene.next_base_revision())?;
     let delta = Delta::new(
         session.clone(),
@@ -363,24 +420,7 @@ fn drive_scene(digest: &mut String, session: &SessionInvariant) -> Result<(), Fa
     let stepped = scene
         .prepare(0.04, 900, 600, false)?
         .ok_or_else(|| Failure::from("drive scene must step a frame"))?;
-    note(digest, "stepped-target", &stepped.target())?;
-    note(digest, "stepped-position", &stepped.position())?;
-    note(digest, "stepped-velocity", &stepped.velocity())?;
-    note(digest, "stepped-animating", &stepped.animating())?;
-    note(digest, "stepped-reduced", &stepped.reduced_motion())?;
-    note(digest, "stepped-width", &stepped.width())?;
-    note(digest, "stepped-height", &stepped.height())?;
-    note(digest, "stepped-scroll", &stepped.scroll())?;
-    note(digest, "stepped-optimistic", &stepped.optimistic())?;
-    note(
-        digest,
-        "stepped-confirmed",
-        &stepped.confirmed_commit_status(),
-    )?;
-    note(digest, "stepped-status-label", &stepped.status_label())?;
-    note(digest, "stepped-scene-revision", &stepped.scene_revision())?;
-    note(digest, "stepped-hit", &stepped.hit_test(450.0, 590.0))?;
-    note(digest, "stepped-artifact-key", &stepped.artifact().key())?;
+    note_stepped(digest, &stepped)?;
     let mut rebuilt = Frame::new(
         token,
         std::sync::Arc::clone(stepped.artifact()),

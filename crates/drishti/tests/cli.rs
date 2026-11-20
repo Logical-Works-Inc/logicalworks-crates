@@ -27,13 +27,30 @@ fn document(args: &[&str]) -> Result<Value, Box<dyn std::error::Error>> {
     Ok(json::from_slice(&output.stdout)?)
 }
 
-/// Every effect's digest, in brand order.
-fn digests(document: &Value) -> Vec<String> {
-    document["effects"]
-        .as_array()
+/// The member at `path`; a missing member is an error, never a null.
+fn at<'a>(value: &'a Value, path: &[&str]) -> Result<&'a Value, Box<dyn std::error::Error>> {
+    let mut current = value;
+    for key in path {
+        current = current
+            .get(*key)
+            .ok_or_else(|| format!("missing member `{key}` in {value}"))?;
+    }
+    Ok(current)
+}
+
+/// The elements of the array at `key`; absent or not an array yields none.
+fn items<'a>(value: &'a Value, key: &str) -> impl Iterator<Item = &'a Value> {
+    value
+        .get(key)
+        .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|effect| effect["digest"].to_string())
+}
+
+/// Every effect's digest, in brand order.
+fn digests(document: &Value) -> Vec<String> {
+    items(document, "effects")
+        .filter_map(|effect| effect.get("digest").map(ToString::to_string))
         .collect()
 }
 
@@ -49,11 +66,11 @@ fn ink_replays_by_seed_and_stays_inside_its_bounds() -> TestResult {
         digests(&other),
         "the seed reaches the geometry"
     );
-    for effect in first["effects"].as_array().into_iter().flatten() {
-        assert_eq!(effect["within_bound"], true, "{effect}");
+    for effect in items(&first, "effects") {
+        assert_eq!(*at(effect, &["within_bound"])?, true, "{effect}");
         // A finished effect stops demanding frames (reveal settles near frame
         // 62), so every effect rendered at least once and never past the run.
-        let rendered = effect["rendered"].as_u64().ok_or("no count")?;
+        let rendered = at(effect, &["rendered"])?.as_u64().ok_or("no count")?;
         assert!((1..=90).contains(&rendered), "{effect}");
         assert!(effect.get("refused").is_none(), "{effect}");
     }
@@ -63,36 +80,57 @@ fn ink_replays_by_seed_and_stays_inside_its_bounds() -> TestResult {
 #[test]
 fn reduced_motion_resolves_the_mark_and_the_count() -> TestResult {
     let resolved = document(&["ink", "--reduce-motion", "--frames", "2"])?;
-    let effects = resolved["effects"].as_array().ok_or("no effects")?;
-    let named = |name: &str| effects.iter().find(|effect| effect["effect"] == name);
+    let effects = at(&resolved, &["effects"])?
+        .as_array()
+        .ok_or("no effects")?;
+    let named = |name: &str| {
+        effects.iter().find(|effect| {
+            effect
+                .get("effect")
+                .is_some_and(|candidate| *candidate == name)
+        })
+    };
     let mark = named("mark").ok_or("no mark")?;
-    assert_eq!(mark["peak_shapes"], 24, "the published twenty-four beams");
+    assert_eq!(
+        *at(mark, &["peak_shapes"])?,
+        24,
+        "the published twenty-four beams"
+    );
     let count = named("count").ok_or("no count")?;
-    assert_eq!(count["label"], "$12,480.5", "grouped, prefixed, settled");
+    assert_eq!(
+        *at(count, &["label"])?,
+        "$12,480.5",
+        "grouped, prefixed, settled"
+    );
     Ok(())
 }
 
 #[test]
 fn a_session_survives_loss_and_never_presents_a_stale_receipt() -> TestResult {
     let session = document(&["present", "--seed", "3", "--frames", "120"])?;
-    assert_eq!(session["hosts"], 11);
-    assert_eq!(session["refused_setup"].as_array().map(Vec::len), Some(0));
+    assert_eq!(*at(&session, &["hosts"])?, 11);
     assert_eq!(
-        session["epochs"],
+        at(&session, &["refused_setup"])?.as_array().map(Vec::len),
+        Some(0)
+    );
+    assert_eq!(
+        *at(&session, &["epochs"])?,
         json::json!([1, 2]),
         "one recovery, one bump"
     );
     assert_eq!(
-        session["refused_unavailable"], 2,
+        *at(&session, &["refused_unavailable"])?,
+        2,
         "draining and lost refuse"
     );
-    assert_eq!(session["stale_receipts"], 0);
-    assert_eq!(session["state"], "ready");
-    assert_eq!(session["totals"]["frames_presented"], 120);
-    assert_eq!(session["present_ms"]["samples"], 122);
+    assert_eq!(*at(&session, &["stale_receipts"])?, 0);
+    assert_eq!(*at(&session, &["state"])?, "ready");
+    assert_eq!(*at(&session, &["totals", "frames_presented"])?, 120);
+    assert_eq!(*at(&session, &["present_ms", "samples"])?, 122);
     let again = document(&["present", "--seed", "3", "--frames", "120"])?;
     assert_eq!(
-        session["digest"], again["digest"],
+        at(&session, &["digest"])?,
+        at(&again, &["digest"])?,
         "receipts replay by seed"
     );
     Ok(())
@@ -101,20 +139,27 @@ fn a_session_survives_loss_and_never_presents_a_stale_receipt() -> TestResult {
 #[test]
 fn tokens_publish_every_role_in_both_themes_with_grades() -> TestResult {
     let tokens = document(&["tokens"])?;
-    assert_eq!(tokens["primitives"].as_array().map(Vec::len), Some(18));
-    for primitive in tokens["primitives"].as_array().into_iter().flatten() {
-        assert_eq!(primitive["round_trips"], true, "{primitive}");
+    assert_eq!(
+        at(&tokens, &["primitives"])?.as_array().map(Vec::len),
+        Some(18)
+    );
+    for primitive in items(&tokens, "primitives") {
+        assert_eq!(*at(primitive, &["round_trips"])?, true, "{primitive}");
     }
-    assert_eq!(tokens["colourways"].as_array().map(Vec::len), Some(9));
-    for theme in tokens["themes"].as_array().into_iter().flatten() {
-        assert_eq!(theme["roles"].as_array().map(Vec::len), Some(18));
+    assert_eq!(
+        at(&tokens, &["colourways"])?.as_array().map(Vec::len),
+        Some(9)
+    );
+    for theme in items(&tokens, "themes") {
+        assert_eq!(at(theme, &["roles"])?.as_array().map(Vec::len), Some(18));
         // Body text on the canvas meets AAA (7:1) in both themes.
         assert_eq!(
-            theme["contrast"]["text-on-canvas"]["text"], "AAA",
+            *at(theme, &["contrast", "text-on-canvas", "text"])?,
+            "AAA",
             "{theme}"
         );
     }
-    let css = tokens["css"].as_str().ok_or("no css")?;
+    let css = at(&tokens, &["css"])?.as_str().ok_or("no css")?;
     assert!(css.contains("--lw-p-clay-500: #c84025;"), "{css}");
     assert!(css.contains("[data-theme=\"dark\"]"), "{css}");
     Ok(())
@@ -123,12 +168,12 @@ fn tokens_publish_every_role_in_both_themes_with_grades() -> TestResult {
 #[test]
 fn every_page_of_the_publication_is_readable() -> TestResult {
     let index = document(&["docs"])?;
-    let pages = index["pages"].as_array().ok_or("no index")?;
+    let pages = at(&index, &["pages"])?.as_array().ok_or("no index")?;
     assert_eq!(pages.len(), 10);
     for page in pages {
-        let name = page["page"].as_str().ok_or("unnamed page")?;
+        let name = at(page, &["page"])?.as_str().ok_or("unnamed page")?;
         let read = document(&["docs", name])?;
-        let markdown = read["markdown"].as_str().ok_or("no markdown")?;
+        let markdown = at(&read, &["markdown"])?.as_str().ok_or("no markdown")?;
         assert!(markdown.len() > 500, "{name} is a placeholder");
     }
     Ok(())
@@ -137,9 +182,9 @@ fn every_page_of_the_publication_is_readable() -> TestResult {
 #[test]
 fn limits_report_the_declared_bounds() -> TestResult {
     let limits = document(&["limits"])?;
-    assert_eq!(limits["ink"]["max_shapes"], 512);
-    assert_eq!(limits["ink"]["max_beads"], 64);
-    assert_eq!(limits["runtime"]["conservative"]["max_hosts"], 64);
+    assert_eq!(*at(&limits, &["ink", "max_shapes"])?, 512);
+    assert_eq!(*at(&limits, &["ink", "max_beads"])?, 64);
+    assert_eq!(*at(&limits, &["runtime", "conservative", "max_hosts"])?, 64);
     Ok(())
 }
 
@@ -158,7 +203,10 @@ fn malformed_input_is_refused_as_json_with_a_failing_status() -> TestResult {
         assert!(!output.status.success(), "{args:?} was accepted");
         assert!(output.stdout.is_empty(), "{args:?} wrote a document");
         let refusal: Value = json::from_slice(&output.stderr)?;
-        assert!(refusal["refused"].is_string(), "{args:?}: {refusal}");
+        assert!(
+            at(&refusal, &["refused"])?.is_string(),
+            "{args:?}: {refusal}"
+        );
     }
     Ok(())
 }

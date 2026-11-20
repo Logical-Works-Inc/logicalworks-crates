@@ -45,7 +45,9 @@ fn sim_session_zone_container_follows_the_model() -> Result<(), String> {
     ];
     for seed in 0..120_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(220_000));
-        let zone = zones[random.below_len(zones.len())];
+        let zone = *zones
+            .get(random.below_len(zones.len()))
+            .ok_or("zones must not be empty")?;
         let mut real = ZoneContainer::new(zone);
         let mut model = ZoneModel {
             pinned: false,

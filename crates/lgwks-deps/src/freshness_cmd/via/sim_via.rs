@@ -59,7 +59,7 @@ fn entries_split_into_name_version_and_source() {
 #[test]
 fn a_package_a_registry_dependency_pulls_in_comes_through_that_dependency() {
     // Issue #702: bevy_ecs is stale because lgwks_bot pulls it in.
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["lgwks_bot", "serde"]),
         registry("bevy_ecs", "0.19.1", &["bevy_ptr"]),
         registry("bevy_ptr", "0.19.1", &[]),
@@ -87,7 +87,7 @@ fn a_package_a_registry_dependency_pulls_in_comes_through_that_dependency() {
 
 #[test]
 fn a_package_two_directs_reach_names_both_sorted() {
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["zeta", "alpha"]),
         registry("alpha", "1.0.0", &["shared"]),
         registry("shared", "1.0.0", &[]),
@@ -98,7 +98,7 @@ fn a_package_two_directs_reach_names_both_sorted() {
 
 #[test]
 fn workspace_members_and_path_dependencies_are_looked_through() {
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["lib", "tool"]),
         local("lib", &["serde"]),
         local("tool", &["lib"]),
@@ -112,7 +112,7 @@ fn workspace_members_and_path_dependencies_are_looked_through() {
 
 #[test]
 fn two_versions_of_one_name_are_told_apart_by_version() {
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["rand 0.8.5", "old"]),
         registry("old", "1.0.0", &["rand 0.7.3"]),
         registry("rand", "0.7.3", &[]),
@@ -128,7 +128,7 @@ fn two_versions_of_one_name_are_told_apart_by_version() {
 
 #[test]
 fn two_directly_declared_versions_of_one_name_each_carry_their_version() {
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["rand 0.7.3", "rand 0.8.5"]),
         registry("rand", "0.7.3", &[]),
         registry("rand", "0.8.5", &[]),
@@ -141,7 +141,7 @@ fn two_directly_declared_versions_of_one_name_each_carry_their_version() {
 fn a_source_on_an_entry_picks_between_equal_versions() {
     let mut mirror = registry("dup", "1.0.0", &[]);
     mirror.source = Some("registry+https://mirror.test/index".to_owned());
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["dup 1.0.0 (registry+https://mirror.test/index)"]),
         registry("dup", "1.0.0", &[]),
         mirror,
@@ -152,7 +152,7 @@ fn a_source_on_an_entry_picks_between_equal_versions() {
 
 #[test]
 fn an_edge_to_nowhere_and_a_position_outside_the_graph_reach_nothing() {
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["ghost", "real"]),
         registry("real", "1.0.0", &["missing 9.9.9"]),
     ]);
@@ -162,7 +162,7 @@ fn an_edge_to_nowhere_and_a_position_outside_the_graph_reach_nothing() {
 
 #[test]
 fn a_cycle_among_registry_packages_terminates() {
-    let graph = Graph::new(vec![
+    let graph = Graph::new(&[
         local("app", &["left"]),
         registry("left", "1.0.0", &["right"]),
         registry("right", "1.0.0", &["left"]),
@@ -201,14 +201,17 @@ fn draw(stream: &mut Seeded) -> Result<Vec<Node>, SimError> {
 /// over registry edges reaches it, found by closing the relation to a fixed
 /// point instead of by a search from each direct.
 fn reference(nodes: &[Node]) -> Vec<BTreeSet<String>> {
-    let count = nodes.len();
     let position = |entry: &str| nodes.iter().position(|node| node.name == entry);
-    let mut reaches = vec![BTreeSet::new(); count];
-    for (at, node) in nodes.iter().enumerate() {
-        if node.source.is_some() {
-            reaches[at].insert(at);
-        }
-    }
+    let is_registry = |at: usize| nodes.get(at).is_some_and(|node| node.source.is_some());
+    let mut reaches: Vec<BTreeSet<usize>> = (0..nodes.len())
+        .map(|at| {
+            if is_registry(at) {
+                BTreeSet::from([at])
+            } else {
+                BTreeSet::new()
+            }
+        })
+        .collect();
     loop {
         let mut changed = false;
         for (at, node) in nodes.iter().enumerate() {
@@ -219,12 +222,15 @@ fn reference(nodes: &[Node]) -> Vec<BTreeSet<String>> {
                 let Some(target) = position(entry) else {
                     continue;
                 };
-                if nodes[target].source.is_none() {
+                if !is_registry(target) {
                     continue;
                 }
-                let inherited: Vec<usize> = reaches[at].iter().copied().collect();
-                for origin in inherited {
-                    changed |= reaches[target].insert(origin);
+                let inherited: Vec<usize> =
+                    reaches.get(at).into_iter().flatten().copied().collect();
+                if let Some(slot) = reaches.get_mut(target) {
+                    for origin in inherited {
+                        changed |= slot.insert(origin);
+                    }
                 }
             }
         }
@@ -236,18 +242,20 @@ fn reference(nodes: &[Node]) -> Vec<BTreeSet<String>> {
     for node in nodes.iter().filter(|node| node.source.is_none()) {
         for entry in &node.dependencies {
             if let Some(target) = position(entry)
-                && nodes[target].source.is_some()
+                && is_registry(target)
             {
                 directs.insert(target);
             }
         }
     }
-    (0..count)
-        .map(|at| {
-            reaches[at]
+    reaches
+        .iter()
+        .map(|origins| {
+            origins
                 .iter()
                 .filter(|origin| directs.contains(*origin))
-                .map(|origin| nodes[*origin].name.clone())
+                .filter_map(|origin| nodes.get(*origin))
+                .map(|node| node.name.clone())
                 .collect()
         })
         .collect()
@@ -258,7 +266,7 @@ fn the_graph_matches_a_fixed_point_closure_over_seeds() -> TestResult {
     for seed in 0..300_u64 {
         let mut stream = Seeded::from_seed(seed);
         let nodes = draw(&mut stream)?;
-        let graph = Graph::new(nodes.clone());
+        let graph = Graph::new(&nodes);
         let expected = reference(&nodes);
         for (at, expected_labels) in expected.iter().enumerate() {
             let got: BTreeSet<String> = graph.via(at).iter().cloned().collect();
@@ -267,7 +275,7 @@ fn the_graph_matches_a_fixed_point_closure_over_seeds() -> TestResult {
                 "seed {seed}: package {at} comes through the wrong directs"
             );
             assert!(
-                graph.via(at).windows(2).all(|pair| pair[0] < pair[1]),
+                graph.via(at).is_sorted_by(|left, right| left < right),
                 "seed {seed}: package {at}'s directs are not sorted and distinct"
             );
         }

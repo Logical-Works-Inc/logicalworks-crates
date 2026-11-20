@@ -12,21 +12,32 @@ use lgwks_deps::contract::Contract;
 use lgwks_deps::metadata::{self, DirectEdge};
 use lgwks_deps::{Refusal, audit_direct};
 
-pub use sim::Rng;
+pub(crate) use sim::Rng;
 
 /// The registry source the fixture approvals and edges name.
-pub const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
+pub(crate) const REGISTRY: &str = "registry+https://github.com/rust-lang/crates.io-index";
 
 /// What every test in the including suites returns.
-pub type TestResult = Result<(), Box<dyn Error>>;
+pub(crate) type TestResult = Result<(), Box<dyn Error>>;
 
 /// An `aliases = "…"` line for an approval, or empty when there is no alias.
-pub fn alias_line(alias: Option<&str>) -> String {
-    alias.map_or(String::new(), |value| format!("aliases = \"{value}\"\n"))
+pub(crate) fn alias_line(alias: Option<&str>) -> String {
+    match alias {
+        Some(value) => format!("aliases = \"{value}\"\n"),
+        None => String::new(),
+    }
+}
+
+/// A JSON string literal for `value`, or JSON `null` when the dimension is absent.
+fn json_text_or_null(value: Option<&str>) -> String {
+    match value {
+        Some(text) => format!("\"{text}\""),
+        None => "null".to_owned(),
+    }
 }
 
 /// One edge with every authored dimension spelled out, through the parser.
-pub fn edge(
+pub(crate) fn edge(
     package: &str,
     source: Option<&str>,
     features: &[&str],
@@ -35,14 +46,14 @@ pub fn edge(
     target: Option<&str>,
     rename: Option<&str>,
 ) -> Result<DirectEdge, Box<dyn Error>> {
-    let source = source.map_or("null".to_owned(), |value| format!("\"{value}\""));
+    let source = json_text_or_null(source);
     let features = features
         .iter()
         .map(|feature| format!("\"{feature}\""))
         .collect::<Vec<_>>()
         .join(",");
-    let target = target.map_or("null".to_owned(), |value| format!("\"{value}\""));
-    let rename = rename.map_or("null".to_owned(), |value| format!("\"{value}\""));
+    let target = json_text_or_null(target);
+    let rename = json_text_or_null(rename);
     let document = format!(
         r#"{{"packages":[{{"id":"app","name":"app","repository":null,"manifest_path":"/repo/Cargo.toml","dependencies":[{{"name":"{package}","source":{source},"req":"1.0","kind":null,"rename":{rename},"optional":{optional},"uses_default_features":{uses_default_features},"features":[{features}],"target":{target},"path":null}}]}},{{"id":"lic-{package}","name":"{package}","license":"MIT OR Apache-2.0","manifest_path":"/dep/Cargo.toml","dependencies":[]}}],"workspace_members":["app"]}}"#
     );
@@ -54,7 +65,11 @@ pub fn edge(
 
 /// A register with one approval for `package` owned by `app`, carrying the given
 /// extra lines (an alias and any policy keys).
-pub fn register(package: &str, source: &str, extra: &str) -> Result<Contract, Box<dyn Error>> {
+pub(crate) fn register(
+    package: &str,
+    source: &str,
+    extra: &str,
+) -> Result<Contract, Box<dyn Error>> {
     let text = format!(
         concat!(
             "[policy]\nschema = 2\nenforce = true\naccepted_licenses = \"MIT, Apache-2.0\"\n\n",
@@ -78,6 +93,6 @@ fn verdict(refusals: &[Refusal]) -> u8 {
 }
 
 /// Audit one edge and return its verdict code.
-pub fn code_for(register: &Contract, edge: DirectEdge) -> u8 {
+pub(crate) fn code_for(register: &Contract, edge: DirectEdge) -> u8 {
     verdict(&audit_direct(&[edge], register))
 }

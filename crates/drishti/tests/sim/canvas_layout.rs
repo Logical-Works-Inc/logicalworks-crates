@@ -13,7 +13,7 @@ use drishti::canvas_protocol::{
 };
 
 use crate::canvas_layout_faults::{Faults, base, tool};
-use crate::motion_kit::{describe, ensure, with_member};
+use crate::motion_kit::{describe, ensure, pick, with_member};
 use crate::rng::SimRng;
 
 /// Lowercase letters.
@@ -22,9 +22,13 @@ const LETTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
 /// A seeded lowercase word of one to six letters.
 fn word(random: &mut SimRng) -> String {
     let count = random.below_len(6).saturating_add(1);
-    (0..count)
-        .map(|_| char::from(LETTERS[random.below_len(LETTERS.len())]))
-        .collect()
+    let mut text = String::new();
+    for _ in 0..count {
+        if let Some(letter) = LETTERS.get(random.below_len(LETTERS.len())) {
+            text.push(char::from(*letter));
+        }
+    }
+    text
 }
 
 /// A seeded valid layout.
@@ -35,7 +39,7 @@ fn random_layout(random: &mut SimRng) -> Result<WorkspaceLayout, String> {
         ChromePlacement::Bottom,
         ChromePlacement::Left,
     ];
-    let default = placements[random.below_len(4)];
+    let default = pick(random, &placements)?;
     let mut allowed = vec![default];
     for placement in placements {
         if placement != default && random.below(2) == 0 {
@@ -152,7 +156,7 @@ fn sim_layout_seeded_layouts_validate_and_survive_the_wire() -> Result<(), Strin
 /// reported at all, so a renderer receives a workspace the contract forbids.
 #[test]
 fn sim_layout_every_single_fault_is_named_with_its_path() -> Result<(), String> {
-    let table = Faults::everything();
+    let table = Faults::everything()?;
     ensure(table.len() > 90, "the fault table must be broad")?;
     for (label, layout, issue, at) in table {
         ensure(
@@ -170,7 +174,12 @@ fn sim_layout_every_single_fault_is_named_with_its_path() -> Result<(), String> 
     let mut edges = base();
     edges.set_title("x".repeat(80));
     edges.set_subtitle("\u{e9}".repeat(120));
-    edges.surfaces_mut()[0].presentation_mut().set_order(31);
+    edges
+        .surfaces_mut()
+        .first_mut()
+        .ok_or("the base layout has no surface")?
+        .presentation_mut()
+        .set_order(31);
     ensure(
         edges.validate().is_ok(),
         "the exact maxima must be accepted",
@@ -232,8 +241,12 @@ fn sim_layout_loader_refuses_unknown_mistyped_and_cut_documents() -> Result<(), 
         "an unknown top-level key was accepted",
     )?;
     for cut in 0..text.len() {
+        let prefix = text
+            .as_bytes()
+            .get(..cut)
+            .ok_or("the cut is past the document")?;
         ensure(
-            load_validated(&text.as_bytes()[..cut]).is_err(),
+            load_validated(prefix).is_err(),
             &format!("the first {cut} bytes loaded as a layout"),
         )?;
     }

@@ -391,7 +391,7 @@ impl GovernanceStore {
     /// # Ok::<(), GovernanceError>(())
     /// ```
     pub fn append(&self, entry: &GovernanceEntry) -> Result<(), GovernanceError> {
-        self.append_with_policy(entry, String::new())
+        self.append_with_policy(entry, "")
     }
 
     /// Append an entry carrying the session's policy bundle id.
@@ -409,16 +409,16 @@ impl GovernanceStore {
     /// let mut entry = GovernanceEntry::new("sess".into(), "e1".into(), "wo".into(), "sig-1".into(), "k".into(), "d".into(), by);
     /// entry.set_recorded_at("2026-11-03T00:00:00Z".into());
     /// entry.set_tenant_id("tenant-a".into());
-    /// store.append_with_policy(&entry, "policy-1".into())?;
+    /// store.append_with_policy(&entry, "policy-1")?;
     /// let at = parse_millis("2026-11-03T00:00:00Z").map_err(|e| GovernanceError::Store(e.to_string()))?;
     /// let query = GovernanceQuery::new("tenant-a".into(), "sess".into(), at, at, None, None)?;
-    /// assert_eq!(store.query(&query)?[0].policy_bundle_id(), "policy-1");
+    /// assert_eq!(store.query(&query)?.first().map(|entry| entry.policy_bundle_id()), Some("policy-1"));
     /// # Ok::<(), GovernanceError>(())
     /// ```
     pub fn append_with_policy(
         &self,
         entry: &GovernanceEntry,
-        policy_bundle_id: String,
+        policy_bundle_id: &str,
     ) -> Result<(), GovernanceError> {
         ensure(!entry.signal_id().is_empty(), || {
             GovernanceError::MalformedEntry(String::from("signalId must not be empty"))

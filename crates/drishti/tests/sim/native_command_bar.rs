@@ -66,7 +66,10 @@ fn sim_command_bar_parse_and_suggestions_agree_on_case() -> Result<(), String> {
 fn sim_command_bar_case_folding_does_not_widen_the_vocabulary() -> Result<(), String> {
     for seed in 0..300_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(410_000));
-        let (name, _) = COMMANDS[random.below_len(COMMANDS.len())];
+        let name = COMMANDS
+            .get(random.below_len(COMMANDS.len()))
+            .ok_or("commands must not be empty")?
+            .0;
         let near = match random.below(4) {
             0 => format!("{name}x"),
             1 => name.chars().take(name.len().saturating_sub(1)).collect(),
@@ -79,7 +82,10 @@ fn sim_command_bar_case_folding_does_not_widen_the_vocabulary() -> Result<(), St
             &format!("seed {seed}: {typed:?} must stay an unknown command"),
         )?;
         let cut = random.below_len(name.len().saturating_add(1));
-        let prefix = format!("/{}", mixed_case(&mut random, &name[..cut]));
+        let typed_prefix = name
+            .get(..cut)
+            .ok_or("the cut is not a character boundary")?;
+        let prefix = format!("/{}", mixed_case(&mut random, typed_prefix));
         for offered in CommandSuggestions::suggestions(&prefix) {
             let shouted = mixed_case(&mut random, &offered);
             ensure(

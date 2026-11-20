@@ -16,6 +16,7 @@ use crate::broker_shared::{
     register_listen, session, subscribe_all, widget,
 };
 use crate::fixtures::ensure;
+use crate::motion_kit::pick;
 use crate::rng::{SimRng, TraceHash};
 
 /// Forged widget handle that the broker must refuse.
@@ -58,16 +59,17 @@ fn pick_scope(
     tenants: &[&'static str],
     sessions: &[&'static str],
 ) -> Result<(&'static str, &'static str), String> {
-    ensure(!tenants.is_empty(), || {
-        String::from("tenants must not be empty")
-    })?;
-    ensure(!sessions.is_empty(), || {
-        String::from("sessions must not be empty")
-    })?;
-    Ok((
-        tenants[random.below_len(tenants.len())],
-        sessions[random.below_len(sessions.len())],
-    ))
+    Ok((pick(random, tenants)?, pick(random, sessions)?))
+}
+
+/// A listener that appends `source:kind` for every envelope it hears.
+fn logging_listener(log: &Arc<Mutex<Vec<String>>>) -> SignalListener {
+    let log = Arc::clone(log);
+    Arc::new(
+        move |envelope: drishti::native_host::protocol::SignalEnvelope| {
+            lock_recover(&log).push(format!("{}:{}", envelope.source_id(), envelope.kind()));
+        },
+    )
 }
 
 /// Run one storm from `seed`: register widgets across tenants and sessions,
@@ -107,18 +109,7 @@ fn run_storm(seed: u64) -> Result<u64, String> {
         let glob = random
             .pick_str(&globs)
             .ok_or_else(|| String::from("globs must not be empty"))?;
-        let listener: SignalListener = {
-            let log = Arc::clone(&log);
-            Arc::new(
-                move |envelope: drishti::native_host::protocol::SignalEnvelope| {
-                    lock_recover(&log).push(format!(
-                        "{}:{}",
-                        envelope.source_id(),
-                        envelope.kind()
-                    ));
-                },
-            )
-        };
+        let listener = logging_listener(&log);
         if let Ok(id) = broker.subscribe(
             handle,
             SignalPattern::new(String::from(glob), None),

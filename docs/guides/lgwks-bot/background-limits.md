@@ -9,7 +9,7 @@ Pages of this guide: [tasks](background-work.md) ·
 
 These are the places the bounds stop applying.
 
-**A bound on tasks is not a bound on time.** `crates/lgwks-bot/src/rt/mod.rs:86`
+**A bound on tasks is not a bound on time.** `crates/lgwks-bot/src/rt.rs:86`
 states it: this is not a scheduler with realtime guarantees, and future
 completion order across worker threads is not deterministic. Only the result
 order of `join_all_bounded` is. The same applies to a child process: the
@@ -40,7 +40,7 @@ reported `Cancelled` and one that ignored it as `Aborted`. The grace is time and
 not a count of yields, which matters on a multi-threaded runtime. `yield_now`
 only reschedules the yielding task, so it cannot give a body parked on another
 worker the thread wakeup its return needs. A counted grace reported cancelled
-work as aborted (`crates/lgwks-bot/src/rt/supervise.rs:497`). A body that
+work as aborted (`crates/lgwks-bot/src/rt/supervise.rs:510`). A body that
 returns is settled the moment it does, so the grace is a ceiling on the wait and
 not a cost charged to every shutdown.
 

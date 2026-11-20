@@ -105,8 +105,7 @@ fn collect_value(lines: &[&str], cursor: &mut usize, first: &str) -> String {
     loop {
         let chars: Vec<char> = current.chars().collect();
         let mut index = 0_usize;
-        while index < chars.len() {
-            let ch = chars[index];
+        while let Some(&ch) = chars.get(index) {
             match mode {
                 Mode::Normal => {
                     if starts_at(&chars, index, "\"\"\"") {
@@ -234,14 +233,13 @@ fn strings_in(raw: &str) -> Vec<String> {
     let chars: Vec<char> = raw.chars().collect();
     let mut found = Vec::new();
     let mut index = 0_usize;
-    while index < chars.len() {
-        let ch = chars[index];
+    while let Some(&ch) = chars.get(index) {
         if starts_at(&chars, index, "\"\"\"") || starts_at(&chars, index, "'''") {
             let quote = if ch == '"' { "\"\"\"" } else { "'''" };
             let start = index.saturating_add(3);
             let mut end = start;
             while end < chars.len() && !starts_at(&chars, end, quote) {
-                end = end.saturating_add(if ch == '"' && chars[end] == '\\' {
+                end = end.saturating_add(if ch == '"' && chars.get(end) == Some(&'\\') {
                     2
                 } else {
                     1
@@ -262,8 +260,8 @@ fn strings_in(raw: &str) -> Vec<String> {
         } else if ch == '"' {
             let start = index.saturating_add(1);
             let mut end = start;
-            while end < chars.len() && chars[end] != '"' {
-                end = end.saturating_add(if chars[end] == '\\' { 2 } else { 1 });
+            while chars.get(end).is_some_and(|next| *next != '"') {
+                end = end.saturating_add(if chars.get(end) == Some(&'\\') { 2 } else { 1 });
             }
             let body: String = chars
                 .iter()
@@ -275,7 +273,7 @@ fn strings_in(raw: &str) -> Vec<String> {
         } else if ch == '\'' {
             let start = index.saturating_add(1);
             let mut end = start;
-            while end < chars.len() && chars[end] != '\'' {
+            while chars.get(end).is_some_and(|next| *next != '\'') {
                 end = end.saturating_add(1);
             }
             found.push(
@@ -380,4 +378,54 @@ pub(crate) fn read_tables(text: &str) -> Vec<Table> {
         cursor = cursor.saturating_add(1);
     }
     tables
+}
+
+#[cfg(test)]
+mod tests {
+    //! The scan loops of `collect_value` and `strings_in`, held to TOML v1.0.0
+    //! (toml.io/en/v1.0.0, "String"): a basic string's `\"` does not close it, a
+    //! literal string has no escapes, and a multi-line value runs to its closer.
+
+    use super::{Table, list, raw, read_tables, text};
+
+    /// The top-level table of `source`, the one every key below lands in.
+    fn top(source: &str) -> Table {
+        read_tables(source).swap_remove(0)
+    }
+
+    #[test]
+    fn a_basic_string_keeps_an_escaped_quote_inside() {
+        let table = top("name = \"a\\\"b\"\nnext = 1\n");
+        assert_eq!(text(&table, "name"), Some("a\"b"));
+        assert_eq!(raw(&table, "next"), Some("1"));
+    }
+
+    #[test]
+    fn a_literal_string_keeps_its_backslash() {
+        let table = top("pattern = 'a\\d+'\n");
+        assert_eq!(text(&table, "pattern"), Some("a\\d+"));
+    }
+
+    #[test]
+    fn a_multi_line_basic_string_skips_an_escaped_quote_run() {
+        let table = top("doc = \"\"\"\nx\\\"\"\"y\"\"\"\n");
+        assert_eq!(text(&table, "doc"), Some("x\"\"\"y"));
+    }
+
+    #[test]
+    fn a_multi_line_literal_string_keeps_escapes_as_written() {
+        let table = top("doc = '''\nline\\n'''\nafter = 2\n");
+        assert_eq!(text(&table, "doc"), Some("line\\n"));
+        assert_eq!(raw(&table, "after"), Some("2"));
+    }
+
+    #[test]
+    fn an_array_runs_over_lines_and_drops_comments() {
+        let table = top("deps = [\n  \"a\",\n  'b', # \"not-c\"\n]\nnext = 3\n");
+        assert_eq!(
+            list(&table, "deps"),
+            Some(["a".to_owned(), "b".to_owned()].as_slice())
+        );
+        assert_eq!(raw(&table, "next"), Some("3"));
+    }
 }

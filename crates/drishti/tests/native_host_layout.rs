@@ -76,7 +76,10 @@ fn privileged_and_duplicate_orders_fail_at_validation() -> Result<(), String> {
     let bytes = read_file(&protocol_path("workspaces/workspace-landing.json"))?;
     let mut layout: WorkspaceLayout = lgwks_std::json::from_slice(&bytes)
         .map_err(|error| format!("canonical must decode: {error}"))?;
-    layout.surfaces_mut()[0]
+    layout
+        .surfaces_mut()
+        .first_mut()
+        .ok_or_else(|| String::from("canonical layout has no first surface"))?
         .descriptor_mut()
         .capabilities_mut()
         .push(drishti::canvas_protocol::Capability::TapeRead);
@@ -93,8 +96,18 @@ fn privileged_and_duplicate_orders_fail_at_validation() -> Result<(), String> {
     let bytes = read_file(&protocol_path("workspaces/workspace-landing.json"))?;
     let mut layout: WorkspaceLayout =
         lgwks_std::json::from_slice(&bytes).map_err(|error| format!("{error}"))?;
-    let order = layout.surfaces()[0].presentation().order();
-    layout.surfaces_mut()[1].presentation_mut().set_order(order);
+    let order = layout
+        .surfaces()
+        .first()
+        .ok_or_else(|| String::from("canonical layout has no first surface"))?
+        .presentation()
+        .order();
+    layout
+        .surfaces_mut()
+        .get_mut(1)
+        .ok_or_else(|| String::from("canonical layout has no second surface"))?
+        .presentation_mut()
+        .set_order(order);
     match layout.validate() {
         Err(error)
             if error

@@ -22,21 +22,39 @@ fn allows_consumer(entry: &contract::Entry, consumer: &str) -> bool {
 /// The two Cargo spellings — the Git index and the sparse index — name this one
 /// registry, so both compare equal to it and to each other. Any other registry
 /// source is a different authority and needs its own authored `origin`.
-pub(crate) const CRATES_IO_INDEX: &str = "registry+https://github.com/rust-lang/crates.io-index";
-/// The sparse transport spelling of the crates.io registry.
-pub(crate) const CRATES_IO_SPARSE: &str = "sparse+https://index.crates.io/";
+const GIT_INDEX_SCHEME: &str = "registry+https://";
+/// Where the Git index lives, after its scheme.
+const GIT_INDEX_LOCATION: &str = "github.com/rust-lang/crates.io-index";
+/// The sparse transport's scheme prefix in a Cargo source string.
+const SPARSE_SCHEME: &str = "sparse+https://";
+/// The host the sparse transport of the crates.io registry is served from.
+const SPARSE_HOST: &str = "index.crates.io";
+
+/// The Git spelling of the crates.io source, as Cargo writes it in `Cargo.lock`.
+fn crates_io_index() -> String {
+    format!("{GIT_INDEX_SCHEME}{GIT_INDEX_LOCATION}")
+}
+
+/// The two crates.io spellings the model-checked tests draw from, defined in
+/// `tests.rs` beside the register fixtures.
+#[cfg(test)]
+pub(crate) use crate::tests::{CRATES_IO_INDEX, CRATES_IO_SPARSE};
 
 /// Whether `detail` names the crates.io registry through either Cargo spelling.
 pub(crate) fn is_crates_io(detail: &str) -> bool {
-    detail == CRATES_IO_INDEX
-        || detail == CRATES_IO_SPARSE
-        || detail == "sparse+https://index.crates.io"
+    let git = detail
+        .strip_prefix(GIT_INDEX_SCHEME)
+        .is_some_and(|location| location == GIT_INDEX_LOCATION);
+    let sparse = detail
+        .strip_prefix(SPARSE_SCHEME)
+        .is_some_and(|rest| rest == SPARSE_HOST || rest.strip_prefix(SPARSE_HOST) == Some("/"));
+    git || sparse
 }
 
 /// The repository portion of a Cargo Git source, before any revision policy.
 pub(crate) fn git_repository(detail: &str) -> &str {
-    match detail.find(['?', '#']) {
-        Some(index) => &detail[..index],
+    match detail.split(['?', '#']).next() {
+        Some(repository) => repository,
         None => detail,
     }
 }
@@ -44,10 +62,13 @@ pub(crate) fn git_repository(detail: &str) -> &str {
 /// The revision/reference policy of a Cargo Git source: the `?rev=…`/`?branch=…`
 /// query and the `#…` resolved-revision fragment, or empty when none is pinned.
 pub(crate) fn git_policy(detail: &str) -> &str {
-    match detail.find(['?', '#']) {
-        Some(index) => &detail[index..],
-        None => "",
-    }
+    let Some(policy) = detail
+        .find(['?', '#'])
+        .and_then(|index| detail.get(index..))
+    else {
+        return "";
+    };
+    policy
 }
 
 /// Whether an authored origin admits an observed Cargo source exactly.
@@ -89,7 +110,7 @@ fn origin_matches(entry: &contract::Entry, edge: &DirectEdge) -> bool {
 fn approved_origin(entry: &contract::Entry, edge: &DirectEdge) -> String {
     match entry.origin.as_deref() {
         Some(approved) => approved.to_owned(),
-        None if entry.source == "registry" => CRATES_IO_INDEX.to_owned(),
+        None if entry.source == "registry" => crates_io_index(),
         None => format!(
             "{} (class-only: an exact origin is required)",
             edge.source.class()
@@ -154,10 +175,10 @@ pub(crate) fn scope_label(scope: Option<&str>) -> &str {
 /// unconditional declaration, and any other string must equal the edge's target
 /// `cfg(…)` exactly.
 fn target_matches(entry: &contract::Entry, edge: &DirectEdge) -> bool {
-    match entry.target.as_deref() {
-        None => true,
-        Some(approved) => approved == declared_scope(edge.target.as_deref()),
-    }
+    entry
+        .target
+        .as_deref()
+        .is_none_or(|approved| approved == declared_scope(edge.target.as_deref()))
 }
 
 /// The register's `target` spelling of a scope Cargo reported.
@@ -278,8 +299,13 @@ pub(crate) fn rejected_license_identifiers(expression: &str, accepted: &[String]
         .filter(|token| !token.is_empty())
         .collect::<Vec<_>>();
     let mut index = 0;
-    while index < tokens.len() {
-        let rest = tokens[index..].join(" ");
+    while let Some(&token) = tokens.get(index) {
+        let rest = tokens
+            .iter()
+            .skip(index)
+            .copied()
+            .collect::<Vec<_>>()
+            .join(" ");
         if let Some(accepted) = accepted
             .iter()
             .filter(|candidate| starts_with_term(&rest, candidate))
@@ -290,7 +316,6 @@ pub(crate) fn rejected_license_identifiers(expression: &str, accepted: &[String]
             index = index.saturating_add(consumed);
             continue;
         }
-        let token = tokens[index];
         if !matches!(token, "AND" | "OR" | "WITH") {
             rejected.push(token.to_owned());
         }
@@ -544,6 +569,133 @@ pub(crate) fn surface_refusals(members: &[String], register: &Contract) -> Vec<R
         .collect()
 }
 
+/// The one refusal an external edge earns, or `None` when it is admitted.
+///
+/// The questions are asked in a fixed order — estate, owned, consumer, source
+/// class, origin, requirement, features, default features, optionality, target,
+/// kind — and the first that fails is the refusal, so a register with several
+/// drifts reports the same one on every run.
+fn edge_refusal(edge: &DirectEdge, register: &Contract) -> Option<Refusal> {
+    if is_estate_edge(edge) {
+        return None;
+    }
+    let approvals: Vec<&contract::Entry> = register.approvals_for(&edge.package).collect();
+    if approvals.is_empty() {
+        return Some(Refusal::UnregisteredEdge {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            requirement: edge.requirement.clone(),
+            source: format!("{}:{}", edge.source.class(), edge.source.detail()),
+            kind: edge.kind.to_string(),
+        });
+    }
+    if approvals.iter().any(|entry| edge_matches(entry, edge)) {
+        return None;
+    }
+    let consumer_approvals: Vec<&contract::Entry> = approvals
+        .iter()
+        .copied()
+        .filter(|entry| allows_consumer(entry, &edge.consumer))
+        .collect();
+    // Only approvals that admit the edge's source class are candidates for
+    // the class, origin, requirement or kind drift. Reporting a source
+    // mismatch from an approval of a *different* class would name an
+    // irrelevant candidate and misdirect the repair.
+    let class_matching: Vec<&contract::Entry> = consumer_approvals
+        .iter()
+        .copied()
+        .filter(|entry| entry.source == edge.source.class())
+        .collect();
+    if consumer_approvals.is_empty() {
+        return Some(Refusal::ConsumerNotAllowed {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+        });
+    }
+    if class_matching.is_empty() {
+        return consumer_approvals
+            .first()
+            .map(|entry| Refusal::SourceDrift {
+                consumer: edge.consumer.clone(),
+                krate: edge.package.clone(),
+                approved: entry.source.clone(),
+                declared: edge.source.class().to_owned(),
+            });
+    }
+    if let Some(entry) = first_failing(&class_matching, edge, origin_matches) {
+        return Some(Refusal::OriginDrift {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            approved: approved_origin(entry, edge),
+            declared: edge.source.detail().to_owned(),
+        });
+    }
+    if let Some(entry) = class_matching
+        .iter()
+        .copied()
+        .find(|entry| entry.version != edge.requirement)
+    {
+        return Some(Refusal::RequirementDrift {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            approved: entry.version.clone(),
+            declared: edge.requirement.clone(),
+        });
+    }
+    Some(policy_drift(edge, &class_matching))
+}
+
+/// The first entry among `entries` whose `holds` check refuses `edge`.
+fn first_failing<'a>(
+    entries: &[&'a contract::Entry],
+    edge: &DirectEdge,
+    holds: fn(&contract::Entry, &DirectEdge) -> bool,
+) -> Option<&'a contract::Entry> {
+    entries.iter().copied().find(|entry| !holds(entry, edge))
+}
+
+/// The refusal for an edge whose source, origin and requirement are approved:
+/// the first policy dimension that drifted, or the kind when none did.
+fn policy_drift(edge: &DirectEdge, class_matching: &[&contract::Entry]) -> Refusal {
+    if let Some(entry) = first_failing(class_matching, edge, feature_policy_matches) {
+        return Refusal::FeatureDrift {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            approved: approved_features(entry),
+            declared: edge.features.join(","),
+        };
+    }
+    if let Some(entry) = first_failing(class_matching, edge, default_features_matches) {
+        return Refusal::DefaultFeaturesDrift {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            approved: entry.uses_default_features,
+            declared: edge.uses_default_features,
+        };
+    }
+    if let Some(entry) = first_failing(class_matching, edge, optionality_matches) {
+        return Refusal::OptionalityDrift {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            approved: entry.optional,
+            declared: edge.optional,
+        };
+    }
+    if let Some(entry) = first_failing(class_matching, edge, target_matches) {
+        return Refusal::TargetDrift {
+            consumer: edge.consumer.clone(),
+            krate: edge.package.clone(),
+            approved: scope_label(entry.target.as_deref()).to_owned(),
+            declared: scope_label(edge.target.as_deref()).to_owned(),
+        };
+    }
+    Refusal::KindNotAllowed {
+        consumer: edge.consumer.clone(),
+        krate: edge.package.clone(),
+        kind: edge.kind.to_string(),
+    }
+}
+
 /// Audits authored direct dependency edges against semantic ownership.
 ///
 /// Five questions, each answered from a different evidence: is every frozen
@@ -579,126 +731,11 @@ pub fn audit_direct(edges: &[DirectEdge], register: &Contract) -> Vec<Refusal> {
     // registry (`is_estate_edge`, #701). Every other external edge needs an
     // approval.
     let external: Vec<&DirectEdge> = edges.iter().filter(|edge| !edge.workspace).collect();
-    for edge in &external {
-        if is_estate_edge(edge) {
-            continue;
-        }
-        let approvals: Vec<&contract::Entry> = register.approvals_for(&edge.package).collect();
-        if approvals.is_empty() {
-            refusals.push(Refusal::UnregisteredEdge {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                requirement: edge.requirement.clone(),
-                source: format!("{}:{}", edge.source.class(), edge.source.detail()),
-                kind: edge.kind.to_string(),
-            });
-            continue;
-        }
-        if approvals.iter().any(|entry| edge_matches(entry, edge)) {
-            continue;
-        }
-        let consumer_approvals: Vec<&contract::Entry> = approvals
+    refusals.extend(
+        external
             .iter()
-            .copied()
-            .filter(|entry| allows_consumer(entry, &edge.consumer))
-            .collect();
-        // Only approvals that admit the edge's source class are candidates for
-        // the class, origin, requirement or kind drift. Reporting a source
-        // mismatch from an approval of a *different* class would name an
-        // irrelevant candidate and misdirect the repair.
-        let class_matching: Vec<&contract::Entry> = consumer_approvals
-            .iter()
-            .copied()
-            .filter(|entry| entry.source == edge.source.class())
-            .collect();
-        if consumer_approvals.is_empty() {
-            refusals.push(Refusal::ConsumerNotAllowed {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-            });
-        } else if class_matching.is_empty() {
-            if let Some(entry) = consumer_approvals.first() {
-                refusals.push(Refusal::SourceDrift {
-                    consumer: edge.consumer.clone(),
-                    krate: edge.package.clone(),
-                    approved: entry.source.clone(),
-                    declared: edge.source.class().to_owned(),
-                });
-            }
-        } else if let Some(entry) = class_matching
-            .iter()
-            .copied()
-            .find(|entry| !origin_matches(entry, edge))
-        {
-            refusals.push(Refusal::OriginDrift {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                approved: approved_origin(entry, edge),
-                declared: edge.source.detail().to_owned(),
-            });
-        } else if let Some(entry) = class_matching
-            .iter()
-            .copied()
-            .find(|entry| entry.version != edge.requirement)
-        {
-            refusals.push(Refusal::RequirementDrift {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                approved: entry.version.clone(),
-                declared: edge.requirement.clone(),
-            });
-        } else if let Some(entry) = class_matching
-            .iter()
-            .copied()
-            .find(|entry| !feature_policy_matches(entry, edge))
-        {
-            refusals.push(Refusal::FeatureDrift {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                approved: approved_features(entry),
-                declared: edge.features.join(","),
-            });
-        } else if let Some(entry) = class_matching
-            .iter()
-            .copied()
-            .find(|entry| !default_features_matches(entry, edge))
-        {
-            refusals.push(Refusal::DefaultFeaturesDrift {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                approved: entry.uses_default_features,
-                declared: edge.uses_default_features,
-            });
-        } else if let Some(entry) = class_matching
-            .iter()
-            .copied()
-            .find(|entry| !optionality_matches(entry, edge))
-        {
-            refusals.push(Refusal::OptionalityDrift {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                approved: entry.optional,
-                declared: edge.optional,
-            });
-        } else if let Some(entry) = class_matching
-            .iter()
-            .copied()
-            .find(|entry| !target_matches(entry, edge))
-        {
-            refusals.push(Refusal::TargetDrift {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                approved: scope_label(entry.target.as_deref()).to_owned(),
-                declared: scope_label(edge.target.as_deref()).to_owned(),
-            });
-        } else {
-            refusals.push(Refusal::KindNotAllowed {
-                consumer: edge.consumer.clone(),
-                krate: edge.package.clone(),
-                kind: edge.kind.to_string(),
-            });
-        }
-    }
+            .filter_map(|edge| edge_refusal(edge, register)),
+    );
     for entry in &register.entries {
         let used = external.iter().any(|edge| {
             entry.admits(&edge.package) && edge.consumer == entry.owner && edge_matches(entry, edge)

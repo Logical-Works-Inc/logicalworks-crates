@@ -61,6 +61,9 @@ fn sim_capability_names_roundtrip_and_refuse_near_misses() -> Result<(), String>
     let mut candidates: Vec<String> = Vec::new();
     for name in &names {
         let chars: Vec<char> = name.chars().collect();
+        let (head, tail) = name
+            .split_at_checked(2)
+            .ok_or("a capability name holds two leading characters")?;
         candidates.push(name.to_uppercase());
         candidates.push(format!(" {name}"));
         candidates.push(format!("{name} "));
@@ -69,9 +72,21 @@ fn sim_capability_names_roundtrip_and_refuse_near_misses() -> Result<(), String>
         candidates.push(name.replace('.', "_"));
         candidates.push(name.replace('.', "\u{ff0e}"));
         candidates.push(format!("{name}{name}"));
-        candidates.push(chars[..chars.len().saturating_sub(1)].iter().collect());
-        candidates.push(chars[1..].iter().collect());
-        candidates.push(format!("{}\u{200b}{}", &name[..2], &name[2..]));
+        candidates.push(
+            chars
+                .get(..chars.len().saturating_sub(1))
+                .ok_or("the name has no shortened form")?
+                .iter()
+                .collect(),
+        );
+        candidates.push(
+            chars
+                .get(1..)
+                .ok_or("the name has no suffix form")?
+                .iter()
+                .collect(),
+        );
+        candidates.push(format!("{head}\u{200b}{tail}"));
     }
     candidates.extend(
         ["", ".", "signal", "motion", "efface", "*", "all", "null"]
@@ -87,6 +102,13 @@ fn sim_capability_names_roundtrip_and_refuse_near_misses() -> Result<(), String>
         )?;
     }
     Ok(())
+}
+
+/// A seeded capability from `all`.
+fn pick_capability(all: &[Capability], random: &mut SimRng) -> Result<Capability, String> {
+    all.get(random.below_len(all.len()))
+        .cloned()
+        .ok_or_else(|| String::from("the capability list must not be empty"))
 }
 
 /// Bug caught: a guard that grants on a prefix, an order or a duplicate, or a
@@ -116,8 +138,8 @@ fn sim_capability_guard_equals_membership() -> Result<(), String> {
         let mut random = SimRng::seed(seed.wrapping_add(250_000));
         let held_count = random.below_len(30);
         let held: Vec<Capability> = (0..held_count)
-            .map(|_| all[random.below_len(all.len())].clone())
-            .collect();
+            .map(|_| pick_capability(&all, &mut random))
+            .collect::<Result<_, _>>()?;
         for need in &all {
             let want = held.contains(need);
             let got = assert_capability(&held, need.clone());
@@ -151,8 +173,8 @@ fn sim_capability_widget_descriptor_never_holds_intent_emit() -> Result<(), Stri
         let mut random = SimRng::seed(seed.wrapping_add(260_000));
         let count = random.below_len(20);
         let asked: Vec<Capability> = (0..count)
-            .map(|_| all[random.below_len(all.len())].clone())
-            .collect();
+            .map(|_| pick_capability(&all, &mut random))
+            .collect::<Result<_, _>>()?;
         let descriptor = WidgetDescriptor::new(
             String::from("widget.kind"),
             String::from("widget.id"),
@@ -340,7 +362,9 @@ fn sim_command_bar_suggestions_are_parseable_and_prefix_closed() -> Result<(), S
     let commands = ["/find", "/pin", "/unpin", "/help"];
     for command in commands {
         for cut in 1..=command.len() {
-            let prefix = &command[..cut];
+            let prefix = command
+                .get(..cut)
+                .ok_or("the cut is not a character boundary")?;
             for spelled in [String::from(prefix), prefix.to_uppercase()] {
                 ensure(
                     CommandSuggestions::suggestions(&spelled).contains(&String::from(command)),

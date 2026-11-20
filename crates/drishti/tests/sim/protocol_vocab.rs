@@ -9,7 +9,7 @@ use drishti::canvas_protocol::{
     WorkspaceToolIcon,
 };
 
-use crate::motion_kit::{describe, ensure};
+use crate::motion_kit::{describe, ensure, pick};
 use crate::rng::SimRng;
 
 /// The JSON text of a value.
@@ -79,7 +79,7 @@ fn sim_protocol_capability_has_one_wire_spelling() -> Result<(), String> {
 }
 
 /// Round-trip a value and refuse every near-miss spelling.
-pub fn closed_set<T>(values: &[T], names: &[&str]) -> Result<(), String>
+pub(crate) fn closed_set<T>(values: &[T], names: &[&str]) -> Result<(), String>
 where
     T: lgwks_std::json::serde::Serialize
         + lgwks_std::json::serde::de::DeserializeOwned
@@ -100,7 +100,10 @@ where
             format!(" {name}"),
             format!("{name} "),
             format!("{name}s"),
-            String::from(&name[..name.len().saturating_sub(1)]),
+            String::from(
+                name.get(..name.len().saturating_sub(1))
+                    .ok_or("the name has no shortened form")?,
+            ),
             String::new(),
         ] {
             if near == *name {
@@ -120,11 +123,9 @@ where
     Ok(())
 }
 
-/// Bug caught: a closed vocabulary that accepts a re-cased, padded or
-/// truncated name, so a renderer and the validator disagree on a placement,
-/// slot, status or destination.
-#[test]
-fn sim_protocol_closed_enums_roundtrip_and_refuse_near_misses() -> Result<(), String> {
+/// The workspace-layout vocabularies: placement, theme, surface, role, slot,
+/// tool icon and egress destination.
+fn closed_workspace_vocabulary() -> Result<(), String> {
     closed_set(
         &[
             ChromePlacement::Top,
@@ -171,7 +172,15 @@ fn sim_protocol_closed_enums_roundtrip_and_refuse_near_misses() -> Result<(), St
     closed_set(
         &[EgressDestination::CloudRelay, EgressDestination::AuditVault],
         &["cloudrelay", "auditvault"],
-    )?;
+    )
+}
+
+/// Bug caught: a closed vocabulary that accepts a re-cased, padded or
+/// truncated name, so a renderer and the validator disagree on a placement,
+/// slot, status or destination.
+#[test]
+fn sim_protocol_closed_enums_roundtrip_and_refuse_near_misses() -> Result<(), String> {
+    closed_workspace_vocabulary()?;
     closed_set(
         &[ActorType::Human, ActorType::Agent, ActorType::System],
         &["Human", "Agent", "System"],
@@ -249,17 +258,14 @@ fn sim_protocol_node_taxonomy_keeps_both_axes_ordered() -> Result<(), String> {
         NodeKind::VisionLayer,
         NodeKind::Relay,
     ];
-    for pair in order.windows(2) {
+    for (above, below) in order.iter().zip(order.iter().skip(1)) {
         ensure(
-            pair[0].data_exposure_level() > pair[1].data_exposure_level(),
-            &format!(
-                "{:?} must hold strictly more data than {:?}",
-                pair[0], pair[1]
-            ),
+            above.data_exposure_level() > below.data_exposure_level(),
+            &format!("{above:?} must hold strictly more data than {below:?}"),
         )?;
         ensure(
-            pair[0].max_action_tier() >= pair[1].max_action_tier(),
-            &format!("{:?} must not act less than {:?}", pair[0], pair[1]),
+            above.max_action_tier() >= below.max_action_tier(),
+            &format!("{above:?} must not act less than {below:?}"),
         )?;
     }
     ensure(
@@ -284,7 +290,7 @@ fn sim_protocol_node_taxonomy_keeps_both_axes_ordered() -> Result<(), String> {
 }
 
 /// A well-formed canonical UUID of a seeded value.
-pub fn seeded_uuid(random: &mut SimRng) -> String {
+pub(crate) fn seeded_uuid(random: &mut SimRng) -> String {
     let high = random.next_u64();
     let low = random.next_u64();
     format!(
@@ -322,7 +328,7 @@ fn sim_protocol_session_invariant_names_the_first_bad_field() -> Result<(), Stri
         let mut broken = [false; 5];
         for (slot, flag) in broken.iter_mut().enumerate() {
             if slot == 3 {
-                let length = [0_usize, 1, 511, 512, 513, 600, 7][random.below_len(7)];
+                let length = pick(&mut random, &[0_usize, 1, 511, 512, 513, 600, 7])?;
                 *flag = length == 0 || length > 512;
                 parts.push("t".repeat(length));
             } else if random.below(3) == 0 {
@@ -339,21 +345,24 @@ fn sim_protocol_session_invariant_names_the_first_bad_field() -> Result<(), Stri
             3 => SessionInvariantError::InvalidTenantId,
             _ => SessionInvariantError::InvalidUserSub,
         });
+        let Ok([work, session_id, policy, tenant, user]) = <[String; 5]>::try_from(parts) else {
+            return Err(String::from("a session is built from five parts"));
+        };
         let built = SessionInvariant::new(
-            parts[0].clone(),
-            parts[1].clone(),
-            parts[2].clone(),
-            parts[3].clone(),
-            parts[4].clone(),
+            work.clone(),
+            session_id.clone(),
+            policy.clone(),
+            tenant.clone(),
+            user.clone(),
         );
         match (built, want) {
             (Ok(session), None) => {
                 ensure(
-                    session.work_object_id() == parts[0]
-                        && session.session_id() == parts[1]
-                        && session.policy_bundle_id() == parts[2]
-                        && session.tenant_id() == parts[3]
-                        && session.user_sub() == parts[4],
+                    session.work_object_id() == work
+                        && session.session_id() == session_id
+                        && session.policy_bundle_id() == policy
+                        && session.tenant_id() == tenant
+                        && session.user_sub() == user,
                     &format!("seed {seed}: an accessor returned another field"),
                 )?;
                 let text = json_of(&session)?;

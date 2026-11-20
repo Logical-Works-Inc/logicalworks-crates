@@ -285,9 +285,9 @@ state = "exercised"
 gap = ""
 tests = [
   "it::owner_epoch_takeover::an_old_worker_returning_after_a_takeover_cannot_settle_or_authorize_t16",
-  "it::owner_epoch_takeover::a_warrant_from_the_previous_generation_is_superseded",
-  "it::owner_epoch_takeover::the_current_generation_may_still_settle_its_own_attempt",
-  "it::owner_epoch_takeover::a_generation_and_a_tail_are_two_fences_and_both_answer",
+  "it::owner_epoch_takeover::in_process::a_warrant_from_the_previous_generation_is_superseded",
+  "it::owner_epoch_takeover::in_process::the_current_generation_may_still_settle_its_own_attempt",
+  "it::owner_epoch_takeover::in_process::a_generation_and_a_tail_are_two_fences_and_both_answer",
   "lgwks_bot::broker::tests::a_warrant_minted_before_a_replacement_is_refused_at_the_boundary",
   "lgwks_bot::broker::tests::a_stale_controller_cannot_append_after_recovery",
 ]

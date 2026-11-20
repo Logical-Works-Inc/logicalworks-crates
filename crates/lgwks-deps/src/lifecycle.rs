@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn a_mortgage_that_states_nothing_is_refused() -> TestResult {
+    fn a_mortgage_that_states_nothing_is_refused() {
         let input = row("").replace(
             "removal_trigger = \"The estate router covers the same routes with equal p99.\"",
             "removal_trigger = \"later\"",
@@ -418,11 +418,10 @@ mod tests {
             ),
             "\"when we have time\" wearing a trigger key must be refused, not recorded"
         );
-        Ok(())
     }
 
     #[test]
-    fn a_row_without_a_review_date_is_refused() -> TestResult {
+    fn a_row_without_a_review_date_is_refused() {
         let input = row("").replace("last_reviewed = \"2026-10-26\"\n", "");
         assert!(
             matches!(
@@ -434,6 +433,5 @@ mod tests {
             ),
             "a mortgage with no review date must be refused at load"
         );
-        Ok(())
     }
 }

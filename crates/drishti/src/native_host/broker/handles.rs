@@ -344,7 +344,7 @@ pub struct TapId(pub(crate) Uuid);
 /// assert_eq!(views[0].pattern().kind_glob(), "forms.**");
 /// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Subscription {
     /// Subscription identity.
     pub(crate) id: SubscriptionId,

@@ -17,15 +17,20 @@ use crate::rng::SimRng;
 /// Seeded bytes of an exact length.
 fn exact_bytes(random: &mut SimRng, length: usize) -> Vec<u8> {
     (0..length)
-        .map(|_| random.next_u64().to_le_bytes()[0])
+        .map(|_| {
+            let [low, ..] = random.next_u64().to_le_bytes();
+            low
+        })
         .collect()
 }
 
 /// A deterministic device key from the seed.
 fn device_key(random: &mut SimRng) -> Result<SigningKey, String> {
     let mut secret = exact_bytes(random, 32);
-    secret[0] = 0;
-    secret[31] |= 1;
+    let first = secret.first_mut().ok_or("the secret has no first byte")?;
+    *first = 0;
+    let last = secret.last_mut().ok_or("the secret has no last byte")?;
+    *last |= 1;
     SigningKey::from_slice(&secret).map_err(describe)
 }
 
@@ -117,7 +122,10 @@ fn read_tlv(bytes: &[u8]) -> Result<Tlv<'_>, String> {
         let digits = bytes
             .get(2..2_usize.saturating_add(count))
             .ok_or("short length")?;
-        ensure(digits[0] != 0, "non-minimal length")?;
+        ensure(
+            digits.first().is_some_and(|digit| *digit != 0),
+            "non-minimal length",
+        )?;
         let mut value = 0_usize;
         for digit in digits {
             value = value.wrapping_shl(8) | usize::from(*digit);
@@ -127,11 +135,8 @@ fn read_tlv(bytes: &[u8]) -> Result<Tlv<'_>, String> {
     };
     let end = header.saturating_add(length);
     let content = bytes.get(header..end).ok_or("content past the end")?;
-    Ok(Tlv {
-        tag,
-        content,
-        rest: &bytes[end..],
-    })
+    let rest = bytes.get(end..).ok_or("rest past the end")?;
+    Ok(Tlv { tag, content, rest })
 }
 
 /// Bug caught: a DER length written in a non-minimal or wrong form around
@@ -229,7 +234,8 @@ fn sim_attest_quote_is_signed_over_its_body_and_checks_the_challenge() -> Result
         )?;
         let mut tampered = body_element.content.to_vec();
         let position = random.below_len(tampered.len());
-        tampered[position] ^= 0x01;
+        let flipped = tampered.get_mut(position).ok_or("the body is empty")?;
+        *flipped ^= 0x01;
         ensure(
             verifier.verify(&tampered, &signature).is_err(),
             &format!("seed {seed}: a flipped body byte still verified"),

@@ -140,6 +140,7 @@ struct Collected {
 }
 
 /// What the command line asked for.
+#[derive(Debug)]
 #[doc(hidden)]
 #[non_exhaustive]
 pub struct Options {

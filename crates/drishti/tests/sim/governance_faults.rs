@@ -40,7 +40,7 @@ fn corrupt_entry(random: &mut SimRng, index: usize) -> GovernanceEntry {
 }
 
 /// Run a built query (or hash why it was refused) and hash the rows it read.
-pub fn mix_query(
+pub(crate) fn mix_query(
     store: &GovernanceStore,
     query: Result<GovernanceQuery, GovernanceError>,
     trace: &mut TraceHash,

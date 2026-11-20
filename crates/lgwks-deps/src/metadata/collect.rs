@@ -7,6 +7,7 @@ use super::capture::{METADATA_STREAM_CAP, METADATA_TIMEOUT, Unresolved, run_boun
 use super::edges::{
     CargoMetadata, CargoPackage, direct_edges, license_targets, validated_workspace,
 };
+use super::faults::Faults;
 use super::{DirectEdge, MetadataError};
 
 /// Runs locked Cargo metadata and decodes the supported response shape.
@@ -25,6 +26,7 @@ fn read_metadata(root: &Path) -> Result<Collected<CargoMetadata>, MetadataError>
         root,
         METADATA_TIMEOUT,
         METADATA_STREAM_CAP,
+        &Faults::default(),
     )?;
     let collected = Collected {
         value: output.stdout,
@@ -144,7 +146,7 @@ pub fn read_with_members(root: &Path) -> Result<Collected<EdgesAndMembers>, Meta
             .into_iter()
             .map(|member| member.name)
             .collect();
-        let mut edges = direct_edges(metadata)?;
+        let mut edges = direct_edges(&metadata)?;
         // A second read, this time with dependencies, because the first cannot
         // see them. `--no-deps` is what makes an inactive optional edge
         // visible, and it is also what hides every third-party package: the
@@ -174,7 +176,18 @@ pub fn read_with_members(root: &Path) -> Result<Collected<EdgesAndMembers>, Meta
 /// one unreadable query from denying the graph that was read successfully --
 /// and the licences stay absent, which the audit reports rather than hides.
 fn read_resolved_packages(root: &Path) -> Option<Vec<CargoPackage>> {
-    let manifest = manifest_path(root).ok()?;
+    match resolved_packages(root) {
+        Ok(packages) => Some(packages),
+        Err(cause) => {
+            lgwks_std::trace::debug!(error = ?cause, "read_resolved_packages: licences stay absent");
+            None
+        }
+    }
+}
+
+/// The resolved read behind [`read_resolved_packages`], with the cause of a failure kept.
+fn resolved_packages(root: &Path) -> Result<Vec<CargoPackage>, MetadataError> {
+    let manifest = manifest_path(root)?;
     // Every feature: an inactive optional edge is absent from the default
     // resolve, and an absent package has no licence to audit.
     let output = run_bounded(
@@ -183,13 +196,18 @@ fn read_resolved_packages(root: &Path) -> Option<Vec<CargoPackage>> {
         root,
         METADATA_TIMEOUT,
         METADATA_STREAM_CAP,
-    )
-    .ok()?;
+        &Faults::default(),
+    )?;
     if !output.status.success() {
-        return None;
+        let refusal = Err(MetadataError::Cargo(
+            String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+        ));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "resolved_packages: returning an error to the caller");
+        return refusal;
     }
-    let metadata: CargoMetadata = lgwks_std::json::from_slice(&output.stdout).ok()?;
-    Some(metadata.packages)
+    let metadata: CargoMetadata =
+        lgwks_std::json::from_slice(&output.stdout).map_err(MetadataError::Json)?;
+    Ok(metadata.packages)
 }
 
 /// Which edges a `cargo metadata` read resolves.
@@ -235,10 +253,26 @@ pub struct Member {
     /// Package name as the manifest declares it.
     pub(crate) name: String,
     /// Directory holding the member's `Cargo.toml`, as Cargo reported it.
-    pub manifest_dir: PathBuf,
+    pub(crate) manifest_dir: PathBuf,
 }
 
 impl Member {
+    /// Directory holding the member's `Cargo.toml`, as Cargo reported it.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// let (members, _cleanup) = lgwks_deps::metadata::workspace_members(".".as_ref())?.into_parts();
+    /// for member in &members {
+    ///     println!("{} at {}", member.name(), member.manifest_dir().display());
+    /// }
+    /// # Ok::<(), lgwks_deps::metadata::MetadataError>(())
+    /// ```
+    #[must_use]
+    pub fn manifest_dir(&self) -> &Path {
+        &self.manifest_dir
+    }
+
     /// Cargo package name for this workspace member.
     #[must_use]
     pub fn name(&self) -> &str {

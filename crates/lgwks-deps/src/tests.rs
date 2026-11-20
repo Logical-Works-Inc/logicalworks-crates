@@ -2,9 +2,14 @@
 
 use super::*;
 use crate::audit::{
-    CRATES_IO_INDEX, CRATES_IO_SPARSE, declared_expression, frozen_surface_tier_refusals,
-    license_refusals, rejected_license_identifiers, surface_refusals,
+    declared_expression, frozen_surface_tier_refusals, license_refusals,
+    rejected_license_identifiers, surface_refusals,
 };
+
+/// The Git spelling of the crates.io source, as Cargo writes it in `Cargo.lock`.
+pub(crate) const CRATES_IO_INDEX: &str = "registry+https://github.com/rust-lang/crates.io-index";
+/// The sparse spelling of the crates.io source.
+pub(crate) const CRATES_IO_SPARSE: &str = "sparse+https://index.crates.io/";
 
 mod leaves;
 
@@ -142,7 +147,9 @@ fn a_rogue_approval_owner_is_refused_by_name() -> TestResult {
         }]
     );
     assert!(
-        refusals[0].to_string().contains("lgwks_rogue"),
+        refusals
+            .first()
+            .is_some_and(|first| first.to_string().contains("lgwks_rogue")),
         "the refusal names the rogue surface"
     );
     Ok(())

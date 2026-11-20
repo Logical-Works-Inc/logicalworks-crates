@@ -131,7 +131,10 @@ fn consumer(
 /// about a missing value read as false.
 fn admitted(outcome: &Outcome) -> Result<bool, Box<dyn Error>> {
     let receipt: lgwks_std::json::Value = lgwks_std::json::from_str(&outcome.stdout)?;
-    receipt["admitted"].as_bool().ok_or_else(|| {
+    let flag = receipt
+        .get("admitted")
+        .and_then(lgwks_std::json::Value::as_bool);
+    flag.ok_or_else(|| {
         format!(
             "the receipt carries no `admitted` flag: {:?}",
             outcome.stdout
@@ -143,7 +146,10 @@ fn admitted(outcome: &Outcome) -> Result<bool, Box<dyn Error>> {
 /// The crate names the receipt refused.
 fn refused_crates(outcome: &Outcome) -> Result<Vec<String>, Box<dyn Error>> {
     let receipt: lgwks_std::json::Value = lgwks_std::json::from_str(&outcome.stdout)?;
-    let rows = receipt["refusals"].as_array().ok_or_else(|| {
+    let listed = receipt
+        .get("refusals")
+        .and_then(lgwks_std::json::Value::as_array);
+    let rows = listed.ok_or_else(|| {
         format!(
             "the receipt carries no refusals array: {:?}",
             outcome.stdout

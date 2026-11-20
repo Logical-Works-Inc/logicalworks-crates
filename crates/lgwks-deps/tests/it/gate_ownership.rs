@@ -37,9 +37,9 @@ fn value(line: &str, number: usize) -> Result<String, String> {
     let unquoted = line
         .split_once('=')
         .map(|(_, value)| value.trim())
-        .filter(|value| value.starts_with('"') && value.ends_with('"') && value.len() >= 2)
+        .and_then(|value| value.strip_prefix('"')?.strip_suffix('"'))
         .ok_or_else(|| format!("line {number}: expected `key = \"value\"`, got {line:?}"))?;
-    Ok(unquoted[1..unquoted.len().saturating_sub(1)].to_owned())
+    Ok(unquoted.to_owned())
 }
 
 /// Reads the ownership rows: `[[gate]]` blocks of `check`, `file`, `entry`

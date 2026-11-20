@@ -331,10 +331,10 @@ fn a_drawn_register_parses_with_every_entry() -> TestResult {
                 register.entry_count()
             ));
         }
-        if register.enforce == matches!(policy, Some(false)) {
+        if register.enforce() == matches!(policy, Some(false)) {
             return refuse(format!(
                 "policy {policy:?} read as enforce = {}",
-                register.enforce
+                register.enforce()
             ));
         }
         if Register::parse(&layout.text).ok().as_ref() != Some(&register) {

@@ -49,6 +49,13 @@ const ALPHABET: [u8; 37] = *b"abcdefghijklmnopqrstuvwxyz0123456789-";
 enum SweepError {
     /// The stream refused a draw: an empty range, or one wider than a word.
     Draw(DrawError),
+    /// A drawn index named nothing in the table it was drawn for.
+    Undrawn {
+        /// The table the index was drawn for.
+        table: &'static str,
+        /// The index the stream returned.
+        index: usize,
+    },
 }
 
 impl Display for SweepError {
@@ -56,6 +63,12 @@ impl Display for SweepError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Self::Draw(ref cause) => write!(formatter, "the stream refused a draw: {cause}"),
+            Self::Undrawn { table, index } => {
+                write!(
+                    formatter,
+                    "index {index} names nothing in the {table} table"
+                )
+            }
         }
     }
 }
@@ -65,8 +78,18 @@ impl std::error::Error for SweepError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match *self {
             Self::Draw(ref cause) => Some(cause),
+            Self::Undrawn { .. } => None,
         }
     }
+}
+
+/// One entry of `table`, drawn from `stream`.
+fn pick<T: Copy>(stream: &mut Seeded, table: &[T], name: &'static str) -> Result<T, SweepError> {
+    let index = stream.index(table.len())?;
+    table
+        .get(index)
+        .copied()
+        .ok_or(SweepError::Undrawn { table: name, index })
 }
 
 impl From<DrawError> for SweepError {
@@ -98,7 +121,7 @@ fn over_band(band: u64, property: Property) {
 
 /// The published name a seed draws.
 fn a_member(stream: &mut Seeded) -> Result<&'static str, SweepError> {
-    Ok(MEMBERS[stream.index(MEMBERS.len())?])
+    pick(stream, &MEMBERS, "member")
 }
 
 /// A name drawn from the alphabet, sixteen letters long, so it can equal no
@@ -106,8 +129,7 @@ fn a_member(stream: &mut Seeded) -> Result<&'static str, SweepError> {
 fn arbitrary_name(stream: &mut Seeded) -> Result<String, SweepError> {
     let mut name = String::with_capacity(16);
     for _ in 0..16 {
-        let drawn = stream.index(ALPHABET.len())?;
-        name.push(char::from(ALPHABET[drawn]));
+        name.push(char::from(pick(stream, &ALPHABET, "alphabet")?));
     }
     Ok(name)
 }
@@ -136,7 +158,7 @@ fn another_case_is_refused(stream: &mut Seeded) -> Result<(), SweepError> {
 /// An extension of a published name is refused: the suffix admits nobody.
 fn an_extension_is_refused(stream: &mut Seeded) -> Result<(), SweepError> {
     let name = a_member(stream)?;
-    let suffix = SUFFIXES[stream.index(SUFFIXES.len())?];
+    let suffix = pick(stream, &SUFFIXES, "suffix")?;
     let extended = format!("{name}{suffix}");
     assert!(
         !is_estate_crate(&extended),
@@ -148,8 +170,7 @@ fn an_extension_is_refused(stream: &mut Seeded) -> Result<(), SweepError> {
 /// The prefix on its own is refused, so `lgwks_` places nothing on a rung.
 fn a_bare_prefix_is_refused(stream: &mut Seeded) -> Result<(), SweepError> {
     let prefixes = ["lgwks", "lgwks_", "lgwks-", "lgwks_std_", "lgwkss", ""];
-    let drawn = stream.index(prefixes.len())?;
-    let prefix = prefixes[drawn];
+    let prefix = pick(stream, &prefixes, "prefix")?;
     assert!(!is_estate_crate(prefix), "{prefix:?} is not a crate");
     Ok(())
 }

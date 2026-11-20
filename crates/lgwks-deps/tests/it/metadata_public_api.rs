@@ -23,13 +23,13 @@ fn downstream_can_read_metadata_edges_and_workspace_members() -> Result<(), Box<
         "edge exposes its identities and requirement immutably"
     );
     assert_eq!(
-        edge.source,
-        DependencySource::Registry(
+        edge.source(),
+        &DependencySource::Registry(
             "registry+https://github.com/rust-lang/crates.io-index".to_owned()
         ),
         "edge exposes the source detail without normalizing it"
     );
-    assert!(edge.optional, "edge exposes inactive optionality");
+    assert!(edge.optional(), "edge exposes inactive optionality");
 
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_root = manifest_dir
@@ -46,7 +46,8 @@ fn downstream_can_read_metadata_edges_and_workspace_members() -> Result<(), Box<
         .find(|member| member.name() == "lgwks_deps")
         .ok_or("the workspace inventory must include lgwks_deps")?;
     assert_eq!(
-        member.manifest_dir, manifest_dir,
+        member.manifest_dir(),
+        manifest_dir,
         "member identity retains its Cargo manifest directory"
     );
     Ok(())

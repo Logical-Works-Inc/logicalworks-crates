@@ -105,7 +105,9 @@ fn sim_motion_patch_preserve_velocity_creates_no_state_for_tweens() -> Result<()
         let mut store = AccumulatorStore::new();
         store.set(bystander, held);
         for step in 0..12_u64 {
-            let id = ids[random.below_len(ids.len())];
+            let id = *ids
+                .get(random.below_len(ids.len()))
+                .ok_or("a graph must hold a tween id")?;
             let to = f32::from(random.below_u16(40));
             let patch = MotionPatch::new(
                 node_id(&mut random),

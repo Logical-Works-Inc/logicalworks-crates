@@ -16,7 +16,7 @@ space. They answer different questions and they have different failure modes.
 `Resolver::resolve(&self, utterance, &Question)` takes the question
 (`crates/lgwks-bot/src/session/resolve.rs:27`). A `Question` carries the id the answer
 is being given for, the options currently on offer, and the kind of answer the
-variable declares (`crates/lgwks-bot/src/session/scope.rs:453`). Both additions past
+variable declares (`crates/lgwks-bot/src/session/scope.rs:449`). Both additions past
 the option list exist because a resolver that sees only a list of strings cannot
 tell two different questions apart, and cannot tell a number from a label.
 

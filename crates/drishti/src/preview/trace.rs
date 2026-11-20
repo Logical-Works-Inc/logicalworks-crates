@@ -21,7 +21,7 @@ use crate::canvas_scene::{Action, Canvas, Error, Frame, View};
 /// Returns acknowledgement or sink failures.
 fn write_frame(
     canvas: &mut Canvas,
-    frame: Frame,
+    frame: &Frame,
     label: &str,
     out: &mut dyn Write,
 ) -> Result<(), Failure> {
@@ -63,7 +63,7 @@ fn sample_navigation(
     canvas.input(token, Action::Navigate(target))?;
     for _ in 0..count {
         if let Some(frame) = canvas.prepare(1.0 / 60.0, 960, 640, false)? {
-            write_frame(canvas, frame, label, out)?;
+            write_frame(canvas, &frame, label, out)?;
         }
     }
     Ok(())
@@ -104,7 +104,7 @@ pub fn run_traversal(mut canvas: Canvas, mut out: impl Write) -> Result<(), Fail
     let first = canvas
         .prepare(0.0, 960, 640, false)?
         .ok_or("initial frame missing")?;
-    write_frame(&mut canvas, first, "initial", &mut out)?;
+    write_frame(&mut canvas, &first, "initial", &mut out)?;
     for (target, count, label) in [
         (View::Evidence, 5, "toward-evidence"),
         (View::Source, 5, "interrupt"),

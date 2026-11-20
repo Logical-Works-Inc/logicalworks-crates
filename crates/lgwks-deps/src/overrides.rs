@@ -227,7 +227,11 @@ mod tests {
         let manifest = "[replace]\n\"serde:1.0.0\" = { git = \"https://example.invalid/serde\" }\n";
         let refused = manifest_refusals("Cargo.toml", manifest);
         assert_eq!(refused.len(), 2);
-        assert!(refused[0].to_string().contains("[replace]"));
+        assert!(
+            refused
+                .first()
+                .is_some_and(|first| first.to_string().contains("[replace]"))
+        );
     }
 
     /// A dotted top-level key reaches the same table as a header does.
@@ -284,7 +288,7 @@ mod tests {
 
     /// One seeded draw of a manifest: a clean prefix, then an override written
     /// in one of the spellings Cargo accepts, or none.
-    fn drawn(seed: u64) -> Result<(String, usize), lgwks_std::seeded::DrawError> {
+    fn drawn(seed: u64) -> Result<(String, usize), Box<dyn std::error::Error>> {
         const SPELLINGS: [&str; 6] = [
             "[patch.crates-io]\nserde = { path = \"x\" }\n",
             "[ patch . \"crates-io\" ]\nserde = { path = \"x\" }\n",
@@ -304,8 +308,8 @@ mod tests {
         for _ in 0..comments {
             text.push_str("# [patch.crates-io] only a comment\n");
         }
-        let which = usize::try_from(draw.below(7)?).ok();
-        let picked = which.and_then(|index| SPELLINGS.get(index).zip(EXPECTED.get(index)));
+        let which = usize::try_from(draw.below(7)?)?;
+        let picked = SPELLINGS.get(which).zip(EXPECTED.get(which));
         let Some((spelling, &expected)) = picked else {
             text.push_str(WORKSPACE);
             return Ok((text, 0));

@@ -260,7 +260,7 @@ fn apple_package_signs_issued_challenge() -> Result<(), String> {
     use p256::ecdsa::signature::Verifier as _;
     let signing = device_key()?;
     let verifying = signing.verifying_key();
-    let point = compressed_point(verifying)?;
+    let point = compressed_point(verifying);
     let package = apple::make_package(
         vec![0x30, 0x03, 0x01, 0x02],
         vec![vec![0x30, 0x03, 0x01, 0x03]],
@@ -285,9 +285,8 @@ fn apple_package_signs_issued_challenge() -> Result<(), String> {
 }
 
 /// Compressed SEC1 point for a verifying key.
-fn compressed_point(key: &p256::ecdsa::VerifyingKey) -> Result<Vec<u8>, String> {
-    let point = key.to_sec1_point(true);
-    Ok(point.as_bytes().to_vec())
+fn compressed_point(key: &p256::ecdsa::VerifyingKey) -> Vec<u8> {
+    key.to_sec1_point(true).as_bytes().to_vec()
 }
 
 /// TrustZone quotes carry the DER shape and verify.
@@ -299,10 +298,10 @@ fn trustzone_quote_shape_verifies() -> Result<(), String> {
     let quote = trustzone::make_quote("oem-demo", &challenge(0x44), &spki, &signing)
         .map_err(|error| format!("{error}"))?;
     // Outer SEQ { OCTET body, OCTET signature }.
-    if quote.len() < 2 || quote[0] != 0x30 {
+    if quote.len() < 2 || quote.first() != Some(&0x30) {
         return Err(String::from("quote must be a sequence"));
     }
-    let point = compressed_point(verifying)?;
+    let point = compressed_point(verifying);
     let package = trustzone::make_package(
         "oem-demo",
         &receipt()?,

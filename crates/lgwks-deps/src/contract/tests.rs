@@ -56,7 +56,7 @@ fn complete(input: &str) -> String {
 fn a_complete_entry_parses() -> TestResult {
     let contract = Contract::parse(&entry(""))?;
     assert_eq!(contract.entries.len(), 1);
-    let parsed = &contract.entries[0];
+    let parsed = contract.entries.first().ok_or("one entry was parsed")?;
     assert_eq!(parsed.krate, "serde");
     assert_eq!(parsed.tier, Tier::Boundary);
     assert_eq!(parsed.version, "1.0");
@@ -168,7 +168,8 @@ fn basic_string_subset_decodes_escapes_comments_unicode_and_crlf() -> TestResult
     );
     let parsed = Contract::parse(&input)?;
     assert_eq!(
-        parsed.entries[0].review, "docs/A#é",
+        parsed.entries.first().map(|entry| entry.review.as_str()),
+        Some("docs/A#é"),
         "basic Unicode escapes, non-ASCII text and quoted hashes must decode"
     );
     let escaped = entry("").replace(
@@ -176,8 +177,12 @@ fn basic_string_subset_decodes_escapes_comments_unicode_and_crlf() -> TestResult
         r#"review = "docs/\"quoted\"\\literal""#,
     );
     assert_eq!(
-        Contract::parse(&escaped)?.entries[0].review,
-        "docs/\"quoted\"\\literal",
+        Contract::parse(&escaped)?
+            .entries
+            .first()
+            .map(|entry| entry.review.clone())
+            .as_deref(),
+        Some("docs/\"quoted\"\\literal"),
         "quote and backslash escapes must decode without reinterpretation"
     );
     let crlf = entry("").replace('\n', "\r\n");
@@ -289,8 +294,12 @@ fn decoded_schema_values_and_calendar_dates_are_closed() -> TestResult {
     for date in ["2024-02-29", "2000-02-29", "2026-08-19"] {
         let input = entry("").replace("2026-08-19", date);
         assert_eq!(
-            Contract::parse(&input)?.entries[0].approved_on,
-            date,
+            Contract::parse(&input)?
+                .entries
+                .first()
+                .map(|entry| entry.approved_on.clone())
+                .as_deref(),
+            Some(date),
             "valid date {date} must remain supported"
         );
     }
@@ -318,8 +327,9 @@ fn a_single_legacy_trailing_list_comma_remains_supported() -> TestResult {
         )
         .replace("allowed_kinds = \"normal\"", "allowed_kinds = \"normal,\"");
     let parsed = Contract::parse(&input)?;
-    assert_single_trailing_comma_parsed(&parsed.entries[0].allowed_consumers, "lgwks_std");
-    assert_single_trailing_comma_parsed(&parsed.entries[0].allowed_kinds, "normal");
+    let entry = parsed.entries.first().ok_or("one entry was parsed")?;
+    assert_single_trailing_comma_parsed(&entry.allowed_consumers, "lgwks_std");
+    assert_single_trailing_comma_parsed(&entry.allowed_kinds, "normal");
     Ok(())
 }
 
@@ -415,7 +425,8 @@ fn a_hash_inside_a_quoted_value_survives() -> TestResult {
         "review = \"https://example.com/pr#123\"\n",
     );
     let contract = Contract::parse(&complete(input))?;
-    assert_eq!(contract.entries[0].review, "https://example.com/pr#123");
+    let entry = contract.entries.first().ok_or("one entry was parsed")?;
+    assert_eq!(entry.review, "https://example.com/pr#123");
     Ok(())
 }
 
@@ -719,7 +730,8 @@ fn a_readable_spdx_expression_is_kept_verbatim() -> TestResult {
             &format!("license = \"{value}\""),
         );
         let parsed = Contract::parse(&input)?;
-        assert_eq!(parsed.entries[0].license(), value);
+        let entry = parsed.entries.first().ok_or("one entry was parsed")?;
+        assert_eq!(entry.license(), value);
     }
     Ok(())
 }

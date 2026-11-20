@@ -15,14 +15,14 @@ Two details that decide how tight your bound is:
 
 - `Budget::For` checks its deadline between iterations, so a body that blocks for
   longer than the budget overruns it by one iteration
-  (`crates/lgwks-bot/src/rt/supervise.rs:294`). Cancellation is not subject to
+  (`crates/lgwks-bot/src/rt/supervise.rs:307`). Cancellation is not subject to
   that slack, because it interrupts the body itself.
 - Every iteration races the token rather than checking it between iterations.
   A cancel drops a body that is still awaiting, and the loop reports
   `Outcome::Cancelled` rather than `Outcome::Exhausted`, so a completed run is
   distinguishable from an interrupted one.
 - The loop also yields the executor every `YIELD_INTERVAL` iterations
-  (`crates/lgwks-bot/src/rt/supervise.rs:278`), which is what keeps a body whose
+  (`crates/lgwks-bot/src/rt/supervise.rs:291`), which is what keeps a body whose
   future is ready on its first poll from turning the whole loop into one
   uninterruptible poll. Without it a cancel ordered by another task could not be
   delivered until the budget ran out, and on a current-thread runtime the
@@ -36,7 +36,7 @@ owns the token ends.
 
 `rt::task::join_all_bounded(limit, futures)` (feature `sync`) spawns and awaits
 at most `limit` tasks at once, spawning the next pending input as each completes
-(`crates/lgwks-bot/src/rt/task.rs:195`). Result `i` is the output of input `i`,
+(`crates/lgwks-bot/src/rt/task.rs:205`). Result `i` is the output of input `i`,
 whichever completes first, which is the property `JoinSet::join_next` does not
 give you.
 

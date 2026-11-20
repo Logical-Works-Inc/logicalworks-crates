@@ -21,6 +21,13 @@ const RETIRE_KEYS: [(&str, &str); 4] = [
     ("review", "retire.review"),
 ];
 
+/// `error` as an `Err`, with the refusal recorded on the debug stream.
+fn refused<T>(error: ContractError) -> Result<T, ContractError> {
+    let refusal = Err(error);
+    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read: returning an error to the caller");
+    refusal
+}
+
 /// Admits one `key = value` pair written inside `[approved.retire]`.
 pub(crate) fn apply_pair(
     key: &str,
@@ -33,15 +40,13 @@ pub(crate) fn apply_pair(
         .find(|candidate| candidate.0 == key)
         .map(|candidate| candidate.1)
     else {
-        let refusal = Err(ContractError::UnknownKey {
+        return refused(ContractError::UnknownKey {
             line: line_no,
             key: key.to_owned(),
         });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::apply_pair: returning an error to the caller");
-        return refusal;
     };
     if let Some(previous) = draft.fields.iter().find(|field| field.key == stored) {
-        let refusal = Err(ContractError::DuplicateEntryKey {
+        return refused(ContractError::DuplicateEntryKey {
             key: key.to_owned(),
             entry_header: "[approved.retire]".to_owned(),
             entry_index: draft.index,
@@ -49,8 +54,6 @@ pub(crate) fn apply_pair(
             first_line: previous.line,
             duplicate_line: line_no,
         });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::apply_pair: returning an error to the caller");
-        return refusal;
     }
     let decoded = if key == "cost" {
         value.to_owned()
@@ -66,31 +69,33 @@ pub(crate) fn apply_pair(
 }
 
 /// Splits one inline `{ k = v, ... }` table on its top-level commas.
-fn split_inline(body: &str) -> Option<Vec<String>> {
+fn split_inline(body: &str) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
     let mut depth = 0_usize;
     let mut quoted = false;
     let mut escaped = false;
-    let mut start = 0_usize;
-    for (index, byte) in body.bytes().enumerate() {
+    for ch in body.chars() {
         if escaped {
             escaped = false;
+            current.push(ch);
             continue;
         }
-        match byte {
-            b'\\' if quoted => escaped = true,
-            b'"' => quoted = !quoted,
-            b'{' if !quoted => depth = depth.saturating_add(1),
-            b'}' if !quoted => depth = depth.saturating_sub(1),
-            b',' if !quoted && depth == 0 => {
-                parts.push(body[start..index].to_owned());
-                start = index.saturating_add(1);
+        match ch {
+            '\\' if quoted => escaped = true,
+            '"' => quoted = !quoted,
+            '{' if !quoted => depth = depth.saturating_add(1),
+            '}' if !quoted => depth = depth.saturating_sub(1),
+            ',' if !quoted && depth == 0 => {
+                parts.push(std::mem::take(&mut current));
+                continue;
             }
             _ => {}
         }
+        current.push(ch);
     }
-    parts.push(body[start..].to_owned());
-    Some(parts)
+    parts.push(current);
+    parts
 }
 
 /// Reads one `name = value` pair of the cost inline table.
@@ -107,6 +112,168 @@ fn cost_field(pair: &str) -> Option<(&str, &str)> {
     Some((name, value.trim()))
 }
 
+/// The five measured cost fields as read so far; each is still optional.
+#[derive(Default)]
+struct CostFields {
+    /// Seconds a cold build took.
+    cold_build_s: Option<f64>,
+    /// Crates compiled.
+    crates: Option<u64>,
+    /// Size of the built binary.
+    binary_bytes: Option<u64>,
+    /// ISO date of the measurement.
+    measured: Option<String>,
+    /// Command that measured it.
+    command: Option<String>,
+}
+
+/// What a cost table is read against: the entry it belongs to and where it was
+/// written, so every refusal names both.
+struct CostReader<'a> {
+    /// The entry being read.
+    draft: &'a RawEntry,
+    /// The crate the entry approves.
+    krate: &'a str,
+    /// The line the `cost` key was written on.
+    line: usize,
+}
+
+impl CostReader<'_> {
+    /// A refusal naming `field`, the offending `value`, and what was expected.
+    fn invalid<T>(
+        &self,
+        field: &'static str,
+        value: String,
+        expected: &'static str,
+    ) -> Result<T, ContractError> {
+        refused(invalid(self.draft, self.krate, field, value, expected))
+    }
+
+    /// A refusal for a cost field the table never wrote.
+    fn missing<T>(&self, field: &'static str) -> Result<T, ContractError> {
+        refused(ContractError::MissingField {
+            krate: Some(self.krate.to_owned()),
+            field,
+            line: field_line(self.draft, "retire.cost"),
+        })
+    }
+
+    /// Reads one `name = raw` pair into `fields`.
+    fn read(&self, fields: &mut CostFields, name: &str, raw: &str) -> Result<(), ContractError> {
+        match name {
+            "cold_build_s" => fields.cold_build_s = Some(self.seconds(raw)?),
+            "crates" => {
+                let expected = "expected a whole number of crates";
+                fields.crates = Some(self.whole("retire.cost.crates", raw, expected)?);
+            }
+            "binary_bytes" => {
+                let expected = "expected a whole number of bytes";
+                fields.binary_bytes =
+                    Some(self.whole("retire.cost.binary_bytes", raw, expected)?);
+            }
+            "measured" => fields.measured = Some(self.measured(raw)?),
+            "command" => fields.command = Some(self.command(raw)?),
+            _ => {
+                return self.invalid(
+                    "retire.cost",
+                    name.to_owned(),
+                    "expected one of cold_build_s, crates, binary_bytes, measured, command",
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// A finite number of seconds.
+    fn seconds(&self, raw: &str) -> Result<f64, ContractError> {
+        match raw.parse::<f64>() {
+            Ok(parsed) if parsed.is_finite() => Ok(parsed),
+            Ok(_) | Err(_) => self.invalid(
+                "retire.cost.cold_build_s",
+                raw.to_owned(),
+                "expected a finite number of seconds",
+            ),
+        }
+    }
+
+    /// A whole number.
+    fn whole(
+        &self,
+        field: &'static str,
+        raw: &str,
+        expected: &'static str,
+    ) -> Result<u64, ContractError> {
+        match raw.parse::<u64>() {
+            Ok(parsed) => Ok(parsed),
+            Err(_) => self.invalid(field, raw.to_owned(), expected),
+        }
+    }
+
+    /// A double-quoted ISO date.
+    fn measured(&self, raw: &str) -> Result<String, ContractError> {
+        let Ok(decoded) = decode_string(raw, "retire.cost.measured", self.line) else {
+            return self.invalid(
+                "retire.cost.measured",
+                raw.to_owned(),
+                "expected a double-quoted date string",
+            );
+        };
+        if !is_iso_date(&decoded) {
+            return self.invalid(
+                "retire.cost.measured",
+                decoded,
+                "expected a real YYYY-MM-DD date",
+            );
+        }
+        Ok(decoded)
+    }
+
+    /// A double-quoted, non-empty command.
+    fn command(&self, raw: &str) -> Result<String, ContractError> {
+        let Ok(decoded) = decode_string(raw, "retire.cost.command", self.line) else {
+            return self.invalid(
+                "retire.cost.command",
+                raw.to_owned(),
+                "expected a double-quoted command string",
+            );
+        };
+        if decoded.trim().is_empty() {
+            return self.invalid(
+                "retire.cost.command",
+                decoded,
+                "expected the non-empty command that measured this cost",
+            );
+        }
+        Ok(decoded)
+    }
+
+    /// The cost, once every one of the five fields was written.
+    fn finish(&self, fields: CostFields) -> Result<RetireCost, ContractError> {
+        let Some(cold_build_s) = fields.cold_build_s else {
+            return self.missing("retire.cost.cold_build_s");
+        };
+        let Some(crates) = fields.crates else {
+            return self.missing("retire.cost.crates");
+        };
+        let Some(binary_bytes) = fields.binary_bytes else {
+            return self.missing("retire.cost.binary_bytes");
+        };
+        let Some(measured) = fields.measured else {
+            return self.missing("retire.cost.measured");
+        };
+        let Some(command) = fields.command else {
+            return self.missing("retire.cost.command");
+        };
+        Ok(RetireCost {
+            cold_build_s,
+            crates,
+            binary_bytes,
+            measured,
+            command,
+        })
+    }
+}
+
 /// Parses the `cost` inline table into its five measured fields.
 fn parse_cost(
     value: &str,
@@ -114,208 +281,30 @@ fn parse_cost(
     krate: &str,
     draft: &RawEntry,
 ) -> Result<RetireCost, ContractError> {
+    let reader = CostReader { draft, krate, line };
     let body = value
         .trim()
         .strip_prefix('{')
         .and_then(|inner| inner.strip_suffix('}'));
     let Some(body) = body else {
-        let refusal = Err(invalid(
-            draft,
-            krate,
+        return reader.invalid(
             "retire.cost",
             value.to_owned(),
             "expected an inline table such as { cold_build_s = 1.2, crates = 3, binary_bytes = 4, measured = \"2026-11-02\", command = \"cargo build --locked -p lgwks_deps\" }",
-        ));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
+        );
     };
-    let Some(pairs) = split_inline(body) else {
-        let refusal = Err(invalid(
-            draft,
-            krate,
-            "retire.cost",
-            value.to_owned(),
-            "expected an inline table with five comma-separated fields",
-        ));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
-    };
-    let mut cold_build_s: Option<f64> = None;
-    let mut crates: Option<u64> = None;
-    let mut binary_bytes: Option<u64> = None;
-    let mut measured: Option<String> = None;
-    let mut command: Option<String> = None;
-    for pair in &pairs {
+    let mut fields = CostFields::default();
+    for pair in &split_inline(body) {
         let Some((name, raw)) = cost_field(pair) else {
-            let refusal = Err(invalid(
-                draft,
-                krate,
+            return reader.invalid(
                 "retire.cost",
                 pair.clone(),
                 "expected a name = value pair inside the cost table",
-            ));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-            return refusal;
+            );
         };
-        match name {
-            "cold_build_s" => {
-                let parsed = raw.parse::<f64>().ok().filter(|parsed| parsed.is_finite());
-                let Some(parsed) = parsed else {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.cold_build_s",
-                        raw.to_owned(),
-                        "expected a finite number of seconds",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                };
-                cold_build_s = Some(parsed);
-            }
-            "crates" => {
-                let Some(parsed) = raw.parse::<u64>().ok() else {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.crates",
-                        raw.to_owned(),
-                        "expected a whole number of crates",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                };
-                crates = Some(parsed);
-            }
-            "binary_bytes" => {
-                let Some(parsed) = raw.parse::<u64>().ok() else {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.binary_bytes",
-                        raw.to_owned(),
-                        "expected a whole number of bytes",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                };
-                binary_bytes = Some(parsed);
-            }
-            "measured" => {
-                let Ok(decoded) = decode_string(raw, "retire.cost.measured", line) else {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.measured",
-                        raw.to_owned(),
-                        "expected a double-quoted date string",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                };
-                if !is_iso_date(&decoded) {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.measured",
-                        decoded,
-                        "expected a real YYYY-MM-DD date",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                }
-                measured = Some(decoded);
-            }
-            "command" => {
-                let Ok(decoded) = decode_string(raw, "retire.cost.command", line) else {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.command",
-                        raw.to_owned(),
-                        "expected a double-quoted command string",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                };
-                if decoded.trim().is_empty() {
-                    let refusal = Err(invalid(
-                        draft,
-                        krate,
-                        "retire.cost.command",
-                        decoded,
-                        "expected the non-empty command that measured this cost",
-                    ));
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                    return refusal;
-                }
-                command = Some(decoded);
-            }
-            _ => {
-                let refusal = Err(invalid(
-                    draft,
-                    krate,
-                    "retire.cost",
-                    name.to_owned(),
-                    "expected one of cold_build_s, crates, binary_bytes, measured, command",
-                ));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-                return refusal;
-            }
-        }
+        reader.read(&mut fields, name, raw)?;
     }
-    let Some(cold_build_s) = cold_build_s else {
-        let refusal = Err(ContractError::MissingField {
-            krate: Some(krate.to_owned()),
-            field: "retire.cost.cold_build_s",
-            line: field_line(draft, "retire.cost"),
-        });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
-    };
-    let Some(crates) = crates else {
-        let refusal = Err(ContractError::MissingField {
-            krate: Some(krate.to_owned()),
-            field: "retire.cost.crates",
-            line: field_line(draft, "retire.cost"),
-        });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
-    };
-    let Some(binary_bytes) = binary_bytes else {
-        let refusal = Err(ContractError::MissingField {
-            krate: Some(krate.to_owned()),
-            field: "retire.cost.binary_bytes",
-            line: field_line(draft, "retire.cost"),
-        });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
-    };
-    let Some(measured) = measured else {
-        let refusal = Err(ContractError::MissingField {
-            krate: Some(krate.to_owned()),
-            field: "retire.cost.measured",
-            line: field_line(draft, "retire.cost"),
-        });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
-    };
-    let Some(command) = command else {
-        let refusal = Err(ContractError::MissingField {
-            krate: Some(krate.to_owned()),
-            field: "retire.cost.command",
-            line: field_line(draft, "retire.cost"),
-        });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::parse_cost: returning an error to the caller");
-        return refusal;
-    };
-    Ok(RetireCost {
-        cold_build_s,
-        crates,
-        binary_bytes,
-        measured,
-        command,
-    })
+    reader.finish(fields)
 }
 
 /// Requires a retire field to be present and non-blank.
@@ -326,15 +315,11 @@ fn require_retire(
 ) -> Result<String, ContractError> {
     match draft.get(field) {
         Some(value) if !value.trim().is_empty() => Ok(value.to_owned()),
-        _ => {
-            let refusal = Err(ContractError::MissingField {
-                krate: Some(krate.to_owned()),
-                field,
-                line: draft.line(),
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::require_retire: returning an error to the caller");
-            refusal
-        }
+        _ => refused(ContractError::MissingField {
+            krate: Some(krate.to_owned()),
+            field,
+            line: draft.line(),
+        }),
     }
 }
 
@@ -353,51 +338,41 @@ pub(crate) fn build(draft: &RawEntry, krate: &str) -> Result<Option<Retire>, Con
     }
     let replacement = require_retire(draft, krate, "retire.replacement")?;
     if !crate::retire::is_replacement_shape(&replacement) {
-        let refusal = Err(invalid(
+        return refused(invalid(
             draft,
             krate,
             "retire.replacement",
             replacement,
             "expected a module path such as lgwks_std::json",
         ));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::build: returning an error to the caller");
-        return refusal;
     }
     let blocker = require_retire(draft, krate, "retire.blocker")?;
     if !is_mortgage_sentence(&blocker) {
-        let refusal = Err(invalid(
+        return refused(invalid(
             draft,
             krate,
             "retire.blocker",
             blocker,
             "expected a sentence of four or more words ending in a full stop",
         ));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::build: returning an error to the caller");
-        return refusal;
     }
-    let cost = match draft.get("retire.cost") {
-        Some(value) => parse_cost(value, field_line(draft, "retire.cost"), krate, draft)?,
-        None => {
-            let refusal = Err(ContractError::MissingField {
-                krate: Some(krate.to_owned()),
-                field: "retire.cost",
-                line: draft.line(),
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::build: returning an error to the caller");
-            return refusal;
-        }
+    let Some(cost_text) = draft.get("retire.cost") else {
+        return refused(ContractError::MissingField {
+            krate: Some(krate.to_owned()),
+            field: "retire.cost",
+            line: draft.line(),
+        });
     };
+    let cost = parse_cost(cost_text, field_line(draft, "retire.cost"), krate, draft)?;
     let review = require_retire(draft, krate, "retire.review")?;
     if !is_iso_date(&review) {
-        let refusal = Err(invalid(
+        return refused(invalid(
             draft,
             krate,
             "retire.review",
             review,
             "expected a real YYYY-MM-DD date",
         ));
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "retire_read::build: returning an error to the caller");
-        return refusal;
     }
     Ok(Some(Retire {
         replacement,

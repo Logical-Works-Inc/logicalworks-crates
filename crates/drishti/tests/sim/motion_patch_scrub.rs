@@ -13,8 +13,8 @@ use drishti::motion::{
 use lgwks_std::id::Uuid;
 
 use crate::motion_kit::{
-    describe, ensure, eval_at, linear_tween, node_id, reference_linear, scalar_of, single_node,
-    spring_config, state_of, within,
+    at, at_mut, describe, ensure, eval_at, linear_tween, node_id, pick, reference_linear,
+    scalar_of, single_node, spring_config, state_of, within,
 };
 use crate::rng::{SimRng, TraceHash};
 
@@ -128,12 +128,12 @@ fn sim_motion_patch_matches_the_field_model() -> Result<(), String> {
                 ));
             } else {
                 let value = if random.below(3) == 0 {
-                    pool[random.below_len(pool.len())]
+                    pick(&mut random, &pool)?
                 } else {
                     f32::from(random.below_u16(900)) + 1.0
                 };
-                fields[slot] = value;
-                ops.push(float_op(PATHS[slot], value));
+                *at_mut(&mut fields, slot)? = value;
+                ops.push(float_op(at(&PATHS, slot)?, value));
             }
         }
         let valid = fields.iter().all(|field| field.is_finite()) && fields[3] > 0.0;
@@ -193,7 +193,7 @@ fn sim_motion_patch_refusals_follow_the_documented_precedence() -> Result<(), St
         let mut ops = Vec::new();
         let mut wire = Vec::new();
         for _ in 0..random.below(3).saturating_add(1) {
-            let path = PATHS[random.below_len(PATHS.len())];
+            let path = pick(&mut random, &PATHS)?;
             let kind = random.below(3);
             let value = match kind {
                 0 => PatchValue::Float(1.0),
@@ -267,12 +267,12 @@ fn sim_motion_patch_accumulator_targets_fail_without_side_effects() -> Result<()
         let (path, expected) = if random.below(3) == 0 {
             let foreign = ["from", "to", "easing", "bogus"];
             (
-                foreign[random.below_len(foreign.len())],
+                pick(&mut random, &foreign)?,
                 MotionErrorCode::PatchPathUnknown,
             )
         } else {
             (
-                ACCUMULATOR_PATHS[random.below_len(ACCUMULATOR_PATHS.len())],
+                pick(&mut random, &ACCUMULATOR_PATHS)?,
                 MotionErrorCode::PatchInvalid,
             )
         };
@@ -481,7 +481,8 @@ fn monkey_node(id: Uuid, bound: &Bound) -> Result<MotionNode, String> {
             120.0, 14.0, 1.0,
         )?)),
         Bound::Scrub(slot) => NodeKind::Accumulator(
-            AccumulatorComponent::new_scrub(String::from(SOURCES[slot])).map_err(describe)?,
+            AccumulatorComponent::new_scrub(String::from(*at(&SOURCES, slot)?))
+                .map_err(describe)?,
         ),
         Bound::Drag => NodeKind::Accumulator(AccumulatorComponent::new_drag()),
     };
@@ -513,7 +514,7 @@ fn check_monkey_frame(
                 3e-3,
             ),
             Bound::Spring => got.is_finite() && (-0.5..=2.5).contains(&got),
-            Bound::Scrub(slot) => within(got, f64::from(sources[slot].clamp(0.0, 1.0)), 0.0),
+            Bound::Scrub(slot) => within(got, f64::from(at(sources, slot)?.clamp(0.0, 1.0)), 0.0),
             Bound::Drag => got.is_finite(),
         };
         ensure(
@@ -544,7 +545,7 @@ fn run_monkey(seed: u64) -> Result<u64, String> {
     }
     let mut wall = 1_000.0_f64;
     for _ in 0..400 {
-        let id = pool[random.below_len(pool.len())];
+        let id = pick(&mut random, &pool)?;
         match random.below(9) {
             0 | 1 => {
                 let bound = match random.below(4) {
@@ -587,11 +588,9 @@ fn run_monkey(seed: u64) -> Result<u64, String> {
             5 => {
                 let slot = random.below_len(SOURCES.len());
                 let value = f32::from(random.below_u16(121)) / 100.0 - 0.1;
-                scrubs.insert(
-                    String::from(SOURCES[slot]),
-                    Box::new(ConstantScrub::new(value)),
-                );
-                sources[slot] = value;
+                let name = *at(&SOURCES, slot)?;
+                scrubs.insert(String::from(name), Box::new(ConstantScrub::new(value)));
+                *at_mut(&mut sources, slot)? = value;
             }
             _ => {
                 let step = random.below(10);
@@ -690,10 +689,11 @@ fn sim_motion_neighbour_tenants_with_shared_ids_match_solo_runs() -> Result<(), 
         let mut scheduler = SimRng::seed(tenants);
         let mut left = u64::from(steps).saturating_mul(tenants);
         while left > 0 {
-            let pick = scheduler.below_len(crowd.len());
-            if remaining[pick] > 0 {
-                crowd[pick].advance();
-                remaining[pick] = remaining[pick].saturating_sub(1);
+            let index = scheduler.below_len(crowd.len());
+            let budget = at_mut(&mut remaining, index)?;
+            if *budget > 0 {
+                at_mut(&mut crowd, index)?.advance();
+                *budget = budget.saturating_sub(1);
                 left = left.saturating_sub(1);
             }
         }
@@ -739,7 +739,7 @@ fn sim_motion_replay_diverges_when_one_frame_time_shifts() -> Result<(), String>
         };
         let mut shifted = times.clone();
         let victim = random.below_len(shifted.len().saturating_sub(1));
-        shifted[victim] += 3.0;
+        *at_mut(&mut shifted, victim)? += 3.0;
         ensure(
             hash_of(&times)? == hash_of(&times)? && hash_of(&times)? != hash_of(&shifted)?,
             &format!("seed {seed}: shifting frame {victim} by 3 ms left the trace unchanged"),

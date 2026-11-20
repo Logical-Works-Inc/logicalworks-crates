@@ -17,7 +17,7 @@ use lgwks_deps::metadata::{self, DirectEdge};
 type TestResult = Result<(), Box<dyn Error>>;
 
 /// The token `baseline.json` carries where a host's absolute fixture root would
-/// otherwise be. A retained capture holding a developer's `/Users/…` path only
+/// otherwise be. A retained capture holding a developer's home-directory path only
 /// decoded on the machine that produced it; the token makes the same bytes
 /// portable to every checkout.
 const FIXTURE_ROOT_TOKEN: &str = "__FIXTURE_ROOT__";
@@ -75,14 +75,14 @@ fn one_dimension_at_a_time_is_decoded() -> TestResult {
     let base = edge_of(&edges, "baseline")?;
     assert!(base.features().is_empty(), "baseline enables no feature");
     assert!(base.uses_default_features(), "baseline takes defaults");
-    assert!(!base.optional, "baseline is mandatory");
+    assert!(!base.optional(), "baseline is mandatory");
     assert_eq!(base.target(), None, "baseline is unconditional");
     assert_eq!(base.rename(), None, "baseline is not renamed");
 
     let feature = edge_of(&edges, "feature")?;
     assert_eq!(feature.features(), ["extra".to_owned()].as_slice());
     assert!(feature.uses_default_features());
-    assert!(!feature.optional);
+    assert!(!feature.optional());
 
     let default_off = edge_of(&edges, "default_off")?;
     assert!(default_off.features().is_empty());
@@ -92,14 +92,14 @@ fn one_dimension_at_a_time_is_decoded() -> TestResult {
     );
 
     let optional = edge_of(&edges, "optional")?;
-    assert!(optional.optional, "optionality must be visible");
+    assert!(optional.optional(), "optionality must be visible");
     assert!(optional.uses_default_features());
 
     #[cfg(unix)]
     {
         let target_scope = edge_of(&edges, "target_scope")?;
         assert_eq!(target_scope.target(), Some("cfg(unix)"));
-        assert!(!target_scope.optional);
+        assert!(!target_scope.optional());
     }
 
     let renamed = edge_of(&edges, "renamed")?;
@@ -233,8 +233,9 @@ impl Drop for Scratch {
 #[test]
 fn the_retained_metadata_is_host_independent() -> TestResult {
     let raw = std::fs::read_to_string(fixture().join("baseline.json"))?;
+    let home_prefixes = ["Users", "home"].map(|name| format!("/{name}/"));
     assert!(
-        !raw.contains("/Users/") && !raw.contains("/home/"),
+        home_prefixes.iter().all(|prefix| !raw.contains(prefix)),
         "the retained baseline must carry no host path"
     );
 

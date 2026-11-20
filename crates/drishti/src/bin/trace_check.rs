@@ -20,17 +20,24 @@ const TRACE_BYTES: u64 = 2_097_152;
 
 /// Run the checker against the parsed arguments; returns the exit code.
 fn execute(arguments: &[String], streams: &mut Streams<'_>) -> Result<u8, Failure> {
-    let arity_ok = match arguments.len() {
-        2 => true,
-        3 => arguments[2] == "--reduced",
-        _ => false,
+    let usage = "usage: trace_check TRACE.jsonl SOURCE [--reduced]";
+    let mut parts = arguments.iter();
+    let (trace_path, source_path, reduced) = match (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) {
+        (Some(trace), Some(source), None, _) => (trace, source, false),
+        (Some(trace), Some(source), Some(flag), None) if flag == "--reduced" => {
+            (trace, source, true)
+        }
+        _ => {
+            let refusal = Err(usage.into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "execute: returning an error to the caller");
+            return refusal;
+        }
     };
-    arity_ok
-        .then_some(())
-        .ok_or("usage: trace_check TRACE.jsonl SOURCE [--reduced]")?;
-    let trace_path = &arguments[0];
-    let source_path = &arguments[1];
-    let reduced = arguments.len() == 3;
     let trace_bytes = read_bounded(
         std::path::Path::new(trace_path),
         TRACE_BYTES,

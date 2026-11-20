@@ -487,6 +487,15 @@ fn sim_explain_month_end_job_reports_human_and_json() -> TestResult {
         dir.join("copy").join("FIELDS"),
         "           MOVE WS-A TO WS-B.\n",
     )?;
+    check_human_summary(dir)?;
+    check_job_json(dir, job_text)?;
+    check_program_json(dir, pay_text)?;
+    check_copy_json(dir, report_text)?;
+    check_unresolved_copy(dir)
+}
+
+/// The human summary of the job names the job and the datasets it touches.
+fn check_human_summary(dir: &Path) -> TestResult {
     let outcome = run_lgwks(dir, &["legacy", "explain", "job.jcl"])?;
     if outcome.code != Some(0) {
         return refuse(format!(
@@ -505,6 +514,11 @@ fn sim_explain_month_end_job_reports_human_and_json() -> TestResult {
             return refuse(format!("the human summary names no {needle}: {human}"));
         }
     }
+    Ok(())
+}
+
+/// The job's JSON names both steps, and every sentence is a span of the source.
+fn check_job_json(dir: &Path, job_text: &str) -> TestResult {
     let verdict = legacy(dir, &["explain", "job.jcl"])?;
     let job = verdict
         .get("job")
@@ -517,6 +531,11 @@ fn sim_explain_month_end_job_reports_human_and_json() -> TestResult {
         return refuse(format!("two steps must be explained: {verdict}"));
     }
     check_sentences_in_source(job, job_text, "job.jcl")?;
+    Ok(())
+}
+
+/// The payroll program's JSON names it and graphs its one PERFORM edge.
+fn check_program_json(dir: &Path, pay_text: &str) -> TestResult {
     let program = legacy(dir, &["explain", "pay.cbl"])?;
     let named = match program.get("program") {
         Some(named) => named,
@@ -536,6 +555,11 @@ fn sim_explain_month_end_job_reports_human_and_json() -> TestResult {
         return refuse(format!("one PERFORM edge must be graphed: {program}"));
     }
     check_sentences_in_source(named, pay_text, "pay.cbl")?;
+    Ok(())
+}
+
+/// A COPY resolved through `--copy-dir` is replaced in the explained statements.
+fn check_copy_json(dir: &Path, report_text: &str) -> TestResult {
     let resolved = legacy(dir, &["explain", "report.cbl", "--copy-dir=copy"])?;
     let replacing = resolved
         .get("program")
@@ -565,6 +589,11 @@ fn sim_explain_month_end_job_reports_human_and_json() -> TestResult {
         return refuse(format!("REPLACING must rewrite WS-A to WS-X: {resolved}"));
     }
     check_sentences_in_source(replacing, report_text, "report.cbl")?;
+    Ok(())
+}
+
+/// A COPY left unresolved says it cannot tell what the copybook held.
+fn check_unresolved_copy(dir: &Path) -> TestResult {
     let gapped = legacy(dir, &["explain", "report.cbl"])?;
     let gapped_program = gapped
         .get("program")

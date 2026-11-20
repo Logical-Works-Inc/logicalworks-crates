@@ -61,8 +61,10 @@ fn headless_traces_check_out() -> Result<(), String> {
                     String::from_utf8_lossy(&output.stderr)
                 ));
             }
-            let text =
-                String::from_utf8(output.stdout).map_err(|_| String::from("trace is not UTF-8"))?;
+            let text = match String::from_utf8(output.stdout) {
+                Ok(text) => text,
+                Err(error) => return Err(format!("trace is not UTF-8: {error}")),
+            };
             let mut records = Vec::new();
             for line in text.lines() {
                 let record: lgwks_std::json::Value = lgwks_std::json::from_str(line)

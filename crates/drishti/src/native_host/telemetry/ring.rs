@@ -15,6 +15,7 @@ use super::TelemetryError;
 /// assert_eq!(ring.snapshot(), vec![2, 3]);
 /// # Ok::<(), drishti::native_host::telemetry::TelemetryError>(())
 /// ```
+#[derive(Debug)]
 pub struct RingBuffer<T> {
     /// Slots in write order.
     storage: Vec<T>,
@@ -68,7 +69,12 @@ impl<T> RingBuffer<T> {
         if self.storage.len() < self.capacity.get() {
             self.storage.push(item);
         } else {
-            self.storage[self.write_head] = item;
+            match self.storage.get_mut(self.write_head) {
+                Some(slot) => *slot = item,
+                // The head is always below the full length; if that ever broke,
+                // keeping the newest item beats losing it.
+                None => self.storage.push(item),
+            }
             self.write_head = cycle_next(self.write_head, self.capacity);
         }
         self.total_pushed = self.total_pushed.wrapping_add(1);
@@ -119,21 +125,17 @@ impl<T> RingBuffer<T> {
     {
         // The write head stays at slot zero until the ring first fills, so
         // the oldest item is always at the write head.
-        (0..self.storage.len())
-            .map(|offset| self.storage[cycle_add(self.write_head, offset, self.capacity)].clone())
-            .collect()
+        match self.storage.split_at_checked(self.write_head) {
+            Some((newer, oldest)) => oldest.iter().chain(newer).cloned().collect(),
+            None => self.storage.clone(),
+        }
     }
 }
 
-/// Advance a ring position by `offset` modulo the capacity. The capacity is
-/// a `NonZeroUsize`, so the remainder cannot trap and needs no fallback.
-fn cycle_add(position: usize, offset: usize, capacity: NonZeroUsize) -> usize {
-    position.saturating_add(offset) % capacity
-}
-
-/// Advance a ring write head by one modulo the capacity.
+/// Advance a ring write head by one modulo the capacity. The capacity is a
+/// `NonZeroUsize`, so the remainder cannot trap and needs no fallback.
 fn cycle_next(position: usize, capacity: NonZeroUsize) -> usize {
-    cycle_add(position, 1, capacity)
+    position.saturating_add(1) % capacity
 }
 
 /// Snapshot of telemetry health at a point in time.
@@ -221,6 +223,7 @@ impl TelemetryMetrics {
 /// tracker.record(5_000);
 /// assert_eq!(tracker.p99_microseconds(), 5);
 /// ```
+#[derive(Debug)]
 pub struct LatencyTracker {
     /// Recent samples, oldest overwritten first.
     samples: RingBuffer<u64>,
@@ -283,13 +286,14 @@ impl LatencyTracker {
     #[must_use]
     pub fn p99_microseconds(&self) -> u64 {
         let mut sorted = self.samples.snapshot();
-        if sorted.is_empty() {
-            return 0;
-        }
         sorted.sort_unstable();
         let last = sorted.len().saturating_sub(1);
         let index = last.wrapping_mul(99).wrapping_div(100);
-        sorted[index].wrapping_div(1_000)
+        // No sample at the index means the ring is empty: no latency.
+        match sorted.get(index) {
+            Some(sample) => sample.wrapping_div(1_000),
+            None => 0,
+        }
     }
 }
 

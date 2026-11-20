@@ -42,7 +42,7 @@ fn build_svg() -> Result<String, InkError> {
     let accent = palette.role(drishti::design::Role::Accent).hex();
     let (width, height) = (120.0_f64, 140.0_f64);
     let mut engine = InkEngine::new(1);
-    let _ = engine.add_host(HostSpec::new(
+    engine.add_host(HostSpec::new(
         Effect::Mark,
         Canvas::new(width, height),
         true,

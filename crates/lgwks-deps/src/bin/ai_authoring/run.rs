@@ -445,42 +445,9 @@ pub(super) fn run(
             standing.spent, standing.limit, standing.repeats
         ));
     }
-    let mut stopped = match errors.into_inner() {
-        Ok(found) => found,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    if let Some(first) = stopped.pop() {
-        return fail(first, "run");
-    }
-    records.extend(match ran.into_inner() {
-        Ok(found) => found,
-        Err(poisoned) => poisoned.into_inner(),
-    });
-    records.sort_by(|left, right| {
-        (
-            &left.model,
-            &left.arm,
-            &left.task,
-            &left.profile,
-            left.trial,
-        )
-            .cmp(&(
-                &right.model,
-                &right.arm,
-                &right.task,
-                &right.profile,
-                right.trial,
-            ))
-    });
-    let profiles: Vec<String> = if options.profiles.is_empty() {
-        bench
-            .profiles
-            .iter()
-            .map(|item| item.name.clone())
-            .collect()
-    } else {
-        options.profiles.clone()
-    };
+    records.extend(drain(ran, errors)?);
+    sort_records(&mut records);
+    let profiles = profile_names(bench, options);
     let summary = render(&[
         ("generated_by", Value::from(GENERATED_BY)),
         ("lgwks_bot_sha", Value::from(commit.as_str())),
@@ -499,6 +466,17 @@ pub(super) fn run(
         "wrote {}",
         places.dir.join("summary.json").display()
     ));
+    let crashed = warn_crashed(console, &records);
+    let survivors = if mode == Mode::Mutants {
+        report_mutants(console, &records)
+    } else {
+        0
+    };
+    Ok(u8::from(crashed > 0 || survivors > 0))
+}
+
+/// The recorded trials that crashed, warned about once when there are any.
+fn warn_crashed(console: &Console, records: &[Record]) -> usize {
     let crashed = records
         .iter()
         .filter(|record| record.error.is_some())
@@ -509,10 +487,58 @@ pub(super) fn run(
             wide(crashed)
         ));
     }
-    let survivors = if mode == Mode::Mutants {
-        report_mutants(console, &records)
-    } else {
-        0
+    crashed
+}
+
+/// What the workers found once they have stopped: the first error one of them
+/// recorded, or every record they finished. A worker that panicked poisoned its
+/// lock, and what it left is still the answer.
+fn drain(
+    ran: Mutex<Vec<Record>>,
+    errors: Mutex<Vec<BenchError>>,
+) -> Result<Vec<Record>, BenchError> {
+    let mut stopped = match errors.into_inner() {
+        Ok(found) => found,
+        Err(poisoned) => poisoned.into_inner(),
     };
-    Ok(u8::from(crashed > 0 || survivors > 0))
+    if let Some(first) = stopped.pop() {
+        return fail(first, "run");
+    }
+    Ok(match ran.into_inner() {
+        Ok(found) => found,
+        Err(poisoned) => poisoned.into_inner(),
+    })
+}
+
+/// Records in the order a summary lists them: model, arm, task, profile, trial.
+fn sort_records(records: &mut [Record]) {
+    records.sort_by(|left, right| {
+        (
+            &left.model,
+            &left.arm,
+            &left.task,
+            &left.profile,
+            left.trial,
+        )
+            .cmp(&(
+                &right.model,
+                &right.arm,
+                &right.task,
+                &right.profile,
+                right.trial,
+            ))
+    });
+}
+
+/// The profiles the run uses: the ones the command line names, else all of them.
+fn profile_names(bench: &Bench, options: &Options) -> Vec<String> {
+    if options.profiles.is_empty() {
+        bench
+            .profiles
+            .iter()
+            .map(|item| item.name.clone())
+            .collect()
+    } else {
+        options.profiles.clone()
+    }
 }

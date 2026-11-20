@@ -158,7 +158,7 @@ impl Cargo<'_> {
             stderr => stderr,
         };
         let tail = match said.char_indices().rev().nth(QUOTED_TAIL) {
-            Some((at, _)) => &said[at..],
+            Some((at, _)) => said.split_at(at).1,
             None => said,
         };
         lgwks_std::trace::debug!(

@@ -33,13 +33,13 @@ fn stray_nonce(random: &mut SimRng) -> Uuid {
 }
 
 /// The audit events published since `before` events existed.
-pub fn since(harness: &Harness, before: usize) -> Vec<AuditEvent> {
+pub(crate) fn since(harness: &Harness, before: usize) -> Vec<AuditEvent> {
     harness.audit_events().into_iter().skip(before).collect()
 }
 
 /// Require exactly one new event since `before`: `action`, denied with
 /// `error`. Returns it for further checks.
-pub fn one_denial(
+pub(crate) fn one_denial(
     harness: &Harness,
     before: usize,
     action: &AuditAction,

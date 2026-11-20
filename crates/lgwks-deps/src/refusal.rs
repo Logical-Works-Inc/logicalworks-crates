@@ -361,249 +361,107 @@ pub(crate) fn bit_label(bit: Option<bool>) -> &'static str {
     }
 }
 
+/// Writes the message of whichever [`Refusal`] variant `$refusal` is.
+///
+/// One arm per variant, each naming the fields it binds and the message that
+/// reads them. The match stays exhaustive, so a new refusal does not compile
+/// until it has a message; the macro only keeps the arms one per variant instead
+/// of one per bound field, which is what let `fmt` outgrow the line budget.
+macro_rules! refusal_messages {
+    (
+        $formatter:expr, $refusal:expr;
+        $($variant:ident { $($pattern:tt)* } => $message:literal $(, $name:ident = $value:expr)* ;)*
+    ) => {
+        match *$refusal {
+            $(Refusal::$variant { $($pattern)* } => write!($formatter, $message $(, $name = $value)*),)*
+        }
+    };
+}
+
 impl fmt::Display for Refusal {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {
-            Self::ForeignWorkspaceMember {
-                ref consumer,
-                ref krate,
-                ref declared_repository,
-                ref expected_repository,
-            } => write!(
-                formatter,
-                "{consumer} embeds workspace package {krate} from {declared_repository}; consume its published crate instead (workspace authority is {expected_repository})"
-            ),
-            Self::UnregisteredEdge {
-                ref consumer,
-                ref krate,
-                ref requirement,
-                ref source,
-                ref kind,
-            } => write!(
-                formatter,
-                "{consumer} declares unowned {kind} edge {krate} {requirement} from {source}"
-            ),
-            Self::ConsumerNotAllowed {
-                ref consumer,
-                ref krate,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate}, but no approval allows that consumer"
-            ),
-            Self::RequirementDrift {
-                ref consumer,
-                ref krate,
-                ref approved,
-                ref declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} requirement {declared}, contract approves {approved}"
-            ),
-            Self::SourceDrift {
-                ref consumer,
-                ref krate,
-                ref approved,
-                ref declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} from {declared}, contract approves {approved}"
-            ),
-            Self::OriginDrift {
-                ref consumer,
-                ref krate,
-                ref approved,
-                ref declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} from {declared}, contract approves origin {approved}"
-            ),
-            Self::KindNotAllowed {
-                ref consumer,
-                ref krate,
-                ref kind,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} as {kind}, but that edge kind is not approved"
-            ),
-            Self::FeatureDrift {
-                ref consumer,
-                ref krate,
-                ref approved,
-                ref declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} with features [{declared}], contract admits [{approved}]"
-            ),
-            Self::DefaultFeaturesDrift {
-                ref consumer,
-                ref krate,
-                approved,
-                declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} with default-features = {declared}, contract admits {}",
-                bit_label(approved)
-            ),
-            Self::OptionalityDrift {
-                ref consumer,
-                ref krate,
-                approved,
-                declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} optional = {declared}, contract admits {}",
-                bit_label(approved)
-            ),
-            Self::TargetDrift {
-                ref consumer,
-                ref krate,
-                ref approved,
-                ref declared,
-            } => write!(
-                formatter,
-                "{consumer} declares {krate} for target {declared}, contract admits {approved}"
-            ),
-            Self::UnusedApproval {
-                ref krate,
-                ref owner,
-                ref capability,
-            } => write!(
-                formatter,
-                "unused approval for {krate} capability {capability} owned by {owner}"
-            ),
-            Self::FrozenSurfaceTier {
-                ref consumer,
-                ref krate,
-                ref tier,
-            } => write!(
-                formatter,
+        refusal_messages! { formatter, self;
+            ForeignWorkspaceMember { ref consumer, ref krate, ref declared_repository, ref expected_repository } =>
+                "{consumer} embeds workspace package {krate} from {declared_repository}; consume its published crate instead (workspace authority is {expected_repository})";
+            UnregisteredEdge { ref consumer, ref krate, ref requirement, ref source, ref kind } =>
+                "{consumer} declares unowned {kind} edge {krate} {requirement} from {source}";
+            ConsumerNotAllowed { ref consumer, ref krate } =>
+                "{consumer} declares {krate}, but no approval allows that consumer";
+            RequirementDrift { ref consumer, ref krate, ref approved, ref declared } =>
+                "{consumer} declares {krate} requirement {declared}, contract approves {approved}";
+            SourceDrift { ref consumer, ref krate, ref approved, ref declared } =>
+                "{consumer} declares {krate} from {declared}, contract approves {approved}";
+            OriginDrift { ref consumer, ref krate, ref approved, ref declared } =>
+                "{consumer} declares {krate} from {declared}, contract approves origin {approved}";
+            KindNotAllowed { ref consumer, ref krate, ref kind } =>
+                "{consumer} declares {krate} as {kind}, but that edge kind is not approved";
+            FeatureDrift { ref consumer, ref krate, ref approved, ref declared } =>
+                "{consumer} declares {krate} with features [{declared}], contract admits [{approved}]";
+            DefaultFeaturesDrift { ref consumer, ref krate, approved, declared } =>
+                "{consumer} declares {krate} with default-features = {declared}, contract admits {admitted}", admitted = bit_label(approved);
+            OptionalityDrift { ref consumer, ref krate, approved, declared } =>
+                "{consumer} declares {krate} optional = {declared}, contract admits {admitted}", admitted = bit_label(approved);
+            TargetDrift { ref consumer, ref krate, ref approved, ref declared } =>
+                "{consumer} declares {krate} for target {declared}, contract admits {approved}";
+            UnusedApproval { ref krate, ref owner, ref capability } =>
+                "unused approval for {krate} capability {capability} owned by {owner}";
+            FrozenSurfaceTier { ref consumer, ref krate, ref tier } =>
                 "{consumer} is a frozen surface and its {krate} edge is tiered {tier}; \
                  a frozen surface's edges stay boundary, and the surface's approved set \
-                 is closed"
-            ),
-            Self::LicenseNotAccepted {
-                ref krate,
-                ref approved,
-                ref declared,
-                ref rejected,
-            } => {
-                let refused = rejected.join(", ");
-                write!(
-                    formatter,
-                    "{krate} declares licence {declared}, which the register's \
-                     approved {approved} does not admit ({refused}); re-approve the \
-                     licence or remove the edge"
-                )
-            }
-            Self::VendorTierConflict {
-                ref krate,
-                ref source,
-            } => write!(
-                formatter,
+                 is closed";
+            LicenseNotAccepted { ref krate, ref approved, ref declared, ref rejected } =>
+                "{krate} declares licence {declared}, which the register's \
+                 approved {approved} does not admit ({refused}); re-approve the \
+                 licence or remove the edge", refused = rejected.join(", ");
+            VendorTierConflict { ref krate, ref source } =>
                 "{krate} is approved at the vendor tier but its edge resolves from \
                  {source}; vendor means audited source checked into this workspace, \
-                 not a registry edge"
-            ),
-            Self::UnknownSurface {
-                ref krate,
-                ref role,
-            } => write!(
-                formatter,
+                 not a registry edge";
+            UnknownSurface { ref krate, ref role } =>
                 "{krate} is a {role} but not one of the surfaces the register's \
                  [policy] surfaces declares; a new surface is a decision to record \
-                 there, not a crate to add"
-            ),
-            Self::LicensePolicyUndeclared { approvals } => write!(
-                formatter,
+                 there, not a crate to add";
+            LicensePolicyUndeclared { approvals } =>
                 "the register approves {approvals} external edge(s) but declares no \
                  [policy] accepted_licenses; name the SPDX identifiers this repository \
-                 accepts (for example `accepted_licenses = \"MIT, Apache-2.0\"`)"
-            ),
-            Self::SchemaMigration { schema } => write!(
-                formatter,
+                 accepts (for example `accepted_licenses = \"MIT, Apache-2.0\"`)";
+            SchemaMigration { schema } =>
                 "the register still reads schema {schema}; migrate it to schema 3: \
                  every [[approved]] entry gains an [approved.retire] table naming \
                  its replacement, blocker, measured cost and review, and [policy] \
-                 sets schema = 3 (#788)"
-            ),
-            Self::RetireMissing {
-                ref krate,
-                ref field,
-            } => write!(
-                formatter,
+                 sets schema = 3 (#788)";
+            RetireMissing { ref krate, ref field } =>
                 "approval for {krate:?} names no {field} table: schema 3 mortgages \
                  every edge's exit with [approved.retire] (replacement, blocker, \
-                 cost, review) (#788)"
-            ),
-            Self::RetireInvalid {
-                ref krate,
-                ref field,
-                ref value,
-                ref expected,
-            } => write!(
-                formatter,
-                "approval for {krate:?} has invalid {field} value {value:?}; {expected}"
-            ),
-            Self::RetireExpired {
-                ref krate,
-                ref field,
-                ref review,
-                ref today,
-            } => write!(
-                formatter,
+                 cost, review) (#788)";
+            RetireInvalid { ref krate, ref field, ref value, ref expected } =>
+                "approval for {krate:?} has invalid {field} value {value:?}; {expected}";
+            RetireExpired { ref krate, ref field, ref review, ref today } =>
                 "approval for {krate:?} {field} {review:?} is before today {today:?}: \
-                 re-review the mortgage and move the date forward (#788)"
-            ),
-            Self::AdoptionModeRefusals { refusals } => write!(
-                formatter,
+                 re-review the mortgage and move the date forward (#788)";
+            AdoptionModeRefusals { refusals } =>
                 "[policy] enforce = false stood down {refusals} dependency-edge \
                  violations; adoption mode reports refusals, it does not make them \
-                 pass — register the edges or re-enable enforcement"
-            ),
-            Self::DependencyOverride {
-                ref file,
-                ref table,
-            } => write!(
-                formatter,
+                 pass — register the edges or re-enable enforcement";
+            DependencyOverride { ref file, ref table } =>
                 "{file} declares {table}, which replaces dependency bytes the register \
                  approved; remove it (the one admitted override is \
-                 `[source.crates-io] replace-with = \"vendored-sources\"`)"
-            ),
-            Self::DeferredAdmitted {
-                ref krate,
-                ref owner,
-                ref trigger,
-            } => write!(
-                formatter,
+                 `[source.crates-io] replace-with = \"vendored-sources\"`)";
+            DeferredAdmitted { ref krate, ref owner, ref trigger } =>
                 "{krate} is approved but the deferral catalog still defers it: fix the \
-                 estate owner {owner} first, and admit it only when {trigger}"
-            ),
-            Self::MissingLifecycle { ref krate } => write!(
-                formatter,
+                 estate owner {owner} first, and admit it only when {trigger}";
+            MissingLifecycle { ref krate } =>
                 "{krate} is approved but the lifecycle ledger names no mortgage for it: \
                  record its replacement, removal trigger and last review in \
-                 contract/LIFECYCLE.toml"
-            ),
-            Self::PatchExpired {
-                ref krate,
-                ref expiry,
-                ref upstream,
-            } => write!(
-                formatter,
+                 contract/LIFECYCLE.toml";
+            PatchExpired { ref krate, ref expiry, ref upstream } =>
                 "the ledger row for {krate} expired on {expiry}: renew it with a review \
-                 or remove the pin; upstream is {upstream}"
-            ),
-            Self::ProviderBlocked {
-                ref krate,
-                ref version,
-                ref via,
-            } => write!(
-                formatter,
+                 or remove the pin; upstream is {upstream}";
+            ProviderBlocked { ref krate, ref version, ref via } =>
                 "{krate} {version} is a blocked TLS provider in the resolved tree with \
                  no live sealed exception; record the owner, date, blast radius and \
-                 removal path, or remove the chain that pulled it in ({via})"
-            ),
-            Self::LedgerUnreadable { ref reason, .. } => write!(formatter, "{reason}"),
+                 removal path, or remove the chain that pulled it in ({via})";
+            LedgerUnreadable { ref reason, .. } => "{reason}";
         }
     }
 }

@@ -375,8 +375,8 @@ fn validate_accumulator_op(op: &PatchOp) -> Result<(), MotionError> {
 
 /// Apply validated ops to a cloned node.
 fn apply_ops_to_node(mut node: MotionNode, patch: &MotionPatch) -> Result<MotionNode, MotionError> {
-    match node.kind().clone() {
-        NodeKind::Tween(tween) => {
+    match *node.kind() {
+        NodeKind::Tween(ref tween) => {
             let updated = apply_tween_ops(tween, &patch.ops)?;
             node.set_kind(NodeKind::Tween(updated));
             Ok(node)
@@ -460,8 +460,8 @@ impl TweenFields {
 }
 
 /// Apply tween ops in order, then rebuild through the constructor.
-fn apply_tween_ops(tween: TweenComponent, ops: &[PatchOp]) -> Result<TweenComponent, MotionError> {
-    let mut fields = TweenFields::from_component(&tween);
+fn apply_tween_ops(tween: &TweenComponent, ops: &[PatchOp]) -> Result<TweenComponent, MotionError> {
+    let mut fields = TweenFields::from_component(tween);
     for op in ops {
         fields.apply(op)?;
     }

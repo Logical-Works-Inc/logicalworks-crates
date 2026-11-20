@@ -234,7 +234,7 @@ fn an_outside_path_package_with_a_member_name_is_not_a_member() -> TestResult {
     }"#;
     let edges = parse(input)?;
     assert_eq!(edges.len(), 1);
-    let edge = &edges[0];
+    let edge = edges.first().ok_or("one edge was parsed")?;
     assert_eq!(edge.consumer, "app");
     assert_eq!(edge.package, "helper");
     assert!(
@@ -271,7 +271,7 @@ fn a_path_edge_resolving_into_a_member_directory_is_a_member() -> TestResult {
     }"#;
     let edges = parse(input)?;
     assert_eq!(edges.len(), 1);
-    let edge = &edges[0];
+    let edge = edges.first().ok_or("one edge was parsed")?;
     assert!(
         edge.workspace,
         "a path target inside a member directory is that member"
@@ -313,7 +313,7 @@ fn a_target_scoped_dependency_is_classified_as_an_edge() -> TestResult {
 /// location to compare: the join refuses rather than naming a directory
 /// outside the filesystem.
 #[test]
-fn a_path_escaping_its_root_has_no_join() -> TestResult {
+fn a_path_escaping_its_root_has_no_join() {
     assert_eq!(
         lexical_join(Path::new("/repo"), "sub/../helper"),
         Some(PathBuf::from("/repo/helper"))
@@ -324,7 +324,6 @@ fn a_path_escaping_its_root_has_no_join() -> TestResult {
         lexical_join(Path::new("/repo/app"), "/repo/helper"),
         Some(PathBuf::from("/repo/helper"))
     );
-    Ok(())
 }
 
 /// A declaring member with no manifest directory has nothing to resolve a

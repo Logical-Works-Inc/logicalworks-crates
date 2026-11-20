@@ -129,9 +129,13 @@ fn sim_time_offsets_shift_and_fractions_truncate() -> Result<(), String> {
             ),
         )?;
         let count = random.below_len(9).saturating_add(1);
-        let fraction: String = (0..count)
-            .map(|_| char::from(DIGITS[random.below_len(DIGITS.len())]))
-            .collect();
+        let mut fraction = String::new();
+        for _ in 0..count {
+            let digit = DIGITS
+                .get(random.below_len(DIGITS.len()))
+                .ok_or("digit index out of range")?;
+            fraction.push(char::from(*digit));
+        }
         let with_fraction = format!("{stem}.{fraction}Z");
         let kept: String = fraction.chars().chain("00".chars()).take(3).collect();
         let millis: u64 = kept.parse().map_err(|error| format!("{error}"))?;
@@ -312,14 +316,19 @@ fn sim_time_corrupted_stamps_never_panic_and_stay_canonical() -> Result<(), Stri
     }
     let stamp = format_millis(1_767_225_600_000);
     for cut in 0..stamp.len() {
+        let prefix = stamp
+            .get(..cut)
+            .ok_or("the cut is not a character boundary")?;
         ensure(
-            parse_millis(&stamp[..cut]).is_err(),
+            parse_millis(prefix).is_err(),
             &format!("the prefix of {cut} bytes must be refused"),
         )?;
     }
     for separator in [4_usize, 7, 10, 13, 16] {
         let mut broken = stamp.clone().into_bytes();
-        broken[separator] = b'x';
+        *broken
+            .get_mut(separator)
+            .ok_or("the separator is past the stamp")? = b'x';
         let broken = String::from_utf8(broken).map_err(|error| format!("{error}"))?;
         ensure(
             parse_millis(&broken).is_err(),

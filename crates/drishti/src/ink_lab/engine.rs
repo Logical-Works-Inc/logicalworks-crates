@@ -18,6 +18,7 @@ use beams::{beam_geometry, brand_default, group_thousands};
 /// Used only where the specification itself is random (spray, bits, idle
 /// wander, auto-splash). One seed makes a whole run replayable; the JavaScript
 /// engine reads `Math.random` directly.
+#[derive(Debug)]
 struct Rng {
     /// The generator state.
     state: u64,
@@ -124,6 +125,7 @@ struct Spot {
 ///
 /// Effects share the bag rather than each carrying a distinct type; fields an
 /// effect does not use stay at their default.
+#[derive(Debug)]
 struct HostState {
     /// Effect-local elapsed time in milliseconds.
     elapsed: f64,
@@ -201,6 +203,7 @@ impl HostState {
 }
 
 /// One registered host.
+#[derive(Debug)]
 struct Host {
     /// Stable identity.
     id: HostId,
@@ -234,6 +237,7 @@ impl Host {
 }
 
 /// The ink lab engine: a bounded set of hosts advanced by an injected clock.
+#[derive(Debug)]
 pub struct InkEngine {
     /// Registered hosts.
     hosts: Vec<Host>,

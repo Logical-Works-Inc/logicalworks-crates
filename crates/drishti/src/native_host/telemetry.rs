@@ -84,6 +84,15 @@ pub struct TelemetryTap {
     inner: Arc<Mutex<TapInner>>,
 }
 
+impl std::fmt::Debug for TelemetryTap {
+    /// The guarded tap state (ring, store handle, listener) does not print.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("TelemetryTap")
+            .finish_non_exhaustive()
+    }
+}
+
 /// Tap state behind the handle lock.
 struct TapInner {
     /// Buffered envelopes.
@@ -378,11 +387,7 @@ fn handle_tap_event(inner: &Arc<Mutex<TapInner>>, event: &TapEvent) {
     };
     let governance = tap.governance.clone();
     drop(tap);
-    let policy = event
-        .envelope()
-        .session_invariant()
-        .policy_bundle_id()
-        .to_owned();
+    let policy = event.envelope().session_invariant().policy_bundle_id();
     if let Err(error) = governance.append_with_policy(&entry, policy) {
         lock_inner(inner).fail(TelemetryError::AppendFailed(format!("{error}")));
     }

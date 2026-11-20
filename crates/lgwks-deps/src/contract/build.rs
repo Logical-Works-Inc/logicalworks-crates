@@ -299,6 +299,102 @@ pub(super) fn is_feature_name(value: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/' | ':' | '+'))
 }
 
+/// Refuses the first decoded field outside its schema vocabulary, in a fixed
+/// order so a register with several defects always reports the same one.
+///
+/// The fields are read from `draft` again rather than passed in: the draft is
+/// the single source, and each read is the typed refusal `build` already met.
+fn validate_closed_fields(draft: &RawEntry, krate: &str) -> Result<(), ContractError> {
+    let check = |field: &'static str, value: &str, valid: bool, expected: &'static str| {
+        validate_closed_value(draft, krate, field, value, valid, expected)
+    };
+    let owner = draft.require("owner", Some(krate))?;
+    let license = draft.require("license", Some(krate))?;
+    let source = draft.require("source", Some(krate))?;
+    let consumers = split_csv(draft.require("allowed_consumers", Some(krate))?);
+    let kinds = split_csv(draft.require("allowed_kinds", Some(krate))?);
+    check(
+        "crate",
+        krate,
+        is_identifier(krate),
+        "expected a Cargo package identifier using ASCII letters, digits, hyphens or underscores",
+    )?;
+    check(
+        "owner",
+        owner,
+        is_identifier(owner),
+        "expected a workspace package identifier using ASCII letters, digits, hyphens or underscores",
+    )?;
+    check(
+        "license",
+        license,
+        is_spdx_expression(license),
+        "expected an SPDX licence expression, for example `MIT OR Apache-2.0`",
+    )?;
+    check(
+        "source",
+        source,
+        matches!(source, "registry" | "git" | "path"),
+        "expected one of registry, git or path",
+    )?;
+    if let Some(origin) = draft.get("origin") {
+        check(
+            "origin",
+            origin,
+            is_supported_origin(origin),
+            "expected a registry+ / sparse+ / git+ Cargo source, or a scheme-free path authority",
+        )?;
+    }
+    check(
+        "allowed_consumers",
+        &consumers.join(","),
+        !consumers.is_empty() && consumers.iter().all(|item| is_identifier(item)),
+        "expected a nonempty comma-separated list of package identifiers",
+    )?;
+    check(
+        "allowed_kinds",
+        &kinds.join(","),
+        !kinds.is_empty()
+            && kinds
+                .iter()
+                .all(|kind| matches!(kind.as_str(), "normal" | "build" | "dev")),
+        "expected a nonempty list containing only normal, build or dev",
+    )?;
+    if let Some(target) = draft.get("target") {
+        // An empty target is meaningful: it requires an unconditional
+        // declaration. Any non-empty value is the `cfg(…)` or triple Cargo
+        // reported, compared byte-for-byte at admission.
+        check(
+            "target",
+            target,
+            !target.chars().any(char::is_control),
+            "expected a target cfg expression, possibly empty for unconditional",
+        )?;
+    }
+    if let Some(list) = draft.get("aliases") {
+        let aliases = split_csv(list);
+        check(
+            "aliases",
+            &aliases.join(","),
+            aliases
+                .iter()
+                .all(|alias| is_identifier(alias) && alias != krate),
+            "expected comma-separated package identifiers, none equal to crate",
+        )?;
+    }
+    let allowed = optional_feature_list(draft, "features", krate)?;
+    let required = optional_feature_list(draft, "required_features", krate)?;
+    if let (Some(allowed), Some(required)) = (allowed, required) {
+        check(
+            "required_features",
+            &required.join(","),
+            required.iter().all(|needed| allowed.contains(needed)),
+            "expected a subset of the allowed features",
+        )?;
+    }
+    Ok(())
+}
+
 /// Turns a fully-read draft into an `Entry`, validating every field rule.
 ///
 /// The checks run in a fixed order (required fields, then tier, then date,
@@ -352,100 +448,7 @@ pub(super) fn build(draft: &RawEntry) -> Result<Entry, ContractError> {
     };
     let allowed_consumers = split_csv(draft.require("allowed_consumers", Some(&krate))?);
     let allowed_kinds = split_csv(draft.require("allowed_kinds", Some(&krate))?);
-    validate_closed_value(
-        draft,
-        &krate,
-        "crate",
-        &krate,
-        is_identifier(&krate),
-        "expected a Cargo package identifier using ASCII letters, digits, hyphens or underscores",
-    )?;
-    validate_closed_value(
-        draft,
-        &krate,
-        "owner",
-        &owner,
-        is_identifier(&owner),
-        "expected a workspace package identifier using ASCII letters, digits, hyphens or underscores",
-    )?;
-    validate_closed_value(
-        draft,
-        &krate,
-        "license",
-        &license,
-        is_spdx_expression(&license),
-        "expected an SPDX licence expression, for example `MIT OR Apache-2.0`",
-    )?;
-    validate_closed_value(
-        draft,
-        &krate,
-        "source",
-        &source,
-        matches!(source.as_str(), "registry" | "git" | "path"),
-        "expected one of registry, git or path",
-    )?;
-    if let Some(origin) = origin.as_deref() {
-        validate_closed_value(
-            draft,
-            &krate,
-            "origin",
-            origin,
-            is_supported_origin(origin),
-            "expected a registry+ / sparse+ / git+ Cargo source, or a scheme-free path authority",
-        )?;
-    }
-    validate_closed_value(
-        draft,
-        &krate,
-        "allowed_consumers",
-        &allowed_consumers.join(","),
-        !allowed_consumers.is_empty() && allowed_consumers.iter().all(|item| is_identifier(item)),
-        "expected a nonempty comma-separated list of package identifiers",
-    )?;
-    validate_closed_value(
-        draft,
-        &krate,
-        "allowed_kinds",
-        &allowed_kinds.join(","),
-        !allowed_kinds.is_empty()
-            && allowed_kinds
-                .iter()
-                .all(|kind| matches!(kind.as_str(), "normal" | "build" | "dev")),
-        "expected a nonempty list containing only normal, build or dev",
-    )?;
-    if let Some(target) = target.as_deref() {
-        // An empty target is meaningful: it requires an unconditional
-        // declaration. Any non-empty value is the `cfg(…)` or triple Cargo
-        // reported, compared byte-for-byte at admission.
-        validate_closed_value(
-            draft,
-            &krate,
-            "target",
-            target,
-            !target.chars().any(char::is_control),
-            "expected a target cfg expression, possibly empty for unconditional",
-        )?;
-    }
-    validate_closed_value(
-        draft,
-        &krate,
-        "aliases",
-        &aliases.join(","),
-        aliases
-            .iter()
-            .all(|alias| is_identifier(alias) && alias != &krate),
-        "expected comma-separated package identifiers, none equal to crate",
-    )?;
-    if let (Some(allowed), Some(required)) = (features.as_ref(), required_features.as_ref()) {
-        validate_closed_value(
-            draft,
-            &krate,
-            "required_features",
-            &required.join(","),
-            required.iter().all(|needed| allowed.contains(needed)),
-            "expected a subset of the allowed features",
-        )?;
-    }
+    validate_closed_fields(draft, &krate)?;
     let approved_by = draft.require("approved_by", Some(&krate))?.to_owned();
     let review = draft.require("review", Some(&krate))?.to_owned();
     let retire = crate::retire_read::build(draft, &krate)?;
@@ -550,22 +553,27 @@ pub(super) fn decode_policy_field(field: &RawField) -> Result<PolicyValue, Contr
 
 /// A frozen surface the register's own closed surface set does not name is a
 /// contradiction in one block, refused at load rather than audited around.
+///
+/// A register that declares no `surfaces` keeps no closed set (the contract of
+/// `a_register_without_surfaces_keeps_no_closed_set`): every name is a member
+/// of the open set, so no freeze can name one outside it. Absence is the open
+/// set by definition, and a closed set is checked member by member.
 pub(super) fn check_frozen_are_surfaces(
     frozen: &[String],
     surfaces: Option<&[String]>,
     line: usize,
 ) -> Result<(), ContractError> {
-    let Some(surfaces) = surfaces else {
-        return Ok(());
-    };
-    match frozen.iter().find(|name| !surfaces.contains(name)) {
-        Some(outside) => Err(ContractError::BadPolicyValue {
+    let is_member = |name: &String| surfaces.is_none_or(|declared| declared.contains(name));
+    if let Some(outside) = frozen.iter().find(|name| !is_member(name)) {
+        let refusal = Err(ContractError::BadPolicyValue {
             line,
             key: "frozen_surfaces".to_owned(),
             value: format!("{outside} (not one of the declared surfaces)"),
-        }),
-        None => Ok(()),
+        });
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "check_frozen_are_surfaces: returning an error to the caller");
+        return refusal;
     }
+    Ok(())
 }
 
 /// Splits one policy list and refuses it whole on an empty, repeated or
@@ -655,19 +663,18 @@ pub(super) fn is_a_sentence(reason: &str, krate: &str) -> bool {
 /// Length is checked before indexing; decimal fields are bounded by the fixed
 /// format, and month length follows the Gregorian leap-year rule.
 pub(crate) fn is_iso_date(value: &str) -> bool {
-    let date_bytes = value.as_bytes();
-    if date_bytes.len() != 10
-        || date_bytes[4] != b'-'
-        || date_bytes[7] != b'-'
-        || ![0, 1, 2, 3, 5, 6, 8, 9]
-            .iter()
-            .all(|&position| date_bytes[position].is_ascii_digit())
+    let &[y1, y2, y3, y4, b'-', m1, m2, b'-', d1, d2] = value.as_bytes() else {
+        return false;
+    };
+    if ![y1, y2, y3, y4, m1, m2, d1, d2]
+        .iter()
+        .all(u8::is_ascii_digit)
     {
         return false;
     }
-    let year = decimal_pair(&date_bytes[0..4]);
-    let month = decimal_pair(&date_bytes[5..7]);
-    let day = decimal_pair(&date_bytes[8..10]);
+    let year = decimal_pair(&[y1, y2, y3, y4]);
+    let month = decimal_pair(&[m1, m2]);
+    let day = decimal_pair(&[d1, d2]);
     let (Some(year), Some(month), Some(day)) = (year, month, day) else {
         return false;
     };
@@ -725,7 +732,14 @@ pub(super) fn strip_comment(line: &str) -> &str {
         match byte {
             b'\\' if in_quotes => escaped = true,
             b'"' => in_quotes = !in_quotes,
-            b'#' if !in_quotes => return &line[..index],
+            b'#' if !in_quotes => {
+                // `#` is ASCII, so `index` is a boundary; the whole line is the
+                // safe direction if it were not.
+                let Some(head) = line.get(..index) else {
+                    return line;
+                };
+                return head;
+            }
             _ => {}
         }
     }

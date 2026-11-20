@@ -92,8 +92,8 @@ fn parse(arguments: &[OsString]) -> Result<Options, Failure> {
 /// A path swapped between the check and the open could still block; that
 /// residual TOCTOU is documented rather than silently assumed away.
 fn read_text(path: &Path) -> Result<String, Failure> {
-    let file_type = std::fs::symlink_metadata(path)?.file_type();
-    require_input(file_type.is_file(), "input must be a regular file")?;
+    let linked = std::fs::symlink_metadata(path)?;
+    require_input(linked.is_file(), "input must be a regular file")?;
     let file = std::fs::File::open(path)?;
     require_input(file.metadata()?.is_file(), "input must be a regular file")?;
     let mut bytes = Vec::new();

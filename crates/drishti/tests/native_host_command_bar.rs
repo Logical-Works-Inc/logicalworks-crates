@@ -187,7 +187,7 @@ fn intents_stamp_user_origin_and_fan_out() -> Result<(), String> {
         return Err(String::from("intent must fan out to intent subscribers"));
     }
     let audited = harness.audited();
-    if audited.len() != 1 || audited[0] != envelope.signal_id() {
+    if audited.len() != 1 || audited.first().map(String::as_str) != Some(envelope.signal_id()) {
         return Err(String::from("audit must record the intent"));
     }
     Ok(())

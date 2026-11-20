@@ -178,19 +178,19 @@ fn reduced_motion_settles(effect: Effect, base: u64, seeds: u64) {
             for upload in report.uploads() {
                 let frame = &upload.frame;
                 assert!(
-                    frame.blur.abs() < 1e-12 && frame.displacement.abs() < 1e-12,
+                    frame.blur().abs() < 1e-12 && frame.displacement().abs() < 1e-12,
                     "seed {seed}: {} resolved mid-liquid",
                     effect.name()
                 );
                 assert!(
-                    (frame.alpha - 1.0).abs() < 1e-12,
+                    (frame.alpha() - 1.0).abs() < 1e-12,
                     "seed {seed}: faded resolve"
                 );
             }
         }
         let settled = runtime.present(16.0);
         assert!(
-            matches!(settled, Ok(report) if report.idle),
+            matches!(settled, Ok(report) if report.idle()),
             "seed {seed}: {} kept demanding work after resolving",
             effect.name()
         );

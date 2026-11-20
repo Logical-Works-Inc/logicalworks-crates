@@ -10,7 +10,7 @@ use drishti::canvas_protocol::SessionInvariant;
 use drishti::canvas_scene::{Action, Canvas, CommitStatus, Delta, Error, View};
 
 use crate::canvas_kit::{Model, agrees, delta, draw_action, limits, present, scene, wild_i32};
-use crate::motion_kit::{describe, ensure};
+use crate::motion_kit::{describe, ensure, pick};
 use crate::rng::{SimRng, TraceHash};
 
 /// Everything a refusal must leave untouched.
@@ -155,7 +155,7 @@ fn sim_canvas_stale_deltas_are_refused_before_capacity_and_consume_nothing() -> 
 /// A session that differs from `base` in exactly one field.
 fn session_differing_in(field: u64, base: &SessionInvariant) -> Result<SessionInvariant, String> {
     let other_uuid = "99999999-9999-9999-9999-999999999999";
-    let pick = |slot: u64, mine: &str, theirs: &str| -> String {
+    let choose = |slot: u64, mine: &str, theirs: &str| -> String {
         if slot == field {
             String::from(theirs)
         } else {
@@ -163,11 +163,11 @@ fn session_differing_in(field: u64, base: &SessionInvariant) -> Result<SessionIn
         }
     };
     SessionInvariant::new(
-        pick(0, base.work_object_id(), other_uuid),
-        pick(1, base.session_id(), other_uuid),
-        pick(2, base.policy_bundle_id(), other_uuid),
-        pick(3, base.tenant_id(), "tenant-impostor"),
-        pick(4, base.user_sub(), other_uuid),
+        choose(0, base.work_object_id(), other_uuid),
+        choose(1, base.session_id(), other_uuid),
+        choose(2, base.policy_bundle_id(), other_uuid),
+        choose(3, base.tenant_id(), "tenant-impostor"),
+        choose(4, base.user_sub(), other_uuid),
     )
     .map_err(describe)
 }
@@ -490,7 +490,7 @@ fn sim_canvas_deny_optimistic_never_reuses_an_accepted_revision() -> Result<(), 
             match random.below(5) {
                 0 | 1 => {
                     let action = if random.below(2) == 0 {
-                        Action::OptimisticTransition(CommitStatus::ALL[random.below_len(4)])
+                        Action::OptimisticTransition(pick(&mut random, &CommitStatus::ALL)?)
                     } else {
                         draw_action(&mut random)
                     };
@@ -513,7 +513,10 @@ fn sim_canvas_deny_optimistic_never_reuses_an_accepted_revision() -> Result<(), 
             floor = next;
         }
         ensure(
-            accepted_bases.windows(2).all(|pair| pair[0] < pair[1]),
+            accepted_bases
+                .iter()
+                .zip(accepted_bases.iter().skip(1))
+                .all(|(earlier, later)| earlier < later),
             &format!("seed {seed}: an accepted base revision was reused"),
         )?;
     }
@@ -527,8 +530,8 @@ fn sim_canvas_optimistic_overlay_never_impersonates_confirmed_status() -> Result
     for seed in 5_800..5_860_u64 {
         let mut random = SimRng::seed(seed);
         let mut scene = scene("tenant-overlay", limits(8)?)?;
-        let claimed = CommitStatus::ALL[random.below_len(4)];
-        let confirmed = CommitStatus::ALL[random.below_len(4)];
+        let claimed = pick(&mut random, &CommitStatus::ALL)?;
+        let confirmed = pick(&mut random, &CommitStatus::ALL)?;
         scene
             .enqueue(delta(&scene, Action::Transition(confirmed))?)
             .map_err(describe)?;
@@ -579,7 +582,10 @@ fn sim_canvas_step_wraps_modulo_three_for_extreme_amounts() -> Result<(), String
             let frame = present(&mut scene, 0.01)?;
             let start = i64::try_from(here.index()).map_err(describe)?;
             let landed = start.saturating_add(i64::from(amount)).rem_euclid(3);
-            here = View::ALL[usize::try_from(landed).map_err(describe)?];
+            here = View::ALL
+                .get(usize::try_from(landed).map_err(describe)?)
+                .copied()
+                .ok_or("the step landed outside the three views")?;
             ensure(
                 frame.target() == here && scene.target() == here,
                 &format!(
@@ -588,7 +594,7 @@ fn sim_canvas_step_wraps_modulo_three_for_extreme_amounts() -> Result<(), String
                 ),
             )?;
             if random.below(5) == 0 {
-                here = View::ALL[random.below_len(3)];
+                here = pick(&mut random, &View::ALL)?;
                 scene
                     .enqueue(delta(&scene, Action::Navigate(here))?)
                     .map_err(describe)?;

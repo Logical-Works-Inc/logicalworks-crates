@@ -60,7 +60,11 @@ fn scratch(name: &str) -> Result<PathBuf, Failed> {
 /// Removes what a test made; a directory that is already gone is fine.
 fn clear(dir: &Path) {
     match fs::remove_dir_all(dir) {
-        Ok(()) | Err(_) => {}
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, dir = %dir.display(), "a test directory was not removed");
+        }
     }
 }
 
@@ -86,7 +90,7 @@ fn the_environment_names_the_slots_and_a_bad_value_is_the_fallback() -> Result<(
         for fallback in [DEFAULT_SLOTS, wide] {
             let chosen = Slots::from_env(Some(bad.into()), dir_from_env(Some("".into())), fallback);
             assert_eq!(chosen.count, fallback, "{bad:?} is not a slot count");
-            assert_eq!(chosen.dir, PathBuf::from(DEFAULT_DIR));
+            assert_eq!(chosen.dir, default_dir());
         }
     }
     assert_eq!(Slots::from_env(None, dir_from_env(None), wide).count, wide);
@@ -261,7 +265,8 @@ fn takers_on_threads_never_exceed_the_slots() -> Result<(), Failed> {
                     inside.fetch_sub(1, Ordering::SeqCst);
                     drop(held);
                 }
-                Err(_) => {
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, taker, "a taker was refused a slot");
                     failures.fetch_add(1, Ordering::SeqCst);
                 }
             });

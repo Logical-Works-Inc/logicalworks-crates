@@ -30,7 +30,10 @@ fn sim_ring_buffer_matches_a_list_model() -> Result<(), String> {
             ring.push(item.clone());
             model.push(item);
             let held = model.len().min(capacity);
-            let want = model[model.len().saturating_sub(held)..].to_vec();
+            let want = model
+                .get(model.len().saturating_sub(held)..)
+                .ok_or("the model window starts past its end")?
+                .to_vec();
             ensure(
                 ring.snapshot() == want
                     && ring.count() == held
@@ -104,14 +107,20 @@ fn sim_latency_p99_matches_the_sorted_reference() -> Result<(), String> {
             tracker.record(sample);
             samples.push(sample);
         }
-        let mut window = samples[samples.len().saturating_sub(capacity)..].to_vec();
+        let mut window = samples
+            .get(samples.len().saturating_sub(capacity)..)
+            .ok_or("the sample window starts past its end")?
+            .to_vec();
         window.sort_unstable();
         let index = window
             .len()
             .saturating_sub(1)
             .saturating_mul(99)
             .wrapping_div(100);
-        let want = window[index].wrapping_div(1_000);
+        let want = window
+            .get(index)
+            .ok_or("the p99 index is outside the window")?
+            .wrapping_div(1_000);
         ensure(
             tracker.p99_microseconds() == want,
             &format!(

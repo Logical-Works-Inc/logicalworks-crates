@@ -59,9 +59,10 @@ fn edge(license: &str) -> Result<DirectEdge, Box<dyn Error>> {
 /// A register approving `engine` under `license`, with `accepted` as its
 /// declared set or no declaration at all.
 fn register(license: &str, accepted: Option<&[&str]>) -> Result<Contract, Box<dyn Error>> {
-    let policy = accepted.map_or(String::new(), |set| {
-        format!("accepted_licenses = \"{}\"\n", set.join(", "))
-    });
+    let policy = match accepted {
+        Some(set) => format!("accepted_licenses = \"{}\"\n", set.join(", ")),
+        None => String::new(),
+    };
     let text = format!(
         concat!(
             "[policy]\nschema = 2\nenforce = true\n{policy}\n",
@@ -221,7 +222,8 @@ fn two_registers_judge_one_edge_each_by_its_own_set() -> TestResult {
         ];
         for order in [[0_usize, 1], [1, 0]] {
             for tenant in order {
-                let (ref contract, ref expected) = tenants[tenant];
+                let (ref contract, ref expected) =
+                    *tenants.get(tenant).ok_or("tenant index out of range")?;
                 let got = rejected_by(&audit_direct(std::slice::from_ref(&edge), contract))?;
                 let expected = (!expected.is_empty()).then(|| expected.clone());
                 assert_eq!(got, expected, "tenant {tenant} on {expression:?}");

@@ -59,6 +59,11 @@ impl std::fmt::Display for Refusal {
 
 impl std::error::Error for Refusal {}
 
+/// The cell at `index`, or the field refusal for a row too short to hold it.
+fn cell<'a>(row: &[&'a str], index: usize) -> Result<&'a str, Refusal> {
+    row.get(index).copied().ok_or(Refusal::Field)
+}
+
 fn rows<'a>(text: &'a str, header: &str, prefix: char) -> Result<Vec<Vec<&'a str>>, Refusal> {
     let mut lines = text.lines();
     let first = lines.next();
@@ -75,10 +80,11 @@ fn rows<'a>(text: &'a str, header: &str, prefix: char) -> Result<Vec<Vec<&'a str
             lgwks_std::trace::debug!(line, width, "registry refused: missing or extra field");
             return Err(Refusal::Field);
         }
-        let id = fields[0];
+        let id = cell(&fields, 0)?;
         if id.len() != 3
-            || !id.starts_with(prefix)
-            || !id.as_bytes()[1..].iter().all(u8::is_ascii_digit)
+            || !id
+                .strip_prefix(prefix)
+                .is_some_and(|digits| digits.bytes().all(|byte| byte.is_ascii_digit()))
             || !ids.insert(id)
         {
             lgwks_std::trace::debug!(id, %prefix, "registry refused: invalid or duplicate identity");
@@ -158,23 +164,24 @@ fn requirement_and_journey_links_are_bidirectional() -> TestResult {
     let requirements = requirements()?;
     let journeys = journeys()?;
     for requirement in &requirements {
+        let wanted = cell(requirement, 6)?;
         let journey = journeys
             .iter()
-            .find(|row| row[0] == requirement[6])
+            .find(|row| row.first() == Some(&wanted))
             .ok_or(Refusal::Unlinked)?;
+        let requirement_id = cell(requirement, 0)?;
+        let journey_id = cell(journey, 0)?;
         assert!(
-            journey[1].split(',').any(|id| id == requirement[0]),
-            "journey {} does not list requirement {}",
-            journey[0],
-            requirement[0]
+            cell(journey, 1)?.split(',').any(|id| id == requirement_id),
+            "journey {journey_id} does not list requirement {requirement_id}"
         );
     }
     for journey in &journeys {
-        for id in journey[1].split(',') {
+        let journey_id = cell(journey, 0)?;
+        for id in cell(journey, 1)?.split(',') {
             assert!(
-                requirements.iter().any(|row| row[0] == id),
-                "journey {} names unknown requirement {id}",
-                journey[0]
+                requirements.iter().any(|row| row.first() == Some(&id)),
+                "journey {journey_id} names unknown requirement {id}"
             );
         }
     }
@@ -186,16 +193,18 @@ fn design_references_exist_and_tests_are_explicitly_planned() -> TestResult {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let research = include_str!("../docs/research.md");
     for row in requirements()? {
-        assert!(DOCUMENTS.contains(&row[3]), "unknown design {}", row[3]);
-        assert!(root.join(row[3]).is_file());
-        assert!(research.contains(&format!("| {} |", row[2])));
-        let path = Path::new(row[5]);
+        let design = cell(&row, 3)?;
+        let planned = cell(&row, 5)?;
+        assert!(DOCUMENTS.contains(&design), "unknown design {design}");
+        assert!(root.join(design).is_file());
+        assert!(research.contains(&format!("| {} |", cell(&row, 2)?)));
+        let path = Path::new(planned);
         assert!(
             path.components()
                 .all(|part| matches!(part, Component::Normal(_)))
         );
-        assert!(row[5].starts_with("tests/"));
-        assert!(row[5].ends_with(".rs"));
+        assert!(planned.starts_with("tests/"));
+        assert!(planned.ends_with(".rs"));
         assert!(
             !root.join(path).exists(),
             "planned test is now present: update status"
@@ -213,7 +222,7 @@ fn all_narrative_documents_are_in_the_publication() -> TestResult {
         assert!(text.len() > 500, "empty or placeholder document: {path}");
     }
     let library = include_str!("../src/lib.rs");
-    for path in &DOCUMENTS[1..] {
+    for path in DOCUMENTS.iter().skip(1) {
         assert!(library.contains(path), "not embedded in Rustdoc: {path}");
     }
     // The package must declare what it actually is: the design publication

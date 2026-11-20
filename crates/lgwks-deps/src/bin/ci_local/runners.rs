@@ -176,21 +176,46 @@ pub(super) fn debug_e2e(context: &Context<'_>) -> Result<Verdict, GateError> {
         ".",
         "--json",
     ]);
+    if let Err(refusal) = success_journey(context, &env, &command) {
+        return Ok(refusal);
+    }
+    match fail_closed_journey(context, &env, command)? {
+        Some(refusal) => Ok(refusal),
+        None => Ok(pass(
+            "successful end-to-end journey result: debug_json_exit=0 admitted=true lifecycle=installed+completed; \
+             fail_closed_exit=2 missing=trace_includes_tracing_subscriber",
+        )),
+    }
+}
+
+/// The doctor on the real tree: it must admit, with every required check, and
+/// say so on its lifecycle events. A refusal is the verdict to report.
+fn success_journey(
+    context: &Context<'_>,
+    env: &BTreeMap<String, String>,
+    command: &[String],
+) -> Result<(), Verdict> {
     let success = context
         .children
-        .capture(&launch(&command, context.root, &env));
+        .capture(&launch(command, context.root, env));
     if success.code != 0 {
-        return Ok(refuse(format!(
+        let refusal = Err(refuse(format!(
             "debug success journey failed: exit={} stdout={:?} stderr={:?}",
             success.code,
             clip(&success.stdout, 400),
             clip(&success.stderr, 400)
         )));
+        lgwks_std::trace::debug!(
+            code = success.code,
+            "success_journey: the debug journey failed"
+        );
+        return refusal;
     }
     let report: Value = match json::from_str(&success.stdout) {
         Ok(report) => report,
         Err(error) => {
-            return Ok(refuse(format!(
+            lgwks_std::trace::debug!("success_journey: returning an error to the caller");
+            return Err(refuse(format!(
                 "debug success journey did not return JSON: {error}"
             )));
         }
@@ -202,17 +227,30 @@ pub(super) fn debug_e2e(context: &Context<'_>) -> Result<Verdict, GateError> {
         .collect();
     let admitted = report.get("admitted").and_then(Value::as_bool);
     if admitted != Some(true) || !missing.is_empty() {
-        return Ok(refuse(format!(
+        lgwks_std::trace::debug!("success_journey: returning an error to the caller");
+        return Err(refuse(format!(
             "debug success journey missing admitted checks: admitted={admitted:?} missing={missing:?}"
         )));
     }
     if !success.stderr.contains("debugger installed")
         || !success.stderr.contains("debug doctor completed")
     {
-        return Ok(refuse(
+        lgwks_std::trace::debug!("success_journey: returning an error to the caller");
+        return Err(refuse(
             "debug success journey did not emit install and completion lifecycle events".to_owned(),
         ));
     }
+    Ok(())
+}
+
+/// The doctor on a tree whose `trace` feature lost `tracing-subscriber`: it must
+/// refuse and name that edge. `Some` is the refusal to report; `None` means the
+/// doctor held the line.
+fn fail_closed_journey(
+    context: &Context<'_>,
+    env: &BTreeMap<String, String>,
+    command: Vec<String>,
+) -> Result<Option<Verdict>, GateError> {
     let fixture = Fixture::claim(&std::env::temp_dir(), "lgwks-debug-e2e")?;
     let manifest_dir = fixture.path().join("crates").join("lgwks-std");
     fs::create_dir_all(&manifest_dir).map_err(|cause| GateError::Io {
@@ -228,10 +266,10 @@ pub(super) fn debug_e2e(context: &Context<'_>) -> Result<Verdict, GateError> {
         .replace(", \"dep:tracing-subscriber\"", "")
         .replace("    \"dep:tracing-subscriber\",\n", "");
     if refused_manifest == manifest {
-        return Ok(refuse(
+        return Ok(Some(refuse(
             "debug fail-closed fixture could not remove dep:tracing-subscriber from trace"
                 .to_owned(),
-        ));
+        )));
     }
     write_file(&manifest_dir.join("Cargo.toml"), &refused_manifest)?;
     let mut fail_command = command;
@@ -241,27 +279,27 @@ pub(super) fn debug_e2e(context: &Context<'_>) -> Result<Verdict, GateError> {
     }
     let refused = context
         .children
-        .capture(&launch(&fail_command, context.root, &env));
+        .capture(&launch(&fail_command, context.root, env));
     if refused.code != 2 {
-        return Ok(refuse(format!(
+        return Ok(Some(refuse(format!(
             "debug fail-closed journey did not refuse: exit={} stdout={:?} stderr={:?}",
             refused.code,
             clip(&refused.stdout, 400),
             clip(&refused.stderr, 400)
-        )));
+        ))));
     }
     let refused_report: Value = match json::from_str(&refused.stdout) {
         Ok(report) => report,
         Err(error) => {
-            return Ok(refuse(format!(
+            return Ok(Some(refuse(format!(
                 "debug fail-closed journey did not return JSON: {error}"
-            )));
+            ))));
         }
     };
     if refused_report.get("admitted").and_then(Value::as_bool) != Some(false) {
-        return Ok(refuse(format!(
+        return Ok(Some(refuse(format!(
             "debug fail-closed journey admitted a broken trace surface: {refused_report:?}"
-        )));
+        ))));
     }
     if flag_at(
         &refused_report,
@@ -269,15 +307,12 @@ pub(super) fn debug_e2e(context: &Context<'_>) -> Result<Verdict, GateError> {
         "trace_includes_tracing_subscriber",
     ) != Some(false)
     {
-        return Ok(refuse(
+        return Ok(Some(refuse(
             "debug fail-closed journey did not name the missing tracing-subscriber feature edge"
                 .to_owned(),
-        ));
+        )));
     }
-    Ok(pass(
-        "successful end-to-end journey result: debug_json_exit=0 admitted=true lifecycle=installed+completed; \
-         fail_closed_exit=2 missing=trace_includes_tracing_subscriber",
-    ))
+    Ok(None)
 }
 
 /// A stable percentage with four fractional digits, from integers.

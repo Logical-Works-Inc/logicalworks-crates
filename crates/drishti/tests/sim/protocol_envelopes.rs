@@ -11,7 +11,7 @@ use drishti::native_host::protocol::{
     SignalEnvelope, SourceKind, WidgetDescriptor, WidgetSurface, validate_envelope,
 };
 
-use crate::motion_kit::{describe, ensure, with_member};
+use crate::motion_kit::{at, describe, ensure, pick, with_member};
 use crate::protocol_vocab::{closed_set, seeded_uuid};
 use crate::rng::{SimRng, TraceHash};
 
@@ -68,7 +68,7 @@ fn signal(random: &mut SimRng) -> Result<SignalEnvelope, String> {
     let tenant_length = random.below_len(10).saturating_add(1);
     let tenant = random.text(tenant_length);
     let kind = format!("k{}.{}", random.below(100), random.below(100));
-    let source = SourceKind::all()[random.below_len(4)];
+    let source = pick(random, &SourceKind::all())?;
     let source_id = format!("widget.{}", random.below(1000));
     Ok(SignalEnvelope::new(
         seeded_uuid(random),
@@ -301,18 +301,21 @@ fn sim_envelope_descriptor_strips_intent_emit_and_roundtrips() -> Result<(), Str
         let all = Capability::all();
         let count = random.below_len(10);
         let asked: Vec<Capability> = (0..count)
-            .map(|_| all[random.below_len(all.len())].clone())
-            .collect();
+            .map(|_| at(&all, random.below_len(all.len())).cloned())
+            .collect::<Result<_, _>>()?;
         let want: Vec<Capability> = asked
             .iter()
             .filter(|capability| **capability != Capability::IntentEmit)
             .cloned()
             .collect();
-        let surface = [
-            WidgetSurface::Web,
-            WidgetSurface::Native,
-            WidgetSurface::Both,
-        ][random.below_len(3)];
+        let surface = pick(
+            &mut random,
+            &[
+                WidgetSurface::Web,
+                WidgetSurface::Native,
+                WidgetSurface::Both,
+            ],
+        )?;
         let mut descriptor = WidgetDescriptor::new(
             String::from("kind-a"),
             format!("widget.d{seed}"),
@@ -343,12 +346,12 @@ fn sim_envelope_descriptor_strips_intent_emit_and_roundtrips() -> Result<(), Str
 
 /// A seeded governance entry.
 fn entry(random: &mut SimRng) -> GovernanceEntry {
-    let kind = [
-        AttributionKind::User,
-        AttributionKind::Widget,
-        AttributionKind::Ml,
-        AttributionKind::System,
-    ][random.below_len(4)];
+    let kind = match random.below(4) {
+        0 => AttributionKind::User,
+        1 => AttributionKind::Widget,
+        2 => AttributionKind::Ml,
+        _ => AttributionKind::System,
+    };
     let model = (kind == AttributionKind::Ml).then(|| format!("v{}", random.below(9)));
     let confidence =
         (kind == AttributionKind::Ml).then(|| f64::from(random.below_i32(101)) / 100.0);

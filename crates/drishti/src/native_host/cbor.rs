@@ -266,7 +266,11 @@ impl CborReader<'_> {
     fn read_bytes(&mut self, count: usize) -> Result<Vec<u8>, AppAttestError> {
         let end = self.position.saturating_add(count);
         ensure(end <= self.bytes.len(), || AppAttestError::Truncated)?;
-        let bytes = self.bytes[self.position..end].to_vec();
+        let bytes = self
+            .bytes
+            .get(self.position..end)
+            .ok_or(AppAttestError::Truncated)?
+            .to_vec();
         self.position = end;
         Ok(bytes)
     }

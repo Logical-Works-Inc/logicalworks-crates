@@ -163,7 +163,11 @@ fn a_long_via_list_stays_in_its_column_and_the_json_keeps_every_name() -> TestRe
     print_json(&[row], &mut out)?;
     let parsed: Value = json::from_str(&String::from_utf8(out)?)?;
     assert_eq!(
-        parsed[0]["via"].as_array().map(Vec::len),
+        parsed
+            .get(0)
+            .and_then(|row| row.get("via"))
+            .and_then(Value::as_array)
+            .map(Vec::len),
         Some(8),
         "the JSON keeps all eight"
     );
@@ -198,7 +202,11 @@ fn the_json_has_a_fixed_set_of_keys_and_an_array_of_edges() -> TestResult {
     let bevy = rows.get(1).ok_or("no second row")?;
     assert_eq!(bevy["stale"], true, "the stale flag");
     assert_eq!(bevy["latest"], "0.20.0", "the newest version");
-    assert_eq!(bevy["via"][0], "lgwks_bot", "the edge");
+    assert_eq!(
+        bevy["via"].get(0).and_then(Value::as_str),
+        Some("lgwks_bot"),
+        "the edge"
+    );
     assert!(
         bevy["repository"].is_null(),
         "an unknown repository is null"

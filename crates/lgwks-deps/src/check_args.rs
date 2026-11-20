@@ -197,8 +197,12 @@ pub(crate) fn handle_check(
     };
     match request {
         CheckRequest::Help => handle_help(out),
-        CheckRequest::Audit(parsed) => {
-            run_check(parsed.target, parsed.contract, parsed.json, out, err)
-        }
+        CheckRequest::Audit(parsed) => run_check(
+            parsed.target.as_deref(),
+            &parsed.contract,
+            parsed.json,
+            out,
+            err,
+        ),
     }
 }

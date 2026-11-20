@@ -149,7 +149,11 @@ fn mode_and_phase_mismatch_reject() -> Result<(), String> {
 /// checker's recurrence.
 #[test]
 fn closed_form_normal_fixture_checks() -> Result<(), String> {
-    let mut rows = vec![fixture()[0].clone()];
+    let first_row = fixture()
+        .first()
+        .cloned()
+        .ok_or_else(|| String::from("fixture has no rows"))?;
+    let mut rows = vec![first_row];
     set(&mut rows, 0, "reduced", Value::Bool(false));
     let mut position = 0.0_f64;
     let mut velocity = 0.0_f64;
@@ -175,7 +179,11 @@ fn closed_form_normal_fixture_checks() -> Result<(), String> {
                 position = target;
                 velocity = 0.0;
             }
-            let mut frame = vec![rows[0].clone()];
+            let mut frame = vec![
+                rows.first()
+                    .cloned()
+                    .ok_or_else(|| String::from("closed-form rows lost their first row"))?,
+            ];
             set(&mut frame, 0, "step", json!(label));
             set(&mut frame, 0, "target", json!(target));
             set(&mut frame, 0, "position", json!(position));

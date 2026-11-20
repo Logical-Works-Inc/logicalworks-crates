@@ -108,7 +108,7 @@ fn parse_retire_args(args: &[String]) -> Result<RetireRequest, RetireArgError> {
 
 /// Renders one repository's exit mortgages and reports success.
 fn run_report(
-    args: RetireArgs,
+    args: &RetireArgs,
     out: &mut impl io::Write,
     err: &mut impl io::Write,
 ) -> io::Result<ExitCode> {
@@ -167,6 +167,6 @@ pub(crate) fn handle_retire(
             write!(out, "{}", crate::USAGE)?;
             Ok(ExitCode::SUCCESS)
         }
-        RetireRequest::Report(parsed) => run_report(parsed, out, err),
+        RetireRequest::Report(parsed) => run_report(&parsed, out, err),
     }
 }

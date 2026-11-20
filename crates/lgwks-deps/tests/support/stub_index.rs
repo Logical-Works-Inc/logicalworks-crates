@@ -24,7 +24,7 @@ use std::thread::{Builder, JoinHandle};
 
 /// What the stub answers for one path.
 #[derive(Debug, Clone)]
-pub enum Reply {
+pub(crate) enum Reply {
     /// HTTP 200 with this body.
     Body(String),
     /// This status with an empty body.
@@ -107,7 +107,7 @@ impl Shared {
 }
 
 /// A running stub index. Dropping it stops the listener and joins every thread.
-pub struct Stub {
+pub(crate) struct Stub {
     /// What the threads share.
     shared: Arc<Shared>,
     /// Where it listens.
@@ -117,7 +117,7 @@ pub struct Stub {
 impl Stub {
     /// Starts a stub answering `routes`, withholding responses until `gate`
     /// requests are in flight together (`0` or `1` answers at once).
-    pub fn start(routes: &[(&str, Reply)], gate: usize) -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn start(routes: &[(&str, Reply)], gate: usize) -> Result<Self, Box<dyn Error>> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         let address = listener.local_addr()?;
         let shared = Arc::new(Shared {
@@ -139,17 +139,17 @@ impl Stub {
     }
 
     /// The base URL to hand `--index`.
-    pub fn url(&self) -> String {
+    pub(crate) fn url(&self) -> String {
         format!("http://{}", self.address)
     }
 
     /// The most requests that were in flight together.
-    pub fn peak_in_flight(&self) -> usize {
+    pub(crate) fn peak_in_flight(&self) -> usize {
         self.shared.lock().peak
     }
 
     /// The paths answered, sorted.
-    pub fn served(&self) -> Vec<String> {
+    pub(crate) fn served(&self) -> Vec<String> {
         let mut paths = self.shared.lock().served.clone();
         paths.sort();
         paths

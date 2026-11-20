@@ -193,7 +193,7 @@ fn leg_admission(root: &Path) -> Leg {
     let mut err = Vec::new();
     // An `ExitCode` comparison is the verdict, not a guess: `run_check`
     // reports success only when every authored external edge is owned.
-    match super::run_check(Some(root.to_path_buf()), None, false, &mut out, &mut err) {
+    match super::run_check(Some(root), &None, false, &mut out, &mut err) {
         Ok(ExitCode::SUCCESS) => Leg::buffered("admission", Verdict::Pass, &out, &err),
         Ok(_) => Leg::buffered("admission", Verdict::Fail, &out, &err),
         Err(_) => Leg::buffered("admission", Verdict::Error, &out, &err),
@@ -338,12 +338,17 @@ fn leg_script_check(script: Script<'_>) -> Leg {
 /// diagnostics prints megabytes, and the gate files the last
 /// [`CLIPPY_TAIL_LINES`] lines, which is where clippy puts its errors.
 fn leg_clippy(children: &Children, env: &BTreeMap<String, String>, root: &Path) -> Leg {
-    let Some(log) = clippy_log(root) else {
-        return Leg::decided(
-            "clippy",
-            Verdict::Error,
-            "no log file could be claimed: the clippy leg has nowhere to stream".to_owned(),
-        );
+    let log = match clippy_log(root) {
+        Ok(log) => log,
+        Err(reason) => {
+            return Leg::decided(
+                "clippy",
+                Verdict::Error,
+                format!(
+                    "no log file could be claimed, so the clippy leg has nowhere to stream: {reason}"
+                ),
+            );
+        }
     };
     let file = match std::fs::File::create(&log) {
         Ok(file) => file,
@@ -431,14 +436,51 @@ fn gate_bits() -> Option<[u8; 8]> {
 /// directory, so two gates never share one and no build output lands in the
 /// repository. The directory is created: a fresh checkout has no `target`
 /// until cargo makes one, and the log must exist before clippy runs.
-fn clippy_log(root: &Path) -> Option<PathBuf> {
-    let bits = gate_bits()?;
+///
+/// A refusal names why, so the leg reports the cause rather than a bare
+/// "no log file": a `target` that is a regular file, or a directory the user
+/// cannot write, is the user's to fix and has to say so.
+fn clippy_log(root: &Path) -> Result<PathBuf, LogClaimError> {
+    let Some(bits) = gate_bits() else {
+        lgwks_std::trace::warn!("no entropy source can name a unique clippy log file");
+        return Err(LogClaimError::NoEntropy);
+    };
     let dir = root.join("target");
-    std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(format!(
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        lgwks_std::trace::warn!(%error, path = ?dir, "the clippy log directory could not be created");
+        return Err(LogClaimError::Directory { dir, error });
+    }
+    Ok(dir.join(format!(
         "lgwks-gate-clippy-{:016x}.log",
         u64::from_le_bytes(bits)
     )))
+}
+
+/// Why the clippy leg could not claim a log file.
+#[derive(Debug)]
+enum LogClaimError {
+    /// No entropy source names a unique file (the wasm build has none).
+    NoEntropy,
+    /// The subject's `target` directory could not be created.
+    Directory {
+        /// The directory the leg tried to make.
+        dir: PathBuf,
+        /// The operating system's refusal.
+        error: std::io::Error,
+    },
+}
+
+impl core::fmt::Display for LogClaimError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::NoEntropy => f.write_str("no entropy source can name a unique log file"),
+            Self::Directory { ref dir, ref error } => write!(
+                f,
+                "the log directory could not be created ({error}): {}",
+                dir.display()
+            ),
+        }
+    }
 }
 
 /// The log's last [`CLIPPY_TAIL_LINES`] lines, or the code when it is empty.
@@ -603,7 +645,7 @@ fn leg_arch_diff(script: Script<'_>, base: &str) -> Leg {
     ];
     let ran = capture(children, env, root, &argv, SCRIPT_BOUND);
     if owned {
-        let _ = capture(
+        let removal = capture(
             children,
             env,
             root,
@@ -616,6 +658,9 @@ fn leg_arch_diff(script: Script<'_>, base: &str) -> Leg {
             ],
             GIT_BOUND,
         );
+        if removal.code != 0 {
+            lgwks_std::trace::debug!(code = ?removal.code, "arch-diff: the exported worktree was not removed");
+        }
     }
     // The diff tool's own contract: 0 nothing widens unapproved, 1 a
     // widening stands without its approval line, 2 the comparison itself

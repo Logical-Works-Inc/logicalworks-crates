@@ -275,7 +275,10 @@ fn sim_parse_reads_an_absent_kind_as_normal_and_the_three_spellings_as_themselve
     ];
     for seed in 0..SEEDS {
         let mut stream = Seeded::from_seed(seed);
-        let (spelling, kind) = spellings[stream.index(spellings.len())?];
+        let (spelling, kind) = spellings
+            .get(stream.index(spellings.len())?)
+            .copied()
+            .ok_or("the drawn index names a spelling")?;
         let mut dep = Dep::registry(&ident(&mut stream, 0)?);
         dep.kind = spelling.map(str::to_owned);
         assert_eq!(
@@ -312,7 +315,10 @@ fn sim_parse_classifies_every_source_scheme() -> TestResult {
     ];
     for seed in 0..SEEDS {
         let mut stream = Seeded::from_seed(seed);
-        let (scheme, class) = schemes[stream.index(schemes.len())?];
+        let (scheme, class) = schemes
+            .get(stream.index(schemes.len())?)
+            .copied()
+            .ok_or("the drawn index names a scheme")?;
         let mut dep = Dep::registry(&ident(&mut stream, 0)?);
         dep.source = Some(scheme.to_owned());
         let edge = single_edge(&lone("m", vec![dep]))?;
@@ -462,7 +468,10 @@ fn sim_parse_keeps_the_requirement_byte_for_byte() -> TestResult {
     let shapes = ["^1", "1", "~1.2", ">=1, <3", "=1.2.3", "*"];
     for seed in 0..SEEDS {
         let mut stream = Seeded::from_seed(seed);
-        let shape = shapes[stream.index(shapes.len())?];
+        let shape = shapes
+            .get(stream.index(shapes.len())?)
+            .copied()
+            .ok_or("the drawn index names a shape")?;
         let mut dep = Dep::registry(&ident(&mut stream, 0)?);
         dep.req = shape.to_owned();
         assert_eq!(

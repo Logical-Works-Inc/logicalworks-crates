@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use super::receipt::git;
@@ -216,11 +217,22 @@ fn forbidden_in(label: &str, listing: &str, offenders: &mut Vec<String>) {
     }
 }
 
-/// Whether `directory` exists and holds anything.
-fn is_populated(directory: &Path) -> bool {
+/// Whether `directory` exists and holds anything. A directory that is not there
+/// (or is not a directory) holds nothing; one the operating system refuses to
+/// list is an error, because "could not look" is not "found nothing".
+fn is_populated(directory: &Path) -> Result<bool, GateError> {
     match fs::read_dir(directory) {
-        Ok(mut entries) => entries.next().is_some(),
-        Err(_) => false,
+        Ok(mut entries) => Ok(entries.next().is_some()),
+        Err(cause) if matches!(cause.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
+            Ok(false)
+        }
+        Err(cause) => fail(
+            GateError::Io {
+                path: directory.to_path_buf(),
+                cause,
+            },
+            "is_populated",
+        ),
     }
 }
 
@@ -231,7 +243,7 @@ pub(super) fn artifacts(context: &Context<'_>) -> Result<Verdict, GateError> {
         Some(tracked) => forbidden_in("tracked", &tracked, &mut offenders),
         None => {
             for prefix in FORBIDDEN_PREFIXES {
-                if is_populated(&context.root.join(prefix)) {
+                if is_populated(&context.root.join(prefix))? {
                     offenders.push(format!("present (not a git work tree): {prefix}"));
                 }
             }
@@ -437,7 +449,15 @@ pub(super) fn contract_drift(context: &Context<'_>) -> Result<Verdict, GateError
         )));
     }
     let repository = package_field(context, "crates/lgwks-std/Cargo.toml", "repository")?;
-    if repository != "https://github.com/Logical-Works-Inc/logicalworks-crates" {
+    let published = [
+        "https:",
+        "",
+        "github.com",
+        "Logical-Works-Inc",
+        "logicalworks-crates",
+    ]
+    .join("/");
+    if repository != published {
         return Ok(refuse(format!(
             "Unexpected package repository URL: {repository}"
         )));

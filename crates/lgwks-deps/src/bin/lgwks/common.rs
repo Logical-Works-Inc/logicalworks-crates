@@ -132,9 +132,9 @@ pub(crate) fn prune_json(value: &mut lgwks_std::json::Value) {
         return;
     }
     if let Some(map) = value.as_object_mut()
-        && map.contains_key("_comment")
+        && let Some(comment) = map.remove("_comment")
     {
-        drop(map.remove("_comment"));
+        lgwks_std::trace::debug!(comment = ?comment, "prune_json: dropped an internal comment entry");
     }
     if let Some(array) = value.as_array_mut() {
         for item in array {
@@ -502,19 +502,12 @@ fn distance(left: &str, right: &str) -> usize {
 /// The search runs over the script vocabulary's own spellings, so a
 /// suggestion is always a word the language actually reads.
 fn suggest(word: &str) -> Option<String> {
-    let mut best: Option<(usize, &str)> = None;
-    for entry in lgwks_ast::script::LEXICON.iter() {
-        let spelling = entry.kind().spelling();
-        let edited = distance(word, spelling);
-        let nearer = match best {
-            Some((held, _)) => edited < held,
-            None => true,
-        };
-        if nearer {
-            best = Some((edited, spelling));
-        }
-    }
-    match best {
+    let nearest = lgwks_ast::script::LEXICON
+        .iter()
+        .map(|entry| entry.kind().spelling())
+        .map(|spelling| (distance(word, spelling), spelling))
+        .min_by_key(|candidate| candidate.0);
+    match nearest {
         Some((edited, spelling)) if edited <= SUGGEST_WITHIN => Some(spelling.to_owned()),
         Some(_) | None => None,
     }
@@ -567,9 +560,7 @@ pub(crate) fn load_script(text: &str) -> Result<lgwks_ast::script::Script, Refus
         ));
     }
     if found.len() > 1 {
-        let mut ordered = found.iter();
-        let _ = ordered.next();
-        let second = match ordered.next() {
+        let second = match found.get(1) {
             Some(second) => second,
             None => {
                 return refuse(Refusal::at(

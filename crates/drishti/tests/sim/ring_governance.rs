@@ -127,7 +127,10 @@ fn run_tape_windows(seed: u64) -> Result<u64, String> {
         );
         match store.append(&entry) {
             Ok(()) => {
-                per_session[position] = per_session[position].saturating_add(1);
+                let counted = per_session
+                    .get_mut(position)
+                    .ok_or_else(|| String::from("session slot missing"))?;
+                *counted = counted.saturating_add(1);
                 trace.mix_u64(1);
             }
             Err(error) => trace.mix_str(&format!("{error:?}")),
@@ -158,8 +161,11 @@ fn run_tape_windows(seed: u64) -> Result<u64, String> {
         let counted = store
             .count(crate::fixtures::TENANT, session)
             .map_err(|error| format!("{error}"))?;
-        let want = u64::try_from(per_session[position])
-            .map_err(|error| format!("count overflow: {error}"))?;
+        let appended = per_session
+            .get(position)
+            .copied()
+            .ok_or_else(|| String::from("session slot missing"))?;
+        let want = u64::try_from(appended).map_err(|error| format!("count overflow: {error}"))?;
         ensure(counted == want, || {
             format!("count must match appends for {session}")
         })?;

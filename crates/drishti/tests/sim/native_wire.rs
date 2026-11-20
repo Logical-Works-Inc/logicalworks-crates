@@ -54,22 +54,27 @@ fn envelope(id: &str, kind: &str, emitted_at: &str, session: SessionInvariant) -
 }
 
 /// A seeded run of lowercase hex digits.
-fn hex_run(random: &mut SimRng, count: usize) -> Vec<char> {
+fn hex_run(random: &mut SimRng, count: usize) -> Result<Vec<char>, String> {
     (0..count)
-        .map(|_| char::from(HEX[random.below_len(HEX.len())]))
+        .map(|_| {
+            HEX.get(random.below_len(HEX.len()))
+                .copied()
+                .map(char::from)
+                .ok_or_else(|| String::from("hex digit index out of range"))
+        })
         .collect()
 }
 
 /// A well-formed hyphenated identifier from the seed.
-fn random_uuid(random: &mut SimRng) -> Vec<char> {
+fn random_uuid(random: &mut SimRng) -> Result<Vec<char>, String> {
     let mut chars = Vec::new();
     for (index, count) in [8_usize, 4, 4, 4, 12].into_iter().enumerate() {
         if index > 0 {
             chars.push('-');
         }
-        chars.extend(hex_run(random, count));
+        chars.extend(hex_run(random, count)?);
     }
-    chars
+    Ok(chars)
 }
 
 /// The documented shape: 36 characters, hyphens after groups of 8-4-4-4-12,
@@ -87,8 +92,8 @@ fn shape_ok(text: &str) -> bool {
 }
 
 /// A well-formed identifier with one seeded fat-finger fault, or none.
-fn fat_fingered(random: &mut SimRng) -> String {
-    let mut chars = random_uuid(random);
+fn fat_fingered(random: &mut SimRng) -> Result<String, String> {
+    let mut chars = random_uuid(random)?;
     let position = random.below_len(chars.len());
     match random.below(10) {
         1 => chars.retain(|found| *found != '-'),
@@ -123,7 +128,7 @@ fn fat_fingered(random: &mut SimRng) -> String {
         9 => chars.clear(),
         _ => {}
     }
-    chars.into_iter().collect()
+    Ok(chars.into_iter().collect())
 }
 
 /// Bug caught: a signal id check that admits the simple, braced or urn forms
@@ -135,7 +140,7 @@ fn sim_wire_signal_id_follows_the_hyphenated_shape() -> Result<(), String> {
     let mut refused = 0_usize;
     for seed in 0..400_u64 {
         let mut random = SimRng::seed(seed);
-        let text = fat_fingered(&mut random);
+        let text = fat_fingered(&mut random)?;
         let verdict = validate_envelope(&envelope(&text, GOOD_KIND, GOOD_AT, session.clone()));
         if shape_ok(&text) {
             accepted = accepted.saturating_add(1);
@@ -171,10 +176,14 @@ fn sim_wire_each_session_uuid_field_is_checked_and_named() -> Result<(), String>
     for seed in 0..200_u64 {
         let mut random = SimRng::seed(seed.wrapping_add(10_000));
         let slot = random.below_len(4);
-        let text = fat_fingered(&mut random);
+        let text = fat_fingered(&mut random)?;
         let mut fields = good.map(String::from);
-        fields[slot].clone_from(&text);
-        let session = forged(&fields[0], &fields[1], &fields[2], "tenant-w", &fields[3])?;
+        fields
+            .get_mut(slot)
+            .ok_or("session field slot out of range")?
+            .clone_from(&text);
+        let [work, session_id, policy, user] = fields.each_ref();
+        let session = forged(work, session_id, policy, "tenant-w", user)?;
         let verdict = validate_session_invariant(&session);
         if shape_ok(&text) {
             ensure(
@@ -183,7 +192,10 @@ fn sim_wire_each_session_uuid_field_is_checked_and_named() -> Result<(), String>
             )?;
         } else {
             ensure(
-                verdict == Err(EnvelopeError::InvalidInvariant(names[slot])),
+                verdict
+                    == Err(EnvelopeError::InvalidInvariant(
+                        names.get(slot).ok_or("session field name out of range")?,
+                    )),
                 &format!("seed {seed}: field {slot} {text:?} gave {verdict:?}"),
             )?;
         }

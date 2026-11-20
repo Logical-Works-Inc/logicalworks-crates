@@ -58,7 +58,7 @@ fn register_and_stamp_authoritatively() -> Result<(), String> {
     }
     // One audit entry with the same signal id.
     let audited = harness.audited();
-    if audited.len() != 1 || audited[0] != envelope.signal_id() {
+    if audited.len() != 1 || audited.first().map(String::as_str) != Some(envelope.signal_id()) {
         return Err(String::from("audit must record the emit"));
     }
     Ok(())
@@ -210,7 +210,10 @@ fn sessions_isolate_delivery() -> Result<(), String> {
     if listed.len() != 1 {
         return Err(String::from("inspector must list one subscription"));
     }
-    if listed[0].session_id() != SESSION_ONE || listed[0].tenant_id() != "tenant" {
+    let Some(only) = listed.first() else {
+        return Err(String::from("inspector must list one subscription"));
+    };
+    if only.session_id() != SESSION_ONE || only.tenant_id() != "tenant" {
         return Err(String::from("inspector must label session scope"));
     }
     Ok(())
@@ -366,13 +369,16 @@ fn taps_observe_with_counts_and_redaction() -> Result<(), String> {
     if events.len() != 1 {
         return Err(String::from("tap must observe the emit"));
     }
-    if events[0].matched_subscriber_count() != 2 {
+    let Some(event) = events.first() else {
+        return Err(String::from("tap must observe the emit"));
+    };
+    if event.matched_subscriber_count() != 2 {
         return Err(String::from("tap must count both subscribers"));
     }
-    if events[0].envelope().payload() != &JsonValue::Null {
+    if event.envelope().payload() != &JsonValue::Null {
         return Err(String::from("tap payload must be redacted"));
     }
-    if events[0].rate_limited_count() != 0 {
+    if event.rate_limited_count() != 0 {
         return Err(String::from("no throttle must report zero"));
     }
     untap_ok(&harness, &first, &tap)?;
@@ -567,10 +573,10 @@ fn seeded_fuzz_emits_never_break_contract() -> Result<(), String> {
             4 => String::from("with space"),
             _ => format!("fuzz.kind-{}", step().wrapping_rem(100)),
         };
-        match harness
-            .broker()
-            .emit(&handles[widget_index], &kind, JsonValue::Number(1.0))
-        {
+        let handle = handles
+            .get(widget_index)
+            .ok_or_else(|| String::from("fuzz widget index out of range"))?;
+        match harness.broker().emit(handle, &kind, JsonValue::Number(1.0)) {
             Ok(_) => succeeded = succeeded.saturating_add(1),
             Err(BrokerError::RateLimited | BrokerError::MalformedKind) => {
                 limited = limited.saturating_add(1);

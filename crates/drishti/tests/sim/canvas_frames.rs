@@ -4,13 +4,22 @@
 //! 100 to 1,000 tenants interleaved against per-tenant reference models.
 
 use drishti::canvas_scene::{
-    Action, Artifact, Canvas, CommitStatus, Delta, Error, FrameToken, View,
+    Action, Artifact, Canvas, CommitStatus, Delta, Error, Frame, FrameToken, View,
 };
 
 use crate::canvas_kit::{Model, agrees, delta, draw_action, limits, present, scene, wild_i32};
 use crate::fixtures::WORK_OBJECT;
-use crate::motion_kit::{describe, ensure};
+use crate::motion_kit::{describe, ensure, pick};
 use crate::rng::{SimRng, TraceHash};
+
+/// The scroll offset a frame reports for one view.
+fn scroll_of(frame: &Frame, view: View) -> Result<usize, String> {
+    frame
+        .scroll()
+        .get(view.index())
+        .copied()
+        .ok_or_else(|| format!("the frame has no scroll offset for {view:?}"))
+}
 
 /// Bug caught: a frame token authorising a domain claim, or surviving the
 /// frame that superseded it, or working on a scene it was never issued by.
@@ -22,7 +31,7 @@ fn sim_canvas_input_rejects_transitions_stale_tokens_and_foreign_tokens() -> Res
         let mut theirs = scene("tenant-input", limits(8)?)?;
         let token = present(&mut mine, 0.01)?.token();
         let foreign = present(&mut theirs, 0.01)?.token();
-        let claim = CommitStatus::ALL[random.below_len(4)];
+        let claim = pick(&mut random, &CommitStatus::ALL)?;
         for action in [
             Action::Transition(claim),
             Action::OptimisticTransition(claim),
@@ -81,9 +90,13 @@ fn sim_canvas_acknowledge_is_present_after_success_exactly_once() -> Result<(), 
                     live = Some(tokens.len().saturating_sub(1));
                 }
                 2 if !tokens.is_empty() => {
-                    let pick = random.below_len(tokens.len());
-                    let outcome = scene.acknowledge_present(tokens[pick].clone());
-                    if live == Some(pick) {
+                    let index = random.below_len(tokens.len());
+                    let token = tokens
+                        .get(index)
+                        .cloned()
+                        .ok_or("token index out of range")?;
+                    let outcome = scene.acknowledge_present(token);
+                    if live == Some(index) {
                         ensure(
                             outcome.is_ok(),
                             &format!("seed {seed} step {step}: the live token was refused"),
@@ -147,16 +160,13 @@ fn sim_canvas_scroll_clamps_against_the_real_line_count_of_odd_texts() -> Result
                 .map_err(describe)?;
             let frame = present(&mut scene, 0.01)?;
             here = here.saturating_add(i64::from(lines)).clamp(0, last);
+            let landed = scroll_of(&frame, View::Source)?;
             ensure(
-                i64::try_from(frame.scroll()[View::Source.index()]).map_err(describe)? == here,
-                &format!(
-                    "text {text:?}: scroll by {lines} landed on {}, wanted {here}",
-                    frame.scroll()[0]
-                ),
+                i64::try_from(landed).map_err(describe)? == here,
+                &format!("text {text:?}: scroll by {lines} landed on {landed}, wanted {here}"),
             )?;
             ensure(
-                frame.scroll()[View::Proposal.index()] == 0
-                    && frame.scroll()[View::Evidence.index()] == 0,
+                scroll_of(&frame, View::Proposal)? == 0 && scroll_of(&frame, View::Evidence)? == 0,
                 &format!("text {text:?}: scrolling the source moved another view"),
             )?;
         }
@@ -175,7 +185,7 @@ fn sim_canvas_reduced_motion_lands_on_the_target_exactly() -> Result<(), String>
             .enqueue(delta(&scene, Action::ReducedMotion(true))?)
             .map_err(describe)?;
         for _ in 0..8 {
-            let view = View::ALL[random.below_len(3)];
+            let view = pick(&mut random, &View::ALL)?;
             scene
                 .enqueue(delta(&scene, Action::Navigate(view))?)
                 .map_err(describe)?;
@@ -415,17 +425,22 @@ fn run_monkey(seed: u64) -> Result<u64, String> {
                     }
                 }
                 4 if !tokens.is_empty() => {
-                    let pick = random.below_len(tokens.len());
-                    if scene.acknowledge_present(tokens[pick].clone()).is_ok() {
+                    let index = random.below_len(tokens.len());
+                    let token = tokens
+                        .get(index)
+                        .cloned()
+                        .ok_or("token index out of range")?;
+                    if scene.acknowledge_present(token).is_ok() {
                         trace.mix_str("ack");
                     }
                 }
                 5 if !tokens.is_empty() => {
-                    let pick = random.below_len(tokens.len());
-                    if scene
-                        .input(tokens[pick].clone(), draw_action(&mut random))
-                        .is_ok()
-                    {
+                    let index = random.below_len(tokens.len());
+                    let token = tokens
+                        .get(index)
+                        .cloned()
+                        .ok_or("token index out of range")?;
+                    if scene.input(token, draw_action(&mut random)).is_ok() {
                         trace.mix_str("input");
                     }
                 }
@@ -480,68 +495,89 @@ fn sim_canvas_statistics_conserve_under_a_monkey_walk_and_replay() -> Result<(),
     )
 }
 
+/// One tenant of the crowd: its scene and the reference model beside it.
+struct Tenant {
+    /// The scene under test.
+    scene: Canvas,
+    /// The reference model the scene must agree with.
+    model: Model,
+}
+
+/// The tenant at `index` of the crowd.
+fn tenant_at(crowd: &mut [Tenant], index: usize) -> Result<&mut Tenant, String> {
+    crowd
+        .get_mut(index)
+        .ok_or_else(|| format!("the crowd has no tenant {index}"))
+}
+
 /// Reference-checked crowd of tenants sharing one work object and session id.
 fn run_crowd(tenants: usize, steps: usize, seed: u64) -> Result<(), String> {
     let mut random = SimRng::seed(seed);
-    let mut scenes = Vec::new();
-    let mut models = Vec::new();
+    let mut crowd = Vec::new();
     for index in 0..tenants {
-        scenes.push(scene(&format!("tenant-{index}"), limits(8)?)?);
-        models.push(Model::new());
+        crowd.push(Tenant {
+            scene: scene(&format!("tenant-{index}"), limits(8)?)?,
+            model: Model::new(),
+        });
     }
     let mut cross = 0_u64;
     for _ in 0..tenants.saturating_mul(steps) {
-        let pick = random.below_len(tenants);
+        let index = random.below_len(tenants);
         let action = draw_action(&mut random);
         match random.below(5) {
             0 => {
                 let other = random.below_len(tenants);
-                if other != pick {
+                if other != index {
+                    let foreign = tenant_at(&mut crowd, other)?.scene.session().clone();
+                    let target = tenant_at(&mut crowd, index)?;
                     let forged = Delta::new(
-                        scenes[other].session().clone(),
-                        scenes[pick].generation(),
-                        models[pick].next_base(),
+                        foreign,
+                        target.scene.generation(),
+                        target.model.next_base(),
                         action,
                     );
                     ensure(
-                        scenes[pick].enqueue(forged) == Err(Error::WrongScope),
+                        target.scene.enqueue(forged) == Err(Error::WrongScope),
                         &format!(
-                            "{tenants} tenants: tenant {other} landed a delta on tenant {pick}"
+                            "{tenants} tenants: tenant {other} landed a delta on tenant {index}"
                         ),
                     )?;
                     cross = cross.saturating_add(1);
                 }
             }
             1 => {
-                let frame = scenes[pick]
+                let target = tenant_at(&mut crowd, index)?;
+                let frame = target
+                    .scene
                     .prepare(0.01, 900, 600, true)
                     .map_err(describe)?
                     .ok_or("a forced prepare must yield a frame")?;
-                models[pick].drain()?;
+                target.model.drain()?;
                 ensure(
-                    frame.scene_revision() == models[pick].revision(),
-                    &format!("{tenants} tenants: tenant {pick} drained someone else's queue"),
+                    frame.scene_revision() == target.model.revision(),
+                    &format!("{tenants} tenants: tenant {index} drained someone else's queue"),
                 )?;
             }
             _ => {
-                let own = delta(&scenes[pick], action)?;
-                let outcome = scenes[pick].enqueue(own);
-                if models[pick].pending() >= 8 {
+                let target = tenant_at(&mut crowd, index)?;
+                let own = delta(&target.scene, action)?;
+                let outcome = target.scene.enqueue(own);
+                if target.model.pending() >= 8 {
                     ensure(
                         outcome == Err(Error::QueueFull),
                         "a full tenant queue must say QueueFull",
                     )?;
                 } else {
                     ensure(outcome.is_ok(), "an own delta below the bound must land")?;
-                    models[pick].push(action);
+                    target.model.push(action);
                 }
             }
         }
     }
-    for (index, (live, model)) in scenes.iter().zip(models.iter()).enumerate() {
+    for (index, tenant) in crowd.iter().enumerate() {
         agrees(
-            live,
-            model,
+            &tenant.scene,
+            &tenant.model,
             &format!("{tenants} tenants, tenant {index} after {cross} cross attempts"),
         )?;
     }

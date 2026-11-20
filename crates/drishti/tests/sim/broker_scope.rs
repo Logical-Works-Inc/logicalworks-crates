@@ -24,7 +24,7 @@ use crate::fixtures::ensure;
 use crate::rng::{SimRng, TraceHash};
 
 /// Replay a campaign for each seed and require a distinct seed to diverge.
-pub fn replays(
+pub(crate) fn replays(
     run: fn(u64) -> Result<u64, String>,
     seeds: [u64; 3],
     other: u64,
@@ -38,7 +38,7 @@ pub fn replays(
 }
 
 /// Identities the caller's inspector read returned.
-pub fn ids_of(
+pub(crate) fn ids_of(
     harness: &Harness,
     caller: &RegisteredHandle,
     reach: Reach,
@@ -278,32 +278,45 @@ fn run_audit_stream(seed: u64) -> Result<u64, String> {
                 )?;
             }
         }
-        let events = harness.audit_events();
-        ensure(events.len().saturating_sub(before) == expected, || {
-            format!("step {step} must audit {expected} event(s)")
-        })?;
-        for event in events.iter().skip(before) {
-            ensure(event.seq() == sequence && event.at_ms() == now, || {
-                String::from("seq must be contiguous and clocked")
-            })?;
-            sequence = sequence.saturating_add(1);
-            let lacked = match *event.decision() {
-                Decision::Denied(BrokerError::CrossTenantDenied) => {
-                    (event.reach() == Reach::AllTenants).then_some(Permission::CrossTenantInspect)
-                }
-                Decision::Denied(BrokerError::CapabilityDenied(_)) => (event.action()
-                    == &AuditAction::Register(Subject::CommandBar)
-                    && event.caller().user_sub() == crate::fixtures::USER_SUB)
-                    .then_some(Permission::Capability(Capability::IntentEmit)),
-                _ => None,
-            };
-            ensure(lacked == event.decision().missing(), || {
-                String::from("a denial must name the permission it lacked")
-            })?;
-            trace.mix_str(&format!("{:?}{:?}", event.action(), event.decision()));
-        }
+        ensure(
+            harness.audit_events().len().saturating_sub(before) == expected,
+            || format!("step {step} must audit {expected} event(s)"),
+        )?;
+        check_new_events(&harness, before, now, &mut sequence, &mut trace)?;
     }
     Ok(trace.finish())
+}
+
+/// Judge the events a step added after the first `before`: contiguous
+/// ordinals, the injected clock, and a denial that names what it lacked.
+fn check_new_events(
+    harness: &Harness,
+    before: usize,
+    now: u64,
+    sequence: &mut u64,
+    trace: &mut TraceHash,
+) -> Result<(), String> {
+    for event in harness.audit_events().iter().skip(before) {
+        ensure(event.seq() == *sequence && event.at_ms() == now, || {
+            String::from("seq must be contiguous and clocked")
+        })?;
+        *sequence = sequence.saturating_add(1);
+        let lacked = match *event.decision() {
+            Decision::Denied(BrokerError::CrossTenantDenied) => {
+                (event.reach() == Reach::AllTenants).then_some(Permission::CrossTenantInspect)
+            }
+            Decision::Denied(BrokerError::CapabilityDenied(_)) => (event.action()
+                == &AuditAction::Register(Subject::CommandBar)
+                && event.caller().user_sub() == crate::fixtures::USER_SUB)
+                .then_some(Permission::Capability(Capability::IntentEmit)),
+            _ => None,
+        };
+        ensure(lacked == event.decision().missing(), || {
+            String::from("a denial must name the permission it lacked")
+        })?;
+        trace.mix_str(&format!("{:?}{:?}", event.action(), event.decision()));
+    }
+    Ok(())
 }
 
 /// Saboteur. Bug caught: a decision that skips the audit sink, audits twice,

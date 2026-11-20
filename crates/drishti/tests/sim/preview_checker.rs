@@ -3,6 +3,7 @@
 //! each tamper of a valid trace with its exact typed refusal.
 
 use std::io::Write;
+use std::slice::SliceIndex;
 
 use drishti::canvas_scene::{Action, Artifact, Canvas, Delta, Limits};
 use drishti::cli::Failure;
@@ -25,12 +26,17 @@ const PIECES: &[&str] = &[
     "line two\n",
 ];
 
+/// Record kinds the random-record sim draws from.
+const KINDS: [&str; 3] = ["frame", "summary", "other"];
+
 /// A seeded source text, possibly empty.
 fn source_text(random: &mut SimRng) -> String {
     let count = random.below_len(40);
     let mut text = String::new();
     for _ in 0..count {
-        text.push_str(PIECES[random.below_len(PIECES.len())]);
+        if let Some(piece) = PIECES.get(random.below_len(PIECES.len())) {
+            text.push_str(piece);
+        }
     }
     text
 }
@@ -143,10 +149,27 @@ fn sim_preview_traversal_satisfies_the_checker_for_seeded_sources() -> Result<()
 /// Replace member `key` of line `at` with the raw JSON `value`.
 fn edit(lines: &[String], at: usize, key: &str, value: &str) -> Result<Vec<String>, String> {
     let mut out = lines.to_vec();
-    let line = out.get(at).ok_or("no such line")?;
-    let changed = with_member(line, key, value)?;
-    out[at] = changed;
+    let slot = out.get_mut(at).ok_or("no such line")?;
+    *slot = with_member(slot, key, value)?;
     Ok(out)
+}
+
+/// The lines in `range`, or a failure naming the short trace.
+fn part<R: SliceIndex<[String], Output = [String]>>(
+    lines: &[String],
+    range: R,
+) -> Result<&[String], String> {
+    lines
+        .get(range)
+        .ok_or_else(|| String::from("the trace is too short for this cut"))
+}
+
+/// The line at `at`, cloned, or a failure naming the short trace.
+fn line_at(lines: &[String], at: usize) -> Result<String, String> {
+    lines
+        .get(at)
+        .cloned()
+        .ok_or_else(|| format!("the trace has no line {at}"))
 }
 
 /// Point the summary's two counters at `frames`.
@@ -165,223 +188,200 @@ fn first_of(lines: &[String], step: &str) -> Result<usize, String> {
         .ok_or_else(|| format!("no {step} frame"))
 }
 
-/// Expect one verdict on tampered lines.
-fn expect(
-    label: &str,
-    lines: &[String],
-    source_bytes: u64,
+/// One valid trace and the positions the tamper cases aim at.
+struct Case {
+    /// The valid trace.
+    lines: Vec<String>,
+    /// Source bytes the trace claims.
+    len: u64,
+    /// Motion mode of the trace.
     reduced: bool,
-    want: TraceCheckError,
-) -> Result<(), String> {
-    let got = judge(lines, source_bytes, reduced)?;
-    ensure(
-        got == Err(want.clone()),
-        &format!("{label} (reduced {reduced}): got {got:?}, want {want:?}"),
-    )
+    /// Index of the summary line.
+    last: usize,
+    /// Index of the last frame line.
+    tail: usize,
+    /// Index of the first toward-evidence frame.
+    toward: usize,
+    /// Index of the first settle frame.
+    settle: usize,
+}
+
+impl Case {
+    /// Trace `source` in one motion mode and locate the phases.
+    fn build(source: &str, reduced: bool) -> Result<Self, String> {
+        let len = u64::try_from(source.len()).map_err(describe)?;
+        let lines = lines_of(trace_for(source, Some("p"), None, reduced)?)?;
+        let last = lines.len().saturating_sub(1);
+        let tail = last.saturating_sub(1);
+        let toward = first_of(&lines, "toward-evidence")?;
+        let settle = first_of(&lines, "settle")?;
+        Ok(Self {
+            lines,
+            len,
+            reduced,
+            last,
+            tail,
+            toward,
+            settle,
+        })
+    }
+
+    /// Demand one exact verdict on tampered lines.
+    fn refuses(&self, label: &str, lines: &[String], want: TraceCheckError) -> Result<(), String> {
+        let got = judge(lines, self.len, self.reduced)?;
+        let message = format!(
+            "{label} (reduced {}): got {got:?}, want {want:?}",
+            self.reduced
+        );
+        ensure(got == Err(want), &message)
+    }
 }
 
 /// Bug caught: a checker that passes a tampered trace, or that names the wrong
 /// defect, so a forged or truncated journey reads as headless evidence.
 #[test]
 fn sim_preview_checker_names_each_tamper() -> Result<(), String> {
-    let source = "alpha\nbeta\n";
-    let len = u64::try_from(source.len()).map_err(describe)?;
     for reduced in [false, true] {
-        let lines = lines_of(trace_for(source, Some("p"), None, reduced)?)?;
-        let last = lines.len().saturating_sub(1);
-        let tail = last.saturating_sub(1);
-        let toward = first_of(&lines, "toward-evidence")?;
-        let settle = first_of(&lines, "settle")?;
-        expect(
-            "no records",
-            &[],
-            len,
-            reduced,
-            TraceCheckError::MissingSummary,
-        )?;
-        expect(
-            "no summary",
-            &lines[..last],
-            len,
-            reduced,
-            TraceCheckError::MissingSummary,
-        )?;
-        expect(
-            "summary alone",
-            &lines[last..],
-            len,
-            reduced,
-            TraceCheckError::MissingFrames,
-        )?;
-        let short = [&lines[..3], &lines[last..]].concat();
-        expect(
-            "three frames",
-            &short,
-            len,
-            reduced,
-            TraceCheckError::MissingFrames,
-        )?;
-        let kind = edit(&lines, 2, "kind", "\"note\"")?;
-        expect(
-            "a note among frames",
-            &kind,
-            len,
-            reduced,
-            TraceCheckError::MissingFrames,
-        )?;
-        let step = edit(&lines, toward, "step", "\"sideways\"")?;
-        expect(
-            "unknown phase",
-            &step,
-            len,
-            reduced,
-            TraceCheckError::UnknownStep(String::from("sideways")),
-        )?;
-        let mode = edit(&lines, 0, "reduced", if reduced { "false" } else { "true" })?;
-        expect(
-            "flipped mode",
-            &mode,
-            len,
-            reduced,
-            TraceCheckError::ModeMismatch,
-        )?;
-        for (key, value) in [
-            ("target", "1.0"),
-            ("content_revision", "2"),
-            ("object_key", "\"other\""),
-        ] {
-            let drift = edit(&lines, toward, key, value)?;
-            expect(key, &drift, len, reduced, TraceCheckError::IdentityDrift)?;
-        }
-        let native = edit(&lines, 1, "native_presented", "true")?;
-        expect(
-            "native claim",
-            &native,
-            len,
-            reduced,
-            TraceCheckError::NativeOrBytes,
-        )?;
-        let bytes = edit(
-            &lines,
-            1,
-            "source_bytes",
-            &len.saturating_add(1).to_string(),
-        )?;
-        expect(
-            "byte count",
-            &bytes,
-            len,
-            reduced,
-            TraceCheckError::NativeOrBytes,
-        )?;
-        let moved = edit(&lines, tail, "position", "0.5")?;
-        expect(
-            "last position",
-            &moved,
-            len,
-            reduced,
-            TraceCheckError::Trajectory {
-                step: String::from("settle"),
-                index: tail,
-            },
-        )?;
-        let fast = edit(&lines, toward, "velocity", "0.5")?;
-        expect(
-            "velocity",
-            &fast,
-            len,
-            reduced,
-            TraceCheckError::Trajectory {
-                step: String::from("toward-evidence"),
-                index: toward,
-            },
-        )?;
-        let renamed = lines[3].replacen("\"velocity\"", "\"velocitz\"", 1);
-        let mut missing = lines.clone();
-        missing[3] = renamed;
-        expect(
-            "missing field",
-            &missing,
-            len,
-            reduced,
-            TraceCheckError::MissingFrames,
-        )?;
-        let typed = edit(&lines, 3, "position", "\"x\"")?;
-        expect(
-            "string position",
-            &typed,
-            len,
-            reduced,
-            TraceCheckError::MissingFrames,
-        )?;
-        for key in ["idle_no_frame", "revocation_refused"] {
-            expect(
-                key,
-                &edit(&lines, last, key, "false")?,
-                len,
-                reduced,
-                TraceCheckError::IdleBoundary,
-            )?;
-        }
-        let claimed = edit(&lines, last, "native_presented", "true")?;
-        expect(
-            "summary native claim",
-            &claimed,
-            len,
-            reduced,
+        let case = Case::build("alpha\nbeta\n", reduced)?;
+        tamper_shape(&case)?;
+        tamper_frames(&case)?;
+        tamper_summary(&case)?;
+    }
+    Ok(())
+}
+
+/// Cuts and kind or mode swaps: the trace is the wrong shape.
+fn tamper_shape(case: &Case) -> Result<(), String> {
+    let lines = &case.lines;
+    case.refuses("no records", &[], TraceCheckError::MissingSummary)?;
+    case.refuses(
+        "no summary",
+        part(lines, ..case.last)?,
+        TraceCheckError::MissingSummary,
+    )?;
+    case.refuses(
+        "summary alone",
+        part(lines, case.last..)?,
+        TraceCheckError::MissingFrames,
+    )?;
+    let short = [part(lines, ..3)?, part(lines, case.last..)?].concat();
+    case.refuses("three frames", &short, TraceCheckError::MissingFrames)?;
+    let kind = edit(lines, 2, "kind", "\"note\"")?;
+    case.refuses("a note among frames", &kind, TraceCheckError::MissingFrames)?;
+    let step = edit(lines, case.toward, "step", "\"sideways\"")?;
+    case.refuses(
+        "unknown phase",
+        &step,
+        TraceCheckError::UnknownStep(String::from("sideways")),
+    )?;
+    let mode = edit(
+        lines,
+        0,
+        "reduced",
+        if case.reduced { "false" } else { "true" },
+    )?;
+    case.refuses("flipped mode", &mode, TraceCheckError::ModeMismatch)
+}
+
+/// One tampered number or member of a single frame.
+fn tamper_frames(case: &Case) -> Result<(), String> {
+    let lines = &case.lines;
+    for (key, value) in [
+        ("target", "1.0"),
+        ("content_revision", "2"),
+        ("object_key", "\"other\""),
+    ] {
+        let drift = edit(lines, case.toward, key, value)?;
+        case.refuses(key, &drift, TraceCheckError::IdentityDrift)?;
+    }
+    let native = edit(lines, 1, "native_presented", "true")?;
+    case.refuses("native claim", &native, TraceCheckError::NativeOrBytes)?;
+    let bytes = edit(
+        lines,
+        1,
+        "source_bytes",
+        &case.len.saturating_add(1).to_string(),
+    )?;
+    case.refuses("byte count", &bytes, TraceCheckError::NativeOrBytes)?;
+    let moved = edit(lines, case.tail, "position", "0.5")?;
+    case.refuses(
+        "last position",
+        &moved,
+        TraceCheckError::Trajectory {
+            step: String::from("settle"),
+            index: case.tail,
+        },
+    )?;
+    let fast = edit(lines, case.toward, "velocity", "0.5")?;
+    case.refuses(
+        "velocity",
+        &fast,
+        TraceCheckError::Trajectory {
+            step: String::from("toward-evidence"),
+            index: case.toward,
+        },
+    )?;
+    let mut missing = lines.clone();
+    let fourth = missing.get_mut(3).ok_or("the trace has no line 3")?;
+    *fourth = fourth.replacen("\"velocity\"", "\"velocitz\"", 1);
+    case.refuses("missing field", &missing, TraceCheckError::MissingFrames)?;
+    let typed = edit(lines, 3, "position", "\"x\"")?;
+    case.refuses("string position", &typed, TraceCheckError::MissingFrames)
+}
+
+/// The summary line and the phase accounting.
+fn tamper_summary(case: &Case) -> Result<(), String> {
+    let lines = &case.lines;
+    let last = case.last;
+    for key in ["idle_no_frame", "revocation_refused"] {
+        case.refuses(
+            key,
+            &edit(lines, last, key, "false")?,
             TraceCheckError::IdleBoundary,
         )?;
-        for key in ["prepared", "acknowledged"] {
-            let drifted = edit(&lines, last, key, &last.saturating_add(1).to_string())?;
-            expect(
-                key,
-                &drifted,
-                len,
-                reduced,
-                TraceCheckError::AccountingDrift,
-            )?;
-        }
-        expect(
-            "string counter",
-            &edit(&lines, last, "prepared", "\"x\"")?,
-            len,
-            reduced,
-            TraceCheckError::MissingFrames,
+    }
+    let claimed = edit(lines, last, "native_presented", "true")?;
+    case.refuses(
+        "summary native claim",
+        &claimed,
+        TraceCheckError::IdleBoundary,
+    )?;
+    for key in ["prepared", "acknowledged"] {
+        let drifted = edit(lines, last, key, &last.saturating_add(1).to_string())?;
+        case.refuses(key, &drifted, TraceCheckError::AccountingDrift)?;
+    }
+    case.refuses(
+        "string counter",
+        &edit(lines, last, "prepared", "\"x\"")?,
+        TraceCheckError::MissingFrames,
+    )?;
+    let mut twice = lines.clone();
+    twice.insert(1, line_at(lines, 0)?);
+    case.refuses(
+        "a second initial frame",
+        &recount(&twice, last.saturating_add(1))?,
+        TraceCheckError::PhaseOrder,
+    )?;
+    let cut = [part(lines, ..case.settle)?, part(lines, last..)?].concat();
+    case.refuses(
+        "no settle phase",
+        &recount(&cut, case.settle)?,
+        // A reduced journey holds one frame per phase, so losing one
+        // leaves fewer than the four frames any journey needs.
+        if case.reduced {
+            TraceCheckError::MissingFrames
+        } else {
+            TraceCheckError::IncompleteJourney
+        },
+    )?;
+    if case.reduced {
+        let mut more = lines.clone();
+        more.insert(case.toward, line_at(lines, case.toward)?);
+        case.refuses(
+            "a repeated phase frame",
+            &recount(&more, last.saturating_add(1))?,
+            TraceCheckError::PhaseCount,
         )?;
-        let mut twice = lines.clone();
-        twice.insert(1, lines[0].clone());
-        expect(
-            "a second initial frame",
-            &recount(&twice, last.saturating_add(1))?,
-            len,
-            reduced,
-            TraceCheckError::PhaseOrder,
-        )?;
-        let cut = [&lines[..settle], &lines[last..]].concat();
-        expect(
-            "no settle phase",
-            &recount(&cut, settle)?,
-            len,
-            reduced,
-            // A reduced journey holds one frame per phase, so losing one
-            // leaves fewer than the four frames any journey needs.
-            if reduced {
-                TraceCheckError::MissingFrames
-            } else {
-                TraceCheckError::IncompleteJourney
-            },
-        )?;
-        if reduced {
-            let mut more = lines.clone();
-            more.insert(toward, lines[toward].clone());
-            expect(
-                "a repeated phase frame",
-                &recount(&more, last.saturating_add(1))?,
-                len,
-                reduced,
-                TraceCheckError::PhaseCount,
-            )?;
-        }
     }
     Ok(())
 }
@@ -414,18 +414,24 @@ fn sim_preview_checker_rejects_every_single_number_perturbed() -> Result<(), Str
             for &(key, values) in PERTURBED {
                 for &value in values {
                     let changed = edit(&lines, index, key, value)?;
-                    if changed[index] == lines[index] {
+                    let new_line = line_at(&changed, index)?;
+                    if new_line == line_at(&lines, index)? {
                         continue;
                     }
-                    let record: Value =
-                        lgwks_std::json::from_str(&changed[index]).map_err(describe)?;
-                    let original = std::mem::replace(&mut records[index], record);
+                    let record: Value = lgwks_std::json::from_str(&new_line).map_err(describe)?;
+                    let slot = records
+                        .get_mut(index)
+                        .ok_or("the trace has no such record")?;
+                    let original = std::mem::replace(slot, record);
                     tried = tried.saturating_add(1);
                     ensure(
                         check_records(&records, len, reduced).is_err(),
                         &format!("reduced {reduced}: frame {index} {key}={value} was accepted"),
                     )?;
-                    records[index] = original;
+                    let slot = records
+                        .get_mut(index)
+                        .ok_or("the trace has no such record")?;
+                    *slot = original;
                 }
             }
         }
@@ -462,7 +468,9 @@ fn sim_preview_checker_refuses_random_records_with_the_right_head_error() -> Res
         let mut records = Vec::new();
         let mut kinds: Vec<&str> = Vec::new();
         for _ in 0..count {
-            let kind = ["frame", "summary", "other"][random.below_len(3)];
+            let kind = *KINDS
+                .get(random.below_len(KINDS.len()))
+                .ok_or("kind index out of range")?;
             let mut members = vec![format!("\"kind\":\"{kind}\"")];
             for key in keys.iter().skip(1) {
                 if random.below(2) == 0 {
@@ -477,11 +485,7 @@ fn sim_preview_checker_refuses_random_records_with_the_right_head_error() -> Res
         let verdict = check_records(&records, 3, random.below(2) == 0);
         let want = if kinds.last() != Some(&"summary") {
             TraceCheckError::MissingSummary
-        } else if kinds.len() < 5
-            || kinds[..kinds.len().saturating_sub(1)]
-                .iter()
-                .any(|kind| *kind != "frame")
-        {
+        } else if kinds.len() < 5 || kinds.iter().rev().skip(1).any(|kind| *kind != "frame") {
             TraceCheckError::MissingFrames
         } else {
             ensure(
@@ -511,7 +515,10 @@ impl Write for Choke {
         let take = (self.budget > 0)
             .then_some(buffer.len().min(self.budget))
             .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "choked"))?;
-        self.taken.extend_from_slice(&buffer[..take]);
+        let accepted = buffer.get(..take).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "take past the buffer")
+        })?;
+        self.taken.extend_from_slice(accepted);
         self.budget = self.budget.saturating_sub(take);
         Ok(take)
     }

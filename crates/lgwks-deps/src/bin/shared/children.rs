@@ -52,6 +52,11 @@ sleep 10
 for pg in $groups; do kill -s KILL -- "-$pg" 2>/dev/null; done
 "#;
 
+/// The watchdog's argument vector: the program, then its arguments, the fixed
+/// [`WATCHDOG`] script last. Nothing is interpolated into the script; the group
+/// ids reach it as lines on its input.
+const WATCHDOG_ARGV: [&str; 3] = ["bash", "-c", WATCHDOG];
+
 /// What Cargo sets, by exact name, for the crate it runs: the Cargo Book's
 /// "Environment variables Cargo sets for crates". `CARGO` is not listed: Cargo
 /// forwards it so that a nested `cargo` finds the one that is running.
@@ -476,8 +481,9 @@ fn from_output(output: &Output) -> Captured {
 
 /// Starts the watchdog.
 fn start_watchdog() -> Option<Watchdog> {
-    let mut command = Command::new("bash");
-    command.arg("-c").arg(WATCHDOG);
+    let [program, flags @ ..] = WATCHDOG_ARGV;
+    let mut command = Command::new(program);
+    command.args(flags);
     lead_group(&mut command);
     let spawned = command
         .stdin(Stdio::piped())
@@ -503,6 +509,18 @@ mod tests {
     use std::time::{Duration, Instant};
 
     type TestResult = Result<(), Box<dyn Error>>;
+
+    /// A runner thread ended in a panic; the payload it panicked with is kept.
+    #[derive(Debug)]
+    struct RunnerPanicked(Box<dyn std::any::Any + Send>);
+
+    impl std::fmt::Display for RunnerPanicked {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(formatter, "the runner panicked: {:?}", self.0)
+        }
+    }
+
+    impl Error for RunnerPanicked {}
 
     /// The bound tests give a child that is expected to finish.
     const PLENTY: Duration = Duration::from_secs(60);
@@ -614,12 +632,13 @@ mod tests {
     fn stopping_the_owner_stops_what_it_started() -> TestResult {
         let children = Children::new(false);
         let (parts, env) = (argv(&["sh", "-c", "exec sleep 60"]), env());
-        let code = thread::scope(|scope| -> Result<i32, Box<dyn Error>> {
+        let joined = thread::scope(|scope| {
             let runner = scope.spawn(|| children.run(&launch(&parts, &env, PLENTY), None));
             children.wait_until_live(1);
             children.stop_all();
-            runner.join().map_err(|_| "the runner panicked".into())
-        })?;
+            runner.join()
+        });
+        let code = joined.map_err(RunnerPanicked)?;
         assert_eq!(code, 143, "TERM reads as 128 + 15");
         let quick = argv(&["true"]);
         assert_eq!(
@@ -632,9 +651,9 @@ mod tests {
 
     #[test]
     fn a_signal_death_reads_as_128_plus_the_signal() -> TestResult {
-        let done = std::process::Command::new("sh")
-            .args(["-c", "kill -s KILL $$"])
-            .status()?;
+        let mut sleeper = std::process::Command::new("sleep").arg("60").spawn()?;
+        sleeper.kill()?;
+        let done = sleeper.wait()?;
         assert_eq!(code_of(done), 137, "KILL is 9");
         Ok(())
     }

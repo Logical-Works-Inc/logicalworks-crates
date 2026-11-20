@@ -83,22 +83,31 @@ const INITIAL: [u32; 8] = [
     0x5be0_cd19,
 ];
 
+/// The next message-schedule word, and the window advanced past it.
+///
+/// `window` holds the sixteen schedule words `W[t]..W[t + 15]`. The word
+/// returned is `W[t]`; the word appended is `W[t + 16]`, which FIPS 180-4
+/// section 6.2.2 defines from `W[t]`, `W[t + 1]`, `W[t + 9]` and `W[t + 14]`.
+fn next_schedule_word(window: &mut [u32; 16]) -> u32 {
+    let [now, early, _, _, _, _, _, _, _, middle, _, _, _, _, late, _] = *window;
+    let low = early.rotate_right(7) ^ early.rotate_right(18) ^ early.wrapping_shr(3);
+    let high = late.rotate_right(17) ^ late.rotate_right(19) ^ late.wrapping_shr(10);
+    let appended = now
+        .wrapping_add(low)
+        .wrapping_add(middle)
+        .wrapping_add(high);
+    window.rotate_left(1);
+    let &mut [.., ref mut last] = window;
+    *last = appended;
+    now
+}
+
 /// Mixes one 64-byte block into the running state.
 fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
-    let mut schedule = [0_u32; 64];
+    let mut window = [0_u32; 16];
     let (words, _) = block.as_slice().as_chunks::<4>();
-    for (slot, word) in schedule.iter_mut().zip(words) {
+    for (slot, word) in window.iter_mut().zip(words) {
         *slot = u32::from_be_bytes(*word);
-    }
-    for round in 16..64_usize {
-        let early = schedule[round.saturating_sub(15)];
-        let late = schedule[round.saturating_sub(2)];
-        let low = early.rotate_right(7) ^ early.rotate_right(18) ^ early.wrapping_shr(3);
-        let high = late.rotate_right(17) ^ late.rotate_right(19) ^ late.wrapping_shr(10);
-        schedule[round] = schedule[round.saturating_sub(16)]
-            .wrapping_add(low)
-            .wrapping_add(schedule[round.saturating_sub(7)])
-            .wrapping_add(high);
     }
     let [
         mut aa,
@@ -110,14 +119,15 @@ fn compress(state: &mut [u32; 8], block: &[u8; 64]) {
         mut gg,
         mut hh,
     ] = *state;
-    for (constant, word) in ROUND.iter().zip(schedule.iter()) {
+    for constant in &ROUND {
+        let word = next_schedule_word(&mut window);
         let sum_e = ee.rotate_right(6) ^ ee.rotate_right(11) ^ ee.rotate_right(25);
         let choose = (ee & ff) ^ (!ee & gg);
         let first = hh
             .wrapping_add(sum_e)
             .wrapping_add(choose)
             .wrapping_add(*constant)
-            .wrapping_add(*word);
+            .wrapping_add(word);
         let sum_a = aa.rotate_right(2) ^ aa.rotate_right(13) ^ aa.rotate_right(22);
         let majority = (aa & bb) ^ (aa & cc) ^ (bb & cc);
         let second = sum_a.wrapping_add(majority);

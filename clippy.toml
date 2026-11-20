@@ -50,6 +50,12 @@ disallowed-methods = [
   { path = "std::thread::sleep", reason = "blocks the executor thread; use rt::time::sleep" },
 ]
 
+# A `dummy` binding exists only to give dead code a caller: PR #1103 removed a
+# `let dummy = decode_policy_fields(..)` hashed into every cap_token decision so
+# the helper had an edge (SD-1, SD-6). `..` keeps clippy's defaults (foo, baz,
+# quux). rust-guard's `wired/dummy-caller` refuses the same shape estate-wide.
+disallowed-names = ["..", "dummy", "_dummy", "dummy_value", "dummy_state"]
+
 disallowed-types = [
   # RUST-AP-034/035: stringly-typed and anyhow errors in library API.
   { path = "std::sync::mpsc::Sender", reason = "unbounded; use the bounded channel" },

@@ -267,7 +267,7 @@ fn document(words: &[String]) -> Result<Value, CliError> {
                 parsed.frames,
             ))?)
         }
-        "lab" => lab(flags(rest)?),
+        "lab" => Ok(lab(flags(rest)?)),
         _ => Err(CliError::Usage),
     }
 }
@@ -275,7 +275,7 @@ fn document(words: &[String]) -> Result<Value, CliError> {
 /// `drishti lab`: the native ink lab window. Its session report is printed
 /// when the window closes or the frame limit is reached.
 #[cfg(feature = "ui")]
-fn lab(parsed: Flags) -> Result<Value, CliError> {
+fn lab(parsed: Flags) -> Value {
     let mut launch = drishti::native::Launch::new();
     launch.seed = parsed.seed;
     launch.reduce_motion = parsed.reduce_motion;
@@ -292,19 +292,19 @@ fn lab(parsed: Flags) -> Result<Value, CliError> {
             lgwks_std::trace::error!(%error, "drishti lab: the session report was not written");
         }
     });
-    Ok(json!({ "lab": "closed" }))
+    json!({ "lab": "closed" })
 }
 
 /// `drishti lab` without the `ui` feature: say how to get the window.
 #[cfg(not(feature = "ui"))]
-fn lab(parsed: Flags) -> Result<Value, CliError> {
-    Ok(json!({
+fn lab(parsed: Flags) -> Value {
+    json!({
         "refused": "the native window needs the `ui` feature: cargo run -p drishti --features ui -- lab",
         "seed": parsed.seed,
         "frames": parsed.frames,
         "dark": parsed.dark,
         "reduce_motion": parsed.reduce_motion,
-    }))
+    })
 }
 
 /// Write one document to stdout as pretty JSON.

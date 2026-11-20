@@ -134,22 +134,47 @@ fn civil_from_days(days: u64) -> (u64, u64, u64) {
 /// # Ok::<(), drishti::native_host::time::TimeError>(())
 /// ```
 pub fn parse_millis(text: &str) -> Result<u64, TimeError> {
-    let bytes = text.as_bytes();
-    ensure(bytes.len() >= 20, || TimeError::Malformed)?;
+    // The fixed 19-byte `YYYY-MM-DDTHH:MM:SS` head, then the suffix. A suffix
+    // is at least `Z`, so anything shorter is malformed (an empty one fails in
+    // `parse_fraction`).
+    let &[
+        year_1,
+        year_2,
+        year_3,
+        year_4,
+        dash_1,
+        month_1,
+        month_2,
+        dash_2,
+        day_1,
+        day_2,
+        separator,
+        hour_1,
+        hour_2,
+        colon_1,
+        minute_1,
+        minute_2,
+        colon_2,
+        second_1,
+        second_2,
+        ref suffix @ ..,
+    ] = text.as_bytes()
+    else {
+        lgwks_std::trace::debug!("parse_millis: returning an error to the caller");
+        return Err(TimeError::Malformed);
+    };
     ensure(
-        bytes[4] == b'-' && bytes[7] == b'-' && bytes[10] == b'T',
+        dash_1 == b'-' && dash_2 == b'-' && separator == b'T',
         || TimeError::Malformed,
     )?;
-    ensure(bytes[13] == b':' && bytes[16] == b':', || {
-        TimeError::Malformed
-    })?;
-    let year = parse_digits(&bytes[0..4])?;
-    let month = parse_digits(&bytes[5..7])?;
-    let day = parse_digits(&bytes[8..10])?;
-    let hour = parse_digits(&bytes[11..13])?;
-    let minute = parse_digits(&bytes[14..16])?;
-    let second = parse_digits(&bytes[17..19])?;
-    let (fraction_millis, rest) = parse_fraction(&bytes[19..])?;
+    ensure(colon_1 == b':' && colon_2 == b':', || TimeError::Malformed)?;
+    let year = parse_digits(&[year_1, year_2, year_3, year_4])?;
+    let month = parse_digits(&[month_1, month_2])?;
+    let day = parse_digits(&[day_1, day_2])?;
+    let hour = parse_digits(&[hour_1, hour_2])?;
+    let minute = parse_digits(&[minute_1, minute_2])?;
+    let second = parse_digits(&[second_1, second_2])?;
+    let (fraction_millis, rest) = parse_fraction(suffix)?;
     let offset_millis = parse_offset(rest)?;
     ensure(
         (1..=12).contains(&month) && hour <= 23 && minute <= 59 && second <= 59,
@@ -216,7 +241,8 @@ fn parse_fraction(bytes: &[u8]) -> Result<(u64, &[u8]), TimeError> {
     for _ in 0..scale {
         millis = millis.checked_mul(10).ok_or(TimeError::OutOfRange)?;
     }
-    Ok((millis, &tail[digits..]))
+    let rest = tail.get(digits..).ok_or(TimeError::Malformed)?;
+    Ok((millis, rest))
 }
 
 /// Parse a `Z` or numeric offset suffix to signed milliseconds east of UTC.
@@ -232,9 +258,10 @@ fn parse_offset(bytes: &[u8]) -> Result<i64, TimeError> {
     // `±HH`, `±HHMM` and `±HH:MM`: two hour digits, then nothing, two minute
     // digits, or a colon and two minute digits.
     let (hour_digits, minute_digits) = match digits.len() {
-        2 => Some((&digits[..2], &digits[..0])),
-        4 => Some((&digits[..2], &digits[2..])),
-        5 if digits[2] == b':' => Some((&digits[..2], &digits[3..])),
+        2 | 4 => digits.split_at_checked(2),
+        5 => digits
+            .split_at_checked(2)
+            .and_then(|(hours, tail)| tail.strip_prefix(b":").map(|minutes| (hours, minutes))),
         _ => None,
     }
     .ok_or(TimeError::Malformed)?;

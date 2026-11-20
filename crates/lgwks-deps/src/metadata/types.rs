@@ -138,15 +138,15 @@ pub struct DirectEdge {
     /// Manifest semver requirement exactly as Cargo reports it.
     pub(crate) requirement: String,
     /// Normal, build, or development edge.
-    pub kind: DependencyKind,
+    pub(crate) kind: DependencyKind,
     /// Registry, Git, or path origin.
-    pub source: DependencySource,
+    pub(crate) source: DependencySource,
     /// Whether the manifest marks the edge optional.
-    pub optional: bool,
+    pub(crate) optional: bool,
     /// True when the target package is another member of this workspace.
-    pub workspace: bool,
+    pub(crate) workspace: bool,
     /// Repository declared by a workspace path target, when present.
-    pub target_repository: Option<String>,
+    pub(crate) target_repository: Option<String>,
     /// Features Cargo reports as enabled on this authored declaration.
     ///
     /// Retained verbatim, including the ordering Cargo emitted it in, so an
@@ -175,14 +175,14 @@ pub struct DirectEdge {
     /// refuse an approval whose recorded licence no longer says what the
     /// manifest says (#208); a package that declares none is not read as
     /// permissive, because the value's absence is exactly the fact.
-    pub license: Option<String>,
+    pub(crate) license: Option<String>,
     /// Path the target's manifest names as its licence file, when it declares
     /// one instead of, or as well as, an SPDX expression.
     ///
     /// Retained beside [`Self::license`] so an audit refusal can name the file
     /// whose text governs when the expression alone does not say who the
     /// licensor is.
-    pub license_file: Option<String>,
+    pub(crate) license_file: Option<String>,
 }
 
 impl DirectEdge {
@@ -241,6 +241,82 @@ impl DirectEdge {
     #[must_use]
     pub fn rename(&self) -> Option<&str> {
         self.rename.as_deref()
+    }
+
+    /// Normal, build, or development edge.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let edges = lgwks_deps::metadata::parse(r#"{"packages":[{"id":"app","name":"app","manifest_path":"/r/Cargo.toml","dependencies":[{"name":"serde","source":"registry+https://github.com/rust-lang/crates.io-index","req":"^1","kind":"dev","optional":true,"path":null}]}],"workspace_members":["app"]}"#)?;
+    /// let edge = edges.first().ok_or("one edge")?;
+    /// assert_eq!(edge.kind().to_string(), "dev");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn kind(&self) -> DependencyKind {
+        self.kind
+    }
+
+    /// Registry, Git, or path origin.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use lgwks_deps::metadata::DependencySource;
+    /// # let edges = lgwks_deps::metadata::parse(r#"{"packages":[{"id":"app","name":"app","manifest_path":"/r/Cargo.toml","dependencies":[{"name":"serde","source":"registry+https://github.com/rust-lang/crates.io-index","req":"^1","kind":null,"optional":true,"path":null}]}],"workspace_members":["app"]}"#)?;
+    /// let edge = edges.first().ok_or("one edge")?;
+    /// assert!(matches!(edge.source(), DependencySource::Registry(_)));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn source(&self) -> &DependencySource {
+        &self.source
+    }
+
+    /// Whether the manifest marks the edge optional.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let edges = lgwks_deps::metadata::parse(r#"{"packages":[{"id":"app","name":"app","manifest_path":"/r/Cargo.toml","dependencies":[{"name":"serde","source":"registry+https://github.com/rust-lang/crates.io-index","req":"^1","kind":null,"optional":true,"path":null}]}],"workspace_members":["app"]}"#)?;
+    /// let edge = edges.first().ok_or("one edge")?;
+    /// assert!(edge.optional());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn optional(&self) -> bool {
+        self.optional
+    }
+
+    /// True when the target package is another member of this workspace.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let edges = lgwks_deps::metadata::parse(r#"{"packages":[{"id":"app","name":"app","manifest_path":"/r/Cargo.toml","dependencies":[{"name":"serde","source":"registry+https://github.com/rust-lang/crates.io-index","req":"^1","kind":null,"optional":true,"path":null}]}],"workspace_members":["app"]}"#)?;
+    /// let edge = edges.first().ok_or("one edge")?;
+    /// assert!(!edge.workspace(), "serde is not a member");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn workspace(&self) -> bool {
+        self.workspace
+    }
+
+    /// Repository declared by a workspace path target, when present.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # let edges = lgwks_deps::metadata::parse(r#"{"packages":[{"id":"app","name":"app","manifest_path":"/r/Cargo.toml","dependencies":[{"name":"serde","source":"registry+https://github.com/rust-lang/crates.io-index","req":"^1","kind":null,"optional":true,"path":null}]}],"workspace_members":["app"]}"#)?;
+    /// let edge = edges.first().ok_or("one edge")?;
+    /// assert_eq!(edge.target_repository(), None, "a registry edge has none");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub fn target_repository(&self) -> Option<&str> {
+        self.target_repository.as_deref()
     }
 }
 

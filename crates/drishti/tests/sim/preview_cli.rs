@@ -191,7 +191,7 @@ fn sim_cli_frozen_broker_registers_the_same_owner_twice() -> Result<(), String> 
         texts.push(format!("{digest}|{:?}", captured(&events)));
     }
     ensure(
-        texts[0] == texts[1],
+        texts.first() == texts.get(1) && texts.len() == 2,
         "two frozen drives must agree on digest and audit trail",
     )
 }
