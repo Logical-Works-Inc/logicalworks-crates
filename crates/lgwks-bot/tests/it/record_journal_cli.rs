@@ -15,21 +15,21 @@ type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
 /// The binary under test, wherever this run placed it.
 ///
 /// Read at run time because an archived test run moves it between shards.
-fn binary() -> Outcome<PathBuf> {
+fn binary() -> PathBuf {
     for name in [
         "NEXTEST_BIN_EXE_record-journal",
         "NEXTEST_BIN_EXE_record_journal",
     ] {
         if let Some(found) = std::env::var_os(name) {
-            return Ok(PathBuf::from(found));
+            return PathBuf::from(found);
         }
     }
-    Ok(PathBuf::from(env!("CARGO_BIN_EXE_record-journal")))
+    PathBuf::from(env!("CARGO_BIN_EXE_record-journal"))
 }
 
 /// Run one command to its end.
 fn run(args: &[&str]) -> Outcome<Output> {
-    Ok(Command::new(binary()?).args(args).output()?)
+    Ok(Command::new(binary()).args(args).output()?)
 }
 
 /// The digits after `"key":` in a line of the binary's output.
@@ -70,7 +70,7 @@ impl Drop for Scratch {
 /// line it managed to print.
 fn killed_after(path: &Path, seen: usize) -> Outcome<Vec<String>> {
     let text = path.to_str().ok_or("path")?;
-    let mut child = Command::new(binary()?)
+    let mut child = Command::new(binary())
         .args(["append", text, "1000000", "256"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

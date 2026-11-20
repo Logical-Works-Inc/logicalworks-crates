@@ -73,6 +73,16 @@ pub struct JoinSet<T> {
     inner: lgwks_deps::tokio::task::JoinSet<T>,
 }
 
+impl<T> std::fmt::Debug for JoinSet<T> {
+    /// Shows the owned-task count only, with no bound on the task output `T`.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("JoinSet")
+            .field("len", &self.inner.len())
+            .finish()
+    }
+}
+
 impl<T: Send + 'static> JoinSet<T> {
     /// Create an empty task owner.
     #[must_use]

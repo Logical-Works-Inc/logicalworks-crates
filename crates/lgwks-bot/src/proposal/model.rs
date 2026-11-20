@@ -24,8 +24,6 @@
 //! the double emits is admitted or refused by the same rule as anything else, with `Source::Model`
 //! named as the payload's source.
 
-use crate::journal::frame::SaturatingFrom;
-
 /// The shape a seeded payload takes.
 ///
 /// Drawn per seed rather than per call, so one scenario is one story about one
@@ -74,14 +72,7 @@ impl StubModel {
     pub fn from_seed(seed: u64) -> Self {
         let mut state = seed ^ 0x9109_2d4d_5eed_0f11;
         let draw = next(&mut state);
-        // Reduce the draw into the table's range with `rem_euclid`, which is
-        // total for every non-zero divisor and the table's length is a non-zero
-        // constant — the `assert!` beside `SHAPES` is the compiler's own check of
-        // that, because a seed that named no shape could not produce a model at
-        // all. The index is therefore inside the table by construction, and the
-        // shape is one the table really holds rather than a stand-in for a miss.
-        let index = usize::saturating_from(draw.rem_euclid(u64::saturating_from(SHAPES.len())));
-        let shape = SHAPES[index];
+        let shape = shape_for(draw);
         let bytes = render(shape, seed, next(&mut state));
         Self { seed, shape, bytes }
     }
@@ -113,22 +104,21 @@ impl StubModel {
     }
 }
 
-/// Every shape, in the order the draw indexes them.
-///
-/// A fixed table rather than a computed range, so adding a shape is a visible
-/// edit to one array and the mapping from draw to shape cannot shift because a
-/// constant elsewhere changed.
-const SHAPES: [Shape; 9] = [
-    Shape::WellFormed,
-    Shape::WellFormed,
-    Shape::WellFormed,
-    Shape::UnknownOperation,
-    Shape::InstallsTool,
-    Shape::ReadsCredential,
-    Shape::Injection,
-    Shape::OverclaimsCoverage,
-    Shape::Truncated,
-];
+/// The shape a draw selects: nine slots, `WellFormed` holding three of them, so
+/// the mapping from draw to shape is one visible table that no constant
+/// elsewhere can shift. `rem_euclid` by nine is total, so the last slot is the
+/// ninth shape and never a stand-in for a miss.
+const fn shape_for(draw: u64) -> Shape {
+    match draw.rem_euclid(9) {
+        0..=2 => Shape::WellFormed,
+        3 => Shape::UnknownOperation,
+        4 => Shape::InstallsTool,
+        5 => Shape::ReadsCredential,
+        6 => Shape::Injection,
+        7 => Shape::OverclaimsCoverage,
+        _ => Shape::Truncated,
+    }
+}
 
 /// A splitmix step, so the payload is a function of the seed and not of the
 /// platform's generator.
@@ -169,8 +159,9 @@ fn render(shape: Shape, seed: u64, salt: u64) -> Vec<u8> {
         Shape::Truncated => {
             // Cut mid-value: the document began and did not finish, which is
             // the case a decoder must not decode into a claim.
-            let whole = format!("op=read-report\nnote={}", "x".repeat(64));
-            whole.into_bytes()[..12].to_vec()
+            let mut whole = format!("op=read-report\nnote={}", "x".repeat(64)).into_bytes();
+            whole.truncate(12);
+            whole
         }
         Shape::Oversized => {
             format!("op=read-report\nnote={}\n", "y".repeat(70 * 1024)).into_bytes()

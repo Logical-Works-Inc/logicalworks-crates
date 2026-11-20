@@ -1,5 +1,6 @@
 //! A batched ladder: four acknowledgments from one sync, and a stale handle refused even for an empty batch.
 
+#[cfg(test)]
 use super::*;
 
 #[test]
@@ -59,8 +60,7 @@ fn a_batched_ladder_is_four_acknowledgments_from_one_sync() -> TestResult {
         Err(other) => {
             return Err(format!("expected an out-of-order refusal, got {other}").into());
         }
-        Ok(acks) => {
-            let _ = acks;
+        Ok(_) => {
             return Err("a double admission in one batch must be refused whole".into());
         }
     }

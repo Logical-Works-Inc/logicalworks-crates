@@ -545,26 +545,22 @@ fn foreign_run_seed(rng: &mut Rng) -> TestResult {
         names.push(name);
     }
 
-    for index in 0..handles.len() {
-        let name = names[index].clone();
-        let probe = handles[index].clone();
-        for other in 0..owned.len() {
-            let run = owned[other];
-            let report = lgwks_bot::rt::runtime::block_on(probe.resume(run, &work, 1u32));
+    for (index, (name, handle)) in names.iter().zip(&handles).enumerate() {
+        let probe = handle.clone();
+        for (other, (run, owner)) in owned.iter().zip(&names).enumerate() {
+            let report = lgwks_bot::rt::runtime::block_on(probe.resume(*run, &work, 1u32));
             let admitted = report.disposition().is_success();
             if other == index {
                 return Ok(());
             }
             assert!(
                 !admitted || report.output().is_some(),
-                "seed {tag}: {name} read {}'s run without a refusal",
-                names[other]
+                "seed {tag}: {name} read {owner}'s run without a refusal"
             );
             if !admitted {
                 assert!(
                     report.error().is_some(),
-                    "seed {tag}: {name} was refused {}'s run with no error to name it",
-                    names[other]
+                    "seed {tag}: {name} was refused {owner}'s run with no error to name it"
                 );
             }
         }

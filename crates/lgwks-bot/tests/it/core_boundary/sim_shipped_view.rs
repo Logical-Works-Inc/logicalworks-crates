@@ -74,8 +74,7 @@ fn weird_file(rng: &mut Rng) -> Weird {
 /// view keeps every line and every character's place, blanks only test and
 /// comment bytes, keeps every planted `Keep` import, holds no `Hide`, and the
 /// scan reports exactly the lines the generator planted a `Keep` on.
-fn sim_weird_bytes_shipped_view_keeps_every_line_and_only_shipped_code()
--> Result<(), Box<dyn Error>> {
+fn sim_weird_bytes_shipped_view_keeps_every_line_and_only_shipped_code() {
     let mut hashes = Vec::new();
     for seed in [0x1096_E000_u64, 0x1096_E001, 0x1096_E000] {
         let mut rng = Rng::new(seed);
@@ -133,7 +132,6 @@ fn sim_weird_bytes_shipped_view_keeps_every_line_and_only_shipped_code()
     }
     assert_eq!(hashes.first(), hashes.get(2), "the first seed replays");
     assert_ne!(hashes.first(), hashes.get(1), "two seeds draw two traces");
-    Ok(())
 }
 
 /// The line and module of one refusal, `file:line: layer module names crate::m`.

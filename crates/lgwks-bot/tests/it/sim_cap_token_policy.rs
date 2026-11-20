@@ -277,7 +277,9 @@ fn sim_token_truncated_payload_refusal() -> TestResult {
     let tok = env.mint("svc:db", "select", "/table", 100)?;
     let serialized = tok.to_bytes().map_err(show_err)?;
     let half_len = serialized.len() >> 1;
-    let truncated = &serialized[..half_len];
+    let truncated = serialized
+        .get(..half_len)
+        .ok_or("half of the token is inside it")?;
     match BearerToken::from_bytes(truncated) {
         Err(TokenError::Malformed) => Ok(()),
         other => Err(format!(

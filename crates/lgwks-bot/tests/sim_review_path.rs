@@ -78,8 +78,8 @@ mod sim {
     mod band;
     mod seed;
 
-    pub use band::{Band, band_of};
-    pub use seed::{Rng, Trace};
+    pub(crate) use band::{Band, band_of};
+    pub(crate) use seed::{Rng, Trace};
 }
 
 // The band-declaration macro, defined once for the whole layer.

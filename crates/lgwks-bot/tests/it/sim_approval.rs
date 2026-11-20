@@ -30,7 +30,7 @@ use crate::scratch::Scratch;
 use crate::sim::{self, Band};
 
 use crate::approval_error::ApprovalError as ApprovalSimError;
-use crate::sim_approval_extra::{parked_id_of, run_of};
+use crate::sim_approval_extra::{BoxedRun, ByteTask, parked_id_of, run_of};
 
 /// A test's result: an error fails it with the refusal behind it.
 type TestResult = Result<(), ApprovalSimError>;
@@ -98,6 +98,90 @@ enum Fate {
 /// The fates, in the order a seed draws them.
 const FATES: [Fate; 4] = [Fate::Approve, Fate::Deny, Fate::Expire, Fate::Leave];
 
+/// One run of `ship`, boxed so the task has a nameable type.
+fn ship_run(scope: Scope, payload: Vec<u8>) -> BoxedRun {
+    Box::pin(async move { ship(&scope, payload).await })
+}
+
+/// Decide the park `at` = (id, run) as `fate` says, resume it, and return the
+/// outcome word its fate names, or the refusal when the outcome is another.
+fn decide_by_fate(
+    decider: &Host,
+    shipping: &ByteTask,
+    fate: Fate,
+    at: (&str, lgwks_bot::effect::RunId),
+    payload: Vec<u8>,
+) -> Result<&'static str, ApprovalSimError> {
+    let (id, run) = at;
+    let digest = *decider
+        .pending(usize::MAX)?
+        .iter()
+        .find(|entry| entry.id() == id)
+        .map(|entry| entry.digest())
+        .ok_or(ApprovalSimError::Setup {
+            what: "the park is listed",
+        })?;
+    let refused = |what: &'static str| Err(ApprovalSimError::Setup { what });
+    match fate {
+        Fate::Approve => {
+            decider.decide(id, ApprovalDecision::approve("sim", digest))?;
+            let resumed =
+                lgwks_bot::script::block_on(decider.resume(run, shipping, payload.clone()));
+            if !matches!(resumed.disposition(), Disposition::Succeeded)
+                || resumed.output() != Some(&payload)
+            {
+                return refused("an approval resumes with its payload");
+            }
+            Ok("approved")
+        }
+        Fate::Deny => {
+            decider.decide(id, ApprovalDecision::deny("sim", digest))?;
+            let resumed = lgwks_bot::script::block_on(decider.resume(run, shipping, payload));
+            if !matches!(
+                resumed.error(),
+                Some(error) if matches!(*error, FlowError::ApprovalDenied { .. })
+            ) {
+                return refused("a denial fails the resume typed");
+            }
+            Ok("denied")
+        }
+        Fate::Expire => {
+            decider
+                .clock()
+                .advance(Duration::from_secs(31))
+                .map_err(|error| {
+                    lgwks_std::trace::debug!(error = %error, "decide_by_fate: the virtual clock advances");
+                    ApprovalSimError::Setup {
+                        what: "the virtual clock advances",
+                    }
+                })?;
+            let resumed = lgwks_bot::script::block_on(decider.resume(run, shipping, payload));
+            if !matches!(
+                resumed.error(),
+                Some(error) if matches!(*error, FlowError::ApprovalExpired { .. })
+            ) {
+                return refused("a lapse fails the resume typed");
+            }
+            if !matches!(
+                decider.decide(id, ApprovalDecision::approve("sim", digest)),
+                Err(DecisionError::Expired { .. })
+            ) {
+                return refused("a decision past the deadline is Expired");
+            }
+            // The clock stays advanced: later parks on this tenant's host
+            // start owed past their own deadline, so they lapse at once.
+            Ok("expired")
+        }
+        Fate::Leave => {
+            let parked = lgwks_bot::script::block_on(decider.resume(run, shipping, payload));
+            if !matches!(parked.disposition(), Disposition::Parked) {
+                return refused("an undecided resume parks again");
+            }
+            Ok("undecided")
+        }
+    }
+}
+
 /// One seeded park and everything drawn for it: park, maybe crash, decide by
 /// fate, resume, and exactly the outcome its fate names.
 fn tend_approval(
@@ -114,9 +198,8 @@ fn tend_approval(
         "tend_approval: tending one seeded park"
     );
     let payload = format!("t{tenant}-a{index}-{}", sim.seed).into_bytes();
-    let shipping = task("ship", |scope: Scope, payload: Vec<u8>| async move {
-        ship(&scope, payload).await
-    })?;
+    let body: fn(Scope, Vec<u8>) -> BoxedRun = ship_run;
+    let shipping: ByteTask = task("ship", body)?;
     let host = hosts.get(tenant).ok_or(ApprovalSimError::Setup {
         what: "the tenant has a host",
     })?;
@@ -146,82 +229,7 @@ fn tend_approval(
     let decider = hosts.get(tenant).ok_or(ApprovalSimError::Setup {
         what: "the tenant has a host",
     })?;
-    let digest = *decider
-        .pending(usize::MAX)?
-        .iter()
-        .find(|entry| entry.id() == id)
-        .map(|entry| entry.digest())
-        .ok_or(ApprovalSimError::Setup {
-            what: "the park is listed",
-        })?;
-    let outcome = match fate {
-        Fate::Approve => {
-            decider.decide(&id, ApprovalDecision::approve("sim", digest))?;
-            let resumed =
-                lgwks_bot::script::block_on(decider.resume(run, &shipping, payload.clone()));
-            if !matches!(resumed.disposition(), Disposition::Succeeded)
-                || resumed.output() != Some(&payload)
-            {
-                return Err(ApprovalSimError::Setup {
-                    what: "an approval resumes with its payload",
-                });
-            }
-            "approved"
-        }
-        Fate::Deny => {
-            decider.decide(&id, ApprovalDecision::deny("sim", digest))?;
-            let resumed = lgwks_bot::script::block_on(decider.resume(run, &shipping, payload));
-            if !matches!(
-                resumed.error(),
-                Some(error) if matches!(*error, FlowError::ApprovalDenied { .. })
-            ) {
-                return Err(ApprovalSimError::Setup {
-                    what: "a denial fails the resume typed",
-                });
-            }
-            "denied"
-        }
-        Fate::Expire => {
-            decider
-                .clock()
-                .advance(Duration::from_secs(31))
-                .map_err(|error| {
-                    lgwks_std::trace::debug!(error = %error, "tend_approval: the virtual clock advances");
-                    ApprovalSimError::Setup {
-                        what: "the virtual clock advances",
-                    }
-                })?;
-            let resumed = lgwks_bot::script::block_on(decider.resume(run, &shipping, payload));
-            if !matches!(
-                resumed.error(),
-                Some(error) if matches!(*error, FlowError::ApprovalExpired { .. })
-            ) {
-                return Err(ApprovalSimError::Setup {
-                    what: "a lapse fails the resume typed",
-                });
-            }
-            match decider.decide(&id, ApprovalDecision::approve("sim", digest)) {
-                Err(DecisionError::Expired { .. }) => {}
-                _ => {
-                    return Err(ApprovalSimError::Setup {
-                        what: "a decision past the deadline is Expired",
-                    });
-                }
-            }
-            // The clock stays advanced: later parks on this tenant's host
-            // start owed past their own deadline, so they lapse at once.
-            "expired"
-        }
-        Fate::Leave => {
-            let parked = lgwks_bot::script::block_on(decider.resume(run, &shipping, payload));
-            if !matches!(parked.disposition(), Disposition::Parked) {
-                return Err(ApprovalSimError::Setup {
-                    what: "an undecided resume parks again",
-                });
-            }
-            "undecided"
-        }
-    };
+    let outcome = decide_by_fate(decider, &shipping, fate, (&id, run), payload)?;
     sim.record(&format!("t{tenant}:a{index}:{outcome}"));
     Ok(())
 }

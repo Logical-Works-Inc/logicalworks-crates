@@ -59,6 +59,19 @@ enum Shape {
     WaitForCancel,
 }
 
+/// One seeded task: how its body ends and what the driver does after the spawn.
+#[derive(Clone, Copy)]
+struct Step {
+    /// How the body ends.
+    shape: Shape,
+    /// How many times a `Complete` body yields before returning.
+    turns: u32,
+    /// Whether to reap after the spawn, as a long-lived caller does.
+    reap: bool,
+    /// How many reports to drain after the spawn; zero means no drain.
+    drain: usize,
+}
+
 /// One seeded run's shape. Every draw happens up front in [`plan`], so the
 /// driver below reads fields rather than the seed stream mid-run.
 struct Plan {
@@ -67,17 +80,11 @@ struct Plan {
     /// True when the bound exceeds the task count, so the report buffer can
     /// never refuse and every drop is a defect.
     roomy: bool,
-    /// Each task's ending shape.
-    shapes: Vec<Shape>,
-    /// For each task, how many times a `Complete` body yields before returning.
-    yields: Vec<u32>,
+    /// Each task, in spawn order.
+    steps: Vec<Step>,
     /// Cancel before spawning this task; equal to the task count means cancel
     /// only at the end. Always resolves `WaitForCancel` bodies.
     cancel_at: usize,
-    /// Whether to reap after each spawn, as a long-lived caller does.
-    reap: Vec<bool>,
-    /// How many reports to drain after each spawn; zero means no drain.
-    drain: Vec<usize>,
 }
 
 fn plan(rng: &mut sim::Rng) -> Result<Plan, Box<dyn Error>> {
@@ -90,33 +97,88 @@ fn plan(rng: &mut sim::Rng) -> Result<Plan, Box<dyn Error>> {
     };
     let reap_per_mille = rng.below(1001);
     let drain_per_mille = rng.below(1001);
-    let mut shapes = Vec::with_capacity(tasks);
-    let mut yields = Vec::with_capacity(tasks);
-    let mut reap = Vec::with_capacity(tasks);
-    let mut drain = Vec::with_capacity(tasks);
+    let mut steps = Vec::with_capacity(tasks);
     for _ in 0..tasks {
-        if rng.below(10) < 8 {
-            shapes.push(Shape::Complete);
+        let shape = if rng.below(10) < 8 {
+            Shape::Complete
         } else {
-            shapes.push(Shape::WaitForCancel);
-        }
-        yields.push(rng.below(5));
-        reap.push(rng.chance(reap_per_mille));
-        if rng.chance(drain_per_mille) {
-            drain.push(usize::try_from(rng.below(8))?.saturating_add(1));
+            Shape::WaitForCancel
+        };
+        let turns = rng.below(5);
+        let reap = rng.chance(reap_per_mille);
+        let drain = if rng.chance(drain_per_mille) {
+            usize::try_from(rng.below(8))?.saturating_add(1)
         } else {
-            drain.push(0);
-        }
+            0
+        };
+        steps.push(Step {
+            shape,
+            turns,
+            reap,
+            drain,
+        });
     }
     Ok(Plan {
         bound,
         roomy,
-        shapes,
-        yields,
+        steps,
         cancel_at: usize::try_from(rng.below(u32::try_from(tasks.saturating_add(1))?))?,
-        reap,
-        drain,
     })
+}
+
+/// Spawn one seeded task, reap and drain as the plan says, and check that the
+/// supervisor's accessors agree with the snapshot they read.
+fn run_step(
+    supervisor: &mut Supervisor,
+    step: Step,
+    placed: &mut BTreeSet<TaskId>,
+    reported: &mut BTreeMap<TaskId, u64>,
+) {
+    let turns = step.turns;
+    let spawned = match step.shape {
+        Shape::Complete => supervisor.try_spawn(move |_token| async move {
+            for _ in 0..turns {
+                yield_now().await;
+            }
+        }),
+        Shape::WaitForCancel => supervisor.try_spawn(|token| async move {
+            token.cancelled().await;
+        }),
+    };
+    // `try_spawn` never waits, so the driver cannot hang: a refusal is a task
+    // never placed, and the live set says which.
+    if let Err(refusal) = spawned {
+        lgwks_std::trace::debug!(error = ?refusal, "sim_supervise_reports: a spawn was refused");
+    }
+    note_live(supervisor, placed);
+    if step.reap {
+        supervisor.reap();
+        note_live(supervisor, placed);
+    }
+    drain(supervisor, step.drain, reported, placed);
+    // The accessors agree with the snapshot they read: one state, read three
+    // ways, with no await between the reads. The tracked set can exceed the
+    // bound by ended-but-unreaped tasks, which the snapshot truncates and counts.
+    let snapshot = supervisor.snapshot();
+    assert_eq!(
+        supervisor.in_flight(),
+        snapshot
+            .live()
+            .len()
+            .saturating_add(snapshot.live_truncated()),
+        "in_flight counts what the snapshot lists plus what it truncated"
+    );
+    // Exactly the snapshot's state, position included: the accessor counts in
+    // one pass what the snapshot sorts, so a position off by one in either is a
+    // disagreement here.
+    for live in snapshot.live() {
+        assert_eq!(
+            supervisor.task_state(live.task),
+            Some(live.state),
+            "a task the snapshot lists reads its own state and position: {}",
+            live.task.get()
+        );
+    }
 }
 
 /// Drain up to `max` reports, attributing each to its task.
@@ -152,68 +214,17 @@ fn note_live(supervisor: &Supervisor, placed: &mut BTreeSet<TaskId>) {
 fn every_placed_task_reports_exactly_once(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let plan = plan(sim.rng())?;
-        let tasks = u64::try_from(plan.shapes.len())?;
+        let tasks = u64::try_from(plan.steps.len())?;
         let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
         let outcome = runtime.block_on(async {
             let mut supervisor = Supervisor::new(plan.bound);
             let mut placed: BTreeSet<TaskId> = BTreeSet::new();
             let mut reported: BTreeMap<TaskId, u64> = BTreeMap::new();
-            for (index, shape) in plan.shapes.iter().copied().enumerate() {
+            for (index, step) in plan.steps.iter().copied().enumerate() {
                 if index == plan.cancel_at {
                     supervisor.cancel();
                 }
-                let turns = plan.yields[index];
-                match shape {
-                    Shape::Complete => supervisor
-                        .try_spawn(move |_token| async move {
-                            for _ in 0..turns {
-                                yield_now().await;
-                            }
-                        })
-                        .ok(),
-                    Shape::WaitForCancel => supervisor
-                        .try_spawn(|token| async move {
-                            token.cancelled().await;
-                        })
-                        .ok(),
-                };
-                // `try_spawn` never waits, so this loop cannot hang: a
-                // refusal is a task never placed, and the live set says which.
-                note_live(&supervisor, &mut placed);
-                if plan.reap[index] {
-                    supervisor.reap();
-                    note_live(&supervisor, &mut placed);
-                }
-                drain(
-                    &mut supervisor,
-                    plan.drain[index],
-                    &mut reported,
-                    &mut placed,
-                );
-                // The accessors agree with the snapshot they read: one state,
-                // read three ways, with no await between the reads. The
-                // tracked set can exceed the bound by ended-but-unreaped
-                // tasks, which the snapshot truncates and counts.
-                let snapshot = supervisor.snapshot();
-                assert_eq!(
-                    supervisor.in_flight(),
-                    snapshot
-                        .live()
-                        .len()
-                        .saturating_add(snapshot.live_truncated()),
-                    "in_flight counts what the snapshot lists plus what it truncated"
-                );
-                // Exactly the snapshot's state, position included: the
-                // accessor counts in one pass what the snapshot sorts, so a
-                // position off by one in either is a disagreement here.
-                for live in snapshot.live() {
-                    assert_eq!(
-                        supervisor.task_state(live.task),
-                        Some(live.state),
-                        "a task the snapshot lists reads its own state and position: {}",
-                        live.task.get()
-                    );
-                }
+                run_step(&mut supervisor, step, &mut placed, &mut reported);
             }
             supervisor.cancel();
             supervisor.wait_idle().await;

@@ -93,14 +93,14 @@ fn lines_of(text: &str) -> usize {
 /// The line and column of byte `at`: 1-based, columns in characters.
 fn line_col_of(body: &[u8], at: usize) -> (usize, usize) {
     let end = at.min(body.len());
-    let head = &body[..end];
+    let (head, _) = body.split_at(end);
     let line = head
         .iter()
         .filter(|byte| **byte == b'\n')
         .count()
         .saturating_add(1);
     let tail = match head.iter().rposition(|byte| *byte == b'\n') {
-        Some(pos) => &head[pos.saturating_add(1)..],
+        Some(pos) => head.split_at(pos.saturating_add(1)).1,
         None => head,
     };
     let col = String::from_utf8_lossy(tail)

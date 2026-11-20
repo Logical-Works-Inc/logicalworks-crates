@@ -25,12 +25,12 @@ struct Flaky(AtomicU8);
 
 impl Flaky {
     /// Square `number`, or refuse transiently twice before succeeding.
-    async fn call(&self, number: u64) -> Result<u64, FlowError> {
+    fn call(&self, number: u64) -> std::future::Ready<Result<u64, FlowError>> {
         if self.0.fetch_add(1, Ordering::Relaxed) < 2 {
             lgwks_std::trace::debug!("the backend was busy; the flow will retry");
-            return Err(FlowError::transient("the backend was busy"));
+            return std::future::ready(Err(FlowError::transient("the backend was busy")));
         }
-        Ok(number.saturating_mul(number))
+        std::future::ready(Ok(number.saturating_mul(number)))
     }
 }
 

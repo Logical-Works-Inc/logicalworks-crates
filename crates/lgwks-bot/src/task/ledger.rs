@@ -41,20 +41,16 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-
-use crate::journal::frame::SaturatingFrom;
 use std::sync::{Arc, Mutex};
 
 use lgwks_std::hash::{Digest, Hasher};
-use lgwks_std::wire::{WireError, from_bytes, to_bytes};
 
 use crate::effect::RunId;
-use crate::journal::frame::{self, Cursor, HEAD_BYTES};
 use crate::journal::owner::{self, Stage, StorageOwner, SubmitError};
 
-use super::store::{StoreError, StoreLimitKind};
+use super::store::StoreError;
 
 /// The magic at the head of every ledger file.
 ///
@@ -70,14 +66,14 @@ const LEDGER_MAGIC: &[u8; 17] = b"lgwks-runledger\x00\x01";
 /// construction — so this ceiling exists only to bound a hostile or runaway
 /// value before any allocation, and is far below the step store's own record
 /// ceiling.
-pub const MAX_LEDGER_RECORD_BYTES: usize = 16 * 1024;
+pub(super) const MAX_LEDGER_RECORD_BYTES: usize = 16 * 1024;
 
 /// The most ledger entries one run's chain may hold.
 ///
 /// A run's ledger is a handful of budget charges and repair notes. Sixty-four
 /// thousand is generous enough that no honest run reaches it and small enough
 /// that a runaway loop is refused rather than filling the disk.
-pub const MAX_LEDGER_RECORDS_PER_RUN: u64 = 65_536;
+pub(super) const MAX_LEDGER_RECORDS_PER_RUN: u64 = 65_536;
 
 /// The chain digest a ledger starts from, hashed through the same framing as any
 /// entry so the first head is a real chain step rather than a constant every
@@ -657,212 +653,9 @@ fn decide_under(
     Ok((entry, next))
 }
 
-/// The write and the fold, in one ordered step, under the index the owner holds.
-fn write_entry(file: &mut File, index: &mut Index, entry: &Entry) -> Result<(), StoreError> {
-    let previous = index.tail;
-    let (framed, head) = frame(entry, &previous)?;
-    let staged = u64::saturating_from(framed.len());
-    let next = index
-        .committed
-        .checked_add(staged)
-        .ok_or(StoreError::Limit {
-            kind: StoreLimitKind::StoreBytes,
-            requested: u64::MAX,
-            limit: super::MAX_STORE_BYTES,
-        })?;
-    // The length fence, before a byte moves, under the ledger's thread where no
-    // other charge can overtake it: the length this handle indexed must be the
-    // length on the disk.
-    let on_disk = file.metadata().map_err(StoreError::storage)?.len();
-    if on_disk != index.committed {
-        let refusal = Err(StoreError::Corrupt { at: 0 });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "write_entry: returning an error to the caller");
-        return refusal;
-    }
-    file.write_all(&framed).map_err(StoreError::storage)?;
-    file.sync_all().map_err(StoreError::storage)?;
-    index.committed = next;
-    index.tail = head;
-    fold(index, entry);
-    Ok(())
-}
-
-/// Fold one entry's control state into `index`, creating the run's slot if this
-/// is the first entry for it.
-///
-/// One function because the live write and the replay must agree exactly: a state
-/// reached by committing an entry and the same state reached by reading it back
-/// have to be the same value, or a ledger's answer would depend on whether the
-/// reader crashed. The three counters are assigned rather than accumulated
-/// because an entry is the *absolute* state, and the applied-ticket list is
-/// extended rather than replaced for the same reason: a ticket applied by an
-/// earlier entry is still applied.
-fn fold(index: &mut Index, entry: &Entry) {
-    let run = index.runs.entry(entry.run).or_insert_with(|| Control {
-        tenant: entry.tenant.clone(),
-        attempts: 0,
-        spend: 0,
-        epoch: 0,
-        applied: Vec::new(),
-    });
-    run.tenant.clone_from(&entry.tenant);
-    run.attempts = entry.attempts;
-    run.spend = entry.spend;
-    run.epoch = entry.epoch;
-    if let Some(ref ticket) = entry.applied
-        && !run.applied.contains(ticket)
-    {
-        run.applied.push(ticket.clone());
-    }
-}
-
-/// The frame for one ledger entry: length, payload, head, through the shared
-/// grammar.
-fn frame(entry: &Entry, previous: &Digest) -> Result<(Vec<u8>, Digest), StoreError> {
-    frame::frame_record(
-        entry,
-        previous,
-        MAX_LEDGER_RECORD_BYTES,
-        |entry| {
-            to_bytes::<WireError>(entry)
-                .map(|bytes| bytes.as_ref().to_vec())
-                .map_err(|cause| StoreError::Encoding { cause })
-        },
-        |entry, previous, _| entry.head_from(previous),
-        |len| StoreError::Limit {
-            kind: StoreLimitKind::RecordBytes,
-            requested: u64::saturating_from(len),
-            limit: u64::saturating_from(MAX_LEDGER_RECORD_BYTES),
-        },
-    )
-}
-
-/// One complete, decoded frame read from the ledger.
-struct Framed {
-    /// The entry the frame's payload decoded to.
-    entry: Entry,
-    /// The chain head the frame recorded for itself.
-    head: [u8; HEAD_BYTES],
-    /// The payload length the frame declared.
-    declared: usize,
-}
-
-/// Read the frame at ordinal `at`, or `None` where the file stops holding a
-/// whole frame.
-///
-/// A partial length prefix, or a payload or head cut short, is an append that
-/// never finished: it was never anyone's answer, so the scan stops and the
-/// caller trims to `committed`. A complete prefix that names a frame this
-/// ledger never writes, or a payload that does not decode, cannot be an
-/// interrupted append and is refused, and so is a cut whose bytes hold an entry
-/// this ledger acknowledged under another length (#262).
-fn next_frame(file: &mut File, cursor: &Cursor<'_>) -> Result<Option<Framed>, StoreError> {
-    let at = cursor.at;
-    let corrupt = || StoreError::Corrupt { at };
-    let ceiling = MAX_LEDGER_RECORD_BYTES;
-    let entry_head = |previous: &Digest, payload: &[u8]| {
-        let aligned = frame::decodable(payload);
-        from_bytes::<Entry, WireError>(aligned.as_slice())
-            .ok()
-            .map(|entry| entry.head_from(previous))
-    };
-    let Some(raw) = frame::read_raw(
-        file,
-        cursor,
-        ceiling,
-        StoreError::storage,
-        corrupt,
-        entry_head,
-    )?
-    else {
-        return Ok(None);
-    };
-    let entry = from_bytes::<Entry, WireError>(&raw.payload).map_err(|error| {
-        lgwks_std::trace::debug!(?error, at, "next_frame: the payload did not decode");
-        StoreError::Corrupt { at }
-    })?;
-    Ok(Some(Framed {
-        entry,
-        declared: raw.payload.len(),
-        head: raw.head,
-    }))
-}
-
-/// Read every committed entry, returning the index it implies.
-fn replay(file: &mut File) -> Result<Index, StoreError> {
-    let total = file.metadata().map_err(StoreError::storage)?.len();
-    file.seek(SeekFrom::Start(0)).map_err(StoreError::storage)?;
-    let mut header = [0u8; LEDGER_MAGIC.len()];
-    if !read_full(file, &mut header)? || header != *LEDGER_MAGIC {
-        let refusal = Err(StoreError::NotAStore);
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-        return refusal;
-    }
-    let mut index = Index {
-        runs: HashMap::new(),
-        committed: u64::saturating_from(LEDGER_MAGIC.len()),
-        tail: genesis_head(),
-    };
-    let mut previous = genesis_head();
-    let mut at = 0u64;
-    while let Some(Framed {
-        entry,
-        head,
-        declared,
-    }) = next_frame(file, &Cursor::new(at, index.committed, &previous))?
-    {
-        if entry.head_from(&previous) != Digest::from_bytes(head) {
-            let refusal = Err(StoreError::Corrupt { at });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-            return refusal;
-        }
-        let frame_len = frame::framed_len(declared);
-        if index
-            .committed
-            .checked_add(frame_len)
-            .is_none_or(|end| end > total)
-        {
-            break;
-        }
-        index.committed = index.committed.saturating_add(frame_len);
-        index.tail = entry.head_from(&previous);
-        previous = index.tail;
-        at = at.saturating_add(1);
-        if at > MAX_LEDGER_RECORDS_PER_RUN {
-            let refusal = Err(StoreError::Limit {
-                kind: StoreLimitKind::Records,
-                requested: at,
-                limit: MAX_LEDGER_RECORDS_PER_RUN,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "replay: returning an error to the caller");
-            return refusal;
-        }
-        fold(&mut index, &entry);
-    }
-    Ok(index)
-}
-
-/// Read `buf` in full, reporting whether all of it arrived.
-fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> Result<bool, StoreError> {
-    let mut filled = 0usize;
-    while filled < buf.len() {
-        match reader.read(&mut buf[filled..]) {
-            Ok(0) => return Ok(false),
-            Ok(read) => filled = filled.saturating_add(read),
-            Err(ref error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(cause) => {
-                let refusal = Err(StoreError::storage(cause));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "read_full: returning an error to the caller");
-                return refusal;
-            }
-        }
-    }
-    Ok(true)
-}
-
 /// Why charging a run failed: a device refusal, or a logical one.
 #[derive(Debug)]
-pub enum CommitError {
+pub(crate) enum CommitError {
     /// The ledger's device refused the write. Nothing was charged.
     Store(StoreError),
     /// The charge was refused on its merits. Nothing was charged and no epoch was
@@ -908,3 +701,9 @@ impl fmt::Debug for RunLedger {
 /// repaired (#262), on the same grammar the run store reads.
 #[cfg(test)]
 mod tests;
+
+mod disk;
+
+#[cfg(test)]
+use disk::frame;
+use disk::{replay, write_entry};

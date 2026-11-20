@@ -120,7 +120,7 @@ impl Host {
                 held: &held,
                 digest,
             };
-            return self.observe_existing(existing, task);
+            return self.observe_existing(&existing, task);
         }
 
         // No receipt yet: the claim decides which submitter may run the body.
@@ -146,7 +146,7 @@ impl Host {
                     held: &held,
                     digest,
                 };
-                return self.observe_existing(existing, task);
+                return self.observe_existing(&existing, task);
             }
             Appended::Conflicting => {
                 let held = recorded_receipt(&records, tenant, run, binding_key)?;
@@ -193,13 +193,13 @@ impl Host {
     /// cleanup handle apart.
     pub(super) fn observe_existing<O, F>(
         &self,
-        existing: Existing<'_>,
+        existing: &Existing<'_>,
         task: &Task<F>,
     ) -> Result<Submission<O>, RequestError>
     where
         O: Durable,
     {
-        let Existing {
+        let &Existing {
             records,
             tenant,
             run,
@@ -292,11 +292,11 @@ impl Host {
             return report;
         };
         let tenant = self.inner.tenant.as_str();
-        match self.unsettled(&records, tenant, run).await {
+        match self.unsettled(&records, tenant, run) {
             // Either this run is not a request, or its verdict is already
             // recorded: nothing here has an opinion about either.
             Ok(false) => report,
-            Err(error) => self.report(Self::unrecorded(task, started, run, error)),
+            Err(error) => self.report(Self::unrecorded(task, started, run, &error)),
             Ok(true) => {
                 self.settle(records, tenant, run, task, started, report)
                     .await
@@ -309,7 +309,7 @@ impl Host {
     /// A store read failure is `Err` rather than a `false` (INV-BOT-7): absence of
     /// evidence and a failed read are different facts, and answering "nothing to
     /// settle" to a failed read would skip the record the caller came for.
-    pub(super) async fn unsettled(
+    pub(super) fn unsettled(
         &self,
         records: &Records,
         tenant: &str,
@@ -360,7 +360,7 @@ impl Host {
         let definition = self.definition_for(task.as_str(), Some(&run));
         let bytes = match terminal.encode() {
             Ok(bytes) => bytes,
-            Err(error) => return self.report(Self::unrecorded(task, started, run, error)),
+            Err(error) => return self.report(Self::unrecorded(task, started, run, &error)),
         };
         let stored = records
             .record(
@@ -374,7 +374,7 @@ impl Host {
             .await;
         match stored {
             Ok(()) => report,
-            Err(error) => self.report(Self::unrecorded(task, started, run, error)),
+            Err(error) => self.report(Self::unrecorded(task, started, run, &error)),
         }
     }
 
@@ -383,7 +383,7 @@ impl Host {
         task: TaskName,
         started: Instant,
         run: RunId,
-        cause: FlowError,
+        cause: &FlowError,
     ) -> Terminal<O> {
         let at = Arc::from(task.as_str());
         let error = FlowError::Failed {

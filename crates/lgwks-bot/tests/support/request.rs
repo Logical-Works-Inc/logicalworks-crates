@@ -21,14 +21,14 @@ use lgwks_bot::script::{FlowError, Scope, remember};
 use lgwks_bot::task::{Host, RunStore, Task, task};
 
 /// The named future every request body returns.
-pub type BodyFuture = Pin<Box<dyn Future<Output = Result<u32, FlowError>>>>;
+pub(crate) type BodyFuture = Pin<Box<dyn Future<Output = Result<u32, FlowError>>>>;
 
 /// A host for `tenant` over a store opened under `dir`.
 ///
 /// # Errors
 ///
 /// The tenant validation or the store open.
-pub fn stored_host(tenant: &str, dir: &Path) -> Result<Host, Box<dyn Error>> {
+pub(crate) fn stored_host(tenant: &str, dir: &Path) -> Result<Host, Box<dyn Error>> {
     Host::builder(tenant)?
         .run_store(dir)?
         .build()
@@ -41,7 +41,7 @@ pub fn stored_host(tenant: &str, dir: &Path) -> Result<Host, Box<dyn Error>> {
 /// # Errors
 ///
 /// The tenant validation or the host build.
-pub fn host_on(tenant: &str, store: RunStore) -> Result<Host, Box<dyn Error>> {
+pub(crate) fn host_on(tenant: &str, store: RunStore) -> Result<Host, Box<dyn Error>> {
     Ok(Host::builder(tenant)?.store(store).build()?)
 }
 
@@ -54,7 +54,7 @@ pub fn host_on(tenant: &str, store: RunStore) -> Result<Host, Box<dyn Error>> {
 /// # Errors
 ///
 /// The tenant validation or the host build for any tenant.
-pub fn hosts_over(tenants: &[&str], store: &RunStore) -> Result<Vec<Host>, Box<dyn Error>> {
+pub(crate) fn hosts_over(tenants: &[&str], store: &RunStore) -> Result<Vec<Host>, Box<dyn Error>> {
     let mut hosts = Vec::with_capacity(tenants.len());
     for tenant in tenants {
         hosts.push(host_on(tenant, store.clone())?);
@@ -66,7 +66,7 @@ pub fn hosts_over(tenants: &[&str], store: &RunStore) -> Result<Vec<Host>, Box<d
 ///
 /// One definition, so "every key derived a distinct run" is measured the same
 /// way in the swept tier and in the opt-in measurement.
-pub fn distinct_runs(runs: &[String]) -> usize {
+pub(crate) fn distinct_runs(runs: &[String]) -> usize {
     let mut sorted = runs.to_vec();
     sorted.sort_unstable();
     sorted.dedup();
@@ -83,7 +83,7 @@ pub fn distinct_runs(runs: &[String]) -> usize {
 /// # Errors
 ///
 /// [`FlowError::InvalidName`] for the fixed name.
-pub fn counting_task(
+pub(crate) fn counting_task(
     counter: Rc<Cell<u32>>,
 ) -> Result<Task<impl Fn(Scope, u32) -> BodyFuture>, FlowError> {
     task("counted", move |scope: Scope, value: u32| -> BodyFuture {
@@ -103,7 +103,7 @@ pub fn counting_task(
 /// # Errors
 ///
 /// [`FlowError::InvalidName`] for the fixed name.
-pub fn parking_task(
+pub(crate) fn parking_task(
     recorded: Arc<AtomicBool>,
 ) -> Result<Task<impl Fn(Scope, u32) -> BodyFuture>, FlowError> {
     task("parking", move |scope: Scope, value: u32| -> BodyFuture {
@@ -132,7 +132,7 @@ pub fn parking_task(
 /// A submission that returns before its first record is a body that never reached one, and
 /// the flag says so to every caller that reads it afterwards rather than the loop spinning
 /// on a future that can make no further progress.
-pub fn drop_after_first_step<F: Future>(mut submit: Pin<Box<F>>, recorded: &AtomicBool) {
+pub(crate) fn drop_after_first_step<F: Future>(mut submit: Pin<Box<F>>, recorded: &AtomicBool) {
     lgwks_bot::script::block_on(std::future::poll_fn(|context| {
         if recorded.load(Ordering::SeqCst) {
             return Poll::Ready(());
@@ -165,7 +165,7 @@ pub fn drop_after_first_step<F: Future>(mut submit: Pin<Box<F>>, recorded: &Atom
 ///
 /// Whatever the submission reported, or an explanation that the body settled
 /// before it recorded the step the stop follows.
-pub fn stop_mid_run<F>(
+pub(crate) fn stop_mid_run<F>(
     host: &lgwks_bot::task::Host,
     key: &lgwks_bot::task::RequestKey,
     work: &lgwks_bot::task::Task<F>,
@@ -209,18 +209,18 @@ where
 /// fired from another OS thread, and an [`Arc`] of it shares one definition
 /// between the fixture and the handle that stops the host.
 #[derive(Debug, Default, Clone)]
-pub struct FirstStepRuns(Arc<AtomicU32>);
+pub(crate) struct FirstStepRuns(Arc<AtomicU32>);
 
 impl FirstStepRuns {
     /// A counter at zero.
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// How many times the first step's body ran.
     #[must_use]
-    pub fn count(&self) -> u32 {
+    pub(crate) fn count(&self) -> u32 {
         self.0.load(Ordering::SeqCst)
     }
 }
@@ -244,7 +244,7 @@ impl FirstStepRuns {
 /// # Errors
 ///
 /// [`FlowError::InvalidName`] for the fixed name.
-pub fn two_step_task(
+pub(crate) fn two_step_task(
     recorded: Arc<AtomicBool>,
     after_first: Arc<AtomicBool>,
     runs: FirstStepRuns,
@@ -316,7 +316,7 @@ fn counted_first_step(
 /// # Errors
 ///
 /// [`FlowError::InvalidName`] for the fixed name.
-pub fn overrunning_task(
+pub(crate) fn overrunning_task(
     runs: FirstStepRuns,
 ) -> Result<Task<impl Fn(Scope, u32) -> BodyFuture>, FlowError> {
     let counter = runs.0;
@@ -349,7 +349,7 @@ pub fn overrunning_task(
 /// [`FlowError::failed`] if `clock` refuses the advance (a wall clock, or one
 /// carried past its ceiling), so a misbuilt fixture is a failed run rather than
 /// a body that waits forever.
-pub fn overrunning_task_on(
+pub(crate) fn overrunning_task_on(
     runs: FirstStepRuns,
     clock: Clock,
     overrun: std::time::Duration,
@@ -384,7 +384,7 @@ pub fn overrunning_task_on(
 /// # Errors
 ///
 /// The tenant validation, the store open or the host build.
-pub fn host_with_deadline(
+pub(crate) fn host_with_deadline(
     tenant: &str,
     dir: &Path,
     budget: std::time::Duration,
@@ -404,7 +404,7 @@ pub fn host_with_deadline(
 /// # Errors
 ///
 /// The tenant validation, the store open or the host build.
-pub fn host_with_deadline_on(
+pub(crate) fn host_with_deadline_on(
     tenant: &str,
     dir: &Path,
     budget: std::time::Duration,

@@ -490,7 +490,7 @@ fn read_one<R: std::io::Read>(
         // because how much of the prefix arrived is the whole fact here.
         filled if filled < LENGTH_BYTES => {
             return Ok(Some(FrameRead::TruncatedPrefix {
-                partial: prefix[..filled].to_vec(),
+                partial: prefix.split_at(filled).0.to_vec(),
             }));
         }
         _ => {}

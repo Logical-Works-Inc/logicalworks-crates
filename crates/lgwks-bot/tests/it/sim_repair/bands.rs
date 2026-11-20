@@ -156,6 +156,56 @@ pub(super) fn seeded_orders_reach_the_same_state(band: Band) -> TestResult {
     })
 }
 
+/// `mine`'s ticket, delivered to `theirs`'s host, is refused and names both tenants.
+fn foreign_ticket_is_refused(mine: &Answered, theirs: &Answered, reach: usize) -> TestResult {
+    match lgwks_bot::script::block_on(theirs.host.repair(
+        &mine.ticket,
+        &exact_grant(reach),
+        &mine.declared,
+        input(Arc::clone(&mine.polls), 7),
+        1,
+    )) {
+        Err(RepairError::ForeignTenant {
+            ref ticket,
+            ref host,
+        }) => {
+            assert_eq!(
+                (ticket.as_str(), host.as_str()),
+                (mine.tenant, theirs.tenant),
+                "the refusal names both tenants, so a reader can see which is which"
+            );
+            Ok(())
+        }
+        other => {
+            let refusal =
+                Err(format!("another tenant's ticket must be refused, got {other:?}").into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "foreign_ticket_is_refused: returning an error to the caller");
+            refusal
+        }
+    }
+}
+
+/// One more delivery of `entry`'s ticket: refused, nothing re-applied.
+fn redelivery_is_refused(entry: &Case, grants: &GrantSet, tier: usize, index: usize) -> TestResult {
+    match lgwks_bot::script::block_on(entry.host.repair(
+        &entry.ticket,
+        grants,
+        &entry.declared,
+        input(Polls::shared(), 7),
+        1,
+    )) {
+        Err(RepairError::AlreadyApplied) | Err(RepairError::StaleEpoch { .. }) => Ok(()),
+        other => {
+            let refusal = Err(format!(
+                "tier {tier}: redelivery {index} must be refused, got {other:?}"
+            )
+            .into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "redelivery_is_refused: returning an error to the caller");
+            refusal
+        }
+    }
+}
+
 /// Two tenants over one directory: a run, a ticket, an epoch and a budget never
 /// cross.
 ///
@@ -222,37 +272,20 @@ pub(super) fn tenants_keep_their_own_tickets_and_budgets(band: Band) -> TestResu
             );
         }
         assert_ne!(
-            seen_ids[0], seen_ids[1],
+            seen_ids.first(),
+            seen_ids.get(1),
             "two tenants minting runs over one directory must not collide, or one \
              tenant's repair would answer the other's ticket"
         );
 
         // Cross-tenant: one tenant's ticket is refused by the other tenant's host.
-        let (mine, theirs) = (&runs[0], &runs[1]);
-        match lgwks_bot::script::block_on(theirs.host.repair(
-            &mine.ticket,
-            &exact_grant(plan.reach),
-            &mine.declared,
-            input(Arc::clone(&mine.polls), 7),
-            1,
-        )) {
-            Err(RepairError::ForeignTenant {
-                ref ticket,
-                ref host,
-            }) => {
-                assert_eq!(
-                    (ticket.as_str(), host.as_str()),
-                    (mine.tenant, theirs.tenant),
-                    "the refusal names both tenants, so a reader can see which is which"
-                );
-            }
-            other => {
-                let refusal =
-                    Err(format!("another tenant's ticket must be refused, got {other:?}").into());
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "tenants_keep_their_own_tickets_and_budgets: returning an error to the caller");
-                return refusal;
-            }
-        }
+        let (Some(mine), Some(theirs)) = (runs.first(), runs.get(1)) else {
+            lgwks_std::trace::debug!(
+                "tenants_keep_their_own_tickets_and_budgets: returning an error to the caller"
+            );
+            return Err("the run mints two tenants' runs".into());
+        };
+        foreign_ticket_is_refused(mine, theirs, plan.reach)?;
         // The run ids are *not* in the trace: they are minted from the estate's
         // entropy source and differ between two sweeps of one seed, which would
         // make the replay receipt a coin toss. The two tenants' positions and their
@@ -390,23 +423,7 @@ pub(super) fn saturation_applies_each_ticket_once(band: Band) -> TestResult {
 
         // One more delivery of every ticket: all refused, nothing re-applied.
         for (index, entry) in tickets.iter().enumerate() {
-            match lgwks_bot::script::block_on(host.repair(
-                &entry.ticket,
-                &grants,
-                &declared,
-                input(Polls::shared(), 7),
-                1,
-            )) {
-                Err(RepairError::AlreadyApplied) | Err(RepairError::StaleEpoch { .. }) => {}
-                other => {
-                    let refusal = Err(format!(
-                        "tier {tier}: redelivery {index} must be refused, got {other:?}"
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "saturation_applies_each_ticket_once: returning an error to the caller");
-                    return refusal;
-                }
-            }
+            redelivery_is_refused(entry, &grants, tier, index)?;
         }
         sim.record(&format!(
             "tier-requested={tier} tier-reached={tier} runs={} admitted={} refused={}",

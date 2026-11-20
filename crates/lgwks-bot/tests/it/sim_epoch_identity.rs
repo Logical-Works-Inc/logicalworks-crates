@@ -390,12 +390,13 @@ impl Order {
         // for every seed; the arm past the end reports which it was rather than
         // silently running the first order, which is the arm this family would
         // then measure as if it had been chosen.
+        let [.., last] = Self::ALL;
         match usize::try_from(sim.rng().below(3))
             .ok()
             .and_then(|index| Self::ALL.get(index))
         {
             Some(arm) => *arm,
-            None => Self::ALL[Self::ALL.len().saturating_sub(1)],
+            None => last,
         }
     }
 

@@ -125,11 +125,11 @@ fn settle(
 
 /// Whether `answer` is the mismatch that names `expected` against `tail`.
 fn mismatched(
-    answer: Result<DurableAck, JournalError>,
+    answer: &Result<DurableAck, JournalError>,
     expected: JournalPosition,
     tail: JournalPosition,
 ) -> bool {
-    matches!(answer, Err(JournalError::ReceiptMismatch { expected: named, actual }) if named == expected && actual == tail)
+    matches!(*answer, Err(JournalError::ReceiptMismatch { expected: named, actual }) if named == expected && actual == tail)
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn sim_confirm_outcome_attests_only_the_receipt_the_adapter_committed() -> Resul
         );
         assert!(
             mismatched(
-                journal.confirm_outcome(key, other, position, grade),
+                &journal.confirm_outcome(key, other, position, grade),
                 position,
                 tail
             ),
@@ -171,7 +171,7 @@ fn sim_confirm_outcome_attests_only_the_receipt_the_adapter_committed() -> Resul
         );
         assert!(
             mismatched(
-                journal.confirm_outcome(key_of(1000 + seed)?, evidence, position, grade),
+                &journal.confirm_outcome(key_of(1000 + seed)?, evidence, position, grade),
                 position,
                 tail
             ),
@@ -180,7 +180,7 @@ fn sim_confirm_outcome_attests_only_the_receipt_the_adapter_committed() -> Resul
         if let Some(ack) = neighbour {
             assert!(
                 mismatched(
-                    journal.confirm_outcome(key, evidence, ack.position(), grade),
+                    &journal.confirm_outcome(key, evidence, ack.position(), grade),
                     ack.position(),
                     tail
                 ),

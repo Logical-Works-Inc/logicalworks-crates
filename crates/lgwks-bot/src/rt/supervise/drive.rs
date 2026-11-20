@@ -122,7 +122,13 @@ pub(super) async fn drive_process_observed(
         out_limit,
         err_limit,
     } = bounds;
-    let pid = child.group().ok();
+    let pid = match child.group() {
+        Ok(pid) => Some(pid),
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "drive_process_observed: the child's group is unreadable, so its exit is unobservable");
+            None
+        }
+    };
     let pipes = OpenPipes::default();
     let abandon = CancellationToken::new();
     let feed = feed_stdin(child.stdin.take(), stdin, &abandon);
@@ -156,7 +162,7 @@ pub(super) async fn drive_process_observed(
         (observation, cleanup)
     };
     let ((), stdout, stderr, (observation, mut receipt)) =
-        join4(feed, capture_out, capture_err, wait).await;
+        Box::pin(join4(feed, capture_out, capture_err, wait)).await;
     if !pipes.closed() {
         group.mark_descriptor_held();
     }
@@ -187,7 +193,7 @@ pub(super) async fn drive_process_observed(
         // reaper rather than signalling a stale numeric group id.
         let containment = group.containment().clone();
         drop(group);
-        let status = child.reap().await.ok();
+        let status = reap_status(&mut child).await;
         (
             status,
             ProcessCleanup {
@@ -196,7 +202,7 @@ pub(super) async fn drive_process_observed(
             },
         )
     } else {
-        let status = child.reap().await.ok();
+        let status = reap_status(&mut child).await;
         group.mark_reaped();
         // Every unresolved arm goes through the post-reap pass, not only
         // `Pending`: a survivor list is exactly what a further observation can
@@ -220,6 +226,18 @@ pub(super) async fn drive_process_observed(
         cleanup,
         stdout,
         stderr,
+    }
+}
+
+/// The leader's exit status once it is reaped, or `None` when the reap was refused.
+#[cfg(all(unix, feature = "process"))]
+async fn reap_status(child: &mut OwnedChild) -> Option<std::process::ExitStatus> {
+    match child.reap().await {
+        Ok(status) => Some(status),
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "drive_process_observed: the child could not be reaped, so it has no exit status");
+            None
+        }
     }
 }
 
@@ -329,8 +347,8 @@ pub(super) async fn feed_stdin(
     }
     let write = async {
         let mut written = 0usize;
-        while written < bytes.len() {
-            match pipe.write(&bytes[written..]).await {
+        while let Some(unwritten) = bytes.get(written..).filter(|rest| !rest.is_empty()) {
+            match pipe.write(unwritten).await {
                 Ok(0) => break,
                 Ok(count) => written = written.saturating_add(count),
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}

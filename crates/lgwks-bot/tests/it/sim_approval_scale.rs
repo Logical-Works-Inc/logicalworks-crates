@@ -111,12 +111,16 @@ fn sim_two_tenants_isolated(band: sim::Band) -> TestResult {
         let (_, zenith_id, _) = park_one(&zenith, format!("two-zenith-{}", sim.seed).into_bytes())?;
         let acme_listed = acme.pending(usize::MAX)?;
         let zenith_listed = zenith.pending(usize::MAX)?;
-        if acme_listed.len() != 1 || acme_listed[0].id() != acme_id {
+        if acme_listed.len() != 1 || !acme_listed.first().is_some_and(|row| row.id() == acme_id) {
             return Err(ApprovalSimError::Setup {
                 what: "acme lists only its own park",
             });
         }
-        if zenith_listed.len() != 1 || zenith_listed[0].id() != zenith_id {
+        if zenith_listed.len() != 1
+            || !zenith_listed
+                .first()
+                .is_some_and(|row| row.id() == zenith_id)
+        {
             return Err(ApprovalSimError::Setup {
                 what: "zenith lists only its own park",
             });
@@ -148,8 +152,7 @@ fn sim_eight_tenants_crash_interleaved(band: sim::Band) -> TestResult {
         for name in names {
             reopened.push(host_on(scratch.path(), name)?);
         }
-        for (tenant, host) in reopened.iter().enumerate() {
-            let park = &parks[tenant];
+        for (host, park) in reopened.iter().zip(&parks) {
             let id = &park.1;
             let digest = park.2;
             host.decide(id, ApprovalDecision::approve("sim", digest))?;

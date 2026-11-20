@@ -8,19 +8,85 @@
 //! to drift. It needs only `rt`, so the journal target builds without `script`.
 
 use std::future::Future;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::task::Poll;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use lgwks_bot::journal::StorageGate;
 
 /// How many turns the unrelated task must get before the watchdog releases the
 /// parked device. A blocking durable wait reaches at most one.
-pub const PROGRESS_TURNS: u64 = 64;
+pub(crate) const PROGRESS_TURNS: u64 = 64;
+
+/// How long the watchdog waits for that progress before it releases anyway, so a
+/// genuinely wedged tree fails the tick assertion rather than hanging the suite.
+const PROGRESS_BUDGET: Duration = Duration::from_secs(10);
+
+/// The turns the unrelated task has taken, and the bell it rings on reaching
+/// [`PROGRESS_TURNS`], so the watchdog waits on the event itself.
+#[derive(Default)]
+pub(crate) struct Ticks {
+    /// Turns taken so far.
+    count: AtomicU64,
+    /// Whether the count has reached [`PROGRESS_TURNS`].
+    progressed: Mutex<bool>,
+    /// Rung once, when it has.
+    bell: Condvar,
+}
+
+impl Ticks {
+    /// Turns taken so far.
+    pub(crate) fn load(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
+    }
+
+    /// One more turn; the turn that reaches [`PROGRESS_TURNS`] rings the bell.
+    fn tick(&self) {
+        let now = self.count.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+        if now != PROGRESS_TURNS {
+            return;
+        }
+        match self.progressed.lock() {
+            Ok(mut progressed) => {
+                *progressed = true;
+                self.bell.notify_all();
+            }
+            Err(poisoned) => lgwks_std::trace::debug!(
+                error = %poisoned,
+                "liveness: the progress flag is poisoned, so the watchdog waits out its budget"
+            ),
+        }
+    }
+
+    /// Block until the bell rings or `budget` passes, whichever is first.
+    fn await_progress(&self, budget: Duration) {
+        let progressed = match self.progressed.lock() {
+            Ok(progressed) => progressed,
+            Err(poisoned) => {
+                lgwks_std::trace::debug!(error = %poisoned, "liveness: the progress flag is poisoned");
+                return;
+            }
+        };
+        match self
+            .bell
+            .wait_timeout_while(progressed, budget, |progressed| !*progressed)
+        {
+            Ok((progressed, waited)) => lgwks_std::trace::debug!(
+                progressed = *progressed,
+                timed_out = waited.timed_out(),
+                "liveness: the watchdog's wait ended"
+            ),
+            Err(poisoned) => lgwks_std::trace::debug!(
+                error = %poisoned,
+                "liveness: the progress flag was poisoned during the wait"
+            ),
+        }
+    }
+}
 
 /// A parked device with the instruments a liveness test needs.
-pub struct Parked {
+pub(crate) struct Parked {
     /// Where the parked append must be attempted, when the caller is parking a
     /// position-fenced write rather than a record append.
     ///
@@ -31,7 +97,7 @@ pub struct Parked {
     /// releasing a parked device while an unrelated task keeps turning.
     tail: Option<lgwks_bot::journal::JournalPosition>,
     /// How many turns the unrelated task has taken.
-    ticks: Arc<AtomicU64>,
+    ticks: Arc<Ticks>,
     /// Set by the watchdog once it has released the device.
     released: Arc<AtomicBool>,
     /// The independent thread that releases the device.
@@ -51,11 +117,11 @@ impl Parked {
     /// # Errors
     ///
     /// Whatever the OS reports when the watchdog thread cannot start.
-    pub fn at(
+    pub(crate) fn at(
         tail: Option<lgwks_bot::journal::JournalPosition>,
         gate: StorageGate,
     ) -> Result<Self, std::io::Error> {
-        let ticks = Arc::new(AtomicU64::new(0));
+        let ticks = Arc::new(Ticks::default());
         let released = Arc::new(AtomicBool::new(false));
         let watchdog = spawn_watchdog(&ticks, gate, Arc::clone(&released))?;
         Ok(Self {
@@ -76,7 +142,7 @@ impl Parked {
     /// hand back. `Result` rather than a panic because the two kinds of caller
     /// differ by construction and the test must not be the thing that decides
     /// which one it is.
-    pub fn tail(&self) -> Result<lgwks_bot::journal::JournalPosition, String> {
+    pub(crate) fn tail(&self) -> Result<lgwks_bot::journal::JournalPosition, String> {
         self.tail.ok_or_else(|| {
             "this Parked was opened without a fence; pass one to Parked::at".to_owned()
         })
@@ -84,13 +150,13 @@ impl Parked {
 
     /// The counter the unrelated task turns.
     #[must_use]
-    pub fn ticks(&self) -> Arc<AtomicU64> {
+    pub(crate) fn ticks(&self) -> Arc<Ticks> {
         Arc::clone(&self.ticks)
     }
 
     /// Whether the watchdog has released the device.
     #[must_use]
-    pub fn released(&self) -> &AtomicBool {
+    pub(crate) fn released(&self) -> &AtomicBool {
         &self.released
     }
 
@@ -99,7 +165,7 @@ impl Parked {
     /// # Errors
     ///
     /// When the watchdog thread panicked, which would leave the release unheard.
-    pub fn observed(self) -> Result<u64, String> {
+    pub(crate) fn observed(self) -> Result<u64, String> {
         self.watchdog
             .join()
             .map_err(|panic| format!("the watchdog thread panicked: {panic:?}"))
@@ -108,9 +174,9 @@ impl Parked {
 
 /// The unrelated ready task, polled on the same driver as the record: it ticks and
 /// re-wakes itself so the driver keeps turning while the flush is parked.
-pub fn heartbeat(ticks: Arc<AtomicU64>) -> impl Future<Output = ()> {
+pub(crate) fn heartbeat(ticks: Arc<Ticks>) -> impl Future<Output = ()> {
     std::future::poll_fn(move |cx| {
-        ticks.fetch_add(1, Ordering::Relaxed);
+        ticks.tick();
         cx.waker().wake_by_ref();
         Poll::<()>::Pending
     })
@@ -123,9 +189,10 @@ pub fn heartbeat(ticks: Arc<AtomicU64>) -> impl Future<Output = ()> {
 /// future under test being polled. It gives up at `deadline` so a tree that is
 /// genuinely wedged fails the tick assertion rather than hanging the suite, sets
 /// `released` so a later phase can observe the release without asking the store,
-/// and reports the tick count it saw.
+/// and reports the tick count it saw. It waits on the heartbeat's bell, so it
+/// wakes on the very turn that proves progress rather than on a timer.
 fn spawn_watchdog(
-    ticks: &Arc<AtomicU64>,
+    ticks: &Arc<Ticks>,
     gate: StorageGate,
     released: Arc<AtomicBool>,
 ) -> Result<std::thread::JoinHandle<u64>, std::io::Error> {
@@ -133,14 +200,9 @@ fn spawn_watchdog(
     std::thread::Builder::new()
         .name("liveness-watchdog".to_owned())
         .spawn(move || {
-            let deadline = Instant::now().checked_add(Duration::from_secs(10));
-            while deadline.is_none_or(|limit| Instant::now() < limit)
-                && ticks.load(Ordering::Relaxed) < PROGRESS_TURNS
-            {
-                std::thread::park_timeout(Duration::from_millis(1));
-            }
+            ticks.await_progress(PROGRESS_BUDGET);
             gate.release();
             released.store(true, Ordering::Relaxed);
-            ticks.load(Ordering::Relaxed)
+            ticks.load()
         })
 }

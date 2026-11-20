@@ -294,7 +294,11 @@ fn cut_appends(band: Band) -> TestResult {
         }
         let mut repaired = 0u64;
         for cut in &cuts {
-            std::fs::write(&path, &written.bytes[..*cut])?;
+            let cut_bytes = written
+                .bytes
+                .get(..*cut)
+                .ok_or("the cut lies inside the journal")?;
+            std::fs::write(&path, cut_bytes)?;
             let whole = (0..frames)
                 .filter(|index| written.end_of(*index).is_some_and(|end| end <= *cut))
                 .count();
@@ -321,9 +325,13 @@ fn cut_appends(band: Band) -> TestResult {
                 sim.seed
             );
             drop(reopened);
+            let acknowledged = written
+                .bytes
+                .get(..boundary)
+                .ok_or("the boundary lies inside the journal")?;
             assert_eq!(
                 std::fs::read(&path)?,
-                written.bytes[..boundary],
+                acknowledged,
                 "seed {} cut at {cut}: the open left something other than the acknowledged prefix",
                 sim.seed
             );
@@ -403,7 +411,9 @@ struct Tenant {
 }
 
 /// Open every tenant's journal at once, one thread each, and report what each held.
-fn open_concurrently(tenants: &[Tenant]) -> Vec<Result<usize, JournalError>> {
+fn open_concurrently(
+    tenants: &[Tenant],
+) -> Result<Vec<Result<usize, JournalError>>, Box<dyn Error>> {
     std::thread::scope(|scope| {
         let mut handles = Vec::new();
         for tenant in tenants {
@@ -411,17 +421,13 @@ fn open_concurrently(tenants: &[Tenant]) -> Vec<Result<usize, JournalError>> {
                 FileJournal::open(&tenant.path).map(|opened| opened.events().count())
             }));
         }
+        // A probe thread that panicked is reported with what it said, where it
+        // happened, rather than as a join error that names nothing.
         let mut outcomes = Vec::new();
         for handle in handles {
-            outcomes.push(match handle.join() {
-                Ok(outcome) => outcome,
-                // A probe thread that panicked hands its payload back to the test
-                // thread, so the failure is reported where it happened rather
-                // than as a join error that names nothing.
-                Err(panicked) => std::panic::resume_unwind(panicked),
-            });
+            outcomes.push(handle.join().map_err(sim::panicked)?);
         }
-        outcomes
+        Ok(outcomes)
     })
 }
 
@@ -449,7 +455,7 @@ fn tenants_beside_a_refusal(band: Band) -> TestResult {
         let lied = victim.written.with_declared(last, declared)?;
         std::fs::write(&victim.path, &lied)?;
 
-        let outcomes = open_concurrently(&tenants);
+        let outcomes = open_concurrently(&tenants)?;
         for (index, (tenant, outcome)) in tenants.iter().zip(&outcomes).enumerate() {
             if index == 0 {
                 assert!(

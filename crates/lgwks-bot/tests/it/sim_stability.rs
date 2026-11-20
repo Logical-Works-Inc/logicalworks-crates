@@ -330,7 +330,11 @@ fn the_same_seed_replays_to_the_same_stability_trace() -> TestResult {
     // seeds produce the same trace. A sweep whose trace ignored its seed would
     // collide on every pair, and an assertion on "how many distinct values"
     // would instead be a statement about how many scenarios the model has.
-    let collisions = first.windows(2).filter(|pair| pair[0] == pair[1]).count();
+    let collisions = first
+        .iter()
+        .zip(first.iter().skip(1))
+        .filter(|pair| pair.0 == pair.1)
+        .count();
     let pairs = first.len().saturating_sub(1);
     assert!(
         collisions * 10 <= pairs,

@@ -47,7 +47,7 @@ fn deny_platform(denied: &DenyBeneath) -> io::Result<Command> {
         profile.deny_read_beneath(path)?;
     }
     profile.validate()?;
-    sandbox(&profile)
+    Ok(sandbox(&profile))
 }
 
 /// Deny `denied`'s subtrees under an empty `tmpfs` in a mount namespace

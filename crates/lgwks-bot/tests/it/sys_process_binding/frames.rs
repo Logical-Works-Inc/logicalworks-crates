@@ -66,7 +66,7 @@ fn a_framed_record_cut_off_mid_frame_is_a_typed_refusal() -> TestResult {
         frames.records()
     );
     assert_eq!(
-        frames.records()[0].payload(),
+        frames.records().first().and_then(|record| record.payload()),
         Some(&b"done"[..]),
         "the whole record decodes to exactly what the child wrote"
     );
@@ -354,7 +354,11 @@ fn a_legal_record_without_room_is_the_ceiling_and_rot_is_still_refused() -> Test
         "the first whole record is decoded; the second is refused before its payload"
     );
     assert_eq!(
-        frames.records()[0].payload().map(<[u8]>::len),
+        frames
+            .records()
+            .first()
+            .and_then(|record| record.payload())
+            .map(<[u8]>::len),
         Some(RECORD),
         "the decoded record is exactly the length its prefix declared"
     );

@@ -70,6 +70,12 @@ pub struct Compensations<'a> {
     stack: Arc<Mutex<Vec<Undo<'a>>>>,
 }
 
+impl std::fmt::Debug for Compensations<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Compensations").finish_non_exhaustive()
+    }
+}
+
 impl<'a> Compensations<'a> {
     /// A registrar with nothing registered. [`compensated`] builds the one the
     /// body uses; this is the form a caller holds to inspect or drive one by

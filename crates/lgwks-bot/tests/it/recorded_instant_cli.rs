@@ -36,6 +36,22 @@ fn field(line: &str, name: &str) -> Outcome<u64> {
     Ok(digits.parse()?)
 }
 
+/// The line the process answered at `index`, or why it answered fewer.
+fn answer(answers: &[String], index: usize) -> Outcome<&str> {
+    let line = answers.get(index).ok_or_else(|| {
+        format!(
+            "the process answered {} lines, and line {index} was wanted: {answers:?}",
+            answers.len()
+        )
+    })?;
+    Ok(line.as_str())
+}
+
+/// The number line `index` carries under `name`.
+fn field_at(answers: &[String], index: usize, name: &str) -> Outcome<u64> {
+    field(answer(answers, index)?, name)
+}
+
 /// Catches a restart that re-reads the system clock with no floor: the record is far
 /// ahead of any real clock, which is what a clock stepped backwards looks like.
 #[test]
@@ -43,20 +59,33 @@ fn a_live_restart_after_kill_nine_never_reads_before_the_last_record() -> Outcom
     let scratch = ScratchFile::new("instant-cli-kill")?;
     let ahead = format!("{}", u64::MAX);
     let written = seeded(&scratch, &ahead, "record\n")?;
-    let floor = field(&written[0], "nanos")?;
+    let floor = field_at(&written, 0, "nanos")?;
 
     let mut owner = Owner::start(&binary(), &[scratch.path()])?;
     let answers = owner.answers("last\nnow\nrecord\n")?;
     owner.kill()?;
-    assert_eq!(field(&answers[0], "nanos")?, floor);
-    assert!(field(&answers[1], "nanos")? >= floor, "{}", answers[1]);
-    let second = field(&answers[2], "nanos")?;
-    assert!(second >= floor, "{}", answers[2]);
-    assert_eq!(field(&answers[2], "sequence")?, 2, "{}", answers[2]);
+    assert_eq!(field_at(&answers, 0, "nanos")?, floor);
+    assert!(
+        field_at(&answers, 1, "nanos")? >= floor,
+        "{}",
+        answer(&answers, 1)?
+    );
+    let second = field_at(&answers, 2, "nanos")?;
+    assert!(second >= floor, "{}", answer(&answers, 2)?);
+    assert_eq!(
+        field_at(&answers, 2, "sequence")?,
+        2,
+        "{}",
+        answer(&answers, 2)?
+    );
 
     let reopened = piped::session(&binary(), &[scratch.path()], "last\nnow\n")?;
-    assert_eq!(field(&reopened[0], "nanos")?, second);
-    assert!(field(&reopened[1], "nanos")? >= second, "{}", reopened[1]);
+    assert_eq!(field_at(&reopened, 0, "nanos")?, second);
+    assert!(
+        field_at(&reopened, 1, "nanos")? >= second,
+        "{}",
+        answer(&reopened, 1)?
+    );
     Ok(())
 }
 
@@ -69,11 +98,11 @@ fn one_seed_and_one_script_print_the_same_bytes_in_two_processes() -> Outcome {
     let other = seeded(&ScratchFile::new("instant-cli-seed-c")?, "2000", script)?;
     assert_eq!(first, second);
     assert_ne!(first, other);
-    assert_eq!(field(&first[0], "nanos")?, 500);
-    assert_eq!(field(&first[1], "nanos")?, 505);
-    assert_eq!(field(&first[3], "since")?, 504);
-    assert_eq!(field(&first[4], "elapsed")?, 5);
-    assert_eq!(field(&first[5], "nanos")?, 505);
+    assert_eq!(field_at(&first, 0, "nanos")?, 500);
+    assert_eq!(field_at(&first, 1, "nanos")?, 505);
+    assert_eq!(field_at(&first, 3, "since")?, 504);
+    assert_eq!(field_at(&first, 4, "elapsed")?, 5);
+    assert_eq!(field_at(&first, 5, "nanos")?, 505);
     Ok(())
 }
 
@@ -82,24 +111,25 @@ fn one_seed_and_one_script_print_the_same_bytes_in_two_processes() -> Outcome {
 fn a_restored_clock_stands_at_the_record_and_moves_only_when_told() -> Outcome {
     let scratch = ScratchFile::new("instant-cli-restore")?;
     let written = seeded(&scratch, "90", "advance 7\nrecord\n")?;
-    assert_eq!(field(&written[1], "nanos")?, 52);
+    assert_eq!(field_at(&written, 1, "nanos")?, 52);
 
     let answers = piped::session(
         &binary(),
         &[scratch.path()],
         "advance 1\nrestore\nnow\nnow\nadvance 8\nsince 999\nsince 50\n",
     )?;
-    assert!(
-        answers[0].contains("\"refused\":\"not_virtual\""),
-        "{}",
-        answers[0]
+    let refused = answer(&answers, 0)?;
+    assert!(refused.contains("\"refused\":\"not_virtual\""), "{refused}");
+    assert_eq!(field_at(&answers, 1, "nanos")?, 52);
+    assert_eq!(field_at(&answers, 2, "nanos")?, 52);
+    assert_eq!(field_at(&answers, 3, "nanos")?, 52);
+    assert_eq!(field_at(&answers, 4, "nanos")?, 60);
+    assert_eq!(
+        field_at(&answers, 5, "since")?,
+        0,
+        "a later moment saturates"
     );
-    assert_eq!(field(&answers[1], "nanos")?, 52);
-    assert_eq!(field(&answers[2], "nanos")?, 52);
-    assert_eq!(field(&answers[3], "nanos")?, 52);
-    assert_eq!(field(&answers[4], "nanos")?, 60);
-    assert_eq!(field(&answers[5], "since")?, 0, "a later moment saturates");
-    assert_eq!(field(&answers[6], "since")?, 10);
+    assert_eq!(field_at(&answers, 6, "since")?, 10);
     Ok(())
 }
 
@@ -113,26 +143,27 @@ fn a_mistyped_command_is_answered_and_the_session_goes_on() -> Outcome {
         "fly\n\nadvance nine\nsince\nrestore\nlast\nadvance 18446744073709551615\nadvance 1\nnow\n",
     )?;
     assert_eq!(answers.len(), 9, "{answers:?}");
-    for line in &answers[..4] {
+    for line in answers.iter().take(4) {
         assert!(line.contains("\"refused\":\"usage\""), "{line}");
     }
+    let nothing = answer(&answers, 4)?;
     assert!(
-        answers[4].contains("\"refused\":\"nothing_recorded\""),
-        "{}",
-        answers[4]
+        nothing.contains("\"refused\":\"nothing_recorded\""),
+        "{nothing}"
     );
-    assert!(answers[5].contains("\"nanos\":null"), "{}", answers[5]);
+    let unset = answer(&answers, 5)?;
+    assert!(unset.contains("\"nanos\":null"), "{unset}");
     assert_eq!(
-        field(&answers[6], "nanos")?,
+        field_at(&answers, 6, "nanos")?,
         u64::MAX,
         "saturates, never wraps"
     );
+    let out_of_range = answer(&answers, 7)?;
     assert!(
-        answers[7].contains("\"refused\":\"out_of_range\""),
-        "{}",
-        answers[7]
+        out_of_range.contains("\"refused\":\"out_of_range\""),
+        "{out_of_range}"
     );
-    assert_eq!(field(&answers[8], "nanos")?, u64::MAX);
+    assert_eq!(field_at(&answers, 8, "nanos")?, u64::MAX);
 
     let bare = Command::new(binary()).output()?;
     assert_eq!(bare.status.code(), Some(64));

@@ -144,10 +144,13 @@ struct Release;
 
 impl Release {
     /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self))
+    fn from_target(_target: &str) -> Action {
+        Action::new(Self)
     }
 }
+
+/// The registry's constructor for [`Release`], which cannot fail.
+const RELEASE: fn(&str) -> Result<Action, EcsError> = |target| Ok(Release::from_target(target));
 
 impl Execute for Release {
     /// The payload, as the approval parked it.
@@ -185,7 +188,7 @@ lgwks_bot::domains! {
     pub(crate) APPROVAL_DOMAINS {
         observe {}
         execute {
-            "test::release" => Release::from_target,
+            "test::release" => RELEASE,
         }
     }
 }
@@ -247,7 +250,7 @@ fn a_first_run_parks_holding_no_task() -> Result<(), ApprovalTestError> {
     }
     let id = parked_id(&report)?;
     let listed = host.pending(100)?;
-    if listed.len() != 1 || listed[0].id() != id {
+    if !(listed.len() == 1 && listed.first().is_some_and(|only| only.id() == id)) {
         return Err(ApprovalTestError::Setup {
             what: "the park is listed once under its id",
         });
@@ -284,12 +287,15 @@ fn a_restarted_host_decides_a_parked_approval() -> Result<(), ApprovalTestError>
     };
     let reopened = host_on(scratch.path(), "acme")?;
     let listed = reopened.pending(100)?;
-    if listed.len() != 1 || listed[0].id() != id {
+    let Some(parked) = listed
+        .first()
+        .filter(|only| listed.len() == 1 && only.id() == id)
+    else {
         return Err(ApprovalTestError::Setup {
             what: "the park survives the restart",
         });
-    }
-    let digest = *listed[0].digest();
+    };
+    let digest = *parked.digest();
     reopened.decide(&id, ApprovalDecision::approve("reopener", digest))?;
     // A decision twice recorded is refused, not merged.
     match reopened.decide(&id, ApprovalDecision::approve("reopener", digest)) {
@@ -406,10 +412,11 @@ fn a_foreign_decision_is_refused_and_audited() -> Result<(), ApprovalTestError> 
     })?;
     let report = lgwks_bot::script::block_on(host_a.run(&shipping, b"release-45".to_vec()));
     let id = parked_id(&report)?;
-    match host_b.decide(
-        &id,
-        ApprovalDecision::approve("zed", *host_a.pending(100)?[0].digest()),
-    ) {
+    let pending = host_a.pending(100)?;
+    let parked = pending.first().ok_or(ApprovalTestError::Setup {
+        what: "the owner has a parked approval",
+    })?;
+    match host_b.decide(&id, ApprovalDecision::approve("zed", *parked.digest())) {
         Err(DecisionError::ForeignTenant { .. }) => {}
         _ => {
             return Err(ApprovalTestError::Setup {
@@ -418,7 +425,11 @@ fn a_foreign_decision_is_refused_and_audited() -> Result<(), ApprovalTestError> 
         }
     }
     let audit = host_b.audit();
-    if audit.len() != 1 || audit[0].owner() != "acme" || audit[0].id() != id {
+    if !(audit.len() == 1
+        && audit
+            .first()
+            .is_some_and(|only| only.owner() == "acme" && only.id() == id))
+    {
         return Err(ApprovalTestError::Setup {
             what: "the refused attempt is audited",
         });
@@ -621,11 +632,17 @@ fn two_racing_decisions_record_exactly_one() -> Result<(), ApprovalTestError> {
     let first = decision("racer-a")?;
     let second = decision("racer-b")?;
     let mut outcomes = [
-        first.join().map_err(|_| ApprovalTestError::Setup {
-            what: "the first racer joins",
+        first.join().map_err(|panic| {
+            lgwks_std::trace::warn!(panic = ?panic, "approval: the first racer panicked");
+            ApprovalTestError::Setup {
+                what: "the first racer joins",
+            }
         })?,
-        second.join().map_err(|_| ApprovalTestError::Setup {
-            what: "the second racer joins",
+        second.join().map_err(|panic| {
+            lgwks_std::trace::warn!(panic = ?panic, "approval: the second racer panicked");
+            ApprovalTestError::Setup {
+                what: "the second racer joins",
+            }
         })?,
     ];
     outcomes.sort();

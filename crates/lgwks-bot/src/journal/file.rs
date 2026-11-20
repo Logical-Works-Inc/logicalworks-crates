@@ -178,7 +178,7 @@ pub(super) const MAX_FRAME_BYTES: usize = 64 * 1024;
 /// unbounded in principle — a run that continues for a year has a year of files —
 /// and a walk with no bound is a walk that can park on a directory tree somebody
 /// else is generating. A generation beyond this is reported, not guessed past.
-pub const MAX_GENERATION_WALK: u64 = 4096;
+pub(super) const MAX_GENERATION_WALK: u64 = 4096;
 
 /// One whole piece of a frame's bytes: the payload or the head.
 ///
@@ -346,8 +346,7 @@ impl FileJournal {
             settled,
             unresolved,
         )?;
-        let payload = checkpoint.to_payload()?;
-        let (_position, framed) = self.frame_payload(payload, self.tail())?;
+        let (_position, framed) = self.frame_payload(&checkpoint.to_payload()?, self.tail())?;
         let expected = self.disk_len;
         let pause = self.pause.take();
         let sealed_at = successor.clone();
@@ -369,7 +368,7 @@ impl FileJournal {
                 Ok(Some(Self::open_impl(
                     &successor,
                     OpenKind::Continuing(self.continuation),
-                    sealed,
+                    sealed.as_ref(),
                 )?))
             }
             SealOutcome::Paused(boundary) => {
@@ -425,9 +424,8 @@ impl FileJournal {
     /// Frame an already-archived payload at the end of this chain.
     ///
     /// The shared framing step, taken with this journal's own head function, so a
-    /// sealed checkpoint is chained exactly as an effect event is. That is what
-    /// lets the successor's first frame be the predecessor's last one byte for
-    /// byte, and it is the whole reason no second chain function exists here.
+    /// sealed checkpoint is chained exactly as an effect event is: the successor's
+    /// first frame is the predecessor's last one byte for byte.
     ///
     /// # Errors
     ///
@@ -437,7 +435,7 @@ impl FileJournal {
     #[cfg(feature = "wire")]
     fn frame_payload(
         &self,
-        payload: Vec<u8>,
+        payload: &[u8],
         from: JournalPosition,
     ) -> Result<(JournalPosition, Vec<u8>), JournalError> {
         self.fence()?;
@@ -445,11 +443,11 @@ impl FileJournal {
             .sequence()
             .checked_add(1)
             .ok_or(JournalError::Exhausted)?;
-        let (framed, head) = super::frame::frame_record::<Vec<u8>, _, _, _, _>(
+        let (framed, head) = super::frame::frame_record::<&[u8], _, _, _, _>(
             &payload,
             &from.head,
             MAX_FRAME_BYTES,
-            |archived: &Vec<u8>| Ok(archived.clone()),
+            |archived: &&[u8]| Ok(archived.to_vec()),
             |_payload, previous, archived| super::chain_over_bytes(previous, archived),
             |_len| {
                 JournalError::Storage(std::io::Error::new(

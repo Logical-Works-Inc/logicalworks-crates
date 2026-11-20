@@ -209,7 +209,7 @@ fn a_body_that_finishes_before_its_stop_is_not_a_cancellation()
 }
 
 #[test]
-fn repeat_on_reads_the_clock_it_is_given() -> Result<(), Box<dyn std::error::Error>> {
+fn repeat_on_reads_the_clock_it_is_given() {
     use lgwks_bot::rt::supervise::repeat_on;
     use lgwks_bot::rt::sync::{CancellationToken, Notify};
 
@@ -251,5 +251,4 @@ fn repeat_on_reads_the_clock_it_is_given() -> Result<(), Box<dyn std::error::Err
         matches!(outcome, Outcome::Exhausted { .. }),
         "an advance past the budget must stop the loop as exhausted, got {outcome:?}"
     );
-    Ok(())
 }

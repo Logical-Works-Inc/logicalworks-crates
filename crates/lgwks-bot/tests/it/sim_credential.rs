@@ -297,7 +297,11 @@ fn the_same_seed_replays_to_the_same_credential_trace() -> TestResult {
         first, second,
         "the same seed produced two different traces, so the hash is not a receipt"
     );
-    let collisions = first.windows(2).filter(|pair| pair[0] == pair[1]).count();
+    let collisions = first
+        .iter()
+        .zip(first.iter().skip(1))
+        .filter(|pair| pair.0 == pair.1)
+        .count();
     let pairs = first.len().saturating_sub(1);
     assert!(
         collisions * 10 <= pairs,

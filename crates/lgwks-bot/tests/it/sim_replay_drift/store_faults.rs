@@ -24,7 +24,7 @@ fn refused_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
 
     let host = host_for(tenant, &dir.0)?;
     let work = drift_task()?;
-    let identity = first_identity(&host, input, FIRST_CODEC)?;
+    let identity = first_identity(&host, input, FIRST_CODEC);
     let first = lgwks_bot::script::block_on(host.run_under(
         &identity,
         &work,
@@ -45,11 +45,14 @@ fn refused_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     // a pre-version header, which is exactly the artifact a deployment on
     // the earlier format holds.
     let mut bytes = std::fs::read(&path)?;
+    let version = bytes
+        .get_mut(VERSION_BYTE)
+        .ok_or("the store holds a header with a version byte")?;
     assert_eq!(
-        bytes[VERSION_BYTE], CURRENT_FORMAT,
+        *version, CURRENT_FORMAT,
         "{tenant}: the store must be written at the current version before it is downgraded"
     );
-    bytes[VERSION_BYTE] = PRE_VERSION;
+    *version = PRE_VERSION;
     std::fs::write(&path, &bytes)?;
     let before = bytes.clone();
 
@@ -116,7 +119,7 @@ fn replay_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
 
     let host = host_for(tenant, &dir.0)?;
     let work = drift_task()?;
-    let identity = first_identity(&host, input, FIRST_CODEC)?;
+    let identity = first_identity(&host, input, FIRST_CODEC);
     let job = Job {
         input,
         dir: dir.0.clone(),

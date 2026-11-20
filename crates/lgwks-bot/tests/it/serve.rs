@@ -466,8 +466,9 @@ fn graceful_stop_drains_then_cancels_and_reports() -> Result<(), String> {
             }
         };
         gate.release()?;
-        let held_done = held.join().is_ok();
-        let _ = held_done;
+        if held.join().is_err() {
+            lgwks_std::trace::debug!("serve: the held request's thread panicked");
+        }
         Ok((quick_status, report))
     })?;
     if quick_status != 200 {

@@ -7,7 +7,7 @@ use super::*;
 /// Repeated unchanged failure reaches a finite typed intervention, and never an
 /// unbounded stream of repairs.
 #[test]
-fn repeated_unchanged_failure_reaches_a_finite_intervention_t29() -> TestResult {
+fn repeated_unchanged_failure_reaches_a_finite_intervention_t29() {
     let limits = LedgerLimits::new(3, 8);
     let mut ledger = RepairLedger::new(limits, provenance(b"op=read-report"));
 
@@ -41,13 +41,12 @@ fn repeated_unchanged_failure_reaches_a_finite_intervention_t29() -> TestResult 
         u64::from(limits.repeat).saturating_add(9),
         "and every attempt is charged to the root spend"
     );
-    Ok(())
 }
 
 /// A ledger full of *different* failures is its own intervention, so a run
 /// making progress through new failures still reaches a person.
 #[test]
-fn a_ledger_of_distinct_failures_reaches_its_own_intervention() -> TestResult {
+fn a_ledger_of_distinct_failures_reaches_its_own_intervention() {
     let limits = LedgerLimits::new(3, 2);
     let mut ledger = RepairLedger::new(limits, provenance(b"op=read-report"));
 
@@ -61,13 +60,12 @@ fn a_ledger_of_distinct_failures_reaches_its_own_intervention() -> TestResult {
         Some(&Intervention::LedgerFull { held: 2 }),
         "the third distinct fingerprint is refused with the ceiling named"
     );
-    Ok(())
 }
 
 /// New evidence is recorded and does not erase root spend: the repetition count
 /// the ceiling is measured against never moves.
 #[test]
-fn new_evidence_does_not_erase_root_spend() -> TestResult {
+fn new_evidence_does_not_erase_root_spend() {
     let limits = LedgerLimits::new(2, 8);
     let mut ledger = RepairLedger::new(limits, provenance(b"op=read-report"));
 
@@ -116,7 +114,6 @@ fn new_evidence_does_not_erase_root_spend() -> TestResult {
         !ledger.record_evidence("never-failed"),
         "evidence for a fingerprint nobody failed under is refused: the run has not got there"
     );
-    Ok(())
 }
 
 /// Bounded repair is a declared ceiling, not a property of the loop.

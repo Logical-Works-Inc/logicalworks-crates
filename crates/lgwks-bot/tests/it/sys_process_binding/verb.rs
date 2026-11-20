@@ -45,17 +45,17 @@ fn execute_reports_the_exit_code_and_the_captured_streams() -> TestResult {
         process.execute_action((sys_auth()?, &())).await
     })?;
     assert_eq!(
-        state.exit_code,
+        state.exit_code(),
         Some(3),
         "the state carries the code; judging it is the caller's job (T35)"
     );
-    assert!(!state.running, "a returned one-shot run is not running");
+    assert!(!state.running(), "a returned one-shot run is not running");
     assert_eq!(state.stdout(), "out", "stdout is reported");
     assert_eq!(state.stderr(), "err", "stderr is reported");
-    assert!(!state.stdout_truncated && !state.stderr_truncated);
-    assert_eq!(state.stdout_total_bytes, 3);
-    assert_eq!(state.stderr_total_bytes, 3);
-    assert!(!state.deadline_fired);
+    assert!(!state.stdout_truncated() && !state.stderr_truncated());
+    assert_eq!(state.stdout_total_bytes(), 3);
+    assert_eq!(state.stderr_total_bytes(), 3);
+    assert!(!state.deadline_fired());
     Ok(())
 }
 
@@ -66,7 +66,7 @@ fn exit_zero_is_reported_as_zero_not_success() -> TestResult {
         process.execute_action((sys_auth()?, &())).await
     })?;
     assert_eq!(
-        state.exit_code,
+        state.exit_code(),
         Some(0),
         "exit zero is an exit code, not a success verdict (T35)"
     );
@@ -79,8 +79,8 @@ fn a_signal_death_is_reported_in_the_state() -> TestResult {
     let state = lgwks_bot::rt::runtime::block_on(async {
         process.execute_action((sys_auth()?, &())).await
     })?;
-    assert_eq!(state.exit_code, None, "a signal has no exit code");
-    assert_eq!(state.signal, Some(15), "the signal is reported");
+    assert_eq!(state.exit_code(), None, "a signal has no exit code");
+    assert_eq!(state.signal(), Some(15), "the signal is reported");
     Ok(())
 }
 
@@ -94,9 +94,10 @@ fn a_deadline_is_reported_in_the_state() -> TestResult {
     let state = lgwks_bot::rt::runtime::block_on(async {
         process.execute_action((sys_auth()?, &())).await
     })?;
-    assert!(state.deadline_fired, "the deadline stop is reported");
+    assert!(state.deadline_fired(), "the deadline stop is reported");
     assert_eq!(
-        state.exit_code, None,
+        state.exit_code(),
+        None,
         "the deadline stopped the process; it did not exit"
     );
     Ok(())
@@ -111,12 +112,12 @@ fn the_observed_and_query_forms_run_the_command() -> TestResult {
         Ok::<_, EcsError>((observed, queried))
     })?;
     assert_eq!(
-        observed.exit_code,
+        observed.exit_code(),
         Some(0),
         "poll is not a silent no-op: it runs and reports"
     );
     assert_eq!(
-        queried.exit_code,
+        queried.exit_code(),
         Some(0),
         "query is not a silent no-op: it runs and reports"
     );
@@ -175,12 +176,12 @@ fn the_default_constructor_runs_a_real_child() -> TestResult {
         process.execute_action((sys_auth()?, &())).await
     })?;
     assert_eq!(
-        state.exit_code,
+        state.exit_code(),
         Some(0),
         "the default constructor runs a real child"
     );
     assert!(
-        !state.deadline_fired,
+        !state.deadline_fired(),
         "an ordinary child finishes before the default deadline"
     );
     Ok(())
@@ -214,7 +215,7 @@ fn concurrent_calls_on_one_process_share_its_ceiling() -> TestResult {
     for state in states {
         let state = state?;
         assert_eq!(
-            state.exit_code,
+            state.exit_code(),
             Some(0),
             "every call runs its child to a zero exit"
         );
@@ -287,12 +288,12 @@ fn the_execute_verb_reports_stdout_frames_two_records_and_a_cut_third() -> TestR
         process.execute_action((sys_auth()?, &())).await
     })?;
     assert_eq!(
-        state.exit_code,
+        state.exit_code(),
         Some(0),
         "the child completed its own work; the framing is what is under test"
     );
     assert!(
-        !state.stdout_truncated,
+        !state.stdout_truncated(),
         "the write fits the capture ceiling, so the ending is the child's own"
     );
     let frames = state.stdout_frames().ok_or_else(|| {
@@ -341,7 +342,7 @@ fn the_execute_verb_reports_the_capture_ceiling_when_the_child_overruns_it() -> 
         process.execute_action((sys_auth()?, &())).await
     })?;
     assert!(
-        state.stdout_truncated,
+        state.stdout_truncated(),
         "ten bytes into an {CAPTURE}-byte capture must report that the capture cut the stream"
     );
     let frames = state.stdout_frames().ok_or_else(|| {
@@ -399,7 +400,7 @@ fn a_binary_record_round_trips_through_frames_while_stdout_is_lossy() -> TestRes
     })?;
     assert_eq!(frames.records().len(), 1, "one whole record arrived");
     assert_eq!(
-        frames.records()[0].payload(),
+        frames.records().first().and_then(FrameRead::payload),
         Some(&[0xff_u8, 0xfe_u8][..]),
         "the framed reading round-trips the binary payload byte for byte"
     );

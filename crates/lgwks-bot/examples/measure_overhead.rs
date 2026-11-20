@@ -106,25 +106,15 @@ fn report(name: &str, unit: Unit, mut samples: Vec<u128>) -> std::io::Result<()>
     let unit = unit.suffix();
     let reached = samples.len();
     let mut out = std::io::stdout().lock();
-    let _written = match samples.last() {
+    match samples.last() {
         Some(worst) => writeln!(out, "{line} n={reached} max={worst}{unit}"),
         None => writeln!(out, "{line} n={reached} max=unmeasured"),
-    };
-    Ok(())
+    }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let requested = std::env::args().nth(1);
-    let runs: usize = match requested {
-        Some(text) => text.parse()?,
-        None => DEFAULT_RUNS.parse()?,
-    };
-    // The measured body's input is a `u64`, so the run count is drawn in that
-    // width once here: a count this host cannot address is a refusal, not a
-    // wrapped index.
-    let run_count = u64::try_from(runs)?;
-    let runtime = Runtime::new()?;
-
+/// The host and the synchronous doors: `Host::run`, `block_on`,
+/// `Host::block_on` and `Estate::run_blocking`, each over a ready task.
+fn doors(runtime: &Runtime, runs: usize, run_count: u64) -> Result<(), Box<dyn std::error::Error>> {
     // One Host::run of an immediately-ready body.
     let host = Host::builder("analysis")?
         .max_concurrent_tasks(NonZeroUsize::new(1).ok_or("a ceiling of one")?)
@@ -186,8 +176,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     report("estate_run_blocking", Unit::Nanos, estate_samples)?;
+    Ok(())
+}
 
-    // One script line: a run of `lines` on a fresh root, per line it entered.
+/// One script line: a run of `lines` on a fresh root, per line it entered.
+fn script_lines(
+    runtime: &Runtime,
+    runs: usize,
+    run_count: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let tenant = Tenant::new("overhead")?;
     let lines_per_run = LINES_PER_PASS.saturating_mul(u128::from(PASSES));
     let expected: u64 = (0..PASSES).sum();
@@ -203,8 +200,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok::<(), FlowError>(())
     })?;
     report("script_line", Unit::Nanos, line_samples)?;
+    Ok(())
+}
 
-    // One sys::Process execute of `true`.
+/// One `sys::Process` execute of `true`, then the same with `PATH` pinned.
+fn processes(
+    runtime: &Runtime,
+    runs: usize,
+    run_count: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let auth: Auth = GrantSet::empty().grant(Cap::sys()).issue(&[Cap::sys()])?;
     let process = Process::new("true");
     let mut process_samples = Vec::with_capacity(runs);
@@ -213,7 +217,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let started = Instant::now();
             let state = process.execute_action((auth.clone(), &())).await?;
             process_samples.push(started.elapsed().as_micros());
-            assert_eq!(state.exit_code, Some(0), "the measured child exited zero");
+            assert_eq!(state.exit_code(), Some(0), "the measured child exited zero");
         }
         Ok::<(), BotError>(())
     })?;
@@ -230,10 +234,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let started = Instant::now();
             let state = pinned.execute_action((auth.clone(), &())).await?;
             pinned_samples.push(started.elapsed().as_micros());
-            assert_eq!(state.exit_code, Some(0), "the measured child exited zero");
+            assert_eq!(state.exit_code(), Some(0), "the measured child exited zero");
         }
         Ok::<(), BotError>(())
     })?;
     report("process_run_pinned_path", Unit::Micros, pinned_samples)?;
     Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let requested = std::env::args().nth(1);
+    let runs: usize = match requested {
+        Some(text) => text.parse()?,
+        None => DEFAULT_RUNS.parse()?,
+    };
+    // The measured body's input is a `u64`, so the run count is drawn in that
+    // width once here: a count this host cannot address is a refusal, not a
+    // wrapped index.
+    let run_count = u64::try_from(runs)?;
+    let runtime = Runtime::new()?;
+    doors(&runtime, runs, run_count)?;
+    script_lines(&runtime, runs, run_count)?;
+    processes(&runtime, runs, run_count)
 }

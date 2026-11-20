@@ -172,8 +172,8 @@ impl Gh {
     /// honest answer: a binding that cannot reach GitHub must not report an
     /// empty answer, which a caller could mistake for "GitHub has no reviews".
     #[cfg(not(feature = "process"))]
-    async fn call(&self, _args: &[String]) -> Result<GhOutcome, GhError> {
-        Err(GhError::NoRunner)
+    fn call(&self, _args: &[String]) -> std::future::Ready<Result<GhOutcome, GhError>> {
+        std::future::ready(Err(GhError::NoRunner))
     }
 
     /// The `ProcessSpec` one call runs, before it is started.
@@ -220,22 +220,6 @@ impl Gh {
         args
     }
 
-    /// Read the pinned head and base of `pull`, without the `process` feature.
-    ///
-    /// There is no supervised runner in this build, so the call is not made and
-    /// the answer is not invented. A binding that cannot reach GitHub must not
-    /// report a pull request with an empty head, which a caller would read as a
-    /// real answer and go on to review nothing.
-    ///
-    /// # Errors
-    ///
-    /// [`GhError::NoRunner`], always. Rebuild with the `process` feature to bind
-    /// this adapter to a supervised runner.
-    #[cfg(not(feature = "process"))]
-    pub async fn snapshot(&self, _pull: &PullRequest) -> Result<PrSnapshot, GhError> {
-        Err(GhError::NoRunner)
-    }
-
     /// Read the pinned head and base of `pull`.
     ///
     /// # Errors
@@ -244,9 +228,26 @@ impl Gh {
     /// [`GhError::Transport`] naming the exit code when it ran and failed,
     /// [`GhError::Deadline`] when the supervisor stopped it before it
     /// answered, and [`GhError::Response`] or [`GhError::MalformedResponse`]
-    /// when it answered with something that is not a pull request.
-    #[cfg(feature = "process")]
+    /// when it answered with something that is not a pull request. In a build
+    /// without the `process` feature, [`GhError::NoRunner`], always: the call is
+    /// not made and no head is invented, because an empty head would be read as
+    /// a real answer and the review would go on to review nothing.
     pub async fn snapshot(&self, pull: &PullRequest) -> Result<PrSnapshot, GhError> {
+        self.read_snapshot(pull).await
+    }
+
+    /// [`Gh::snapshot`] in a build without a supervised runner: refused.
+    #[cfg(not(feature = "process"))]
+    fn read_snapshot(
+        &self,
+        _pull: &PullRequest,
+    ) -> std::future::Ready<Result<PrSnapshot, GhError>> {
+        std::future::ready(Err(GhError::NoRunner))
+    }
+
+    /// [`Gh::snapshot`] over the supervised runner.
+    #[cfg(feature = "process")]
+    async fn read_snapshot(&self, pull: &PullRequest) -> Result<PrSnapshot, GhError> {
         let path = format!(
             "repos/{}/pulls/{}",
             pull.repository().as_str(),
@@ -283,39 +284,6 @@ impl Gh {
             return refusal;
         }
         Ok(snapshot)
-    }
-
-    /// Read every review currently on `pull`, without the `process` feature.
-    ///
-    /// There is no supervised runner in this build, so the call is not made and
-    /// no review is read. An empty `Vec` here would be the worst possible answer
-    /// for this particular call: it is exactly what a caller would read as "the
-    /// pull request has no reviews", which is a fact about GitHub this build has
-    /// no way to know. The refusal is the honest one.
-    ///
-    /// # Errors
-    ///
-    /// [`GhError::NoRunner`], always. Rebuild with the `process` feature to bind
-    /// this adapter to a supervised runner.
-    #[cfg(not(feature = "process"))]
-    pub async fn read_reviews(&self, _pull: &PullRequest) -> Result<Vec<ReviewRecord>, GhError> {
-        Err(GhError::NoRunner)
-    }
-
-    /// Read the changed-file inventory of `pull`, without the `process` feature.
-    ///
-    /// There is no supervised runner in this build, so the call is not made and
-    /// no inventory is invented. An empty list here would be read as "the pull
-    /// request changed no files" — a claim this build cannot make — so the
-    /// refusal is the honest one, exactly as it is for every other read.
-    ///
-    /// # Errors
-    ///
-    /// [`GhError::NoRunner`], always. Rebuild with the `process` feature to bind
-    /// this adapter to a supervised runner.
-    #[cfg(not(feature = "process"))]
-    pub async fn read_diff(&self, _pull: &PullRequest) -> Result<PullDiff, GhError> {
-        Err(GhError::NoRunner)
     }
 
     /// Read every review currently on `pull`, through a real supervised call.
@@ -434,26 +402,6 @@ impl Gh {
             files,
             patch_bytes,
         })
-    }
-
-    /// Publish one review on `pull`, without the `process` feature.
-    ///
-    /// Nothing runs and nothing is reported as published. A review id of `0` here
-    /// would be indistinguishable from a real answer in the places that consume
-    /// it, and inventing one would be the module's exact defect: reporting an
-    /// effect that was never attempted.
-    ///
-    /// # Errors
-    ///
-    /// [`GhError::NoRunner`], always. Rebuild with the `process` feature to bind
-    /// this adapter to a supervised runner.
-    #[cfg(not(feature = "process"))]
-    pub async fn publish(
-        &self,
-        _pull: &PullRequest,
-        _payload: &ReviewPayload,
-    ) -> Result<u64, GhError> {
-        Err(GhError::NoRunner)
     }
 
     /// Create one review on `pull` with `payload`.
@@ -604,15 +552,17 @@ fn unique_tag() -> Option<String> {
     {
         // An entropy failure is no tag at all, never a fixed fallback: a
         // constant name is the collision the tag exists to prevent.
-        let bytes = lgwks_std::random::bytes::<8>().ok()?;
-        Some(bytes.iter().fold(String::new(), |mut text, byte| {
-            use std::fmt::Write as _;
-            // A `write!` into a `String` is infallible; the result is bound
-            // rather than discarded so nothing in this crate can ignore a
-            // formatting failure by accident.
-            let _written = write!(text, "{byte:02x}");
-            text
-        }))
+        match lgwks_std::random::bytes::<8>() {
+            Ok(bytes) => Some(
+                bytes
+                    .iter()
+                    .fold(String::new(), |text, byte| format!("{text}{byte:02x}")),
+            ),
+            Err(error) => {
+                lgwks_std::trace::debug!(error = ?error, "unique_tag: no entropy, so no tag");
+                None
+            }
+        }
     }
     // Without the `ephemeral` feature this crate may not assume an entropy
     // source (INV-DEP-6), so there is no tag to give. Rather than fall back to

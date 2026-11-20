@@ -68,5 +68,5 @@ pub enum ShredOutcome {
 /// store's own error: the record was not written and the journal is
 /// unchanged.
 pub(crate) fn write_refusal(source: crate::sealed::keys::KeyError) -> JournalError {
-    JournalError::Storage(std::io::Error::other(source.to_string()))
+    JournalError::Storage(std::io::Error::other(source))
 }

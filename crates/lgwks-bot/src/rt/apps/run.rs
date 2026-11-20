@@ -66,7 +66,7 @@ impl RunError {
     }
 
     /// The operation `node` failed with `reason`.
-    fn node(node: &str, reason: String) -> Self {
+    fn node(node: &str, reason: &str) -> Self {
         Self {
             kind: RunKind::NodeFailed,
             detail: format!("operation {node:?} failed: {reason}"),
@@ -74,7 +74,7 @@ impl RunError {
     }
 
     /// The lowered graph itself is not runnable: `reason`.
-    fn graph(reason: String) -> Self {
+    fn graph(reason: &str) -> Self {
         Self {
             kind: RunKind::GraphFailed,
             detail: format!("the admitted graph is not runnable: {reason}"),
@@ -129,9 +129,7 @@ pub async fn run_app(scope: &Scope, store: &AppStore, id: &str) -> Result<Vec<Ve
     };
     if planned.ops.is_empty() {
         lgwks_std::trace::debug!(app = id, "apps: the stored plan names nothing");
-        return Err(RunError::graph(String::from(
-            "the stored plan names no operation",
-        )));
+        return Err(RunError::graph("the stored plan names no operation"));
     }
     let mut nodes = Vec::with_capacity(planned.ops.len());
     for op in &planned.ops {
@@ -152,14 +150,14 @@ pub async fn run_app(scope: &Scope, store: &AppStore, id: &str) -> Result<Vec<Ve
         Ok(report) => report,
         Err(error) => {
             lgwks_std::trace::debug!(error = ?error, "apps: the admitted graph is refused");
-            return Err(RunError::graph(error.to_string()));
+            return Err(RunError::graph(&error.to_string()));
         }
     };
     let mut lines = Vec::with_capacity(planned.ops.len());
     for op in &planned.ops {
         let Some(outcome) = report.outcome(op.exec.as_ref()) else {
             lgwks_std::trace::debug!(node = ?op.exec, "apps: the report names no such operation");
-            return Err(RunError::graph(format!(
+            return Err(RunError::graph(&format!(
                 "the report names no operation {:?}",
                 op.exec
             )));
@@ -168,13 +166,13 @@ pub async fn run_app(scope: &Scope, store: &AppStore, id: &str) -> Result<Vec<Ve
             NodeOutcome::Ran(Ok(ref line)) => lines.push(line.clone()),
             NodeOutcome::Ran(Err(ref error)) => {
                 lgwks_std::trace::debug!(node = ?op.exec, error = ?error, "apps: the operation failed");
-                return Err(RunError::node(op.exec.as_ref(), error.to_string()));
+                return Err(RunError::node(op.exec.as_ref(), &error.to_string()));
             }
             NodeOutcome::Blocked { ref by } => {
                 lgwks_std::trace::debug!(node = ?op.exec, by = ?by, "apps: the operation never ran");
                 return Err(RunError::node(
                     op.exec.as_ref(),
-                    format!("blocked by {}", by.join(", ")),
+                    &format!("blocked by {}", by.join(", ")),
                 ));
             }
         }

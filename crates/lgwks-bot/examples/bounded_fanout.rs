@@ -66,7 +66,7 @@ fn main() -> std::io::Result<()> {
             TASKS,
             "every input must produce exactly one output"
         );
-        assert_eq!(outputs[0], 0, "input order is preserved");
+        assert_eq!(outputs.first(), Some(&0), "input order is preserved");
         writeln!(
             stdout,
             "{label:>8}: peak_in_flight={:>4} elapsed={:?}",

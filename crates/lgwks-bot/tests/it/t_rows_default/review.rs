@@ -161,7 +161,7 @@ fn reconciliation_verifies_the_exact_review_or_stays_unknown_t33() -> TestResult
 /// body and comment count. The lost-permission journey stays with the
 /// `process` tests the map names.
 #[test]
-fn a_read_back_review_proves_its_exact_identity_t34() -> TestResult {
+fn a_read_back_review_proves_its_exact_identity_t34() {
     let record = ReviewRecord::new(
         4821,
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -202,5 +202,4 @@ fn a_read_back_review_proves_its_exact_identity_t34() -> TestResult {
         pending.id() != record.id(),
         "two records keep their distinct identities"
     );
-    Ok(())
 }

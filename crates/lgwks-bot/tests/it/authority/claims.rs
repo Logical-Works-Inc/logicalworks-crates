@@ -357,30 +357,33 @@ fn flatten(text: &str) -> String {
 fn unqualified_mentions(file: &str, text: &str) -> Vec<String> {
     let flat = flatten(text);
     let mut flagged = Vec::new();
-    let mut cursor = 0usize;
 
-    while let Some(found) = flat
-        .get(cursor..)
-        .and_then(|rest| rest.find(REVOCATION_STEM))
-    {
-        let at = cursor.saturating_add(found);
+    for (at, _) in flat.match_indices(REVOCATION_STEM) {
         // The context is taken in whole characters from boundaries `char_indices`
-        // reports, and both ends are clamped to the text, so the slice is total:
-        // a mention at either edge still gets its window rather than a
-        // substitute for one.
-        // A mention nearer an edge than the window starts or ends the context
-        // at that edge: the text itself is the bound, not a substituted value.
-        let start = match flat[..at].char_indices().nth_back(WINDOW) {
+        // reports. A mention nearer an edge than the window starts or ends the
+        // context at that edge: the text itself is the bound.
+        let Some((before, after)) = flat.split_at_checked(at) else {
+            flagged.push(format!(
+                "{file}: a mention at byte {at} is off a character boundary"
+            ));
+            continue;
+        };
+        let start = match before.char_indices().nth_back(WINDOW) {
             Some((offset, _)) => offset,
             None => 0,
         };
-        let end = match flat[at..].char_indices().nth(WINDOW) {
+        let end = match after.char_indices().nth(WINDOW) {
             Some((offset, character)) => at
                 .saturating_add(offset)
                 .saturating_add(character.len_utf8()),
             None => flat.len(),
         };
-        let window = &flat[start..end];
+        let Some(window) = flat.get(start..end) else {
+            flagged.push(format!(
+                "{file}: a mention at byte {at} has no whole-character window"
+            ));
+            continue;
+        };
         let qualified = DENIALS
             .iter()
             .chain(OTHER_SUBJECTS.iter())
@@ -389,7 +392,6 @@ fn unqualified_mentions(file: &str, text: &str) -> Vec<String> {
         if !qualified {
             flagged.push(format!("{file}: {window}"));
         }
-        cursor = at.saturating_add(REVOCATION_STEM.len());
     }
 
     flagged
@@ -446,7 +448,7 @@ fn first_party_files(root: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 }
 
 #[test]
-fn the_claim_guard_flags_the_claim_it_was_written_for() -> TestResult {
+fn the_claim_guard_flags_the_claim_it_was_written_for() {
     // The sentence this guard exists for, quoted from `docs/general-bot-fold.md`
     // as it stood when #41 was filed: a live-revocation guarantee with no
     // operation behind it. A guard that does not flag this one is a no-op, and
@@ -497,7 +499,6 @@ fn the_claim_guard_flags_the_claim_it_was_written_for() -> TestResult {
             "the guard must report a claim written with either spelling: {probe}"
         );
     }
-    Ok(())
 }
 
 #[test]

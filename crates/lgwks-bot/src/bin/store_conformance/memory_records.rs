@@ -19,7 +19,11 @@ use lgwks_bot::task::{DefinitionIdentity, Drift, StoreError, StoreLimitKind};
 
 /// The most records the double holds across every run, so a runaway test is a
 /// typed refusal rather than an unbounded map.
-pub const MAX_RECORDS: u64 = 65_536;
+pub(crate) const MAX_RECORDS: u64 = 65_536;
+
+/// The answer for a run the double holds nothing for: the trait's contract
+/// names a first attempt compatible, and the durable store answers it so.
+const FIRST_ATTEMPT_IS_COMPATIBLE: bool = true;
 
 /// One run's records.
 struct Run {
@@ -43,7 +47,7 @@ struct State {
 
 /// An in-memory store; every clone is a handle onto the same records.
 #[derive(Clone, Default)]
-pub struct MemoryRecords {
+pub(crate) struct MemoryRecords {
     /// The records every handle shares.
     state: Arc<Mutex<State>>,
     /// Armed by [`MemoryRecords::fail_next_read`], taken by the next step read.
@@ -52,7 +56,7 @@ pub struct MemoryRecords {
 
 impl MemoryRecords {
     /// Make the next step read — a lookup or a compatibility check — fail once.
-    pub fn fail_next_read(&self) {
+    pub(crate) fn fail_next_read(&self) {
         self.unreadable.store(true, Ordering::SeqCst);
     }
 
@@ -164,10 +168,13 @@ impl RunRecords for MemoryRecords {
     ) -> Result<bool, FlowError> {
         self.readable()?;
         let state = self.state()?;
-        Ok(match state.runs.get(&run) {
-            Some(held) => definition.drift_from(&held.definition).is_none(),
-            None => true,
-        })
+        let Some(held) = state.runs.get(&run) else {
+            // `RunRecords::compatibility`: a run with no records is a first
+            // attempt, and the kit's `first_attempt_is_compatible` holds every
+            // store to answering it so.
+            return Ok(FIRST_ATTEMPT_IS_COMPATIBLE);
+        };
+        Ok(definition.drift_from(&held.definition).is_none())
     }
 
     fn drift(&self, run: RunId, definition: &DefinitionIdentity) -> Result<Drift, FlowError> {
@@ -204,5 +211,29 @@ impl RunRecords for MemoryRecords {
             Some(held) => held.steps.len(),
             None => 0,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use lgwks_bot::effect::RunId;
+    use lgwks_bot::script::RunRecords;
+    use lgwks_bot::task::DefinitionIdentity;
+    use lgwks_std::hash::Digest;
+
+    use super::MemoryRecords;
+
+    /// A run the double holds nothing for is a first attempt, and a first
+    /// attempt is compatible with any definition, as the trait requires.
+    #[test]
+    fn memory_records_a_first_attempt_is_compatible() -> Result<(), Box<dyn std::error::Error>> {
+        let records = MemoryRecords::default();
+        let run = RunId::from_hex(&format!("6{}", "0".repeat(31)))?;
+        let definition = DefinitionIdentity::new("first", 1, Digest::from_bytes([4; 32]), 1);
+        assert!(
+            records.compatibility(run, &definition)?,
+            "a first attempt is compatible"
+        );
+        Ok(())
     }
 }

@@ -220,8 +220,9 @@ fn a_local_borrowed_non_send_body_runs_on_the_host() -> TestResult {
         let seen = Rc::clone(&body_seen);
         async move {
             seen.borrow_mut().push(
-                u32::try_from(values.len())
-                    .map_err(|_| FlowError::failed("more bytes than a u32 can name"))?,
+                u32::try_from(values.len()).map_err(|excess| {
+                    FlowError::failed(format!("more bytes than a u32: {excess}"))
+                })?,
             );
             lgwks_bot::rt::task::yield_now().await;
             let sum = values.iter().copied().sum::<u32>();

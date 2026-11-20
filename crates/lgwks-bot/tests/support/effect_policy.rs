@@ -9,7 +9,7 @@ use lgwks_bot::script::{EffectDisposition, EffectPolicy};
 use lgwks_bot::verb::EffectLifetime;
 
 /// Every action is reversible: the suite owns its doubles.
-pub struct AllowExternal;
+pub(crate) struct AllowExternal;
 
 impl EffectPolicy for AllowExternal {
     /// Reversible, whatever the lifetime: a test double owes no decision.

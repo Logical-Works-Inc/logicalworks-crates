@@ -12,8 +12,6 @@
 
 use crate::inspect_support;
 
-use std::error::Error;
-
 use inspect_support::{
     INSPECT_DOMAINS, TestResult, artifact_for, observe_once, scope, spec_for, tick_once,
 };
@@ -119,16 +117,12 @@ fn two_tenants_inspecting_the_same_artifact_stay_isolated() -> TestResult<()> {
         let alpha_job = scope.spawn(|| run(&alpha_host, alpha));
         let beta_job = scope.spawn(|| run(&beta_host, beta));
         (
-            alpha_job
-                .join()
-                .map_err(|_| "alpha thread panicked".to_owned()),
-            beta_job
-                .join()
-                .map_err(|_| "beta thread panicked".to_owned()),
+            alpha_job.join().map_err(crate::sim::panicked),
+            beta_job.join().map_err(crate::sim::panicked),
         )
     });
-    let alpha_report = alpha_run.map_err(|cause| -> Box<dyn Error> { cause.into() })??;
-    let beta_report = beta_run.map_err(|cause| -> Box<dyn Error> { cause.into() })??;
+    let alpha_report = alpha_run??;
+    let beta_report = beta_run??;
 
     assert_eq!(
         alpha_report,

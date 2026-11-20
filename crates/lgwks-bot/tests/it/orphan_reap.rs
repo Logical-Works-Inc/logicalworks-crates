@@ -100,12 +100,9 @@ fn coordinator(dir: &std::path::Path) -> TestResult {
     std::fs::write(&partial, spawned.leader().to_string())?;
     std::fs::rename(&partial, dir.join("leader"))?;
     // The record is durable: the payload may run now.
-    runtime.block_on(async {
-        spawned
-            .release()
-            .await
-            .map_err(|error| format!("the gate releases once the record is durable: {error}"))
-    })?;
+    spawned
+        .release()
+        .map_err(|error| format!("the gate releases once the record is durable: {error}"))?;
     assert!(spawned.is_released(), "a released gate reads as released");
     wait_for_pid(&member_file, BUDGET).ok_or("the lane never recorded its member")?;
     for _ in 0..600 {

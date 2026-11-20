@@ -18,15 +18,17 @@ use lgwks_bot::effect::{
 use lgwks_bot::journal::EffectJournal as _;
 
 /// The run every fixture key belongs to.
-pub const RUN: &str = "0102030405060708090a0b0c0d0e0f10";
+pub(crate) const RUN: &str = "0102030405060708090a0b0c0d0e0f10";
 /// The action every fixture key names.
-pub const ACTION: &str = "1112131415161718191a1b1c1d1e1f20";
+pub(crate) const ACTION: &str = "1112131415161718191a1b1c1d1e1f20";
 /// The environment every fixture key is fenced against.
-pub const ENV: &str = "2122232425262728292a2b2c2d2e2f30";
+pub(crate) const ENV: &str = "2122232425262728292a2b2c2d2e2f30";
 /// The flow revision every fixture key was produced from.
-pub const FLOW_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+pub(crate) const FLOW_HEX: &str =
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 /// The input digest every fixture key binds.
-pub const DIGEST_HEX: &str = "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeffe0e1e2e3e4e5e6e7e8e9eaebecedeeef";
+pub(crate) const DIGEST_HEX: &str =
+    "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeffe0e1e2e3e4e5e6e7e8e9eaebecedeeef";
 
 /// A counter that gives concurrent test runs distinct scratch names.
 ///
@@ -35,7 +37,7 @@ pub const DIGEST_HEX: &str = "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeffe0e1e2e3e4e5e6e7e8
 static SCRATCH: AtomicU64 = AtomicU64::new(0);
 
 /// A scratch path unique to one test run.
-pub fn scratch(name: &str) -> std::path::PathBuf {
+pub(crate) fn scratch(name: &str) -> std::path::PathBuf {
     let unique = SCRATCH.fetch_add(1, Ordering::Relaxed);
     let nanos = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
         Ok(since) => since.as_nanos(),
@@ -51,21 +53,31 @@ pub fn scratch(name: &str) -> std::path::PathBuf {
 /// caller that hands the path to a journal opening it itself needs no directory,
 /// and a caller that writes files into it needs one made. Naming both is cheaper
 /// than a boolean, and it keeps the `?` at the call site.
-pub fn scratch_dir(name: &str) -> std::io::Result<std::path::PathBuf> {
+pub(crate) fn scratch_dir(name: &str) -> std::io::Result<std::path::PathBuf> {
     let dir = scratch(name);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
 /// Removes a test's scratch path when the test ends, however it ends.
-pub struct TempGuard(pub std::path::PathBuf);
+pub(crate) struct TempGuard(pub std::path::PathBuf);
 
 impl Drop for TempGuard {
     fn drop(&mut self) {
-        if self.0.is_dir() {
-            drop(std::fs::remove_dir_all(&self.0));
+        let removed = if self.0.is_dir() {
+            std::fs::remove_dir_all(&self.0)
         } else {
-            drop(std::fs::remove_file(&self.0));
+            std::fs::remove_file(&self.0)
+        };
+        match removed {
+            Ok(()) => {}
+            // A test that never wrote its path leaves nothing to remove.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => lgwks_std::trace::debug!(
+                error = %error,
+                path = %self.0.display(),
+                "temp guard: not removed, so the temporary directory keeps it"
+            ),
         }
     }
 }
@@ -78,7 +90,7 @@ impl Drop for TempGuard {
 /// opened in append mode so two measurement targets that share it cannot erase
 /// each other's lines, and an unset variable is a silent no-op so the tests pass
 /// unchanged on a host that does not want a report.
-pub fn record_measurement(line: &str) -> std::io::Result<()> {
+pub(crate) fn record_measurement(line: &str) -> std::io::Result<()> {
     use std::io::Write;
     let Some(path) = std::env::var_os("LGWKS_SCALE_OUT") else {
         return Ok(());
@@ -97,7 +109,7 @@ pub fn record_measurement(line: &str) -> std::io::Result<()> {
 /// was actually observed. `None` rather than a zero: an empty sample has no
 /// percentile, and a measurement line states the absence rather than a number
 /// nobody measured.
-pub fn percentile<T: Copy>(sorted: &[T], per_mille: usize) -> Option<T> {
+pub(crate) fn percentile<T: Copy>(sorted: &[T], per_mille: usize) -> Option<T> {
     let rank = sorted.len().saturating_mul(per_mille).div_ceil(1_000);
     sorted
         .get(rank.max(1).min(sorted.len()).saturating_sub(1))
@@ -112,7 +124,7 @@ pub fn percentile<T: Copy>(sorted: &[T], per_mille: usize) -> Option<T> {
 /// what an attempt looks like. `predicate` and `version` name the verification's
 /// predicate, so two callers verifying the same attempt with different predicates
 /// do not collide.
-pub fn ladder(
+pub(crate) fn ladder(
     key: lgwks_bot::effect::EffectKey,
     predicate: &str,
     version: u64,
@@ -147,7 +159,7 @@ pub fn ladder(
 /// looks like. A row that kills at the second rung walks the same first two
 /// rungs a complete walk would, which is what makes "the kill landed here" a
 /// statement about the ladder rather than about the fixture.
-pub fn walk_ladder(
+pub(crate) fn walk_ladder(
     journal: &mut lgwks_bot::journal::FileJournal,
     key: lgwks_bot::effect::EffectKey,
     predicate: &str,
@@ -162,7 +174,7 @@ pub fn walk_ladder(
 }
 
 /// A fixture key for attempt `attempt`, under the shared identity.
-pub fn key(attempt: u64) -> Result<EffectKey, Box<dyn Error>> {
+pub(crate) fn key(attempt: u64) -> Result<EffectKey, Box<dyn Error>> {
     key_for(&attempt.to_string(), DIGEST_HEX)
 }
 
@@ -173,7 +185,7 @@ pub fn key(attempt: u64) -> Result<EffectKey, Box<dyn Error>> {
 /// crash rows turn on. Every harness that journals under the shared run builds
 /// its key here, so two harnesses cannot fold different worlds under what
 /// looks like the same key.
-pub fn key_for(attempt: &str, digest: &str) -> Result<EffectKey, Box<dyn Error>> {
+pub(crate) fn key_for(attempt: &str, digest: &str) -> Result<EffectKey, Box<dyn Error>> {
     let run = RunId::from_hex(RUN)?;
     let action = ActionId::from_hex(ACTION)?;
     let attempt = AttemptId::from_decimal(attempt)?;
@@ -195,7 +207,7 @@ pub fn key_for(attempt: &str, digest: &str) -> Result<EffectKey, Box<dyn Error>>
 /// stalls every task on it. Neither branch here has an executor, and the wait —
 /// a child parked while the parent decides when it dies — is the observation's
 /// subject rather than its scaffolding.
-pub fn pause(millis: u64) {
+pub(crate) fn pause(millis: u64) {
     use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 
     // A timed wait on a channel nobody sends to. The sender lives to the end of
@@ -215,11 +227,11 @@ pub fn pause(millis: u64) {
 /// not leave a live child behind: the drop is the backstop the harness itself
 /// can forget. `take` hands the child to the kill harness, which then owns the
 /// kill and the reap, so the guard drops empty and no path kills twice.
-pub struct ProbeGuard(pub Option<std::process::Child>);
+pub(crate) struct ProbeGuard(pub Option<std::process::Child>);
 
 impl ProbeGuard {
     /// Hand the child to the kill harness.
-    pub fn take(&mut self) -> Option<std::process::Child> {
+    pub(crate) fn take(&mut self) -> Option<std::process::Child> {
         self.0.take()
     }
 
@@ -230,7 +242,7 @@ impl ProbeGuard {
     /// flushing. Whatever the child wrote that is not on the disk is gone, and
     /// whatever claimed to be durable had better be there. The wait is bounded,
     /// so a child that never reaches its marker cannot leave a stray process.
-    pub fn kill_after_marker(
+    pub(crate) fn kill_after_marker(
         &mut self,
         marker: &std::path::Path,
         test_name: &str,
@@ -290,8 +302,18 @@ impl ProbeGuard {
 impl Drop for ProbeGuard {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
-            drop(child.kill());
-            drop(child.wait());
+            if let Err(error) = child.kill() {
+                lgwks_std::trace::debug!(
+                    error = %error,
+                    "probe guard: the child refused the kill, so it had already exited"
+                );
+            }
+            match child.wait() {
+                Ok(status) => lgwks_std::trace::debug!(%status, "probe guard: the child is reaped"),
+                Err(error) => {
+                    lgwks_std::trace::debug!(error = %error, "probe guard: the child could not be reaped")
+                }
+            }
         }
     }
 }

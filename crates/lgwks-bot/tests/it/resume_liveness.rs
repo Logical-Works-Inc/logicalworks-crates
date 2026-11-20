@@ -44,7 +44,7 @@ use crate::resume_fixtures as shared;
 use std::error::Error;
 use std::future::poll_fn;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use lgwks_bot::effect::RunId;
@@ -254,20 +254,19 @@ fn a_parked_store_still_serves_its_own_records_only() -> TestResult {
 /// poll that happened to be counted twice. Pinned here so a future change to the
 /// probe cannot leave the other three tests passing for the wrong reason.
 #[test]
-fn the_parked_device_probe_measures_turns() -> TestResult {
-    let ticks = Arc::new(AtomicU64::new(0));
+fn the_parked_device_probe_measures_turns() {
+    let ticks = Arc::new(liveness::Ticks::default());
     let mut beat = Box::pin(heartbeat(Arc::clone(&ticks)));
     runtime::block_on(poll_fn(|cx| {
         let _first = beat.as_mut().poll(cx);
         let _second = beat.as_mut().poll(cx);
         Poll::Ready(())
     }));
-    let counted = ticks.load(Ordering::Relaxed);
+    let counted = ticks.load();
     assert!(
         counted >= 2,
         "one driver turn produced {counted} polls: the probe is not counting turns"
     );
-    Ok(())
 }
 
 /// A batch of records sharing one flush must park the runtime exactly as one record
@@ -314,12 +313,12 @@ fn a_grouped_batch_still_lets_the_runtime_turn() -> TestResult {
     runtime::block_on(poll_fn(|cx| {
         let _unobserved = beat.as_mut().poll(cx);
         let mut pending = false;
-        for (index, step) in runs.iter_mut().enumerate() {
-            if resolved[index].is_some() {
+        for (step, slot) in runs.iter_mut().zip(resolved.iter_mut()) {
+            if slot.is_some() {
                 continue;
             }
             if let Poll::Ready(report) = step.as_mut().poll(cx) {
-                resolved[index] = Some(report);
+                *slot = Some(report);
             } else {
                 pending = true;
             }

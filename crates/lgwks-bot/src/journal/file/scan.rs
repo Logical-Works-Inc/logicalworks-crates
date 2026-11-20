@@ -246,15 +246,9 @@ pub(super) fn scan(
     let mut offset = 0u64;
     let mut index = 0u64;
     #[cfg(feature = "sealed")]
-    let mut sealed_slots: Vec<super::sealed_impl::SealedSlot> = Vec::new();
-    #[cfg(feature = "sealed")]
-    let mut sealed_burned: Vec<[u8; 32]> = Vec::new();
+    let mut folded = SealedFold::default();
     loop {
-        let Frame {
-            payload,
-            head,
-            payload_len,
-        } = match next_frame(reader, entries.len(), max_events, index)? {
+        let frame = match next_frame(reader, entries.len(), max_events, index)? {
             Ok(frame) => frame,
             Err(halt) => {
                 return Ok(Scanned {
@@ -265,38 +259,18 @@ pub(super) fn scan(
                     tail: position,
                     stop: halt.at(offset),
                     #[cfg(feature = "sealed")]
-                    sealed_slots,
+                    sealed_slots: folded.slots,
                     #[cfg(feature = "sealed")]
-                    sealed_burned,
+                    sealed_burned: folded.burned,
                     #[cfg(feature = "sealed")]
                     sealed_frames: index,
                 });
             }
         };
 
-        if let Some(decoded) = Continuation::from_payload(&payload) {
-            // A checkpoint is legal in exactly two places: as this file's first
-            // frame, which is the predecessor's seal this file continues from, and
-            // as this file's last, which is this file sealing itself. Two in one
-            // file are bytes no writer of this journal produces; one in the middle
-            // is caught by the event-after-seal arm below, because a frame that
-            // follows a seal cannot be part of the chain that seal closed.
-            if seal.is_some() {
-                let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                    index,
-                    CorruptionKind::Sealed,
-                ))));
-                lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: the file holds a second sealed checkpoint");
-                return refusal;
-            }
-            let checkpoint = match decoded {
-                Ok(checkpoint) => checkpoint,
-                Err(cause) => {
-                    lgwks_std::trace::debug!(index, "scan: the sealed checkpoint did not decode");
-                    return Err(cause);
-                }
-            };
-            position = verify_frame(&payload, &head, checkpoint.predecessor(), index)?;
+        if let Some(decoded) = Continuation::from_payload(&frame.payload) {
+            let (checkpoint, at) = checkpoint_frame(decoded, &frame, index, seal.is_some())?;
+            position = at;
             // Only the carried seal moves where this file's events chain from. This
             // file's *own* closing seal follows its events, so taking its position
             // would start the chain after the last event it is meant to verify.
@@ -310,128 +284,190 @@ pub(super) fn scan(
             match sealed {
                 #[cfg(feature = "sealed")]
                 Some(ctx) => {
-                    if seal.is_some() {
-                        let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                            index,
-                            CorruptionKind::Sealed,
-                        ))));
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: a sealed frame follows this journal's own seal");
-                        return refusal;
-                    }
-                    match super::sealed_impl::classify_sealed_frame(
-                        &payload,
-                        &ctx.tenant,
-                        &ctx.provider,
-                        index,
-                    ) {
-                        Ok(super::sealed_impl::SealedClassified::Record {
-                            key,
-                            wrapped,
-                            nonce,
-                            ciphertext,
-                            expires_at,
-                            fingerprint,
-                            event,
-                            erased,
-                        }) => {
-                            position = verify_frame(&payload, &head, position, index)?;
-                            if erased {
-                                sealed_burned.push(fingerprint);
-                            }
-                            if let Some(event) = event {
-                                entries.push(JournalEntry::new(position, *event));
-                            }
-                            sealed_slots.push(super::sealed_impl::SealedSlot {
-                                ordinal: index,
-                                sequence: position.sequence(),
-                                head: position.head(),
-                                key,
-                                wrapped,
-                                nonce,
-                                ciphertext,
-                                fingerprint,
-                                expires_at,
-                                erased,
-                            });
-                        }
-                        Ok(super::sealed_impl::SealedClassified::Tombstone {
-                            index: target,
-                            key_id,
-                        }) => {
-                            position = verify_frame(&payload, &head, position, index)?;
-                            match sealed_slots.iter_mut().find(|slot| slot.ordinal == target) {
-                                Some(slot) if slot.key.id() == key_id => {
-                                    slot.erased = true;
-                                    sealed_burned.push(slot.fingerprint);
-                                }
-                                _ => {
-                                    let refusal = Err(JournalError::Corrupt(Box::new(
-                                        Corruption::new(index, CorruptionKind::Undecodable),
-                                    )));
-                                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: a tombstone names no sealed record");
-                                    return refusal;
-                                }
-                            }
-                        }
-                        Err(super::sealed_impl::SealedDamage::NotSealed) => {
-                            let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                                index,
-                                CorruptionKind::Undecodable,
-                            ))));
-                            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: a sealed journal holds a plain frame");
-                            return refusal;
-                        }
-                        Err(_) => {
-                            let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                                index,
-                                CorruptionKind::Undecodable,
-                            ))));
-                            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: a sealed frame does not decode");
-                            return refusal;
-                        }
-                    }
+                    position = sealed_frame(
+                        ctx,
+                        &frame,
+                        position,
+                        (index, seal.is_some()),
+                        (&mut entries, &mut folded),
+                    )?;
                 }
                 _ => {
-                    #[cfg(feature = "sealed")]
-                    if crate::sealed::record::is_sealed_payload(&payload) {
-                        let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                            index,
-                            CorruptionKind::Undecodable,
-                        ))));
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: a plain journal holds a sealed frame");
-                        return refusal;
-                    }
-                    if seal.is_some() {
-                        let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                            index,
-                            CorruptionKind::Sealed,
-                        ))));
-                        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: an event follows this journal's own seal");
-                        return refusal;
-                    }
-                    let event: EffectEvent = match from_bytes::<EffectEvent, WireError>(&payload) {
-                        Ok(event) => event,
-                        Err(error) => {
-                            lgwks_std::trace::debug!(
-                                ?error,
-                                index,
-                                "scan: the payload did not decode"
-                            );
-                            let refusal = Err(JournalError::Corrupt(Box::new(Corruption::new(
-                                index,
-                                CorruptionKind::Undecodable,
-                            ))));
-                            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "scan: returning an error to the caller");
-                            return refusal;
-                        }
-                    };
-                    position = verify_frame(&payload, &head, position, index)?;
-                    entries.push(JournalEntry::new(position, event));
+                    let entry = plain_event(&frame, position, index, seal.is_some())?;
+                    position = entry.position();
+                    entries.push(entry);
                 }
             }
         }
-        offset = offset.saturating_add(super::super::frame::framed_len(payload_len));
+        offset = offset.saturating_add(super::super::frame::framed_len(frame.payload_len));
         index = index.saturating_add(1);
+    }
+}
+
+/// The refusal that the file's frame at `index` is corrupt in `kind`.
+#[cfg(feature = "wire")]
+fn corrupt<T>(index: u64, kind: CorruptionKind) -> Result<T, JournalError> {
+    Err(JournalError::Corrupt(Box::new(Corruption::new(
+        index, kind,
+    ))))
+}
+
+/// A checkpoint frame, decoded and verified against the position it names.
+///
+/// A checkpoint is legal in exactly two places: as this file's first frame, which
+/// is the predecessor's seal this file continues from, and as this file's last,
+/// which is this file sealing itself. Two in one file are bytes no writer of this
+/// journal produces; one in the middle is caught by the event-after-seal refusal,
+/// because a frame that follows a seal cannot be part of the chain that seal
+/// closed. Verifying against the position it *names* rather than the genesis is
+/// what lets a successor's own chain start at its predecessor's tail and still be
+/// a chain.
+#[cfg(feature = "wire")]
+fn checkpoint_frame(
+    decoded: Result<Continuation, JournalError>,
+    frame: &Frame,
+    index: u64,
+    sealed_already: bool,
+) -> Result<(Continuation, JournalPosition), JournalError> {
+    if sealed_already {
+        lgwks_std::trace::debug!(index, "scan: the file holds a second sealed checkpoint");
+        return corrupt(index, CorruptionKind::Sealed);
+    }
+    let checkpoint = match decoded {
+        Ok(checkpoint) => checkpoint,
+        Err(cause) => {
+            lgwks_std::trace::debug!(index, "scan: the sealed checkpoint did not decode");
+            return Err(cause);
+        }
+    };
+    let position = verify_frame(&frame.payload, &frame.head, checkpoint.predecessor(), index)?;
+    Ok((checkpoint, position))
+}
+
+/// An effect event frame of a plain journal, decoded and chained from `position`.
+///
+/// A plain journal refuses a sealed frame, and any event after this journal's own
+/// seal: a frame that follows a seal cannot be part of the chain that seal closed.
+#[cfg(feature = "wire")]
+fn plain_event(
+    frame: &Frame,
+    position: JournalPosition,
+    index: u64,
+    sealed_already: bool,
+) -> Result<JournalEntry, JournalError> {
+    #[cfg(feature = "sealed")]
+    if crate::sealed::record::is_sealed_payload(&frame.payload) {
+        lgwks_std::trace::debug!(index, "scan: a plain journal holds a sealed frame");
+        return corrupt(index, CorruptionKind::Undecodable);
+    }
+    if sealed_already {
+        lgwks_std::trace::debug!(index, "scan: an event follows this journal's own seal");
+        return corrupt(index, CorruptionKind::Sealed);
+    }
+    let event: EffectEvent = match from_bytes::<EffectEvent, WireError>(&frame.payload) {
+        Ok(event) => event,
+        Err(error) => {
+            lgwks_std::trace::debug!(?error, index, "scan: the payload did not decode");
+            return corrupt(index, CorruptionKind::Undecodable);
+        }
+    };
+    let at = verify_frame(&frame.payload, &frame.head, position, index)?;
+    Ok(JournalEntry::new(at, event))
+}
+
+/// What a sealed scan has folded so far: the slots it read and the fingerprints
+/// of the ones burned.
+#[cfg(feature = "sealed")]
+#[derive(Default)]
+struct SealedFold {
+    /// Every sealed record, in file order.
+    slots: Vec<super::sealed_impl::SealedSlot>,
+    /// The fingerprints of the erased ones.
+    burned: Vec<[u8; 32]>,
+}
+
+/// One frame of a sealed journal: a sealed record, which joins the slots and the
+/// events, or a tombstone, which erases the slot it names. Returns the position
+/// the frame leaves the chain at.
+///
+/// `at` is the frame's index and whether this journal's own seal already closed
+/// the chain, after which no sealed frame may follow; `folds` is the events and
+/// the sealed state the frame folds into.
+#[cfg(feature = "sealed")]
+fn sealed_frame(
+    ctx: &super::SealedOpen,
+    frame: &Frame,
+    position: JournalPosition,
+    at: (u64, bool),
+    folds: (&mut Vec<JournalEntry>, &mut SealedFold),
+) -> Result<JournalPosition, JournalError> {
+    use super::sealed_impl::{SealedClassified, SealedDamage, SealedSlot, classify_sealed_frame};
+    let (index, sealed_already) = at;
+    let (entries, folded) = folds;
+    if sealed_already {
+        lgwks_std::trace::debug!(
+            index,
+            "scan: a sealed frame follows this journal's own seal"
+        );
+        return corrupt(index, CorruptionKind::Sealed);
+    }
+    match classify_sealed_frame(&frame.payload, &ctx.tenant, &ctx.provider, index) {
+        Ok(SealedClassified::Record {
+            key,
+            wrapped,
+            nonce,
+            ciphertext,
+            expires_at,
+            fingerprint,
+            event,
+            erased,
+        }) => {
+            let at_end = verify_frame(&frame.payload, &frame.head, position, index)?;
+            if erased {
+                folded.burned.push(fingerprint);
+            }
+            if let Some(event) = event {
+                entries.push(JournalEntry::new(at_end, *event));
+            }
+            folded.slots.push(SealedSlot {
+                ordinal: index,
+                sequence: at_end.sequence(),
+                head: at_end.head(),
+                key,
+                wrapped,
+                nonce,
+                ciphertext,
+                fingerprint,
+                expires_at,
+                erased,
+            });
+            Ok(at_end)
+        }
+        Ok(SealedClassified::Tombstone {
+            index: target,
+            key_id,
+        }) => {
+            let at_end = verify_frame(&frame.payload, &frame.head, position, index)?;
+            match folded.slots.iter_mut().find(|slot| slot.ordinal == target) {
+                Some(slot) if slot.key.id() == key_id => {
+                    slot.erased = true;
+                    folded.burned.push(slot.fingerprint);
+                    Ok(at_end)
+                }
+                Some(_) | None => {
+                    lgwks_std::trace::debug!(index, "scan: a tombstone names no sealed record");
+                    corrupt(index, CorruptionKind::Undecodable)
+                }
+            }
+        }
+        Err(SealedDamage::NotSealed) => {
+            lgwks_std::trace::debug!(index, "scan: a sealed journal holds a plain frame");
+            corrupt(index, CorruptionKind::Undecodable)
+        }
+        Err(_) => {
+            lgwks_std::trace::debug!(index, "scan: a sealed frame does not decode");
+            corrupt(index, CorruptionKind::Undecodable)
+        }
     }
 }
 

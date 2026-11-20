@@ -22,7 +22,7 @@ use lgwks_bot::rt::edge::EdgeStop;
 use lgwks_bot::rt::serve::{RouteMethod, ServeOptions, ServeReport, TypedRoute};
 
 /// One HTTP answer split into status, headers and body.
-pub fn split_answer(answer: &str) -> Option<(u16, String, String)> {
+pub(crate) fn split_answer(answer: &str) -> Option<(u16, String, String)> {
     let (status_line, rest) = answer.split_once("\r\n")?;
     let code = status_line.strip_prefix("HTTP/1.1 ")?.get(..3)?;
     let (headers, body) = rest.split_once("\r\n\r\n")?;
@@ -30,7 +30,7 @@ pub fn split_answer(answer: &str) -> Option<(u16, String, String)> {
 }
 
 /// One `POST` to `tenant` `path` on a fresh connection.
-pub fn post(
+pub(crate) fn post(
     addr: SocketAddr,
     tenant: &str,
     path: &str,
@@ -44,7 +44,7 @@ pub fn post(
 ///
 /// A `None` timeout reads and writes without bound; `Some` bounds both, so a
 /// stalled server fails the exchange instead of parking the client forever.
-pub fn post_timeout(
+pub(crate) fn post_timeout(
     addr: SocketAddr,
     tenant: &str,
     path: &str,
@@ -66,7 +66,7 @@ pub fn post_timeout(
 }
 
 /// One `POST` to `tenant` `path` carrying `headers`, bounded by `timeout`.
-pub fn post_with(
+pub(crate) fn post_with(
     addr: SocketAddr,
     tenant: &str,
     path: &str,
@@ -102,7 +102,7 @@ pub fn post_with(
 }
 
 /// A listener on a free loopback port, and the address it holds.
-pub fn loopback() -> Result<(TcpListener, SocketAddr), String> {
+pub(crate) fn loopback() -> Result<(TcpListener, SocketAddr), String> {
     let refused = |what: &str, error: std::io::Error| format!("the {what} is refused: {error}");
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| refused("listener", error))?;
     let addr = listener
@@ -115,7 +115,7 @@ pub fn loopback() -> Result<(TcpListener, SocketAddr), String> {
 ///
 /// The serve owns the listener until the probe stops it; the report counts
 /// what drained and what was cancelled.
-pub fn with_serve<T>(
+pub(crate) fn with_serve<T>(
     routes: Vec<TypedRoute>,
     store: &crate::scratch::Scratch,
     max_in_flight: u64,
@@ -148,13 +148,13 @@ pub fn with_serve<T>(
 }
 
 /// A scratch store named `name` and a fresh run counter for it.
-pub fn counted(name: &str) -> Result<(crate::scratch::Scratch, Arc<Counter>), String> {
+pub(crate) fn counted(name: &str) -> Result<(crate::scratch::Scratch, Arc<Counter>), String> {
     let store = crate::scratch::Scratch::new(name).map_err(|error| error.to_string())?;
     Ok((store, Arc::new(Counter::default())))
 }
 
 /// `POST /drafts`, folding every request into `counter` under its tenant.
-pub fn counting_route(counter: &Arc<Counter>) -> TypedRoute {
+pub(crate) fn counting_route(counter: &Arc<Counter>) -> TypedRoute {
     let worker = Arc::clone(counter);
     TypedRoute::new(
         RouteMethod::Post,
@@ -167,7 +167,7 @@ pub fn counting_route(counter: &Arc<Counter>) -> TypedRoute {
 }
 
 /// `POST {path}` that flags `entered`, then parks on `gate` until released.
-pub fn parking_route(path: &str, gate: &Arc<Gate>, entered: &Arc<AtomicBool>) -> TypedRoute {
+pub(crate) fn parking_route(path: &str, gate: &Arc<Gate>, entered: &Arc<AtomicBool>) -> TypedRoute {
     let parked = Arc::clone(gate);
     let signalled = Arc::clone(entered);
     TypedRoute::new(
@@ -185,7 +185,7 @@ pub fn parking_route(path: &str, gate: &Arc<Gate>, entered: &Arc<AtomicBool>) ->
 }
 
 /// Yield until a parking handler has `entered`, or refuse after 15 seconds.
-pub fn await_entered(entered: &AtomicBool) -> Result<(), String> {
+pub(crate) fn await_entered(entered: &AtomicBool) -> Result<(), String> {
     let deadline = Instant::now()
         .checked_add(Duration::from_secs(15))
         .ok_or_else(|| String::from("the park deadline does not fit the clock"))?;
@@ -200,10 +200,10 @@ pub fn await_entered(entered: &AtomicBool) -> Result<(), String> {
 }
 
 /// A handler's synchronous answer: response bytes, or `(status, message)`.
-pub type Answer = fn(Vec<u8>) -> Result<Vec<u8>, (u16, String)>;
+pub(crate) type Answer = fn(Vec<u8>) -> Result<Vec<u8>, (u16, String)>;
 
 /// `POST /drafts` that counts each run in `runs`, then answers `answer(body)`.
-pub fn tallying_route(runs: &Arc<AtomicUsize>, answer: Answer) -> TypedRoute {
+pub(crate) fn tallying_route(runs: &Arc<AtomicUsize>, answer: Answer) -> TypedRoute {
     let counted = Arc::clone(runs);
     TypedRoute::new(
         RouteMethod::Post,
@@ -220,7 +220,7 @@ pub fn tallying_route(runs: &Arc<AtomicUsize>, answer: Answer) -> TypedRoute {
 
 /// Counts what the edge ran, per tenant.
 #[derive(Debug, Default)]
-pub struct Counter {
+pub(crate) struct Counter {
     /// Handler runs so far.
     runs: AtomicUsize,
     /// Requests answered per tenant.
@@ -229,7 +229,7 @@ pub struct Counter {
 
 impl Counter {
     /// Fold one request for `tenant`, answering its running count.
-    pub fn fold(&self, tenant: &str) -> Result<Vec<u8>, (u16, String)> {
+    pub(crate) fn fold(&self, tenant: &str) -> Result<Vec<u8>, (u16, String)> {
         self.runs.fetch_add(1, Ordering::SeqCst);
         let mut counts = match self.per_tenant.lock() {
             Ok(counts) => counts,
@@ -244,14 +244,14 @@ impl Counter {
     }
 
     /// Handler runs so far.
-    pub fn runs(&self) -> usize {
+    pub(crate) fn runs(&self) -> usize {
         self.runs.load(Ordering::SeqCst)
     }
 }
 
 /// A gate parked handlers wait on, released once by the test.
 #[derive(Debug, Default)]
-pub struct Gate {
+pub(crate) struct Gate {
     /// Whether the gate is open.
     open: Mutex<bool>,
     /// Rung on release.
@@ -260,7 +260,7 @@ pub struct Gate {
 
 impl Gate {
     /// Block until released, answering the parked body.
-    pub fn pass(&self) -> Result<Vec<u8>, String> {
+    pub(crate) fn pass(&self) -> Result<Vec<u8>, String> {
         match self.open.lock() {
             Ok(mut open) => {
                 while !*open {
@@ -282,7 +282,7 @@ impl Gate {
     }
 
     /// Release every parked handler.
-    pub fn release(&self) -> Result<(), String> {
+    pub(crate) fn release(&self) -> Result<(), String> {
         match self.open.lock() {
             Ok(mut open) => {
                 *open = true;
@@ -298,7 +298,7 @@ impl Gate {
 }
 
 /// Decode the body as the route's JSON input, naming the field it misses.
-pub fn decode_draft(body: &[u8]) -> Result<String, (u16, String)> {
+pub(crate) fn decode_draft(body: &[u8]) -> Result<String, (u16, String)> {
     match lgwks_std::json::from_slice::<Value>(body) {
         Ok(value) => match value.get("title").and_then(|title| title.as_str()) {
             Some(title) => Ok(format!("draft:{title}")),
@@ -312,7 +312,7 @@ pub fn decode_draft(body: &[u8]) -> Result<String, (u16, String)> {
 }
 
 /// Read the running total out of an answer.
-pub fn parse_count(body: &str) -> Result<u64, String> {
+pub(crate) fn parse_count(body: &str) -> Result<u64, String> {
     let trimmed = body.trim();
     let digits = trimmed
         .strip_prefix("{\"count\":")
@@ -335,19 +335,19 @@ pub fn parse_count(body: &str) -> Result<u64, String> {
 }
 
 /// A child server killed on drop.
-pub struct ChildGuard {
+pub(crate) struct ChildGuard {
     /// The child, while running.
     child: Option<Child>,
 }
 
 impl ChildGuard {
     /// Hold `child` until stopped or dropped.
-    pub fn hold(child: Child) -> Self {
+    pub(crate) fn hold(child: Child) -> Self {
         Self { child: Some(child) }
     }
 
     /// Stop the child and wait for it.
-    pub fn stop(&mut self) -> Result<(), String> {
+    pub(crate) fn stop(&mut self) -> Result<(), String> {
         if let Some(mut child) = self.child.take() {
             match child.kill() {
                 Ok(()) => {}
@@ -384,7 +384,7 @@ fn send_term(child: &Child) -> Result<(), String> {
 impl ChildGuard {
     /// Send SIGTERM, wait for the exit, and answer its status and stdout.
     #[cfg(unix)]
-    pub fn terminate(&mut self) -> Result<(std::process::ExitStatus, String), String> {
+    pub(crate) fn terminate(&mut self) -> Result<(std::process::ExitStatus, String), String> {
         let Some(child) = self.child.take() else {
             lgwks_std::trace::debug!("serve-test: SIGTERM asked of a stopped child");
             return Err(String::from("the child was already stopped"));
@@ -408,7 +408,9 @@ impl ChildGuard {
     ///
     /// The earliest stop a supervisor can give a server it just saw start.
     #[cfg(unix)]
-    pub fn terminate_at_ready(&mut self) -> Result<(std::process::ExitStatus, String), String> {
+    pub(crate) fn terminate_at_ready(
+        &mut self,
+    ) -> Result<(std::process::ExitStatus, String), String> {
         use std::io::{BufRead as _, Read as _};
         let Some(mut child) = self.child.take() else {
             lgwks_std::trace::debug!("serve-test: SIGTERM asked of a stopped child");
@@ -446,7 +448,7 @@ impl ChildGuard {
 }
 
 /// Start the shipped `estate serve` over `store` on `port`, stdout to `stdout`.
-pub fn spawn_estate_serve(
+pub(crate) fn spawn_estate_serve(
     store: &std::path::Path,
     port: u16,
     extra: &[&str],
@@ -471,7 +473,7 @@ pub fn spawn_estate_serve(
 }
 
 /// The deadline a freshly started server has to answer its first request.
-pub fn ready_deadline() -> Result<std::time::Instant, String> {
+pub(crate) fn ready_deadline() -> Result<std::time::Instant, String> {
     std::time::Instant::now()
         .checked_add(std::time::Duration::from_secs(20))
         .ok_or_else(|| {
@@ -503,7 +505,7 @@ impl Drop for ChildGuard {
 /// moves the build; cargo bakes `CARGO_BIN_EXE_estate` in at compile time. The
 /// nightly's build-dir layout puts test binaries apart from the bins, so no
 /// path beside the test binary is guessed (ADR 0066).
-pub fn estate_bin() -> Result<PathBuf, String> {
+pub(crate) fn estate_bin() -> Result<PathBuf, String> {
     if let Some(path) = std::env::var_os("NEXTEST_BIN_EXE_estate") {
         return Ok(PathBuf::from(path));
     }
@@ -518,7 +520,7 @@ pub fn estate_bin() -> Result<PathBuf, String> {
 }
 
 /// A loopback port nothing holds yet.
-pub fn free_port() -> Result<u16, String> {
+pub(crate) fn free_port() -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|error| format!("no loopback port is free: {error}"))?;
     let port = listener
@@ -530,7 +532,7 @@ pub fn free_port() -> Result<u16, String> {
 }
 
 /// POST until the server answers or the deadline passes.
-pub fn wait_ready(
+pub(crate) fn wait_ready(
     addr: SocketAddr,
     tenant: &str,
     path: &str,
@@ -555,7 +557,11 @@ pub fn wait_ready(
 }
 
 /// One `GET` from `tenant` `path` on a fresh connection.
-pub fn get(addr: SocketAddr, tenant: &str, path: &str) -> Result<(u16, String, String), String> {
+pub(crate) fn get(
+    addr: SocketAddr,
+    tenant: &str,
+    path: &str,
+) -> Result<(u16, String, String), String> {
     let target = format!("/t/{tenant}{path}");
     let head = format!("GET {target} HTTP/1.1\r\nhost: {addr}\r\nconnection: close\r\n\r\n");
     let mut answer = String::new();
@@ -569,7 +575,7 @@ pub fn get(addr: SocketAddr, tenant: &str, path: &str) -> Result<(u16, String, S
 }
 
 /// POST a JSON draft to the reference route, or the refusal.
-pub fn post_draft(
+pub(crate) fn post_draft(
     addr: SocketAddr,
     tenant: &str,
     title: &str,

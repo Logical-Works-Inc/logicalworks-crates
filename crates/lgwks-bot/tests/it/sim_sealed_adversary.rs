@@ -77,7 +77,7 @@ fn sim_sealed_adversary_wrong_order() -> TestResult {
     append_journal_event(&mut sub.journal, &journal_event(k2))?;
 
     let keys = live_journal_keys(&sub.journal)?;
-    if keys.len() != 2 || keys[0] != k1 || keys[1] != k2 {
+    if keys != [k1, k2] {
         return refuse("records appeared out of append sequence");
     }
     assert_journal_chain(&sub.journal)?;
@@ -145,7 +145,7 @@ fn sim_sealed_adversary_pulled_plug() -> TestResult {
         let recovered =
             FileJournal::open_sealed(&sub.path, Arc::clone(&sub.provider), ADVERSARY_TENANT_A)?;
         let entries = live_journal_keys(&recovered)?;
-        if entries.len() != 1 || entries[0] != k1 {
+        if entries != [k1] {
             return refuse("torn tail did not truncate back to kept prefix");
         }
         if !recovered.torn_tail_repaired() {
@@ -186,7 +186,7 @@ fn sim_sealed_adversary_clock_fool() -> TestResult {
     append_journal_event(&mut sub.journal, &journal_event(k2))?;
 
     let entries = live_journal_keys(&sub.journal)?;
-    if entries.len() != 2 || entries[0] != k1 || entries[1] != k2 {
+    if entries != [k1, k2] {
         return refuse("sequence monotonicity violated under clock fool test");
     }
     assert_journal_chain(&sub.journal)?;

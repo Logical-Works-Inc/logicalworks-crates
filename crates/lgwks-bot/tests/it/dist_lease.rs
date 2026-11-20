@@ -240,13 +240,16 @@ fn a_dead_coordinator_run_survives_on_disk() -> TestResult {
     );
     let store = TenantStore::open(dir)?;
     let lanes = store.lanes("run-dead-001")?;
+    let Ok([dispatched, undispatched]) = <[_; 2]>::try_from(lanes) else {
+        return Err("run-dead-001 holds exactly two lanes".into());
+    };
     assert_eq!(
-        lanes[0].outcome.as_deref(),
+        dispatched.outcome(),
         Some("outcome-unknown"),
         "the dispatched lane must read unknown, never a pass"
     );
     assert_eq!(
-        lanes[1].outcome.as_deref(),
+        undispatched.outcome(),
         Some("unmeasured"),
         "the undispatched lane must read unmeasured"
     );

@@ -261,7 +261,7 @@ fn payload_of(scripted: &ScriptedGh, index: usize) -> std::io::Result<Option<Str
         .iter()
         .filter(|argv| {
             argv.windows(2)
-                .any(|pair| pair[0] == "--method" && pair[1] == "POST")
+                .any(|pair| matches!(pair, [flag, verb] if flag == "--method" && verb == "POST"))
         })
         .count();
     if index >= creates {

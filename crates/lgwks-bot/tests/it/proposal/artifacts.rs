@@ -117,12 +117,7 @@ fn concurrent_writers_of_one_key_commit_exactly_once_per_tenant() -> TestResult 
                 let tenant = if index % 2 == 0 { TENANT } else { OTHER_TENANT };
                 scope.spawn(move || {
                     barrier.wait();
-                    (
-                        tenant,
-                        store
-                            .write(tenant, bytes)
-                            .map_err(|error| error.to_string()),
-                    )
+                    (tenant, store.write(tenant, bytes))
                 })
             })
             .collect::<Vec<_>>();
@@ -135,7 +130,7 @@ fn concurrent_writers_of_one_key_commit_exactly_once_per_tenant() -> TestResult 
     let mut stored = std::collections::BTreeMap::<&str, usize>::new();
     let mut already = std::collections::BTreeMap::<&str, usize>::new();
     for writer in joined {
-        let (tenant, outcome) = writer.map_err(|_| "a writer thread panicked")?;
+        let (tenant, outcome) = writer.map_err(crate::sim::panicked)?;
         match outcome? {
             WriteOutcome::Stored { .. } => {
                 let count = stored.entry(tenant).or_default();
@@ -216,14 +211,14 @@ fn reads_progress_while_a_write_is_in_flight() -> TestResult {
         (seen, outcome)
     });
 
-    let outcome = outcome.map_err(|_| "the writer thread panicked")??;
+    let outcome = outcome.map_err(crate::sim::panicked)??;
     assert_eq!(
         seen.len(),
         8,
         "every reader thread reported, so none was lost"
     );
     for seen in seen {
-        let seen = seen.map_err(|_| "a reader thread panicked")?;
+        let seen = seen.map_err(crate::sim::panicked)?;
         assert_eq!(seen, 64, "every reader saw the artifact on every read");
     }
     assert!(
@@ -240,7 +235,7 @@ fn reads_progress_while_a_write_is_in_flight() -> TestResult {
 /// An artifact past its byte ceiling is refused by name, and the store is
 /// unchanged by the refusal.
 #[test]
-fn an_oversized_artifact_is_refused_and_the_store_is_unchanged() -> TestResult {
+fn an_oversized_artifact_is_refused_and_the_store_is_unchanged() {
     let store = ArtifactStore::new();
     let too_big = vec![b'z'; lgwks_bot::proposal::MAX_ARTIFACT_BYTES.saturating_add(1)];
 
@@ -263,5 +258,4 @@ fn an_oversized_artifact_is_refused_and_the_store_is_unchanged() -> TestResult {
         ),
         "the same ceiling is enforced before a caller commits to a key"
     );
-    Ok(())
 }

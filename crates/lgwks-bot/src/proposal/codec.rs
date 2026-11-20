@@ -487,9 +487,9 @@ impl<'a> Reader<'a> {
     /// Read one line's bytes, without its terminator.
     fn line(&mut self) -> Result<&'a [u8], Refusal> {
         let start = self.cursor;
-        while self.cursor < self.bytes.len() {
-            if self.bytes[self.cursor] == b'\n' {
-                let line = &self.bytes[start..self.cursor];
+        while let Some(byte) = self.bytes.get(self.cursor) {
+            if *byte == b'\n' {
+                let line = self.span(start, self.cursor)?;
                 self.cursor = self.cursor.saturating_add(1);
                 return Ok(trim_cr(line));
             }
@@ -510,7 +510,15 @@ impl<'a> Reader<'a> {
         // No terminator: the document ended without a final newline. That is
         // still a complete document, because every field before this one was
         // terminated and this is the last.
-        Ok(trim_cr(&self.bytes[start..self.cursor]))
+        Ok(trim_cr(self.span(start, self.cursor)?))
+    }
+
+    /// The document's bytes from `from` to `to`, or the refusal that they lie outside it.
+    fn span(&self, from: usize, to: usize) -> Result<&'a [u8], Refusal> {
+        self.bytes.get(from..to).ok_or(Refusal::Malformed {
+            cause: "a span outside the document",
+            at: from,
+        })
     }
 
     /// The longest a line may be and still possibly be within every ceiling:
@@ -524,7 +532,12 @@ impl<'a> Reader<'a> {
 
     /// Charge and store one field's value.
     fn field(&mut self, declared: &mut Declared, line: &[u8], start: usize) -> Result<(), Refusal> {
-        let Some(split) = line.iter().position(|byte| *byte == b'=') else {
+        let Some((raw_name, raw_value)) = line
+            .iter()
+            .position(|byte| *byte == b'=')
+            .and_then(|split| line.split_at_checked(split))
+            .and_then(|(name, rest)| rest.split_first().map(|(_, value)| (name, value)))
+        else {
             let refusal = Err(Refusal::Malformed {
                 cause: "a line with no `=` separator",
                 at: start,
@@ -532,8 +545,6 @@ impl<'a> Reader<'a> {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "field: returning an error to the caller");
             return refusal;
         };
-        let raw_name = &line[..split];
-        let raw_value = &line[split.saturating_add(1)..];
         self.check_len(
             raw_name.len(),
             MAX_FIELD_NAME_BYTES,
@@ -628,7 +639,7 @@ impl<'a> Reader<'a> {
 
     /// Skip blank lines so a document with generous spacing is not a refusal.
     fn skip_newlines(&mut self) {
-        while self.cursor < self.bytes.len() && self.bytes[self.cursor] == b'\n' {
+        while self.bytes.get(self.cursor) == Some(&b'\n') {
             self.cursor = self.cursor.saturating_add(1);
         }
     }
@@ -652,7 +663,13 @@ fn trim(value: &[u8]) -> &[u8] {
     // `start + end` cannot exceed the slice's length: both count disjoint
     // positions, so the subtraction is only reached when every byte is a space,
     // and then it is `len`.
-    &value[start..value.len().saturating_sub(end)]
+    match value
+        .get(start..)
+        .and_then(|tail| tail.get(..tail.len().saturating_sub(end)))
+    {
+        Some(trimmed) => trimmed,
+        None => &[],
+    }
 }
 
 /// Read a field's bytes as text, replacing anything that is not UTF-8.

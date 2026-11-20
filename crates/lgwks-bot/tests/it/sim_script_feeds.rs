@@ -43,17 +43,16 @@ struct Feed {
 
 impl Feed {
     /// The next batch, or `None` when the feed has ended.
-    async fn next(&self) -> Option<Vec<u32>> {
+    fn next(&self) -> Option<Vec<u32>> {
         self.batches.lock().ok()?.pop_front()
     }
 
     /// Handle one event in `scope`.
-    async fn handle(&self, scope: &Scope, tick: u32) -> Result<(), FlowError> {
+    fn handle(&self, scope: &Scope, tick: u32) {
         note(
             &self.handled,
             (tick, scope.path().to_owned(), scope.key().to_hex()),
         );
-        Ok(())
     }
 }
 
@@ -66,40 +65,40 @@ struct Api {
 
 impl Api {
     /// One call.
-    async fn call(&self, _scope: &Scope) -> Result<u64, FlowError> {
+    fn call(&self, _scope: &Scope) -> u64 {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        Ok(7)
+        7
     }
 }
 
 lgwks_bot::script! {
     flow drop_oldest(feed: &Feed) -> PumpReport:
-        let report = whenever tick in feed.next().await, buffering 4, drop oldest:
-            feed.handle(scope, tick).await?
+        let report = whenever tick in feed.next(), buffering 4, drop oldest:
+            feed.handle(scope, tick)
         give back report
 
     flow drop_newest(feed: &Feed) -> PumpReport:
-        let report = whenever tick in feed.next().await, buffering 4, drop newest:
-            feed.handle(scope, tick).await?
+        let report = whenever tick in feed.next(), buffering 4, drop newest:
+            feed.handle(scope, tick)
         give back report
 
     flow refuse(feed: &Feed) -> PumpReport:
-        let report = whenever tick in feed.next().await, buffering 4, refuse:
-            feed.handle(scope, tick).await?
+        let report = whenever tick in feed.next(), buffering 4, refuse:
+            feed.handle(scope, tick)
         give back report
 
     flow governed(api: &Api, rules: &Justify) -> u64:
         let code = justify with (rules):
             step call:
-                api.call(scope).await?
+                api.call(scope)
         give back code
 
     flow siblings(api: &Api, rules: &Justify) -> u64:
         let free = step free:
-            api.call(scope).await?
+            api.call(scope)
         let ruled = justify with (rules):
             step call:
-                api.call(scope).await?
+                api.call(scope)
         give back free.saturating_add(ruled)
 
 }
@@ -305,8 +304,11 @@ fn sim_a_buffer_outside_its_bounds_reads_nothing() -> TestResult {
             &SITE,
             cap,
             lgwks_bot::script::Overflow::Refuse,
-            async || feed.next().await,
-            async |scope: Scope, tick: u32| feed.handle(&scope, tick).await,
+            async || feed.next(),
+            async |scope: Scope, tick: u32| {
+                feed.handle(&scope, tick);
+                Ok::<(), FlowError>(())
+            },
         ));
         match outcome {
             Err(FlowError::InvalidBound { .. }) => {}

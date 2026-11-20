@@ -90,7 +90,7 @@ fn the_three_untrue_successes_report_distinct_outcomes_t35() -> TestResult {
 /// An abandoned run is admitted as abandoned — visibly not the same thing as a
 /// finished one.
 #[test]
-fn an_abandoned_run_is_not_a_finished_one() -> TestResult {
+fn an_abandoned_run_is_not_a_finished_one() {
     let abandoned = Completion::abandon("the upstream is gone");
     let outcome = CompletionOutcome::settle(
         &abandoned,
@@ -109,13 +109,12 @@ fn an_abandoned_run_is_not_a_finished_one() -> TestResult {
         abandoned.kind(),
         lgwks_bot::proposal::CompletionKind::Abandoned
     );
-    Ok(())
 }
 
 /// A claim naming more evidence references than the ceiling is refused whole,
 /// rather than trimmed to a prefix that would read as complete.
 #[test]
-fn an_over_long_evidence_claim_is_refused_whole() -> TestResult {
+fn an_over_long_evidence_claim_is_refused_whole() {
     let named = (0..lgwks_bot::proposal::MAX_EVIDENCE_REFS.saturating_add(1))
         .map(|index| format!("ref-{index}"))
         .collect::<Vec<_>>();
@@ -128,5 +127,4 @@ fn an_over_long_evidence_claim_is_refused_whole() -> TestResult {
         matches!(claim.admit(&[]), Err(Refusal::Limit { .. })),
         "a claim past the evidence ceiling is refused by name rather than trimmed"
     );
-    Ok(())
 }

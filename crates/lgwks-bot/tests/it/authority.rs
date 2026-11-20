@@ -328,7 +328,7 @@ fn a_tenant_without_the_grant_is_refused_while_the_other_is_served() -> TestResu
     let mut served_rounds = 0_usize;
     let mut refused_rounds = 0_usize;
     for joined in outcomes {
-        let (is_serving, results) = joined.map_err(|_| "a tenant thread panicked")?;
+        let (is_serving, results) = joined.map_err(crate::sim::panicked)?;
         for result in results {
             match (is_serving, result?) {
                 (true, Ok(1)) => served_rounds = served_rounds.saturating_add(1),

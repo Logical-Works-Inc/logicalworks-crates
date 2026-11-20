@@ -335,11 +335,11 @@ impl LandlockRules {
     /// [`Self::MAX_RULES`], or a path that is relative, longer than
     /// [`Self::MAX_PATH_BYTES`], not UTF-8, or holding a NUL or a newline.
     pub fn validate(&self) -> io::Result<()> {
-        let Some(message) = self.refusal() else {
-            return Ok(());
-        };
-        lgwks_std::trace::warn!(%message, "LandlockRules::validate refused an allowlist before the fork");
-        Err(io::Error::new(io::ErrorKind::InvalidInput, message))
+        if let Some(message) = self.refusal() {
+            lgwks_std::trace::warn!(%message, "LandlockRules::validate refused an allowlist before the fork");
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, message));
+        }
+        Ok(())
     }
 
     /// Why this list cannot be applied, or `None` when it can.
@@ -467,7 +467,14 @@ pub(super) fn command(confinement: &Confinement, program: &Path) -> io::Result<C
         Confinement::None => Ok(Command::new(program)),
         Confinement::SandboxProfile(ref profile) => {
             profile.validate()?;
-            sandbox(profile)
+            #[cfg(target_os = "macos")]
+            {
+                Ok(sandbox(profile))
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                sandbox(profile)
+            }
         }
         Confinement::Landlock(ref rules) => {
             rules.validate()?;
@@ -489,10 +496,10 @@ pub(super) const fn wraps(confinement: &Confinement) -> bool {
 /// `sandbox-exec -p <profile>` (macOS): the wrapper confines itself before it
 /// execs the target, so the profile holds the child and everything it forks.
 #[cfg(target_os = "macos")]
-fn sandbox(profile: &SandboxProfile) -> io::Result<Command> {
+fn sandbox(profile: &SandboxProfile) -> Command {
     let mut command = Command::new("/usr/bin/sandbox-exec");
     command.arg("-p").arg(profile.source());
-    Ok(command)
+    command
 }
 
 /// Every other target has no Seatbelt.

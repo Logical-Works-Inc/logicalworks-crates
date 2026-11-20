@@ -32,6 +32,10 @@ pub(super) fn serve<S, A>(
     let mut held = lock(&slot);
     held.released = true;
     signal.notify_all();
+    drop(held);
+    drop(gate);
+    drop(signal);
+    drop(slot);
 }
 
 /// One staged member of a batch: the request it belongs to, and what it owes.

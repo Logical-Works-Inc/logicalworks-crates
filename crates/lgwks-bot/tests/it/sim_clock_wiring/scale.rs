@@ -181,10 +181,7 @@ fn a_deep_nest_of_clock_governed_steps_is_stack_bounded() -> Result<(), Box<dyn 
         .spawn(move || block_on(Box::pin(nest(&clock, &scope, DEPTH))))
         .map_err(|error| format!("the nest thread could not start: {error}"))?
         .join()
-        .map_err(|_| {
-            "the nest thread panicked or overflowed its stack: a deeply nested \
-                       clock-governed step no longer fits in 2 MiB"
-        })??;
+        .map_err(crate::sim::panicked)??;
 
     assert_eq!(
         outcome,

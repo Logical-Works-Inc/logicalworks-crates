@@ -81,7 +81,7 @@ fn decide_inbox(
 
 /// Two decisions over the same inputs agree exactly: the one assertion the
 /// determinism gates share instead of a second copy of the same six lines.
-fn assert_same_decision(first: &Decision, second: &Decision) -> Result<(), String> {
+fn assert_same_decision(first: &Decision, second: &Decision) {
     assert_eq!(
         first.inputs_hash(),
         second.inputs_hash(),
@@ -97,7 +97,6 @@ fn assert_same_decision(first: &Decision, second: &Decision) -> Result<(), Strin
         second.allowed(),
         "the same inputs replay the same decision"
     );
-    Ok(())
 }
 
 /// Port of `holder_can_transmit_through_a_valid_port`: a minted token verifies
@@ -133,10 +132,9 @@ fn tampered_token_is_refused() -> TestResult {
     let (clock, authority, token) = setup(1_000)?;
     let mut bytes = token.to_bytes().map_err(|cause| cause.to_string())?;
     let last = bytes
-        .len()
-        .checked_sub(1)
+        .last_mut()
         .ok_or_else(|| String::from("a token serializes to bytes"))?;
-    bytes[last] = bytes[last].wrapping_add(1);
+    *last = last.wrapping_add(1);
     match BearerToken::from_bytes(bytes.as_slice()) {
         Ok(forged) => {
             let revocations = RevocationList::new();
@@ -410,7 +408,8 @@ fn malformed_bytes_are_refused_never_panic() -> TestResult {
     let (clock, authority, token) = setup(1_000)?;
     let bytes = token.to_bytes().map_err(|cause| cause.to_string())?;
     for end in 0..bytes.len() {
-        match BearerToken::from_bytes(&bytes[0..end]) {
+        let prefix = bytes.get(..end).ok_or("a prefix of the token")?;
+        match BearerToken::from_bytes(prefix) {
             Err(TokenError::Malformed) => (),
             other => {
                 return Err(format!(
@@ -456,7 +455,7 @@ fn same_inputs_same_clock_same_decision_and_trace_hash() -> TestResult {
     let (clock, authority, token) = setup(1_000)?;
     let first = decide_inbox(&authority, &token, &clock)?;
     let second = decide_inbox(&authority, &token, &clock)?;
-    assert_same_decision(&first, &second)?;
+    assert_same_decision(&first, &second);
     Ok(())
 }
 
@@ -733,7 +732,7 @@ fn same_seed_replays_same_decision_trace_hash() -> TestResult {
             .map_err(|cause| cause.to_string())?;
         let first = decide_inbox(&authority, &narrowed, &clock)?;
         let second = decide_inbox(&authority, &narrowed, &clock)?;
-        assert_same_decision(&first, &second)?;
+        assert_same_decision(&first, &second);
     }
     Ok(())
 }

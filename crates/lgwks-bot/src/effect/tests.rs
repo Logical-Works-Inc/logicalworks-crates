@@ -1,3 +1,4 @@
+#[cfg(test)]
 use super::*;
 use core::num::NonZeroU128;
 
@@ -97,7 +98,7 @@ fn id_rejects_uppercase_rather_than_folding_it() -> TestResult {
     match Id128::from_hex(&upper) {
         Err(IdError::NotHex { at }) => {
             assert!(
-                upper.as_bytes()[at].is_ascii_uppercase(),
+                upper.as_bytes().get(at).is_some_and(u8::is_ascii_uppercase),
                 "offset {at} does not name the uppercase byte"
             );
         }

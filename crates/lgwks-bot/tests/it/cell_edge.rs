@@ -109,7 +109,7 @@ impl Observe for Idle {
 /// Serve `feed` on a loopback port until the client finishes; the client's
 /// result.
 fn serve_until(
-    feed: RequestFeed,
+    feed: &RequestFeed,
     client: impl FnOnce(SocketAddr) -> Result<(), String> + Send,
 ) -> TestResult {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
@@ -128,7 +128,7 @@ fn serve_until(
             stop.stop();
             journey
         });
-        serve(&mut world, &feed, listener, &stop)?;
+        serve(&mut world, feed, listener, &stop)?;
         match finished.join() {
             Ok(journey) => Ok(journey?),
             Err(_panicked) => Ok(refused(String::from("the client thread panicked"))?),
@@ -180,7 +180,7 @@ fn hammer(addr: SocketAddr, tenants: u64, posts: u64, threads: u64) -> Result<()
 #[test]
 fn a_hundred_tenants_served_over_http_keep_their_own_counts() -> TestResult {
     let feed = RequestFeed::new(counter);
-    serve_until(feed, |addr| hammer(addr, 100, 3, 10))?;
+    serve_until(&feed, |addr| hammer(addr, 100, 3, 10))?;
     Ok(())
 }
 
@@ -189,7 +189,7 @@ fn a_hundred_tenants_served_over_http_keep_their_own_counts() -> TestResult {
 #[test]
 fn a_thousand_tenants_served_over_http_keep_their_own_counts() -> TestResult {
     let feed = RequestFeed::new(counter);
-    serve_until(feed, |addr| hammer(addr, 1_000, 1, 20))?;
+    serve_until(&feed, |addr| hammer(addr, 1_000, 1, 20))?;
     Ok(())
 }
 
@@ -198,7 +198,7 @@ fn a_thousand_tenants_served_over_http_keep_their_own_counts() -> TestResult {
 #[test]
 fn a_panicking_route_is_answered_500_and_serves_again_after_rebuild() -> TestResult {
     let feed = RequestFeed::new(counter);
-    serve_until(feed.clone(), |addr| {
+    serve_until(&feed, |addr| {
         let (first, _, first_body) = call_head(addr, "POST", "/t/acme/count", b"")?;
         if first != 200 || first_body != "1" {
             return refused(format!("the first post answered {first} {first_body:?}"));

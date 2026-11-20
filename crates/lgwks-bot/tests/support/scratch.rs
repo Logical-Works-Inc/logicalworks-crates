@@ -13,7 +13,7 @@
 use std::path::{Path, PathBuf};
 
 /// A directory under the system temp root, removed when this value is dropped.
-pub struct Scratch(PathBuf);
+pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
     /// A fresh, empty directory named for `tag`.
@@ -23,7 +23,7 @@ impl Scratch {
     /// Whatever the entropy source or the filesystem reports. A directory that
     /// cannot be named uniquely is refused rather than reused, and a directory
     /// that cannot be created is not handed to a run.
-    pub fn new(tag: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub(crate) fn new(tag: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let unique = lgwks_std::random::bytes::<8>()?;
         let hex: String = unique.iter().map(|byte| format!("{byte:02x}")).collect();
         let path = std::env::temp_dir().join(format!("lgwks-{tag}-{hex}"));
@@ -32,7 +32,7 @@ impl Scratch {
     }
 
     /// Where the directory is.
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -48,9 +48,17 @@ impl Drop for Scratch {
     ///
     /// Best effort, and deliberately so: every assertion has already been made,
     /// a directory the system refuses to remove is litter under the temp root
-    /// rather than a wrong answer, and a removal error raised from `Drop` could
-    /// not be reported to the caller anyway.
+    /// rather than a wrong answer, and a removal error raised from `Drop` cannot
+    /// reach the caller, so it is traced instead.
     fn drop(&mut self) {
-        drop(std::fs::remove_dir_all(&self.0));
+        match std::fs::remove_dir_all(&self.0) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => lgwks_std::trace::debug!(
+                error = %error,
+                path = %self.0.display(),
+                "scratch: not removed, so the temp root keeps it"
+            ),
+        }
     }
 }

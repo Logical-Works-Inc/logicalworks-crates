@@ -102,6 +102,44 @@ impl Predecessor {
     }
 }
 
+/// One tick behind a predecessor in `state`: a skipped one holds nothing, every
+/// other one is reported by a typed variant and never as a clean tick.
+fn tick_reports_the_state(bot: &mut Bot, state: Predecessor, tick: u32) -> TestResult {
+    match (state, bot.tick()) {
+        (Predecessor::Skipped, Ok(_)) => Ok(()),
+        (Predecessor::Skipped, Err(error)) => {
+            let refusal = Err(format!(
+                "tick {tick}: a skipped predecessor holds nothing, got {error:?}"
+            )
+            .into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "tick_reports_the_state: returning an error to the caller");
+            refusal
+        }
+        (_, Ok(fired)) => {
+            let refusal = Err(format!(
+                "tick {tick}: a {} predecessor read as a clean {fired}-effect tick",
+                state.tag()
+            )
+            .into());
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "tick_reports_the_state: returning an error to the caller");
+            refusal
+        }
+        (_, Err(error)) => {
+            assert!(
+                matches!(
+                    error,
+                    EcsError::Kernel(
+                        KernelError::DomainError { .. } | KernelError::EffectIndeterminate { .. }
+                    ) | EcsError::PendingTransition { .. }
+                ),
+                "tick {tick}: a {} predecessor is reported by a typed variant: {error:?}",
+                state.tag()
+            );
+            Ok(())
+        }
+    }
+}
+
 /// T10, swept over every predecessor state: a dependent behind a predecessor
 /// that failed, was abandoned or became Unknown never runs, over a drawn number
 /// of ticks; a dependent behind a skipped predecessor runs once.
@@ -149,38 +187,7 @@ fn every_predecessor_state_decides_its_dependent(band: Band) -> TestResult {
             .build(&GrantSet::empty())?;
 
         for tick in 0..ticks {
-            let outcome = bot.tick();
-            match (state, outcome) {
-                (Predecessor::Skipped, Ok(_)) => {}
-                (Predecessor::Skipped, Err(error)) => {
-                    let refusal = Err(format!(
-                        "tick {tick}: a skipped predecessor holds nothing, got {error:?}"
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "every_predecessor_state_decides_its_dependent: returning an error to the caller");
-                    return refusal;
-                }
-                (_, Ok(fired)) => {
-                    let refusal = Err(format!(
-                        "tick {tick}: a {} predecessor read as a clean {fired}-effect tick",
-                        state.tag()
-                    )
-                    .into());
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "every_predecessor_state_decides_its_dependent: returning an error to the caller");
-                    return refusal;
-                }
-                (_, Err(error)) => assert!(
-                    matches!(
-                        error,
-                        EcsError::Kernel(
-                            KernelError::DomainError { .. }
-                                | KernelError::EffectIndeterminate { .. }
-                        ) | EcsError::PendingTransition { .. }
-                    ),
-                    "tick {tick}: a {} predecessor is reported by a typed variant: {error:?}",
-                    state.tag()
-                ),
-            }
+            tick_reports_the_state(&mut bot, state, tick)?;
         }
 
         let attempts_left = policy.max_attempts;
@@ -273,7 +280,7 @@ fn an_indeterminate_predecessor_is_never_resent(band: Band) -> TestResult {
                 "restart {restart}: the recovered unknown is reported, not forgotten"
             );
             assert_eq!(
-                held[0].key(),
+                held.first().and_then(|entry| entry.key()),
                 Some(key),
                 "restart {restart}: and it names the same key, so the hold is attributable"
             );

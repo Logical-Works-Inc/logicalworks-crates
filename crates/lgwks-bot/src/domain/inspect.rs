@@ -280,7 +280,7 @@ impl verb::Observe for Subject {
 /// inspects a `&str` and a replacement character would be a subject the caller
 /// did not hand over.
 fn read_subject(path: &str, limit: usize) -> Result<String, KernelError> {
-    let metadata = std::fs::metadata(path).map_err(|error| io_error(path, error))?;
+    let metadata = std::fs::metadata(path).map_err(|error| io_error(path, &error))?;
     // Saturation, and here the saturated value *is* the verdict rather than a
     // stand-in for one: a length this host cannot address is larger than every
     // budget it could be compared against, so the comparison below refuses it
@@ -298,11 +298,11 @@ fn read_subject(path: &str, limit: usize) -> Result<String, KernelError> {
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "read_subject: returning an error to the caller");
         return refusal;
     }
-    std::fs::read_to_string(path).map_err(|error| io_error(path, error))
+    std::fs::read_to_string(path).map_err(|error| io_error(path, &error))
 }
 
 /// The typed refusal a failed filesystem read reports.
-fn io_error(path: &str, error: std::io::Error) -> KernelError {
+fn io_error(path: &str, error: &std::io::Error) -> KernelError {
     KernelError::DomainError {
         domain: DOMAIN.into(),
         certainty: DispatchCertainty::NotDelivered,

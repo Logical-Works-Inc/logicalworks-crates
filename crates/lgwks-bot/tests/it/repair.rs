@@ -57,13 +57,13 @@ fn repair(
     host: &Host,
     declared: &Journey,
     ticket: &RepairTicket,
-    grant: GrantSet,
+    grant: &GrantSet,
     spend: u64,
     polls: &Arc<Polls>,
 ) -> Result<Report<u32>, RepairError> {
     lgwks_bot::script::block_on(host.repair(
         ticket,
-        &grant,
+        grant,
         declared,
         input(Arc::clone(polls), 7),
         spend,
@@ -208,7 +208,7 @@ fn a_repair_runs_the_blocked_remainder_without_rerunning_the_analysis() -> TestR
         &case.host,
         &case.declared,
         &case.ticket,
-        GrantSet::empty().grant(Cap::new(Cap::NET)),
+        &GrantSet::empty().grant(Cap::new(Cap::NET)),
         1,
         &case.polls,
     )?;
@@ -248,7 +248,7 @@ fn a_repair_widens_one_run_and_not_the_host() -> TestResult {
         &case.host,
         &case.declared,
         &case.ticket,
-        GrantSet::empty().grant(Cap::new(Cap::NET)),
+        &GrantSet::empty().grant(Cap::new(Cap::NET)),
         1,
         &case.polls,
     )?;
@@ -293,7 +293,7 @@ fn answered(case: Blocked, needs: &[Cap]) -> Result<Answered, Box<dyn Error>> {
         &case.host,
         &case.declared,
         &case.ticket,
-        grant.clone(),
+        &grant,
         1,
         &case.polls,
     )?;
@@ -319,7 +319,7 @@ fn the_same_ticket_delivered_twice_applies_once() -> TestResult {
         &case.host,
         &case.declared,
         &case.ticket,
-        answered_case.grant.clone(),
+        &answered_case.grant,
         1,
         &case.polls,
     ) {
@@ -373,7 +373,7 @@ fn a_ticket_from_an_older_epoch_is_refused_as_stale_t24() -> TestResult {
         &case.host,
         &case.declared,
         &case.ticket,
-        answered_case.grant.clone(),
+        &answered_case.grant,
         1,
         &case.polls,
     ) {
@@ -399,7 +399,7 @@ fn a_denied_repair_leaves_the_run_blocked_with_its_authority_unchanged() -> Test
         &case.host,
         &case.declared,
         &case.ticket,
-        GrantSet::empty().grant(Cap::new(Cap::NET)),
+        &GrantSet::empty().grant(Cap::new(Cap::NET)),
         1,
         &case.polls,
     ) {
@@ -441,7 +441,7 @@ fn an_over_wide_grant_is_refused_rather_than_narrowed() -> TestResult {
         &case.host,
         &case.declared,
         &case.ticket,
-        wide,
+        &wide,
         1,
         &case.polls,
     ) {
@@ -481,7 +481,7 @@ fn a_custom_capability_outside_the_ticket_is_refused() -> TestResult {
         &case.host,
         &case.declared,
         &case.ticket,
-        smuggled,
+        &smuggled,
         1,
         &case.polls,
     ) {
@@ -572,7 +572,7 @@ fn the_root_budget_stays_charged_across_repair_and_resume_t13() -> TestResult {
         &host,
         &declared,
         &ticket,
-        GrantSet::empty().grant(Cap::new(Cap::NET)),
+        &GrantSet::empty().grant(Cap::new(Cap::NET)),
         1,
         &polls,
     )?;
@@ -656,7 +656,7 @@ fn a_denied_repair_costs_nothing() -> TestResult {
             &case.host,
             &case.declared,
             &case.ticket,
-            grant,
+            &grant,
             1,
             &case.polls,
         ) {

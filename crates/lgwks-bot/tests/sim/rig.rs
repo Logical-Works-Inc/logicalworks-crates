@@ -43,7 +43,7 @@ use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 /// A constant rather than a per-file literal, because a source that moves
 /// would make every "the chain fired once" assertion in the suite mean
 /// something different, and the rig exists to keep one meaning.
-pub const VALUE: u32 = 1;
+pub(crate) const VALUE: u32 = 1;
 
 // ── The store a test can read from inside an effect ────────────────────────
 
@@ -82,7 +82,7 @@ macro_rules! store_forwarding {
 /// Every method forwards to [`MemoryJournal`] rather than reimplementing the
 /// ladder, so what these tests exercise is the shipped append logic and not a
 /// second copy of it that could drift.
-pub struct ProbeJournal {
+pub(crate) struct ProbeJournal {
     /// The store, shared with the test and with any action the test arms.
     pub store: Rc<RefCell<MemoryJournal>>,
 }
@@ -114,7 +114,7 @@ impl EffectJournal for ProbeJournal {
 /// outcome without writing anything. [`EffectJournal::confirm_outcome`] attests
 /// only an outcome actually present in the store, which is the shape a
 /// file-backed adapter has.
-pub struct LostReplyJournal {
+pub(crate) struct LostReplyJournal {
     /// The store, shared with the test and with any action the test arms.
     pub store: Rc<RefCell<MemoryJournal>>,
     /// One-shot: commit the next outcome append and lose its reply.
@@ -125,7 +125,7 @@ pub struct LostReplyJournal {
 
 impl LostReplyJournal {
     /// A fresh adapter: an empty store and both faults disarmed.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             store: Rc::new(RefCell::new(MemoryJournal::new())),
             ambiguous_once: Rc::new(Cell::new(false)),
@@ -206,7 +206,9 @@ impl EffectJournal for LostReplyJournal {
 /// about is what an [`EffectJournal`] promises, so the trait is the way in: a
 /// test that read the concrete type would keep passing if the trait's promise
 /// changed.
-pub fn recorded(store: &Rc<RefCell<MemoryJournal>>) -> Result<Vec<EffectEvent>, JournalError> {
+pub(crate) fn recorded(
+    store: &Rc<RefCell<MemoryJournal>>,
+) -> Result<Vec<EffectEvent>, JournalError> {
     EffectJournal::committed(&*store.borrow())
 }
 
@@ -219,11 +221,13 @@ pub fn recorded(store: &Rc<RefCell<MemoryJournal>>) -> Result<Vec<EffectEvent>, 
 /// these out, and a copy that drifted would make a trace hash from one family
 /// mean a different key than the same hash from another, which is exactly the
 /// kind of false green this layer exists to rule out.
-pub const RUN: &str = "00000000000000000000000000000001";
-pub const ACTION: &str = "00000000000000000000000000000002";
-pub const FLOW_HEX: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
-pub const DIGEST_HEX: &str = "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100";
-pub const ENV: &str = "2122232425262728292a2b2c2d2e2f30";
+pub(crate) const RUN: &str = "00000000000000000000000000000001";
+pub(crate) const ACTION: &str = "00000000000000000000000000000002";
+pub(crate) const FLOW_HEX: &str =
+    "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+pub(crate) const DIGEST_HEX: &str =
+    "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100";
+pub(crate) const ENV: &str = "2122232425262728292a2b2c2d2e2f30";
 
 /// A key for attempt `n` of [`RUN`], acting as `action`, at the first
 /// generation.
@@ -235,7 +239,7 @@ pub const ENV: &str = "2122232425262728292a2b2c2d2e2f30";
 /// writing different facts, which is the false green the trace hash exists to
 /// catch. A family that needs the same key at another generation moves it with
 /// `EffectIdentity::at_epoch`, which changes that one field and nothing else.
-pub fn attempt_key_as(action: ActionId, n: u64) -> Result<EffectKey, Box<dyn Error>> {
+pub(crate) fn attempt_key_as(action: ActionId, n: u64) -> Result<EffectKey, Box<dyn Error>> {
     let run = RunId::from_hex(RUN)?;
     let attempt = AttemptId::from_decimal(&n.to_string())?;
     let flow = FlowRevision::from_tagged("blake3_256", FLOW_HEX)?;
@@ -251,7 +255,7 @@ pub fn attempt_key_as(action: ActionId, n: u64) -> Result<EffectKey, Box<dyn Err
 
 /// A key for attempt `n` of [`RUN`] under the shared [`ACTION`], at generation
 /// one.
-pub fn attempt_key(n: u64) -> Result<EffectKey, Box<dyn Error>> {
+pub(crate) fn attempt_key(n: u64) -> Result<EffectKey, Box<dyn Error>> {
     attempt_key_as(ActionId::from_hex(ACTION)?, n)
 }
 
@@ -260,7 +264,7 @@ pub fn attempt_key(n: u64) -> Result<EffectKey, Box<dyn Error>> {
 /// The ladder is the ordering the journal enforces, so a family that writes
 /// these two rungs exercises the ordering invariant rather than appending
 /// arbitrary bytes and hoping.
-pub fn ladder(n: u64) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
+pub(crate) fn ladder(n: u64) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
     let key = attempt_key(n)?;
     Ok(vec![
         EffectEvent::IntentAdmitted { key },
@@ -276,7 +280,7 @@ pub fn ladder(n: u64) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
 /// subject is that two bots agree on them: a second copy that drifted would
 /// make the second bot's recovered key foreign, and the test would then pass
 /// for the reason it exists to exclude.
-pub fn identity() -> Result<EffectIdentity, Box<dyn Error>> {
+pub(crate) fn identity() -> Result<EffectIdentity, Box<dyn Error>> {
     Ok(EffectIdentity::new(
         RunId::from_hex("0102030405060708090a0b0c0d0e0f10")?,
         EnvironmentId::from_hex("2122232425262728292a2b2c2d2e2f30")?,
@@ -295,14 +299,14 @@ pub fn identity() -> Result<EffectIdentity, Box<dyn Error>> {
 /// generation it hands the first caller. A recovered key therefore still
 /// fences — its epoch is the one a fresh registration mints — which is the
 /// property the hold in these tests depends on.
-pub fn broker(environment: EnvironmentId) -> Result<Broker, Box<dyn Error>> {
+pub(crate) fn broker(environment: EnvironmentId) -> Result<Broker, Box<dyn Error>> {
     let mut broker = Broker::new();
     broker.register(environment)?;
     Ok(broker)
 }
 
 /// A scope over `store`, for a bot acting on `identity`.
-pub fn scope(
+pub(crate) fn scope(
     identity: EffectIdentity,
     store: Rc<RefCell<MemoryJournal>>,
 ) -> Result<EffectScope, Box<dyn Error>> {
@@ -319,7 +323,7 @@ pub fn scope(
 ///
 /// The first poll still moves the observed revision, from "never polled" to
 /// one, so the one chain fires once and a second tick selects nothing.
-pub struct FixedSource;
+pub(crate) struct FixedSource;
 
 impl Observe for FixedSource {
     type Output = u32;
@@ -342,7 +346,7 @@ impl Observe for FixedSource {
 ///
 /// An event's id is part of `PartialEq` and of `InputIdentity`, which is the point:
 /// two events with equal payloads must still be two events.
-pub struct Requests<T>(pub Rc<RefCell<T>>);
+pub(crate) struct Requests<T>(pub Rc<RefCell<T>>);
 
 impl<T: Copy + PartialEq + InputIdentity + 'static> Observe for Requests<T> {
     type Output = T;
@@ -362,7 +366,7 @@ impl<T: Copy + PartialEq + InputIdentity + 'static> Observe for Requests<T> {
 }
 
 /// `true` for the one value [`FixedSource`] yields.
-pub fn is_value(seen: &u32) -> bool {
+pub(crate) fn is_value(seen: &u32) -> bool {
     *seen == VALUE
 }
 
@@ -372,7 +376,7 @@ pub fn is_value(seen: &u32) -> bool {
 /// the record must be there *before* this body executes, not merely before the
 /// tick returns. The body reads the shared store rather than a copy, so what it
 /// snapshots is the kernel's own journal at the moment the effect is live.
-pub struct NoteWhatIsRecorded {
+pub(crate) struct NoteWhatIsRecorded {
     /// The journal's store, read synchronously at the moment of the effect.
     pub store: Rc<RefCell<MemoryJournal>>,
     /// What the journal held, once this body has run.
@@ -413,7 +417,7 @@ impl Execute for NoteWhatIsRecorded {
 /// The counter is the whole instrument: "held, not retried" and "exhausted its
 /// budget" both leave a pending report behind, and only the number of times the
 /// body ran distinguishes them.
-pub struct NeverSettles {
+pub(crate) struct NeverSettles {
     /// How many times the body has been entered.
     pub entered: Rc<Cell<u32>>,
 }
@@ -445,7 +449,7 @@ impl Execute for NeverSettles {
 }
 
 /// An action that succeeds, and counts how many times it was entered.
-pub struct AlwaysLands {
+pub(crate) struct AlwaysLands {
     /// How many times the body has been entered.
     pub entered: Rc<Cell<u32>>,
 }
@@ -478,7 +482,7 @@ impl Execute for AlwaysLands {
 /// every scenario that drives a bot is "a fresh store, an armed action, a
 /// counter to watch", and spelling that out once per family is once per family
 /// for the fence wiring to drift.
-pub struct Run {
+pub(crate) struct Run {
     /// The shared store the bot writes through.
     pub store: Rc<RefCell<MemoryJournal>>,
     /// How many times the armed effect's body has run.
@@ -486,7 +490,7 @@ pub struct Run {
 }
 
 /// The name a [`Run`]'s bots are built under by default.
-pub const RUN_NAME: &str = "sim-dispatch";
+pub(crate) const RUN_NAME: &str = "sim-dispatch";
 
 impl Default for Run {
     fn default() -> Self {
@@ -496,7 +500,7 @@ impl Default for Run {
 
 impl Run {
     /// A fresh run: an empty store and a zeroed counter.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             store: Rc::new(RefCell::new(MemoryJournal::new())),
             entered: Rc::new(Cell::new(0)),
@@ -509,7 +513,7 @@ impl Run {
     /// contract cares what the bot is armed with only insofar as the journal is
     /// concerned; a hand-written builder per family is a hand-written fence
     /// per family.
-    pub fn bot_named<A>(&self, name: &str, action: A) -> Result<Bot, Box<dyn Error>>
+    pub(crate) fn bot_named<A>(&self, name: &str, action: A) -> Result<Bot, Box<dyn Error>>
     where
         A: Execute<Input = u32, Output = ()> + 'static,
     {
@@ -521,7 +525,7 @@ impl Run {
     }
 
     /// A bot under [`RUN_NAME`] whose effect reports itself indeterminate.
-    pub fn never(&self) -> Result<Bot, Box<dyn Error>> {
+    pub(crate) fn never(&self) -> Result<Bot, Box<dyn Error>> {
         self.bot_named(
             RUN_NAME,
             NeverSettles {
@@ -531,7 +535,7 @@ impl Run {
     }
 
     /// A bot under [`RUN_NAME`] whose effect lands.
-    pub fn lands(&self) -> Result<Bot, Box<dyn Error>> {
+    pub(crate) fn lands(&self) -> Result<Bot, Box<dyn Error>> {
         self.bot_named(
             RUN_NAME,
             AlwaysLands {
@@ -544,17 +548,17 @@ impl Run {
     /// type: what these families are about is what the journal promises, and a
     /// test reading `MemoryJournal` directly would keep passing if the promise
     /// changed.
-    pub fn recorded(&self) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
+    pub(crate) fn recorded(&self) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
         Ok(EffectJournal::committed(&*self.store.borrow())?)
     }
 
     /// The kinds the store holds, in order.
-    pub fn kinds(&self) -> Result<Vec<EventKind>, Box<dyn Error>> {
+    pub(crate) fn kinds(&self) -> Result<Vec<EventKind>, Box<dyn Error>> {
         Ok(self.recorded()?.iter().map(|event| event.kind()).collect())
     }
 
     /// The distinct keys the store holds, in first-seen order.
-    pub fn distinct_keys(&self) -> Result<Vec<EffectKey>, Box<dyn Error>> {
+    pub(crate) fn distinct_keys(&self) -> Result<Vec<EffectKey>, Box<dyn Error>> {
         let mut keys: Vec<EffectKey> = Vec::new();
         for event in self.recorded()? {
             if !keys.contains(&event.key()) {
@@ -565,7 +569,7 @@ impl Run {
     }
 
     /// How many times the effect's body has run.
-    pub fn entered(&self) -> u32 {
+    pub(crate) fn entered(&self) -> u32 {
         self.entered.get()
     }
 }

@@ -26,7 +26,7 @@ use std::error::Error;
 use std::thread::Builder;
 use std::time::{Duration, Instant};
 
-use lgwks_bot::tenant_store::{RunStart, TenantStore, TenantStoreError};
+use lgwks_bot::tenant_store::{RunRow, RunStart, TenantStore, TenantStoreError};
 
 use crate::journal_fixtures as shared;
 use crate::scratch::Scratch;
@@ -173,7 +173,7 @@ fn a_hundred_tenants_coordinate_on_one_host() -> TestResult {
         let tenant = tenant_name(tenant_no);
         let rows = store.runs(&tenant, 10)?;
         assert_eq!(rows.len(), 1, "{tenant} must list exactly its own run");
-        let row = &rows[0];
+        let row = rows.first().ok_or("the tenant lists its own run")?;
         assert_eq!(
             row.run_id(),
             run_name(tenant_no, 0),
@@ -227,7 +227,11 @@ fn a_killed_coordinator_is_reconciled() -> TestResult {
     let store = TenantStore::open(dir)?;
     let open = store.open_runs("host")?;
     assert_eq!(open.len(), 1, "the killed run must reopen as open");
-    assert_eq!(open[0].run_id(), run, "the open run must be the killed one");
+    assert_eq!(
+        open.first().map(|row| row.run_id()),
+        Some(run),
+        "the open run must be the killed one"
+    );
     assert!(store.abandon(run, "t-000002")?, "the open run must abandon");
     assert!(
         !store.abandon(run, "t-000003")?,
@@ -248,20 +252,22 @@ fn a_killed_coordinator_is_reconciled() -> TestResult {
         "an abandoned run must say why it closed"
     );
     let lanes = store.lanes(run)?;
-    assert_eq!(lanes.len(), 2, "both lanes must survive the abandonment");
+    let Ok([dispatched, pending]) = <[_; 2]>::try_from(lanes) else {
+        return Err("both lanes must survive the abandonment".into());
+    };
     assert_eq!(
-        lanes[0].state(),
+        dispatched.state(),
         "ended",
         "the dispatched lane must be ended"
     );
     assert_eq!(
-        lanes[0].outcome.as_deref(),
+        dispatched.outcome(),
         Some("outcome-unknown"),
         "a lane that may or may not have run is unknown, never a pass"
     );
-    assert_eq!(lanes[1].state(), "ended", "the pending lane must be ended");
+    assert_eq!(pending.state(), "ended", "the pending lane must be ended");
     assert_eq!(
-        lanes[1].outcome.as_deref(),
+        pending.outcome(),
         Some("unmeasured"),
         "a lane that never started is unmeasured"
     );
@@ -324,7 +330,7 @@ fn a_policy_is_written_once() -> TestResult {
         "[\"fmt\"]",
         "the first gates must stand"
     );
-    assert_eq!(policy.hardness, 2, "the first hardness must stand");
+    assert_eq!(policy.hardness(), 2, "the first hardness must stand");
     assert!(
         store.policy("nobody")?.is_none(),
         "a tenant that never ran init has no policy"
@@ -386,8 +392,10 @@ fn refusals_leave_the_bytes_untouched() -> TestResult {
     drop(store);
     let before = std::fs::read(&foreign)?;
     let mut rotted = before;
-    let byte = rotted[16];
-    rotted[16] = byte.wrapping_add(1);
+    let byte = rotted
+        .get_mut(16)
+        .ok_or("the foreign journal holds a first frame")?;
+    *byte = byte.wrapping_add(1);
     std::fs::write(&foreign, &rotted)?;
     match TenantStore::open(dir) {
         Err(TenantStoreError::Corrupt { at }) => {
@@ -580,13 +588,13 @@ fn listings_cap_at_two_hundred_newest_first() -> TestResult {
     let rows = store.runs("acme", 5_000)?;
     assert_eq!(rows.len(), 200, "the listing must cap at 200");
     assert_eq!(
-        rows[0].run_id(),
-        "run-cap-204",
+        rows.first().map(RunRow::run_id),
+        Some("run-cap-204"),
         "the newest run must list first"
     );
     assert_eq!(
-        rows[199].run_id(),
-        "run-cap-005",
+        rows.last().map(RunRow::run_id),
+        Some("run-cap-005"),
         "the cap must page out the oldest"
     );
     let two = store.runs("acme", 2)?;

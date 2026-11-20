@@ -22,7 +22,7 @@ fn wide_subject() -> String {
 }
 
 #[test]
-fn a_clean_subject_is_clean_with_full_rule_coverage() -> Result<(), Box<dyn std::error::Error>> {
+fn a_clean_subject_is_clean_with_full_rule_coverage() {
     let report = inspect(&InspectRequest::new(
         "src/lib.rs",
         "pub fn add(a: u32, b: u32) -> u32 { a + b }\n",
@@ -60,7 +60,6 @@ fn a_clean_subject_is_clean_with_full_rule_coverage() -> Result<(), Box<dyn std:
         report.findings().is_empty(),
         "a clean subject retains no finding"
     );
-    Ok(())
 }
 
 #[test]
@@ -83,8 +82,8 @@ fn a_violation_carries_a_stable_rule_id_and_an_exact_span() -> Result<(), Box<dy
     );
     let (start, end) = found.byte_range();
     assert_eq!(
-        &UNWRAP_SUBJECT[start..end],
-        "unwrap",
+        UNWRAP_SUBJECT.get(start..end),
+        Some("unwrap"),
         "the span is exactly the matched identifier"
     );
     assert!(!found.preview_truncated(), "a short match is not truncated");
@@ -92,8 +91,7 @@ fn a_violation_carries_a_stable_rule_id_and_an_exact_span() -> Result<(), Box<dy
 }
 
 #[test]
-fn invalid_syntax_is_incomplete_and_never_a_clean_report() -> Result<(), Box<dyn std::error::Error>>
-{
+fn invalid_syntax_is_incomplete_and_never_a_clean_report() {
     let report = inspect(&InspectRequest::new("src/lib.rs", "fn broken( {\n"));
     assert!(
         matches!(
@@ -117,12 +115,10 @@ fn invalid_syntax_is_incomplete_and_never_a_clean_report() -> Result<(), Box<dyn
         "a supported rule a refusal stopped from evaluating says so: {:?}",
         report.coverage()
     );
-    Ok(())
 }
 
 #[test]
-fn a_compiled_grammar_the_rules_cannot_read_is_unsupported()
--> Result<(), Box<dyn std::error::Error>> {
+fn a_compiled_grammar_the_rules_cannot_read_is_unsupported() {
     let report = inspect(&InspectRequest::new("app.py", "def f():\n    return g()\n"));
     assert!(
         matches!(
@@ -142,11 +138,10 @@ fn a_compiled_grammar_the_rules_cannot_read_is_unsupported()
             .all(|coverage| !coverage.supported()),
         "no rule is supported for a language the rules cannot read"
     );
-    Ok(())
 }
 
 #[test]
-fn an_unclaimed_artifact_has_no_compiled_grammar() -> Result<(), Box<dyn std::error::Error>> {
+fn an_unclaimed_artifact_has_no_compiled_grammar() {
     let report = inspect(&InspectRequest::new("notes.lgwks-unclaimed", "whatever\n"));
     assert!(
         matches!(
@@ -159,12 +154,10 @@ fn an_unclaimed_artifact_has_no_compiled_grammar() -> Result<(), Box<dyn std::er
         report.verdict()
     );
     assert_eq!(report.language(), None, "no language was resolved");
-    Ok(())
 }
 
 #[test]
-fn unknown_and_mismatched_rule_sets_are_refused_before_any_parse()
--> Result<(), Box<dyn std::error::Error>> {
+fn unknown_and_mismatched_rule_sets_are_refused_before_any_parse() {
     let unknown = inspect(
         &InspectRequest::new("src/lib.rs", UNWRAP_SUBJECT).rules(RuleSet::new("example/other", 1)),
     );
@@ -195,12 +188,10 @@ fn unknown_and_mismatched_rule_sets_are_refused_before_any_parse()
         "a revision mismatch is refused by number, got {:?}",
         mismatched.verdict()
     );
-    Ok(())
 }
 
 #[test]
-fn a_declared_language_version_is_undecidable_not_clean() -> Result<(), Box<dyn std::error::Error>>
-{
+fn a_declared_language_version_is_undecidable_not_clean() {
     let report =
         inspect(&InspectRequest::new("src/lib.rs", "fn f() {}\n").language_version("2021"));
     assert!(
@@ -212,11 +203,10 @@ fn a_declared_language_version_is_undecidable_not_clean() -> Result<(), Box<dyn 
         !matches!(report.verdict(), Verdict::Clean { .. }),
         "undecidable must never read as clean"
     );
-    Ok(())
 }
 
 #[test]
-fn every_budget_has_its_own_refusal() -> Result<(), Box<dyn std::error::Error>> {
+fn every_budget_has_its_own_refusal() {
     let wide = wide_subject();
 
     let too_large = inspect(
@@ -302,7 +292,6 @@ fn every_budget_has_its_own_refusal() -> Result<(), Box<dyn std::error::Error>> 
         "output bound: {:?}",
         output.verdict()
     );
-    Ok(())
 }
 
 #[test]
@@ -406,20 +395,22 @@ fn a_match_longer_than_the_preview_budget_is_truncated_with_its_full_span_kept()
         end.saturating_sub(start) > MAX_PREVIEW_BYTES,
         "the exact span is the full match, not the preview: {start}..{end}"
     );
+    let span = subject
+        .get(start..end)
+        .ok_or("the span lies inside the subject")?;
     assert!(
-        subject[start..end].starts_with(found.preview()),
+        span.starts_with(found.preview()),
         "the preview is a prefix of the exact span it was cut from"
     );
     assert!(
-        subject[start..end].starts_with("panic!("),
+        span.starts_with("panic!("),
         "the span still names the matched macro invocation"
     );
     Ok(())
 }
 
 #[test]
-fn an_ordinary_and_an_agent_consumer_share_one_operation() -> Result<(), Box<dyn std::error::Error>>
-{
+fn an_ordinary_and_an_agent_consumer_share_one_operation() {
     // The ordinary Rust consumer gates a file through the public operation.
     let ordinary = inspect(&InspectRequest::new("src/lib.rs", UNWRAP_SUBJECT));
     // The agent consumer reads the same typed report; it builds no scanner, no
@@ -437,5 +428,4 @@ fn an_ordinary_and_an_agent_consumer_share_one_operation() -> Result<(), Box<dyn
         !Inspection::assurance().is_empty(),
         "the assurance ceiling travels with the report"
     );
-    Ok(())
 }

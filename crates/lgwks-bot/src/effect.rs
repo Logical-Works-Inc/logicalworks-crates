@@ -52,6 +52,11 @@ mod id;
 #[cfg(feature = "ephemeral")]
 pub use id::MintError;
 pub use id::{ActionId, EnvironmentId, Id128, IdError, RunId};
+#[cfg(feature = "wire")]
+pub use id::{
+    ActionIdResolver, ArchivedActionId, ArchivedEnvironmentId, ArchivedRunId,
+    EnvironmentIdResolver, RunIdResolver,
+};
 
 /// Why an [`AttemptId`] or [`EnvironmentEpoch`] could not be parsed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,12 +76,19 @@ pub enum CounterError {
 /// [`EnvironmentEpoch`] have the same representation, the same non-zero
 /// invariant, and the same refusal to wrap, and they are not interchangeable.
 macro_rules! counter_role {
-    ($(#[$meta:meta])* $name:ident, $what:literal) => {
+    ($(#[$meta:meta])* $name:ident, $resolver:ident, $what:literal) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[cfg_attr(feature = "wire", derive(lgwks_std::wire::Archive, lgwks_std::wire::Serialize, lgwks_std::wire::Deserialize))]
-        #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug)))]
+        #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug), resolver = $resolver))]
         pub struct $name(NonZeroU64);
+
+        #[cfg(feature = "wire")]
+        impl fmt::Debug for $resolver {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct(stringify!($resolver)).finish_non_exhaustive()
+            }
+        }
 
         impl $name {
             /// The first value in the sequence.
@@ -155,6 +167,7 @@ counter_role! {
     /// authorization credential: it identifies which try this is, and authority
     /// is checked separately, every time.
     AttemptId,
+    AttemptIdResolver,
     "attempt"
 }
 
@@ -165,6 +178,7 @@ counter_role! {
     /// a lower one is invalid. This is what stops a command prepared before a
     /// restart from reaching the replacement.
     EnvironmentEpoch,
+    EnvironmentEpochResolver,
     "environment epoch"
 }
 
@@ -238,12 +252,19 @@ pub enum DigestError {
 
 /// Declare a newtype over the estate's content digest for one digest role.
 macro_rules! digest_role {
-    ($(#[$meta:meta])* $name:ident, $what:literal) => {
+    ($(#[$meta:meta])* $name:ident, $resolver:ident, $what:literal) => {
         $(#[$meta])*
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         #[cfg_attr(feature = "wire", derive(lgwks_std::wire::Archive, lgwks_std::wire::Serialize, lgwks_std::wire::Deserialize))]
-        #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug)))]
+        #[cfg_attr(feature = "wire", rkyv(crate = lgwks_std::wire::rkyv, compare(PartialEq), derive(Debug), resolver = $resolver))]
         pub struct $name(Digest);
+
+        #[cfg(feature = "wire")]
+        impl fmt::Debug for $resolver {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.debug_struct(stringify!($resolver)).finish_non_exhaustive()
+            }
+        }
 
         impl $name {
             /// Wrap an already-computed digest.
@@ -307,6 +328,7 @@ digest_role! {
     /// revision appears on every attempt of every action it contains, which is
     /// why it is one field of [`EffectKey`] rather than the whole of it.
     FlowRevision,
+    FlowRevisionResolver,
     "flow revision"
 }
 
@@ -317,6 +339,7 @@ digest_role! {
     /// this digest but inside [`EffectKey`], so that the same logical action
     /// attempted twice shares a digest and still has two distinct keys.
     ActionDigest,
+    ActionDigestResolver,
     "action digest"
 }
 

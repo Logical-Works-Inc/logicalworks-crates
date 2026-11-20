@@ -99,13 +99,12 @@ fn an_unrelated_outcome_receipt_is_refused_without_reentering_the_effect() -> Te
 
     let held = recovered.pending();
     assert_eq!(held.len(), 1, "the unverified durable outcome remains held");
+    let entry = held.first().ok_or("one hold was recorded")?;
     assert!(matches!(
-        held[0].hold(),
+        entry.hold(),
         TransitionHold::RecordingFailed { .. }
     ));
-    let key = held[0]
-        .key()
-        .ok_or("the recovered receipt hold has a key")?;
+    let key = entry.key().ok_or("the recovered receipt hold has a key")?;
     unrelated_receipt.set(false);
     recovered.resolve_effect(&key, EffectEvidence::Applied)?;
     assert!(

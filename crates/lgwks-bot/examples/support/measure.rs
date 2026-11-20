@@ -20,7 +20,10 @@ pub(crate) fn percentile(sorted: &[u128], per_mille: usize) -> u128 {
         return 0;
     }
     let rank = sorted.len().saturating_mul(per_mille).div_ceil(1_000);
-    sorted[rank.clamp(1, sorted.len()).saturating_sub(1)]
+    match sorted.get(rank.clamp(1, sorted.len()).saturating_sub(1)) {
+        Some(sample) => *sample,
+        None => 0,
+    }
 }
 
 /// The percentiles of one measurement, in the unit its samples were taken in.

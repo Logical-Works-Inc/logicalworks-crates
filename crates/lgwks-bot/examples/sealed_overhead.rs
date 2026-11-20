@@ -21,9 +21,14 @@
 //! print.
 
 use std::io::Write as _;
+use std::path::Path;
 use std::sync::Arc;
 
+use lgwks_bot::effect::RunId;
+use lgwks_bot::script::run_store::RunRecords;
+use lgwks_bot::script::{Scope, Tenant};
 use lgwks_bot::sealed::keys::SoftwareProvider;
+use lgwks_bot::task::{DefinitionIdentity, RunStore, SealedAppend};
 
 #[path = "support/measure.rs"]
 mod measure;
@@ -38,16 +43,83 @@ const PAYLOAD_BYTES: usize = 1024;
 fn report(label: &str, samples: &mut [u128]) -> std::io::Result<()> {
     let summary = measure::Summary::of(samples);
     let mut out = std::io::stdout().lock();
-    let _written = writeln!(out, "{} n={}", summary.line(label), samples.len());
-    Ok(())
+    writeln!(out, "{} n={}", summary.line(label), samples.len())
+}
+
+/// Read every sealed record back, timing each, and require the bytes written.
+fn sealed_reads(
+    store: &RunStore,
+    ids: &[(RunId, lgwks_bot::script::StepKey)],
+    body: &[u8],
+) -> Result<Vec<u128>, Box<dyn std::error::Error>> {
+    let mut samples = Vec::with_capacity(ids.len());
+    for &(run, key) in ids {
+        let started = std::time::Instant::now();
+        match store.lookup("overhead", run, key)? {
+            Some(back) => {
+                samples.push(started.elapsed().as_micros());
+                if back != body {
+                    lgwks_std::trace::debug!(
+                        run = run.id().to_hex(),
+                        "sealed_overhead: the measured read returns different bytes"
+                    );
+                    return Err("the measured read returns different bytes".into());
+                }
+            }
+            None => {
+                lgwks_std::trace::debug!(
+                    run = run.id().to_hex(),
+                    "sealed_overhead: a freshly sealed record reads as absent"
+                );
+                return Err("a freshly sealed record never reads as absent".into());
+            }
+        }
+    }
+    Ok(samples)
+}
+
+/// The unsealed baseline: the same records through an unsealed run store, so
+/// the same frames, chain and fsync per append. The gap is exactly the
+/// per-record key, its wrap and the AEAD.
+fn plain_baseline(
+    dir: &Path,
+    ids: &[(RunId, lgwks_bot::script::StepKey)],
+    definition: &DefinitionIdentity,
+    body: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let plain = RunStore::open(dir.join("plain.runstore"))?;
+    let mut write_samples = Vec::with_capacity(ids.len());
+    for (index, &(run, key)) in ids.iter().enumerate() {
+        let started = std::time::Instant::now();
+        RunRecords::append(
+            &plain,
+            "overhead",
+            run,
+            key,
+            &format!("bench/{index}"),
+            definition,
+            body.to_vec(),
+        )?;
+        write_samples.push(started.elapsed().as_micros());
+    }
+    report("plain_append", &mut write_samples)?;
+    let mut read_plain_samples = Vec::with_capacity(ids.len());
+    for &(run, key) in ids {
+        let started = std::time::Instant::now();
+        let back = plain.lookup("overhead", run, key)?;
+        read_plain_samples.push(started.elapsed().as_micros());
+        if back.as_deref() != Some(body) {
+            lgwks_std::trace::debug!(
+                run = run.id().to_hex(),
+                "sealed_overhead: the baseline misread its own record"
+            );
+            return Err("the baseline misread its own record".into());
+        }
+    }
+    Ok(report("plain_read", &mut read_plain_samples)?)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use lgwks_bot::effect::RunId;
-    use lgwks_bot::script::run_store::RunRecords;
-    use lgwks_bot::script::{Scope, Tenant};
-    use lgwks_bot::task::{DefinitionIdentity, RunStore, SealedAppend};
-
     let requested = std::env::args().nth(1);
     let runs: usize = match requested {
         Some(text) => text.parse()?,
@@ -90,70 +162,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     store.verify_sealed_chain()?;
     report("sealed_append", &mut append_samples)?;
-    let mut read_samples = Vec::with_capacity(runs);
-    for (run, key) in id_runs.iter().copied().zip(keys.iter().copied()) {
-        let started = std::time::Instant::now();
-        match store.lookup("overhead", run, key)? {
-            Some(back) => {
-                read_samples.push(started.elapsed().as_micros());
-                if back != body {
-                    lgwks_std::trace::debug!(
-                        run = run.id().to_hex(),
-                        "sealed_overhead: the measured read returns different bytes"
-                    );
-                    return Err("the measured read returns different bytes".into());
-                }
-            }
-            None => {
-                lgwks_std::trace::debug!(
-                    run = run.id().to_hex(),
-                    "sealed_overhead: a freshly sealed record reads as absent"
-                );
-                return Err("a freshly sealed record never reads as absent".into());
-            }
-        }
-    }
+    let ids: Vec<_> = id_runs.iter().copied().zip(keys.iter().copied()).collect();
+    let mut read_samples = sealed_reads(&store, &ids, &body)?;
     report("sealed_read", &mut read_samples)?;
-    // The unsealed baseline: the same records through an unsealed run store,
-    // so the same frames, chain and fsync per append. The gap is exactly the
-    // per-record key, its wrap and the AEAD.
-    let plain = RunStore::open(dir.join("plain.runstore"))?;
-    let mut write_samples = Vec::with_capacity(runs);
-    for (index, (run, key)) in id_runs
-        .iter()
-        .copied()
-        .zip(keys.iter().copied())
-        .enumerate()
-    {
-        let started = std::time::Instant::now();
-        RunRecords::append(
-            &plain,
-            "overhead",
-            run,
-            key,
-            &format!("bench/{index}"),
-            &definition,
-            body.clone(),
-        )?;
-        write_samples.push(started.elapsed().as_micros());
-    }
-    report("plain_append", &mut write_samples)?;
-    let mut read_plain_samples = Vec::with_capacity(runs);
-    for (run, key) in id_runs.iter().copied().zip(keys.iter().copied()) {
-        let started = std::time::Instant::now();
-        let back = plain.lookup("overhead", run, key)?;
-        read_plain_samples.push(started.elapsed().as_micros());
-        if back.as_deref() != Some(body.as_slice()) {
-            lgwks_std::trace::debug!(
-                run = run.id().to_hex(),
-                "sealed_overhead: the baseline misread its own record"
-            );
-            return Err("the baseline misread its own record".into());
-        }
-    }
-    report("plain_read", &mut read_plain_samples)?;
+    plain_baseline(&dir, &ids, &definition, &body)?;
     // Best effort: a directory the system refuses to remove is litter under
     // the temp root, not a wrong number.
-    let _removed = std::fs::remove_dir_all(&dir);
+    if let Err(error) = std::fs::remove_dir_all(&dir) {
+        lgwks_std::trace::debug!(error = %error, "sealed_overhead: the scratch directory stays");
+    }
     Ok(())
 }

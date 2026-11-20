@@ -87,7 +87,7 @@ fn exact_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     let dir = Scratch(sim.scratch("exact")?);
     let host = host_for(tenant, &dir.0)?;
     let work = drift_task()?;
-    let first = first_identity(&host, FIRST_INPUT, FIRST_CODEC)?;
+    let first = first_identity(&host, FIRST_INPUT, FIRST_CODEC);
     let recorded_input = first.input();
     let job = Job {
         input: FIRST_INPUT,
@@ -159,7 +159,7 @@ fn drifted_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
 
     let host = host_for(tenant, &dir.0)?;
     let work = drift_task()?;
-    let first = first_identity(&host, FIRST_INPUT, FIRST_CODEC)?;
+    let first = first_identity(&host, FIRST_INPUT, FIRST_CODEC);
     let drifted = kind.declare(&first);
     let job = Job {
         input: FIRST_INPUT,

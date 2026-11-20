@@ -282,18 +282,7 @@ impl fmt::Display for JournalError {
                 ref key,
                 expected,
                 attempted,
-            } => match expected {
-                Some(next) => write!(
-                    f,
-                    "{attempted} cannot follow what is committed for {key}; \
-                     the next recorded fact is {next}"
-                ),
-                None => write!(
-                    f,
-                    "{attempted} cannot be appended for {key}; \
-                     its recorded facts are complete"
-                ),
-            },
+            } => write_out_of_order(f, key, expected, attempted),
             Self::Exhausted => f.write_str("journal position exhausted"),
             Self::Superseded { ref path } => write!(
                 f,
@@ -301,14 +290,11 @@ impl fmt::Display for JournalError {
             ),
             Self::AttemptAlreadyWalked { ref key, latest } => write!(
                 f,
-                "{key} is an attempt at or below the latest this journal walked \
-                 for its action, which is {latest}; the sealed history already \
-                 records it"
+                "{key} is an attempt at or below the latest this journal walked for its action, which is {latest}; the sealed history already records it"
             ),
             Self::ContinuationPaused { boundary } => write!(
                 f,
-                "the continuation was armed to stop at {boundary}, so no successor \
-                 was established"
+                "the continuation was armed to stop at {boundary}, so no successor was established"
             ),
             Self::CapacityExceeded {
                 resource,
@@ -358,6 +344,28 @@ impl fmt::Display for JournalError {
                 "no sealed journal record names sequence {sequence}; refusing to shred what was never sealed"
             ),
         }
+    }
+}
+
+/// The reading of [`JournalError::OutOfOrder`]: what was attempted, for which
+/// key, and the next fact the key's record allows when it has one.
+fn write_out_of_order(
+    formatter: &mut fmt::Formatter<'_>,
+    key: impl fmt::Display,
+    expected: Option<impl fmt::Display>,
+    attempted: impl fmt::Display,
+) -> fmt::Result {
+    match expected {
+        Some(next) => write!(
+            formatter,
+            "{attempted} cannot follow what is committed for {key}; \
+             the next recorded fact is {next}"
+        ),
+        None => write!(
+            formatter,
+            "{attempted} cannot be appended for {key}; \
+             its recorded facts are complete"
+        ),
     }
 }
 

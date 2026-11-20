@@ -1,5 +1,6 @@
 //! Selection agrees with admission; ten thousand requests replay identically; release returns every slot.
 
+#[cfg(test)]
 use super::*;
 
 #[test]
@@ -138,7 +139,7 @@ fn selection_agrees_with_admission_across_cooldowns_and_saturation() -> TestResu
     );
 
     // c takes the last egress slot; nothing is admissible any more.
-    frontier.complete(permit, Outcome::Success)?;
+    frontier.complete(&permit, Outcome::Success)?;
     assert_eq!(
         frontier.next_admissible(Duration::from_secs(1)),
         None,
@@ -151,7 +152,7 @@ fn selection_agrees_with_admission_across_cooldowns_and_saturation() -> TestResu
              not work the run can do"
     );
 
-    frontier.complete(held, Outcome::Success)?;
+    frontier.complete(&held, Outcome::Success)?;
     assert_eq!(
         frontier.next_admissible(Duration::from_secs(31)).as_deref(),
         Some("a.example"),
@@ -307,10 +308,8 @@ fn ten_thousand_requests_replay_identically() {
         // back off is two identical silences.
         let mut parked: VecDeque<InFlightPermit> = VecDeque::new();
         let mut at = Duration::ZERO;
-        let mut index = 0_usize;
 
-        for step in 0..10_000_usize {
-            let host = &hosts[index];
+        for (step, host) in (0..10_000_usize).zip(hosts.iter().cycle()) {
             let outcome = if step.checked_rem(7) == Some(0) {
                 Outcome::Failure
             } else if step.checked_rem(3) == Some(0) {
@@ -321,7 +320,7 @@ fn ten_thousand_requests_replay_identically() {
             if parked.len() >= 3 {
                 let oldest = parked.pop_front();
                 let refused =
-                    oldest.is_some_and(|permit| frontier.complete(permit, outcome).is_err());
+                    oldest.is_some_and(|permit| frontier.complete(&permit, outcome).is_err());
                 if refused {
                     replay.refusals = replay.refusals.saturating_add(1);
                 }
@@ -347,11 +346,6 @@ fn ten_thousand_requests_replay_identically() {
                     .windows
                     .push(frontier.window(&ConstraintKey::egress("eth0")));
             }
-            index = if index.saturating_add(1) >= hosts.len() {
-                0
-            } else {
-                index.saturating_add(1)
-            };
         }
         replay
     }
@@ -449,7 +443,7 @@ fn releasing_returns_every_shared_slot() -> TestResult {
         Some(DeferralKind::RateLimited)
     );
 
-    frontier.complete(permit, Outcome::Success)?;
+    frontier.complete(&permit, Outcome::Success)?;
     assert_eq!(frontier.in_flight(&ConstraintKey::origin("origin-a")), 0);
     assert_eq!(frontier.in_flight(&ConstraintKey::egress("eth0")), 0);
     assert_eq!(frontier.outstanding(), 0);

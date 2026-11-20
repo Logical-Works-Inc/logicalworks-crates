@@ -613,63 +613,21 @@ impl Host {
     ///
     /// # Errors
     ///
-    /// [`DecisionError::Unknown`] for a malformed id or an id with no pending
-    /// approval behind it, and [`DecisionError::Store`] when the store refuses
-    /// the read or the write.
+    /// [`DecisionError::NoPending`] for a malformed id or no pending approval, and
+    /// [`DecisionError::Store`] when the store refuses the read or the write.
     pub fn decide(&self, id: &str, decision: ApprovalDecision) -> Result<(), DecisionError> {
-        use crate::script::approval::{ApprovalRecord, DecisionRecord};
+        use crate::script::approval::DecisionRecord;
         use crate::script::run_store::Appended;
-        use crate::task::StoreError;
 
         let id = ApprovalId::parse(id)?;
         let tenant = self.inner.tenant.as_str();
-        let run = id.run();
-        let key = id.key();
+        let (run, key) = (id.run(), id.key());
         let id_text = id.to_string();
-        let unknown = || DecisionError::Unknown {
-            id: id_text.clone(),
-        };
         let Some(records) = self.inner.records.as_ref() else {
             lgwks_std::trace::debug!(id = %id_text, "decide: no run store is installed, so no pending approval reads");
-            return Err(unknown());
+            return Err(Self::no_pending(&id_text));
         };
-        // The tenant check: a lookup of another tenant's run is the store's
-        // own refusal, audited here rather than answered.
-        let stored = match records.lookup(tenant, run, key) {
-            Ok(Some(stored)) => stored,
-            Ok(None) => {
-                lgwks_std::trace::debug!(id = %id_text, "decide: no pending record reads under this id");
-                return Err(unknown());
-            }
-            Err(error) => {
-                if let FlowError::Store { ref source, .. } = error
-                    && let StoreError::ForeignTenant { ref owner, .. } = **source
-                {
-                    self.record_audit(AuditEntry::foreign(
-                        self.inner.clock.now(),
-                        tenant,
-                        &id_text,
-                        owner,
-                    ));
-                    lgwks_std::trace::debug!(id = %id_text, owner = %owner, asked = %tenant, "decide: another tenant's approval is refused and audited");
-                    return Err(DecisionError::ForeignTenant {
-                        owner: owner.clone(),
-                        asked: tenant.to_owned(),
-                    });
-                }
-                lgwks_std::trace::debug!(error = %error, id = %id_text, "decide: the store refused the pending lookup");
-                return Err(DecisionError::Store {
-                    source: Box::new(error),
-                });
-            }
-        };
-        let pending = match classify_record(stored.bytes()) {
-            RecordClass::Pending(pending) => pending,
-            RecordClass::Decision(_) | RecordClass::Other => {
-                lgwks_std::trace::debug!(id = %id_text, "decide: the record under this id is not a pending approval");
-                return Err(unknown());
-            }
-        };
+        let pending = self.pending_record(records, run, key, &id_text)?;
         let decision_key = decision_key_for(tenant, &pending.path);
         // A recorded decision stands: deciding twice is refused, not merged.
         // A recorded lapse reports expiry, so a decision past the deadline is
@@ -678,23 +636,17 @@ impl Host {
             Ok(Some(stored)) => match classify_record(stored.bytes()) {
                 RecordClass::Decision(ref decided) if decided.expired => {
                     lgwks_std::trace::debug!(id = %id_text, "decide: the approval already lapsed, reporting expiry");
-                    return Err(DecisionError::Expired {
-                        id: id_text.clone(),
-                    });
+                    return Err(DecisionError::Expired { id: id_text });
                 }
                 _ => {
                     lgwks_std::trace::debug!(id = %id_text, "decide: a decision is already recorded, refusing the second");
-                    return Err(DecisionError::AlreadyDecided {
-                        id: id_text.clone(),
-                    });
+                    return Err(DecisionError::AlreadyDecided { id: id_text });
                 }
             },
             Ok(None) => {}
             Err(error) => {
                 lgwks_std::trace::debug!(error = %error, id = %id_text, "decide: the store refused the decision lookup");
-                return Err(DecisionError::Store {
-                    source: Box::new(error),
-                });
+                return Err(Self::store_refused(error));
             }
         }
         // The deadline is owed on this host's clock: a lapse records its own
@@ -702,7 +654,7 @@ impl Host {
         // the approval.
         let expires_at = pending.parked_at_nanos.saturating_add(pending.ttl_nanos);
         if crate::script::approval::nanos_of(self.inner.clock.now()) >= expires_at {
-            return self.record_lapse(records, tenant, run, key, &pending, &id_text);
+            return self.record_lapse(records, run, key, &pending, &id_text);
         }
         if *decision.digest() != pending.digest {
             lgwks_std::trace::debug!(want = %pending.digest.to_hex(), got = %decision.digest().to_hex(), id = %id_text, "decide: the decision names other bytes than the pending payload");
@@ -711,33 +663,17 @@ impl Host {
                 got: decision.digest().to_hex(),
             });
         }
-        let record = ApprovalRecord::Decision(DecisionRecord {
-            pending_key_hex: key.to_hex(),
-            approved: decision.verdict() == crate::script::ApprovalVerdict::Approve,
-            expired: false,
-            digest: *decision.digest(),
-            by: decision.by().to_owned(),
-        });
-        let bytes = record.to_record().map_err(|cause| DecisionError::Store {
-            source: Box::new(FlowError::failed(format!(
-                "this decision could not be archived: {cause}"
-            ))),
-        })?;
-        let decision_path = format!("{}/decision", pending.path);
-        let definition = self.identity_for(run, &self.definition("approval", 1, None, 1));
-        match records
-            .0
-            .append(
-                tenant,
-                run,
-                decision_key,
-                &decision_path,
-                &definition,
-                bytes.clone(),
-            )
-            .map_err(|error| DecisionError::Store {
-                source: Box::new(error),
-            })? {
+        let bytes = Self::decision_bytes(
+            DecisionRecord {
+                pending_key_hex: key.to_hex(),
+                approved: decision.verdict() == crate::script::ApprovalVerdict::Approve,
+                expired: false,
+                digest: *decision.digest(),
+                by: decision.into_by(),
+            },
+            "this decision",
+        )?;
+        match self.append_decision(records, run, &pending, bytes.clone())? {
             Appended::Recorded => {
                 // The store batches concurrent appends behind one `sync_all`,
                 // so two racing decisions can both report `Recorded` with the
@@ -748,9 +684,7 @@ impl Host {
                 match records.lookup(tenant, run, decision_key) {
                     Ok(Some(stored)) if stored.bytes() == bytes.as_slice() => Ok(()),
                     Ok(_) => Err(DecisionError::AlreadyDecided { id: id_text }),
-                    Err(error) => Err(DecisionError::Store {
-                        source: Box::new(error),
-                    }),
+                    Err(error) => Err(Self::store_refused(error)),
                 }
             }
             Appended::AlreadyRecorded | Appended::Conflicting => {
@@ -759,92 +693,41 @@ impl Host {
         }
     }
 
-    /// Record the lapse of `pending` and report it as expired.
-    ///
-    /// The expiry decision a resume past the deadline records, so the lapse
-    /// is a fact the ceiling and a later decide both read rather than a
-    /// clock reading that moves.
-    fn record_lapse(
-        &self,
-        records: &Records,
-        tenant: &str,
-        run: crate::effect::RunId,
-        key: crate::script::StepKey,
-        pending: &crate::script::approval::PendingRecord,
-        id: &str,
-    ) -> Result<(), DecisionError> {
-        use crate::script::approval::{ApprovalRecord, DecisionRecord};
-        use crate::script::run_store::Appended;
-
-        let record = ApprovalRecord::Decision(DecisionRecord {
-            pending_key_hex: key.to_hex(),
-            approved: false,
-            expired: true,
-            digest: pending.digest,
-            by: String::from("expiry"),
-        });
-        let bytes = record.to_record().map_err(|cause| DecisionError::Store {
-            source: Box::new(FlowError::failed(format!(
-                "this approval's lapse could not be archived: {cause}"
-            ))),
-        })?;
-        let definition = self.identity_for(run, &self.definition("approval", 1, None, 1));
-        match records
-            .0
-            .append(
-                tenant,
-                run,
-                decision_key_for(tenant, &pending.path),
-                &format!("{}/decision", pending.path),
-                &definition,
-                bytes,
-            )
-            .map_err(|error| DecisionError::Store {
-                source: Box::new(error),
-            })? {
-            Appended::Recorded | Appended::AlreadyRecorded => {
-                Err(DecisionError::Expired { id: id.to_owned() })
-            }
-            Appended::Conflicting => Err(DecisionError::AlreadyDecided { id: id.to_owned() }),
-        }
-    }
-
     /// Every undecided, unexpired approval this tenant parked, up to `limit`.
     ///
-    /// Read from this host's file store, so a restart lists what the previous
-    /// process parked. Each entry carries the id [`Host::decide`] takes and
-    /// the digest a decision must match. Decided and lapsed approvals are not
-    /// listed: there is nothing left to decide.
+    /// Read from this host's file store, so a restart lists what the previous process
+    /// parked. Each entry carries the id [`Host::decide`] takes and the digest a
+    /// decision must match. Decided and lapsed approvals are not listed.
     ///
     /// # Errors
     ///
-    /// [`FlowError`] when this host holds no file store to list from, or when
-    /// the store refuses the read.
+    /// [`FlowError`] when this host holds no file store to list from, or the store refuses.
     pub fn pending(&self, limit: usize) -> Result<Vec<PendingApproval>, FlowError> {
+        let refuse = |why: &str| {
+            lgwks_std::trace::debug!(reason = why, "pending: returning an error to the caller");
+            Err(FlowError::failed(why))
+        };
         let Some(store) = self.inner.file_store.as_ref() else {
-            let refusal = Err(FlowError::failed(
+            return refuse(
                 "this host holds no file store, so pending approvals cannot be listed; install one with `run_store`",
-            ));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "pending: returning an error to the caller");
-            return refusal;
+            );
         };
         let Some(records) = self.inner.records.as_ref() else {
-            let refusal = Err(FlowError::failed(
-                "this host holds no run store, so pending approvals cannot be listed",
-            ));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "pending: returning an error to the caller");
-            return refusal;
+            return refuse("this host holds no run store, so pending approvals cannot be listed");
         };
         let tenant = self.inner.tenant.as_str();
         let cap = limit.min(self.inner.max_pending);
+        #[cfg(feature = "sealed")]
         let scanned = store.pending_scan(tenant, cap);
-        let now = self.inner.clock.now();
-        let decided = |run: RunId, path: &str| -> Result<bool, FlowError> {
-            Ok(records
-                .lookup(tenant, run, decision_key_for(tenant, path))?
-                .is_some())
+        #[cfg(not(feature = "sealed"))]
+        let scanned = Ok(store.pending_scan(tenant, cap));
+        let decided = |run: RunId, path: &str| {
+            let key = decision_key_for(tenant, path);
+            records
+                .lookup(tenant, run, key)
+                .map(|found| found.is_some())
         };
-        pending_for(scanned, &decided, tenant, cap, now)
+        pending_for(scanned, &decided, tenant, cap, self.inner.clock.now())
     }
 
     /// Every refused foreign-tenant decision this host recorded, oldest first.
@@ -860,116 +743,15 @@ impl Host {
             Err(poisoned) => poisoned.into_inner().entries(),
         }
     }
+}
 
-    /// Record a refused foreign-tenant decision in this host's audit.
-    fn record_audit(&self, entry: AuditEntry) {
-        let mut log = match self.inner.audit.lock() {
-            Ok(log) => log,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        log.record(entry);
+mod approvals;
+
+impl std::fmt::Debug for Host {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "Host({:?})", self.inner.tenant)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::Plan;
-    use crate::effect::RunId;
-    use crate::task::{Host, name::TaskName};
-
-    /// What this module's tests report.
-    ///
-    /// A `Result` rather than a panic because the workspace forbids the
-    /// panicking path everywhere, test code included: a unit test that unwound
-    /// would report a line number inside a macro rather than which of the facts
-    /// it was checking had moved.
-    type TestResult = Result<(), String>;
-
-    /// A run identity built from a literal, not from the entropy source.
-    ///
-    /// [`RunId::mint`] is behind the `ephemeral` feature and `ephemeral` is not a
-    /// default feature, so a unit test that minted one compiled under
-    /// `--all-features` and failed the workspace-default build — which is the
-    /// build `cargo nextest list --workspace` performs, and therefore a test that
-    /// could not be run at all on the configuration CI measures coverage over. What
-    /// these tests need is *a* run id and *two* distinct ones; none of them
-    /// asserts anything about how a run id is minted, which is
-    /// `effect::RunId::mint`'s own contract and is exercised where that feature is
-    /// on. Parsing a fixed literal is therefore the honest fixture: it needs no
-    /// feature and no randomness, so the same two identities are the same two
-    /// identities on every run of the suite.
-    fn run_id(nibble: char) -> Result<RunId, String> {
-        // A 32-character lowercase hex literal, which is the one spelling
-        // `RunId::from_hex` accepts, and one distinct nibble per call so two
-        // draws cannot collide and quietly make a "distinct identities" assertion
-        // pass on a single value.
-        let literal = format!("{nibble}{}", "0".repeat(31));
-        RunId::from_hex(&literal).map_err(|error| error.to_string())
-    }
-
-    /// Every plan arm reports the run it adopts, and only the resume arms report one.
-    ///
-    /// The property the drift check's placement rests on: a fresh plan has no run
-    /// to be incompatible with, and both resume arms have one whether or not they
-    /// declared an identity.
-    #[test]
-    fn only_the_resume_arms_adopt_a_run() -> TestResult {
-        let host = host()?;
-        let task = TaskName::new("probe").map_err(|error| error.to_string())?;
-        let run = run_id('1')?;
-        let identity = host.definition_for(task.as_str(), None);
-        assert!(Plan::Fresh.run().is_none(), "a fresh plan adopts nothing");
-        assert!(
-            Plan::Declared(identity.clone()).run().is_none(),
-            "a declared fresh plan adopts nothing either"
-        );
-        assert_eq!(
-            Plan::Resume(run).run(),
-            Some(run),
-            "a resume adopts its run"
-        );
-        assert_eq!(
-            Plan::ResumeUnder(run, identity).run(),
-            Some(run),
-            "a resume under a declared identity adopts the same run"
-        );
-        Ok(())
-    }
-
-    /// The derived identity is stable for one run and different for another.
-    ///
-    /// What makes it usable as a default at all: a derived identity that moved
-    /// between two attempts at the same run would make every existing durable
-    /// step refuse its own resume, and one that was the same for every run would
-    /// make two runs claim one definition.
-    #[test]
-    fn a_derived_identity_is_stable_per_run_and_distinct_across_runs() -> TestResult {
-        let host = host()?;
-        let first = run_id('1')?;
-        let second = run_id('2')?;
-        assert_eq!(
-            host.definition_for("probe", Some(&first)).digest(),
-            host.definition_for("probe", Some(&first)).digest(),
-            "one run's derived identity must not move between two readings"
-        );
-        assert_ne!(
-            host.definition_for("probe", Some(&first)).digest(),
-            host.definition_for("probe", Some(&second)).digest(),
-            "two runs must not share a derived identity"
-        );
-        assert_ne!(
-            host.definition_for("probe", None).digest(),
-            host.definition_for("probe", Some(&first)).digest(),
-            "a run that has not adopted an id is not the run that has"
-        );
-        Ok(())
-    }
-
-    /// A host this module's tests can always build.
-    fn host() -> Result<Host, String> {
-        Host::builder("acme")
-            .map_err(|error| error.to_string())?
-            .build()
-            .map_err(|error| error.to_string())
-    }
-}
+mod tests;

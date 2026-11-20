@@ -336,19 +336,20 @@ pub(super) fn a_wedged_source_is_reported_and_costs_its_neighbours_nothing(
         ];
 
         for tick in 1..=left.ticks {
-            for index in 0..wedged.len() {
+            for (index, (subject, peer)) in wedged.iter_mut().zip(answered.iter_mut()).enumerate() {
                 let plan = *schedules
                     .get(index)
                     .ok_or("a subject this run armed has no schedule")?;
+                let tenant = u32::try_from(index)?;
 
                 // The wedged run, as the schedule decided it.
-                let rows = paced_tick(&mut wedged[index], &plan, tick)?;
-                let report = wedged[index].bot.tick_report();
+                let rows = paced_tick(subject, &plan, tick)?;
+                let report = subject.bot.tick_report();
 
                 // The same tick over the same schedule with nothing wedged. Every
                 // source answers, so this run is the counterfactual the first is
                 // compared against.
-                let _answered = unpace_tick(&mut answered[index], &plan, tick)?;
+                let _answered = unpace_tick(peer, &plan, tick)?;
 
                 // (1) and (2): the report is exactly the schedule's wedged chains,
                 // once each, named by the source's own domain.
@@ -362,7 +363,7 @@ pub(super) fn a_wedged_source_is_reported_and_costs_its_neighbours_nothing(
                         plan.at(*chain, tick)
                             .is_some_and(|window| window.pace == Pace::Wedged)
                     })
-                    .map(|chain| (chain, DOMAINS[index][chain % 8].to_owned()))
+                    .map(|chain| (chain, domain_of(tenant, chain).to_owned()))
                     .collect();
                 assert_eq!(
                     reported, wanted,
@@ -382,8 +383,7 @@ pub(super) fn a_wedged_source_is_reported_and_costs_its_neighbours_nothing(
                 // stopped a recovering chain. A chain that stalled even once is
                 // excluded from this comparison and checked by the report above
                 // instead, which is where its cancellation is named.
-                let subject = &wedged[index];
-                let peer = &answered[index];
+                let (subject, peer) = (&*subject, &*peer);
                 let (fast_log, answered_log): (Vec<_>, Vec<_>) = (0..MAX_CHAINS)
                     .filter(|chain| plan.never_stalled(*chain))
                     .map(|chain| {
@@ -465,13 +465,18 @@ pub(super) fn a_saturated_wave_stalls_every_chain_and_still_lets_the_next_tenant
             }; MAX_CHAINS]; MAX_TICKS],
             ticks,
         };
-        for tick in 0..MAX_TICKS {
-            for chain in 0..MAX_CHAINS {
-                all_wedged.windows[tick][chain] = PaceWindow {
+        for (tick, (wedged_row, fast_row)) in all_wedged
+            .windows
+            .iter_mut()
+            .zip(all_fast.windows.iter_mut())
+            .enumerate()
+        {
+            for (wedged_cell, fast_cell) in wedged_row.iter_mut().zip(fast_row.iter_mut()) {
+                *wedged_cell = PaceWindow {
                     pace: Pace::Wedged,
                     value: 9,
                 };
-                all_fast.windows[tick][chain] = PaceWindow {
+                *fast_cell = PaceWindow {
                     pace: Pace::Fast,
                     value: u32::try_from(tick.saturating_add(1))?,
                 };

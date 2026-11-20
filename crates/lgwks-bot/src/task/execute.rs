@@ -87,21 +87,9 @@ impl Host {
         // *read* another tenant's records; this only governs whether the run id
         // may be adopted.
         if let Some(run) = resume
-            && let Some(store) = self.inner.records.as_ref()
+            && let Some(reason) = self.foreign_resume(run)
         {
-            match store.owner(run) {
-                Ok(Some(owner)) if owner != self.inner.tenant.as_str() => {
-                    let error = StoreError::ForeignTenant {
-                        owner,
-                        asked: self.inner.tenant.as_str().to_owned(),
-                    };
-                    return self.refuse(started, task_name, error.to_string());
-                }
-                Ok(_) => {}
-                // A store that cannot say who owns the run has not said the run
-                // is this tenant's, so the adoption is refused rather than assumed.
-                Err(unread) => return self.refuse(started, task_name, unread.to_string()),
-            }
+            return self.refuse(started, task_name, reason);
         }
         // One resumer per run on this host (#1055). Reading the owner above does
         // not take the run: every concurrent resume of one decided run found its
@@ -143,68 +131,16 @@ impl Host {
         // Only a *declared* identity is checked. The recorded one is what the
         // steps below write and look up under, so comparing a run's records
         // against it would agree by construction and fence nothing.
-        if let (Some(run), Some(store), Some(declared)) =
-            (resume, self.inner.records.as_ref(), declared.as_ref())
-            && let Err(error) = admits_definition(store, run, declared)
-        {
-            // Every refusal is refused; only the *kind* differs, and the kind is
-            // the store's own. A drift is the flow's typed `Incompatible` carrying
-            // its axis; every other store refusal — an unreadable device, a
-            // ceiling, a foreign tenant — reaches the caller as the store's own
-            // error. Matching on `Incompatible` alone once let a read failure
-            // through as though the check had passed, which is INV-BOT-7 in the
-            // host's own pre-flight: a store that could not be read admitted the
-            // run and let the step below discover it, having already told the
-            // caller nothing. The same check every durable step makes, so the
-            // host and the step cannot disagree about one store's answer.
-            let located = error.located_at(&Arc::from(task_name.as_str()));
+        if let Some(located) = self.drifted(resume, declared.as_ref(), &task_name) {
             self.inner.refused.fetch_add(1, Ordering::Relaxed);
-            return self.report(Terminal {
-                started,
-                task: task_name,
-                disposition: Disposition::Refused,
-                output: None,
-                error: Some(located),
-                trail: TrailSnapshot::Empty,
-                run: Some(run),
-                needs: None,
-                repair: None,
-            });
+            return self.unrun(started, task_name, Disposition::Refused, located, resume);
         }
-        // A resume on a host with nothing to replay from would run every step
-        // again under a caller's belief that finished steps are kept. That is the
-        // silent downgrade a resume exists to rule out, so it is refused
-        // before any step runs.
-        if let Some(run) = resume
-            && self.inner.records.is_none()
-        {
-            return self.refuse(
-                started,
-                task_name,
-                format!(
-                    "this host has no run store, so run {} has nothing to resume from",
-                    run.id().to_hex()
-                ),
-            );
-        }
-
         // The run identity, decided before admission so a refused run still has
         // the identity a caller can ask about — a run refused at admission ran
         // nothing, and a run id attached to it names a run with no records.
         let run = self.adopt_run(resume);
-        // A host given a store promised durable steps. A build that cannot mint
-        // the identity those steps are keyed by refuses rather than running
-        // them unrecorded and reporting a run nobody can resume.
-        if run.is_none() && self.inner.records.is_some() {
-            return self.refuse(
-                started,
-                task_name,
-                String::from(
-                    "this host has a run store but could not mint a run identity \
-                     (the `ephemeral` feature is off or its entropy source failed); \
-                     no step ran unrecorded",
-                ),
-            );
+        if let Some(reason) = self.storeless(resume, run) {
+            return self.refuse(started, task_name, reason);
         }
 
         // The authority check, at the admission boundary and as one complete pass.
@@ -218,13 +154,7 @@ impl Host {
         // The base grant and this run's repair delta are checked *together* and
         // never one replacing the other: a repair adds authority for one run, and
         // every capability the host already had still holds.
-        let covers = |cap: &Cap| self.inner.grants.grants(cap) || grant_delta.grants(cap);
-        let shortfall = Deficit::from_shortages(uncovered(
-            task.needs(),
-            covers,
-            Some(&Demand::new(task_name.as_str())),
-        ));
-        if let Some(deficit) = shortfall {
+        if let Some(deficit) = self.shortfall(task.needs(), &task_name, grant_delta) {
             // Blocked before admission and before the body: nothing was polled and
             // nothing executed, and the report names *every* unmet need plus the
             // repair ticket that closes exactly those. Both come from this one
@@ -241,17 +171,7 @@ impl Host {
                 if disposition == Disposition::Refused {
                     self.inner.refused.fetch_add(1, Ordering::Relaxed);
                 }
-                return self.report(Terminal {
-                    started,
-                    task: task_name,
-                    disposition,
-                    output: None,
-                    error: Some(failure.into_error()),
-                    trail: TrailSnapshot::Empty,
-                    run,
-                    needs: None,
-                    repair: None,
-                });
+                return self.unrun(started, task_name, disposition, failure.into_error(), run);
             }
         };
         // Dropped on every exit path from here on, including a future the caller
@@ -278,55 +198,16 @@ impl Host {
         // rather than a reset (T13). The refusal is reported as a terminal report
         // rather than an error, because the run genuinely happened and its state is
         // exactly this.
-        if let Some(run) = run
-            && let Some(ledger) = self.inner.ledger.as_ref()
-            && let Err(refusal) = ledger
-                .charge(
-                    self.inner.tenant.as_str(),
-                    run,
-                    repair.map(RepairTicket::stamp).as_ref(),
-                    spend,
-                    self.inner.repair_attempts,
-                    self.inner.repair_spend,
-                )
-                .await
-        {
+        if let Some(refusal) = self.root_budget_refusal(run, repair, spend).await {
             world.settle(Disposition::Refused);
-            return self.report(Terminal {
-                started,
-                task: task_name,
-                disposition: Disposition::Refused,
-                output: None,
-                error: Some(FlowError::failed(format_args!(
-                    "the run's root budget refused this attempt: {refusal}"
-                ))),
-                trail: TrailSnapshot::Empty,
-                run: Some(run),
-                needs: None,
-                repair: None,
-            });
+            let error = FlowError::failed(format_args!(
+                "the run's root budget refused this attempt: {refusal}"
+            ));
+            return self.unrun(started, task_name, Disposition::Refused, error, run);
         }
 
         let trail = Trail::new(self.inner.limits.progress_capacity());
-        // The host's clock, not a fresh one: a run's admission wait and its
-        // body's `within` budget are two readings of the same timeline, and
-        // minting a second clock here would make a run that is admitted late
-        // look to its own body as if it had started on time. The policy is the
-        // host's for the same reason: one shared retry budget, not one per run.
-        let root = Scope::rooted(
-            self.inner.tenant.clone(),
-            self.inner.token.child_token(),
-            Arc::clone(&trail),
-            self.inner.clock.clone(),
-            run,
-            Arc::clone(&self.inner.policy),
-            self.inner.max_pending,
-        )
-        .hosted(
-            self.authority(grant_delta),
-            self.records(run),
-            Arc::new(recorded_definition.clone()),
-        );
+        let root = self.rooted(&trail, run, grant_delta, &recorded_definition);
         let scope = match root.enter(task_name.as_str()) {
             Ok(scope) => scope,
             // The task's own step could not be entered: the name validated at
@@ -334,21 +215,42 @@ impl Host {
             // in the instant between admission and entry. Either way the body
             // never ran, and the report says so rather than inventing a trail.
             Err(error) => {
-                world.settle(disposition_of(&error));
-                return self.report(Terminal {
-                    started,
-                    task: task_name,
-                    disposition: disposition_of(&error),
-                    output: None,
-                    error: Some(error),
-                    trail: TrailSnapshot::Empty,
-                    run,
-                    needs: None,
-                    repair: None,
-                });
+                let disposition = disposition_of(&error);
+                world.settle(disposition);
+                return self.unrun(started, task_name, disposition, error, run);
             }
         };
+        let entry = Entry {
+            started,
+            task: task_name,
+            run,
+            trail,
+        };
+        self.finish(task, input, scope, repair, &mut world, entry)
+            .await
+    }
 
+    /// Run the body of an entered run under the budget of the hosts above it,
+    /// and assemble the report of how it ended.
+    async fn finish<I, O, F, Fut>(
+        &self,
+        task: &Task<F>,
+        input: I,
+        scope: Scope,
+        repair: Option<&RepairTicket>,
+        world: &mut WorldRun,
+        entry: Entry,
+    ) -> Report<O>
+    where
+        F: Fn(Scope, I) -> Fut,
+        Fut: Future<Output = Result<O, FlowError>>,
+    {
+        let Entry {
+            started,
+            task: task_name,
+            run,
+            trail,
+        } = entry;
         // A nested run's identity joins the set its parent established, so a
         // child two levels down sees every ancestor's host and is charged the
         // same way. Sibling runs have their own scopes and their own sets.
@@ -397,44 +299,16 @@ impl Host {
         // first entry says how the run ended as every later entry does.
         scope.settle(&outcome);
         let snapshot = trail.snapshot();
-        let (disposition, output, error, needs) = match outcome {
-            Ok(value) => (Disposition::Succeeded, Some(value), None, None),
-            // A step that reached for authority it does not have blocks the run,
-            // and its own shortfall rides out with it: the report's needs and the
-            // repair ticket are both built from this one value, so they cannot
-            // disagree about what the run was missing. Every other failure is an
-            // ordinary located error.
-            Err(error) => {
-                let located = error.located(&scope);
-                let deficit = located.deficit().cloned();
-                match deficit {
-                    Some(deficit) => (Disposition::Blocked, None, Some(located), Some(deficit)),
-                    None => (disposition_of(&located), None, Some(located), None),
-                }
-            }
-        };
+        let (disposition, output, error, needs) = read_outcome(outcome, &scope);
         // A blocked run mints its repair ticket from the same shortfall the report
         // carries, and only when the host holds a ledger to decide a later repair
         // against. A blocked run *inside* a repair mints none: a repair that could
         // not close the shortfall hands back the run it was given rather than a
         // fresh ticket for the same block, which would be a way to retry a denied
         // repair by asking again.
-        let repair = match (
-            needs.as_ref(),
-            run,
-            self.inner.ledger.as_ref(),
-            repair.is_some(),
-        ) {
-            (Some(deficit), Some(run), Some(ledger), false) => {
-                let epoch = ticket_epoch(ledger.control(run));
-                Some(RepairTicket::of_deficit(
-                    run,
-                    self.inner.tenant.as_str(),
-                    epoch,
-                    deficit,
-                ))
-            }
-            _ => None,
+        let repair = match needs.as_ref() {
+            Some(deficit) if repair.is_none() => self.ticket_for(run, deficit),
+            Some(_) | None => None,
         };
         world.settle(disposition);
         self.report(Terminal {
@@ -516,6 +390,180 @@ impl Host {
         })
     }
 
+    /// A report for a run the host declined before its body: no output, no step
+    /// entered, no trail, and no need or repair ticket riding along.
+    fn unrun<O>(
+        &self,
+        started: Instant,
+        task: TaskName,
+        disposition: Disposition,
+        error: FlowError,
+        run: Option<RunId>,
+    ) -> Report<O> {
+        self.report(Terminal {
+            started,
+            task,
+            disposition,
+            output: None,
+            error: Some(error),
+            trail: TrailSnapshot::Empty,
+            run,
+            needs: None,
+            repair: None,
+        })
+    }
+
+    /// Why a resume of `run` is refused because the store knows it as another
+    /// tenant's, when it is.
+    ///
+    /// A run the store has *never seen* is not refused: a process killed before
+    /// its first record left no evidence at all, and refusing that resume would
+    /// make the exactly-at-least-once step unrecoverable. A store that cannot
+    /// say who owns the run has not said it is this tenant's, so the adoption is
+    /// refused rather than assumed.
+    fn foreign_resume(&self, run: RunId) -> Option<String> {
+        let store = self.inner.records.as_ref()?;
+        match store.owner(run) {
+            Ok(Some(owner)) if owner != self.inner.tenant.as_str() => Some(
+                StoreError::ForeignTenant {
+                    owner,
+                    asked: self.inner.tenant.as_str().to_owned(),
+                }
+                .to_string(),
+            ),
+            Ok(Some(_) | None) => None,
+            Err(unread) => Some(unread.to_string()),
+        }
+    }
+
+    /// The refusal of a resume whose declared definition drifted from the one
+    /// its records carry, or whose store could not be read to check.
+    ///
+    /// Only a *declared* identity is checked: the recorded one is what the steps
+    /// write and look up under, so comparing a run's records against it would
+    /// agree by construction and fence nothing. Every refusal is refused; only
+    /// the *kind* differs, and the kind is the store's own. A drift is the flow's
+    /// typed `Incompatible` carrying its axis; every other store refusal reaches
+    /// the caller as the store's own error. Matching on `Incompatible` alone once
+    /// let a read failure through as though the check had passed (INV-BOT-7).
+    fn drifted(
+        &self,
+        resume: Option<RunId>,
+        declared: Option<&DefinitionIdentity>,
+        task: &TaskName,
+    ) -> Option<FlowError> {
+        let (Some(run), Some(store), Some(declared)) =
+            (resume, self.inner.records.as_ref(), declared)
+        else {
+            return None;
+        };
+        admits_definition(store, run, declared)
+            .err()
+            .map(|error| error.located_at(&Arc::from(task.as_str())))
+    }
+
+    /// Why a run cannot proceed for want of a store or an identity, when it
+    /// cannot.
+    ///
+    /// A resume on a host with nothing to replay from would run every step again
+    /// under a caller's belief that finished steps are kept. A host given a store
+    /// promised durable steps, and a build that cannot mint the identity those
+    /// steps are keyed by refuses rather than running them unrecorded.
+    fn storeless(&self, resume: Option<RunId>, run: Option<RunId>) -> Option<String> {
+        match (self.inner.records.is_some(), resume, run) {
+            (false, Some(adopted), _) => Some(format!(
+                "this host has no run store, so run {} has nothing to resume from",
+                adopted.id().to_hex()
+            )),
+            (true, _, None) => Some(String::from(
+                "this host has a run store but could not mint a run identity \
+                 (the `ephemeral` feature is off or its entropy source failed); \
+                 no step ran unrecorded",
+            )),
+            (false, None, _) | (true, _, Some(_)) => None,
+        }
+    }
+
+    /// The needs of a task that neither the host's grants nor this run's repair
+    /// delta cover, from one complete pass.
+    ///
+    /// The base grant and the delta are checked *together* and never one
+    /// replacing the other: a repair adds authority for one run, and every
+    /// capability the host already had still holds.
+    fn shortfall(&self, needs: &[Cap], task: &TaskName, grant_delta: &GrantSet) -> Option<Deficit> {
+        let covers = |cap: &Cap| self.inner.grants.grants(cap) || grant_delta.grants(cap);
+        Deficit::from_shortages(uncovered(needs, covers, Some(&Demand::new(task.as_str()))))
+    }
+
+    /// Why the run's root budget refuses this attempt, when it does.
+    ///
+    /// Charged after the run was admitted and confirmed to have authority, but
+    /// before the body runs. A repair is charged exactly like any other attempt,
+    /// which is what makes an authorized repair *distinct* rather than a reset
+    /// (T13).
+    async fn root_budget_refusal(
+        &self,
+        run: Option<RunId>,
+        repair: Option<&RepairTicket>,
+        spend: u64,
+    ) -> Option<String> {
+        let run = run?;
+        let ledger = self.inner.ledger.as_ref()?;
+        ledger
+            .charge(
+                self.inner.tenant.as_str(),
+                run,
+                repair.map(RepairTicket::stamp).as_ref(),
+                spend,
+                self.inner.repair_attempts,
+                self.inner.repair_spend,
+            )
+            .await
+            .err()
+            .map(|refusal| refusal.to_string())
+    }
+
+    /// The root scope of a run: the host's own clock, not a fresh one, so a
+    /// run's admission wait and its body's `within` budget are two readings of
+    /// the same timeline, and the host's policy, so there is one shared retry
+    /// budget rather than one per run.
+    fn rooted(
+        &self,
+        trail: &Arc<Trail>,
+        run: Option<RunId>,
+        grant_delta: &GrantSet,
+        recorded: &DefinitionIdentity,
+    ) -> Scope {
+        Scope::rooted(
+            self.inner.tenant.clone(),
+            self.inner.token.child_token(),
+            Arc::clone(trail),
+            self.inner.clock.clone(),
+            run,
+            Arc::clone(&self.inner.policy),
+            self.inner.max_pending,
+        )
+        .hosted(
+            self.authority(grant_delta),
+            self.records(run),
+            Arc::new(recorded.clone()),
+        )
+    }
+
+    /// The repair ticket for a run short of `deficit`: only for a run whose
+    /// epoch the ledger knows, so a host without a ledger mints none.
+    fn ticket_for(&self, run: Option<RunId>, deficit: &Deficit) -> Option<RepairTicket> {
+        let (Some(run), Some(ledger)) = (run, self.inner.ledger.as_ref()) else {
+            return None;
+        };
+        Some(RepairTicket::of_deficit(
+            run,
+            self.inner.tenant.as_str(),
+            ticket_epoch(ledger.control(run)),
+            deficit,
+        ))
+    }
+
     /// A run refused before admission: `Refused`, no body, no step, no run id,
     /// and the reason located at the task.
     pub(super) fn refuse<O>(&self, started: Instant, task: TaskName, reason: String) -> Report<O> {
@@ -542,23 +590,7 @@ impl Host {
         // close the shortfall hands back the run it was given rather than minting a
         // fresh ticket for the same block, which would be a way to retry a denied
         // repair by asking again.
-        let repair = match (run, self.inner.ledger.as_ref()) {
-            (Some(run), Some(_ledger)) => {
-                let epoch = ticket_epoch(
-                    self.inner
-                        .ledger
-                        .as_ref()
-                        .and_then(|ledger| ledger.control(run)),
-                );
-                Some(RepairTicket::of_deficit(
-                    run,
-                    self.inner.tenant.as_str(),
-                    epoch,
-                    &deficit,
-                ))
-            }
-            _ => None,
-        };
+        let repair = self.ticket_for(run, &deficit);
         self.not_admitted(
             started,
             task,
@@ -672,7 +704,7 @@ impl WorldRun {
     /// replay reads the run as admitted and unsettled, which is what it is.
     fn record(&mut self, outcome: RunOutcome) {
         if let Some((feed, ticket)) = self.0.take()
-            && let Err(error) = feed.settle(ticket, outcome)
+            && let Err(error) = feed.settle(&ticket, outcome)
         {
             lgwks_std::trace::warn!(%error, "execute: the world's run feed refused a settlement");
         }
@@ -682,6 +714,41 @@ impl WorldRun {
 impl Drop for WorldRun {
     fn drop(&mut self) {
         self.record(RunOutcome::Aborted);
+    }
+}
+
+/// What an entered run carries from admission to its report.
+struct Entry {
+    /// When the call began, for the report's elapsed time.
+    started: Instant,
+    /// The task's name.
+    task: TaskName,
+    /// The run's identity, when the host keeps one.
+    run: Option<RunId>,
+    /// The ring the run's steps are recorded in.
+    trail: Arc<Trail>,
+}
+
+/// How a finished body reads: its disposition, output, located error and, for a
+/// blocked run, the shortfall that blocked it.
+///
+/// A step that reached for authority it does not have blocks the run, and its
+/// own shortfall rides out with it: the report's needs and the repair ticket are
+/// both built from this one value, so they cannot disagree about what the run was
+/// missing. Every other failure is an ordinary located error.
+fn read_outcome<O>(
+    outcome: Result<O, FlowError>,
+    scope: &Scope,
+) -> (Disposition, Option<O>, Option<FlowError>, Option<Deficit>) {
+    match outcome {
+        Ok(value) => (Disposition::Succeeded, Some(value), None, None),
+        Err(error) => {
+            let located = error.located(scope);
+            match located.deficit().cloned() {
+                Some(deficit) => (Disposition::Blocked, None, Some(located), Some(deficit)),
+                None => (disposition_of(&located), None, Some(located), None),
+            }
+        }
     }
 }
 
@@ -713,15 +780,79 @@ fn admits_definition(
     run: RunId,
     declared: &DefinitionIdentity,
 ) -> Result<(), FlowError> {
-    let Some(recorded) = store.recorded_definition(run)? else {
-        return Ok(());
-    };
-    match declared.drift_from(&recorded) {
-        None => Ok(()),
-        Some(drift) => {
-            let refusal = Err(FlowError::incompatible("", drift));
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admits_definition: returning an error to the caller");
-            refusal
-        }
+    // A run the store has never seen has no recorded definition to drift from.
+    let drift = store
+        .recorded_definition(run)?
+        .and_then(|recorded| declared.drift_from(&recorded));
+    if let Some(found) = drift {
+        let refusal = Err(FlowError::incompatible("", found));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "admits_definition: returning an error to the caller");
+        return refusal;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cap::Cap;
+    use crate::effect::RunId;
+    use crate::gate::GrantSet;
+    use crate::task::{Host, name::TaskName};
+
+    /// What this module's tests report.
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    /// A storeless host for `acme` holding `grants`.
+    fn host(grants: GrantSet) -> Result<Host, Box<dyn std::error::Error>> {
+        Ok(Host::builder("acme")?.grants(grants).build()?)
+    }
+
+    /// A storeless host refuses a resume, since it has nothing to replay, and
+    /// lets a fresh run through whether or not it minted an identity.
+    #[test]
+    fn execute_a_storeless_host_refuses_only_a_resume() -> TestResult {
+        let host = host(GrantSet::empty())?;
+        let run = RunId::from_hex(&format!("1{}", "0".repeat(31)))?;
+        assert!(
+            host.storeless(Some(run), Some(run)).is_some(),
+            "a resume with no store is refused"
+        );
+        assert!(
+            host.storeless(None, None).is_none(),
+            "a fresh run with no store and no identity proceeds"
+        );
+        assert!(
+            host.storeless(None, Some(run)).is_none(),
+            "a fresh run with no store proceeds"
+        );
+        Ok(())
+    }
+
+    /// The host's grants and the run's repair delta cover a need together;
+    /// either alone covers what it grants, and a need neither grants is short.
+    #[test]
+    fn execute_grants_and_the_repair_delta_cover_together() -> TestResult {
+        let host = host(GrantSet::empty().grant(Cap::net()))?;
+        let task = TaskName::new("probe")?;
+        let empty = GrantSet::empty();
+        let fs = GrantSet::empty().grant(Cap::fs());
+        assert!(
+            host.shortfall(&[Cap::net()], &task, &empty).is_none(),
+            "the host's own grant covers its need"
+        );
+        assert!(
+            host.shortfall(&[Cap::fs()], &task, &fs).is_none(),
+            "the repair delta covers its need"
+        );
+        assert!(
+            host.shortfall(&[Cap::net(), Cap::fs()], &task, &fs)
+                .is_none(),
+            "the two together cover both needs"
+        );
+        assert!(
+            host.shortfall(&[Cap::fs()], &task, &empty).is_some(),
+            "a need neither grants is short"
+        );
+        Ok(())
     }
 }

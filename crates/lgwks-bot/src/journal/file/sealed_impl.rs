@@ -29,7 +29,7 @@ use crate::sealed::envelope::{NONCE_BYTES, open as envelope_open, seal as envelo
 use crate::sealed::fold::{Unwrapped, fold_unwrap};
 use crate::sealed::journal::{SealedJournalRead, ShredOutcome, write_refusal};
 use crate::sealed::keys::{KeyId, KeyProvider};
-use crate::sealed::record::{DecodedFrame, decode_frame, encode_record, encode_tombstone};
+use crate::sealed::record::{encode_record, encode_tombstone};
 
 /// One sealed event frame the open replayed: where it sits, what seals it,
 /// and whether it still opens.
@@ -130,7 +130,7 @@ fn abandon(provider: &Arc<dyn KeyProvider>, id: &KeyId) {
 /// Frame `payload` at `from`: the next sequence, the shared framing step,
 /// and the chain head over the sealed bytes.
 fn frame_bytes(
-    payload: Vec<u8>,
+    payload: &[u8],
     from: JournalPosition,
 ) -> Result<(JournalPosition, Vec<u8>), JournalError> {
     let sequence = from
@@ -138,10 +138,10 @@ fn frame_bytes(
         .checked_add(1)
         .ok_or(JournalError::Exhausted)?;
     let (framed, head) = frame::frame_record(
-        &payload,
+        payload,
         &from.head,
         super::MAX_FRAME_BYTES,
-        |bytes| Ok(bytes.clone()),
+        |bytes| Ok(bytes.to_vec()),
         |_, previous, sealed| super::super::chain_over_bytes(previous, sealed),
         |_| {
             JournalError::Storage(std::io::Error::new(
@@ -151,159 +151,6 @@ fn frame_bytes(
         },
     )?;
     Ok((JournalPosition { sequence, head }, framed))
-}
-
-/// One sealed frame the scan classified: a record with its opened state, or
-/// a tombstone naming a record frame.
-pub(super) enum SealedClassified {
-    /// A sealed record: the slot the scan folds, and the live event when the
-    /// key opened.
-    Record {
-        /// The data key's identity.
-        key: KeyId,
-        /// The wrapped data key, as the frame stored it.
-        wrapped: Vec<u8>,
-        /// The seal nonce, as the frame stored it.
-        nonce: [u8; NONCE_BYTES],
-        /// The ciphertext, as the frame stored it.
-        ciphertext: Vec<u8>,
-        /// The plaintext routing fingerprint, as the frame stored it.
-        fingerprint: [u8; 32],
-        /// When the record expires, as the frame stored it.
-        expires_at: Option<Duration>,
-        /// The decrypted event, or `None` when the key is destroyed or the
-        /// provider would not answer. Reads retry the unwrap, so a healed
-        /// provider reads live again.
-        event: Option<Box<EffectEvent>>,
-        /// Whether the key is destroyed: reads as erased.
-        erased: bool,
-    },
-    /// A tombstone: the shredded record's frame ordinal and key identity.
-    Tombstone {
-        /// The shredded record's frame ordinal.
-        index: u64,
-        /// The shredded record's key identity.
-        key_id: [u8; 16],
-    },
-}
-
-/// What opening one sealed frame found: not a sealed frame, or the reason it
-/// cannot become a slot.
-pub(super) enum SealedDamage {
-    /// The payload is not a sealed frame: the caller decides whether that is
-    /// mode mixing or rot.
-    NotSealed,
-    /// The frame names another tenant's namespace, carries no routing
-    /// fingerprint, or was written by no provider of this file.
-    Foreign,
-    /// The envelope does not open under its live key, or the plaintext is
-    /// not an event: committed bytes that no longer mean what the chain says.
-    Misshapen,
-}
-
-/// Classify one sealed frame payload at open: decode the envelope, restore
-/// the live key, and decrypt — or mark the slot erased or unreadable.
-///
-/// The scan maps every refusal onto the frame's own index: a frame the
-/// provider cannot answer is unreadable rather than absent, and a frame no
-/// provider of this file wrote is refused rather than trimmed.
-pub(super) fn classify_sealed_frame(
-    payload: &[u8],
-    tenant: &str,
-    provider: &Arc<dyn KeyProvider>,
-    at: u64,
-) -> Result<SealedClassified, SealedDamage> {
-    let Some(decoded) = decode_frame(payload) else {
-        lgwks_std::trace::debug!(
-            at = at,
-            "classify_sealed_frame: the payload is no sealed frame"
-        );
-        return Err(SealedDamage::NotSealed);
-    };
-    match decoded {
-        DecodedFrame::Record {
-            tenant: frame_tenant,
-            key_id,
-            wrapped,
-            nonce,
-            ciphertext,
-            expires_at,
-            bind,
-        } => {
-            if frame_tenant != tenant {
-                lgwks_std::trace::debug!(
-                    at,
-                    "sealed-scan: a frame names another tenant's namespace"
-                );
-                return Err(SealedDamage::Foreign);
-            }
-            let Ok(fingerprint) = <[u8; 32]>::try_from(bind) else {
-                lgwks_std::trace::debug!(at, "sealed-scan: a frame carries no routing fingerprint");
-                return Err(SealedDamage::Foreign);
-            };
-            let key = KeyId::new(tenant.to_owned(), key_id);
-            if let Err(error) = provider.note_wrapped(&key, &wrapped) {
-                lgwks_std::trace::debug!(at, error = ?error, "sealed-scan: a live record's key does not open");
-                return Err(SealedDamage::Foreign);
-            }
-            match fold_unwrap(provider.unwrap_key(&key, &wrapped)) {
-                Ok(Unwrapped::Live(data_key)) => {
-                    match envelope_open(&data_key, &nonce, &ciphertext) {
-                        Ok(plaintext) => match from_bytes::<EffectEvent, WireError>(&plaintext) {
-                            Ok(event) => Ok(SealedClassified::Record {
-                                key,
-                                wrapped,
-                                nonce,
-                                ciphertext,
-                                expires_at,
-                                fingerprint,
-                                event: Some(Box::new(event)),
-                                erased: false,
-                            }),
-                            Err(error) => {
-                                lgwks_std::trace::debug!(
-                                    at,
-                                    ?error,
-                                    "sealed-scan: a committed frame does not decode"
-                                );
-                                Err(SealedDamage::Misshapen)
-                            }
-                        },
-                        Err(error) => {
-                            lgwks_std::trace::debug!(at, error = ?error, "sealed-scan: a live key with an unopenable envelope");
-                            Err(SealedDamage::Misshapen)
-                        }
-                    }
-                }
-                Ok(Unwrapped::Erased) => Ok(SealedClassified::Record {
-                    key,
-                    wrapped,
-                    nonce,
-                    ciphertext,
-                    expires_at,
-                    fingerprint,
-                    event: None,
-                    erased: true,
-                }),
-                Err(error) => {
-                    lgwks_std::trace::debug!(at, error = ?error, "sealed-scan: a record the provider cannot answer yet");
-                    Ok(SealedClassified::Record {
-                        key,
-                        wrapped,
-                        nonce,
-                        ciphertext,
-                        expires_at,
-                        fingerprint,
-                        event: None,
-                        erased: false,
-                    })
-                }
-            }
-        }
-        DecodedFrame::Tombstone { index, key_id } => {
-            Ok(SealedClassified::Tombstone { index, key_id })
-        }
-    }
 }
 
 /// What a sealed open carries into the scan and the replay: re-exported from
@@ -392,7 +239,7 @@ pub(super) fn frame_sealed(
         fingerprint,
         expires_at,
     };
-    match frame_bytes(payload, from) {
+    match frame_bytes(&payload, from) {
         Ok((position, framed)) => Ok((position, framed, pending)),
         Err(error) => {
             abandon(&state.provider, &key_id);
@@ -433,14 +280,11 @@ impl FileJournal {
             lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "open_sealed: the tenant label is not file-safe");
             return refusal;
         }
-        let journal = Self::open_impl(
-            path.as_ref(),
-            super::seal::OpenKind::Plain,
-            Some(SealedOpen {
-                provider: Arc::clone(&provider),
-                tenant: tenant.to_owned(),
-            }),
-        )?;
+        let open = SealedOpen {
+            provider,
+            tenant: tenant.to_owned(),
+        };
+        let journal = Self::open_impl(path.as_ref(), super::seal::OpenKind::Plain, Some(&open))?;
         if journal.sealed.is_none() {
             let refusal = Err(JournalError::Storage(std::io::Error::other(
                 "the sealed open returned a plain journal",
@@ -610,9 +454,10 @@ impl FileJournal {
             lgwks_std::trace::debug!(error = ?error, "shred_sealed: the destruction could not be recorded");
             return Err(write_refusal(error));
         }
-        let payload = encode_tombstone(target, &key.id());
-        let tail = self.position;
-        let (tomb_position, framed) = match frame_bytes(payload, tail) {
+        let (tomb_position, framed) = match frame_bytes(
+            &encode_tombstone(target, &key.id()),
+            self.position,
+        ) {
             Ok(framed) => framed,
             Err(error) => {
                 lgwks_std::trace::debug!(error = ?error, "shred_sealed: a tombstone exceeds the frame ceiling");
@@ -800,3 +645,8 @@ impl FileJournal {
         Ok(())
     }
 }
+
+// The read side of the frame codec: classifying a committed sealed payload.
+mod codec;
+
+pub(super) use codec::{SealedClassified, SealedDamage, classify_sealed_frame};

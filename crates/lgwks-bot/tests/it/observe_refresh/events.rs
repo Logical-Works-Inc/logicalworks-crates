@@ -96,6 +96,43 @@ fn identical_payloads_with_distinct_event_ids_both_execute_and_a_redelivery_does
     Ok(())
 }
 
+/// The last tick reported value 2 as passed over, by chain and revision, and
+/// counted no fired effect and no forced refresh for it.
+fn assert_pass_over_named(bot: &Bot) -> TestResult {
+    let report = bot.tick_report();
+    assert!(
+        report.superseded_any(),
+        "an intermediate value overtaken before it was acted on must be reported; \
+         report was {report:?}"
+    );
+    let superseded = report
+        .superseded()
+        .first()
+        .ok_or("the pass-over is named")?;
+    assert_eq!(
+        superseded.chain(),
+        0,
+        "the pass-over names the chain whose value was overtaken"
+    );
+    assert_eq!(
+        superseded.revision(),
+        2,
+        "and names the revision the *replaced* value was committed under — the one \
+         that will never be acted on"
+    );
+    assert!(
+        !report.forced_any(),
+        "a pass-over is not a forced refresh: nothing about the source's caching \
+         was in question"
+    );
+    assert_eq!(
+        report.fired(),
+        0,
+        "a passed-over value is not work done, so it is not counted as a fired effect"
+    );
+    Ok(())
+}
+
 /// An intermediate value overtaken before any entry acted on it is reported as
 /// superseded, not as a fired effect and not as a retire.
 ///
@@ -161,42 +198,12 @@ fn an_intermediate_value_is_reported_as_superseded_rather_than_fired_or_retired(
     value.set(3);
     held_tick(&mut bot)?;
 
-    let report = bot.tick_report();
     assert_eq!(
         ran_with(&seen),
         vec![1],
         "nothing new ran: the held entry is still held"
     );
-    assert!(
-        report.superseded_any(),
-        "an intermediate value overtaken before it was acted on must be reported; \
-         report was {report:?}"
-    );
-    let superseded = report
-        .superseded()
-        .first()
-        .ok_or("the pass-over is named")?;
-    assert_eq!(
-        superseded.chain(),
-        0,
-        "the pass-over names the chain whose value was overtaken"
-    );
-    assert_eq!(
-        superseded.revision(),
-        2,
-        "and names the revision the *replaced* value was committed under — the one \
-         that will never be acted on"
-    );
-    assert!(
-        !report.forced_any(),
-        "a pass-over is not a forced refresh: nothing about the source's caching \
-         was in question"
-    );
-    assert_eq!(
-        report.fired(),
-        0,
-        "a passed-over value is not work done, so it is not counted as a fired effect"
-    );
+    assert_pass_over_named(&bot)?;
 
     // Settle the held generation. Settling it admits the newest committed
     // observation — 3, which took the intermediate's place — and that opens the

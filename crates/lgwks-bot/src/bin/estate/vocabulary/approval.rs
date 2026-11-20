@@ -44,8 +44,15 @@ fn decider(approved: &Approved) -> Vec<u8> {
 struct ShipAction;
 
 impl ShipAction {
-    /// Build from any target: the dock is named, not validated.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
+    /// Build the double for the dock a spec names; an unnamed dock is refused.
+    fn from_target(target: &str) -> Result<Action, EcsError> {
+        if target.is_empty() {
+            lgwks_std::trace::debug!("from_target: returning an error to the caller");
+            return Err(EcsError::IncompleteSpec {
+                field: "target",
+                cause: String::from("the spec names no dock"),
+            });
+        }
         Ok(Action::new(Self))
     }
 }
@@ -117,6 +124,19 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         .run_store(&dir)?
         .domains(&SHIP)
         .build()?;
+    check_release(driver, &host)?;
+    check_denial(driver, &host)?;
+    check_gated(driver, &host)?;
+    check_open(driver, &host)?;
+    say(&format!(
+        "approval: parked, decided, resumed; gated action ran {}",
+        SHIPPED.load(Ordering::SeqCst)
+    ))?;
+    Ok(())
+}
+
+/// The first run parks, and a decision releases the payload.
+fn check_release(driver: &Handle, host: &Host) -> Result<(), VocabularyError> {
     let shipping = task("vocab-ship", |scope: Scope, payload: Vec<u8>| async move {
         vocab_ship(&scope, payload).await
     })?;
@@ -134,10 +154,13 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     };
     say(&format!("approval: parked as {id}"))?;
     let listed = host.pending(100)?;
-    if listed.len() != 1 || listed[0].id() != id {
+    let Some(entry) = listed
+        .first()
+        .filter(|entry| listed.len() == 1 && entry.id() == id)
+    else {
         return refuse(Section::Approval, "the park is listed once under its id");
-    }
-    let digest = *listed[0].digest();
+    };
+    let digest = *entry.digest();
     host.decide(&id, ApprovalDecision::approve("vocab-smoke", digest))?;
     let Some(run) = parked.run_id() else {
         return refuse(Section::Approval, "a parked run names its run");
@@ -148,7 +171,14 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     {
         return refuse(Section::Approval, "the decision releases the payload");
     }
-    // A denial fails the resume typed, and runs nothing after the park.
+    Ok(())
+}
+
+/// A denial fails the resume typed, and runs nothing after the park.
+fn check_denial(driver: &Handle, host: &Host) -> Result<(), VocabularyError> {
+    let shipping = task("vocab-ship", |scope: Scope, payload: Vec<u8>| async move {
+        vocab_ship(&scope, payload).await
+    })?;
     let parked_denied = driver.block_on(host.run(&shipping, b"hold-7".to_vec()));
     let Some(denied_error) = parked_denied.error() else {
         return refuse(Section::Approval, "a denial starts from a park");
@@ -181,8 +211,12 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
             ) => {}
         _ => return refuse(Section::Approval, "a denial fails the resume typed"),
     }
-    // The gated act under the default policy: parked, decided, resumed, and
-    // the action runs exactly once, on the approved bytes.
+    Ok(())
+}
+
+/// The gated act under the default policy: parked, decided, resumed, and
+/// the action runs exactly once, on the approved bytes.
+fn check_gated(driver: &Handle, host: &Host) -> Result<(), VocabularyError> {
     let guarding = task(
         "vocab-guarded",
         |scope: Scope, payload: Vec<u8>| async move { vocab_guarded(&scope, payload).await },
@@ -234,8 +268,16 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
             "the gated action runs exactly once on the approved bytes",
         );
     }
-    // The same run under an explicit policy: the ship action is the smoke's
-    // own double, so no decision is owed.
+    Ok(())
+}
+
+/// The same run under an explicit policy: the ship action is the smoke's
+/// own double, so no decision is owed.
+fn check_open(driver: &Handle, host: &Host) -> Result<(), VocabularyError> {
+    let guarding = task(
+        "vocab-guarded",
+        |scope: Scope, payload: Vec<u8>| async move { vocab_guarded(&scope, payload).await },
+    )?;
     let parked_open = driver.block_on(host.run(&guarding, b"ship-open".to_vec()));
     let Some(open_error) = parked_open.error() else {
         return refuse(Section::Approval, "an allowed run starts from a park");
@@ -272,9 +314,5 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
             "an explicit policy runs the double without asking",
         );
     }
-    say(&format!(
-        "approval: parked, decided, resumed; gated action ran {}",
-        SHIPPED.load(Ordering::SeqCst)
-    ))?;
     Ok(())
 }

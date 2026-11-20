@@ -85,7 +85,14 @@ impl<T> StreamGate<T> {
             Overflow::DropOldest => {
                 // Shed the oldest: the gate is full, so this yields the event
                 // the policy sacrifices for the incoming one.
-                drop(self.queue.pop());
+                match self.queue.pop() {
+                    Some(_shed) => {
+                        lgwks_std::trace::debug!("StreamGate::push: shed the oldest event");
+                    }
+                    None => {
+                        lgwks_std::trace::debug!("StreamGate::push: a full gate held nothing");
+                    }
+                }
                 self.dropped = self.dropped.saturating_add(1);
                 // The pop freed exactly one slot, so this push fits; a refusal
                 // is unreachable and hands the item back rather than panics.
@@ -330,7 +337,7 @@ mod tests {
         let mut gate = gate(2, Overflow::DropOldest)?;
         for item in [1_u32, 2, 3, 4] {
             gate.push(item)
-                .map_err(|_| String::from("drop-oldest never refuses"))?;
+                .map_err(|handed| format!("drop-oldest never refuses, handed back {handed}"))?;
         }
         assert_eq!(gate.len(), 2, "the gate never holds past its cap");
         assert_eq!(gate.pop(), Some(3_u32), "the oldest events were shed");
@@ -344,16 +351,16 @@ mod tests {
     fn drop_newest_keeps_the_first_and_refuse_hands_back() -> TestResult {
         let mut keep = gate(1, Overflow::DropNewest)?;
         keep.push(1_u32)
-            .map_err(|_| String::from("the first push fits"))?;
+            .map_err(|handed| format!("the first push fits, handed back {handed}"))?;
         keep.push(2_u32)
-            .map_err(|_| String::from("drop-newest never refuses"))?;
+            .map_err(|handed| format!("drop-newest never refuses, handed back {handed}"))?;
         assert_eq!(keep.pop(), Some(1_u32), "what arrived first is kept");
         assert_eq!(keep.dropped(), 1, "the shed event is counted");
 
         let mut refuse = gate(1, Overflow::Refuse)?;
         refuse
             .push(1_u32)
-            .map_err(|_| String::from("the first push fits"))?;
+            .map_err(|handed| format!("the first push fits, handed back {handed}"))?;
         let handed = match refuse.push(2_u32) {
             Err(item) => item,
             Ok(()) => return Err(String::from("refuse must hand the event back")),
@@ -395,7 +402,7 @@ mod tests {
         .map_err(|error| error.to_string())?;
         let seen = seen
             .try_borrow()
-            .map_err(|_| String::from("the seen order was poisoned"))?;
+            .map_err(|error| format!("the seen order was not readable: {error}"))?;
         assert_eq!(
             *seen,
             vec![1_u32, 2, 3, 4, 5],

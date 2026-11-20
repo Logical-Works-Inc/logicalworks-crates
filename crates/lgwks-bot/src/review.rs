@@ -432,21 +432,7 @@ pub async fn review_pr(
     //    renamed repository answers with a move object rather than a pull
     //    request; that is a refusal of the *subject identity*, never a silent
     //    re-point to the canonical name.
-    let snapshot = match within(&scope, "snapshot", deadline, async {
-        match gh.snapshot(&request.pull).await {
-            Ok(snapshot) => Ok(SnapshotStep::Pinned(snapshot)),
-            Err(GhError::MovedRepository {
-                requested,
-                canonical,
-            }) => Ok(SnapshotStep::Moved {
-                requested,
-                canonical,
-            }),
-            Err(other) => Err(FlowError::from(other)),
-        }
-    })
-    .await?
-    {
+    let snapshot = match pin_subject(&scope, &gh, &request).await? {
         SnapshotStep::Pinned(snapshot) => snapshot,
         SnapshotStep::Moved {
             requested,
@@ -473,17 +459,7 @@ pub async fn review_pr(
     //     published, because a review against a partial diff would claim a
     //     scope nobody read. The inventory is the subject's data — no file in
     //     it is compiled, imported, built, shelled or loaded.
-    let diff = match within(&scope, "diff", deadline, async {
-        match gh.read_diff(&request.pull).await {
-            Ok(diff) => Ok(DiffStep::Read(diff)),
-            Err(error) if error.is_coverage_incomplete() => {
-                Ok(DiffStep::Incomplete(error.to_string()))
-            }
-            Err(other) => Err(FlowError::from(other)),
-        }
-    })
-    .await?
-    {
+    let diff = match read_coverage(&scope, &gh, &request).await? {
         DiffStep::Read(diff) => diff,
         DiffStep::Incomplete(reason) => {
             return Ok(ReviewOutcome::Incomplete {
@@ -514,7 +490,9 @@ pub async fn review_pr(
     // nothing and names both shas, so the caller can decide whether to
     // re-analyse at the new head — which is a separate recorded decision.
     let current = within(&scope, "freshness", deadline, async {
-        gh.snapshot(&request.pull).await.map_err(FlowError::from)
+        Box::pin(gh.snapshot(&request.pull))
+            .await
+            .map_err(FlowError::from)
     })
     .await?;
 
@@ -527,7 +505,7 @@ pub async fn review_pr(
 
     // 4. Publish, once, at the reviewed commit.
     let published = within(&scope, "publish", deadline, async {
-        gh.publish(&request.pull, &payload)
+        Box::pin(gh.publish(&request.pull, &payload))
             .await
             .map_err(FlowError::from)
     })
@@ -562,18 +540,7 @@ pub async fn review_pr(
     //    caller needs. The read's failure is classified instead — a *permission*
     //    loss is its own state (an applied effect whose verification is
     //    blocked), and every other refusal leaves the effect unknown.
-    let verified = within(&scope, "verify", deadline, async {
-        match gh.read_reviews(&request.pull).await {
-            Ok(records) => Ok(VerifyStep::Read(records)),
-            Err(GhError::Unauthorized { status, reason, .. }) => {
-                Ok(VerifyStep::Denied { status, reason })
-            }
-            Err(other) => Ok(VerifyStep::Unreadable(other.to_string())),
-        }
-    })
-    .await?;
-
-    let reviews = match verified {
+    let reviews = match read_back(&scope, &gh, &request).await? {
         VerifyStep::Read(records) => records,
         // The write may have landed and the read lost the permission to see it.
         // When the create returned an id, the effect is *applied*, so the
@@ -582,24 +549,7 @@ pub async fn review_pr(
         // is restored. Otherwise the effect is unknown. Neither is a failure,
         // and neither is retried blindly.
         VerifyStep::Denied { status, reason } => {
-            return Ok(match created_id {
-                Some(review_id) => ReviewOutcome::Unverified {
-                    review_id,
-                    commit_id: reviewed,
-                    reason: format!(
-                        "the review was created but the read-back lost permission (HTTP \
-                         {status}): {reason}; the applied review id is retained and no second \
-                         review was created"
-                    ),
-                },
-                None => ReviewOutcome::Unknown {
-                    commit_id: reviewed,
-                    reason: format!(
-                        "the publication outcome could not be established, because the read \
-                         lost permission (HTTP {status}): {reason}; no second review was created"
-                    ),
-                },
-            });
+            return Ok(denied_outcome(created_id, reviewed, status, &reason));
         }
         // Any other unreadable answer leaves the effect unobserved. It is never
         // reported as a failure and never resolved by a second create.
@@ -614,7 +564,44 @@ pub async fn review_pr(
         }
     };
 
-    match reconcile(&reviews, &payload, created_id) {
+    settle(
+        &reconcile(&reviews, &payload, created_id),
+        created_id,
+        reviewed,
+    )
+}
+
+/// The outcome when the read-back lost permission.
+#[cfg(feature = "process")]
+fn denied_outcome(id: Option<u64>, reviewed: CommitId, status: u16, why: &str) -> ReviewOutcome {
+    match id {
+        Some(review_id) => ReviewOutcome::Unverified {
+            review_id,
+            commit_id: reviewed,
+            reason: format!(
+                "the review was created but the read-back lost permission (HTTP \
+                 {status}): {why}; the applied review id is retained and no second \
+                 review was created"
+            ),
+        },
+        None => ReviewOutcome::Unknown {
+            commit_id: reviewed,
+            reason: format!(
+                "the publication outcome could not be established, because the read \
+                 lost permission (HTTP {status}): {why}; no second review was created"
+            ),
+        },
+    }
+}
+
+/// The outcome the reconciliation read established, with the commit it was about.
+#[cfg(feature = "process")]
+fn settle(
+    found: &Reconcile,
+    created_id: Option<u64>,
+    reviewed: CommitId,
+) -> Result<ReviewOutcome, FlowError> {
+    match *found {
         Reconcile::Verified(id) => Ok(ReviewOutcome::Published {
             review_id: id,
             commit_id: reviewed,
@@ -638,10 +625,9 @@ pub async fn review_pr(
             applied,
             intended,
         }),
-        // Two facts, two arms, and the id decides which: an id the create
-        // returned that the read-back does not agree with is a contradiction,
-        // while no id at all means the response was lost and the effect may or
-        // may not exist. Neither is fixed by posting again.
+        // An id the create returned that the read-back does not agree with is a
+        // contradiction; no id at all means the response was lost and the effect
+        // may or may not exist. Neither is fixed by posting again.
         Reconcile::None => match created_id {
             Some(id) => Err(FlowError::failed(format!(
                 "GitHub accepted review {id} at {reviewed} but the read-back did not return \
@@ -656,6 +642,67 @@ pub async fn review_pr(
             }),
         },
     }
+}
+
+/// Step 1: read the pull request's head and base, which the review is pinned to.
+#[cfg(feature = "process")]
+async fn pin_subject(
+    scope: &Scope,
+    gh: &Gh,
+    request: &ReviewRequest,
+) -> Result<SnapshotStep, FlowError> {
+    within(scope, "snapshot", request.step_deadline, async {
+        match Box::pin(gh.snapshot(&request.pull)).await {
+            Ok(snapshot) => Ok(SnapshotStep::Pinned(snapshot)),
+            Err(GhError::MovedRepository {
+                requested,
+                canonical,
+            }) => Ok(SnapshotStep::Moved {
+                requested,
+                canonical,
+            }),
+            Err(other) => Err(FlowError::from(other)),
+        }
+    })
+    .await
+}
+
+/// Step 1b: read the changed-file inventory; an incomplete one is a value.
+#[cfg(feature = "process")]
+async fn read_coverage(
+    scope: &Scope,
+    gh: &Gh,
+    request: &ReviewRequest,
+) -> Result<DiffStep, FlowError> {
+    within(scope, "diff", request.step_deadline, async {
+        match Box::pin(gh.read_diff(&request.pull)).await {
+            Ok(diff) => Ok(DiffStep::Read(diff)),
+            Err(error) if error.is_coverage_incomplete() => {
+                Ok(DiffStep::Incomplete(error.to_string()))
+            }
+            Err(other) => Err(FlowError::from(other)),
+        }
+    })
+    .await
+}
+
+/// Step 5: read the reviews back; a failed read is classified, never propagated.
+#[cfg(feature = "process")]
+async fn read_back(
+    scope: &Scope,
+    gh: &Gh,
+    request: &ReviewRequest,
+) -> Result<VerifyStep, FlowError> {
+    within(scope, "verify", request.step_deadline, async {
+        match Box::pin(gh.read_reviews(&request.pull)).await {
+            Ok(records) => Ok(VerifyStep::Read(records)),
+            Err(GhError::Unauthorized { status, reason, .. }) => {
+                Ok(VerifyStep::Denied { status, reason })
+            }
+            Err(other) => Ok(VerifyStep::Unreadable(other.to_string())),
+        }
+    })
+    .await
 }
 
 /// The outcome of the snapshot step, before the journey decides what to do.

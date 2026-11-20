@@ -178,164 +178,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Identity of one frontier's reservation ledger.
-///
-/// Compared by allocation identity, never by value, so a permit minted by one
-/// frontier is refused by another with the same ordinal in its ledger. This is
-/// why `Frontier` is not `Clone`: copying the ledger would produce two
-/// accountants for one set of reservations, and a permit — which exists only
-/// once — would settle one copy while the other held its slots forever.
-#[derive(Debug)]
-struct Issuer;
-
-/// A reserved admission, and the only key that releases it.
-///
-/// Minted by [`Frontier::admit`], consumed by [`Frontier::complete`], and
-/// borrowed by [`Frontier::observe_retry_after`]. It names the host as spelled
-/// when the request was admitted, the origin that host belonged to *then*, and
-/// the egress — the exact keys whose slots this reservation holds.
-///
-/// # Why it is not `Clone`, and why `Drop` does not release
-///
-/// One reservation means one slot set, so one handle releases it. A second
-/// handle would either double-decrement or be a lie about which request owns
-/// which slot, and the type makes both unrepresentable.
-///
-/// Dropping a permit leaves its slots held. That is the conservative direction
-/// and it is deliberate: the handle going out of scope says the *caller* has
-/// stopped looking, not that the request stopped. A frontier that assumed
-/// otherwise would over-admit against hosts that are still being contacted, and
-/// `docs/bot-on-ecs.md` §8.2's rule — *the intent must be durable before the
-/// effect* — is the same asymmetry.
-#[derive(Debug)]
-#[must_use = "a permit dropped without `Frontier::complete` keeps its slots reserved; dropping \
-              the handle is not evidence that the request left flight"]
-pub struct InFlightPermit {
-    /// The ledger this permit settles against.
-    issuer: Arc<Issuer>,
-    /// This reservation's ordinal within the issuing frontier. Unique among
-    /// live reservations, which is what makes the ledger check meaningful.
-    ordinal: u64,
-    /// The host, as spelled when the request was admitted.
-    host: String,
-    /// The origin the host belonged to at admission time, if it had one. Not
-    /// re-read from the topology when the request completes.
-    origin: Option<ConstraintKey>,
-    /// The egress this frontier admits over.
-    egress: ConstraintKey,
-}
-
-impl InFlightPermit {
-    /// The host this request was admitted for, as spelled at admission time.
-    #[must_use]
-    pub fn host(&self) -> &str {
-        &self.host
-    }
-
-    /// Whether this reservation holds a slot against `key`.
-    ///
-    /// Reported so a test or a diagnostic can assert on what was reserved
-    /// rather than re-deriving it from the topology, which is the mistake the
-    /// permit exists to prevent.
-    #[must_use]
-    pub fn holds(&self, key: &ConstraintKey) -> bool {
-        self.keys().iter().any(|held| held == key)
-    }
-
-    /// Every constraint this reservation holds a slot against.
-    ///
-    /// The host, the origin it belonged to at admission time, and the egress —
-    /// built from the recorded fields, never from the frontier's current maps.
-    fn keys(&self) -> Vec<ConstraintKey> {
-        let mut keys = Vec::with_capacity(3);
-        keys.push(ConstraintKey::host(self.host.clone()));
-        keys.extend(self.origin.clone());
-        keys.push(self.egress.clone());
-        keys
-    }
-
-    /// The constraints an observation *about the server* is evidence for: the
-    /// host and the origin, without the egress.
-    ///
-    /// The egress is excluded deliberately. It is the operator's own interface,
-    /// and one server asking for a pause — or rate-limiting one tenant behind a
-    /// shared proxy — is not evidence about the capacity of our network.
-    /// Binding the egress here would let a single target halt every unrelated
-    /// host in the run, which is the failure this distinction exists to prevent.
-    fn server_keys(&self) -> Vec<ConstraintKey> {
-        let mut keys = Vec::with_capacity(2);
-        keys.push(ConstraintKey::host(self.host.clone()));
-        keys.extend(self.origin.clone());
-        keys
-    }
-}
-
-/// Two permits are equal when they name the same reservation ordinal.
-///
-/// The issuer is deliberately not part of equality. It is an allocation
-/// identity, and folding it in would make two identical schedules run against
-/// two fresh frontiers produce unequal verdicts — which is the determinism
-/// [`Frontier`]'s virtual clock exists to provide. Identity is enforced where it
-/// belongs instead: in [`Frontier::complete`], which refuses a permit its ledger
-/// does not hold.
-impl PartialEq for InFlightPermit {
-    fn eq(&self, other: &Self) -> bool {
-        self.ordinal == other.ordinal
-    }
-}
-
-impl Eq for InFlightPermit {}
-
-/// The side-effect-free half of [`Admission`].
-///
-/// The same three arms, with `Admit` carrying nothing because nothing has been
-/// reserved yet. Selection cannot mint a permit — it must not take a slot — and
-/// reservation must not be able to act on a decision the selector would not
-/// have made, so both read this one function and each maps it to what it is
-/// allowed to do with it.
-#[derive(Debug)]
-enum Verdict {
-    /// Every constraint admits, so the caller may reserve.
-    Admit,
-    /// Held, with the instant and the binding constraint.
-    Defer {
-        /// Elapsed virtual time at which the item becomes admissible.
-        resume_at: Duration,
-        /// Why it was held.
-        kind: DeferralKind,
-        /// Which constraint bound.
-        constraint: ConstraintKey,
-    },
-    /// Dropped for good.
-    Reject {
-        /// Why it is dead.
-        kind: RejectKind,
-    },
-}
-
-impl Verdict {
-    /// This verdict as a refusal, or `None` when it admitted.
-    ///
-    /// `Admit` carries no refusal, so it is not representable in the output:
-    /// the caller that gets `None` knows it holds a permission and not a
-    /// verdict shaped like one.
-    fn refusal(self) -> Option<Admission> {
-        match self {
-            Self::Admit => None,
-            Self::Defer {
-                resume_at,
-                kind,
-                constraint,
-            } => Some(Admission::Defer {
-                resume_at,
-                kind,
-                constraint,
-            }),
-            Self::Reject { kind } => Some(Admission::Reject { kind }),
-        }
-    }
-}
-
 /// The adaptive state of one constraint.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct KeyState {
@@ -349,38 +191,6 @@ struct KeyState {
     blocked_until: Duration,
     /// The rules fetched for this key, when it is a host key.
     rules: RulesState,
-}
-
-/// The later of two admissions, breaking ties on the constraint key.
-///
-/// A free function rather than a method so the caller can hold a mutable borrow
-/// of the state map while accumulating. The comparison is a total order over
-/// `(instant, kind, key)`, which is Heritrix's comparator rule applied: the
-/// choice between two equally-late deferrals must not depend on iteration order.
-fn later(current: Option<Verdict>, candidate: Verdict) -> Verdict {
-    let Some(current) = current else {
-        return candidate;
-    };
-    let take_candidate = match (deferral_order(&current), deferral_order(&candidate)) {
-        (Some(held), Some(offered)) => offered > held,
-        (None, Some(_)) => true,
-        (Some(_), None) | (None, None) => false,
-    };
-    if take_candidate { candidate } else { current }
-}
-
-/// The sort key for a deferral. `None` for a verdict that is not a deferral,
-/// which never reaches [`later`]'s comparison in practice but is modelled
-/// rather than papered over with a sentinel key.
-fn deferral_order(verdict: &Verdict) -> Option<(Duration, DeferralKind, &ConstraintKey)> {
-    match *verdict {
-        Verdict::Defer {
-            resume_at,
-            kind,
-            ref constraint,
-        } => Some((resume_at, kind, constraint)),
-        Verdict::Admit | Verdict::Reject { .. } => None,
-    }
 }
 
 /// The backlog of hosts a run intends to contact, and the politeness state that
@@ -686,21 +496,15 @@ impl Frontier {
             }
         }
 
-        let mut binding: Option<Verdict> = None;
+        // Every gate above passed, so the fold starts at `Admit` and only a
+        // saturated constraint's deferral replaces it.
+        let mut binding = Verdict::Admit;
         for key in self.keys_for(host) {
             if let Some(wait) = self.saturated(&key, at) {
-                binding = Some(later(binding, wait));
+                binding = later(binding, wait);
             }
         }
-
-        // Two answers, both real: a constraint on this host was saturated and
-        // the fold above carries the latest deferral, or none was and `Admit`
-        // is what that means. The fold is never left holding nothing that was
-        // meant to be reported.
-        match binding {
-            Some(verdict) => verdict,
-            None => Verdict::Admit,
-        }
+        binding
     }
 
     /// The deferral for `key` at `at`, or `None` when it has room.
@@ -784,8 +588,8 @@ impl Frontier {
         })
     }
 
-    /// Consumes `permit` exactly once, returns its slots, and folds the
-    /// outcome into the windows it belongs to.
+    /// Settles `permit` once, returns its slots, and folds the outcome into the
+    /// windows it belongs to.
     ///
     /// The keys come from the permit — the host as spelled and the origin it
     /// belonged to when the request was admitted — so a resolution observed
@@ -794,21 +598,19 @@ impl Frontier {
     /// recomputed the keys from the *current* topology.
     ///
     /// Refuses a permit this frontier's ledger does not hold, rather than
-    /// subtracting from zero: the two look identical in the counters, and only
-    /// one of them is a correct release.
+    /// subtracting from zero: the two look identical in the counters. Settling
+    /// removes the reservation, so a second call with the same permit is refused.
     pub fn complete(
         &mut self,
-        permit: InFlightPermit,
+        permit: &InFlightPermit,
         outcome: Outcome,
     ) -> Result<(), CompletionError> {
-        self.verify(&permit)?;
+        self.verify(permit)?;
         self.reservations.remove(&permit.ordinal);
-
         for key in permit.keys() {
             let entry = self.entry(&key);
-            // Saturating, but not *hiding* anything: the ledger check above is
-            // what makes a zero here mean "this reservation held no slot", and
-            // a reservation that holds no slot was never minted.
+            // Saturating hides nothing: the ledger check above means a zero
+            // here is a reservation that held no slot, which was never minted.
             entry.in_flight = entry.in_flight.saturating_sub(1);
         }
 
@@ -920,3 +722,9 @@ pub use vocab::{
     Admission, CompletionError, ConstraintKey, DeferralKind, Outcome, PolitenessError, RejectKind,
     Resolved, RulesState,
 };
+
+// What an admission yields, the verdict and the permit, in its own file.
+mod permit;
+
+pub use permit::InFlightPermit;
+use permit::{Issuer, Verdict, later};

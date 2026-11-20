@@ -199,35 +199,36 @@ fn two_tenants_stay_isolated(band: Band) -> TestResult {
             );
         }
         assert_eq!(
-            reports[0].tenant().as_str(),
+            sim::nth(&reports, 0)?.tenant().as_str(),
             "acme",
             "the first report belongs to its own host's tenant"
         );
         assert_eq!(
-            reports[1].tenant().as_str(),
+            sim::nth(&reports, 1)?.tenant().as_str(),
             "globex",
             "the second report belongs to the other tenant"
         );
 
         let entries = seen.borrow();
         assert_eq!(entries.len(), 2, "each run recorded one step");
+        let (first, second) = (sim::nth(&entries, 0)?, sim::nth(&entries, 1)?);
         assert_eq!(
-            entries[0].1, entries[1].1,
+            first.1, second.1,
             "the same shared step must produce the same path"
         );
         assert_ne!(
-            entries[0].0, entries[1].0,
+            first.0, second.0,
             "the two tenants must be recorded distinctly"
         );
         assert_ne!(
-            entries[0].2, entries[1].2,
+            first.2, second.2,
             "identical paths under different tenants must key apart"
         );
         // The key is over tenant + path, so identical paths must still key
         // differently across tenants.
         assert_ne!(
-            step_key_of(&acme),
-            step_key_of(&globex),
+            step_key_of(&acme)?,
+            step_key_of(&globex)?,
             "a key is scoped by its tenant, so a shared path keys apart"
         );
         for host in [&acme, &globex] {
@@ -241,7 +242,7 @@ fn two_tenants_stay_isolated(band: Band) -> TestResult {
         assert_eq!(globex.admission().admitted(), 1, "and only its own");
         sim.record(&format!(
             "input={input} ceiling={ceiling} path={} keys={} {}",
-            entries[0].1, entries[0].2, entries[1].2
+            first.1, first.2, second.2
         ));
         Ok(())
     })
@@ -251,11 +252,9 @@ fn two_tenants_stay_isolated(band: Band) -> TestResult {
 ///
 /// Built through the real `Scope` the same way the run's body is, so the
 /// comparison is of the estate's key derivation rather than a reimplementation.
-fn step_key_of(host: &Host) -> String {
+fn step_key_of(host: &Host) -> Result<String, Box<dyn std::error::Error>> {
     let scope = Scope::root(host.tenant().clone());
-    scope
-        .enter("shared")
-        .map_or_else(|_error| String::new(), |step| step.key().to_hex())
+    Ok(scope.enter("shared")?.key().to_hex())
 }
 
 // ── Ephemeral ───────────────────────────────────────────────────────────────

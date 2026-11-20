@@ -208,10 +208,10 @@ enum Polled {
 
 /// Classify a refused poll once, so the two verbs below share the reading of a
 /// pending answer rather than each decoding it.
-fn classify(failure: EcsError) -> Result<Polled, Box<dyn Error>> {
+fn classify(failure: EcsError) -> Polled {
     match failure {
-        failure @ EcsError::UnstableObservation { .. } => Ok(Polled::Pending(failure)),
-        other => Ok(Polled::Unreadable(other)),
+        failure @ EcsError::UnstableObservation { .. } => Polled::Pending(failure),
+        other => Polled::Unreadable(other),
     }
 }
 
@@ -219,7 +219,7 @@ fn classify(failure: EcsError) -> Result<Polled, Box<dyn Error>> {
 async fn poll_once(store: &JsonStore) -> Result<Polled, Box<dyn Error>> {
     match Observe::poll(store, (proof()?, ())).await {
         Ok(state) => Ok(Polled::Settled(state.raw().to_owned())),
-        Err(failure) => classify(failure),
+        Err(failure) => Ok(classify(failure)),
     }
 }
 
@@ -227,7 +227,7 @@ async fn poll_once(store: &JsonStore) -> Result<Polled, Box<dyn Error>> {
 async fn query_once(store: &JsonStore) -> Result<Polled, Box<dyn Error>> {
     match Query::query(store, (proof()?, &())).await {
         Ok(state) => Ok(Polled::Settled(state.raw().to_owned())),
-        Err(failure) => classify(failure),
+        Err(failure) => Ok(classify(failure)),
     }
 }
 
@@ -476,8 +476,12 @@ impl LiveStore {
     /// stops moving *now*. Idempotent, because [`Drop`] calls it too and a
     /// second `kill` on a reaped child is an error this method ignores.
     fn quiesce(&mut self) {
-        let _ignored = self.writer.kill();
-        let _ignored = self.writer.wait();
+        if let Err(error) = self.writer.kill() {
+            lgwks_std::trace::debug!(error = ?error, "quiesce: the writer was already gone");
+        }
+        if let Err(error) = self.writer.wait() {
+            lgwks_std::trace::debug!(error = ?error, "quiesce: the writer was not waited for");
+        }
     }
 
     /// The writer's process id, for a test that has to observe the process
@@ -530,7 +534,10 @@ fn alive(pid: u32) -> bool {
         Ok(status) => status.success(),
         // A probe that cannot run cannot say the process is gone, so the
         // caller's budget decides rather than a guess that it exited.
-        Err(_probe_unavailable) => true,
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "alive: the probe could not run");
+            true
+        }
     }
 }
 

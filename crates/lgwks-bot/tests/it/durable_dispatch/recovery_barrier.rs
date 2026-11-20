@@ -2,6 +2,7 @@
 //! the source moved, held still or failed to poll (issue #104).
 
 use super::*;
+use crate::sim::nth;
 
 /// A source that refuses every poll.
 struct FailsToPoll;
@@ -117,7 +118,7 @@ fn a_recovered_unknown_blocks_a_false_condition_and_its_successor() -> TestResul
         2,
         "intent and prepared dispatch, no outcome: {at_rest:?}"
     );
-    let key = at_rest[0].key();
+    let key = nth(&at_rest, 0)?.key();
 
     // The restart, with the source moved: reserve's condition is false now.
     rig.value.set(2);
@@ -133,18 +134,19 @@ fn a_recovered_unknown_blocks_a_false_condition_and_its_successor() -> TestResul
         1,
         "the recovered unknown is already reported: {before:?}"
     );
+    let barrier = nth(&before, 0)?;
     assert_eq!(
-        before[0].key(),
+        barrier.key(),
         Some(key),
         "and it names the key to settle by"
     );
     assert!(
         matches!(
-            before[0].hold(),
+            barrier.hold(),
             TransitionHold::UnsettledByRecovery { action } if *action == key.action()
         ),
         "held because an earlier attempt never settled: {:?}",
-        before[0].hold()
+        barrier.hold()
     );
 
     match second.tick() {
@@ -158,7 +160,7 @@ fn a_recovered_unknown_blocks_a_false_condition_and_its_successor() -> TestResul
             );
             assert_eq!(
                 work.id(),
-                before[0].id(),
+                barrier.id(),
                 "the tick names the barrier, not the successor behind it"
             );
             assert!(
@@ -196,15 +198,18 @@ fn a_recovered_unknown_blocks_a_false_condition_and_its_successor() -> TestResul
     );
     let after = second.pending();
     assert_eq!(after.len(), 2, "still reported, barrier first: {after:?}");
-    assert_eq!(after[0].key(), Some(key));
+    let first_held = nth(&after, 0)?;
+    assert_eq!(first_held.key(), Some(key));
     assert!(
-        matches!(after[0].hold(), TransitionHold::UnsettledByRecovery { .. }),
+        matches!(
+            first_held.hold(),
+            TransitionHold::UnsettledByRecovery { .. }
+        ),
         "{:?}",
-        after[0].hold()
+        first_held.hold()
     );
     Ok(())
 }
-
 /// The same barrier in front of a *true* condition.
 ///
 /// The other half of "independent of current condition": a condition that
@@ -252,7 +257,7 @@ fn a_poll_failure_does_not_erase_a_recovered_unknown() -> TestResult {
 
     let mut first = rig.bot()?;
     expect_indeterminate(&mut first, "expected indeterminate")?;
-    let key = recorded(&rig.store)?[0].key();
+    let key = nth(&recorded(&rig.store)?, 0)?.key();
 
     let mut second = rig.bot_over(FailsToPoll)?;
 
@@ -266,11 +271,12 @@ fn a_poll_failure_does_not_erase_a_recovered_unknown() -> TestResult {
         1,
         "the recovered unknown survives the failed poll: {held:?}"
     );
-    assert_eq!(held[0].key(), Some(key));
+    let entry = nth(&held, 0)?;
+    assert_eq!(entry.key(), Some(key));
     assert!(
-        matches!(held[0].hold(), TransitionHold::UnsettledByRecovery { .. }),
+        matches!(entry.hold(), TransitionHold::UnsettledByRecovery { .. }),
         "{:?}",
-        held[0].hold()
+        entry.hold()
     );
     assert_eq!(rig.published.get(), 0);
     Ok(())

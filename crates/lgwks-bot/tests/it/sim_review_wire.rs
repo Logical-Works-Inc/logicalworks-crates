@@ -74,9 +74,12 @@ fn pull_object_contract_r64() -> TestResult {
             format!("\"title\":\"change {index}\""),
         ];
         let rotate = pick(index, fields.len())?;
-        let ordered: Vec<&str> = fields[rotate..]
+        let (front, back) = fields
+            .split_at_checked(rotate)
+            .ok_or("the rotation lies inside the fields")?;
+        let ordered: Vec<&str> = back
             .iter()
-            .chain(fields[..rotate].iter())
+            .chain(front.iter())
             .map(String::as_str)
             .collect();
         let answer = format!("{{{}}}", ordered.join(","));
@@ -173,7 +176,7 @@ fn review_state_and_marker_r64() -> TestResult {
     let mut draw = Seeded::from_seed(seed);
     for index in 0..64u64 {
         let subject = CommitId::new(drawn_sha(&mut draw))?;
-        let (event, state) = reported[pick(index, reported.len())?];
+        let (event, state) = *crate::sim::nth(&reported, pick(index, reported.len())?)?;
         let body = format!("finding {index}: {}", text_hash(&index.to_string()));
         let marker = if index % 4 == 0 {
             String::new()
@@ -232,7 +235,7 @@ fn marker_escape_r64() -> TestResult {
     let subject = CommitId::new(drawn_sha(&mut Seeded::from_seed(seed)))?;
     let hostile = ["--", "-->", "<", ">", "\n", "\r", "\u{0}", "\t"];
     for index in 0..64u64 {
-        let token = hostile[pick(index, hostile.len())?];
+        let token = *crate::sim::nth(&hostile, pick(index, hostile.len())?)?;
         let prefix = "p".repeat(pick(index, 9)?);
         let suffix = "s".repeat(pick(index.wrapping_mul(3), 7)?);
         let marker = format!("{prefix}{token}{suffix}");

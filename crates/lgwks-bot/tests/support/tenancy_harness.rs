@@ -18,7 +18,7 @@ use lgwks_bot::script::Tenant;
 /// The counters a test compares against are `u64`. A count that cannot be
 /// widened is refused rather than replaced by a ceiling, because a substituted
 /// number is one a comparison could pass against.
-pub fn wide(count: usize) -> Result<u64, String> {
+pub(crate) fn wide(count: usize) -> Result<u64, String> {
     u64::try_from(count)
         .map_err(|refusal| format!("{count} does not widen to a counter: {refusal}"))
 }
@@ -26,7 +26,7 @@ pub fn wide(count: usize) -> Result<u64, String> {
 /// The `n`-th percentile of a latency sample, nearest-rank. Every sample is a
 /// real admission wait, so the percentile of admission waits is itself one of
 /// them. `div_ceil`, not `/`, which this workspace forbids.
-pub fn percentile(samples: &[Duration], nth: usize) -> Duration {
+pub(crate) fn percentile(samples: &[Duration], nth: usize) -> Duration {
     if samples.is_empty() {
         return Duration::ZERO;
     }
@@ -45,7 +45,7 @@ pub fn percentile(samples: &[Duration], nth: usize) -> Duration {
 /// until `release`, so the loud tenant's occupancy is created rather than
 /// raced.
 #[derive(Clone)]
-pub struct Gate {
+pub(crate) struct Gate {
     /// Opens every parked and future body.
     open: Arc<Notify>,
     /// How many bodies have actually parked, for the test's precondition.
@@ -54,7 +54,7 @@ pub struct Gate {
 
 impl Gate {
     /// A gate nothing has entered yet.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             open: Arc::new(Notify::new()),
             parked: Arc::new(AtomicUsize::new(0)),
@@ -62,18 +62,18 @@ impl Gate {
     }
 
     /// A body that parks here until the gate is opened.
-    pub async fn wait(&self) {
+    pub(crate) async fn wait(&self) {
         self.parked.fetch_add(1, Ordering::SeqCst);
         self.open.notified().await;
     }
 
     /// How many bodies are parked right now.
-    pub fn parked(&self) -> usize {
+    pub(crate) fn parked(&self) -> usize {
         self.parked.load(Ordering::SeqCst)
     }
 
     /// Open the gate for every parked and future body.
-    pub fn release(&self) {
+    pub(crate) fn release(&self) {
         self.open.notify_waiters();
     }
 
@@ -81,7 +81,7 @@ impl Gate {
     /// submission is waiting for. `notify_one` wakes one waiter, or stores the
     /// wake for the next body to park, so no completion is lost to a race
     /// between the release and the park.
-    pub fn release_one(&self) {
+    pub(crate) fn release_one(&self) {
         self.open.notify_one();
     }
 }
@@ -93,7 +93,7 @@ impl Gate {
 /// otherwise indistinguishable from a slow host, and the first version of this
 /// harness proved it: twelve minutes, every worker parked, nothing runnable,
 /// and nothing to say so.
-pub async fn bounded<F>(
+pub(crate) async fn bounded<F>(
     bound: Duration,
     where_awaited: &str,
     submission: F,
@@ -113,7 +113,7 @@ where
 /// How long a harness submission may wait before the test fails naming where.
 ///
 /// A bound on a failure, not a budget the work must finish inside.
-pub const SUBMISSION_BOUND: Duration = Duration::from_millis(2_000);
+pub(crate) const SUBMISSION_BOUND: Duration = Duration::from_millis(2_000);
 
 /// Submit one parking body, completing one held body if the submission parks.
 ///
@@ -124,7 +124,7 @@ pub const SUBMISSION_BOUND: Duration = Duration::from_millis(2_000);
 /// the waiter's wake re-polls this future. A submission that never resolves
 /// after its completion is a lost wakeup in the round, and [`bounded`] names
 /// it.
-pub async fn submit_parked(
+pub(crate) async fn submit_parked(
     supervisor: &mut Supervisor,
     tenant: &Tenant,
     gate: &Gate,

@@ -192,6 +192,15 @@ pub struct InspectRequest<'a> {
     pub(super) budgets: Budgets,
 }
 
+impl std::fmt::Debug for InspectRequest<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InspectRequest")
+            .field("artifact", &self.artifact)
+            .field("subject_bytes", &self.subject.len())
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> InspectRequest<'a> {
     /// Inspect `subject` as the artifact `artifact` under the default rule set,
     /// scope and budgets. The language is resolved from `artifact`'s extension.

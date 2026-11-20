@@ -25,7 +25,7 @@ fn the_step_that_reaches_is_the_step_that_blocks() -> TestResult {
     let scratch = Scratch::new("first-step")?;
     let host = repairable_host(TENANTS[0], scratch.path(), GrantSet::empty())?;
     let polls = Polls::shared();
-    let declared = first_step_task(declared_needs.clone())?;
+    let declared = first_step_task(&declared_needs)?;
 
     let report = lgwks_bot::script::block_on(host.run(
         &declared,

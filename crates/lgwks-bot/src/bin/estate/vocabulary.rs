@@ -67,7 +67,13 @@ fn refused_issue() -> Result<u64, FlowError> {
 
 /// The feed's next batch, newest last; `None` once it is drained.
 fn next_batch(feed: &Mutex<Vec<Vec<u32>>>) -> Option<Vec<u32>> {
-    feed.lock().ok()?.pop()
+    match feed.lock() {
+        Ok(mut held) => held.pop(),
+        Err(poisoned) => {
+            lgwks_std::trace::debug!(error = %poisoned, "vocabulary: the feed is poisoned, so it ends");
+            None
+        }
+    }
 }
 
 lgwks_bot::script! {
@@ -361,8 +367,20 @@ fn refuse<T>(section: Section, check: &'static str) -> Result<T, VocabularyError
 /// returned.
 pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     let scope = Scope::root(Tenant::new("vocab")?);
+    justify(driver, &scope)?;
+    let limit = bounds(driver, &scope)?;
+    graph(driver, &scope, limit)?;
+    compensation(driver, &scope)?;
+    stream(driver, &scope)?;
+    governed(driver, &scope)?;
+    typed(driver, &scope)?;
+    durable(driver, &scope)?;
+    approval::run(driver)?;
+    outside::run(driver)
+}
 
-    // Justification: one rule per verdict, each deciding on its own.
+/// Justification: one rule per verdict, each deciding on its own.
+fn justify(driver: &Handle, scope: &Scope) -> Result<(), VocabularyError> {
     let allow: Decision = Justify::empty().decide(&JustifyCtx::new("vocab", 0));
     if !matches!(allow.verdict, Verdict::Allow) || allow.rule != "allow" {
         return refuse(Section::Justify, "no rules is allow, not a refusal");
@@ -452,15 +470,18 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     if !format!("{unbuilt}").contains("vocab-not-runnable") {
         return refuse(Section::Graph, "the graph refusal names why it cannot run");
     }
+    Ok(())
+}
 
-    // Bounds and deadlines the words check at.
+/// Bounds and deadlines the words check at; the fan-out bound it proved.
+fn bounds(driver: &Handle, scope: &Scope) -> Result<usize, VocabularyError> {
     let bound = at_most(2)?;
     if bound.get() != 2 {
         return refuse(Section::Bounds, "the fan-out bound holds what it was given");
     }
     let budget = attempts(3)?;
     let quick = driver.block_on(within(
-        &scope,
+        scope,
         "vocab-within",
         Duration::from_secs(60),
         async { Ok::<u64, FlowError>(7) },
@@ -473,7 +494,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     }
     let quick_on = driver.block_on(within_on(
         scope.clock(),
-        &scope,
+        scope,
         "vocab-within-on",
         Duration::from_secs(60),
         async { Ok::<u64, FlowError>(8) },
@@ -485,7 +506,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         );
     }
     let retried = driver.block_on(retry(
-        &scope,
+        scope,
         "vocab-retry",
         budget,
         Duration::ZERO,
@@ -499,15 +520,18 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     }
     say("bounds: the fan-out bound, retry budget and deadlines hold")?;
     clock_wait::run(driver)?;
+    Ok(bound.get())
+}
 
-    // A needs-ordered graph, written as `graph:`: fetch twice, merge.
+/// A needs-ordered graph, written as `graph:`: fetch twice, merge.
+fn graph(driver: &Handle, scope: &Scope, limit: usize) -> Result<(), VocabularyError> {
     if MAX_GRAPH_NODES != 4_096 {
         return refuse(
             Section::Graph,
             "the graph admits more lanes than any lane graph needs",
         );
     }
-    let report: GraphReport<u64> = driver.block_on(vocab_lanes(&scope, bound.get()))?;
+    let report: GraphReport<u64> = driver.block_on(vocab_lanes(scope, limit))?;
     if !report.is_ok() {
         return refuse(Section::Graph, "every lane ran to a value");
     }
@@ -534,9 +558,12 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Graph, "a node carries its name and its needs");
     }
     say(&format!("graph: lanes ran {:?}", report.succeeded()))?;
+    Ok(())
+}
 
-    // Compensation, written as `saga`: a booking that fails at its issue
-    // undoes charge and reserve, newest first, once each.
+/// Compensation, written as `saga`: a booking that fails at its issue undoes
+/// charge and reserve, newest first, once each.
+fn compensation(driver: &Handle, scope: &Scope) -> Result<(), VocabularyError> {
     let fresh: Compensations<'_> = Compensations::new();
     say(&format!(
         "compensation: a fresh registrar holds {}",
@@ -546,7 +573,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Compensation, "a fresh registrar holds nothing");
     }
     let undone: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
-    match driver.block_on(vocab_booking(&scope, &undone)) {
+    match driver.block_on(vocab_booking(scope, &undone)) {
         Err(error) => {
             if !error.to_string().contains("vocab-issue") {
                 return refuse(Section::Compensation, "the caller gets the step's failure");
@@ -569,9 +596,12 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         );
     }
     say(&format!("compensation: undid {order:?}"))?;
+    Ok(())
+}
 
-    // A bounded feed, written as `whenever`: every event through a buffer of
-    // four, nothing shed.
+/// A bounded feed, written as `whenever`: every event through a buffer of
+/// four, nothing shed.
+fn stream(driver: &Handle, scope: &Scope) -> Result<(), VocabularyError> {
     let mut gate: StreamGate<u32> = StreamGate::new(4, Overflow::DropOldest)?;
     match StreamGate::<u32>::new(0, Overflow::Refuse) {
         Err(error) => {
@@ -602,7 +632,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Stream, "a retained event pops back");
     }
     let feed: Mutex<Vec<Vec<u32>>> = Mutex::new(vec![vec![4, 5], vec![1, 2, 3]]);
-    let report: PumpReport = driver.block_on(vocab_prices(&scope, &feed))?;
+    let report: PumpReport = driver.block_on(vocab_prices(scope, &feed))?;
     if report.handled != 5 || report.dropped != 0 || report.refused != 0 {
         return refuse(
             Section::Stream,
@@ -613,17 +643,20 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         "stream: handled {} dropped {} refused {}",
         report.handled, report.dropped, report.refused
     ))?;
+    Ok(())
+}
 
-    // Justification, written as `justify with (rules):`: allowed, the step
-    // runs; blocked, it stops with the rule's name before its body.
-    let allowed = driver.block_on(vocab_governed(&scope, &Justify::empty()))?;
+/// Justification, written as `justify with (rules):`: allowed, the step runs;
+/// blocked, it stops with the rule's name before its body.
+fn governed(driver: &Handle, scope: &Scope) -> Result<(), VocabularyError> {
+    let allowed = driver.block_on(vocab_governed(scope, &Justify::empty()))?;
     if allowed != 7 {
         return refuse(Section::Justify, "an allowed block gives back its value");
     }
     let closed = Justify::new(vec![Rule::new("vocab-closed", |_| Verdict::Block {
         reason: String::from("vocab-closed-hours"),
     })]);
-    match driver.block_on(vocab_governed(&scope, &closed)) {
+    match driver.block_on(vocab_governed(scope, &closed)) {
         Err(FlowError::Justified { rule, .. }) if rule == "vocab-closed" => {
             say(&format!("justify: the block stopped at {rule}"))?;
         }
@@ -631,16 +664,19 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
             return refuse(Section::Justify, "a blocked block stops naming its rule");
         }
     }
+    Ok(())
+}
 
-    // Typed domains: no registry installed, so both calls fail typed, and the
-    // boundary maps success and failure without touching either.
+/// Typed domains: no registry installed, so both calls fail typed, and the
+/// boundary maps success and failure without touching either.
+fn typed(driver: &Handle, scope: &Scope) -> Result<(), VocabularyError> {
     let undeclared: Result<u16, VocabFailed> =
-        driver.block_on(observe_typed::<VocabCounter>(&scope, "7"));
+        driver.block_on(observe_typed::<VocabCounter>(scope, "7"));
     if undeclared.is_ok() {
         return refuse(Section::Typed, "an undeclared source must fail typed");
     }
     let unacted: Result<(), VocabFailed> =
-        driver.block_on(act_typed::<VocabPage>(&scope, "oncall", 2_u16));
+        driver.block_on(act_typed::<VocabPage>(scope, "oncall", 2_u16));
     if unacted.is_ok() {
         return refuse(Section::Typed, "an undeclared action must fail typed");
     }
@@ -655,11 +691,14 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Typed, "a failure crosses as the domain's error");
     }
     say("typed: undeclared domains fail typed, the boundary maps both ways")?;
+    Ok(())
+}
 
-    // Durable words: `remember` runs its block once, `admit` admits only a
-    // registered operation, and `ready` is released by the pool's signal.
+/// Durable words: `remember` runs its block once, `admit` admits only a
+/// registered operation, and `ready` is released by the pool's signal.
+fn durable(driver: &Handle, scope: &Scope) -> Result<(), VocabularyError> {
     let asked = AtomicU32::new(0);
-    let price = driver.block_on(vocab_quote(&scope, &asked))?;
+    let price = driver.block_on(vocab_quote(scope, &asked))?;
     if price != 40 || asked.load(Ordering::SeqCst) != 1 {
         return refuse(
             Section::Durable,
@@ -667,7 +706,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         );
     }
     let gate = vocab_gate()?;
-    let wanted = driver.block_on(vocab_proposal(&scope, &gate, b"op=ping\n"))?;
+    let wanted = driver.block_on(vocab_proposal(scope, &gate, b"op=ping\n"))?;
     if wanted != 1 {
         return refuse(
             Section::Durable,
@@ -675,7 +714,7 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         );
     }
     if !matches!(
-        driver.block_on(vocab_proposal(&scope, &gate, b"op=read-report\n")),
+        driver.block_on(vocab_proposal(scope, &gate, b"op=read-report\n")),
         Err(FlowError::Refused { .. })
     ) {
         return refuse(
@@ -685,13 +724,12 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     }
     let db: Readiness<u32> = Readiness::new("vocab-pool")?;
     db.ready(Generation::FIRST, 8)?;
-    let size = driver.block_on(vocab_pooled(&scope, &db))?;
+    let size = driver.block_on(vocab_pooled(scope, &db))?;
     if size != 8 {
         return refuse(Section::Durable, "the wait is released with the pool");
     }
     say(&format!(
         "durable: remembered {price}, admitted {wanted} operation, pool of {size}"
     ))?;
-    approval::run(driver)?;
-    outside::run(driver)
+    Ok(())
 }

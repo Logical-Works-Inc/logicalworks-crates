@@ -79,6 +79,15 @@ pub struct Estate {
     tier: &'static str,
 }
 
+impl std::fmt::Debug for Estate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Estate")
+            .field("tier", &self.tier)
+            .field("driven", &self.driven.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// What the supervised tiers add to the host: an owner of concurrent work, and the process driver
 /// it runs on (ADR 0006 decision 2: the estate builds no runtime of its own).
 struct Driven {
@@ -217,8 +226,8 @@ impl std::error::Error for EstateError {
 /// The builder validates nothing but the tenant, so any other arm is collapsed into the same
 /// typed refusal rather than grown into a second variant: the caller learns the tenant was
 /// refused either way.
-fn invalid_tenant(cause: FlowError) -> EstateError {
-    match cause {
+fn invalid_tenant(cause: &FlowError) -> EstateError {
+    match *cause {
         FlowError::InvalidTenant { reason } => EstateError::InvalidTenant { reason },
         _ => EstateError::InvalidTenant {
             reason: "the tenant name was refused",
@@ -250,7 +259,7 @@ fn admission_bound(max_in_flight: usize) -> Result<NonZeroUsize, EstateError> {
 /// once and the supervisor carries.
 fn admit_host(tenant: &str, bound: NonZeroUsize) -> Result<Host, EstateError> {
     Host::builder(tenant)
-        .map_err(invalid_tenant)?
+        .map_err(|cause| invalid_tenant(&cause))?
         .max_concurrent_tasks(bound)
         .build()
         .map_err(|cause| EstateError::Host { cause })
@@ -384,7 +393,7 @@ impl Estate {
     /// [`EstateError::InvalidTenant`] naming what is wrong with `tenant`.
     pub fn in_process(tenant: &str) -> Result<Self, EstateError> {
         let host = Host::builder(tenant)
-            .map_err(invalid_tenant)?
+            .map_err(|cause| invalid_tenant(&cause))?
             .build()
             .map_err(|cause| EstateError::Host { cause })?;
         Ok(Self {
@@ -451,7 +460,7 @@ impl Estate {
             }
         })?;
         let host = Host::builder(tenant)
-            .map_err(invalid_tenant)?
+            .map_err(|cause| invalid_tenant(&cause))?
             .max_concurrent_tasks(bound)
             .run_store(dir)
             .map_err(|cause| EstateError::Store { cause })?

@@ -11,7 +11,7 @@ use lgwks_bot::script::FlowError;
 use lgwks_bot::session::SessionError;
 use lgwks_bot::task::StoreError;
 
-use super::{DRAWS, Fields, Hash, Kind, LIMIT, Route, Spec, TestResult, replays};
+use super::{DRAWS, Fields, Hash, Kind, LIMIT, Route, Spec, TestResult, replays, replays_total};
 use crate::sim::{Rng, Trace};
 
 /// Characters of a two-byte glyph that fill [`LIMIT`] bytes.
@@ -49,7 +49,7 @@ struct Case {
 
 /// Hostile and 64 KiB names through five layers: never a panic, never a raw
 /// control character in a line, never a field cut short.
-pub(super) fn sim_weird_bytes(seed: u64) -> Hash {
+pub(super) fn sim_weird_bytes(seed: u64) -> u64 {
     let mut rng = Rng::new(seed);
     let mut trace = Trace::new();
     for draw in 0..DRAWS {
@@ -107,17 +107,17 @@ pub(super) fn sim_weird_bytes(seed: u64) -> Hash {
             trace.record_number("line", line.chars().count());
         }
     }
-    Ok(trace.hash())
+    trace.hash()
 }
 
 #[test]
 /// NUL, right-to-left marks, `../`, overlong bytes, 64 KiB names: one escaped line each.
 fn sim_error_layers_weird_bytes_never_panic_and_render_one_escaped_line() -> TestResult {
-    replays(sim_weird_bytes)
+    replays_total(sim_weird_bytes)
 }
 
 /// Fields of 0, 1, the limit, limit +- 1 and ten times the limit, on every route.
-pub(super) fn sim_giant_and_empty(seed: u64) -> Hash {
+pub(super) fn sim_giant_and_empty(seed: u64) -> u64 {
     let mut rng = Rng::new(seed);
     let mut trace = Trace::new();
     for size in [0, 1, LIMIT - 1, LIMIT, LIMIT + 1, 10 * LIMIT] {
@@ -142,17 +142,17 @@ pub(super) fn sim_giant_and_empty(seed: u64) -> Hash {
             trace.record_number("kept", kept);
         }
     }
-    Ok(trace.hash())
+    trace.hash()
 }
 
 #[test]
 /// Empty, one, at-limit and ten-times-limit fields cross every layer whole.
 fn sim_error_layers_giant_and_empty_fields_cross_every_layer_whole() -> TestResult {
-    replays(sim_giant_and_empty)
+    replays_total(sim_giant_and_empty)
 }
 
 /// Raise one spec once, twice or a hundred times, and by two routes to one chain.
-pub(super) fn sim_double_clicker(seed: u64) -> Hash {
+pub(super) fn sim_double_clicker(seed: u64) -> u64 {
     let mut rng = Rng::new(seed);
     let mut trace = Trace::new();
     for draw in 0..DRAWS {
@@ -200,13 +200,13 @@ pub(super) fn sim_double_clicker(seed: u64) -> Hash {
         }
         trace.record(&line);
     }
-    Ok(trace.hash())
+    trace.hash()
 }
 
 #[test]
 /// Converting the same failure twice, or a hundred times, gives one failure.
 fn sim_error_layers_double_clicker_converting_twice_is_identical() -> TestResult {
-    replays(sim_double_clicker)
+    replays_total(sim_double_clicker)
 }
 
 /// A version from an older or newer build, or none at all.

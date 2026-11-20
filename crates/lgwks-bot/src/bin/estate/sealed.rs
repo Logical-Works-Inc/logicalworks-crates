@@ -113,6 +113,36 @@ fn expect_reads(
 /// a restart, and a chain that still verifies.
 #[cfg(feature = "sealed")]
 fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
+    let (evening, store) = open_evening(dir, out)?;
+    journals(&evening, out)?;
+    shred(&evening, &store, out)?;
+    // Restart: every handle goes before the files are reopened, so the new store
+    // never contends with the old one for the lock.
+    drop(store);
+    restarted(&evening, out)?;
+    super::sealed_journal::prove_journal(dir, &evening.provider, out)?;
+    super::sealed_journal::prove_sweeper(dir, &evening.provider, out)
+}
+
+/// What the evening's later phases need to find again: the provider, the files,
+/// and the two tenants' steps.
+#[cfg(feature = "sealed")]
+struct Evening {
+    /// Who wraps every tenant's keys.
+    provider: Arc<dyn lgwks_bot::sealed::keys::KeyProvider>,
+    /// The sealed run store's file.
+    store_path: PathBuf,
+    /// The acme tenant's sealed journal file.
+    acme_journal: PathBuf,
+    /// The acme tenant's step.
+    acme_step: Step<'static>,
+    /// The globex tenant's step.
+    globex_step: Step<'static>,
+}
+
+/// Seal one record for each of two tenants and read both back live.
+#[cfg(feature = "sealed")]
+fn open_evening(dir: &Path, out: &mut impl Write) -> Result<(Evening, RunStore), SealedError> {
     use lgwks_bot::effect::RunId;
     use lgwks_bot::script::{Scope, Tenant};
     use lgwks_bot::sealed::keys::KeyProvider;
@@ -202,17 +232,33 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
             ),
         ],
     )?;
-    // The journal half: one sealed event per tenant would need an EffectKey;
-    // the run store above already proves the envelope, and the journals below
-    // prove the chain still verifies over sealed bytes. The journal files
-    // exist and open sealed, which is the mode-mixing proof: a plain open
-    // refuses them.
     drop(acme);
     drop(globex);
-    let acme_reopened = FileJournal::open_sealed(&acme_journal, Arc::clone(&provider), "acme")
-        .map_err(|error| refused("the acme reopen")(error.to_string()))?;
-    match FileJournal::open(&acme_journal) {
-        Err(_) => say(out, "sealed: a plain open refuses a sealed journal")?,
+    let evening = Evening {
+        provider,
+        store_path,
+        acme_journal,
+        acme_step,
+        globex_step,
+    };
+    Ok((evening, store))
+}
+
+/// The journal half: one sealed event per tenant would need an EffectKey; the
+/// run store already proves the envelope, and the journals prove the chain
+/// still verifies over sealed bytes. The journal files exist and open sealed,
+/// which is the mode-mixing proof: a plain open refuses them.
+#[cfg(feature = "sealed")]
+fn journals(evening: &Evening, out: &mut impl Write) -> Result<(), SealedError> {
+    let acme_journal = &evening.acme_journal;
+    let acme_reopened =
+        FileJournal::open_sealed(acme_journal, Arc::clone(&evening.provider), "acme")
+            .map_err(|error| refused("the acme reopen")(error.to_string()))?;
+    match FileJournal::open(acme_journal) {
+        Err(refusal) => {
+            lgwks_std::trace::debug!(error = %refusal, "estate-sealed: a plain open refused a sealed journal");
+            say(out, "sealed: a plain open refuses a sealed journal")?;
+        }
         Ok(_) => {
             lgwks_std::trace::debug!("estate-sealed: a plain open read a sealed journal");
             return Err(SealedError::Refused(
@@ -224,10 +270,15 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
         .verify_sealed_chain()
         .map_err(|error| refused("the acme chain")(error.to_string()))?;
     say(out, "sealed: the acme chain verifies")?;
-    // Shred the acme step: destroy-then-tombstone, idempotent across the
-    // restart below.
+    Ok(())
+}
+
+/// Shred the acme step: destroy-then-tombstone, idempotent across the restart.
+#[cfg(feature = "sealed")]
+fn shred(evening: &Evening, store: &RunStore, out: &mut impl Write) -> Result<(), SealedError> {
+    let (acme_step, globex_step) = (evening.acme_step, evening.globex_step);
     let shredded = store
-        .shred_record("acme", acme_run, acme_key)
+        .shred_record("acme", acme_step.1, acme_step.2)
         .map_err(|error| refused("the acme shred")(error.to_string()))?;
     if !matches!(shredded, lgwks_bot::task::ShredOutcome::Shredded { .. }) {
         let refusal = SealedError::Refused(format!("the acme shred answered {shredded:?}"));
@@ -236,7 +287,7 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
     }
     expect_reads(
         out,
-        &store,
+        store,
         &[
             (
                 acme_step,
@@ -254,10 +305,15 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
         .verify_sealed_chain()
         .map_err(|error| refused("the store chain")(error.to_string()))?;
     say(out, "sealed: the store chain verifies over live and erased")?;
-    // Restart: drop every handle, reopen over the same files, and prove the
-    // shredded step is still erased and the chain still holds.
-    drop(store);
-    let store = RunStore::open_sealed(&store_path, Arc::clone(&provider))
+    Ok(())
+}
+
+/// Reopen over the same files and prove the shredded step is still erased and
+/// the chain still holds, then erase a tenant and sweep.
+#[cfg(feature = "sealed")]
+fn restarted(evening: &Evening, out: &mut impl Write) -> Result<(), SealedError> {
+    let acme_step = evening.acme_step;
+    let store = RunStore::open_sealed(&evening.store_path, Arc::clone(&evening.provider))
         .map_err(|error| refused("the store reopen")(error.to_string()))?;
     expect_reads(
         out,
@@ -309,8 +365,7 @@ fn prove(dir: &Path, out: &mut impl Write) -> Result<(), SealedError> {
             "sealed: the burned slot still reads as erased",
         )],
     )?;
-    super::sealed_journal::prove_journal(dir, &provider, out)?;
-    super::sealed_journal::prove_sweeper(dir, &provider, out)
+    Ok(())
 }
 
 /// Without the `sealed` feature there is no sealed journey: the subcommand
@@ -332,13 +387,15 @@ pub(crate) fn run(_args: &[String], out: &mut impl Write) -> Result<(), SealedEr
         .map_err(|error| SealedError::Refused(format!("the scratch dir failed: {error}")))?;
     let outcome = prove(&dir, out);
     if outcome.is_ok() {
-        let _removed = std::fs::remove_dir_all(&dir);
-    } else {
-        let _reported = writeln!(
-            out,
-            "sealed: the failing directory stays at {}",
-            PathBuf::from(&dir).display()
-        );
+        if let Err(error) = std::fs::remove_dir_all(&dir) {
+            lgwks_std::trace::debug!(error = %error, "estate-sealed: the scratch directory was not removed");
+        }
+    } else if let Err(error) = writeln!(
+        out,
+        "sealed: the failing directory stays at {}",
+        PathBuf::from(&dir).display()
+    ) {
+        lgwks_std::trace::debug!(error = %error, "estate-sealed: the failing directory was not reported");
     }
     outcome
 }

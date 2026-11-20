@@ -43,12 +43,12 @@ struct Store {
 
 impl Store {
     /// Read one record: two refusals, then the value.
-    async fn fetch(&self, key: u64) -> Result<u64, FlowError> {
+    fn fetch(&self, key: u64) -> std::future::Ready<Result<u64, FlowError>> {
         let attempt = self.reads.fetch_add(1, Ordering::Relaxed);
-        match attempt {
+        std::future::ready(match attempt {
             0 | 1 => Err(FlowError::transient("the record store was busy")),
             _ => Ok(key.saturating_mul(10)),
-        }
+        })
     }
 }
 
@@ -60,14 +60,12 @@ struct Publish {
     needs: Vec<Cap>,
 }
 
-impl Publish {
-    /// Build the action the `demo::publish` registry entry resolves to.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self {
-            needs: vec![Cap::new("demo.publish")],
-        }))
-    }
-}
+/// Build the action the `demo::publish` registry entry resolves to.
+const PUBLISH: fn(&str) -> Result<Action, EcsError> = |_target| {
+    Ok(Action::new(Publish {
+        needs: vec![Cap::new("demo.publish")],
+    }))
+};
 
 impl Execute for Publish {
     type Input = &'static str;
@@ -96,7 +94,7 @@ domains! {
     DEMO_DOMAINS {
         observe {}
         execute {
-            "demo::publish" => Publish::from_target,
+            "demo::publish" => PUBLISH,
         }
     }
 }

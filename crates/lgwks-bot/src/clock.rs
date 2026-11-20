@@ -599,8 +599,8 @@ impl Clock {
             let mut sleepers = self.lock_sleepers();
             let mut due = Vec::new();
             let mut index = 0;
-            while index < sleepers.len() {
-                if sleepers[index].deadline <= now {
+            while let Some(sleeper) = sleepers.get(index) {
+                if sleeper.deadline <= now {
                     due.push(sleepers.swap_remove(index).waker);
                 } else {
                     index = index.saturating_add(1);

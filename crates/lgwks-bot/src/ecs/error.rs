@@ -11,7 +11,7 @@ use std::time::Duration;
 use super::{EffectEvidence, PendingWork, WorkId};
 use crate::broker::DispatchError;
 use crate::effect::{ActionDigest, AttemptId, EffectKey};
-use crate::error::KernelError;
+use crate::error::{Escaped, KernelError};
 use crate::verb::Unstable;
 
 /// Error from bot construction, admission, or execution above the kernel.
@@ -38,12 +38,15 @@ use crate::verb::Unstable;
 /// assert!(matches!(world, EcsError::Kernel(_)));
 /// assert_eq!(world.to_string(), line);
 /// ```
-#[derive(Debug)]
+#[derive(Debug, lgwks_macros::Error)]
 #[non_exhaustive]
 pub enum EcsError {
     /// A kernel failure, carried unchanged: authority, conflict, domain and
-    /// dispatch refusals reach the world layer through this arm.
-    Kernel(KernelError),
+    /// dispatch refusals reach the world layer through this arm. It renders as
+    /// the error it carries, so a log line reads the same on every layer it
+    /// crosses and its cause chain is the carried error's.
+    #[error(transparent)]
+    Kernel(#[from] KernelError),
     /// The bot spec is incomplete: a required field is missing (currently the
     /// name; an empty chain list is allowed).
     ///
@@ -53,6 +56,7 @@ pub enum EcsError {
     /// is absent are both "missing target", and only the cause tells a caller
     /// which one it is looking at. Rendered through `Escaped` because it
     /// originates in the spec document.
+    #[error("incomplete bot spec: missing {field}: {}", Escaped(cause))]
     IncompleteSpec {
         /// What is missing.
         field: &'static str,
@@ -78,6 +82,7 @@ pub enum EcsError {
     /// here, and no amount of retrying adds it. The identifier is carried as a
     /// `String` because it came from the document, and is escaped where it is
     /// rendered so a hostile spec cannot forge a log line with it.
+    #[error("unregistered domain: {}", Escaped(domain))]
     UnregisteredDomain {
         /// The identifier the spec named, spelled as the spec spelled it.
         domain: String,
@@ -91,6 +96,10 @@ pub enum EcsError {
     /// identifier may still appear once as a source and once as an action: a
     /// domain that observes a repository and also acts on one is one domain
     /// with two roles, not a collision.
+    #[error(
+        "duplicate {role} domain {} declared at positions {first} and {second}",
+        Escaped(domain)
+    )]
     DuplicateDomain {
         /// The identifier declared twice, spelled as the declaration spelled it.
         domain: String,
@@ -104,6 +113,7 @@ pub enum EcsError {
     /// The serialized spec exceeds [`crate::spec::MAX_SPEC_BYTES`]. The bound is
     /// defensive: it stops a hostile or runaway manifest from allocating
     /// without limit before any validation runs.
+    #[error("bot spec is {bytes} bytes, over the {limit}-byte limit")]
     SpecTooLarge {
         /// Observed length in bytes.
         bytes: usize,
@@ -111,6 +121,7 @@ pub enum EcsError {
         limit: usize,
     },
     /// The serialized spec is not valid JSON for the schema.
+    #[error("malformed bot spec: {}", Escaped(cause))]
     MalformedSpec {
         /// The parser's positional diagnostic, with control characters escaped
         /// so an untrusted field name cannot forge a log line.
@@ -124,6 +135,9 @@ pub enum EcsError {
     /// than partially understood. The found and supported versions are carried
     /// as numbers so a caller can decide the repair without parsing the
     /// rendering.
+    #[error(
+        "bot spec declares version {found}, but this build materializes version {supported} only"
+    )]
     UnsupportedSpecVersion {
         /// The version the document declared.
         found: u32,
@@ -138,6 +152,12 @@ pub enum EcsError {
     /// this build does not know is refused before the chain is built, never
     /// treated as an always-true condition — a silently inert gate is how an
     /// effect a person expected to be guarded fires anyway.
+    #[error(
+        "unknown condition {}: not in the supported wire vocabulary, or its threshold \
+         argument did not parse ({})",
+        Escaped(condition),
+        Escaped(argument_parse)
+    )]
     UnknownCondition {
         /// The condition identifier the spec spelled.
         condition: String,
@@ -174,6 +194,10 @@ pub enum EcsError {
     /// runtime in the build (`--no-default-features` withdraws tokio entirely)
     /// and nothing for the adapter to detect, so this variant is documented
     /// rather than constructed.
+    #[error(
+        "tick: the synchronous adapter cannot park a thread an async runtime is driving; \
+         await `tick_async` on that runtime, or call the tick outside it"
+    )]
     TickInsideRuntime,
     /// A source poll was cancelled by the bot's declared per-poll deadline
     /// before it resolved.
@@ -187,6 +211,11 @@ pub enum EcsError {
     /// `NotDelivered`, so a consumer's retry classifier reads it as safe: a
     /// cancelled observation commits nothing and no effect was attempted on its
     /// account.
+    #[error(
+        "source poll for chain {chain} was cancelled at its declared {deadline:?} per-poll \
+         deadline: nothing was read, nothing committed, and the other chains of this tick were \
+         not stopped"
+    )]
     PollStalled {
         /// The chain whose source stopped answering, in declaration order.
         chain: usize,
@@ -213,6 +242,11 @@ pub enum EcsError {
     ///
     /// `NotDelivered`, so a consumer's retry classifier reads it as safe: no
     /// effect was attempted and nothing was committed.
+    #[error(
+        "source {} read a subject that did not settle ({unstable}); no reading was committed \
+         and the observation is pending the next tick",
+        Escaped(domain)
+    )]
     UnstableObservation {
         /// The source that could not confirm a reading.
         domain: String,
@@ -227,6 +261,10 @@ pub enum EcsError {
     /// stalled. That is a wiring mistake with a distinct repair, not a tuning
     /// choice, and it is refused at build rather than discovered on the first
     /// tick.
+    #[error(
+        "per-poll deadline of {deadline:?} bounds no wait: every poll would be cancelled before \
+         it was first polled"
+    )]
     PollDeadlineUnbounded {
         /// The zero that was asked for.
         deadline: Duration,
@@ -238,6 +276,10 @@ pub enum EcsError {
     /// a source that stops answering and a bot that stops ticking. A budget past
     /// it converts a recoverable stall into a hang, and the caller who wants a
     /// longer one has to say why rather than discovering it at run time.
+    #[error(
+        "per-poll deadline of {deadline:?} is above the {ceiling:?} ceiling: a source that \
+         stops answering would hold the tick for longer than any bound this bot grants"
+    )]
     PollDeadlineExceeded {
         /// The budget that was asked for.
         deadline: Duration,
@@ -257,6 +299,10 @@ pub enum EcsError {
     /// Never a retry. The same credential against the same receiver gives the
     /// same status, so this is the typed outcome that ends a refresh-then-retry
     /// loop rather than feeding one.
+    #[error(
+        "{} was refused by its upstream with HTTP {status}: {needs}",
+        Escaped(domain)
+    )]
     CredentialRejected {
         /// The domain whose upstream refused the credential.
         domain: String,
@@ -267,6 +313,7 @@ pub enum EcsError {
     },
     /// An evaluate condition failed structurally: not a false result, but an
     /// error in the condition itself.
+    #[error("evaluate: {}", Escaped(cause))]
     EvaluateError {
         /// What went wrong.
         cause: String,
@@ -285,6 +332,10 @@ pub enum EcsError {
     /// it is caught where the concrete types are still in hand, so it can name
     /// them, and naming them is the whole diagnostic. It is never built from
     /// runtime text.
+    #[error(
+        "{site}: type mismatch{} — expected {expected}, got {observed}",
+        OnChain(*chain)
+    )]
     TypeMismatch {
         /// Where it was caught, as a stable site name (`"spec::typed_entry"`,
         /// `"observe_fold rendezvous"`), so the loud report is also greppable.
@@ -304,6 +355,10 @@ pub enum EcsError {
     /// indistinguishable from a handled transition. The work is now retained
     /// and this variant is how its retention is reported — held for an attempt
     /// or for evidence, or given up on.
+    #[error(
+        "tick left work unfinished: {} ({outstanding} open)",
+        Escaped(&work.to_string())
+    )]
     PendingTransition {
         /// The entry that needs the caller: the first one still open, in
         /// `(chain, entry)` order.
@@ -341,6 +396,12 @@ pub enum EcsError {
     /// variant meaning only "there is no held effect at this address" is what
     /// lets a caller tell a wrong address from stale or contradictory evidence,
     /// which are three different repairs.
+    #[error(
+        "no held effect at chain {} entry {}: only an entry whose outcome is indeterminate, or \
+         one that was given up on, can be settled with evidence",
+        work.chain(),
+        work.entry()
+    )]
     NoSuchWork {
         /// The address that matched no held entry.
         work: WorkId,
@@ -361,6 +422,13 @@ pub enum EcsError {
     /// input the attempt was made against. That is the fact that decides
     /// whether evidence is about the same work, and it is why settlement does
     /// not have to be told the revision separately.
+    #[error(
+        "evidence names binding {named} of chain {} entry {}, which has been superseded by \
+         binding {current}: nothing was changed, re-read pending() and report the key it hands \
+         back now",
+        work.chain(),
+        work.entry()
+    )]
     EvidenceSuperseded {
         /// The address the evidence was submitted for.
         work: WorkId,
@@ -385,6 +453,15 @@ pub enum EcsError {
     /// began. Reporting success would be a lie about which attempt the evidence
     /// moved, and applying it would make an attempt whose effect may be live
     /// eligible to run a third time.
+    #[error(
+        "evidence was about attempt {} of chain {} entry {}, but that entry is on attempt {} \
+         now: nothing was changed, and the report is about an attempt that is over rather than \
+         one outstanding",
+        reported.get(),
+        work.chain(),
+        work.entry(),
+        outstanding.get()
+    )]
     EvidenceStaleAttempt {
         /// The address the evidence was submitted for.
         work: WorkId,
@@ -400,6 +477,12 @@ pub enum EcsError {
     /// idempotently, so a caller whose first delivery was ambiguous can send it
     /// again without having to know whether it landed. This is the case where
     /// the entry's outcome is recorded and the new report says the other thing.
+    #[error(
+        "evidence {submitted} contradicts {settled} already recorded for chain {} entry {}: \
+         nothing was changed, and repeating the same evidence would have succeeded",
+        work.chain(),
+        work.entry()
+    )]
     EvidenceContradicted {
         /// The identity the evidence was submitted for.
         work: WorkId,
@@ -418,6 +501,10 @@ pub enum EcsError {
     /// the journal append is retryable; the action is never re-entered for a
     /// recording failure, because re-entering it is how a known outcome becomes
     /// a duplicate.
+    #[error(
+        "the effect is {evidence} and only its record is missing: {cause}. Retry the journal \
+         append, not the action"
+    )]
     EffectUnrecorded {
         /// The exact attempt identity the append was for.
         ///
@@ -438,15 +525,19 @@ pub enum EcsError {
     },
 }
 
-impl From<KernelError> for EcsError {
-    /// Lets `?` carry a kernel failure up into the world layer unchanged.
-    fn from(source: KernelError) -> Self {
-        Self::Kernel(source)
+/// The chain a type mismatch was caught on, when its site knew one.
+struct OnChain(Option<usize>);
+
+impl std::fmt::Display for OnChain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(index) => write!(f, " on chain {index}"),
+            None => f.write_str(""),
+        }
     }
 }
 
 mod class;
-mod display;
 
 #[cfg(test)]
 mod tests;

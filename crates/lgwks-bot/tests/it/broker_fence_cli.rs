@@ -26,6 +26,15 @@ fn session(scratch: &ScratchFile, script: &str) -> Outcome<Vec<String>> {
     piped::session(&binary(), &[scratch.path()], script)
 }
 
+/// Require the answer at `index` to say `wanted`.
+fn says(answers: &[String], index: usize, wanted: &str) -> Outcome {
+    let line = answers
+        .get(index)
+        .ok_or_else(|| format!("no answer at {index} in {answers:?}"))?;
+    assert!(line.contains(wanted), "{line} should say {wanted}");
+    Ok(())
+}
+
 /// Catches a takeover that loses the dead owner's generation, or restarts at one.
 #[test]
 fn a_takeover_after_kill_nine_moves_past_the_dead_owner() -> Outcome {
@@ -37,14 +46,14 @@ fn a_takeover_after_kill_nine_moves_past_the_dead_owner() -> Outcome {
     owner.kill()?;
 
     let answers = session(&scratch, "adopt\nauthorize 1 7\nauthorize 1 8\nstatus\n")?;
-    assert_eq!(answers[0], "{\"ok\":true,\"generation\":8}");
-    assert!(
-        answers[1].contains("\"refused\":\"superseded\""),
-        "{}",
-        answers[1]
+    assert_eq!(
+        answers.first().map(String::as_str),
+        Some("{\"ok\":true,\"generation\":8}"),
+        "{answers:?}"
     );
-    assert!(answers[2].contains("\"ok\":true"), "{}", answers[2]);
-    assert!(answers[3].contains("\"generation\":8,"), "{}", answers[3]);
+    says(&answers, 1, "\"refused\":\"superseded\"")?;
+    says(&answers, 2, "\"ok\":true")?;
+    says(&answers, 3, "\"generation\":8,")?;
     Ok(())
 }
 
@@ -93,13 +102,9 @@ fn a_mistyped_command_is_answered_and_the_session_goes_on() -> Outcome {
     )?;
     assert_eq!(answers.len(), 6, "{answers:?}");
     for index in [0_usize, 1, 2, 3, 5] {
-        assert!(
-            answers[index].contains("\"refused\":\"usage\""),
-            "{}",
-            answers[index]
-        );
+        says(&answers, index, "\"refused\":\"usage\"")?;
     }
-    assert!(answers[4].contains("\"ok\":true"), "{}", answers[4]);
+    says(&answers, 4, "\"ok\":true")?;
     let bare = Command::new(binary()).output()?;
     assert_eq!(bare.status.code(), Some(64));
     assert!(String::from_utf8_lossy(&bare.stderr).contains("usage: broker-fence"));

@@ -492,18 +492,24 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
             }
             Ok(read) => read,
         };
-        received.extend_from_slice(&chunk[..read]);
+        let Some(filled) = chunk.get(..read) else {
+            return;
+        };
+        received.extend_from_slice(filled);
         if received.len() > 2_097_152 {
             return;
         }
         let Some(end) = header_end(&received) else {
             continue;
         };
-        let framing = framing_of(&received[..end]);
+        let Some(head) = received.get(..end) else {
+            return;
+        };
+        let framing = framing_of(head);
         let complete = match framing {
-            Framing::Chunked => received[end..]
-                .windows(5)
-                .any(|window| window == b"0\r\n\r\n"),
+            Framing::Chunked => received
+                .get(end..)
+                .is_some_and(|tail| tail.windows(5).any(|window| window == b"0\r\n\r\n")),
             Framing::Sized(length) => received.len() >= end.saturating_add(length),
         };
         if complete {
@@ -519,7 +525,7 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
             // Wait out the delay on a condition that never arrives: the late
             // reply lands on a socket the caller already closed, and no
             // executor thread is held for it.
-            let gate = std::sync::Mutex::new(false);
+            let gate = std::sync::Mutex::new(());
             let bell = std::sync::Condvar::new();
             let held = match gate.lock() {
                 Ok(held) => held,
@@ -528,7 +534,10 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
                     return;
                 }
             };
-            if bell.wait_timeout_while(held, delay, |open| !*open).is_err() {
+            if bell
+                .wait_timeout_while(held, delay, |&mut ()| true)
+                .is_err()
+            {
                 return;
             }
             let body = b"late";
@@ -536,8 +545,12 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
         }
         Behavior::DropMidBody => {
             let head = b"HTTP/1.1 200 OK\r\nContent-Length: 64\r\nConnection: close\r\n\r\n";
-            drop(stream.write_all(head));
-            drop(stream.write_all(b"half of a body, cut "));
+            if let Err(error) = stream
+                .write_all(head)
+                .and_then(|()| stream.write_all(b"half of a body, cut "))
+            {
+                lgwks_std::trace::debug!(error = ?error, "probe server: the cut reply was not written");
+            }
         }
         Behavior::Storm => {
             let body = b"down";
@@ -553,7 +566,10 @@ fn serve_one(mut stream: std::net::TcpStream, behavior: Behavior, delay: Duratio
             let mut left = bytes;
             while left > 0 {
                 let width = left.min(chunk.len());
-                if stream.write_all(&chunk[..width]).is_err() {
+                let Some(part) = chunk.get(..width) else {
+                    return;
+                };
+                if stream.write_all(part).is_err() {
                     return;
                 }
                 left = left.saturating_sub(width);
@@ -586,7 +602,10 @@ enum Framing {
 fn framing_of(head: &[u8]) -> Framing {
     let text = match std::str::from_utf8(head) {
         Ok(text) => text,
-        Err(_) => return Framing::Sized(0),
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "probe server: the headers are not text");
+            return Framing::Sized(0);
+        }
     };
     let mut chunked = false;
     let mut length = 0_usize;
@@ -616,8 +635,12 @@ fn reply(stream: &mut std::net::TcpStream, status: u16, body: &[u8]) {
         reason(status),
         body.len()
     );
-    drop(stream.write_all(head.as_bytes()));
-    drop(stream.write_all(body));
+    if let Err(error) = stream
+        .write_all(head.as_bytes())
+        .and_then(|()| stream.write_all(body))
+    {
+        lgwks_std::trace::debug!(error = ?error, "probe server: the reply was not written");
+    }
 }
 
 /// The reason phrase for a served status.

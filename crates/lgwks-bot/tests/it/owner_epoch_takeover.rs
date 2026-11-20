@@ -47,7 +47,7 @@
 // that also run real children.
 use crate::journal_fixtures as shared;
 
-use shared::{ENV, FLOW_HEX, ProbeGuard, RUN, TempGuard, pause, scratch_dir, walk_ladder};
+use shared::{ENV, FLOW_HEX, ProbeGuard, RUN, TempGuard, pause, scratch_dir};
 
 use lgwks_bot::broker::{Broker, BrokerError};
 use lgwks_bot::effect::{
@@ -55,8 +55,8 @@ use lgwks_bot::effect::{
     Id128, RunId,
 };
 use lgwks_bot::journal::{
-    DurabilityPromise, EffectEvent, EffectEvidence, EffectJournal, EventKind, FileJournal,
-    JournalError, Verification, VerificationResult,
+    EffectEvent, EffectEvidence, EffectJournal, EventKind, FileJournal, JournalError, Verification,
+    VerificationResult,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -384,6 +384,114 @@ fn await_marker(marker: &std::path::Path) -> TestResult {
     Err(format!("the old worker never reached {}", marker.display()).into())
 }
 
+/// While the worker holds the fence a second writer is refused, and then the
+/// worker is killed: the first half of the takeover, the fence handed back.
+fn kill_the_fenced_worker(journal_path: &std::path::Path, probe: &mut ProbeGuard) -> TestResult {
+    match FileJournal::open(journal_path) {
+        Err(JournalError::Locked { .. }) => {}
+        Err(other) => {
+            lgwks_std::trace::debug!("kill_the_fenced_worker: returning an error to the caller");
+            return Err(format!("expected a lock refusal against the child, got {other}").into());
+        }
+        Ok(_) => {
+            lgwks_std::trace::debug!("kill_the_fenced_worker: returning an error to the caller");
+            return Err("a second process opened a journal another process holds".into());
+        }
+    }
+    let Some(mut held) = probe.take() else {
+        lgwks_std::trace::debug!("kill_the_fenced_worker: returning an error to the caller");
+        return Err("the old worker was gone before the takeover".into());
+    };
+    if let Err(error) = held.kill() {
+        lgwks_std::trace::debug!(error = %error, "kill_the_fenced_worker: the worker had already gone");
+    }
+    let status = held.wait()?;
+    assert!(
+        !status.success(),
+        "the old worker must have died from the kill, not exited on its own: {status}"
+    );
+    Ok(())
+}
+
+/// The takeover proper: the new owner adopts the generation the dead worker's
+/// history was written at, claims the one after it, authorizes its own key and
+/// is refused the stale one. Returns the current key and the two generations.
+fn adopt_and_fence(
+    owner: &FileJournal,
+) -> Result<(EffectKey, EnvironmentEpoch, EnvironmentEpoch), Box<dyn std::error::Error>> {
+    let stale = takeover_key("1", FIRST_GENERATION)?;
+    let current = takeover_key("1", SECOND_GENERATION)?;
+    assert_ne!(
+        stale, current,
+        "the same attempt at a new generation is a different identity"
+    );
+    // `adopt` is what makes the generation a fact on the disk rather than a
+    // constant each process chooses for itself.
+    let mut broker = Broker::new();
+    let after = broker.adopt(environment()?, owner)?;
+    let before = EnvironmentEpoch::from_decimal(FIRST_GENERATION)?;
+    assert_eq!(
+        after,
+        EnvironmentEpoch::from_decimal(SECOND_GENERATION)?,
+        "adopting a journal written entirely at generation 1 claims generation 2"
+    );
+    assert_ne!(
+        before, after,
+        "a takeover must move the generation, or nothing below is fenced"
+    );
+    broker.authorize(current)?;
+    match broker.authorize(stale) {
+        Err(BrokerError::Superseded {
+            presented,
+            current: held,
+            ..
+        }) => {
+            assert_eq!(
+                presented, before,
+                "the refusal names the generation presented"
+            );
+            assert_eq!(held, after, "and the one the broker holds now");
+        }
+        Err(other) => {
+            lgwks_std::trace::debug!("adopt_and_fence: returning an error to the caller");
+            return Err(format!("a stale key must be Superseded, got {other}").into());
+        }
+        Ok(_) => {
+            lgwks_std::trace::debug!("adopt_and_fence: returning an error to the caller");
+            return Err("the broker authorized a generation it had replaced".into());
+        }
+    }
+    Ok((current, before, after))
+}
+
+/// The history the current owner had acknowledged is extended at most by the
+/// returning worker's two refusals, and its own attempt was never settled by
+/// the returning worker's receipt.
+fn assert_history_stands(
+    observed: &[EffectEvent],
+    acknowledged: &[EffectEvent],
+    current: EffectKey,
+) {
+    assert!(
+        observed.starts_with(acknowledged),
+        "the returning worker changed the history the current owner had already \
+         acknowledged: {observed:?} does not extend {acknowledged:?}"
+    );
+    assert!(
+        observed.len() <= acknowledged.len().saturating_add(2),
+        "the returning worker added {} events to a four-rung attempt that was \
+         already complete: {observed:?}",
+        observed.len().saturating_sub(acknowledged.len()),
+    );
+    assert!(
+        !observed.contains(&EffectEvent::OutcomeObserved {
+            key: current,
+            evidence: EffectEvidence::Applied,
+        }),
+        "the current owner's own attempt was settled by the returning worker's receipt"
+    );
+}
+
 // ── The row ─────────────────────────────────────────────────────────────────
 
 /// An old worker returning after an owner-epoch takeover cannot authorize a
@@ -406,9 +514,10 @@ fn await_marker(marker: &std::path::Path) -> TestResult {
 #[test]
 fn an_old_worker_returning_after_a_takeover_cannot_settle_or_authorize_t16() -> TestResult {
     if std::env::var_os(OWNER_ENV).is_some() {
-        return match std::env::var(OWNER_MODE).ok().as_deref() {
-            Some(RETURNING) => returning_worker_body(),
-            _ => old_worker_body(),
+        return match std::env::var(OWNER_MODE) {
+            Ok(mode) if mode == RETURNING => returning_worker_body(),
+            Ok(_) | Err(std::env::VarError::NotPresent) => old_worker_body(),
+            Err(error) => Err(error.into()),
         };
     }
 
@@ -433,25 +542,7 @@ fn an_old_worker_returning_after_a_takeover_cannot_settle_or_authorize_t16() -> 
     // While the worker holds the fence, a second writer is refused — before it
     // reads a byte. This is asserted rather than waited for: the refusal is the
     // fence working and an acceptance is a fence that does not exist.
-    match FileJournal::open(&journal_path) {
-        Err(JournalError::Locked { .. }) => {}
-        Err(other) => {
-            return Err(format!("expected a lock refusal against the child, got {other}").into());
-        }
-        Ok(_) => return Err("a second process opened a journal another process holds".into()),
-    }
-
-    // The takeover, part one: the old worker dies holding the journal and the
-    // kernel hands the fence back.
-    let Some(mut held) = probe.take() else {
-        return Err("the old worker was gone before the takeover".into());
-    };
-    drop(held.kill());
-    let status = held.wait()?;
-    assert!(
-        !status.success(),
-        "the old worker must have died from the kill, not exited on its own: {status}"
-    );
+    kill_the_fenced_worker(&journal_path, &mut probe)?;
 
     let mut owner = loop_reopen(&journal_path)?;
     let inherited = owner.committed()?;
@@ -469,47 +560,7 @@ fn an_old_worker_returning_after_a_takeover_cannot_settle_or_authorize_t16() -> 
 
     // The takeover, part two: the generation moves. This is what makes the dead
     // worker's warrant stale rather than merely abandoned.
-    let stale = takeover_key("1", FIRST_GENERATION)?;
-    let current = takeover_key("1", SECOND_GENERATION)?;
-    assert_ne!(
-        stale, current,
-        "the same attempt at a new generation is a different identity"
-    );
-    // The takeover proper: the new owner reads the generation the dead worker's
-    // own history was written at and claims the one after it. `adopt` is what
-    // makes the generation a fact on the disk rather than a constant each
-    // process chooses for itself.
-    let mut broker = Broker::new();
-    let after = broker.adopt(environment()?, &owner)?;
-    let before = EnvironmentEpoch::from_decimal(FIRST_GENERATION)?;
-    assert_eq!(
-        after,
-        EnvironmentEpoch::from_decimal(SECOND_GENERATION)?,
-        "adopting a journal written entirely at generation 1 claims generation 2"
-    );
-    assert_ne!(
-        before, after,
-        "a takeover must move the generation, or nothing below is fenced"
-    );
-
-    // The current owner authorizes its own generation and is refused the old one,
-    // with the refusal naming both generations.
-    broker.authorize(current)?;
-    match broker.authorize(stale) {
-        Err(BrokerError::Superseded {
-            presented,
-            current: held,
-            ..
-        }) => {
-            assert_eq!(
-                presented, before,
-                "the refusal names the generation presented"
-            );
-            assert_eq!(held, after, "and the one the broker holds now");
-        }
-        Err(other) => return Err(format!("a stale key must be Superseded, got {other}").into()),
-        Ok(_) => return Err("the broker authorized a generation it had replaced".into()),
-    }
+    let (current, before, after) = adopt_and_fence(&owner)?;
 
     // The current owner writes its own attempt at the new generation, so the
     // journal holds work that a stale settlement could overwrite.
@@ -577,24 +628,7 @@ fn an_old_worker_returning_after_a_takeover_cannot_settle_or_authorize_t16() -> 
             observed
         ),
     )?;
-    assert!(
-        observed.starts_with(&after_owner_write),
-        "the returning worker changed the history the current owner had already \
-         acknowledged: {observed:?} does not extend {after_owner_write:?}"
-    );
-    assert!(
-        observed.len() <= after_owner_write.len() + 2,
-        "the returning worker added {} events to a four-rung attempt that was \
-         already complete: {observed:?}",
-        observed.len() - after_owner_write.len(),
-    );
-    assert!(
-        !observed.contains(&EffectEvent::OutcomeObserved {
-            key: current,
-            evidence: EffectEvidence::Applied,
-        }),
-        "the current owner's own attempt was settled by the returning worker's receipt"
-    );
+    assert_history_stands(&observed, &after_owner_write, current);
     assert!(
         lgwks_bot::journal::verify_chain(&reopened.committed_entries()?).is_ok(),
         "whatever the returning worker appended is committed into the one chain, not \
@@ -649,163 +683,4 @@ fn wait_for_report(path: &std::path::Path) -> Result<String, Box<dyn std::error:
     Err("the returning worker never reported what it was allowed to do".into())
 }
 
-// ── The parts that need no second process ───────────────────────────────────
-
-/// The generation check is a comparison, and the comparison is where a takeover
-/// is enforced, so it is asserted on its own: a warrant minted at the current
-/// generation is accepted, and one from the generation before it is not.
-#[test]
-fn a_warrant_from_the_previous_generation_is_superseded() -> TestResult {
-    let broker = broker_at_first_generation()?;
-    let key = takeover_key("1", FIRST_GENERATION)?;
-    let authority = broker.authorize(key)?;
-    assert_eq!(
-        authority.epoch(),
-        EnvironmentEpoch::from_decimal(FIRST_GENERATION)?,
-        "the warrant names the generation it was minted against"
-    );
-    broker.revalidate(&authority)?;
-
-    let mut moved = broker;
-    moved.replace(environment()?)?;
-    match moved.revalidate(&authority) {
-        Err(BrokerError::Superseded { .. }) => {}
-        Err(other) => {
-            return Err(format!("a replaced warrant must be Superseded, got {other}").into());
-        }
-        Ok(()) => {
-            return Err("the broker revalidated a warrant for a replaced generation".into());
-        }
-    }
-    Ok(())
-}
-
-/// A generation this broker never issued is a different refusal from one it
-/// replaced, and the two are told apart so an operator investigating one is not
-/// sent to investigate the other.
-#[test]
-fn a_generation_the_broker_never_issued_is_not_a_supersession() -> TestResult {
-    let broker = broker_at_first_generation()?;
-    let invented = takeover_key("1", "9")?;
-    match broker.authorize(invented) {
-        Err(BrokerError::NeverIssued {
-            presented, current, ..
-        }) => {
-            assert_eq!(
-                presented,
-                EnvironmentEpoch::from_decimal("9")?,
-                "the refusal names the generation presented"
-            );
-            assert_eq!(
-                current,
-                EnvironmentEpoch::from_decimal(FIRST_GENERATION)?,
-                "and the one the broker holds"
-            );
-        }
-        Err(other) => {
-            return Err(format!("an invented generation must be NeverIssued, got {other}").into());
-        }
-        Ok(_) => return Err("the broker authorized a generation it never issued".into()),
-    }
-    Ok(())
-}
-
-/// An acknowledged position reads back identically after a reopen: the durable
-/// ack the dead worker held is a promise about bytes on a device, and it outlives
-/// the process that minted it. This is what makes the receipt a receipt rather
-/// than a claim.
-#[test]
-fn an_acknowledged_position_reads_back_identically_after_a_reopen() -> TestResult {
-    let dir = scratch_dir("receipt")?;
-    let _guard = TempGuard(dir.clone());
-    let journal_path = dir.join("journal.log");
-    let key = takeover_key("1", FIRST_GENERATION)?;
-
-    let ack = {
-        let mut journal = FileJournal::open(&journal_path)?;
-        assert_eq!(
-            journal.durability(),
-            DurabilityPromise::ProcessCrash,
-            "the file journal earns the promise the row's kill depends on"
-        );
-        journal.compare_and_append(journal.tail(), &EffectEvent::IntentAdmitted { key })?;
-        journal.compare_and_append(journal.tail(), &EffectEvent::DispatchPrepared { key })?
-    };
-
-    let reopened = FileJournal::open(&journal_path)?;
-    let entry = reopened
-        .committed_entry(ack.position())?
-        .ok_or("an acknowledged position must read back after a reopen")?;
-    assert_eq!(
-        entry.position(),
-        ack.position(),
-        "the position is the same one"
-    );
-    assert_eq!(
-        entry.event(),
-        &EffectEvent::DispatchPrepared { key },
-        "and it holds the prepared attempt, not a neighbour"
-    );
-    assert_eq!(
-        entry.event().kind(),
-        EventKind::DispatchPrepared,
-        "so a receipt read after the takeover is still a receipt of that fact"
-    );
-    Ok(())
-}
-
-/// The whole attempt at the *current* generation settles and verifies, so the
-/// refusals elsewhere in this file are the fence refusing and not the ladder being
-/// unable to say yes. The control that stops a blanket "everything is fenced"
-/// answer from passing.
-#[test]
-fn the_current_generation_may_still_settle_its_own_attempt() -> TestResult {
-    let dir = scratch_dir("settle-own")?;
-    let _guard = TempGuard(dir.clone());
-    let journal_path = dir.join("journal.log");
-    let broker = broker_at_first_generation()?;
-    let key = takeover_key("1", FIRST_GENERATION)?;
-
-    let mut journal = FileJournal::open(&journal_path)?;
-    // The control is the same walk at the current generation: if this is refused
-    // then the row's refusals are about the takeover and not about the ladder.
-    broker.authorize(key)?;
-    walk_ladder(&mut journal, key, TAKEOVER_PREDICATE, 1, 4)?;
-    assert_eq!(
-        journal.committed()?.len(),
-        4,
-        "a whole attempt at the current generation settles and verifies"
-    );
-    Ok(())
-}
-
-/// The generation and the tail are two fences and both answer, because a caller
-/// that fenced only one of them would pass a row asserting one.
-#[test]
-fn a_generation_and_a_tail_are_two_fences_and_both_answer() -> TestResult {
-    let dir = scratch_dir("two-fences")?;
-    let _guard = TempGuard(dir.clone());
-    let journal_path = dir.join("journal.log");
-    let key = takeover_key("1", FIRST_GENERATION)?;
-    let other = takeover_key("2", FIRST_GENERATION)?;
-
-    let mut journal = FileJournal::open(&journal_path)?;
-    journal.compare_and_append(journal.tail(), &EffectEvent::IntentAdmitted { key })?;
-    let stale_tail = journal.tail();
-    journal.compare_and_append(journal.tail(), &EffectEvent::IntentAdmitted { key: other })?;
-
-    // The tail fence: an append against the position from before the last write
-    // is refused, and nothing is written.
-    let before = journal.committed()?.len();
-    match journal.compare_and_append(stale_tail, &EffectEvent::DispatchPrepared { key }) {
-        Err(JournalError::TailMismatch { .. }) => {}
-        Err(other) => return Err(format!("a stale tail must be TailMismatch, got {other}").into()),
-        Ok(_) => return Err("an append from behind the tail was accepted".into()),
-    }
-    assert_eq!(
-        journal.committed()?.len(),
-        before,
-        "the refused append wrote nothing"
-    );
-    Ok(())
-}
+mod in_process;

@@ -45,6 +45,27 @@ const TENANTS: usize = 16;
 /// its body resumed.
 type Outcome = (u64, Duration);
 
+/// Every host is back to rest: nothing in flight, every permit returned, and
+/// the ceiling never passed.
+fn assert_all_released(hosts: &[Host]) {
+    for (tenant, host) in hosts.iter().enumerate() {
+        assert_eq!(
+            host.admission().in_flight(),
+            0,
+            "tenant {tenant}: nothing left in flight"
+        );
+        assert_eq!(
+            host.admission().available_permits(),
+            MAX_ADMITTED_TASKS,
+            "tenant {tenant}: every permit came back"
+        );
+        assert!(
+            host.admission().peak_in_flight() <= MAX_ADMITTED_TASKS,
+            "tenant {tenant}: never admitted past its ceiling"
+        );
+    }
+}
+
 #[test]
 fn more_than_a_million_admitted_runs_are_in_flight_at_once() -> TestResult {
     if std::env::var_os("LGWKS_MILLION").is_none() {
@@ -76,8 +97,8 @@ fn more_than_a_million_admitted_runs_are_in_flight_at_once() -> TestResult {
             let mut gate = gate.clone();
             async move {
                 entered.fetch_add(1, Ordering::AcqRel);
-                let released = gate.wait_for(Option::is_some).await.map_err(|_| {
-                    FlowError::failed("the release gate was dropped before the release")
+                let released = gate.wait_for(Option::is_some).await.map_err(|dropped| {
+                    FlowError::failed(format!("the release gate was dropped: {dropped}"))
                 })?;
                 let resumed = released
                     .map(|at| at.elapsed())
@@ -137,22 +158,7 @@ fn more_than_a_million_admitted_runs_are_in_flight_at_once() -> TestResult {
     let finished = started.elapsed();
 
     assert_eq!(outcomes.len(), total, "every subject reported");
-    for (tenant, host) in hosts.iter().enumerate() {
-        assert_eq!(
-            host.admission().in_flight(),
-            0,
-            "tenant {tenant}: nothing left in flight"
-        );
-        assert_eq!(
-            host.admission().available_permits(),
-            MAX_ADMITTED_TASKS,
-            "tenant {tenant}: every permit came back"
-        );
-        assert!(
-            host.admission().peak_in_flight() <= MAX_ADMITTED_TASKS,
-            "tenant {tenant}: never admitted past its ceiling"
-        );
-    }
+    assert_all_released(&hosts);
 
     outcomes.sort_unstable();
     shared::record_measurement(&format!(

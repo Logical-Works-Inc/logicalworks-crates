@@ -34,15 +34,19 @@ use lgwks_bot::task::{Host, RunStore, StoreError, task};
 use crate::memory_records::MemoryRecords;
 use crate::scratch::Scratch;
 use crate::script_domains::{SCRIPT_DOMAINS, post, posts_once};
-use crate::spec_materialize::take_trace;
+use crate::spec_materialize::{clear_trace, take_trace};
 
 type TestResult = Result<(), Box<dyn Error>>;
+
+/// The first-attempt check, simulated against a saboteur and seeded neighbours.
+#[path = "sim_first_attempt.rs"]
+mod sim_first_attempt;
 
 /// What opening a store under test can fail with.
 type OpenError = Box<dyn Error + Send + Sync>;
 
 /// Every check passed, or every violation, named.
-fn conformed(store: &str, found: &Conformance) -> TestResult {
+fn conformed(store: &str, found: &Conformance) {
     let violations: Vec<String> = found
         .violations()
         .map(|(check, violation)| format!("{check}: {violation}"))
@@ -53,10 +57,15 @@ fn conformed(store: &str, found: &Conformance) -> TestResult {
     );
     assert_eq!(
         found.passed().count(),
-        5,
+        6,
         "{store}: every check ran and passed"
     );
-    Ok(())
+    assert!(
+        found
+            .passed()
+            .any(|check| check == "first_attempt_is_compatible"),
+        "{store}: a run it holds nothing for is a first attempt"
+    );
 }
 
 #[test]
@@ -70,11 +79,12 @@ fn the_file_store_conforms() -> TestResult {
             faults.fail_next_index_read();
         }))
     };
-    conformed("the file store", &conformance::check(&mut open))
+    conformed("the file store", &conformance::check(&mut open));
+    Ok(())
 }
 
 #[test]
-fn an_in_memory_store_conforms() -> TestResult {
+fn an_in_memory_store_conforms() {
     let memory = MemoryRecords::default();
     let mut open = || -> Result<Opened, OpenError> {
         let faults = memory.clone();
@@ -82,7 +92,7 @@ fn an_in_memory_store_conforms() -> TestResult {
             faults.fail_next_read();
         }))
     };
-    conformed("the in-memory store", &conformance::check(&mut open))
+    conformed("the in-memory store", &conformance::check(&mut open));
 }
 
 /// A host for `acme` resolving the shared script domains over `records`.
@@ -100,7 +110,7 @@ fn an_ephemeral_store_refuses_an_external_action() -> TestResult {
     let posting = task("posting", |scope: Scope, value: u16| async move {
         post(&scope, "channel", value).await
     })?;
-    drop(take_trace());
+    clear_trace();
     let report = lgwks_bot::script::block_on(host.run(&posting, 7));
     let refused = report.error().and_then(|error| match *error {
         FlowError::Store { ref source, .. } => Some(&**source),

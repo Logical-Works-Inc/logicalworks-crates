@@ -430,6 +430,45 @@ impl core::fmt::Debug for SoftwareProvider {
     }
 }
 
+/// Draw a first master key and write it, owner-only, at `master_path`.
+///
+/// Created with `create_new`, so a master that appears between the failed read
+/// and this write is refused rather than overwritten.
+fn create_master(master_path: &Path) -> Result<DataKey, KeyError> {
+    let key = match lgwks_std::random::bytes::<KEY_BYTES>() {
+        Ok(key) => key,
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "provider-open: no entropy for a first master key");
+            return Err(KeyError::Transient {
+                reason: "no entropy for a first master key",
+            });
+        }
+    };
+    let mut file = OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(master_path)
+        .map_err(|error| {
+            lgwks_std::trace::debug!(error = ?error, "provider-open: the master file could not be created");
+            KeyError::Storage { cause: error }
+        })?;
+    file.write_all(&key).map_err(|error| {
+        lgwks_std::trace::debug!(error = ?error, "provider-open: the master key could not be written");
+        KeyError::Storage { cause: error }
+    })?;
+    file.sync_all().map_err(|error| {
+        lgwks_std::trace::debug!(error = ?error, "provider-open: the master key could not be synced");
+        KeyError::Storage { cause: error }
+    })?;
+    drop(file);
+    if let Err(error) = restrict_file(master_path) {
+        let refusal = Err(KeyError::Storage { cause: error });
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "provider-open: the master file could not be restricted");
+        return refusal;
+    }
+    Ok(DataKey::from_bytes(key))
+}
+
 impl SoftwareProvider {
     /// Open the provider in `dir`, generating its master key on first use.
     ///
@@ -467,38 +506,7 @@ impl SoftwareProvider {
                 DataKey::from_bytes(key)
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                let key = match lgwks_std::random::bytes::<KEY_BYTES>() {
-                    Ok(key) => key,
-                    Err(error) => {
-                        lgwks_std::trace::debug!(error = ?error, "provider-open: no entropy for a first master key");
-                        return Err(KeyError::Transient {
-                            reason: "no entropy for a first master key",
-                        });
-                    }
-                };
-                let mut file = OpenOptions::new()
-                    .create_new(true)
-                    .write(true)
-                    .open(&master_path)
-                    .map_err(|error| {
-                        lgwks_std::trace::debug!(error = ?error, "provider-open: the master file could not be created");
-                        KeyError::Storage { cause: error }
-                    })?;
-                file.write_all(&key).map_err(|error| {
-                    lgwks_std::trace::debug!(error = ?error, "provider-open: the master key could not be written");
-                    KeyError::Storage { cause: error }
-                })?;
-                file.sync_all().map_err(|error| {
-                    lgwks_std::trace::debug!(error = ?error, "provider-open: the master key could not be synced");
-                    KeyError::Storage { cause: error }
-                })?;
-                drop(file);
-                if let Err(error) = restrict_file(&master_path) {
-                    let refusal = Err(KeyError::Storage { cause: error });
-                    lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "provider-open: the master file could not be restricted");
-                    return refusal;
-                }
-                DataKey::from_bytes(key)
+                create_master(&master_path)?
             }
             Err(error) => {
                 let refusal = Err(KeyError::Storage { cause: error });

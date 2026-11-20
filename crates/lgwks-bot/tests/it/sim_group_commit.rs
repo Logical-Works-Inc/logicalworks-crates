@@ -471,8 +471,12 @@ fn two_tenants_on_one_store_stay_isolated(band: Band) -> TestResult {
         }
         // And the cross-read: one tenant's run id offered to the other's handle is
         // refused rather than served, which is the whole of "isolated".
-        let (owner, round) = (rounds[0].0, &rounds[0].1);
-        let asker = rounds[1].0;
+        let Ok([(owner, round), (asker, _)]) = <[_; 2]>::try_from(rounds) else {
+            lgwks_std::trace::debug!(
+                "two_tenants_on_one_store_stay_isolated: returning an error to the caller"
+            );
+            return Err("the family ran two tenants".into());
+        };
         let run = round.runs.first().ok_or("the owner recorded a run")?;
         let foreign = lgwks_bot::rt::runtime::block_on(host(asker, reopened.clone())?.resume(
             *run,
@@ -512,7 +516,7 @@ fn saturation_reaches_every_tier_and_records_the_ceiling(band: Band) -> TestResu
         let (seeded, _appends, tag, path) = scenario.parts();
         // The tier this seed sweeps: the three levels the row names, drawn from the
         // seed's own tag so a band's families still cover all three between them.
-        let requested = TIERS[usize::try_from(tag % 3)?];
+        let requested = *crate::sim::nth(&TIERS, usize::try_from(tag % 3)?)?;
         let runs = stage_tier(&seeded.store, requested, tag)?;
         let (flushes, staged) = seeded.store.flush_counts();
 

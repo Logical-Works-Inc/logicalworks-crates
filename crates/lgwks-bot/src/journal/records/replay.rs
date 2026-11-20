@@ -18,17 +18,17 @@ use super::{Durable, refuse};
 /// # Examples
 ///
 /// ```
-/// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use lgwks_bot::journal::{RecordEntry, RecordJournal};
 ///
 /// let path = std::env::temp_dir().join(format!("record-doc-entry-{}", std::process::id()));
-/// # drop(std::fs::remove_file(&path));
+/// # if path.exists() { std::fs::remove_file(&path)?; }
 /// let mut journal = RecordJournal::<u64>::open(&path)?;
 /// let ack = journal.compare_and_append(journal.tail(), &9)?;
 /// let page: Vec<RecordEntry<u64>> = journal.page(0, 1)?;
 /// assert_eq!(page.first().map(RecordEntry::position), Some(ack.position()));
 /// # drop(journal);
-/// # drop(std::fs::remove_file(&path));
+/// # std::fs::remove_file(&path)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -78,17 +78,17 @@ impl<R> RecordEntry<R> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use lgwks_bot::journal::RecordJournal;
     ///
     /// let path = std::env::temp_dir().join(format!("record-doc-at-{}", std::process::id()));
-    /// # drop(std::fs::remove_file(&path));
+    /// # if path.exists() { std::fs::remove_file(&path)?; }
     /// let mut journal = RecordJournal::<u64>::open(&path)?;
     /// journal.compare_and_append(journal.tail(), &9)?;
     /// let page = journal.page(0, 1)?;
     /// assert_eq!(page.first().map(|entry| entry.position().sequence()), Some(1));
     /// # drop(journal);
-    /// # drop(std::fs::remove_file(&path));
+    /// # std::fs::remove_file(&path)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -102,17 +102,17 @@ impl<R> RecordEntry<R> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use lgwks_bot::journal::RecordJournal;
     ///
     /// let path = std::env::temp_dir().join(format!("record-doc-body-{}", std::process::id()));
-    /// # drop(std::fs::remove_file(&path));
+    /// # if path.exists() { std::fs::remove_file(&path)?; }
     /// let mut journal = RecordJournal::<u64>::open(&path)?;
     /// journal.compare_and_append(journal.tail(), &9)?;
     /// let page = journal.page(0, 1)?;
     /// assert_eq!(page.first().map(|entry| *entry.record()), Some(9));
     /// # drop(journal);
-    /// # drop(std::fs::remove_file(&path));
+    /// # std::fs::remove_file(&path)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -127,17 +127,17 @@ impl<R> RecordEntry<R> {
     /// # Examples
     ///
     /// ```
-    /// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// use lgwks_bot::journal::RecordJournal;
     ///
     /// let path = std::env::temp_dir().join(format!("record-doc-mark2-{}", std::process::id()));
-    /// # drop(std::fs::remove_file(&path));
+    /// # if path.exists() { std::fs::remove_file(&path)?; }
     /// let mut journal = RecordJournal::<u64>::open(&path)?;
     /// journal.compare_and_append(journal.tail(), &9)?;
     /// let page = journal.page(0, 1)?;
     /// assert_eq!(page.first().map(|entry| entry.is_checkpoint()), Some(false));
     /// # drop(journal);
-    /// # drop(std::fs::remove_file(&path));
+    /// # std::fs::remove_file(&path)?;
     /// # Ok(())
     /// # }
     /// ```
@@ -156,17 +156,17 @@ impl<R> RecordEntry<R> {
 /// # Examples
 ///
 /// ```
-/// # fn main() -> Result<(), lgwks_bot::journal::JournalError> {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// use lgwks_bot::journal::{RecordJournal, RecordReplay};
 ///
 /// let path = std::env::temp_dir().join(format!("record-doc-stream-{}", std::process::id()));
-/// # drop(std::fs::remove_file(&path));
+/// # if path.exists() { std::fs::remove_file(&path)?; }
 /// let mut journal = RecordJournal::<u64>::open(&path)?;
 /// journal.compare_and_append(journal.tail(), &9)?;
 /// let replay: RecordReplay<u64> = journal.replay()?;
 /// assert_eq!(replay.count(), 1);
 /// # drop(journal);
-/// # drop(std::fs::remove_file(&path));
+/// # std::fs::remove_file(&path)?;
 /// # Ok(())
 /// # }
 /// ```
@@ -187,6 +187,17 @@ pub struct RecordReplay<R> {
     done: bool,
     /// The record type.
     record: PhantomData<fn() -> R>,
+}
+
+impl<R> std::fmt::Debug for RecordReplay<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RecordReplay")
+            .field("index", &self.index)
+            .field("offset", &self.offset)
+            .field("end", &self.end)
+            .field("done", &self.done)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<R: Durable> RecordReplay<R> {

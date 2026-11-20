@@ -493,7 +493,7 @@ fn gated_identified_spawn_release_executes_payload() -> Result<(), Box<dyn std::
     runtime.block_on(async {
         let mut supervisor = Supervisor::default();
         let mut gated_spawn = spawn_gated_sh(&mut supervisor, &script).await?;
-        gated_spawn.release().await?;
+        gated_spawn.release()?;
 
         let task_outcome = outcome(&mut supervisor).await?;
         if task_outcome.is_process_failure() {

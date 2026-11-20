@@ -208,7 +208,7 @@ fn sim_conformance_a_refused_wrap_is_named_for_every_record() -> TestResult {
 /// reading `store-conformance` or a provider's CI log learns which rule broke
 /// without knowing the enum: no two read alike and none is a Rust name.
 #[test]
-fn sim_conformance_each_violation_reads_as_a_sentence() -> TestResult {
+fn sim_conformance_each_violation_reads_as_a_sentence() {
     let all = [
         Violation::OpenRefused,
         Violation::ProvisionRefused,
@@ -238,7 +238,6 @@ fn sim_conformance_each_violation_reads_as_a_sentence() -> TestResult {
             "{violation:?} reads unlike every other rule"
         );
     }
-    Ok(())
 }
 
 /// `mint_ids` asks the provider for up to 4,096 keys and refuses past that

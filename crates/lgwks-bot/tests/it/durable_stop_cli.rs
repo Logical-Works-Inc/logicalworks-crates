@@ -28,6 +28,15 @@ fn arguments(scratch: &ScratchFile, tenant: &str) -> Outcome<Vec<String>> {
     Ok(vec![journal, store, tenant.to_owned(), "mailer".to_owned()])
 }
 
+/// Require the answer at `index` to say `wanted`.
+fn says(answers: &[String], index: usize, wanted: &str) -> Outcome {
+    let line = answers
+        .get(index)
+        .ok_or_else(|| format!("no answer at {index} in {answers:?}"))?;
+    assert!(line.contains(wanted), "{line} should say {wanted}");
+    Ok(())
+}
+
 /// Catches a stop or a place that dies with the process that recorded it.
 #[test]
 fn a_stop_and_a_place_recorded_before_a_kill_hold_in_the_next_process() -> Outcome {
@@ -36,8 +45,8 @@ fn a_stop_and_a_place_recorded_before_a_kill_hold_in_the_next_process() -> Outco
     let mut owner = Owner::start(&binary(), &words)?;
     let first = owner.answers("status\nwork 1\nadvance 40\nrequest\n")?;
     owner.kill()?;
-    assert!(first[0].contains("\"may_start\":true"), "{}", first[0]);
-    assert!(first[3].contains("\"stage\":\"Requested\""), "{}", first[3]);
+    says(&first, 0, "\"may_start\":true")?;
+    says(&first, 3, "\"stage\":\"Requested\"")?;
 
     let after = session(
         &binary(),
@@ -65,26 +74,10 @@ fn a_misused_session_is_answered_and_goes_on() -> Outcome {
     let scratch = ScratchFile::new("stop-cli-misuse")?;
     let words = arguments(&scratch, "acme")?;
     let answers = session(&binary(), &words, "finish\nfly\nadvance\nrequest\n")?;
-    assert!(
-        answers[0].contains("\"refused\":\"out_of_order\""),
-        "{}",
-        answers[0]
-    );
-    assert!(
-        answers[1].contains("\"refused\":\"usage\""),
-        "{}",
-        answers[1]
-    );
-    assert!(
-        answers[2].contains("\"refused\":\"usage\""),
-        "{}",
-        answers[2]
-    );
-    assert!(
-        answers[3].contains("\"stage\":\"Requested\""),
-        "{}",
-        answers[3]
-    );
+    says(&answers, 0, "\"refused\":\"out_of_order\"")?;
+    says(&answers, 1, "\"refused\":\"usage\"")?;
+    says(&answers, 2, "\"refused\":\"usage\"")?;
+    says(&answers, 3, "\"stage\":\"Requested\"")?;
     Ok(())
 }
 

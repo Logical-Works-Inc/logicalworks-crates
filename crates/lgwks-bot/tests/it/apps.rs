@@ -64,11 +64,13 @@ fn run_request(verdict: &str) -> Result<String, String> {
     let start = verdict
         .find(key)
         .ok_or_else(|| format!("no app id in {verdict:?}"))?;
-    let rest = &verdict[start.saturating_add(key.len())..];
-    let end = rest
-        .find('"')
+    let (_, rest) = verdict
+        .split_at_checked(start.saturating_add(key.len()))
+        .ok_or_else(|| format!("no app id in {verdict:?}"))?;
+    let (id, _) = rest
+        .split_once('"')
         .ok_or_else(|| format!("unterminated app id in {verdict:?}"))?;
-    Ok(format!("{{\"app\":\"{}\"}}", &rest[..end]))
+    Ok(format!("{{\"app\":\"{id}\"}}"))
 }
 
 /// Admit the repaired plan for `tenant`, requiring `200`, and answer the run

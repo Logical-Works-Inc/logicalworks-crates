@@ -1,5 +1,6 @@
 //! ECS bot unit tests, part 04: the poll watchdog's expiry rules (INV-BOT-123).
 
+#[cfg(test)]
 use super::*;
 use crate::ecs::watchdog::bounded_wave;
 
@@ -33,7 +34,7 @@ fn wave_poll<'wave>(
 /// The expiry is written from inside the poll, after the turn installed its
 /// waker, so no clock decides the interleaving.
 #[test]
-fn an_expiry_inside_a_first_turn_does_not_stall_a_source_ready_on_its_next() -> TestResult {
+fn an_expiry_inside_a_first_turn_does_not_stall_a_source_ready_on_its_next() {
     let deadline = Duration::from_secs(60);
     let watchdog = PollWatchdog::new(deadline, 1);
     let clock = Clock::wall();
@@ -75,7 +76,6 @@ fn an_expiry_inside_a_first_turn_does_not_stall_a_source_ready_on_its_next() -> 
         "the source ready on its next turn answers rather than stalls"
     );
     assert_eq!(turns.get(), 2, "the source was turned exactly twice");
-    Ok(())
 }
 
 /// A poll whose first turn comes after the wave expired is cut off when that
@@ -86,7 +86,7 @@ fn an_expiry_inside_a_first_turn_does_not_stall_a_source_ready_on_its_next() -> 
 /// first polled, or the tick never returns. This is the half of INV-BOT-123 the
 /// first-turn case above must not trade away.
 #[test]
-fn a_poll_first_turned_after_expiry_is_cut_off_when_still_pending() -> TestResult {
+fn a_poll_first_turned_after_expiry_is_cut_off_when_still_pending() {
     let deadline = Duration::from_secs(60);
     let watchdog = PollWatchdog::new(deadline, 1);
     let clock = Clock::wall();
@@ -105,7 +105,6 @@ fn a_poll_first_turned_after_expiry_is_cut_off_when_still_pending() -> TestResul
         !armed.load(Ordering::Relaxed),
         "an expired wave starts no reaper"
     );
-    Ok(())
 }
 
 /// Across many real waves under a deadline the reaper spends the moment it
@@ -119,7 +118,7 @@ fn a_poll_first_turned_after_expiry_is_cut_off_when_still_pending() -> TestResul
 /// that read the expiry right after `Pending`, a fraction of these waves stalled
 /// the yielding source.
 #[test]
-fn a_yielding_source_ahead_of_a_wedge_always_answers_across_real_waves() -> TestResult {
+fn a_yielding_source_ahead_of_a_wedge_always_answers_across_real_waves() {
     const WAVES: u32 = 1_000;
     let deadline = Duration::from_nanos(1);
     for wave in 0..WAVES {
@@ -156,5 +155,4 @@ fn a_yielding_source_ahead_of_a_wedge_always_answers_across_real_waves() -> Test
         );
         assert!(armed, "wave {wave}: a pending poll started the reaper");
     }
-    Ok(())
 }

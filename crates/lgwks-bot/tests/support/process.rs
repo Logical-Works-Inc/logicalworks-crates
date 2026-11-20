@@ -10,7 +10,7 @@ use std::path::Path;
 use std::time::Duration;
 
 /// Read a pid a scenario's own child wrote, or `None` while it is absent.
-pub fn read_pid(path: &Path) -> Option<i32> {
+pub(crate) fn read_pid(path: &Path) -> Option<i32> {
     let text = std::fs::read_to_string(path).ok()?;
     text.trim().parse::<i32>().ok()
 }
@@ -22,7 +22,7 @@ pub fn read_pid(path: &Path) -> Option<i32> {
 /// after a guessed delay, so a loaded host cannot make the drop land before
 /// the fork. `None` means `run` finished before the child wrote its pid,
 /// which a caller expecting a mid-flight drop reports as a failure.
-pub async fn drop_after_pid<F: std::future::Future>(run: F, pid_file: &Path) -> Option<i32> {
+pub(crate) async fn drop_after_pid<F: std::future::Future>(run: F, pid_file: &Path) -> Option<i32> {
     let mut run = std::pin::pin!(run);
     std::future::poll_fn(|cx| {
         if run.as_mut().poll(cx).is_ready() {
@@ -68,7 +68,7 @@ fn group_members(pgid: i32) -> Option<Vec<char>> {
 
 /// Every process table row of group `pgid` (pid, parent, state, command), for
 /// a failure message that names what survived.
-pub fn describe_group(pgid: i32) -> String {
+pub(crate) fn describe_group(pgid: i32) -> String {
     let Ok(output) = std::process::Command::new("ps")
         .args(["-A", "-o", "pgid=,pid=,ppid=,stat=,command="])
         .output()
@@ -88,7 +88,7 @@ pub fn describe_group(pgid: i32) -> String {
 }
 
 /// Whether no process at all remains in group `pgid`.
-pub fn group_is_gone(pgid: i32) -> bool {
+pub(crate) fn group_is_gone(pgid: i32) -> bool {
     group_members(pgid).is_some_and(|members| members.is_empty())
 }
 
@@ -98,7 +98,7 @@ pub fn group_is_gone(pgid: i32) -> bool {
 /// dropped mid-flight kills its group but no longer owns the leader to reap
 /// it, so the engine's orphan reaper collects it later; until then the leader
 /// is a zombie, which is no orphan running work.
-pub fn group_has_stopped(pgid: i32) -> bool {
+pub(crate) fn group_has_stopped(pgid: i32) -> bool {
     group_members(pgid).is_some_and(|members| members.iter().all(|state| *state == 'Z'))
 }
 
@@ -135,7 +135,7 @@ fn wait_for(pgid: i32, budget: Duration, done: fn(i32) -> bool) -> bool {
 /// A pid file is the event a test waits on rather than a delay it guesses at: a
 /// child that records its own pid has provably reached the point under test, and
 /// a loaded host cannot make the test act before that point.
-pub fn wait_for_pid(path: &Path, budget: Duration) -> Option<i32> {
+pub(crate) fn wait_for_pid(path: &Path, budget: Duration) -> Option<i32> {
     let mut recorded = None;
     poll_within(budget, || {
         recorded = read_pid(path);
@@ -150,7 +150,7 @@ pub fn wait_for_pid(path: &Path, budget: Duration) -> Option<i32> {
 /// is the whole requirement for an unrelated process the supervisor must not
 /// touch. It exits zero while the pid may be signalled and non-zero once it is
 /// gone, so it answers "does this pid still exist" and nothing about *why*.
-pub fn pid_is_alive(pid: i32) -> bool {
+pub(crate) fn pid_is_alive(pid: i32) -> bool {
     match std::process::Command::new("kill")
         .arg("-0")
         .arg(pid.to_string())
@@ -174,7 +174,7 @@ pub fn pid_is_alive(pid: i32) -> bool {
 /// both), or a member of its group outlived it. The `stat` column tells them
 /// apart (`Z` is a zombie), so the assertion carries it instead of a bare
 /// "still alive" that cannot be told from either.
-pub fn describe_pid(pid: i32) -> String {
+pub(crate) fn describe_pid(pid: i32) -> String {
     let listing = match std::process::Command::new("ps")
         .args(["-eo", "pid=,ppid=,pgid=,stat=,comm="])
         .output()
@@ -204,18 +204,21 @@ pub fn describe_pid(pid: i32) -> String {
 /// this crate builds with `unsafe_code` forbidden and the test targets inherit
 /// that. `status()` waits for it, so the helper leaves no unreaped child for the
 /// harness's own leak check to find.
-pub fn kill_pid(pid: i32) {
-    let _ignored = std::process::Command::new("kill")
+pub(crate) fn kill_pid(pid: i32) {
+    if let Err(error) = std::process::Command::new("kill")
         .arg("-9")
         .arg(pid.to_string())
-        .status();
+        .status()
+    {
+        lgwks_std::trace::debug!(error = ?error, pid, "kill_pid: the kill utility did not run");
+    }
 }
 
 /// Wait until `pid` is gone, up to `budget`.
 ///
 /// `None` for a pid that is still running when the budget expires, so a caller
 /// cannot report a survivor as cleaned up by reading the timeout as success.
-pub fn wait_for_pid_gone(pid: i32, budget: Duration) -> Option<()> {
+pub(crate) fn wait_for_pid_gone(pid: i32, budget: Duration) -> Option<()> {
     poll_within(budget, || !pid_is_alive(pid)).then_some(())
 }
 
@@ -226,7 +229,7 @@ pub fn wait_for_pid_gone(pid: i32, budget: Duration) -> Option<()> {
 /// and a test checking three would pass against a reader that kept growing.
 /// `total` is the exact byte count the child wrote, so this distinguishes "kept
 /// the ceiling and counted the rest" from "kept everything" and from "grew".
-pub fn assert_capture_within_ceiling(
+pub(crate) fn assert_capture_within_ceiling(
     name: &str,
     stream: &lgwks_bot::rt::process::CapturedStream,
     ceiling: usize,
@@ -267,7 +270,7 @@ pub fn assert_capture_within_ceiling(
 /// A table rather than two branches: the candidates are data, and a branch per
 /// candidate would put the "which one did we use" fact in control flow instead of
 /// where a reader can see both at once.
-pub fn escape_command() -> Option<EscapeCommand> {
+pub(crate) fn escape_command() -> Option<EscapeCommand> {
     ESCAPE_COMMANDS
         .iter()
         .find(|candidate| which(candidate.program).is_some())
@@ -286,12 +289,12 @@ pub fn escape_command() -> Option<EscapeCommand> {
 /// A flag of `-c` runs `source` as a shell command line; a flag of `-e` runs it
 /// as interpreter source. Both call `setsid`, then record, then sleep.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EscapeCommand {
+pub(crate) struct EscapeCommand {
     /// The interpreter or utility to run.
-    pub program: &'static str,
+    pub(crate) program: &'static str,
     /// The argument text that selects the third field's meaning: one flag for
     /// an interpreter, or a shell and its flag for a utility that runs one.
-    pub flag: &'static str,
+    pub(crate) flag: &'static str,
     /// The program, or the command line, that escapes and then records `$$`.
     ///
     /// `{file}` is replaced with the pid path. It is a placeholder rather than a
@@ -329,7 +332,7 @@ impl EscapeCommand {
     ///   would terminate the wrapper early.
     ///   [`sources_are_apostrophe_free`] keeps that true rather than leaving it to
     ///   a comment.
-    pub fn script(&self, pid_file: &Path) -> String {
+    pub(crate) fn script(&self, pid_file: &Path) -> String {
         format!("{} & wait", self.command_line(pid_file))
     }
 
@@ -340,7 +343,7 @@ impl EscapeCommand {
     /// exit is the leader's own rather than one a cleanup caused. That is the
     /// shape #347 names: a supervised process that finished by itself and left a
     /// `setsid` descendant running behind it.
-    pub fn script_then_exit(&self, pid_file: &Path) -> String {
+    pub(crate) fn script_then_exit(&self, pid_file: &Path) -> String {
         format!(
             "{} & until [ -s {} ]; do sleep 0.01; done; exit 0",
             self.command_line(pid_file),
@@ -364,7 +367,7 @@ impl EscapeCommand {
 /// from outside: a mis-quoted source makes the candidate record nothing, and a
 /// test that waits for a pid then reports "this host cannot escape" — a claim
 /// about the host that is really about this file's quoting.
-pub fn sources_are_apostrophe_free() -> bool {
+pub(crate) fn sources_are_apostrophe_free() -> bool {
     ESCAPE_COMMANDS
         .iter()
         .all(|candidate| !candidate.source.contains('\''))
@@ -409,7 +412,7 @@ const ESCAPE_COMMANDS: [EscapeCommand; 2] = [
 /// subject says which host capability was missing instead of passing quietly,
 /// because "the escape was not exercised" and "the escape did not happen" look
 /// identical in a green suite.
-pub fn escape_unavailable_reason() -> String {
+pub(crate) fn escape_unavailable_reason() -> String {
     String::from(
         "no setsid(1) or perl with POSIX on this host, so a real session escape could not \
          be performed; T21's escape case was NOT exercised",
@@ -425,11 +428,11 @@ fn which(program: &str) -> Option<std::path::PathBuf> {
 }
 
 /// Wait for group `pgid` to disappear, up to `budget`.
-pub fn wait_group_gone(pgid: i32, budget: Duration) -> bool {
+pub(crate) fn wait_group_gone(pgid: i32, budget: Duration) -> bool {
     wait_for(pgid, budget, group_is_gone)
 }
 
 /// Wait for every process in group `pgid` to have ended, up to `budget`.
-pub fn wait_group_stopped(pgid: i32, budget: Duration) -> bool {
+pub(crate) fn wait_group_stopped(pgid: i32, budget: Duration) -> bool {
     wait_for(pgid, budget, group_has_stopped)
 }

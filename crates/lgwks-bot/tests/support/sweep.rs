@@ -18,14 +18,14 @@
 //! [`peak_rss_bytes`]'s contract rather than hidden behind one name.
 
 /// The seed space a row's sweep covers: the row asks for at least a thousand.
-pub const SWEEP_SEEDS: u64 = 1024;
+pub(crate) const SWEEP_SEEDS: u64 = 1024;
 
 /// The first seed of every sweep.
 ///
 /// Not zero: a zero seed is the one value the shared generator remaps, so a
 /// family that swept it would report a draw sequence the generator does not
 /// produce.
-pub const FIRST_SEED: u64 = 1;
+pub(crate) const FIRST_SEED: u64 = 1;
 
 /// Return a typed test failure, emitting it first.
 ///
@@ -33,7 +33,9 @@ pub const FIRST_SEED: u64 = 1;
 /// a caller that sees only a value has no signal. One definition for the
 /// families introduced for issue #278, so every scenario's refusal reads
 /// identically rather than one line per call site.
-pub fn refuse<Outcome>(cause: impl Into<String>) -> Result<Outcome, Box<dyn std::error::Error>> {
+pub(crate) fn refuse<Outcome>(
+    cause: impl Into<String>,
+) -> Result<Outcome, Box<dyn std::error::Error>> {
     let refusal: Result<Outcome, Box<dyn std::error::Error>> = Err(cause.into().into());
     lgwks_std::trace::debug!(
         error = ?refusal.as_ref().err(),
@@ -52,7 +54,7 @@ pub fn refuse<Outcome>(cause: impl Into<String>) -> Result<Outcome, Box<dyn std:
 /// is not measured as zero. Quote the timed run's peak beside the test's name
 /// instead.
 #[must_use]
-pub fn peak_rss_bytes() -> Option<u64> {
+pub(crate) fn peak_rss_bytes() -> Option<u64> {
     // The `VmHWM:` line is found, not assumed first: `/proc/self/status` opens
     // with `Name:`, and reading only the first line answered `None` on every
     // Linux host, so no sweep's memory bound was ever checked there.

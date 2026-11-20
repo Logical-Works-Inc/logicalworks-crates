@@ -261,11 +261,8 @@ fn restore_refuses_a_generation_that_runs_backwards_and_a_tick_that_cannot_advan
     Ok(())
 }
 
-/// Catches registration and write refusals that name the wrong cause: a column twice, a lying codec, a bad
-/// tenant, a handle from another world, an id that is not version 7, one alive twice, one not alive (#1002).
-#[test]
-fn registration_and_writes_meet_their_own_variants() -> Result<(), Failure> {
-    let ceilings = Ceilings::new(4, 8, 1 << 10)?;
+/// The registration half of the check below: a bad tenant, a column twice, a lying codec.
+fn registration_meets_its_variants(ceilings: Ceilings) -> Result<(), Failure> {
     assert!(
         matches!(
             WorldBuilder::new("", ceilings),
@@ -296,7 +293,15 @@ fn registration_and_writes_meet_their_own_variants() -> Result<(), Failure> {
         ),
         "a codec that does not reproduce its bytes"
     );
+    Ok(())
+}
 
+/// Catches registration and write refusals that name the wrong cause: a column twice, a lying codec, a bad
+/// tenant, a handle from another world, an id that is not version 7, one alive twice, one not alive (#1002).
+#[test]
+fn registration_and_writes_meet_their_own_variants() -> Result<(), Failure> {
+    let ceilings = Ceilings::new(4, 8, 1 << 10)?;
+    registration_meets_its_variants(ceilings)?;
     let (mut mine, cols) = world("acme", 8, 1 << 10)?;
     let mut other = WorldBuilder::new("acme", ceilings)?;
     other.column(&Name(String::new()))?;

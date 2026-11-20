@@ -56,13 +56,13 @@ fn a_context_reset_preserves_completed_work_corrections_unknowns_and_evidence_t2
         "both user corrections survived, not just the most recent one"
     );
     assert_eq!(
-        recovered.corrections()[0].kind(),
-        lgwks_bot::proposal::CorrectionKind::Refusal,
+        recovered.corrections().first().map(|found| found.kind()),
+        Some(lgwks_bot::proposal::CorrectionKind::Refusal),
         "a refusal stays a refusal across the reset, rather than being re-read as an override"
     );
     assert_eq!(
-        recovered.corrections()[1].text(),
-        "publish as draft",
+        recovered.corrections().get(1).map(|found| found.text()),
+        Some("publish as draft"),
         "the user's own words survived verbatim"
     );
     assert_eq!(
@@ -126,7 +126,9 @@ fn checkpoint_body(
     scope: Scope,
     (): (),
 ) -> lgwks_bot::verb::BoxFuture<'static, Result<Checkpoint, FlowError>> {
-    Box::pin(async move { remember(&scope, "ctx", build_checkpoint).await })
+    Box::pin(
+        async move { remember(&scope, "ctx", || std::future::ready(build_checkpoint())).await },
+    )
 }
 
 /// The checkpoint the first instance records, built fresh each time it runs.
@@ -134,7 +136,7 @@ fn checkpoint_body(
 /// A closure rather than a constant so the resume genuinely *reads the record*
 /// instead of re-deriving the same value — which is the only way the test can
 /// tell a recovered checkpoint from a recomputed one.
-async fn build_checkpoint() -> Result<Checkpoint, FlowError> {
+fn build_checkpoint() -> Result<Checkpoint, FlowError> {
     let mut checkpoint = Checkpoint::new();
     checkpoint.complete("fetch")?;
     checkpoint.complete("analyse")?;
@@ -214,7 +216,7 @@ fn a_truncated_payload_never_becomes_a_full_coverage_claim() -> TestResult {
 /// refused rather than decoded into a partial checkpoint.
 #[test]
 fn a_checkpoint_round_trips_through_the_run_store() -> TestResult {
-    let checkpoint = drive(build_checkpoint())?;
+    let checkpoint = build_checkpoint()?;
     let bytes = Checkpoint::to_record(&checkpoint)?;
     let recovered = Checkpoint::from_record(&bytes)?;
 
@@ -223,15 +225,17 @@ fn a_checkpoint_round_trips_through_the_run_store() -> TestResult {
         "an archived checkpoint is the checkpoint it was archived from"
     );
     assert_eq!(
-        recovered.corrections()[0].kind(),
-        lgwks_bot::proposal::CorrectionKind::Refusal,
+        recovered.corrections().first().map(|found| found.kind()),
+        Some(lgwks_bot::proposal::CorrectionKind::Refusal),
         "a correction's kind survives the archive, not just its text"
     );
 
     // A truncated archive is refused, never decoded into a checkpoint that looks
     // complete: the same rule the row names about truncated data, applied to the
     // checkpoint itself.
-    let cut = &bytes[..bytes.len().saturating_div(2)];
+    let cut = bytes
+        .get(..bytes.len().saturating_div(2))
+        .ok_or("half of the archive is inside it")?;
     assert!(
         Checkpoint::from_record(cut).is_err(),
         "a truncated archive is refused rather than decoded into a partial checkpoint"

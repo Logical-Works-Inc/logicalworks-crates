@@ -69,7 +69,7 @@ pub(crate) fn take_trace() -> Vec<String> {
 /// Forget whatever an earlier run on this thread recorded, so a test reads only
 /// its own operations.
 pub(crate) fn clear_trace() {
-    drop(take_trace());
+    OPERATIONS.with(|trace| trace.borrow_mut().clear());
 }
 
 // ── Domains ────────────────────────────────────────────────────────────────
@@ -174,13 +174,13 @@ impl Page {
     }
 
     /// Build a cap-free one from the `target` its spec names.
-    pub(crate) fn from_target(target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self::with_caps(target, Vec::new())))
+    pub(crate) fn from_target(target: &str) -> Action {
+        Action::new(Self::with_caps(target, Vec::new()))
     }
 
     /// Build one requiring `bot.net` from the `target` its spec names.
-    fn net_from_target(target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self::with_caps(target, vec![Cap::net()])))
+    fn net_from_target(target: &str) -> Action {
+        Action::new(Self::with_caps(target, vec![Cap::net()]))
     }
 }
 
@@ -212,6 +212,13 @@ impl Execute for Page {
     }
 }
 
+/// The registry's constructor for [`Page`], which cannot fail.
+pub(crate) const PAGE: fn(&str) -> Result<Action, EcsError> =
+    |target| Ok(Page::from_target(target));
+
+/// The registry's constructor for a [`Page`] requiring `bot.net`.
+const NET_PAGE: fn(&str) -> Result<Action, EcsError> = |target| Ok(Page::net_from_target(target));
+
 domains! {
     /// The domains these tests run: two sources and two actions, one of each
     /// requiring `bot.net`.
@@ -221,8 +228,8 @@ domains! {
             "test::net_counter" => Counter::net_from_target,
         }
         execute {
-            "test::page" => Page::from_target,
-            "test::net_page" => Page::net_from_target,
+            "test::page" => PAGE,
+            "test::net_page" => NET_PAGE,
         }
     }
 }

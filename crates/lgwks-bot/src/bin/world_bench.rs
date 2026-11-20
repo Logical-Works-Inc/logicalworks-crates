@@ -23,7 +23,7 @@ use lgwks_std::id::Uuid;
 
 #[path = "../../examples/support/measure.rs"]
 mod measure;
-#[path = "../world/mod.rs"]
+#[path = "../world.rs"]
 mod world;
 
 use world::component::{Ceilings, Column, Component, Malformed, WorldBuilder};
@@ -173,8 +173,21 @@ impl Draw {
 
     /// A drawn index below `bound`; `None` for an empty range.
     fn below(&mut self, bound: usize) -> Option<usize> {
-        let drawn = self.next().checked_rem(u64::try_from(bound).ok()?)?;
-        usize::try_from(drawn).ok()
+        let word = self.next();
+        let span = match u64::try_from(bound) {
+            Ok(span) => span,
+            Err(error) => {
+                lgwks_std::trace::debug!(error = %error, bound, "below: the bound does not fit a word");
+                return None;
+            }
+        };
+        match usize::try_from(word.checked_rem(span)?) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                lgwks_std::trace::debug!(error = %error, "below: the draw does not fit an index");
+                None
+            }
+        }
     }
 }
 

@@ -230,11 +230,8 @@ pub fn warrant_holds(
 mod tests {
     use super::*;
 
-    /// The crate's test idiom: `Result` and `?`, real values in every assert.
-    type TestResult = Result<(), Box<dyn std::error::Error>>;
-
     #[test]
-    fn a_lease_judged_on_its_own_clock_needs_no_bound() -> TestResult {
+    fn a_lease_judged_on_its_own_clock_needs_no_bound() {
         assert!(
             lease_holds(
                 Duration::from_secs(10),
@@ -251,16 +248,14 @@ mod tests {
             ),
             "a lease judged at its expiry on its own clock has lapsed"
         );
-        Ok(())
     }
 
     #[test]
-    fn an_epoch_fence_is_exact_whatever_the_clocks_say() -> TestResult {
+    fn an_epoch_fence_is_exact_whatever_the_clocks_say() {
         assert!(epoch_holds(3, 3), "the current generation fences exactly");
         assert!(
             !epoch_holds(2, 3),
             "a superseded generation never fences, at any skew"
         );
-        Ok(())
     }
 }

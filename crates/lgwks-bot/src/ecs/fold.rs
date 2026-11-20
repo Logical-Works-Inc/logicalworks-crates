@@ -113,39 +113,9 @@ pub(super) fn observe_fold(world: &mut World) {
     // cancellation as a failure here would mean one wedged source stopped every
     // chain on the bot from committing for as long as it stayed wedged, which is
     // precisely the starvation this deadline exists to prevent.
-    let mut first_error = None;
-    let mut first_stall = None;
-    for (index, result) in polled.iter_mut().enumerate() {
-        let stalled = matches!(result, Err(EcsError::PollStalled { .. }));
-        if stalled {
-            first_stall.get_or_insert(index);
-            *result = Ok(None);
-        } else if result.is_err() && first_error.is_none() {
-            first_error = std::mem::replace(result, Ok(None)).err();
-        }
-    }
-    // One stall is reported and the rest are already named in the tick report, so
-    // the tick's own `Result` carries a single typed cancellation the way it
-    // carries a single first domain failure. The report is the complete list; this
-    // is the one a caller matching on the variant can act on.
-    match (first_stall, first_error) {
-        // A cancellation is reported and the commit *proceeds*: the chains beside
-        // the wedged one have real observations, and withholding them is the
-        // starvation this deadline exists to prevent.
-        (Some(chain), _) => {
-            world.resource_mut::<TickError>().0 = Some(EcsError::PollStalled {
-                chain,
-                deadline: world.resource::<PollBudget>().0,
-            });
-        }
-        // A domain failure stops the commit, as it always did: the tick's contract
-        // is that a tick which could not act on what a chain said commits nothing.
-        (None, Some(error)) => {
-            world.resource_mut::<TickError>().0 = Some(error);
-            put_polled(world, polled);
-            return;
-        }
-        (None, None) => {}
+    if !inspect_polled(world, &mut polled) {
+        put_polled(world, polled);
+        return;
     }
 
     // The rendezvous. The results arrived in chain order because `poll_sources`
@@ -164,23 +134,9 @@ pub(super) fn observe_fold(world: &mut World) {
     // allocated nothing and has no witness to offer — and needs none: to answer
     // that, it had to downcast the baseline to its own output type, which is a
     // stricter proof of the pairing than comparing two names.
-    {
-        let chains = world.non_send::<Chains>();
-        let mismatch = polled.iter().enumerate().find_map(|(index, result)| {
-            let next = result.as_ref().ok()?.as_ref()?;
-            let chain = chains.0.get(index)?;
-            (!chain.witness.agrees_with(next.witness)).then_some(EcsError::TypeMismatch {
-                site: "observe_fold rendezvous",
-                chain: Some(index),
-                expected: chain.witness.name(),
-                observed: next.witness.name(),
-            })
-        });
-        if let Some(error) = mismatch {
-            world.resource_mut::<TickError>().0 = Some(error);
-            put_polled(world, polled);
-            return;
-        }
+    if rendezvous_missed(world, &polled) {
+        put_polled(world, polled);
+        return;
     }
 
     // Pass two: commit. A slot that takes a value has moved; a slot left empty
@@ -297,6 +253,69 @@ pub(super) fn observe_fold(world: &mut World) {
     }
     world.resource_mut::<TickReport>().superseded = superseded;
     world.non_send_mut::<Moved>().0 = changed;
+}
+
+/// Pass one of the fold: the first error in declaration order, taken out of
+/// `polled` (its slot becomes a benign `Ok(None)`) and written to the tick's
+/// error. Returns whether the commit proceeds.
+///
+/// A cancelled poll is **not** such an error: the chains beside the wedged one
+/// have real observations, and withholding them is the starvation the deadline
+/// exists to prevent. One stall is reported here and the rest are named in the
+/// tick report. A domain failure stops the commit, as it always did: a tick that
+/// could not act on what a chain said commits nothing.
+fn inspect_polled(world: &mut World, polled: &mut [Result<Option<Erased>, EcsError>]) -> bool {
+    let mut first_error = None;
+    let mut first_stall = None;
+    for (index, result) in polled.iter_mut().enumerate() {
+        let stalled = matches!(result, Err(EcsError::PollStalled { .. }));
+        if stalled {
+            first_stall.get_or_insert(index);
+            *result = Ok(None);
+        } else if result.is_err() && first_error.is_none() {
+            first_error = std::mem::replace(result, Ok(None)).err();
+        }
+    }
+    match (first_stall, first_error) {
+        (Some(chain), _) => {
+            world.resource_mut::<TickError>().0 = Some(EcsError::PollStalled {
+                chain,
+                deadline: world.resource::<PollBudget>().0,
+            });
+            true
+        }
+        (None, Some(error)) => {
+            world.resource_mut::<TickError>().0 = Some(error);
+            false
+        }
+        (None, None) => true,
+    }
+}
+
+/// The rendezvous check: whether a polled value's witness disagrees with the
+/// chain at its index, which is a defect in this crate and is written to the
+/// tick's error as `TypeMismatch`. Only a value that moved is inspected.
+fn rendezvous_missed(world: &mut World, polled: &[Result<Option<Erased>, EcsError>]) -> bool {
+    let mismatch = {
+        let chains = world.non_send::<Chains>();
+        polled.iter().enumerate().find_map(|(index, result)| {
+            let Ok(Some(ref next)) = *result else {
+                return None;
+            };
+            let chain = chains.0.get(index)?;
+            (!chain.witness.agrees_with(next.witness)).then_some(EcsError::TypeMismatch {
+                site: "observe_fold rendezvous",
+                chain: Some(index),
+                expected: chain.witness.name(),
+                observed: next.witness.name(),
+            })
+        })
+    };
+    let missed = mismatch.is_some();
+    if let Some(error) = mismatch {
+        world.resource_mut::<TickError>().0 = Some(error);
+    }
+    missed
 }
 
 /// Record that no chain moved: one `false` per chain, in the buffer `fire_plan`
@@ -774,6 +793,104 @@ pub(super) fn validate(schedule: &mut Schedule, world: &mut World) -> Result<(),
             cause: error.to_string(schedule.graph(), world),
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use lgwks_deps::bevy_ecs::prelude::World;
+
+    use super::super::EcsError;
+    use super::super::resources::{PollBudget, TickError};
+    use super::inspect_polled;
+    use crate::spec::Erased;
+
+    /// The polled slots one tick hands the fold.
+    type Polled = Vec<Result<Option<Erased>, EcsError>>;
+
+    /// The per-poll budget the world declares.
+    const BUDGET: Duration = Duration::from_millis(250);
+
+    /// A world holding the two resources the fold's first pass writes.
+    fn world() -> World {
+        let mut world = World::new();
+        world.insert_resource(TickError::default());
+        world.insert_resource(PollBudget(BUDGET));
+        world
+    }
+
+    /// A domain failure stops the commit: the first error in declaration order
+    /// is the tick's error and its slot is emptied, while a later error keeps
+    /// its slot, so a tick never reports the second failure as the first.
+    #[test]
+    fn fold_the_first_domain_error_stops_the_commit() {
+        let mut world = world();
+        let mut polled: Polled = vec![
+            Ok(None),
+            Err(EcsError::TickInsideRuntime),
+            Err(EcsError::TickInsideRuntime),
+        ];
+        assert!(
+            !inspect_polled(&mut world, &mut polled),
+            "a domain failure stops the commit"
+        );
+        assert!(
+            matches!(
+                world.resource::<TickError>().0,
+                Some(EcsError::TickInsideRuntime)
+            ),
+            "the first failure is the tick's error"
+        );
+        assert!(
+            matches!(polled.as_slice(), [Ok(None), Ok(None), Err(_)]),
+            "only the first failure's slot is taken"
+        );
+    }
+
+    /// A stall is reported and the commit proceeds, and every stalled slot is
+    /// emptied, so the chains beside a wedged one still commit.
+    #[test]
+    fn fold_a_stall_reports_and_the_commit_proceeds() {
+        let mut world = world();
+        let stall = |chain| {
+            Err(EcsError::PollStalled {
+                chain,
+                deadline: BUDGET,
+            })
+        };
+        let mut polled: Polled = vec![Ok(None), stall(1), stall(2)];
+        assert!(
+            inspect_polled(&mut world, &mut polled),
+            "a stall never withholds the other chains"
+        );
+        assert!(
+            matches!(
+                world.resource::<TickError>().0,
+                Some(EcsError::PollStalled { chain: 1, deadline }) if deadline == BUDGET
+            ),
+            "the first stall is named with the declared budget"
+        );
+        assert!(
+            polled.iter().all(|slot| matches!(slot, Ok(None))),
+            "every stalled slot is emptied"
+        );
+    }
+
+    /// A clean poll commits and leaves no tick error.
+    #[test]
+    fn fold_a_clean_poll_commits_with_no_error() {
+        let mut world = world();
+        let mut polled: Polled = vec![Ok(None), Ok(None)];
+        assert!(
+            inspect_polled(&mut world, &mut polled),
+            "a clean poll commits"
+        );
+        assert!(
+            world.resource::<TickError>().0.is_none(),
+            "a clean poll sets no tick error"
+        );
+    }
 }
 
 // ── The bot ────────────────────────────────────────────────────────────────

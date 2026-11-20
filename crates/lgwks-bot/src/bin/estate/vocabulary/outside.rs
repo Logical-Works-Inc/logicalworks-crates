@@ -193,16 +193,22 @@ impl OnceUp {
                             break;
                         }
                     };
-                    received.extend_from_slice(&chunk[..read]);
+                    let Some(filled) = chunk.get(..read) else {
+                        break;
+                    };
+                    received.extend_from_slice(filled);
                     if received.len() > 2_097_152 {
                         break;
                     }
-                    let Some(end) = header_end(&received) else {
+                    let Some((headers, request_body)) =
+                        header_end(&received).and_then(|end| received.split_at_checked(end))
+                    else {
                         continue;
                     };
-                    let framing = framing_of(&received[..end]);
+                    let end = headers.len();
+                    let framing = framing_of(headers);
                     let complete = match framing {
-                        Framing::Chunked => received[end..]
+                        Framing::Chunked => request_body
                             .windows(5)
                             .any(|window| window == b"0\r\n\r\n"),
                         Framing::Sized(length) => received.len() >= end.saturating_add(length),
@@ -215,8 +221,12 @@ impl OnceUp {
                     "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                     body.len()
                 );
-                drop(stream.write_all(head.as_bytes()));
-                drop(stream.write_all(&body));
+                for part in [head.as_bytes(), &body[..]] {
+                    if let Err(failed) = stream.write_all(part) {
+                        lgwks_std::trace::debug!(error = ?failed, "smoke server: the reply write ended");
+                        break;
+                    }
+                }
             }
         })
         .map_err(std::io::Error::other)?;
@@ -241,11 +251,10 @@ impl OnceUp {
 
     /// Join the server task on the smoke's driver, once it has answered every
     /// connection it was started for.
-    fn join(mut self, driver: &Handle) -> Result<(), VocabularyError> {
+    fn join(mut self, driver: &Handle) {
         if let Some(task) = self.task.take() {
             driver.block_on(task);
         }
-        Ok(())
     }
 }
 
@@ -287,7 +296,10 @@ enum Framing {
 fn framing_of(head: &[u8]) -> Framing {
     let text = match std::str::from_utf8(head) {
         Ok(text) => text,
-        Err(_) => return Framing::Sized(0),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "smoke server: the request head is not text, so its body is empty");
+            return Framing::Sized(0);
+        }
     };
     let mut chunked = false;
     let mut length = 0_usize;
@@ -358,12 +370,23 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     // word POST under the allowing policy.
     let upstream = OnceUp::serve(b"hello".to_vec(), 4)?;
     let url = upstream.url();
+    check_fetch(driver, &host, &url)?;
+    let model = pick_model(driver)?;
+    check_ask(driver, &host, &model)?;
+    let mailer = Arc::new(Mailer::new());
+    check_combined(driver, &host, &url, &model, &mailer)?;
+    check_admit(driver, &host)?;
+    check_send(driver, &host, &url, &mailer)?;
+    check_plan(driver, upstream)
+}
 
+/// A word GET and a direct GET answer their status and whole body.
+fn check_fetch(driver: &Handle, host: &Host, url: &str) -> Result<(), VocabularyError> {
     let fetching = task("outside-fetch", |scope: Scope, url: String| async move {
         let options: FetchOptions = FetchOptions::default();
         smoke_fetch(&scope, &url, &options).await
     })?;
-    let report = driver.block_on(host.run(&fetching, url.clone()));
+    let report = driver.block_on(host.run(&fetching, url.to_owned()));
     if report.output() != Some(&200_u16) {
         return refuse(Section::Outside, "a word GET answers its status");
     }
@@ -380,7 +403,7 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         fetch(&scope, "outside-direct", &url, &direct_options).await
     })?;
     let direct: FetchResponse = driver
-        .block_on(host.run(&direct_fetch, url.clone()))
+        .block_on(host.run(&direct_fetch, url.to_owned()))
         .into_result()?;
     if direct.status() != 200 || direct.body() != b"hello" {
         return refuse(Section::Outside, "a direct GET answers the whole body");
@@ -389,9 +412,12 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Outside, "a direct GET carries its headers");
     }
     say("outside: a direct GET answers the whole body")?;
+    Ok(())
+}
 
-    // The model headline runs against StubModel: the first seed whose output
-    // is whole, so bytes decode without a truncation refusal.
+/// The model headline runs against StubModel: the first seed whose output
+/// is whole, so bytes decode without a truncation refusal.
+fn pick_model(driver: &Handle) -> Result<StubModel, VocabularyError> {
     let mut seed = 0_u64;
     let model = loop {
         let candidate = StubModel::from_seed(seed);
@@ -404,6 +430,11 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
             return refuse(Section::Outside, "a seed answers whole output");
         }
     };
+    Ok(model)
+}
+
+/// A word ask and a direct ask decode the model's bytes, text and JSON.
+fn check_ask(driver: &Handle, host: &Host, model: &StubModel) -> Result<(), VocabularyError> {
     let asking = task("outside-ask", |scope: Scope, model: StubModel| async move {
         let request: AskRequest = AskRequest::default()
             .prompt(b"steady".to_vec())
@@ -448,10 +479,18 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Outside, "JSON decodes into the declared report");
     }
     say("outside: a direct ask decodes through the trait door")?;
+    Ok(())
+}
 
-    // The combined flow names every word once, so the entry admits all three
-    // grants in one pass and the plan carries each word with its capability.
-    let mailer = Arc::new(Mailer::new());
+/// The combined flow names every word once, so the entry admits all three
+/// grants in one pass and the plan carries each word with its capability.
+fn check_combined(
+    driver: &Handle,
+    host: &Host,
+    url: &str,
+    model: &StubModel,
+    mailer: &Arc<Mailer>,
+) -> Result<(), VocabularyError> {
     let combined = task(
         "outside-all",
         |scope: Scope, input: (String, StubModel, Arc<Mailer>, Vec<u8>)| async move {
@@ -464,7 +503,7 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         AllowOutside,
         host.run(
             &combined,
-            (url.clone(), model.clone(), Arc::clone(&mailer), payload),
+            (url.to_owned(), model.clone(), Arc::clone(mailer), payload),
         ),
     ));
     let Some(combined) = all.output() else {
@@ -480,9 +519,12 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Outside, "the combined flow dispatches once");
     }
     say("outside: fetch, ask and send run under one admission")?;
+    Ok(())
+}
 
-    // The entry half, called directly: every word the flow names is admitted
-    // in one pass before its first step.
+/// The entry half, called directly: every word the flow names is admitted
+/// in one pass before its first step.
+fn check_admit(driver: &Handle, host: &Host) -> Result<(), VocabularyError> {
     let admitting = task(
         "outside-admit",
         |scope: Scope, words: Vec<OutsideWord>| async move {
@@ -498,15 +540,26 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
         return refuse(Section::Outside, "the entry admits every word at once");
     }
     say("outside: the entry admits every word at once")?;
+    Ok(())
+}
 
-    // A POST hands an effect out, so under the allowing policy it runs; the
-    // typed POST body travels beside the options it was built from.
+/// A POST hands an effect out, so under the allowing policy it runs; a send
+/// dispatches once and settles from the receiver's evidence.
+fn check_send(
+    driver: &Handle,
+    host: &Host,
+    url: &str,
+    mailer: &Arc<Mailer>,
+) -> Result<(), VocabularyError> {
     let posting = task("outside-post", |scope: Scope, url: String| async move {
         let posted: PostBody = PostBody::new("text/plain", b"hook".to_vec());
         let options: FetchOptions = FetchOptions::default().post(posted);
         smoke_fetch(&scope, &url, &options).await
     })?;
-    let posted = driver.block_on(with_effect_policy(AllowOutside, host.run(&posting, url)));
+    let posted = driver.block_on(with_effect_policy(
+        AllowOutside,
+        host.run(&posting, url.to_owned()),
+    ));
     if posted.output() != Some(&200_u16) {
         return refuse(Section::Outside, "an allowed POST answers its status");
     }
@@ -523,7 +576,7 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     )?;
     let sent = driver.block_on(with_effect_policy(
         AllowOutside,
-        host.run(&sending, (Arc::clone(&mailer), b"hello".to_vec())),
+        host.run(&sending, (Arc::clone(mailer), b"hello".to_vec())),
     ));
     let Some(sent_outcome) = sent.output() else {
         return refuse(Section::Outside, "a word send settles");
@@ -541,16 +594,20 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     )?;
     let direct_sent = driver.block_on(with_effect_policy(
         AllowOutside,
-        host.run(&direct_send, (Arc::clone(&mailer), b"direct".to_vec())),
+        host.run(&direct_send, (Arc::clone(mailer), b"direct".to_vec())),
     ));
     let Some(direct_outcome) = direct_sent.output() else {
         return refuse(Section::Outside, "a direct send settles");
     };
     void_outcome(direct_outcome)?;
     say("outside: a word send settles on the evidence")?;
+    Ok(())
+}
 
-    // The plan exposes every outbound reach: the map carries each outside
-    // word with the capability it declares.
+/// The plan exposes every outbound reach: the map carries each outside
+/// word with the capability it declares. Then the upstream's count is checked
+/// and its task joined.
+fn check_plan(driver: &Handle, upstream: OnceUp) -> Result<(), VocabularyError> {
     let mut kinds = Vec::new();
     for flow in ARCHITECTURE.flows() {
         for step in flow.steps() {
@@ -576,7 +633,7 @@ pub(super) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     if upstream.hits() != 4 {
         return refuse(Section::Outside, "four exchanges dialled four times");
     }
-    upstream.join(driver)?;
+    upstream.join(driver);
     say("outside: the plan names every word and its capability")?;
     Ok(())
 }

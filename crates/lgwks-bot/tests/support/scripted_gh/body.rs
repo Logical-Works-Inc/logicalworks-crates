@@ -13,7 +13,7 @@
 /// that dies mid-way is still recorded. That is the point: the question the
 /// tests ask is how many times the code under test *issued* a create, which is
 /// what this log counts.
-pub const SCRIPT_BODY: &str = r#"# A scripted `gh api` for the adapter's tests. Records argv, then answers from a
+pub(super) const SCRIPT_BODY: &str = r#"# A scripted `gh api` for the adapter's tests. Records argv, then answers from a
 # behaviour file. Never touches the network.
 set -u
 

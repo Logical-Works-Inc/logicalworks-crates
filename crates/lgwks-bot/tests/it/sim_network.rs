@@ -72,12 +72,9 @@ fn payload(tenant: u32, attempt: u32) -> Vec<u8> {
 
 /// The key one payload stands for, recovered by reading it back.
 fn subject(body: &[u8]) -> Option<(u32, u32)> {
-    if body.len() < 8 {
-        return None;
-    }
-    let tenant = u32::from_be_bytes([body[0], body[1], body[2], body[3]]);
-    let attempt = u32::from_be_bytes([body[4], body[5], body[6], body[7]]);
-    Some((tenant, attempt))
+    let (tenant, rest) = body.split_first_chunk::<4>()?;
+    let (attempt, _) = rest.split_first_chunk::<4>()?;
+    Some((u32::from_be_bytes(*tenant), u32::from_be_bytes(*attempt)))
 }
 
 /// Write one journal event per delivered envelope, refusing a repeat of a
@@ -97,7 +94,9 @@ fn apply_deliveries(path: &std::path::Path, deliveries: &[&[u8]]) -> Result<usiz
             continue;
         }
         let events = ladder_for(subject.1)?;
-        drop(journal.compare_and_append_all(&events));
+        if let Err(refusal) = journal.compare_and_append_all(&events) {
+            lgwks_std::trace::debug!("a delivery the journal refused: {refusal}");
+        }
     }
     Ok(journal.events().count())
 }
@@ -491,7 +490,8 @@ fn partition_journal(band: Band) -> TestResult {
         for index in 0..sent {
             sim.send_now(0, 1, payload(0, index));
         }
-        let _ = sim.advance_and_drain(64);
+        let drained = sim.advance_and_drain(64).len();
+        sim.trace.record_number("partition-drained", drained);
         let after = apply_deliveries(&path, &[])?;
         assert_eq!(before, after, "a network partition changed the journal");
         assert_eq!(
@@ -520,7 +520,8 @@ fn flood(band: Band) -> TestResult {
             "the network did not retain what it was given, or retained more than it was"
         );
         // A flood that is never due must not block the next tick.
-        let _ = sim.advance_and_drain(1);
+        let drained = sim.advance_and_drain(1).len();
+        sim.trace.record_number("flood-drained", drained);
         assert_eq!(
             u64::try_from(sim.net.in_flight())?,
             flood,

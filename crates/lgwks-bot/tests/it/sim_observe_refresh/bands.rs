@@ -296,7 +296,7 @@ pub(super) fn event_identities_are_per_event(band: Band) -> TestResult {
         for _ in 0..delivered {
             let reuse = !stream.is_empty() && sim.rng().chance(450);
             let id = if reuse {
-                stream[usize::try_from(sim.rng().below(distinct))?]
+                *crate::sim::nth(&stream, usize::try_from(sim.rng().below(distinct))?)?
             } else {
                 distinct = distinct.saturating_add(1);
                 distinct

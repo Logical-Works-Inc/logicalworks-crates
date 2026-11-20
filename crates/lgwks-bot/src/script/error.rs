@@ -12,8 +12,6 @@ use crate::task::StoreError;
 
 use super::Scope;
 
-mod display;
-
 // ── FlowError ───────────────────────────────────────────────────────────────
 
 /// Why a flow, or one step of it, did not produce its value.
@@ -25,15 +23,21 @@ mod display;
 ///
 /// Retry is decided by the variant, never by the message:
 /// [`FlowError::is_retryable`] is the only rule [`retry`](crate::script::retry) reads.
-#[derive(Debug)]
+///
+/// A person reads it as one line, located and injection-safe: step-supplied
+/// text is rendered with `{:?}`, which escapes control characters, so a reason
+/// cannot forge a log line.
+#[derive(Debug, lgwks_macros::Error)]
 #[non_exhaustive]
 pub enum FlowError {
     /// The scope was stopped before or during the step.
+    #[error("{at}: cancelled")]
     Cancelled {
         /// Where the stop was observed.
         at: Arc<str>,
     },
     /// A [`within`](crate::script::within) deadline passed.
+    #[error("{at}: timed out after {after:?}")]
     TimedOut {
         /// The [`within`](crate::script::within) block that expired.
         at: Arc<str>,
@@ -41,22 +45,26 @@ pub enum FlowError {
         after: Duration,
     },
     /// A [`retry`](crate::script::retry) spent every attempt on retryable failures.
+    #[error("{at}: gave up after {attempts} attempts; last: {last}")]
     Exhausted {
         /// The [`retry`](crate::script::retry) block.
         at: Arc<str>,
         /// Attempts made.
         attempts: u32,
         /// The last attempt's failure.
+        #[source]
         last: Box<FlowError>,
     },
     /// The run's retry budget was spent: failures are systemic, and another
     /// retry would add load rather than recover. Not retryable.
+    #[error("{at}: retry budget spent after {attempts} attempts; last: {last}")]
     Throttled {
         /// The [`retry`](crate::script::retry) block that was refused a retry.
         at: Arc<str>,
         /// Attempts made before the refusal.
         attempts: u32,
         /// The last attempt's failure.
+        #[source]
         last: Box<FlowError>,
     },
     /// An untrusted payload was refused by the [`admit`](crate::script::admit) step.
@@ -67,10 +75,12 @@ pub enum FlowError {
     /// of the exact refused bytes travels with it, so no refusal in a report is
     /// unattributable. Not retryable: a payload refused for its content will be
     /// refused the same way however many times it is re-read.
+    #[error("{at}: {refusal} (from {provenance})")]
     Refused {
         /// Where the refusal was located.
         at: Arc<str>,
         /// Why the payload did not become work.
+        #[source]
         refusal: Box<crate::proposal::Refusal>,
         /// Where the refused bytes came from.
         provenance: crate::proposal::Provenance,
@@ -81,13 +91,16 @@ pub enum FlowError {
     /// while an intervention is about the run's ledger and is reached by repeated
     /// unchanged failure. Not retryable — another attempt would be exactly the
     /// repair the intervention refused.
+    #[error("{at}: {intervention}")]
     Intervention {
         /// Where the intervention was located.
         at: Arc<str>,
         /// What the run reached.
+        #[source]
         intervention: Box<crate::proposal::Intervention>,
     },
     /// A permanent failure: repeating the step gives the same answer.
+    #[error("{at}: failed: {reason:?}")]
     Failed {
         /// Where it failed.
         at: Arc<str>,
@@ -95,6 +108,7 @@ pub enum FlowError {
         reason: String,
     },
     /// A transient failure: the same step may succeed if repeated.
+    #[error("{at}: failed (transient): {reason:?}")]
     Transient {
         /// Where it failed.
         at: Arc<str>,
@@ -103,10 +117,12 @@ pub enum FlowError {
     },
     /// A bot verb failed. Retryable exactly when its
     /// [`RetryClass`] is [`RetryClass::Safe`].
+    #[error("{at}: {source}")]
     Bot {
         /// Where it failed.
         at: Arc<str>,
         /// The verb's typed error, boxed so every flow `Result` stays small.
+        #[source]
         source: Box<EcsError>,
     },
     /// The flow names domains the host's registry does not declare, so no step
@@ -117,6 +133,7 @@ pub enum FlowError {
     /// one: it is the flow's own declaration that does not match the registry,
     /// and the world layer never sees the flow. Not retryable: the registry is
     /// the same on every attempt.
+    #[error("{at}: this flow names domains its registry does not declare: {needs}")]
     UndeclaredDomains {
         /// Where the refusal was located.
         at: Arc<str>,
@@ -125,6 +142,7 @@ pub enum FlowError {
         needs: NeedSet,
     },
     /// Steps nested past [`MAX_DEPTH`](crate::script::MAX_DEPTH).
+    #[error("{at}: steps nested deeper than {limit}")]
     TooDeep {
         /// The scope that refused to go deeper.
         at: Arc<str>,
@@ -132,11 +150,13 @@ pub enum FlowError {
         limit: u16,
     },
     /// A tenant name did not validate, in [`Tenant::new`](crate::script::Tenant::new).
+    #[error("invalid tenant: {reason}")]
     InvalidTenant {
         /// What is wrong with it.
         reason: &'static str,
     },
     /// A task's logical name did not validate.
+    #[error("invalid task name: {reason}")]
     InvalidName {
         /// What is wrong with it.
         reason: &'static str,
@@ -147,6 +167,7 @@ pub enum FlowError {
     /// submission ([`Host::submit`](crate::task::Host::submit)), so it is
     /// validated before it is hashed into a run identity and refused here
     /// rather than at the first submission.
+    #[error("invalid request key: {reason}")]
     InvalidRequestKey {
         /// What is wrong with it.
         reason: &'static str,
@@ -157,6 +178,7 @@ pub enum FlowError {
     /// [`Scope::business_key`](crate::script::Scope::business_key) to hash one
     /// piece of cross-run work under, so it is validated before it is hashed
     /// and refused here rather than at the first deduplication.
+    #[error("invalid business key: {reason}")]
     InvalidBusinessKey {
         /// What is wrong with it.
         reason: &'static str,
@@ -174,6 +196,7 @@ pub enum FlowError {
     /// [`Deficit`](crate::cap::Deficit) rather than the first one, so the run's
     /// report can name every presently knowable need at once and the repair
     /// ticket is written once against the whole shortfall.
+    #[error("{at}: blocked: {deficit}")]
     Blocked {
         /// The step that reached for the authority.
         at: Arc<str>,
@@ -181,6 +204,7 @@ pub enum FlowError {
         deficit: Box<crate::cap::Deficit>,
     },
     /// A bound computed at run time is outside what the block accepts.
+    #[error("{what}: {value} is outside 1..={max}")]
     InvalidBound {
         /// Which bound.
         what: &'static str,
@@ -198,6 +222,7 @@ pub enum FlowError {
     /// and before any record is written, so a refusal costs nothing and replays
     /// nothing — and, because it is permanent, an enclosing `retry` will not
     /// spend attempts asking the same store the same question.
+    #[error("{at}: refusing to resume under a different definition: {drift}")]
     Incompatible {
         /// Where the run would have resumed.
         at: Arc<str>,
@@ -210,6 +235,7 @@ pub enum FlowError {
     /// (refuse by policy), and `reason` is the developer-defined reason code
     /// the rule named. Not retryable: repeating the same step under the same
     /// justification asks the same rule the same question.
+    #[error("{at}: justification {rule:?} stopped the run: {reason:?}")]
     Justified {
         /// The step the rule was evaluated before.
         at: Arc<str>,
@@ -224,6 +250,7 @@ pub enum FlowError {
     /// Refused before any node starts, naming what is wrong, because a graph
     /// that started half its nodes before discovering the cycle could not be
     /// resumed or compensated.
+    #[error("{at}: the graph is not runnable: {reason:?}")]
     Graph {
         /// The graph step that refused the declaration.
         at: Arc<str>,
@@ -238,6 +265,9 @@ pub enum FlowError {
     /// ([`FlowError::ApprovalDenied`]) or the lapse
     /// ([`FlowError::ApprovalExpired`]). Not retryable: repeating the step asks
     /// the same store for the same decision.
+    #[error(
+        "{at}: parked awaiting approval {id} for digest {digest}, owed by {expires_at}ns on the host clock"
+    )]
     Parked {
         /// The step that parked.
         at: Arc<str>,
@@ -254,6 +284,7 @@ pub enum FlowError {
     /// the caller has to tell a denial from a failure of the step: a denial
     /// answers the approval, while a failure says the step never ran. Not
     /// retryable: the decision stands until a new run parks a new approval.
+    #[error("{at}: approval {id} was denied")]
     ApprovalDenied {
         /// The step that parked.
         at: Arc<str>,
@@ -266,6 +297,7 @@ pub enum FlowError {
     /// deadline is the `within` the word declared, measured on the host's
     /// clock, and a resume past it finds the lapse. Not retryable: the same
     /// resume past the same deadline lapses the same way.
+    #[error("{at}: approval {id} lapsed before it was decided")]
     ApprovalExpired {
         /// The step that parked.
         at: Arc<str>,
@@ -279,6 +311,9 @@ pub enum FlowError {
     /// matches the archived input, decided through the host. Not retryable on
     /// its own, for the same reason a block is not: repeating the step asks the
     /// same question and gets the same answer.
+    #[error(
+        "{at}: this action hands an effect out of the process and no approval matches digest {want}; decide one through the host"
+    )]
     NeedsApproval {
         /// The step that reached for the decision.
         at: Arc<str>,
@@ -295,10 +330,12 @@ pub enum FlowError {
     /// a read failure is an error, never absence, and never another error's
     /// answer — so an unreadable store reaches the caller as itself and is
     /// never reported as a definition drift.
+    #[error("{at}: the run store refused: {source}")]
     Store {
         /// Where it happened.
         at: Arc<str>,
         /// The store's own refusal.
+        #[source]
         source: Box<StoreError>,
     },
     /// A resume of a run this host is already resuming.
@@ -307,6 +344,7 @@ pub enum FlowError {
     /// two bodies of one step inside one record window would each run it (#1055).
     /// Not retryable inside a flow: the holder finishes the run, and a resume
     /// after it replays what it recorded.
+    #[error("run {} is already being resumed on this host; nothing ran, and a resume after it finishes replays what it recorded", run.id().to_hex())]
     RunInFlight {
         /// The run another call on this host holds.
         run: RunId,
@@ -314,6 +352,7 @@ pub enum FlowError {
     /// A resume refused because this host already holds as many resumed runs
     /// as it will, whichever run was asked for. Nothing ran and nothing was
     /// recorded. Not retryable inside a flow: the caller sheds or waits.
+    #[error("this host is already resuming {ceiling} runs, the most it takes at once; nothing ran")]
     ResumesSaturated {
         /// The most runs the host resumes at once.
         ceiling: usize,
@@ -559,41 +598,6 @@ impl FlowError {
             | Self::ResumesSaturated { .. } => {}
         }
         self
-    }
-}
-
-impl std::error::Error for FlowError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match *self {
-            Self::Bot { ref source, .. } => Some(&**source),
-            Self::Refused { ref refusal, .. } => Some(&**refusal),
-            Self::Intervention {
-                ref intervention, ..
-            } => Some(&**intervention),
-            Self::Store { ref source, .. } => Some(&**source),
-            Self::Exhausted { ref last, .. } | Self::Throttled { ref last, .. } => Some(&**last),
-            Self::Parked { .. }
-            | Self::ApprovalDenied { .. }
-            | Self::ApprovalExpired { .. }
-            | Self::NeedsApproval { .. }
-            | Self::Cancelled { .. }
-            | Self::TimedOut { .. }
-            | Self::Failed { .. }
-            | Self::Transient { .. }
-            | Self::Blocked { .. }
-            | Self::UndeclaredDomains { .. }
-            | Self::TooDeep { .. }
-            | Self::Justified { .. }
-            | Self::Graph { .. }
-            | Self::InvalidTenant { .. }
-            | Self::InvalidName { .. }
-            | Self::Incompatible { .. }
-            | Self::InvalidRequestKey { .. }
-            | Self::InvalidBusinessKey { .. }
-            | Self::InvalidBound { .. }
-            | Self::RunInFlight { .. }
-            | Self::ResumesSaturated { .. } => None,
-        }
     }
 }
 

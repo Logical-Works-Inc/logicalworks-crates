@@ -58,6 +58,16 @@ pub struct GraphNode<'a, T> {
     run: BodyFn<'a, T>,
 }
 
+impl<T> std::fmt::Debug for GraphNode<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphNode")
+            .field("name", &self.name)
+            .field("needs", &self.needs)
+            .field("work", &self.work)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a, T> GraphNode<'a, T> {
     /// A node named `name`, waiting for `needs`, running `run` once.
     ///
@@ -684,7 +694,7 @@ mod tests {
     /// An empty graph, a duplicate name, an unknown need, a self-need and a
     /// cycle are each refused before any node starts.
     #[test]
-    fn a_declaration_that_cannot_run_is_refused() -> TestResult {
+    fn a_declaration_that_cannot_run_is_refused() {
         for (what, nodes) in [
             ("empty", Vec::new()),
             ("duplicate", vec![named("a", &[]), named("a", &[])]),
@@ -701,7 +711,6 @@ mod tests {
             validate(&[named("a", &[]), named("b", &["a"])]).is_ok(),
             "a chain must validate"
         );
-        Ok(())
     }
 
     /// Heights count the heaviest chain from a node to the end of the graph.

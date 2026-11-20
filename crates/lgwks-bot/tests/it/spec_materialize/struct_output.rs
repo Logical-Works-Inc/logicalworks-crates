@@ -31,8 +31,8 @@ struct Reader(String);
 
 impl Reader {
     /// Build one from the `target` its spec names.
-    fn from_target(target: &str) -> Result<Source, EcsError> {
-        Ok(Source::new(Self(target.to_owned())))
+    fn from_target(target: &str) -> Source {
+        Source::new(Self(target.to_owned()))
     }
 }
 
@@ -61,8 +61,8 @@ struct Note;
 
 impl Note {
     /// Build one from any `target`.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self))
+    fn from_target(_target: &str) -> Action {
+        Action::new(Self)
     }
 }
 
@@ -89,11 +89,17 @@ impl Execute for Note {
     }
 }
 
+/// The registry's constructor for [`Reader`], which cannot fail.
+const READER: fn(&str) -> Result<Source, EcsError> = |target| Ok(Reader::from_target(target));
+
+/// The registry's constructor for [`Note`], which cannot fail.
+const NOTE: fn(&str) -> Result<Action, EcsError> = |target| Ok(Note::from_target(target));
+
 domains! {
     /// A registry holding a struct-output source.
     pub STRUCT_DOMAINS {
-        observe { "test::reader" => Reader::from_target, }
-        execute { "test::note" => Note::from_target, }
+        observe { "test::reader" => READER, }
+        execute { "test::note" => NOTE, }
     }
 }
 

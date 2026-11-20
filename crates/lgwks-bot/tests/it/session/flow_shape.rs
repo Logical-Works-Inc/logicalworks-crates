@@ -325,7 +325,7 @@ fn validation_rejects_nodes_over_the_declared_budget() {
 }
 
 #[test]
-fn validation_rejects_an_unknown_node_kind() -> TestResult {
+fn validation_rejects_an_unknown_node_kind() {
     let source = r#"{
         "vars": {},
         "entry": "start",
@@ -336,5 +336,4 @@ fn validation_rejects_an_unknown_node_kind() -> TestResult {
     }"#;
     let result = FlowSpec::from_json(source);
     assert!(matches!(result, Err(SessionError::UnknownNodeKind { .. })));
-    Ok(())
 }

@@ -29,7 +29,7 @@ use target_dir::{workspace_root, workspace_target_dir};
 /// # Errors
 ///
 /// Whatever the filesystem or the child process reports.
-pub fn compile_probe(
+pub(crate) fn compile_probe(
     name: &str,
     dependency: &str,
     main: &str,
@@ -45,7 +45,7 @@ pub fn compile_probe(
 ///
 /// As [`compile_probe`].
 #[cfg(feature = "script")]
-pub fn clippy_probe(
+pub(crate) fn clippy_probe(
     name: &str,
     dependency: &str,
     main: &str,
@@ -64,7 +64,7 @@ pub fn clippy_probe(
 ///
 /// As [`compile_probe`].
 #[cfg(feature = "script")]
-pub fn check_consumer(
+pub(crate) fn check_consumer(
     name: &str,
     dependencies: &str,
     main: &str,
@@ -130,7 +130,7 @@ fn probe(
 /// When the probe did not compile, with the compiler's own output in the
 /// message.
 #[cfg(feature = "script")]
-pub fn assert_compiles(output: &Output) {
+pub(crate) fn assert_compiles(output: &Output) {
     let text = rendered(output);
     assert!(
         output.status.success(),
@@ -148,7 +148,7 @@ pub fn assert_compiles(output: &Output) {
 /// # Panics
 ///
 /// When the probe compiled, or failed with a different diagnostic.
-pub fn assert_refused_for(output: &Output, code: &str, symbol: &str) {
+pub(crate) fn assert_refused_for(output: &Output, code: &str, symbol: &str) {
     let text = rendered(output);
     assert!(
         !output.status.success(),
@@ -169,7 +169,7 @@ pub fn assert_refused_for(output: &Output, code: &str, symbol: &str) {
 ///
 /// When the probe compiled, or failed without a rustc error naming the bound.
 #[cfg(feature = "script")]
-pub fn assert_bound_refused(output: &Output, bound: &str) {
+pub(crate) fn assert_bound_refused(output: &Output, bound: &str) {
     let text = rendered(output);
     assert!(
         !output.status.success(),
@@ -191,7 +191,7 @@ pub fn assert_bound_refused(output: &Output, bound: &str) {
 ///
 /// When the probe compiled, or failed without naming `lint`.
 #[cfg(feature = "script")]
-pub fn assert_refused_by_lint(output: &Output, lint: &str) {
+pub(crate) fn assert_refused_by_lint(output: &Output, lint: &str) {
     let text = rendered(output);
     assert!(
         !output.status.success(),

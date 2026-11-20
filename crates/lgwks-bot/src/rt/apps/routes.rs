@@ -143,10 +143,17 @@ pub fn apps_routes(
     registry: Arc<OpRegistry>,
     held: HeldGrants,
 ) -> Vec<TypedRoute> {
-    let admitting = Arc::clone(&store);
-    let providing = Arc::clone(&registry);
-    let holding = Arc::clone(&held);
-    let admit = described(
+    let running = Arc::clone(&store);
+    vec![admit_route(store, registry, held), run_route(running)]
+}
+
+/// The `POST /apps` route: admit a plan against the calling tenant's surface.
+fn admit_route(
+    admitting: Arc<AppStore>,
+    providing: Arc<OpRegistry>,
+    holding: HeldGrants,
+) -> TypedRoute {
+    described(
         TypedRoute::new_with_content_type(
             RouteMethod::Post,
             "/apps",
@@ -193,9 +200,12 @@ pub fn apps_routes(
             AuthPosture::TenantEdge,
             DocStatus::Stub,
         ),
-    );
-    let running = Arc::clone(&store);
-    let run = described(
+    )
+}
+
+/// The `POST /apps/run` route: run an admitted plan for the calling tenant.
+fn run_route(running: Arc<AppStore>) -> TypedRoute {
+    described(
         TypedRoute::new(
             RouteMethod::Post,
             "/apps/run",
@@ -251,6 +261,5 @@ pub fn apps_routes(
             AuthPosture::TenantEdge,
             DocStatus::Stub,
         ),
-    );
-    vec![admit, run]
+    )
 }

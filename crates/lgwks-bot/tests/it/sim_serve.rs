@@ -141,13 +141,10 @@ impl SimServe {
                 if body.len() > SIM_MAX_BODY_BYTES {
                     return SimOutcome::TooLarge;
                 }
-                let decoded = match Self::decode(body) {
-                    Ok(decoded) => decoded,
-                    Err(_) => {
-                        return SimOutcome::Malformed;
-                    }
-                };
-                let _ = decoded;
+                if let Err(refusal) = Self::decode(body) {
+                    lgwks_std::trace::debug!(error = %refusal, "serve-sim: the body is malformed");
+                    return SimOutcome::Malformed;
+                }
                 self.runs = self.runs.saturating_add(1);
                 let answer_body = wanted;
                 self.durable

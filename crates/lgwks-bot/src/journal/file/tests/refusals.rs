@@ -1,6 +1,15 @@
 //! Committed bytes the journal refuses rather than trims: a rotted prefix, an undecodable frame, a replayed second dispatch.
 
+#[cfg(test)]
 use super::*;
+
+/// The length prefix a framed file opens with, or the refusal that it is shorter.
+fn prefix_of(bytes: &[u8]) -> Result<[u8; LENGTH_BYTES], &'static str> {
+    bytes
+        .first_chunk::<LENGTH_BYTES>()
+        .copied()
+        .ok_or("the file is shorter than a length prefix")
+}
 
 #[test]
 fn a_rotted_length_prefix_is_refused_and_nothing_is_trimmed() -> TestResult {
@@ -23,7 +32,7 @@ fn a_rotted_length_prefix_is_refused_and_nothing_is_trimmed() -> TestResult {
     // leaves a prefix of the bytes it intended. A plausible writer cannot
     // have written this; only rot or a hand can have.
     let mut bytes = std::fs::read(&path)?;
-    let first_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let first_len = u32::from_be_bytes(prefix_of(&bytes)?);
     let len_bytes = u32::saturating_from(LENGTH_BYTES);
     let head_bytes = u32::saturating_from(HEAD_BYTES);
     let second = usize::saturating_from(
@@ -32,8 +41,8 @@ fn a_rotted_length_prefix_is_refused_and_nothing_is_trimmed() -> TestResult {
             .saturating_add(head_bytes),
     )
     .min(bytes.len());
-    if second < bytes.len() {
-        bytes[second] ^= 0x40;
+    if let Some(byte) = bytes.get_mut(second) {
+        *byte ^= 0x40;
     }
     std::fs::write(&path, &bytes)?;
 
@@ -68,10 +77,11 @@ fn an_undecodable_committed_frame_is_refused_not_trimmed() -> TestResult {
     // head: well-framed bytes that no longer decode to the event whose
     // head they carry.
     let mut bytes = std::fs::read(&path)?;
-    let raw_len = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+    let raw_len = u32::from_be_bytes(prefix_of(&bytes)?);
     let payload_len = usize::saturating_from(raw_len);
     let mid = LENGTH_BYTES.saturating_add(payload_len >> 1);
-    bytes[mid] = bytes[mid].wrapping_add(0x55);
+    let byte = bytes.get_mut(mid).ok_or("the frame has a payload middle")?;
+    *byte = byte.wrapping_add(0x55);
     std::fs::write(&path, &bytes)?;
 
     match FileJournal::open(&path) {

@@ -8,7 +8,7 @@ fn compatible_tenant(sim: &mut sim::Sim, tenant: &str) -> TestResult {
     let dir = Scratch(sim.scratch("compatible")?);
     let host = host_for(tenant, &dir.0)?;
     let work = drift_task()?;
-    let identity = first_identity(&host, input, FIRST_CODEC)?;
+    let identity = first_identity(&host, input, FIRST_CODEC);
     let expected = input.saturating_add(input.saturating_add(1));
     let job = Job {
         input,

@@ -297,14 +297,12 @@ impl<'a> CompiledTemplate<'a> {
     /// ```
     pub fn compile(template: &'a str) -> Result<Self, SessionError> {
         let mut parts = Vec::new();
-        let mut cursor = 0;
-        while let Some(relative_start) = template[cursor..].find("${") {
-            let start = cursor.saturating_add(relative_start);
-            if start > cursor {
-                parts.push(TemplatePart::Literal(&template[cursor..start]));
+        let mut rest = template;
+        while let Some((literal, after)) = rest.split_once("${") {
+            if !literal.is_empty() {
+                parts.push(TemplatePart::Literal(literal));
             }
-            let name_start = start.saturating_add(2);
-            let Some(relative_end) = template[name_start..].find('}') else {
+            let Some((name, tail)) = after.split_once('}') else {
                 let refusal = Err(SessionError::MalformedTemplate {
                     node: "<runtime>".into(),
                     field: "template",
@@ -312,8 +310,6 @@ impl<'a> CompiledTemplate<'a> {
                 lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "compile: returning an error to the caller");
                 return refusal;
             };
-            let end = name_start.saturating_add(relative_end);
-            let name = &template[name_start..end];
             if !valid_identifier(name) {
                 let refusal = Err(SessionError::MalformedTemplate {
                     node: "<runtime>".into(),
@@ -323,10 +319,10 @@ impl<'a> CompiledTemplate<'a> {
                 return refusal;
             }
             parts.push(TemplatePart::Variable(name));
-            cursor = end.saturating_add(1);
+            rest = tail;
         }
-        if cursor < template.len() {
-            parts.push(TemplatePart::Literal(&template[cursor..]));
+        if !rest.is_empty() {
+            parts.push(TemplatePart::Literal(rest));
         }
         Ok(Self { parts })
     }

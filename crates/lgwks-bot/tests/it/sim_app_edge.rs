@@ -222,7 +222,7 @@ fn sim_app_edge_saboteur_an_unknown_caller_learns_nothing_and_a_panic_admits_not
 
 /// Catches a route that needs a principal serving with nobody to name one.
 #[test]
-fn sim_app_edge_wrong_order_a_named_route_needs_an_authenticator() -> Outcome {
+fn sim_app_edge_wrong_order_a_named_route_needs_an_authenticator() {
     let bare = App::new("bare").state::<u64>().route_as(
         Method::GET,
         "/me",
@@ -237,7 +237,6 @@ fn sim_app_edge_wrong_order_a_named_route_needs_an_authenticator() -> Outcome {
     assert!(Principal::new("").is_none());
     assert!(Principal::new(&"p".repeat(257)).is_none());
     assert!(Principal::new(&"p".repeat(256)).is_some());
-    Ok(())
 }
 
 /// Catches liveness needing a key or a tenant, and a verb or path that is not a probe.
@@ -303,7 +302,10 @@ fn monkey(seed: u64) -> Outcome<Vec<(u16, String)>> {
         let mut trace = Vec::new();
         for (which, key, verb) in moves {
             let at = usize::try_from(which)?;
-            let (tenant, other) = (tenants[at], tenants[at ^ 1]);
+            let (tenant, other) = (
+                *crate::sim::nth(&tenants, at)?,
+                *crate::sim::nth(&tenants, at ^ 1)?,
+            );
             let shown = match key {
                 0 | 1 => bearer(&format!("key-{tenant}")),
                 2 => bearer(&format!("key-{other}")),
@@ -316,11 +318,12 @@ fn monkey(seed: u64) -> Outcome<Vec<(u16, String)>> {
             };
             let heard = ask(to, &request, &[("authorization", &shown)])?;
             if key <= 1 {
+                let count = model.get_mut(at).ok_or("the model holds both tenants")?;
                 if verb == 0 {
-                    model[at] = model[at].saturating_add(1);
+                    *count = count.saturating_add(1);
                 }
                 assert_eq!(heard.status, 200, "seed {seed}");
-                assert_eq!(heard.body, format!("{tenant}:{}", model[at]), "seed {seed}");
+                assert_eq!(heard.body, format!("{tenant}:{count}"), "seed {seed}");
             } else {
                 assert_eq!(heard.status, 401, "seed {seed}");
             }

@@ -57,7 +57,7 @@ use lgwks_bot::registry::Action;
 /// Why the script's directory could not be installed, kept as text because the
 /// install runs once and every later caller reads the same answer.
 #[derive(Debug, Clone)]
-pub struct InstallRefused {
+pub(crate) struct InstallRefused {
     /// What the platform said.
     cause: String,
 }
@@ -72,7 +72,7 @@ impl std::error::Error for InstallRefused {}
 
 /// Why a call to the scripted `gh`'s store or log failed.
 #[derive(Debug)]
-pub enum ScriptError {
+pub(crate) enum ScriptError {
     /// The script's directory was not installed.
     Install(InstallRefused),
     /// Reading or writing the script's files failed.
@@ -149,7 +149,7 @@ fn dir() -> Result<&'static PathBuf, InstallRefused> {
 }
 
 /// The registry constructor that binds `gh::issue` to this script.
-pub fn issue_on_scripted(target: &str) -> Result<Action, EcsError> {
+pub(crate) fn issue_on_scripted(target: &str) -> Result<Action, EcsError> {
     let unusable = |cause: String| EcsError::IncompleteSpec {
         field: "target",
         cause,
@@ -168,7 +168,7 @@ pub fn issue_on_scripted(target: &str) -> Result<Action, EcsError> {
 }
 
 /// Every call the script recorded against `owner`, in order, one argv each.
-pub fn calls_on(owner: &str) -> Result<Vec<Vec<String>>, ScriptError> {
+pub(crate) fn calls_on(owner: &str) -> Result<Vec<Vec<String>>, ScriptError> {
     let needle = format!("repos/{owner}/");
     let text = std::fs::read_to_string(dir()?.join("argv.log"))?;
     Ok(text
@@ -185,7 +185,12 @@ pub fn calls_on(owner: &str) -> Result<Vec<Vec<String>>, ScriptError> {
 
 /// Put `draft` into `owner/repo`'s store as issue `number`, as if an earlier
 /// run had opened it; the store line is the one a create writes.
-pub fn hold(owner: &str, repo: &str, number: u64, draft: &IssueDraft) -> Result<(), ScriptError> {
+pub(crate) fn hold(
+    owner: &str,
+    repo: &str,
+    number: u64,
+    draft: &IssueDraft,
+) -> Result<(), ScriptError> {
     use std::io::Write as _;
 
     let record = format!(
@@ -203,7 +208,7 @@ pub fn hold(owner: &str, repo: &str, number: u64, draft: &IssueDraft) -> Result<
 }
 
 /// Hide `owner/repo`'s issue `number` from the next `reads` listings.
-pub fn hide(owner: &str, repo: &str, number: u64, reads: u32) -> Result<(), ScriptError> {
+pub(crate) fn hide(owner: &str, repo: &str, number: u64, reads: u32) -> Result<(), ScriptError> {
     std::fs::write(
         dir()?.join(format!("lag-{owner}-{repo}-{number}")),
         reads.to_string(),
@@ -214,7 +219,7 @@ pub fn hide(owner: &str, repo: &str, number: u64, reads: u32) -> Result<(), Scri
 /// Leave `draft`'s create in flight on `owner/repo`: it lands as the
 /// `calls`th call after this reaches the script, before that call is answered,
 /// taking the next number.
-pub fn land_later(
+pub(crate) fn land_later(
     owner: &str,
     repo: &str,
     draft: &IssueDraft,
@@ -234,7 +239,7 @@ pub fn land_later(
 }
 
 /// How many creates the action issued against `owner`.
-pub fn creates_on(owner: &str) -> Result<usize, ScriptError> {
+pub(crate) fn creates_on(owner: &str) -> Result<usize, ScriptError> {
     Ok(calls_on(owner)?
         .iter()
         .filter(|argv| argv.iter().any(|arg| arg == "POST"))
@@ -246,7 +251,7 @@ pub fn creates_on(owner: &str) -> Result<usize, ScriptError> {
 /// A create's POST count is what a duplicate raises; the store is what a
 /// duplicate *leaves behind*, and the two can differ if a create landed and
 /// was never acknowledged.
-pub fn held_on(owner: &str, repo: &str) -> Result<usize, ScriptError> {
+pub(crate) fn held_on(owner: &str, repo: &str) -> Result<usize, ScriptError> {
     let path = dir()?.join(format!("issues-{owner}-{repo}.jsonl"));
     match std::fs::read_to_string(&path) {
         Ok(text) => Ok(text.lines().filter(|line| !line.is_empty()).count()),

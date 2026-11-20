@@ -200,8 +200,8 @@ fn a_slow_source_does_not_block_an_independent_chain() -> TestResult {
          source's own domain_id"
     );
     assert_eq!(
-        report.stalled()[0].deadline(),
-        deadline,
+        report.stalled().first().map(|row| row.deadline()),
+        Some(deadline),
         "the report names the budget that was actually applied, so a reader is not \
          guessing which bound cancelled the poll"
     );
@@ -421,11 +421,20 @@ fn sample_a_tick(budget: Duration, release: &Release) {
     };
     // Whether the wait ended by the release, by the budget or by poison, the
     // sampler has nothing more to do: the caller reads the clock itself.
-    drop(
-        release
-            .bell
-            .wait_timeout_while(guard, budget, |released| !*released),
-    );
+    match release
+        .bell
+        .wait_timeout_while(guard, budget, |released| !*released)
+    {
+        Ok((held, waited)) => lgwks_std::trace::debug!(
+            released = *held,
+            timed_out = waited.timed_out(),
+            "slow source: the sampler's wait ended"
+        ),
+        Err(poisoned) => lgwks_std::trace::debug!(
+            error = %poisoned,
+            "slow source: the release bell was poisoned"
+        ),
+    }
 }
 
 /// The caller's release of the sampler: a flag and the bell that announces it.

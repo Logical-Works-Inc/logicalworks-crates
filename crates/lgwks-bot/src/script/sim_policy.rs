@@ -28,6 +28,7 @@
 //! call), arXiv:2608.25403 on retry storms under correlated failure, and
 //! arXiv:2510.03551 on the metastable feedback loop the budget breaks.
 
+#[cfg(test)]
 use std::num::NonZeroUsize;
 use std::time::Duration;
 
@@ -131,10 +132,13 @@ fn interleave(stream: &mut Stream, seed: u64) -> Result<(Vec<bool>, u64), String
 #[test]
 /// An unbounded `each` runs the cores' allowance under the ceiling, never
 /// zero and never past it.
-fn sim_the_fan_out_is_the_machines_allowance_under_the_ceiling() -> Outcome {
+fn sim_the_fan_out_is_the_machines_allowance_under_the_ceiling() {
     let cores = match std::thread::available_parallelism() {
         Ok(cores) => cores.get(),
-        Err(_) => 1,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "the host names no parallelism, so one core");
+            1
+        }
     };
     let expected = cores.saturating_mul(FAN_OUT_PER_CORE).min(MAX_IN_FLIGHT);
     for _ in SEEDS {
@@ -148,7 +152,6 @@ fn sim_the_fan_out_is_the_machines_allowance_under_the_ceiling() -> Outcome {
         NonZeroUsize::MIN,
         "no parallelism, one body"
     );
-    Ok(())
 }
 
 #[test]

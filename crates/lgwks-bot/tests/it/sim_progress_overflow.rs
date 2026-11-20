@@ -94,6 +94,55 @@ fn walk(
     ))
 }
 
+/// How the walk ended, read off the bounded report against the reference:
+/// every page on success, the located failure and its page otherwise. `ends` is
+/// the page count and the last kept path.
+fn assert_walk_ended(
+    seed: u64,
+    reports: (&Report<Vec<u32>>, &Report<Vec<u32>>),
+    failing: Option<u32>,
+    ends: (u32, &str),
+) -> TestResult {
+    let ((bounded, reference), (pages, last)) = (reports, ends);
+    match failing {
+        None => {
+            assert_eq!(
+                bounded.output(),
+                Some(&(0..pages).collect::<Vec<u32>>()),
+                "seed {seed}: a finished walk returns every page"
+            );
+            assert!(
+                last.ends_with(&format!("page#{}", pages.saturating_sub(1))),
+                "seed {seed}: the kept trail ends at the last page: {last}"
+            );
+        }
+        Some(page) => {
+            assert!(
+                bounded.output().is_none(),
+                "seed {seed}: a failed walk has no output"
+            );
+            let located = bounded
+                .error()
+                .map(ToString::to_string)
+                .ok_or("a failed run names its failure")?;
+            assert!(
+                located.contains(REFUSAL),
+                "seed {seed}: the failure is located in the report, not only in the trail: {located}"
+            );
+            assert_eq!(
+                Some(located),
+                reference.error().map(ToString::to_string),
+                "seed {seed}: the located failure is the same with or without the dropped detail"
+            );
+            assert!(
+                last.ends_with(&format!("page#{page}")),
+                "seed {seed}: the kept trail ends at the page that failed: {last}"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// A bounded walk keeps the newest `capacity` steps, counts the rest, and ends in
 /// the same terminal state as the walk that dropped nothing.
 fn overflow_keeps_the_terminal_state(band: Band) -> TestResult {
@@ -167,42 +216,7 @@ fn overflow_keeps_the_terminal_state(band: Band) -> TestResult {
             .last()
             .ok_or("a truncated trail still ends where the run stopped")?
             .to_string();
-        match failing {
-            None => {
-                assert_eq!(
-                    bounded.output(),
-                    Some(&(0..pages).collect::<Vec<u32>>()),
-                    "seed {seed}: a finished walk returns every page"
-                );
-                assert!(
-                    last.ends_with(&format!("page#{}", pages.saturating_sub(1))),
-                    "seed {seed}: the kept trail ends at the last page: {last}"
-                );
-            }
-            Some(page) => {
-                assert!(
-                    bounded.output().is_none(),
-                    "seed {seed}: a failed walk has no output"
-                );
-                let located = bounded
-                    .error()
-                    .map(ToString::to_string)
-                    .ok_or("a failed run names its failure")?;
-                assert!(
-                    located.contains(REFUSAL),
-                    "seed {seed}: the failure is located in the report, not only in the trail: {located}"
-                );
-                assert_eq!(
-                    Some(located),
-                    reference.error().map(ToString::to_string),
-                    "seed {seed}: the located failure is the same with or without the dropped detail"
-                );
-                assert!(
-                    last.ends_with(&format!("page#{page}")),
-                    "seed {seed}: the kept trail ends at the page that failed: {last}"
-                );
-            }
-        }
+        assert_walk_ended(seed, (&bounded, &reference), failing, (pages, &last))?;
 
         sim.record(&format!(
             "capacity={capacity} pages={pages} failing={failing:?} total={total} kept={kept} lost={lost} end={}",

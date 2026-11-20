@@ -141,8 +141,8 @@ impl std::error::Error for SinkRefusal {}
 /// Readiness is a real durability barrier, not a constant and not a
 /// file-existence check: a sink that has to do nothing to look ready is a sink
 /// that silently drops every record. Requiring the probe makes every
-/// implementation state what it does with a record — including a stub, which
-/// says so in as many words and is refused for it.
+/// implementation state what it does with a record — including one that keeps
+/// nothing, which says so in as many words and is refused for it.
 ///
 /// # Examples
 ///
@@ -241,6 +241,15 @@ pub struct CompositeSink {
     name: String,
     /// The children, in probe order.
     sinks: Vec<Arc<dyn DurableSink>>,
+}
+
+impl std::fmt::Debug for CompositeSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompositeSink")
+            .field("name", &self.name)
+            .field("sinks", &self.sinks.len())
+            .finish()
+    }
 }
 
 impl CompositeSink {

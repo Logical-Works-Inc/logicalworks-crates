@@ -186,7 +186,7 @@ fn is_event_stream(response: &http::StreamResponse) -> bool {
 /// that are not a preview of anything.
 pub(super) fn preview(client: &Client, url: &str) -> Result<(u16, Vec<u8>), http::Error> {
     let response = client.get_stream(url)?;
-    let status = response.status;
+    let status = response.status();
     if is_event_stream(&response) {
         let mut events: http::SseStream = response.into_sse();
         let first: Option<http::SseEvent> = events.next_event()?;
@@ -228,8 +228,20 @@ fn next_link(response: &Response) -> Option<String> {
     response
         .header_values()
         .filter(|header| header.0.eq_ignore_ascii_case("link"))
-        .filter_map(|(_, value)| std::str::from_utf8(value).ok())
+        .filter_map(|(_, value)| link_text(value))
         .find_map(next_in)
+}
+
+/// A `Link` header value as text. A value that is not UTF-8 cannot hold a
+/// target, so it is skipped, and the skip is traced.
+fn link_text(value: &[u8]) -> Option<&str> {
+    match std::str::from_utf8(value) {
+        Ok(text) => Some(text),
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "listing: a Link header is not UTF-8 and is skipped");
+            None
+        }
+    }
 }
 
 /// The `rel="next"` target in one `Link` header value.
@@ -276,12 +288,12 @@ pub(super) fn listing(client: &Client, first: &str) -> Result<Vec<json::Value>, 
             None => first,
         };
         let response = client.get_with(url, &options).map_err(Listing::Http)?;
-        if !(200..300).contains(&response.status) {
+        if !(200..300).contains(&response.status()) {
             lgwks_std::trace::debug!(
-                status = response.status,
+                status = response.status(),
                 "listing: a page answered a non-success status"
             );
-            return Err(Listing::Status(response.status));
+            return Err(Listing::Status(response.status()));
         }
         let items: Vec<json::Value> = json::from_slice(response.body()).map_err(Listing::Decode)?;
         Ok(Page::new(items, next_link(&response)))

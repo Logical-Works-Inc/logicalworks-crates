@@ -321,7 +321,7 @@ fn arms(error: &BotError) -> usize {
 }
 
 /// Run `sim` twice on every seed and require the same receipt.
-fn replays(sim: Sim) -> TestResult {
+fn replays(sim: impl Fn(u64) -> Hash) -> TestResult {
     for seed in SEEDS {
         let first = sim(seed)?;
         let again = sim(seed)?;
@@ -363,6 +363,11 @@ fn walk(error: &BotError) -> Vec<&'static str> {
     seen
 }
 
+/// Run an infallible family twice on every seed and require the same receipt.
+fn replays_total(sim: fn(u64) -> u64) -> TestResult {
+    replays(|seed| Ok(sim(seed)))
+}
+
 /// A step path for a located flow failure.
 fn path(label: &str) -> Arc<str> {
     Arc::from(label)
@@ -377,9 +382,13 @@ const SIMS: [(&str, Sim); 14] = [
         "saboteur_session_and_flow",
         sim_variants::sim_saboteur_session_and_flow,
     ),
-    ("weird_bytes", sim_bytes::sim_weird_bytes),
-    ("giant_and_empty", sim_bytes::sim_giant_and_empty),
-    ("double_clicker", sim_bytes::sim_double_clicker),
+    ("weird_bytes", |seed| Ok(sim_bytes::sim_weird_bytes(seed))),
+    ("giant_and_empty", |seed| {
+        Ok(sim_bytes::sim_giant_and_empty(seed))
+    }),
+    ("double_clicker", |seed| {
+        Ok(sim_bytes::sim_double_clicker(seed))
+    }),
     ("fat_finger", sim_bytes::sim_fat_finger),
     (
         "wrong_order_source_walk",
@@ -394,13 +403,12 @@ const SIMS: [(&str, Sim); 14] = [
         "liar_upstream_io_and_store",
         sim_upstream::sim_liar_upstream_io_and_store,
     ),
-    (
-        "liar_upstream_cause_text",
-        sim_upstream::sim_liar_upstream_cause_text,
-    ),
+    ("liar_upstream_cause_text", |seed| {
+        Ok(sim_upstream::sim_liar_upstream_cause_text(seed))
+    }),
     ("pulled_plug", sim_upstream::sim_pulled_plug),
-    ("clock_fool", sim_upstream::sim_clock_fool),
-    ("monkey", sim_walks::sim_monkey),
+    ("clock_fool", |seed| Ok(sim_upstream::sim_clock_fool(seed))),
+    ("monkey", |seed| Ok(sim_walks::sim_monkey(seed))),
 ];
 
 #[test]

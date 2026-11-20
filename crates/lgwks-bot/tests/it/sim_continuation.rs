@@ -1,16 +1,14 @@
 //! Simulation family: continue-as-new, driven by a seeded sweep.
 //!
 //! Every scenario drives the **real** [`FileJournal`] — its real storage-owner
-//! thread, its real frame codec, its real chain verification and its real
-//! `recover` fold — through dozens of real continuations. Nothing here reimplements
-//! a journal or a checkpoint: a simulation that carried its own copy would pass
-//! while the shipped one rotted, which is the failure this layer exists to make
-//! impossible.
+//! thread, frame codec, chain verification and `recover` fold — through dozens of
+//! real continuations. Nothing here reimplements a journal or a checkpoint: a
+//! copy would pass while the shipped one rotted.
 //!
-//! What the seed controls: how many attempts the run makes, how many actions they
-//! belong to, how many of them end unknown, and how many tenants share the
-//! directory. Every run then has to satisfy the same properties whatever the seed
-//! chose, and every run replays to the same trace hash.
+//! The seed controls how many attempts the run makes, how many actions they
+//! belong to, how many end unknown, and how many tenants share the directory.
+//! Every run satisfies the same properties whatever the seed chose, and replays
+//! to the same trace hash.
 //!
 //! The properties, one family each:
 //!
@@ -18,23 +16,17 @@
 //! |---|---|
 //! | `long_run` | a hundred-plus continuations lose and duplicate no effect, and the fold agrees with the oracle at every generation |
 //!
-//! `long_run` is declared over one band, and the reason is measured rather than
-//! assumed. A hundred continuations is two hundred journal handles, every one of
-//! which is a blocking-pool thread that the estate's pool keeps for ten idle
-//! seconds after it drops, so a two-sweep band leaves roughly 460 of them alive
-//! at the end of its run. One band measures 4.2 s alone; the same band run
-//! beside a second measured 127 s and four bands together measured 218 s on the
-//! 15-core host, which is the pool and the APFS commit path, not the lifecycle.
-//! One band replays sixteen seeds' worth of generations.
+//! `long_run` is declared over one band, and the reason is measured. A hundred
+//! continuations is two hundred journal handles, each a blocking-pool thread the
+//! pool keeps for ten idle seconds after it drops: one band measures 4.2 s alone,
+//! 127 s beside a second and 218 s for four on the 15-core host, which is the
+//! pool and the APFS commit path, not the lifecycle.
 //!
-//! The other four families are declared over two bands each for the same reason.
-//! Every journal is a blocking-pool thread, and cost per handle rises sharply
-//! once many are live: this family measured 4.2 s alone and 170 s inside the
-//! 35-test family, so the families are declared narrow enough that the family as a
-//! whole stays inside the gate's wall-clock budget. The seed space is not
-//! abandoned to buy that -- `unresolved_carry`, `tenant_continuation`,
-//! `bounded_reopen` and `oracle_matches` between them still sweep sixteen seeds
-//! each, two bands apiece, and every family replays each seed it runs.
+//! The other four families are declared over two bands each for the same reason,
+//! so the family stays inside the gate's wall-clock budget. The seed space is
+//! not abandoned: `unresolved_carry`, `tenant_continuation`, `bounded_reopen`
+//! and `oracle_matches` still sweep sixteen seeds each, and every family
+//! replays each seed it runs.
 //! | `unresolved_carry` | every attempt left unknown is unknown in the successor and settles there, never resent |
 //! | `tenant_continuation` | two tenants over one directory continue independently and lose nothing |
 //! | `bounded_reopen` | a successor's own size does not grow with the history behind it |
@@ -67,7 +59,7 @@ use sim::Band;
 
 /// A test that needs a parsed value returns `Result` and propagates, because the
 /// crate forbids a panicking path anywhere, tests included.
-pub type TestResult = Result<(), Box<dyn Error>>;
+pub(crate) type TestResult = Result<(), Box<dyn Error>>;
 
 /// The run every key in this family belongs to.
 const RUN: &str = "0a0b0c0d0e0f10111213141516171819";
@@ -100,7 +92,7 @@ const SIM_BYTE_WATERMARK: u64 = 8 * 1024 * 1024;
 /// door, and it is what makes the run a claim about the *lifecycle* rather than
 /// about the device's flush rate. Measured: at one flush per attempt these
 /// families took 50–120 s each inside the full suite.
-pub const ATTEMPTS_PER_BATCH: u64 = 16;
+pub(crate) const ATTEMPTS_PER_BATCH: u64 = 16;
 
 /// The in-flight set a long run reconciles down to before it continues again.
 ///
@@ -120,7 +112,7 @@ fn policy() -> Result<ContinuationPolicy, Box<dyn Error>> {
 ///
 /// The tenants take their numbers from the top of the `u64` range, so a tenant's
 /// action and an ordinary action can never be the same identifier.
-pub fn action_of(which: u64) -> Result<ActionId, Box<dyn Error>> {
+pub(crate) fn action_of(which: u64) -> Result<ActionId, Box<dyn Error>> {
     Ok(ActionId::from_hex(&format!("{which:032x}"))?)
 }
 
@@ -130,7 +122,7 @@ pub fn action_of(which: u64) -> Result<ActionId, Box<dyn Error>> {
 /// identifier the journal holds, so something has to convert between them. Reading
 /// it back out of the key rather than carrying a second table is what makes the
 /// comparison a fact about the journal's own identity.
-pub fn action_number(action: ActionId) -> Result<u64, Box<dyn Error>> {
+pub(crate) fn action_number(action: ActionId) -> Result<u64, Box<dyn Error>> {
     let hex = action.id().to_hex();
     let tail = hex
         .get(hex.len().saturating_sub(16)..)
@@ -139,7 +131,7 @@ pub fn action_number(action: ActionId) -> Result<u64, Box<dyn Error>> {
 }
 
 /// A key for `attempt` of `action`, under the shared identity.
-pub fn key_of(action: u64, attempt: u64) -> Result<EffectKey, Box<dyn Error>> {
+pub(crate) fn key_of(action: u64, attempt: u64) -> Result<EffectKey, Box<dyn Error>> {
     let run = RunId::from_hex(RUN)?;
     let environment = EnvironmentId::from_hex(ENV)?;
     let flow = FlowRevision::from_tagged("blake3_256", FLOW_HEX)?;
@@ -151,7 +143,7 @@ pub fn key_of(action: u64, attempt: u64) -> Result<EffectKey, Box<dyn Error>> {
 }
 
 /// A verification decided at `version`, with the answer this family's fate says.
-pub fn verdict(version: u64, satisfied: bool) -> Result<Verification, Box<dyn Error>> {
+pub(crate) fn verdict(version: u64, satisfied: bool) -> Result<Verification, Box<dyn Error>> {
     Ok(Verification::new(
         Id128::from_hex(PREDICATE)?,
         version,
@@ -165,7 +157,11 @@ pub fn verdict(version: u64, satisfied: bool) -> Result<Verification, Box<dyn Er
 }
 
 /// One attempt's whole ladder, with the outcome its fate names.
-pub fn ladder(fate: Fate, action: u64, attempt: u64) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
+pub(crate) fn ladder(
+    fate: Fate,
+    action: u64,
+    attempt: u64,
+) -> Result<Vec<EffectEvent>, Box<dyn Error>> {
     let key = key_of(action, attempt)?;
     let mut events = vec![
         EffectEvent::IntentAdmitted { key },
@@ -203,7 +199,7 @@ pub fn ladder(fate: Fate, action: u64, attempt: u64) -> Result<Vec<EffectEvent>,
 
 /// How an attempt ended, as the oracle records it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fate {
+pub(crate) enum Fate {
     /// Dispatched, and the outcome was never observed.
     Unknown,
     /// Dispatched, and the evidence says it landed.
@@ -216,7 +212,7 @@ pub enum Fate {
 
 /// What the oracle holds about one attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Record {
+pub(crate) struct Record {
     /// The attempt's attempt number, which is what the ladder is ordered by.
     pub attempt: u64,
     /// What happened to it.
@@ -229,7 +225,7 @@ pub struct Record {
 /// is a question the oracle answers the same way the journal's fold does, rather
 /// than a comparison between two orderings that happen to agree today.
 #[derive(Debug, Default)]
-pub struct Oracle {
+pub(crate) struct Oracle {
     /// Every attempt the run dispatched, in order.
     attempts: BTreeMap<(u64, u64), Record>,
     /// How many attempts were dispatched, which is the count no duplicate moves.
@@ -238,16 +234,15 @@ pub struct Oracle {
 
 impl Oracle {
     /// Record an attempt as dispatched, and what it became.
-    pub fn dispatch(&mut self, action: u64, attempt: u64, fate: Fate) {
-        let _ = self
-            .attempts
+    pub(crate) fn dispatch(&mut self, action: u64, attempt: u64, fate: Fate) {
+        self.attempts
             .insert((action, attempt), Record { attempt, fate });
         self.dispatched = self.dispatched.saturating_add(1);
     }
 
     /// The fate the fold should report for `action`'s latest attempt, if the oracle
     /// holds one.
-    pub fn latest_of(&self, action: u64) -> Option<Record> {
+    pub(crate) fn latest_of(&self, action: u64) -> Option<Record> {
         self.attempts
             .iter()
             .filter(|entry| entry.0.0 == action)
@@ -261,7 +256,7 @@ impl Oracle {
     /// dispatched, because that is what the fold reports: an attempt reconciled
     /// three continuations ago is not uncertain any more, and an oracle that kept
     /// calling it unknown would be checking against a stale question.
-    pub fn settle(&mut self, action: u64, attempt: u64) {
+    pub(crate) fn settle(&mut self, action: u64, attempt: u64) {
         if let Some(record) = self.attempts.get_mut(&(action, attempt))
             && record.fate == Fate::Unknown
         {
@@ -270,7 +265,7 @@ impl Oracle {
     }
 
     /// How many attempts the oracle still holds as unknown.
-    pub fn unknown(&self) -> usize {
+    pub(crate) fn unknown(&self) -> usize {
         self.attempts
             .values()
             .filter(|record| record.fate == Fate::Unknown)
@@ -336,7 +331,7 @@ impl Schedule {
 }
 
 /// What a fate folds to, which is the one place that mapping is written down.
-pub const fn status_of(fate: Fate) -> AttemptStatus {
+pub(crate) const fn status_of(fate: Fate) -> AttemptStatus {
     match fate {
         Fate::Unknown => AttemptStatus::OutcomeUnknown,
         Fate::Applied => AttemptStatus::Verified,
@@ -352,7 +347,7 @@ pub const fn status_of(fate: Fate) -> AttemptStatus {
 /// writes them. One flush per attempt made these families a measurement of the
 /// device's flush rate rather than of the lifecycle: under a full suite their
 /// serialized `F_FULLFSYNC`s took a minute and a half each.
-pub struct Pending {
+pub(crate) struct Pending {
     /// The action every queued attempt belongs to.
     action: u64,
     /// Queued attempts and the fate each is walked to.
@@ -363,7 +358,7 @@ pub struct Pending {
 
 impl Pending {
     /// An empty queue for `action`.
-    pub const fn new(action: u64) -> Self {
+    pub(crate) const fn new(action: u64) -> Self {
         Self {
             action,
             held: Vec::new(),
@@ -375,7 +370,7 @@ impl Pending {
     ///
     /// Answers whether a flush happened, because only then can the watermark have
     /// moved and a continuation be due.
-    pub fn push(
+    pub(crate) fn push(
         &mut self,
         journal: &mut FileJournal,
         oracle: &mut Oracle,
@@ -406,7 +401,9 @@ impl Pending {
 ///
 /// The trigger is the shipped one asked on the shipped path: this is what an
 /// unattended controller does, not a test-only schedule.
-pub fn continue_if_due(journal: &mut FileJournal) -> Result<Option<FileJournal>, Box<dyn Error>> {
+pub(crate) fn continue_if_due(
+    journal: &mut FileJournal,
+) -> Result<Option<FileJournal>, Box<dyn Error>> {
     if !journal.continuation_watermark()?.is_due() {
         return Ok(None);
     }
@@ -422,7 +419,11 @@ pub fn continue_if_due(journal: &mut FileJournal) -> Result<Option<FileJournal>,
 /// status must be the oracle's, and the uncertain list, which must hold exactly the
 /// attempts the oracle left unknown. That is the whole contract: settled history is
 /// sealed and refused, and what is still uncertain is still uncertain.
-pub fn assert_fold_agrees(journal: &FileJournal, oracle: &Oracle, tenant: u64) -> TestResult {
+pub(crate) fn assert_fold_agrees(
+    journal: &FileJournal,
+    oracle: &Oracle,
+    tenant: u64,
+) -> TestResult {
     let recovered = journal.recover();
     let mut folded: BTreeMap<u64, (u64, AttemptStatus)> = BTreeMap::new();
     for held in recovered.attempts() {
@@ -462,192 +463,6 @@ pub fn assert_fold_agrees(journal: &FileJournal, oracle: &Oracle, tenant: u64) -
 }
 
 // ── Families ──────────────────────────────────────────────────────────────
-
-/// One long run's moving parts, so a batch is one call and every rung of it is
-/// a named step rather than a chain of fallible expressions.
-struct LongRun {
-    /// The live generation.
-    journal: FileJournal,
-    /// What the run meant to do, attempt by attempt.
-    oracle: Oracle,
-    /// The seeded fate of every attempt.
-    schedule: Schedule,
-    /// Attempts left unknown, oldest first, waiting for evidence.
-    stranded: VecDeque<(u64, u64, EffectKey)>,
-    /// The batch being filled, reused across batches.
-    batch: Vec<EffectEvent>,
-    /// Attempts since the action last turned over.
-    since_turn: u64,
-    /// Continuations reaped so far.
-    continuations: u64,
-}
-
-impl LongRun {
-    /// Two concurrent attempts per action, every batch, in every band.
-    ///
-    /// A run whose concurrency the seed chooses reaps a different number of
-    /// continuations from the same number of batches, which would make this
-    /// family's wall clock a property of the seed rather than of the lifecycle;
-    /// the concurrency itself varies across the other families, where it is not
-    /// the thing being bounded.
-    const ACTIONS: u64 = 2;
-
-    /// Fill one batch, flush it, and continue when the watermark says so.
-    ///
-    /// One flush for the batch, which is the shipped group-commit door and what a
-    /// controller with sixteen settled things to record actually does.
-    fn step(&mut self) -> TestResult {
-        self.batch.clear();
-        for _ in 0..ATTEMPTS_PER_BATCH {
-            self.admit_one()?;
-        }
-        self.reconcile();
-        self.journal.compare_and_append_all(&self.batch)?;
-        let Some(successor) = continue_if_due(&mut self.journal)? else {
-            return Ok(());
-        };
-        assert!(
-            self.stranded.len() <= MAX_CHECKPOINT_UNRESOLVED,
-            "a run holding {} unresolved attempts is past the declared carry \
-             bound of {MAX_CHECKPOINT_UNRESOLVED}, and such a continuation is \
-             refused rather than truncating the carry",
-            self.stranded.len()
-        );
-        self.journal = successor;
-        self.continuations = self.continuations.saturating_add(1);
-        // The oracle has already settled everything the ladder settled, so the
-        // fold the successor can produce is checked against it at every
-        // generation rather than once at the end: a disagreement that only
-        // appears at generation ninety is caught there.
-        assert_fold_agrees(&self.journal, &self.oracle, 1)
-    }
-
-    /// Add one attempt's ladder to the batch, under the seeded fate.
-    fn admit_one(&mut self) -> TestResult {
-        let fate = self.schedule.next();
-        self.since_turn = self.since_turn.saturating_add(1);
-        let action = if self.since_turn > Self::ACTIONS {
-            self.since_turn = 1;
-            1
-        } else {
-            self.since_turn
-        };
-        let next = self.oracle.dispatched.saturating_add(1);
-        let rungs = ladder(fate, action, next)?;
-        self.batch.extend(rungs);
-        if fate == Fate::Unknown {
-            let key = key_of(action, next)?;
-            self.stranded.push_back((action, next, key));
-        }
-        self.oracle.dispatch(action, next, fate);
-        Ok(())
-    }
-
-    /// Evidence settles the oldest carried attempts, in the batch about to flush.
-    ///
-    /// That is what keeps the in-flight set bounded: a controller that never
-    /// reconciles is not a long run, it is an unbounded queue, and the carry bound
-    /// says so rather than dropping anything. The evidence rides in the batch's own
-    /// flush, as a controller that reconciles while it works writes it, rather than
-    /// paying one `sync_all` per settled attempt.
-    fn reconcile(&mut self) {
-        while self.stranded.len() > LOW_WATER {
-            let Some((action, number, key)) = self.stranded.pop_front() else {
-                break;
-            };
-            self.batch.push(EffectEvent::OutcomeObserved {
-                key,
-                evidence: EffectEvidence::Applied,
-            });
-            self.oracle.settle(action, number);
-        }
-    }
-}
-
-/// A long run loses and duplicates no effect, through a hundred continuations.
-///
-/// The oracle is the point: it records what the run *meant* to do, attempt by
-/// attempt, and every one of those attempts is then checked three ways — that the
-/// fold still knows its fate at every generation, that a re-presentation is refused
-/// everywhere, and that the live journal's own chain verifies to its own tail.
-fn long_run(band: Band) -> TestResult {
-    sim::assert_replays(band, |sim| {
-        let dir = sim.scratch("long")?;
-        let path = dir.join("run.jrnl");
-        let batches = 230 + u64::from(sim.rng().below(20));
-        let journal = FileJournal::open_continuing_with(&path, policy()?)?;
-        let mut run = LongRun {
-            journal,
-            oracle: Oracle::default(),
-            schedule: Schedule::new(sim),
-            stranded: VecDeque::new(),
-            batch: Vec::new(),
-            since_turn: 0,
-            continuations: 0,
-        };
-        for _ in 0..batches {
-            run.step()?;
-        }
-        let LongRun {
-            mut journal,
-            oracle,
-            stranded,
-            continuations,
-            ..
-        } = run;
-        let stranded_at_end = stranded.len();
-
-        assert!(
-            continuations >= 100,
-            "a run of {} attempts reached only {continuations} continuations, which is \
-             not the hundred the lifecycle claim rests on",
-            oracle.dispatched
-        );
-        assert_fold_agrees(&journal, &oracle, 1)?;
-
-        // Every attempt the run made is refused a second time, which is what "no
-        // duplicated effect" means at the journal's boundary: the ladder refuses
-        // the folded key and the fold refuses the older ones.
-        for (action, number) in oracle.attempts.keys().copied() {
-            let refused = journal.compare_and_append(
-                journal.tail(),
-                &EffectEvent::IntentAdmitted {
-                    key: key_of(action, number)?,
-                },
-            );
-            assert!(
-                refused.is_err(),
-                "attempt {number} of action {action} was admitted a second time: \
-                 {refused:?}"
-            );
-        }
-        let live = journal.path().to_path_buf();
-        drop(journal);
-
-        let reopened = FileJournal::open_active(&path)?;
-        assert_eq!(
-            reopened.path(),
-            live.as_path(),
-            "the generation walk reaches the journal the run ended on"
-        );
-        // From its own base, not from the genesis: the seal frame the successor
-        // was opened from is not an event and is not in its committed entries, so
-        // folding from the genesis would report a disagreement at the first entry.
-        let entries = reopened.committed_entries()?;
-        assert_eq!(
-            lgwks_bot::journal::verify_chain_from(reopened.chain_from(), &entries)?,
-            reopened.tail(),
-            "and the live journal's own chain verifies from its own base to its tail"
-        );
-        sim.record("long-run-no-loss-no-duplicate");
-        sim.trace.record_number("long-attempts", oracle.dispatched);
-        sim.trace.record_number("long-continuations", continuations);
-        sim.trace.record_number("long-unknown", oracle.unknown());
-        sim.trace
-            .record_number("long-still-unknown", stranded_at_end);
-        Ok(())
-    })
-}
 
 /// Every attempt left unknown crosses the boundary and settles there.
 fn unresolved_carry(band: Band) -> TestResult {
@@ -710,10 +525,7 @@ fn unresolved_carry(band: Band) -> TestResult {
         // A resend is refused for every one of them, and evidence settles the first
         // few with no second dispatch anywhere.
         let mut settled = 0_u64;
-        let mut index = 0_usize;
-        while index < stranded.len() {
-            let (number, key) = stranded[index];
-            index = index.saturating_add(1);
+        for &(number, key) in &stranded {
             let resend =
                 journal.compare_and_append(journal.tail(), &EffectEvent::IntentAdmitted { key });
             assert!(
@@ -769,18 +581,14 @@ fn weigh_successor(path: &std::path::Path, predecessors: u64) -> Result<u64, Box
         }
     }
     assert_eq!(
-        oracle.dispatched,
-        predecessors,
-        "every attempt reached the disk for {}",
-        path.display()
+        oracle.dispatched, predecessors,
+        "every attempt reached the disk for {path:?}"
     );
-    let successor = journal.continue_as_file()?;
-    let live = successor
-        .as_ref()
+    let live = journal
+        .continue_as_file()?
         .ok_or("a continuing journal must hand back a successor")?
         .path()
         .to_path_buf();
-    drop(successor);
     drop(journal);
     let handle = FileJournal::open_active(path)?;
     assert_eq!(
@@ -795,20 +603,12 @@ fn weigh_successor(path: &std::path::Path, predecessors: u64) -> Result<u64, Box
 
 /// A successor's own size does not grow with the history behind it.
 ///
-/// The property is measured on the file rather than asserted: the live successor
-/// after a short predecessor and the live successor after a long one are both
-/// opened through the generation walk and weighed. The long one's file holds only
-/// its own suffix — the history it inherited is in *its predecessor's* file, which
-/// is exactly what continuation bought, and it is only true because the carry is
-/// folded per action.
+/// Measured on the file: the live successors after a short and a long
+/// predecessor are opened through the generation walk and weighed.
 fn bounded_reopen(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("reopen")?;
-        let short = dir.join("short.jrnl");
-        let long = dir.join("long.jrnl");
         let jitter = u64::from(sim.rng().below(4));
-        let mut sizes: Vec<u64> = Vec::new();
-        let mut attempts: Vec<u64> = Vec::new();
 
         // Both journals are continued *explicitly* at the end, so what is weighed is
         // two successors rather than one successor and one file that never reached
@@ -816,23 +616,29 @@ fn bounded_reopen(band: Band) -> TestResult {
         // successor carries one folded record per action and nothing else, so the
         // one behind two hundred and forty attempts weighs what the one behind two
         // does.
-        for (path, predecessors) in [(&short, 2_u64), (&long, 240_u64)] {
-            sizes.push(weigh_successor(path, predecessors)?);
-            attempts.push(predecessors.saturating_add(jitter));
-        }
-
+        let ((small_bytes, small_attempts), (long_bytes, long_attempts)) = (
+            (
+                weigh_successor(&dir.join("short.jrnl"), 2)?,
+                2_u64.saturating_add(jitter),
+            ),
+            (
+                weigh_successor(&dir.join("long.jrnl"), 240)?,
+                240_u64.saturating_add(jitter),
+            ),
+        );
         assert_eq!(
-            sizes[0], sizes[1],
-            "the live successor after {} attempts weighs {} bytes where one after \
-             {} weighs {}: a successor's cost is its carry, not the history behind it",
-            attempts[1], sizes[1], attempts[0], sizes[0]
+            small_bytes, long_bytes,
+            "the live successor after {long_attempts} attempts weighs {long_bytes} bytes where \
+             one after {small_attempts} weighs {small_bytes}: a successor's cost is its carry, \
+             not the history behind it"
         );
         sim.record("reopen-is-flat-in-the-history-behind-it");
         sim.trace
-            .record_number("reopen-small-attempts", attempts[0]);
-        sim.trace.record_number("reopen-small-bytes", sizes[0]);
-        sim.trace.record_number("reopen-long-attempts", attempts[1]);
-        sim.trace.record_number("reopen-long-bytes", sizes[1]);
+            .record_number("reopen-small-attempts", small_attempts);
+        sim.trace.record_number("reopen-small-bytes", small_bytes);
+        sim.trace
+            .record_number("reopen-long-attempts", long_attempts);
+        sim.trace.record_number("reopen-long-bytes", long_bytes);
         Ok(())
     })
 }
@@ -900,45 +706,25 @@ band_family!(
     oracle_matches_r00 => oracle_matches, 0; oracle_matches_r01 => oracle_matches, 1;
 );
 
-/// The long run, over a two-seed band rather than the eight-seed one.
-///
-/// Declared as its own test instead of through [`band_family`] because its band is
-/// not the standard one, and the reason is measured rather than assumed. A hundred
-/// continuations is two hundred journal handles, every one of which is a
-/// blocking-pool thread the estate's pool keeps for ten idle seconds after it
-/// drops, so one sweep of eight seeds leaves about 1,840 of them alive at the end
-/// of its run. This family measured 4.2 s alone and 170 s inside the thirty-five
-/// test family; a two-seed band keeps the same property under test -- a hundred
-/// continuations, the oracle checked at every generation, both sweeps replaying
-/// to one hash -- at a fifth of the handle count. The other four families carry
-/// the rest of the seed space at a hundredth of the cost per handle.
-#[test]
-fn long_run_two_seeds_replay_a_hundred_continuations() -> TestResult {
-    long_run(Band::new(0, 2))
-}
-
 /// Every family owns a distinct scratch tag.
 ///
-/// Two families sharing a tag would race, because the runner executes tests in
-/// parallel processes and a shared directory is a shared file.
+/// Two families sharing a tag would race: tests run in parallel processes.
 #[test]
-fn every_family_has_its_own_scratch_tag() -> TestResult {
+fn every_family_has_its_own_scratch_tag() {
     let tags = ["long", "carry", "tenants", "reopen", "oracle"];
     let mut seen = std::collections::BTreeSet::new();
     for tag in tags {
         assert!(seen.insert(tag), "scratch tag {tag} is used twice");
     }
     assert_eq!(seen.len(), tags.len());
-    Ok(())
 }
 
 /// Every fate has a status and every status has a fate, spelled out once.
 ///
-/// The mapping is what makes the oracle an independent claim rather than a restatement
-/// of the journal's fold: written down here, a disagreement between the two is a
-/// failing test rather than a fact both sides happen to share.
+/// The mapping makes the oracle an independent claim rather than a restatement
+/// of the journal's fold: a disagreement between the two is a failing test.
 #[test]
-fn every_fate_names_the_status_a_fold_reports_for_it() -> TestResult {
+fn every_fate_names_the_status_a_fold_reports_for_it() {
     assert_eq!(status_of(Fate::Unknown), AttemptStatus::OutcomeUnknown);
     assert_eq!(status_of(Fate::Applied), AttemptStatus::Verified);
     assert_eq!(status_of(Fate::NotApplied), AttemptStatus::NotApplied);
@@ -950,7 +736,8 @@ fn every_fate_names_the_status_a_fold_reports_for_it() -> TestResult {
         AttemptStatus::OutcomeUnknown.is_uncertain(),
         "and the unknown arm is the one a recovery path must not act on"
     );
-    Ok(())
 }
 
 mod tenants;
+
+mod sim_long_run;

@@ -53,6 +53,12 @@ fn append_numbered(
     Ok(keys)
 }
 
+/// The first `count` of `keys`, or why the run appended fewer.
+fn prefix(keys: &[EffectKey], count: usize) -> Result<&[EffectKey], Box<dyn Error>> {
+    keys.get(..count)
+        .ok_or_else(|| format!("{} keys appended, fewer than {count}", keys.len()).into())
+}
+
 /// Cut the last byte off `path` and reopen it under `tenant`.
 fn cut_tail_and_open(
     path: &std::path::Path,
@@ -84,7 +90,7 @@ fn sealed_torn_tail_repaired_on_open() -> TestResult {
     );
     assert_eq!(
         got,
-        keys[..1],
+        prefix(&keys, 1)?,
         "a torn tail truncates to the last whole frame"
     );
     assert_journal_chain(&journal)?;
@@ -106,7 +112,7 @@ fn sealed_torn_tail_refusal_is_non_destructive() -> TestResult {
     }
     let mut bad = good.clone();
     let at = good.len().saturating_sub(40);
-    bad[at] ^= 0xFF;
+    *bad.get_mut(at).ok_or("the file has a byte to corrupt")? ^= 0xFF;
     std::fs::write(&path, &bad)?;
     match FileJournal::open_sealed(&path, Arc::clone(&provider), TENANT_A) {
         Err(JournalError::Corrupt(_)) => {}
@@ -131,7 +137,7 @@ fn sealed_torn_tail_refusal_is_non_destructive() -> TestResult {
     );
     assert_eq!(
         got,
-        keys[..2],
+        prefix(&keys, 2)?,
         "the repair keeps the acknowledged prefix behind the tear"
     );
     assert_journal_chain(&journal)?;
@@ -154,7 +160,7 @@ fn large_sealed_torn_tail_repairs_whole_prefix() -> TestResult {
     );
     assert_eq!(
         got,
-        keys[..64],
+        prefix(&keys, 64)?,
         "a long tear keeps every whole frame behind it"
     );
     assert_journal_chain(&journal)?;
@@ -215,7 +221,7 @@ fn sealed_torn_tail_isolation_between_tenants() -> TestResult {
     );
     assert_eq!(
         got_a,
-        keys_a[..2],
+        prefix(&keys_a, 2)?,
         "tenant A's repair keeps tenant A's kept prefix"
     );
     drop(journal_a);
@@ -260,7 +266,7 @@ fn sealed_torn_tail_isolation_between_tenants() -> TestResult {
     }
     let journal = FileJournal::open_sealed(&path_a, Arc::clone(&provider), TENANT_A)?;
     let again = live_journal_keys(&journal)?;
-    if again != keys_a[..2] {
+    if again != prefix(&keys_a, 2)? {
         return refuse("tenant A's file changed under the refused foreign opens");
     }
     Ok(())

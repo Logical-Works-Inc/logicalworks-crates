@@ -174,7 +174,7 @@ pub(super) fn scripted_bot(
     tenant: u32,
     width: usize,
     deadline: Duration,
-    holds: Rc<Cell<bool>>,
+    holds: &Rc<Cell<bool>>,
 ) -> Result<Tenant, Box<dyn Error>> {
     assert!(width >= 1, "a scripted bot needs at least one chain");
     let ran = Rc::new(RefCell::new(Vec::new()));
@@ -182,13 +182,13 @@ pub(super) fn scripted_bot(
     let mut builder = Bot::builder(name)
         .with_poll_deadline(deadline)
         .observe(scripted(&first, 0, tenant))
-        .on(|observed: &u32| *observed > 0, logs(&ran, 0, &holds));
+        .on(|observed: &u32| *observed > 0, logs(&ran, 0, holds));
     let mut handles = vec![first];
     for chain in 1..width {
         let held = ChainHandles::new();
         builder = builder
             .observe(scripted(&held, chain, tenant))
-            .on(|observed: &u32| *observed > 0, logs(&ran, chain, &holds));
+            .on(|observed: &u32| *observed > 0, logs(&ran, chain, holds));
         handles.push(held);
     }
     let bot = builder
@@ -213,7 +213,7 @@ pub(super) fn baseline_bot(
     name: &str,
     width: usize,
     deadline: Duration,
-    holds: Rc<Cell<bool>>,
+    holds: &Rc<Cell<bool>>,
 ) -> Result<Tenant, Box<dyn Error>> {
     let mut subject = scripted_bot(name, 0, width, deadline, holds)?;
     for (index, held) in subject.handles.iter().enumerate() {

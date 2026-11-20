@@ -13,22 +13,7 @@
 //! to satisfy the same properties whatever the seed chose, and every run
 //! replays to the same trace hash.
 //!
-//! The properties, one family each:
-//!
-//! | Family | Property it pins |
-//! |---|---|
-//! | `torn_tail` | a torn final frame is repaired or refused, never reported as committed |
-//! | `tail_fence` | a refused append never advances the tail |
-//! | `replay_bytes` | one seed writes the same bytes every time |
-//! | `recover_uncertain` | a recovered key is landed, or unknown, never retried silently |
-//! | `chain_verifies` | the chain verifies across every generation the seed put in play |
-//! | `tenant_isolation` | interleaved tenants cannot read or overwrite each other |
-//! | `idempotent_restore` | reopening and re-appending at the same tail is refused, not duplicated |
-//! | `middle_corruption` | corruption mid-file is refused, not silently trimmed |
-//! | `reopen_portability` | a journal written by one handle is read by another, byte for byte |
-//! | `bound_refusal` | an over-limit journal is refused without truncation |
-//! | `event_cap` | the shipped event cap is enforced by refusing, never by deleting |
-//! | `exploit_shapes` | malformed input — rotated, inflated, truncated, foreign padding — is refused |
+//! The properties, one family each, are named on the family functions below.
 //!
 //! Seeds are partitioned into contiguous bands so no seed is untested and a
 //! failure names the band. Each declared test sweeps its band twice and
@@ -53,10 +38,7 @@ use sim::Band;
 
 use sim::rig::{attempt_key, ladder};
 
-///
-/// Sixteen bands of eight seeds each: wide enough that a single unlucky seed
-/// does not define a family, narrow enough that a failure names a band a
-/// reader can go and reproduce by hand.
+/// Sixteen bands of eight seeds each: a failure names a band to reproduce by hand.
 type TestResult = Result<(), Box<dyn Error>>;
 
 /// The ladder for an attempt number this seed chose.
@@ -67,9 +49,7 @@ fn seeded_ladder(sim: &mut sim::Sim) -> Result<Vec<EffectEvent>, Box<dyn Error>>
 /// Open a journal at `path`, write `events` as one batch, and report both what
 /// it holds and the exact bytes it wrote.
 ///
-/// One helper rather than a shape repeated per family, because every family
-/// that needs a "journal with this history on disk" needs exactly this and a
-/// per-family copy is four places to fix when the write path changes.
+/// One helper: every family needs a "journal with this history on disk".
 fn write_batch(path: &Path, events: &[EffectEvent]) -> Result<(usize, Vec<u8>), Box<dyn Error>> {
     let mut journal = FileJournal::open(path)?;
     journal.compare_and_append_all(events)?;
@@ -79,11 +59,8 @@ fn write_batch(path: &Path, events: &[EffectEvent]) -> Result<(usize, Vec<u8>), 
 /// Append one event at an explicitly named tail, through the trait rather than
 /// the inherent batch.
 ///
-/// The inherent `compare_and_append_all` fences against the handle's own tail,
-/// so it can never be handed a *stale* one. The fence families need exactly
-/// that, and they need it through the trait, because the trait is the contract
-/// an external adapter implements — a fence that only the inherent path honours
-/// would leave every other journal unfenced.
+/// The inherent `compare_and_append_all` can never be handed a *stale* tail; the
+/// fence families need that, through the trait an external adapter implements.
 fn append_at(
     journal: &mut FileJournal,
     tail: JournalPosition,
@@ -96,10 +73,8 @@ fn append_at(
 
 /// A torn final frame is repaired or refused, never reported as committed.
 ///
-/// The device writes some of the frame and then the process dies, which is
-/// the only failure that produces a journal that *lies*: the length prefix
-/// promises bytes the file does not have. Whatever the journal then reports,
-/// the torn event must not be among its committed ones.
+/// The length prefix promises bytes the file does not have; whatever the
+/// journal then reports, the torn event must not be among its committed ones.
 fn torn_tail(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("torn")?;
@@ -158,9 +133,7 @@ fn torn_tail(band: Band) -> TestResult {
 
 /// A refused append never advances the tail.
 ///
-/// The tail is this controller's append fence, so a tail that moved on a write
-/// that did not land would let the next append be admitted at a position the
-/// file never reached — the exact hole a fence exists to close.
+/// A tail that moved on a write that did not land would open the hole a fence closes.
 fn tail_fence(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("fence")?;
@@ -169,9 +142,8 @@ fn tail_fence(band: Band) -> TestResult {
 
         let mut journal = FileJournal::open(&path)?;
         let before = journal.tail();
-        let outcome = append_at(&mut journal, before, &events[0]);
-        let committed = journal.events().count();
-        let after = journal.tail();
+        let outcome = append_at(&mut journal, before, events.first().ok_or("a first rung")?);
+        let (committed, after) = (journal.events().count(), journal.tail());
         drop(journal);
 
         if outcome.is_err() {
@@ -213,10 +185,8 @@ fn replay_bytes(band: Band) -> TestResult {
 
 /// A recovered key is landed, or unknown, never retried silently.
 ///
-/// The property the whole durable layer exists to give: a controller that
-/// comes back cannot tell whether a prepared dispatch landed, so it must hold
-/// the key rather than re-send it. A key recovery reports as neither landed
-/// nor uncertain is the bug.
+/// A controller that comes back cannot tell whether a prepared dispatch landed,
+/// so it must hold the key rather than re-send it.
 fn recover_uncertain(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("recover")?;
@@ -267,9 +237,8 @@ fn recover_uncertain(band: Band) -> TestResult {
 
 /// The chain verifies across every generation the seed put in play.
 ///
-/// Chain verification is what makes a journal's *order* a fact rather than an
-/// accident of the filesystem, so it has to hold across repeated
-/// open/append/close cycles as well as within one session.
+/// Chain verification makes a journal's *order* a fact, across open/append/close
+/// cycles as well as within one session.
 fn chain_verifies(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("chain")?;
@@ -302,10 +271,6 @@ fn chain_verifies(band: Band) -> TestResult {
 
 /// Interleaved tenants cannot read or overwrite each other.
 ///
-/// Multi-tenant isolation as a first-class property: many tenants append to
-/// their own journals, each ending with exactly its own events and exactly its
-/// own tail. An aggregate "all tenants fine" would hide one tenant's loss, so
-/// every tenant is read back on its own.
 /// Opens one tenant's journal, writes its ladder, and reports what it committed.
 fn write_tenant_ladder(
     sim: &sim::Sim,
@@ -337,26 +302,21 @@ fn tenant_isolation(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("tenants")?;
         let tenants = sim.faults.tenants;
-        let mut expected: std::collections::BTreeMap<u32, u64> = std::collections::BTreeMap::new();
-        let mut tails: std::collections::BTreeMap<u32, u64> = std::collections::BTreeMap::new();
+        let mut wrote = std::collections::BTreeMap::new();
 
-        // One helper per tenant per pass: each pass opens every tenant's journal
-        // and reads two numbers back, and the write pass additionally builds a
-        // ladder, so the two loops carried five fallible operations between them
-        // and a reader could not see that the second pass only reads.
+        // One helper per tenant per pass: the write pass builds a ladder and the
+        // second pass only reads, and each leaves its two numbers in one place.
         for tenant in 0..tenants {
-            let (events, tail) = write_tenant_ladder(sim, &dir, tenant)?;
-            expected.insert(tenant, events);
-            tails.insert(tenant, tail);
+            wrote.insert(tenant, write_tenant_ladder(sim, &dir, tenant)?);
         }
 
         for tenant in 0..tenants {
-            let (events, tail) = read_tenant_journal(sim, &dir, tenant)?;
+            let read = read_tenant_journal(sim, &dir, tenant)?;
             assert_eq!(
-                events, expected[&tenant],
-                "tenant {tenant} changed across a reopen"
+                wrote.get(&tenant),
+                Some(&read),
+                "tenant {tenant} changed across a reopen, or its tail moved"
             );
-            assert_eq!(tail, tails[&tenant], "tenant {tenant}'s tail moved");
         }
         sim.record("tenants-isolated");
         sim.trace
@@ -365,24 +325,21 @@ fn tenant_isolation(band: Band) -> TestResult {
     })
 }
 
-/// Reopening and re-appending at the same tail is refused, not duplicated.
-///
-/// Idempotency of a restore: a controller that crashes after committing and
-/// before recording that it did must find its own fence closed, because the
-/// alternative is a second copy of every fact it already wrote.
+/// Reopening and re-appending at the same tail is refused, not duplicated: a
+/// controller that crashes after committing must find its own fence closed.
 fn idempotent_restore(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("idem")?;
         let path = sim.journal_path(&dir, 0);
         let events = seeded_ladder(sim)?;
+        let first = events.first().ok_or("the seeded ladder has a first rung")?;
         let (complete, _) = write_batch(&path, &events)?;
 
         // A second controller that still believes the journal is at genesis
         // must be refused, not served.
         let mut stale = FileJournal::open(&path)?;
-        let genesis = JournalPosition::genesis();
         assert!(
-            append_at(&mut stale, genesis, &events[0]).is_err(),
+            append_at(&mut stale, JournalPosition::genesis(), first).is_err(),
             "a stale tail was accepted, so a replay duplicated {complete} events"
         );
         assert_eq!(
@@ -396,10 +353,8 @@ fn idempotent_restore(band: Band) -> TestResult {
         // rung the journal already holds.
         let mut honest = FileJournal::open(&path)?;
         let current = honest.tail();
-        assert!(
-            append_at(&mut honest, current, &events[0]).is_err(),
-            "an already-climbed rung was appended twice"
-        );
+        let again = append_at(&mut honest, current, first);
+        assert!(again.is_err(), "an already-climbed rung was appended twice");
         sim.record("restore-refused-at-stale-tail");
         sim.trace.record_number("idem-events", complete);
         Ok(())
@@ -408,16 +363,9 @@ fn idempotent_restore(band: Band) -> TestResult {
 
 /// A fact far behind the head still fences its own replay.
 ///
-/// The simulation asked a question the suite had never posed: a `Stored` fact
-/// whose sequence number is hundreds of events behind the current head. The
-/// shipped answer is that it *still* enters the idempotency fence, so a
-/// controller that re-presents that old fact is refused rather than served.
-///
-/// That answer is defensible — the fact is the receipt for that attempt, and a
-/// receipt does not expire because the journal grew — but it was previously
-/// untested, which meant a future change could flip it silently. This family
-/// pins it as deliberate, so flipping it becomes a decision with a failing
-/// test attached rather than an accident with a green suite.
+/// A `Stored` fact hundreds of events behind the head *still* enters the
+/// idempotency fence: it is the receipt for its attempt and does not expire as
+/// the journal grows. Pinned as deliberate, so flipping it fails a test.
 fn stored_lags_history_but_still_fences_a_replay(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("lag")?;
@@ -478,9 +426,8 @@ fn stored_lags_history_but_still_fences_a_replay(band: Band) -> TestResult {
 
 /// Corruption mid-file is refused, not silently trimmed.
 ///
-/// Trimming would be the dangerous repair: it would delete the record of an
-/// effect that may have landed. Only a *final* partial frame may be repaired;
-/// anything earlier has to be refused outright.
+/// Only a *final* partial frame may be repaired; trimming earlier would delete
+/// the record of an effect that may have landed.
 fn middle_corruption(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("middle")?;
@@ -496,8 +443,7 @@ fn middle_corruption(band: Band) -> TestResult {
         // Past the first frame, so the damage is interior rather than a torn
         // tail the journal is entitled to repair.
         let cut = bytes.len() >> 1;
-        let end = cut.saturating_add(8).min(bytes.len());
-        for byte in &mut bytes[cut..end] {
+        for byte in bytes.iter_mut().skip(cut).take(8) {
             *byte ^= 0xFF;
         }
         std::fs::write(&path, &bytes)?;
@@ -522,9 +468,7 @@ fn middle_corruption(band: Band) -> TestResult {
 
 /// A journal written by one handle is read by another, byte for byte.
 ///
-/// Portability of the durable record: the bytes are self-describing enough to
-/// survive a process boundary, which is the only condition under which a
-/// restart is meaningful.
+/// The bytes are self-describing enough to survive a process boundary.
 fn reopen_portability(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("reopen")?;
@@ -549,11 +493,8 @@ fn reopen_portability(band: Band) -> TestResult {
     })
 }
 
-/// An over-limit journal is refused without truncation.
-///
-/// The bound is the defence against a file fed more history than the contract
-/// allows. Refusing is safe; truncating destroys the record of effects that may
-/// have landed, so the refusal is the whole property.
+/// An over-limit journal is refused without truncation: truncating destroys the
+/// record of effects that may have landed.
 fn bound_refusal(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("bound")?;
@@ -561,7 +502,10 @@ fn bound_refusal(band: Band) -> TestResult {
         write_batch(&path, &ladder(1)?)?;
 
         let mut bytes = std::fs::read(&path)?;
-        bytes[0..8].copy_from_slice(&u64::MAX.to_le_bytes());
+        bytes
+            .get_mut(..8)
+            .ok_or("a length prefix")?
+            .copy_from_slice(&u64::MAX.to_le_bytes());
         std::fs::write(&path, &bytes)?;
         let size = path.metadata()?.len();
 
@@ -594,7 +538,8 @@ fn event_cap(band: Band) -> TestResult {
             let events = ladder(n)?;
             match journal.compare_and_append_all(&events) {
                 Ok(_) => accepted = accepted.saturating_add(events.len()),
-                Err(_) => {
+                Err(refusal) => {
+                    lgwks_std::trace::debug!(error = %refusal, n, "event cap: append refused");
                     refused_at = n;
                     break;
                 }
@@ -615,26 +560,26 @@ fn event_cap(band: Band) -> TestResult {
 /// Malformed input — rotated, inflated, truncated, foreign padding — is
 /// refused.
 ///
-/// The adversarial family. Each shape is a way a sick device or an attacker
-/// could try to make the journal *accept* a frame it should not, and every one
-/// of them must end in a refusal rather than a repair that invents history.
+/// The adversarial family: each shape tries to make the journal *accept* a
+/// frame it should not, and must end in a refusal, not a repair that invents history.
 fn exploit_shapes(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("exploit")?;
         let shape = sim.rng().below(4);
 
-        let (_, good) = write_batch(&sim.journal_path(&dir, 9_000), &ladder(1)?)?;
+        let (_, mut bytes) = write_batch(&sim.journal_path(&dir, 9_000), &ladder(1)?)?;
         assert!(
-            good.len() > 8,
+            bytes.len() > 8,
             "the fixture journal is too short to malform"
         );
-
-        let mut bytes = good;
+        let prefix = bytes
+            .get_mut(..8)
+            .ok_or("the fixture holds a length prefix")?;
         match shape {
             // A rotated prefix: the length is right but byte-swapped.
-            0 => bytes[0..8].reverse(),
+            0 => prefix.reverse(),
             // An inflated prefix over a complete frame.
-            1 => bytes[0..8].copy_from_slice(&u64::from(u32::MAX).to_le_bytes()),
+            1 => prefix.copy_from_slice(&u64::from(u32::MAX).to_le_bytes()),
             // A truncated final frame.
             2 => {
                 bytes.truncate(bytes.len().saturating_sub(3));
@@ -653,13 +598,14 @@ fn exploit_shapes(band: Band) -> TestResult {
                 let committed = reopened.events().count();
                 assert!(
                     committed <= 2,
-                    "shape {shape} was accepted as {committed} committed \
-                     events, more than the two ever written"
+                    "shape {shape} was accepted as {committed} events"
                 );
-                drop(reopened);
                 true
             }
-            Err(_) => false,
+            Err(refusal) => {
+                lgwks_std::trace::debug!(error = %refusal, shape, "exploit: journal refused");
+                false
+            }
         };
         // The file may be *shortened* — taking back a torn tail is the one
         // repair this journal is entitled to make, because a torn append was
@@ -713,22 +659,14 @@ band_family!(
     replay_bytes_r14 => replay_bytes, 14; replay_bytes_r15 => replay_bytes, 15;
 
     // Rung 1: recovery and the chain.
-    recover_uncertain_r00 => recover_uncertain, 0;
-    recover_uncertain_r01 => recover_uncertain, 1;
-    recover_uncertain_r02 => recover_uncertain, 2;
-    recover_uncertain_r03 => recover_uncertain, 3;
-    recover_uncertain_r04 => recover_uncertain, 4;
-    recover_uncertain_r05 => recover_uncertain, 5;
-    recover_uncertain_r06 => recover_uncertain, 6;
-    recover_uncertain_r07 => recover_uncertain, 7;
-    recover_uncertain_r08 => recover_uncertain, 8;
-    recover_uncertain_r09 => recover_uncertain, 9;
-    recover_uncertain_r10 => recover_uncertain, 10;
-    recover_uncertain_r11 => recover_uncertain, 11;
-    recover_uncertain_r12 => recover_uncertain, 12;
-    recover_uncertain_r13 => recover_uncertain, 13;
-    recover_uncertain_r14 => recover_uncertain, 14;
-    recover_uncertain_r15 => recover_uncertain, 15;
+    recover_uncertain_r00 => recover_uncertain, 0; recover_uncertain_r01 => recover_uncertain, 1;
+    recover_uncertain_r02 => recover_uncertain, 2; recover_uncertain_r03 => recover_uncertain, 3;
+    recover_uncertain_r04 => recover_uncertain, 4; recover_uncertain_r05 => recover_uncertain, 5;
+    recover_uncertain_r06 => recover_uncertain, 6; recover_uncertain_r07 => recover_uncertain, 7;
+    recover_uncertain_r08 => recover_uncertain, 8; recover_uncertain_r09 => recover_uncertain, 9;
+    recover_uncertain_r10 => recover_uncertain, 10; recover_uncertain_r11 => recover_uncertain, 11;
+    recover_uncertain_r12 => recover_uncertain, 12; recover_uncertain_r13 => recover_uncertain, 13;
+    recover_uncertain_r14 => recover_uncertain, 14; recover_uncertain_r15 => recover_uncertain, 15;
 
     chain_verifies_r00 => chain_verifies, 0; chain_verifies_r01 => chain_verifies, 1;
     chain_verifies_r02 => chain_verifies, 2; chain_verifies_r03 => chain_verifies, 3;
@@ -765,57 +703,33 @@ band_family!(
     stored_lags_history_but_still_fences_a_replay_r13 => stored_lags_history_but_still_fences_a_replay, 13;
     stored_lags_history_but_still_fences_a_replay_r14 => stored_lags_history_but_still_fences_a_replay, 14;
     stored_lags_history_but_still_fences_a_replay_r15 => stored_lags_history_but_still_fences_a_replay, 15;
-    idempotent_restore_r00 => idempotent_restore, 0;
-    idempotent_restore_r01 => idempotent_restore, 1;
-    idempotent_restore_r02 => idempotent_restore, 2;
-    idempotent_restore_r03 => idempotent_restore, 3;
-    idempotent_restore_r04 => idempotent_restore, 4;
-    idempotent_restore_r05 => idempotent_restore, 5;
-    idempotent_restore_r06 => idempotent_restore, 6;
-    idempotent_restore_r07 => idempotent_restore, 7;
-    idempotent_restore_r08 => idempotent_restore, 8;
-    idempotent_restore_r09 => idempotent_restore, 9;
-    idempotent_restore_r10 => idempotent_restore, 10;
-    idempotent_restore_r11 => idempotent_restore, 11;
-    idempotent_restore_r12 => idempotent_restore, 12;
-    idempotent_restore_r13 => idempotent_restore, 13;
-    idempotent_restore_r14 => idempotent_restore, 14;
-    idempotent_restore_r15 => idempotent_restore, 15;
+    idempotent_restore_r00 => idempotent_restore, 0; idempotent_restore_r01 => idempotent_restore, 1;
+    idempotent_restore_r02 => idempotent_restore, 2; idempotent_restore_r03 => idempotent_restore, 3;
+    idempotent_restore_r04 => idempotent_restore, 4; idempotent_restore_r05 => idempotent_restore, 5;
+    idempotent_restore_r06 => idempotent_restore, 6; idempotent_restore_r07 => idempotent_restore, 7;
+    idempotent_restore_r08 => idempotent_restore, 8; idempotent_restore_r09 => idempotent_restore, 9;
+    idempotent_restore_r10 => idempotent_restore, 10; idempotent_restore_r11 => idempotent_restore, 11;
+    idempotent_restore_r12 => idempotent_restore, 12; idempotent_restore_r13 => idempotent_restore, 13;
+    idempotent_restore_r14 => idempotent_restore, 14; idempotent_restore_r15 => idempotent_restore, 15;
 
     // Rung 3: the adversarial and the bounded.
-    middle_corruption_r00 => middle_corruption, 0;
-    middle_corruption_r01 => middle_corruption, 1;
-    middle_corruption_r02 => middle_corruption, 2;
-    middle_corruption_r03 => middle_corruption, 3;
-    middle_corruption_r04 => middle_corruption, 4;
-    middle_corruption_r05 => middle_corruption, 5;
-    middle_corruption_r06 => middle_corruption, 6;
-    middle_corruption_r07 => middle_corruption, 7;
-    middle_corruption_r08 => middle_corruption, 8;
-    middle_corruption_r09 => middle_corruption, 9;
-    middle_corruption_r10 => middle_corruption, 10;
-    middle_corruption_r11 => middle_corruption, 11;
-    middle_corruption_r12 => middle_corruption, 12;
-    middle_corruption_r13 => middle_corruption, 13;
-    middle_corruption_r14 => middle_corruption, 14;
-    middle_corruption_r15 => middle_corruption, 15;
+    middle_corruption_r00 => middle_corruption, 0; middle_corruption_r01 => middle_corruption, 1;
+    middle_corruption_r02 => middle_corruption, 2; middle_corruption_r03 => middle_corruption, 3;
+    middle_corruption_r04 => middle_corruption, 4; middle_corruption_r05 => middle_corruption, 5;
+    middle_corruption_r06 => middle_corruption, 6; middle_corruption_r07 => middle_corruption, 7;
+    middle_corruption_r08 => middle_corruption, 8; middle_corruption_r09 => middle_corruption, 9;
+    middle_corruption_r10 => middle_corruption, 10; middle_corruption_r11 => middle_corruption, 11;
+    middle_corruption_r12 => middle_corruption, 12; middle_corruption_r13 => middle_corruption, 13;
+    middle_corruption_r14 => middle_corruption, 14; middle_corruption_r15 => middle_corruption, 15;
 
-    reopen_portability_r00 => reopen_portability, 0;
-    reopen_portability_r01 => reopen_portability, 1;
-    reopen_portability_r02 => reopen_portability, 2;
-    reopen_portability_r03 => reopen_portability, 3;
-    reopen_portability_r04 => reopen_portability, 4;
-    reopen_portability_r05 => reopen_portability, 5;
-    reopen_portability_r06 => reopen_portability, 6;
-    reopen_portability_r07 => reopen_portability, 7;
-    reopen_portability_r08 => reopen_portability, 8;
-    reopen_portability_r09 => reopen_portability, 9;
-    reopen_portability_r10 => reopen_portability, 10;
-    reopen_portability_r11 => reopen_portability, 11;
-    reopen_portability_r12 => reopen_portability, 12;
-    reopen_portability_r13 => reopen_portability, 13;
-    reopen_portability_r14 => reopen_portability, 14;
-    reopen_portability_r15 => reopen_portability, 15;
+    reopen_portability_r00 => reopen_portability, 0; reopen_portability_r01 => reopen_portability, 1;
+    reopen_portability_r02 => reopen_portability, 2; reopen_portability_r03 => reopen_portability, 3;
+    reopen_portability_r04 => reopen_portability, 4; reopen_portability_r05 => reopen_portability, 5;
+    reopen_portability_r06 => reopen_portability, 6; reopen_portability_r07 => reopen_portability, 7;
+    reopen_portability_r08 => reopen_portability, 8; reopen_portability_r09 => reopen_portability, 9;
+    reopen_portability_r10 => reopen_portability, 10; reopen_portability_r11 => reopen_portability, 11;
+    reopen_portability_r12 => reopen_portability, 12; reopen_portability_r13 => reopen_portability, 13;
+    reopen_portability_r14 => reopen_portability, 14; reopen_portability_r15 => reopen_portability, 15;
 
     bound_refusal_r00 => bound_refusal, 0; bound_refusal_r01 => bound_refusal, 1;
     bound_refusal_r02 => bound_refusal, 2; bound_refusal_r03 => bound_refusal, 3;
@@ -866,12 +780,9 @@ fn the_bands_cover_every_seed_exactly_once() -> TestResult {
     Ok(())
 }
 
-/// Every family owns a distinct scratch tag.
-///
-/// Two families sharing a tag would race, because the runner executes tests in
-/// parallel processes and a shared directory is a shared file.
+/// Every family owns a distinct scratch tag: two sharing one would race.
 #[test]
-fn every_family_has_its_own_scratch_tag() -> TestResult {
+fn every_family_has_its_own_scratch_tag() {
     let tags = [
         "torn", "fence", "replay", "recover", "chain", "tenants", "idem", "middle", "reopen",
         "bound", "cap", "exploit",
@@ -881,5 +792,4 @@ fn every_family_has_its_own_scratch_tag() -> TestResult {
         assert!(seen.insert(tag), "scratch tag {tag} is used twice");
     }
     assert_eq!(seen.len(), tags.len());
-    Ok(())
 }

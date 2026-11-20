@@ -43,7 +43,9 @@ use lgwks_bot::cap::Cap;
 use lgwks_bot::gate::GrantSet;
 use lgwks_bot::proposal::{Shape, StubModel};
 use lgwks_bot::script::Scope;
-use lgwks_bot::script::{AskRequest, FetchOptions, FlowError, ModelOutput, ModelPort, PostBody};
+use lgwks_bot::script::{
+    AskRequest, FetchOptions, FlowError, ModelOutput, ModelPort, PostBody, SendOutcome,
+};
 use lgwks_bot::task::{Disposition, Host, task};
 
 use crate::band_family::band_family;
@@ -211,6 +213,15 @@ fn ask_truncation_refuses_typed_on_every_seed(band: Band) -> TestResult {
     Ok(())
 }
 
+/// A send's output exists and landed applied; the refusal names `what` settled.
+fn require_applied(output: Option<&SendOutcome>, what: &'static str) -> TestResult {
+    match output {
+        Some(outcome) if is_applied(outcome) => Ok(()),
+        Some(_) => fail("the send settled as something other than applied"),
+        None => fail(what),
+    }
+}
+
 /// What one seeded send does: park, crash, lose or land, then resume over the
 /// same store and settle from whatever evidence survived.
 fn tend_send(
@@ -245,12 +256,7 @@ fn tend_send(
             let report = lgwks_bot::script::block_on(allowing(
                 host.run(&sending, (Arc::clone(mailer), payload)),
             ));
-            let Some(outcome) = report.output() else {
-                return fail("a clean send settles");
-            };
-            if !is_applied(outcome) {
-                return fail("a clean send settles applied");
-            }
+            require_applied(report.output(), "a clean send settles")?;
             sim.record(&format!("t{tenant}:s{index}:settled"));
             Ok(())
         }
@@ -269,12 +275,7 @@ fn tend_send(
                 &sending,
                 (Arc::clone(mailer), payload),
             )));
-            let Some(outcome) = resumed.output() else {
-                return fail("the resume settles the send");
-            };
-            if !is_applied(outcome) {
-                return fail("the resume settles on the evidence");
-            }
+            require_applied(resumed.output(), "the resume settles the send")?;
             sim.record(&format!("t{tenant}:s{index}:intent-crash-once"));
             Ok(())
         }
@@ -305,12 +306,7 @@ fn tend_send(
                 &crashing,
                 (Arc::clone(mailer), payload, false),
             )));
-            let Some(outcome) = settled.output() else {
-                return fail("the late evidence settles the send");
-            };
-            if !is_applied(outcome) {
-                return fail("the late evidence settles it applied");
-            }
+            require_applied(settled.output(), "the late evidence settles the send")?;
             sim.record(&format!("t{tenant}:s{index}:unknown-then-settled"));
             Ok(())
         }
@@ -319,12 +315,7 @@ fn tend_send(
             let resumed = lgwks_bot::script::block_on(allowing(
                 host.run(&sending, (Arc::clone(mailer), payload)),
             ));
-            let Some(outcome) = resumed.output() else {
-                return fail("a fresh send settles");
-            };
-            if !is_applied(outcome) {
-                return fail("a fresh send settles applied");
-            }
+            require_applied(resumed.output(), "a fresh send settles")?;
             sim.record(&format!("t{tenant}:s{index}:fresh"));
             Ok(())
         }

@@ -90,7 +90,7 @@ fn tier(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("tier")?;
         let path = sim.journal_path(&dir, 0);
-        let requested = TIERS[usize::try_from(sim.rng().below(4))?];
+        let requested = *crate::sim::nth(&TIERS, usize::try_from(sim.rng().below(4))?)?;
         // The journal's shipped event cap is the real bound on how much history
         // one store can hold, and an attempt costs two events, so the attempts
         // one journal can fence is half the cap. Both numbers go into the
@@ -404,7 +404,10 @@ fn replay(band: Band) -> TestResult {
             for tenant in 0..tenants {
                 let path = sim.journal_path(&dir, tenant);
                 let mut journal = FileJournal::open(&path)?;
-                drop(journal.compare_and_append_all(&ladder(tenant, 0)?));
+                // The second round is a replay the journal refuses; that is the claim.
+                if let Err(refusal) = journal.compare_and_append_all(&ladder(tenant, 0)?) {
+                    lgwks_std::trace::debug!(error = %refusal, tenant, "replay: append refused");
+                }
                 totals.push(journal.events().count());
             }
         }
@@ -416,7 +419,7 @@ fn replay(band: Band) -> TestResult {
             let slot = index
                 .checked_rem(width)
                 .ok_or("the replay has at least one tenant")?;
-            per_tenant[slot] = *count;
+            *per_tenant.get_mut(slot).ok_or("a slot for every tenant")? = *count;
         }
         for (tenant, count) in per_tenant.iter().enumerate() {
             assert_eq!(
@@ -526,7 +529,9 @@ fn latency(band: Band) -> TestResult {
     sim::assert_replays(band, |sim| {
         let dir = sim.scratch("latency")?;
         let mut single = FileJournal::open(sim.journal_path(&dir, 0))?;
-        drop(single.compare_and_append_all(&ladder(0, 0)?));
+        if let Err(refusal) = single.compare_and_append_all(&ladder(0, 0)?) {
+            lgwks_std::trace::debug!(error = %refusal, "latency: the single tenant's append refused");
+        }
         let single_events = single.events().count();
         drop(single);
 
@@ -534,14 +539,16 @@ fn latency(band: Band) -> TestResult {
         let mut per_tenant = Vec::new();
         for tenant in 0..tenants {
             let mut journal = FileJournal::open(sim.journal_path(&dir, tenant.saturating_add(1)))?;
-            drop(journal.compare_and_append_all(&ladder(tenant, 0)?));
+            if let Err(refusal) = journal.compare_and_append_all(&ladder(tenant, 0)?) {
+                lgwks_std::trace::debug!(error = %refusal, tenant, "latency: append refused");
+            }
             per_tenant.push(journal.events().count());
             drop(journal);
         }
         for (index, count) in per_tenant.iter().enumerate() {
             assert_eq!(
                 *count, single_events,
-                "tenant {index} did {count} events where the single-tenant case did                  {single_events}, so sharing a host changed the per-tenant work"
+                "tenant {index} did {count} events where the single-tenant case did {single_events}, so sharing a host changed the per-tenant work"
             );
         }
         sim.record("per-tenant-work-constant");
@@ -640,10 +647,9 @@ latency_r14 => latency, 14; latency_r15 => latency, 15;
 
 /// The tiers are the ones the contract names, in order.
 #[test]
-fn the_tiers_are_the_named_ones() -> TestResult {
+fn the_tiers_are_the_named_ones() {
     assert_eq!(TIERS, [100, 1_000, 10_000, 100_000], "the tiers drifted");
     assert_eq!(TENANT_PROVISIONS, 5_000, "the provision count drifted");
-    Ok(())
 }
 
 /// The bands partition the seed space: no gap, no overlap.

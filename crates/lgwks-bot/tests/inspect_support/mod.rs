@@ -27,7 +27,7 @@ use lgwks_bot::spec::{Bot, BotSpec, EffectScope};
 use lgwks_bot::verb::{EffectLifetime, Execute};
 
 /// A test result that may carry an `EcsError`, an id error or an I/O error.
-pub type TestResult<T> = Result<T, Box<dyn Error>>;
+pub(crate) type TestResult<T> = Result<T, Box<dyn Error>>;
 
 thread_local! {
     /// The last report an action received on this thread.
@@ -35,26 +35,29 @@ thread_local! {
 }
 
 /// Read and clear the captured report.
-pub fn take_captured() -> TestResult<Inspection> {
+pub(crate) fn take_captured() -> TestResult<Inspection> {
     CAPTURED
         .with(|slot| slot.borrow_mut().take())
         .ok_or_else(|| "the capture action did not run".into())
 }
 
 /// Forget whatever inspection the recording action last captured, so a test asserts on its own run and not an earlier one.
-pub fn clear_captured() {
+pub(crate) fn clear_captured() {
     CAPTURED.with(|slot| *slot.borrow_mut() = None);
 }
 
 /// An action that records the inspection it was handed.
-pub struct Capture;
+pub(crate) struct Capture;
 
 impl Capture {
     /// Build one from the `target` its spec names (ignored).
-    pub fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self))
+    fn from_target(_target: &str) -> Action {
+        Action::new(Self)
     }
 }
+
+/// The registry's constructor for [`Capture`], which cannot fail.
+const CAPTURE: fn(&str) -> Result<Action, EcsError> = |target| Ok(Capture::from_target(target));
 
 impl Execute for Capture {
     type Input = Inspection;
@@ -87,7 +90,7 @@ domains! {
             "inspect::subject" => Subject::from_target,
         }
         execute {
-            "test::capture" => Capture::from_target,
+            "test::capture" => CAPTURE,
         }
     }
 }
@@ -96,7 +99,7 @@ domains! {
 ///
 /// The run identity and the probe journal come from the shared simulation rig,
 /// so this adds no second copy of the estate's bot-scope construction.
-pub fn scope() -> TestResult<EffectScope> {
+pub(crate) fn scope() -> TestResult<EffectScope> {
     let store = Rc::new(RefCell::new(MemoryJournal::new()));
     sim::rig::scope(sim::rig::identity()?, store)
 }
@@ -105,7 +108,7 @@ pub fn scope() -> TestResult<EffectScope> {
 ///
 /// The one place a test ticks an inspection bot, so the "fire once, then read
 /// what the action saw" sequence is not copied between targets.
-pub fn tick_once(bot: &mut Bot) -> TestResult<Inspection> {
+pub(crate) fn tick_once(bot: &mut Bot) -> TestResult<Inspection> {
     clear_captured();
     assert_eq!(
         bot.tick()?,
@@ -117,7 +120,7 @@ pub fn tick_once(bot: &mut Bot) -> TestResult<Inspection> {
 
 /// Build a native bot observing `artifact`, tick it once, and return the report
 /// its action captured.
-pub fn observe_once(artifact: &str, name: &str) -> TestResult<Inspection> {
+pub(crate) fn observe_once(artifact: &str, name: &str) -> TestResult<Inspection> {
     let mut bot = Bot::builder(name)
         .observe(Subject::at(artifact))
         .on(|_: &Inspection| true, Capture)
@@ -127,7 +130,7 @@ pub fn observe_once(artifact: &str, name: &str) -> TestResult<Inspection> {
 }
 
 /// Escape `text` as a JSON string body.
-pub fn json_string(text: &str) -> String {
+pub(crate) fn json_string(text: &str) -> String {
     let mut out = String::with_capacity(text.len().saturating_add(2));
     out.push('"');
     for character in text.chars() {
@@ -143,7 +146,7 @@ pub fn json_string(text: &str) -> String {
 }
 
 /// A one-chain spec naming the inspection source and the capture action.
-pub fn spec_for(artifact: &str) -> TestResult<BotSpec> {
+pub(crate) fn spec_for(artifact: &str) -> TestResult<BotSpec> {
     let json = format!(
         r#"{{"version":1,"name":"wired","chains":[
             {{"source":"inspect::subject","target":{target},
@@ -161,7 +164,7 @@ pub fn spec_for(artifact: &str) -> TestResult<BotSpec> {
 static ARTIFACTS: AtomicUsize = AtomicUsize::new(1);
 
 /// Write `subject` to a unique temp artifact and return its path string.
-pub fn artifact_for(label: &str, subject: &str) -> TestResult<String> {
+pub(crate) fn artifact_for(label: &str, subject: &str) -> TestResult<String> {
     let mark = ARTIFACTS.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("lgwks-inspect-wiring-{label}-{mark}.rs"));
     std::fs::write(&path, subject)?;

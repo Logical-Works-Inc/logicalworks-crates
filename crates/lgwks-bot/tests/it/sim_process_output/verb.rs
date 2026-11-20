@@ -46,9 +46,9 @@ fn verb_framed_reads_agree_with_the_model(band: Band) -> TestResult {
         // capture's cut.
         let process = process_with_frames(framed_capture(byte, payload, records, 4096)?)?;
         let state = execute(&process)?;
-        assert_eq!(state.exit_code, Some(0), "the child ran to a zero exit");
+        assert_eq!(state.exit_code(), Some(0), "the child ran to a zero exit");
         assert!(
-            !state.stdout_truncated,
+            !state.stdout_truncated(),
             "the whole framed stream fits the capture ceiling"
         );
         let frames = state
@@ -106,7 +106,7 @@ fn verb_two_tenants_never_cross(band: Band) -> TestResult {
             ("second", &second_state, b'b'),
         ] {
             assert_eq!(
-                state.exit_code,
+                state.exit_code(),
                 Some(0),
                 "{label} tenant ran to a zero exit"
             );
@@ -128,16 +128,17 @@ fn verb_two_tenants_never_cross(band: Band) -> TestResult {
             }
         }
         assert_eq!(
-            first_state.stdout_total_bytes, second_state.stdout_total_bytes,
+            first_state.stdout_total_bytes(),
+            second_state.stdout_total_bytes(),
             "both tenants wrote the same shape, so isolation is about content not count"
         );
         sim.record("verb-tenants");
         sim.trace.record_number("payload", payload);
         sim.trace.record_number("records", records);
         sim.trace
-            .record_number("first-total", first_state.stdout_total_bytes);
+            .record_number("first-total", first_state.stdout_total_bytes());
         sim.trace
-            .record_number("second-total", second_state.stdout_total_bytes);
+            .record_number("second-total", second_state.stdout_total_bytes());
         Ok(())
     })
 }

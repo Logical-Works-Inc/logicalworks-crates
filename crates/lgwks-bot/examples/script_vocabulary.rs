@@ -89,12 +89,8 @@ impl Observe for DemoCounter {
 /// A stub action: records nothing, answers `()`.
 struct DemoPage;
 
-impl DemoPage {
-    /// Build from any target.
-    fn from_target(_target: &str) -> Result<Action, EcsError> {
-        Ok(Action::new(Self))
-    }
-}
+/// Build the page action from any target.
+const DEMO_PAGE: fn(&str) -> Result<Action, EcsError> = |_target| Ok(Action::new(DemoPage));
 
 impl Execute for DemoPage {
     type Input = u16;
@@ -121,7 +117,7 @@ domains! {
             "demo::counter" => DemoCounter::from_target,
         }
         execute {
-            "demo::page" => DemoPage::from_target,
+            "demo::page" => DEMO_PAGE,
         }
     }
 }
@@ -250,18 +246,19 @@ fn proposal_gate() -> Result<Gate, Box<dyn Error>> {
     ))
 }
 
-/// Run every vocabulary flow, check what each one reports, and print the trail.
-fn main() -> Result<(), Box<dyn Error>> {
-    use std::io::Write as _;
+/// Print one line of the trail, naming the failure when the report is not written.
+fn say(out: &mut impl std::io::Write, line: std::fmt::Arguments<'_>) -> Result<(), String> {
+    writeln!(out, "{line}").map_err(|error| format!("the report was not written: {error}"))
+}
 
-    let mut out = std::io::stdout().lock();
-    let scope = Scope::root(Tenant::new("demo").map_err(|error| error.to_string())?);
+/// A justification WAF stops the run with the deciding rule and its reason code.
+fn justification(scope: &Scope, out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let budget = Justify::new(vec![lgwks_bot::script::Rule::allowance(
         "polls",
         Arc::new(lgwks_bot::script::Allowance::new(2)),
         "poll-budget-spent",
     )]);
-    let blocked = lgwks_bot::script::block_on(capped_polls(&scope, &budget));
+    let blocked = lgwks_bot::script::block_on(capped_polls(scope, &budget));
     check(
         matches!(blocked, Err(FlowError::Justified { .. })),
         "a stop must be justified",
@@ -272,26 +269,40 @@ fn main() -> Result<(), Box<dyn Error>> {
             reason == "poll-budget-spent",
             "the refusal carries its reason code",
         )?;
-        writeln!(out, "justification: blocked by {rule} with reason {reason}")
-            .map_err(|error| format!("the report was not written: {error}"))?;
+        say(
+            out,
+            format_args!("justification: blocked by {rule} with reason {reason}"),
+        )?;
     }
+    Ok(())
+}
 
+/// Compensations undo in reverse order, and only when a step fails.
+fn compensation(scope: &Scope, out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let ticket =
-        lgwks_bot::script::block_on(booking(&scope, false)).map_err(|error| format!("{error}"))?;
+        lgwks_bot::script::block_on(booking(scope, false)).map_err(|error| format!("{error}"))?;
     check(
         ticket == "ticket",
         "a booking that succeeds issues its ticket",
     )?;
-    writeln!(out, "compensation: success runs no undo, ticket issued")
-        .map_err(|error| format!("the report was not written: {error}"))?;
-    let refused = lgwks_bot::script::block_on(booking(&scope, true));
+    say(
+        out,
+        format_args!("compensation: success runs no undo, ticket issued"),
+    )?;
+    let refused = lgwks_bot::script::block_on(booking(scope, true));
     check(refused.is_err(), "issuing must fail this run")?;
     if let Err(error) = refused {
-        writeln!(out, "compensation: issuing failed the run as {error}")
-            .map_err(|error| format!("the report was not written: {error}"))?;
+        say(
+            out,
+            format_args!("compensation: issuing failed the run as {error}"),
+        )?;
     }
+    Ok(())
+}
 
-    let report = lgwks_bot::script::block_on(lanes(&scope)).map_err(|error| format!("{error}"))?;
+/// A needs-ordered lane graph runs every lane, in order.
+fn graph(scope: &Scope, out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
+    let report = lgwks_bot::script::block_on(lanes(scope)).map_err(|error| format!("{error}"))?;
     check(report.is_ok(), "every lane ran to a value")?;
     check(
         report.succeeded() == vec!["fetch_a", "fetch_b", "merge", "publish"],
@@ -310,32 +321,43 @@ fn main() -> Result<(), Box<dyn Error>> {
         )?,
         None => check(false, "merge has no outcome")?,
     }
-    writeln!(out, "graph: lanes ran {:?}", report.succeeded())
-        .map_err(|error| format!("the report was not written: {error}"))?;
+    say(
+        out,
+        format_args!("graph: lanes ran {:?}", report.succeeded()),
+    )?;
+    Ok(())
+}
 
+/// A bounded live feed handles every event inside its bound.
+fn stream(scope: &Scope, out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let pending = Mutex::new(vec![vec![4, 5], vec![1, 2, 3]]);
-    let feed = lgwks_bot::script::block_on(prices(&scope, &pending))
-        .map_err(|error| format!("{error}"))?;
+    let feed =
+        lgwks_bot::script::block_on(prices(scope, &pending)).map_err(|error| format!("{error}"))?;
     check(feed.handled == 5, "every feed event was handled")?;
     check(feed.dropped == 0, "a feed inside the bound sheds nothing")?;
     check(feed.refused == 0, "a feed inside the bound refuses nothing")?;
-    writeln!(
+    say(
         out,
-        "stream: handled {} dropped {} refused {}",
-        feed.handled, feed.dropped, feed.refused
-    )
-    .map_err(|error| format!("the report was not written: {error}"))?;
+        format_args!(
+            "stream: handled {} dropped {} refused {}",
+            feed.handled, feed.dropped, feed.refused
+        ),
+    )?;
+    Ok(())
+}
 
+/// A remembered step, an admitted plan and a readiness wait.
+fn durable(scope: &Scope, out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let asked = AtomicU32::new(0);
     let price =
-        lgwks_bot::script::block_on(quote(&scope, &asked)).map_err(|error| format!("{error}"))?;
+        lgwks_bot::script::block_on(quote(scope, &asked)).map_err(|error| format!("{error}"))?;
     check(price == 40, "the remembered step gives its value")?;
     check(asked.load(Ordering::SeqCst) == 1, "the block ran once")?;
     let gate = proposal_gate()?;
-    let wanted = lgwks_bot::script::block_on(proposal(&scope, &gate, b"op=read-report\n"))
+    let wanted = lgwks_bot::script::block_on(proposal(scope, &gate, b"op=read-report\n"))
         .map_err(|error| format!("{error}"))?;
     check(wanted == 1, "the admitted plan wants its one operation")?;
-    let refused = lgwks_bot::script::block_on(proposal(&scope, &gate, b"op=install-dependency\n"));
+    let refused = lgwks_bot::script::block_on(proposal(scope, &gate, b"op=install-dependency\n"));
     check(
         matches!(refused, Err(FlowError::Refused { .. })),
         "an unregistered operation is refused",
@@ -343,14 +365,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let db: Readiness<u32> = Readiness::new("pool")?;
     db.ready(Generation::FIRST, 8)?;
     let size =
-        lgwks_bot::script::block_on(pooled(&scope, &db)).map_err(|error| format!("{error}"))?;
+        lgwks_bot::script::block_on(pooled(scope, &db)).map_err(|error| format!("{error}"))?;
     check(size == 8, "the wait is released with the pool")?;
-    writeln!(
+    say(
         out,
-        "durable: remembered {price}, admitted {wanted} operation, pool of {size}"
-    )
-    .map_err(|error| format!("the report was not written: {error}"))?;
+        format_args!("durable: remembered {price}, admitted {wanted} operation, pool of {size}"),
+    )?;
+    Ok(())
+}
 
+/// Typed observe and act calls against the stub registry.
+fn typed(out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let host = Host::builder("demo")
         .map_err(|error| error.to_string())?
         .domains(&DEMO)
@@ -382,9 +407,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         host.run(&paging, (String::from("oncall"), 2)),
     ));
     check(paged.result().is_ok(), "the typed action runs")?;
-    writeln!(out, "typed: counter polled 7, page acted once")
-        .map_err(|error| format!("the report was not written: {error}"))?;
+    say(
+        out,
+        format_args!("typed: counter polled 7, page acted once"),
+    )?;
+    Ok(())
+}
 
+/// Allowances and rules: tokens spend and refill, and the first rule decides.
+fn rules_and_allowance(out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let allowance = Arc::new(lgwks_bot::script::Allowance::new(1));
     check(allowance.remaining() == 1, "an allowance holds its tokens")?;
     check(allowance.take(), "a token spends")?;
@@ -411,9 +442,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => "unknown",
     };
     check(decision.rule == "paced", "the first rule decides first")?;
-    writeln!(out, "justify: paced rule answers {word}")
-        .map_err(|error| format!("the report was not written: {error}"))?;
+    say(out, format_args!("justify: paced rule answers {word}"))?;
+    Ok(())
+}
 
+/// A graph node carries its name and needs, and a stream gate its bound.
+fn node_and_gate(out: &mut impl std::io::Write) -> Result<(), Box<dyn Error>> {
     let node = GraphNode::new("probe", &["fetch_a"], move |_scope| {
         Box::pin(async move { Ok::<u64, FlowError>(0) })
     })
@@ -446,10 +480,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         map_domain::<u16, DemoFailed>(Ok(7)) == Ok(7),
         "a success crosses the domain boundary unchanged",
     )?;
-    writeln!(
+    say(
         out,
-        "vocabulary: every runtime answered through the public interface"
-    )
-    .map_err(|error| format!("the report was not written: {error}"))?;
+        format_args!("vocabulary: every runtime answered through the public interface"),
+    )?;
     Ok(())
+}
+
+/// Run every vocabulary flow, check what each one reports, and print the trail.
+fn main() -> Result<(), Box<dyn Error>> {
+    let mut out = std::io::stdout().lock();
+    let scope = Scope::root(Tenant::new("demo").map_err(|error| error.to_string())?);
+    justification(&scope, &mut out)?;
+    compensation(&scope, &mut out)?;
+    graph(&scope, &mut out)?;
+    stream(&scope, &mut out)?;
+    durable(&scope, &mut out)?;
+    typed(&mut out)?;
+    rules_and_allowance(&mut out)?;
+    node_and_gate(&mut out)
 }

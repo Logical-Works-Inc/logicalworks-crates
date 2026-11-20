@@ -9,6 +9,7 @@
 #![cfg(all(feature = "script", feature = "ephemeral"))]
 
 use crate::scratch::Scratch;
+use crate::sim::nth;
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -100,18 +101,22 @@ fn two_runs_key_their_steps_apart_through_a_store() -> TestResult {
     let submissions = submit_all(&host, &site, &["run-a", "run-b"])?;
     assert_eq!(submissions.len(), 2, "two keys, two submissions");
     assert!(
-        matches!(submissions[0], Submission::Executed(_)),
+        matches!(*nth(&submissions, 0)?, Submission::Executed(_)),
         "a first submission executes"
     );
     assert!(
-        matches!(submissions[1], Submission::Executed(_)),
+        matches!(*nth(&submissions, 1)?, Submission::Executed(_)),
         "a second request key is its own run, not a reattach"
     );
 
     assert_eq!(site.served(), 2, "each run's effect reached the site once");
     assert_eq!(site.duplicates(), 0, "no run's key matched another run's");
     let keys = site.keys();
-    assert_ne!(keys[0], keys[1], "the two runs key their steps apart");
+    assert_ne!(
+        nth(&keys, 0)?,
+        nth(&keys, 1)?,
+        "the two runs key their steps apart"
+    );
     Ok(())
 }
 
@@ -148,7 +153,11 @@ fn sim_business_key_dedups_across_runs() -> TestResult {
         "acme's second run is a duplicate under the business key"
     );
     let keys = site.keys();
-    assert_ne!(keys[0], keys[1], "the two tenants' business keys differ");
+    assert_ne!(
+        nth(&keys, 0)?,
+        nth(&keys, 1)?,
+        "the two tenants' business keys differ"
+    );
     Ok(())
 }
 
@@ -162,15 +171,15 @@ fn a_reattach_replays_without_rekeying_and_a_new_run_keys_apart() -> TestResult 
     let submissions = submit_all(&host, &site, &["order-42", "order-42", "order-43"])?;
     assert_eq!(submissions.len(), 3, "three keys, three submissions");
     assert!(
-        matches!(submissions[0], Submission::Executed(_)),
+        matches!(*nth(&submissions, 0)?, Submission::Executed(_)),
         "a first submission executes"
     );
     assert!(
-        matches!(submissions[1], Submission::Reattached(_)),
+        matches!(*nth(&submissions, 1)?, Submission::Reattached(_)),
         "a repeat under one key reattaches"
     );
     assert!(
-        matches!(submissions[2], Submission::Executed(_)),
+        matches!(*nth(&submissions, 2)?, Submission::Executed(_)),
         "a new request key is its own run"
     );
 
@@ -186,7 +195,8 @@ fn a_reattach_replays_without_rekeying_and_a_new_run_keys_apart() -> TestResult 
     );
     let keys = site.keys();
     assert_ne!(
-        keys[0], keys[1],
+        nth(&keys, 0)?,
+        nth(&keys, 1)?,
         "the replay's run and the new request's run key apart"
     );
     Ok(())

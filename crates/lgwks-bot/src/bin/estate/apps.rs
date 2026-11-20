@@ -37,7 +37,7 @@ async fn render_op(_scope: Scope, input: Vec<u8>) -> Result<Vec<u8>, FlowError> 
 
 /// Why `estate apps` could not run its evening.
 #[derive(Debug)]
-pub enum AppsError {
+pub(crate) enum AppsError {
     /// The arguments do not read as `estate apps [--store DIR]`.
     Usage(String),
     /// The socket failed.
@@ -157,14 +157,13 @@ fn answers(
 /// The app id a verdict answers.
 fn app_id_of(body: &str) -> Result<String, AppsError> {
     let key = "\"app\":\"";
-    let start = body
-        .find(key)
+    let (_, rest) = body
+        .split_once(key)
         .ok_or_else(|| AppsError::Exchange(format!("no app id in {body:?}")))?;
-    let rest = &body[start.saturating_add(key.len())..];
-    let end = rest
-        .find('"')
+    let (id, _) = rest
+        .split_once('"')
         .ok_or_else(|| AppsError::Exchange(format!("unterminated app id in {body:?}")))?;
-    Ok(rest[..end].to_owned())
+    Ok(id.to_owned())
 }
 
 /// The evening: refuse, repair, run, and assert every printed line; answers
@@ -236,7 +235,7 @@ pub(crate) fn say(line: &str) -> Result<(), AppsError> {
 }
 
 /// Serve admitted plans from `store_dir` on 127.0.0.1:0 and run the evening.
-pub fn run(args: &[String]) -> Result<(), AppsError> {
+pub(crate) fn run(args: &[String]) -> Result<(), AppsError> {
     let mut store_arg: Option<&String> = None;
     let mut index = 0;
     while let Some(flag) = args.get(index) {
@@ -268,7 +267,7 @@ pub fn run(args: &[String]) -> Result<(), AppsError> {
     let routes = apps_routes(Arc::clone(&apps), Arc::clone(&registry), held);
     let options = lgwks_bot::rt::serve::ServeOptions::new(0, 1_000, store_dir.clone())
         .map_err(|cause| AppsError::Serve(format!("the serve options are refused: {cause}")))?;
-    let listener = TcpListener::bind("127.0.0.1:0")
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .map_err(|cause| AppsError::Serve(format!("the listener failed: {cause}")))?;
     let addr = listener
         .local_addr()
@@ -279,13 +278,13 @@ pub fn run(args: &[String]) -> Result<(), AppsError> {
     std::thread::scope(|scope| {
         let served = scope.spawn(move || {
             lgwks_bot::rt::serve::serve(&options, routes, listener, &ending)
-                .map_err(|cause| format!("the edge failed: {cause}"))
+                .map_err(|cause| AppsError::Serve(format!("the edge failed: {cause}")))
         });
         let outcome = journey(addr);
         stop.stop();
         match served.join() {
             Ok(joined) => {
-                let report = joined.map_err(AppsError::Serve)?;
+                let report = joined?;
                 say(format!(
                     "stopped apps on {addr}: drained={} cancelled={}",
                     report.drained(),
@@ -297,8 +296,10 @@ pub fn run(args: &[String]) -> Result<(), AppsError> {
             Err(_) => refused(AppsError::Serve(String::from("the serve thread panicked"))),
         }
     })?;
-    if store_arg.is_none() {
-        drop(std::fs::remove_dir_all(store_dir.as_path()));
+    if store_arg.is_none()
+        && let Err(error) = std::fs::remove_dir_all(store_dir.as_path())
+    {
+        lgwks_std::trace::debug!(%error, "estate apps: the scratch store was not removed");
     }
     Ok(())
 }

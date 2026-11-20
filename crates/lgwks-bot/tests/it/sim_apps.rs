@@ -122,6 +122,55 @@ fn fold_lines(fold: u64, lines: &[Vec<u8>]) -> u64 {
     fold
 }
 
+/// The same app compiled with `script!`, calling the same handlers, prints the
+/// lines the admitted fixed plan prints.
+fn script_twin_matches(seed: u64, store: &AppStore, scope: &Scope) -> TestResult {
+    let demo = demo_registry()?;
+    let demo_surface = demo.surface("acme", &[])?;
+    let fixed = match store.admit_text(
+        &demo_surface,
+        &demo,
+        b"flow app():\n    let out = graph:\n        node fetch:\n            \"x\"\n        node render needs fetch:\n            \"x\"\n",
+    ) {
+        Outcome::Admitted(fixed) => fixed,
+        Outcome::Refused(refused) => {
+            let refusal = Err(seeded(seed, format!("fixed plan refused: {:?}", refused.refusals())));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "script_twin_matches: returning an error to the caller");
+            return refusal;
+        }
+        _ => {
+            let refusal = Err(seeded(seed, "fixed plan refused with an unknown outcome"));
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "script_twin_matches: returning an error to the caller");
+            return refusal;
+        }
+    };
+    let fixed_lines = lgwks_bot::script::block_on(run_app(scope, store, fixed.id()))?;
+    let scope = Scope::root(Tenant::new("acme")?);
+    let fetch = demo
+        .get("fetch")
+        .ok_or_else(|| "the demo registry lost fetch".to_owned())?;
+    let render = demo
+        .get("render")
+        .ok_or_else(|| "the demo registry lost render".to_owned())?;
+    let scripted = lgwks_bot::script::block_on(reference(&scope, fetch, render))?;
+    let text = |lines: &[Vec<u8>]| -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| String::from_utf8_lossy(line.as_slice()).into_owned())
+            .collect()
+    };
+    let (printed, wanted) = (text(&fixed_lines), text(&scripted));
+    if printed != wanted {
+        let refusal = Err(seeded(
+            seed,
+            format!("the script twin ran {wanted:?}, not {printed:?}"),
+        ));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "script_twin_matches: returning an error to the caller");
+        return refusal;
+    }
+    Ok(())
+}
+
 /// Requirement: an admitted plan and the compiled graph give one trace.
 ///
 /// Proves INV-BOT-188: lowering the parsed tree into `GraphNode`s runs the
@@ -212,45 +261,7 @@ fn the_admitted_plan_matches_the_compiled_graph_trace() -> TestResult {
                 trace = fold_text(trace, name.as_ref());
             }
         }
-        // The same app compiled with `script!`, calling the same handlers.
-        let demo = demo_registry()?;
-        let demo_surface = demo.surface("acme", &[])?;
-        let fixed = match store.admit_text(
-            &demo_surface,
-            &demo,
-            b"flow app():\n    let out = graph:\n        node fetch:\n            \"x\"\n        node render needs fetch:\n            \"x\"\n",
-        ) {
-            Outcome::Admitted(fixed) => fixed,
-            Outcome::Refused(refused) => {
-                return Err(seeded(sim.seed, format!("fixed plan refused: {:?}", refused.refusals())));
-            }
-            _ => {
-                return Err(seeded(sim.seed, "fixed plan refused with an unknown outcome"));
-            }
-        };
-        let fixed_lines = lgwks_bot::script::block_on(run_app(&scope, &store, fixed.id()))?;
-        let scope = Scope::root(Tenant::new("acme")?);
-        let fetch = demo
-            .get("fetch")
-            .ok_or_else(|| "the demo registry lost fetch".to_owned())?;
-        let render = demo
-            .get("render")
-            .ok_or_else(|| "the demo registry lost render".to_owned())?;
-        let scripted = lgwks_bot::script::block_on(reference(&scope, fetch, render))?;
-        let printed: Vec<String> = fixed_lines
-            .iter()
-            .map(|line| String::from_utf8_lossy(line.as_slice()).into_owned())
-            .collect();
-        let wanted: Vec<String> = scripted
-            .iter()
-            .map(|line| String::from_utf8_lossy(line.as_slice()).into_owned())
-            .collect();
-        if printed != wanted {
-            return Err(seeded(
-                sim.seed,
-                format!("the script twin ran {wanted:?}, not {printed:?}"),
-            ));
-        }
+        script_twin_matches(sim.seed, &store, &scope)?;
         sim.record(format!("trace {trace:#x}").as_str());
         Ok(())
     })
@@ -324,13 +335,13 @@ fn a_plan_past_depth_is_refused() -> TestResult {
         let store = AppStore::new(PlanLimits::default());
         match store.admit_text(&surface, &registry, text.as_bytes()) {
             Outcome::Refused(refused) => {
-                if refused.refusals().len() != 1 {
+                let refusals = refused.refusals();
+                let (Some(only), 1) = (refusals.first(), refusals.len()) else {
                     return Err(seeded(
                         sim.seed,
-                        format!("refused {} times, not once", refused.refusals().len()),
+                        format!("refused {} times, not once", refusals.len()),
                     ));
-                }
-                let only = &refused.refusals()[0];
+                };
                 if only.kind() != RefusalKind::BoundExceeded {
                     return Err(seeded(sim.seed, format!("refused as {:?}", only.kind())));
                 }

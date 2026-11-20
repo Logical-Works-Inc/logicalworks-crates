@@ -176,7 +176,10 @@ fn cuts_are_refused_never_decoded(band: Band) -> TestResult {
         stream_bytes.extend(u32::try_from(WHOLE.len())?.to_be_bytes());
         stream_bytes.extend_from_slice(WHOLE);
         stream_bytes.extend(u32::try_from(DECLARED)?.to_be_bytes());
-        stream_bytes.extend_from_slice(&PARTIAL[..cut]);
+        let partial = PARTIAL
+            .get(..cut)
+            .ok_or("the cut lies inside the partial payload")?;
+        stream_bytes.extend_from_slice(partial);
         let stream_literal = stream_bytes
             .iter()
             .map(|byte| format!("\\{byte:03o}"))
@@ -214,7 +217,7 @@ fn cuts_are_refused_never_decoded(band: Band) -> TestResult {
             } else {
                 FrameRead::TruncatedPayload {
                     declared: DECLARED,
-                    partial: PARTIAL[..cut].to_vec(),
+                    partial: partial.to_vec(),
                 }
             },
             "cut={cut} of {DECLARED}: a prefix that named more than arrived is a truncation, \

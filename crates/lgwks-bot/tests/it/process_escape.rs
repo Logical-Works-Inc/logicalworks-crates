@@ -87,7 +87,34 @@ fn shell(script: &str) -> ProcessSpec {
 fn stop(pids: &[i32]) {
     for &pid in pids {
         process_probe::kill_pid(pid);
-        let _ignored = wait_for_pid_gone(pid, Duration::from_secs(2));
+        if wait_for_pid_gone(pid, Duration::from_secs(2)).is_none() {
+            lgwks_std::trace::debug!(pid, "stop: the process outlived its kill");
+        }
+    }
+}
+
+/// Kill and reap the sibling a test started outside the supervisor.
+fn reap(sibling: &mut std::process::Child) {
+    if let Err(error) = sibling.kill().and_then(|()| sibling.wait()) {
+        lgwks_std::trace::debug!(error = %error, "reap: the sibling was not reaped");
+    }
+}
+
+/// With the group gone and every captured descendant stopped, the receipt is
+/// the confirmed one; anything weaker understates what was observed.
+fn require_confirmed(cleanup: Option<CleanupReceipt>) -> TestResult {
+    match cleanup {
+        Some(CleanupReceipt::CleanupConfirmed) => Ok(()),
+        Some(other) => Err(std::io::Error::other(format!(
+            "the group is gone and the escapee was stopped, so {other:?} would understate \
+             what this supervisor actually observed"
+        ))
+        .into()),
+        None => Err(std::io::Error::other(
+            "a supervised process reported no cleanup receipt at all, so there is no \
+             evidence about the group to check the escape against",
+        )
+        .into()),
     }
 }
 
@@ -199,7 +226,7 @@ fn a_session_escape_is_captured_and_stopped_by_pid() -> TestResult {
     // acceptance names.
     let escapee_gone = wait_for_pid_gone(escaped, BUDGET).is_some();
     if !escapee_gone {
-        let _reaped = sibling.kill().and_then(|()| sibling.wait()).map(|_| ());
+        reap(&mut sibling);
         stop(&[escaped, sibling_pid]);
         return Err(std::io::Error::other(format!(
             "the setsid escapee is still running after cleanup, so the capture did not reach \
@@ -230,27 +257,9 @@ fn a_session_escape_is_captured_and_stopped_by_pid() -> TestResult {
         "every captured descendant stopped and the reading was whole: {containment:?}"
     );
 
-    // With the group gone and every captured descendant stopped, the receipt is
-    // the confirmed one; anything weaker understates what was observed.
-    match cleanup {
-        Some(CleanupReceipt::CleanupConfirmed) => {}
-        Some(other) => {
-            return Err(std::io::Error::other(format!(
-                "the group is gone and the escapee was stopped, so {other:?} would understate \
-                 what this supervisor actually observed"
-            ))
-            .into());
-        }
-        None => {
-            return Err(std::io::Error::other(
-                "a supervised process reported no cleanup receipt at all, so there is no \
-                 evidence about the group to check the escape against",
-            )
-            .into());
-        }
-    }
+    require_confirmed(cleanup)?;
 
-    let _reaped = sibling.kill().and_then(|()| sibling.wait()).map(|_| ());
+    reap(&mut sibling);
     stop(&[escaped, sibling_pid]);
     Ok(())
 }
@@ -364,7 +373,7 @@ fn cleanup_never_signals_a_process_outside_the_supervisors_group_t21() -> TestRe
         "a process outside the supervisor's group was signalled by its cleanup (T21)"
     );
 
-    let _reaped = sibling.kill().and_then(|()| sibling.wait()).map(|_| ());
+    reap(&mut sibling);
     stop(&[sibling_pid]);
     Ok(())
 }

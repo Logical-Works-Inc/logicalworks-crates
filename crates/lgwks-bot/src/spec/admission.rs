@@ -443,35 +443,51 @@ impl std::fmt::Display for Need {
                 ref registry,
                 installed,
                 ref nearest,
-            } => {
-                if !installed {
-                    return write!(
-                        formatter,
-                        "{role} `{}` is named, and this host was given no domain registry; \
-                         install one with `HostBuilder::domains`",
-                        Escaped(domain)
-                    );
-                }
-                match *registry {
-                    Some(ref name) => write!(
-                        formatter,
-                        "{role} `{}` is not declared in registry `{}`",
-                        Escaped(domain),
-                        Escaped(name)
-                    )?,
-                    None => write!(
-                        formatter,
-                        "{role} `{}` is not declared in the host's registry",
-                        Escaped(domain)
-                    )?,
-                }
-                match *nearest {
-                    Some(ref close) => {
-                        write!(formatter, "; the nearest declared is `{}`", Escaped(close))
-                    }
-                    None => formatter.write_str("; it declares nothing close"),
-                }
-            }
+            } => write_unknown_domain(
+                formatter,
+                role,
+                domain,
+                registry.as_deref(),
+                installed,
+                nearest.as_deref(),
+            ),
         }
+    }
+}
+
+/// The reading of [`Need::UnknownDomain`]: what was named, which registry was
+/// asked (when it has a name), and the nearest declared domain when one is close.
+fn write_unknown_domain(
+    formatter: &mut std::fmt::Formatter<'_>,
+    role: impl std::fmt::Display,
+    domain: &str,
+    registry: Option<&str>,
+    installed: bool,
+    nearest: Option<&str>,
+) -> std::fmt::Result {
+    if !installed {
+        return write!(
+            formatter,
+            "{role} `{}` is named, and this host was given no domain registry; \
+             install one with `HostBuilder::domains`",
+            Escaped(domain)
+        );
+    }
+    match registry {
+        Some(name) => write!(
+            formatter,
+            "{role} `{}` is not declared in registry `{}`",
+            Escaped(domain),
+            Escaped(name)
+        )?,
+        None => write!(
+            formatter,
+            "{role} `{}` is not declared in the host's registry",
+            Escaped(domain)
+        )?,
+    }
+    match nearest {
+        Some(close) => write!(formatter, "; the nearest declared is `{}`", Escaped(close)),
+        None => formatter.write_str("; it declares nothing close"),
     }
 }

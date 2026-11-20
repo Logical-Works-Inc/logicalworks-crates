@@ -550,10 +550,9 @@ fn persist(path: &Path, state: &StoreState) -> Result<(), CasError> {
     // Sorted, so the persisted file is stable for the same state: iterating
     // the map directly would write records in hash order and two identical
     // states could persist as different bytes.
-    let mut names: Vec<&String> = state.records.keys().collect();
-    names.sort();
-    for name in names {
-        let record = &state.records[name];
+    let mut entries: Vec<_> = state.records.iter().collect();
+    entries.sort_by(|left, right| left.0.cmp(right.0));
+    for (name, record) in entries {
         records.insert(
             name.clone(),
             lgwks_std::json::json!({"version": record.version, "value": record.value}),
@@ -608,8 +607,15 @@ mod tests {
         };
         let mut path = std::env::temp_dir();
         path.push(format!("lgwks-bot-cas-test-{name}-{nanos}-{unique}.json"));
-        drop(std::fs::remove_file(&path));
+        remove(&path);
         path
+    }
+
+    /// Remove a scratch file, saying so when it was already gone.
+    fn remove(path: &Path) {
+        if let Err(error) = std::fs::remove_file(path) {
+            lgwks_std::trace::debug!(%error, "cas test: the scratch file was not there");
+        }
     }
 
     #[test]
@@ -623,7 +629,7 @@ mod tests {
             "one",
             "the winning value is what the write left"
         );
-        drop(std::fs::remove_file(&path));
+        remove(&path);
         Ok(())
     }
 
@@ -645,7 +651,7 @@ mod tests {
             "winner",
             "a conflicted write changes nothing"
         );
-        drop(std::fs::remove_file(&path));
+        remove(&path);
         Ok(())
     }
 }
