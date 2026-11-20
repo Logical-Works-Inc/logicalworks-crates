@@ -68,7 +68,7 @@ crates/lgwks-bot/src/language.rs:649	pub fn aliases(&self) -> Vec<Alias> {
 crates/lgwks-bot/src/rt.rs:86	//! This is not a scheduler with realtime guarantees. Future completion order
 crates/lgwks-bot/src/rt.rs:123	#[cfg(feature = "sync")]
 crates/lgwks-bot/src/rt.rs:139	#[cfg(all(feature = "signal", any(unix, windows)))]
-crates/lgwks-bot/src/rt/estate.rs:556	task: &Task<F>,
+crates/lgwks-bot/src/rt/estate.rs:553	task: &Task<F>,
 crates/lgwks-bot/src/rt/process.rs:64	Capture(NonZeroUsize),
 crates/lgwks-bot/src/rt/process/confine.rs:83	pub struct SandboxProfile {
 crates/lgwks-bot/src/rt/process/confine.rs:295	pub struct LandlockRules {
