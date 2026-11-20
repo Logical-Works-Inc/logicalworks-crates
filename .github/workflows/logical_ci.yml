@@ -62,7 +62,7 @@ jobs:
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
       LCI_VERIFIER_SHA256: '2a8ad3bb200aed08ef0227f286c617f38a70d51103aab1aa156be1549f7207f0'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # The subject's own build environment, as every ci.yml job prepares it.
@@ -176,7 +176,7 @@ jobs:
           run_id="$(jq -r '.run_id // empty' "$RUNNER_TEMP/logical_ci-record.json")"
           test -z "$run_id" || "$RUNNER_TEMP/lci/logical_ci-macos-arm64" show "$run_id" --tenant "$LCI_TENANT"
       - name: Upload sealed record
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: logical_ci-record
           path: ${{ runner.temp }}/logical_ci-record.json
