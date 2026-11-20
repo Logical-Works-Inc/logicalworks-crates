@@ -7,6 +7,9 @@
 //! checker could not see, `pages.yml`, which it never read. The draw is
 //! `lgwks_std::seeded`, so a failing seed replays exactly: no clock, no hash
 //! order and no thread is in the sweep.
+//!
+//! Rule 10 lives here too, because it is the other half of installing a pin:
+//! the toolchain must carry the wrapper `.cargo/config.toml` runs.
 
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -16,7 +19,9 @@ use std::path::Path;
 
 use lgwks_std::seeded::{DrawError, Seeded};
 
-use super::{MANIFEST_REL, Manifest, PAGES_REL, WORKFLOW_REL, pin_problems, read_manifest};
+use super::{
+    MANIFEST_REL, Manifest, PAGES_REL, WORKFLOW_REL, pin_problems, read_manifest, wrapper,
+};
 
 /// Why a simulation could not read or draw what it needs.
 #[derive(Debug)]
@@ -232,6 +237,113 @@ fn a_release_pin_is_accepted_and_a_third_pin_is_refused() -> TestResult {
         "{problems:?}"
     );
     Ok(())
+}
+
+/// An action whose `Pin Rust` step installs `components`.
+fn action(components: &str) -> String {
+    format!(
+        "runs:\n  steps:\n    - name: Pin Rust\n      uses: dtolnay/rust-toolchain@stable\n      \
+         with:\n        toolchain: ${{{{ inputs.toolchain }}}}\n        components: {components}\n    \
+         - name: Set up the pinned toolchain alone\n      run: rustup default\n"
+    )
+}
+
+/// The wrapper line `.cargo/config.toml` commits.
+const WRAPPED: &str = "[build]\nrustc-workspace-wrapper = \"clippy-driver\"\n";
+
+/// Rule 10: every toolchain the committed action installs carries clippy, the
+/// component of the wrapper the committed cargo config runs. From 227b0738
+/// (#1090) the stable Pages job installed none, and `cargo run -q` exited 1
+/// with no message on every main push.
+#[test]
+fn the_hosted_action_installs_the_workspace_wrapper() -> TestResult {
+    let config = read_repo(wrapper::CONFIG_REL)?;
+    assert!(
+        config.contains("clippy-driver"),
+        "the committed config wraps builds in clippy-driver, so the rule binds"
+    );
+    assert_eq!(
+        wrapper::problems(&config, &read_repo(wrapper::ACTION_REL)?),
+        Vec::<String>::new(),
+        "every toolchain the committed action installs carries clippy"
+    );
+    let found = wrapper::problems(WRAPPED, &action("${{ inputs.components }}"));
+    assert_eq!(
+        found.len(),
+        1,
+        "the #1090 action is refused once: {found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .all(|problem| problem.contains("clippy-driver")
+                && problem.contains(wrapper::ACTION_REL)),
+        "the problem names the wrapper and the action: {found:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_component_fallback_a_caller_can_override_is_refused() {
+    let found = wrapper::problems(WRAPPED, &action("${{ inputs.components || 'clippy' }}"));
+    assert_eq!(
+        found.len(),
+        1,
+        "a caller naming rustfmt alone drops clippy: {found:?}"
+    );
+    assert_eq!(
+        wrapper::problems(WRAPPED, &action("clippyish")).len(),
+        1,
+        "a longer component name is not clippy"
+    );
+}
+
+#[test]
+fn a_leading_component_literal_is_accepted_alone_or_before_the_input() {
+    for value in [
+        "clippy",
+        "clippy,rustfmt",
+        "clippy${{ inputs.components != '' && ',' || '' }}${{ inputs.components }}",
+    ] {
+        assert_eq!(
+            wrapper::problems(WRAPPED, &action(value)),
+            Vec::<String>::new(),
+            "{value:?} installs clippy whatever a caller passes"
+        );
+    }
+}
+
+#[test]
+fn a_pin_step_with_no_components_is_refused_and_the_next_step_does_not_count() {
+    let bare = "    - name: Pin Rust\n      uses: dtolnay/rust-toolchain@stable\n    \
+                - name: Next\n      components: clippy\n";
+    let found = wrapper::problems(WRAPPED, bare);
+    assert_eq!(
+        found.len(),
+        1,
+        "the next step's components are not the pin's: {found:?}"
+    );
+    assert!(
+        found
+            .iter()
+            .all(|problem| problem.contains("names no components")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_config_without_a_component_wrapper_owes_the_action_nothing() {
+    let bare = action("${{ inputs.components }}");
+    assert_eq!(
+        wrapper::problems("[build]\njobs = 4\n", &bare),
+        Vec::<String>::new(),
+        "no wrapper, no component owed"
+    );
+    assert_eq!(
+        wrapper::problems("rustc-workspace-wrapper = \"sccache\"\n", &bare),
+        Vec::<String>::new(),
+        "a wrapper no rustup component ships is the host's to install"
+    );
 }
 
 #[test]

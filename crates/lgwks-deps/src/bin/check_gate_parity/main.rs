@@ -38,6 +38,9 @@
 //!      failed `logical_ci.yml` in 0 s on every run (ADR 0029).
 //!   9. A sliced row runs its slice. A job that gives a suite `slice:` rows
 //!      passes `--partition` in every step that runs that suite (#923).
+//!  10. The wrapper ships with the toolchain. `.cargo/config.toml` runs every
+//!      build through `clippy-driver`, so the hosted action installs `clippy`
+//!      on every toolchain, whatever a caller passes (`wrapper.rs`).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
@@ -56,6 +59,7 @@ mod sim_partitions;
 #[cfg(test)]
 mod sim_pins;
 mod workflow_calls;
+mod wrapper;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -391,6 +395,7 @@ fn execute(root: &Path, out: &mut impl Write, err: &mut impl Write) -> Result<u8
     problems.extend(pin_problems(&manifest, "pages.yml", &pages_text));
     problems.extend(self_hosted_problems("pages.yml", &pages_text));
     problems.extend(foreign_workflow_problems("pages.yml", &pages_text));
+    problems.extend(wrapper::committed_problems(root)?);
     for rel in OTHER_WORKFLOWS_REL {
         let text = read(&root.join(rel))?;
         problems.extend(self_hosted_problems(rel, &text));
