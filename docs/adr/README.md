@@ -104,5 +104,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0066](0066-ci-builds-on-nightly-releases-build-on-stable.md) | CI builds on a dated nightly, releases build on stable |
 | [0067](0067-a-capability-scope-refuses-a-traversal-segment.md) | A capability scope refuses a traversal segment; a denial ends at its rule |
 | [0068](0068-a-glob-refusal-names-its-utf-8-byte-offset.md) | A glob refusal names its UTF-8 byte offset |
+| [0069](0069-every-hosted-toolchain-carries-the-wrapper.md) | Every hosted toolchain carries the clippy wrapper the cargo config names |
+| [0070](0070-a-model-call-is-a-durable-step.md) | A model call is a durable step: a resume replays the answer and never pays twice |
 
 New records go at the bottom of that table.
