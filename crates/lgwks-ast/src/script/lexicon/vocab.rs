@@ -420,6 +420,12 @@ pub(super) const ASK: Word = domain_word(
             "under a run store a resume replays the recorded answer and never calls the model twice; another prompt is refused typed",
             "sim_a_resumed_ask_never_calls_the_model_twice",
         ),
+        script_sim_in(
+            "crates/lgwks-bot/tests/it/sim_ask_replay.rs",
+            Axis::Hyperscale,
+            "under a `justify` token rule each call reserves its budget before the model and settles to the bill; racing asks never spend past the allowance",
+            "sim_concurrent_asks_never_spend_past_the_budget",
+        ),
         refused(
             Axis::Idiomatic,
             "an `ask` with no request is refused at the word, naming the form",

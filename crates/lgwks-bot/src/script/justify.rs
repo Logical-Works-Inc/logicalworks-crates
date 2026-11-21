@@ -12,8 +12,10 @@
 //! function of its context and its counters, and the run records the deciding
 //! rule's name with its reason code.
 //!
-//! The runtime evaluates the installed rules before `observe`, `act`, and
-//! every retry attempt, through [`Scope::justified`](super::Scope::justified);
+//! The runtime evaluates the installed rules before `observe`, `act`, `ask`
+//! and every retry attempt, through [`Scope::justified`](super::Scope::justified);
+//! an `ask` names its token budget as the step's cost, which [`Rule::tokens`]
+//! reserves before the model is called and settles to the bill after;
 //! `within` refuses Park and Block synchronously at its entry and never waits
 //! there. At zero, the run stops with its reason code rather than spending.
 //!
@@ -52,7 +54,8 @@ pub enum Verdict {
     },
 }
 
-/// The context a rule reads: where the run is, and how many attempts this step has spent. Attempt zero is the first evaluation of a step that is not a retry.
+/// The context a rule reads: where the run is, how many attempts this step has spent, and what it is about to
+/// spend. Attempt zero is the first evaluation of a step that is not a retry.
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub struct JustifyCtx<'a> {
@@ -60,15 +63,33 @@ pub struct JustifyCtx<'a> {
     pub at: &'a str,
     /// The attempt number, from zero.
     pub attempt: u32,
+    /// What the step is about to spend, in model tokens: an `ask`'s token
+    /// budget, and zero for a step that spends nothing countable.
+    pub cost: u64,
 }
 
 impl<'a> JustifyCtx<'a> {
-    /// The context for an evaluation before `at` on `attempt`.
+    /// The context for an evaluation before `at` on `attempt`, spending nothing.
     #[must_use]
     pub fn new(at: &'a str, attempt: u32) -> Self {
-        Self { at, attempt }
+        Self {
+            at,
+            attempt,
+            cost: 0,
+        }
+    }
+
+    /// The same context for a step about to spend `cost` model tokens.
+    #[must_use]
+    pub(crate) fn costing(mut self, cost: u64) -> Self {
+        self.cost = cost;
+        self
     }
 }
+
+/// What a rule does once the step it admitted has been billed: the cost it
+/// reserved, then what the provider billed.
+type Settle = Box<dyn Fn(u64, u64) + Send + Sync>;
 
 /// One ordered rule: a name and a pure decision function.
 ///
@@ -82,6 +103,8 @@ pub struct Rule {
     name: &'static str,
     /// The decision function.
     decide: Box<dyn Fn(&JustifyCtx<'_>) -> Verdict + Send + Sync>,
+    /// How the rule settles a cost it admitted, when it spends one.
+    settle: Option<Settle>,
 }
 
 impl std::fmt::Debug for Rule {
@@ -103,6 +126,54 @@ impl Rule {
         Self {
             name,
             decide: Box::new(decide),
+            settle: None,
+        }
+    }
+
+    /// Allow a step while `allowance` holds its whole [`cost`](JustifyCtx::cost),
+    /// reserving it, and block with `reason` when it does not, spending nothing.
+    ///
+    /// The model-token budget of a run, as Pydantic AI's `UsageLimits` keeps
+    /// one: an `ask` reserves its token budget before the model is called, so
+    /// asks racing on one allowance can never together spend past it, and once
+    /// the provider bills the call the reservation settles to the bill, a
+    /// refund when it billed less and a further spend, floored at zero, when
+    /// the prompt made it bill more. A costless step passes and spends nothing.
+    /// A call that fails, or is cancelled before it is billed, keeps its whole
+    /// reservation spent: a provider may bill a call it never answered, and a
+    /// budget that refunded unseen could be spent past.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::sync::Arc;
+    /// use lgwks_bot::script::{Allowance, Justify, Rule};
+    ///
+    /// let budget = Arc::new(Allowance::new(10_000));
+    /// let rules = Justify::new(vec![Rule::tokens("model-tokens", budget, "model-budget-spent")]);
+    /// assert_eq!(rules.len(), 1);
+    /// ```
+    pub fn tokens(
+        name: &'static str,
+        allowance: Arc<Allowance>,
+        reason: impl Into<String>,
+    ) -> Self {
+        let reason = reason.into();
+        let reserving = Arc::clone(&allowance);
+        Self {
+            name,
+            decide: Box::new(move |ctx| {
+                if reserving.take_n(ctx.cost) {
+                    Verdict::Allow
+                } else {
+                    Verdict::Block {
+                        reason: reason.clone(),
+                    }
+                }
+            }),
+            settle: Some(Box::new(move |reserved, billed| {
+                allowance.settle(reserved, billed);
+            })),
         }
     }
 
@@ -207,6 +278,30 @@ impl Allowance {
                 held.checked_sub(1)
             })
             .is_ok()
+    }
+
+    /// Spend all of `tokens`, or refuse and spend nothing when fewer are left.
+    pub(crate) fn take_n(&self, tokens: u64) -> bool {
+        self.remaining
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+                held.checked_sub(tokens)
+            })
+            .is_ok()
+    }
+
+    /// Settle a reservation of `reserved` tokens to the `billed` ones: refund
+    /// what the bill left over, or spend its excess down to zero.
+    pub(crate) fn settle(&self, reserved: u64, billed: u64) {
+        match billed.checked_sub(reserved) {
+            Some(excess) => {
+                let _spent =
+                    self.remaining
+                        .try_update(Ordering::Relaxed, Ordering::Relaxed, |held| {
+                            Some(held.saturating_sub(excess))
+                        });
+            }
+            None => self.refill(reserved.saturating_sub(billed)),
+        }
     }
 
     /// Add `tokens` back, saturating at `u64::MAX`.
@@ -317,6 +412,17 @@ impl Justify {
         }
         Decision::allowed()
     }
+
+    /// Settle a cost every rule admitted: each rule that spends one moves its
+    /// `reserved` tokens to the `billed` ones. Called only after an allow,
+    /// when every rule in the chain admitted the cost.
+    pub(crate) fn settle(&self, reserved: u64, billed: u64) {
+        for rule in self.rules.iter() {
+            if let Some(ref settle) = rule.settle {
+                settle(reserved, billed);
+            }
+        }
+    }
 }
 
 impl Decision {
@@ -329,11 +435,11 @@ impl Decision {
     }
 }
 
-/// What `scope`'s rules answer for `attempt`; a scope with no installed rules
-/// is answered like an empty rule set, which allows.
-fn decision_at(scope: &Scope, attempt: u32) -> Decision {
+/// What `scope`'s rules answer for `attempt` spending `cost`; a scope with no
+/// installed rules is answered like an empty rule set, which allows.
+fn decision_at(scope: &Scope, attempt: u32, cost: u64) -> Decision {
     match scope.justification() {
-        Some(rules) => rules.decide(&JustifyCtx::new(scope.path(), attempt)),
+        Some(rules) => rules.decide(&JustifyCtx::new(scope.path(), attempt).costing(cost)),
         None => Decision::allowed(),
     }
 }
@@ -351,7 +457,7 @@ fn decision_at(scope: &Scope, attempt: u32) -> Decision {
 ///
 /// [`FlowError::Justified`] carrying the deciding rule and its reason code.
 pub(crate) fn refuse_if_unjustified(scope: &Scope) -> Result<(), FlowError> {
-    let decision = decision_at(scope, 0);
+    let decision = decision_at(scope, 0, 0);
     match decision.verdict {
         Verdict::Allow | Verdict::Slow { .. } => Ok(()),
         Verdict::Park { reason } | Verdict::Block { reason } => {
@@ -378,7 +484,14 @@ impl Scope {
     /// or [`FlowError::Cancelled`] when the scope stopped while a `Slow`
     /// waited.
     pub async fn justified(&self, attempt: u32) -> Result<(), FlowError> {
-        let decision = decision_at(self, attempt);
+        self.justified_costing(attempt, 0).await
+    }
+
+    /// [`Scope::justified`] for a step about to spend `cost` model tokens: a
+    /// token rule reserves the cost on allow, and [`Scope::settle_cost`] moves
+    /// it to the bill once the step is billed.
+    pub(crate) async fn justified_costing(&self, attempt: u32, cost: u64) -> Result<(), FlowError> {
+        let decision = decision_at(self, attempt, cost);
         match decision.verdict {
             Verdict::Allow => Ok(()),
             Verdict::Slow { delay } => {
@@ -400,6 +513,14 @@ impl Scope {
             }
         }
     }
+
+    /// Settle a cost [`Scope::justified_costing`] admitted: `reserved` tokens
+    /// were held, `billed` were spent.
+    pub(crate) fn settle_cost(&self, reserved: u64, billed: u64) {
+        if let Some(rules) = self.justification() {
+            rules.settle(reserved, billed);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -411,10 +532,7 @@ mod tests {
 
     /// The context these tests decide under.
     fn ctx() -> JustifyCtx<'static> {
-        JustifyCtx {
-            at: "flow/step",
-            attempt: 0,
-        }
+        JustifyCtx::new("flow/step", 0)
     }
 
     /// The first non-allow verdict wins, in rule order, and an empty rule set
@@ -469,6 +587,48 @@ mod tests {
             0,
             "the refill's token was spent by the evaluation"
         );
+    }
+
+    /// A token rule spends the step's whole cost or nothing, a costless step
+    /// passes without spending, and settling moves the allowance to the bill:
+    /// an under-bill refunds, an over-bill spends down to zero and never wraps.
+    #[test]
+    fn a_token_rule_spends_the_cost_and_settles_to_the_bill() {
+        let allowance = Arc::new(Allowance::new(100));
+        let rules = Justify::new(vec![Rule::tokens(
+            "tokens",
+            Arc::clone(&allowance),
+            "model-budget-spent",
+        )]);
+        let asking = |cost| rules.decide(&ctx().costing(cost)).verdict;
+        assert_eq!(
+            asking(30),
+            Verdict::Allow,
+            "thirty of a hundred is admitted"
+        );
+        assert_eq!(allowance.remaining(), 70, "the whole cost is reserved");
+        rules.settle(30, 10);
+        assert_eq!(allowance.remaining(), 90, "an under-bill refunds the rest");
+        assert_eq!(
+            asking(91),
+            Verdict::Block {
+                reason: String::from("model-budget-spent"),
+            },
+            "one past what is left is refused"
+        );
+        assert_eq!(allowance.remaining(), 90, "a refused cost spends nothing");
+        assert_eq!(asking(0), Verdict::Allow, "a costless step passes");
+        assert_eq!(
+            asking(90),
+            Verdict::Allow,
+            "exactly what is left is admitted"
+        );
+        assert_eq!(allowance.remaining(), 0, "and leaves nothing");
+        rules.settle(90, 500);
+        assert_eq!(allowance.remaining(), 0, "an over-bill floors at zero");
+        allowance.refill(40);
+        rules.settle(10, 25);
+        assert_eq!(allowance.remaining(), 25, "an over-bill spends its excess");
     }
 
     /// Pacing slows every `every`-th evaluation and allows the rest.
