@@ -102,55 +102,6 @@ fn spawned_children_do_not_ignore_sigcont_per_the_shell() -> Result<(), Box<dyn 
     Ok(())
 }
 
-/// A shell that stops itself stays stopped until it is continued (#691).
-///
-/// The gate shell's contract in one process: `kill -STOP` stops the shell on
-/// its first instruction, a waiter observes the stop without reaping, and
-/// SIGCONT resumes exactly that shell to its own exit.
-#[test]
-#[cfg(all(unix, feature = "process"))]
-fn a_self_stopping_shell_survives_until_continued() -> Result<(), Box<dyn std::error::Error>> {
-    use std::time::{Duration, Instant};
-
-    let mut child = std::process::Command::new("/bin/sh")
-        .arg("-c")
-        .arg("kill -STOP $$; exit 42")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()?;
-    let pid = i32::try_from(child.id())?;
-    // Bounded wait for the stop: the shell stops on its first instruction.
-    let Some(deadline) = Instant::now().checked_add(Duration::from_secs(10)) else {
-        let _killed = child.kill();
-        return Err("the stop deadline overflowed the clock".into());
-    };
-    loop {
-        if child_has_exited_without_reaping(pid)? {
-            let _waited = child.wait()?;
-            return Err("a self-stopping shell must stop, not exit".into());
-        }
-        if child_stopped_without_reaping(pid)? {
-            break;
-        }
-        if Instant::now() >= deadline {
-            let _killed = child.kill();
-            return Err("a self-stopping shell never stopped".into());
-        }
-        // Yield rather than park: the stop lands on the shell's first
-        // instruction, so the wait is a reschedule, never a sleep.
-        std::thread::yield_now();
-    }
-    continue_process(pid)?;
-    let status = child.wait()?;
-    assert_eq!(
-        status.code(),
-        Some(42),
-        "a continued shell runs its payload to its own exit: {status:?}"
-    );
-    Ok(())
-}
-
 #[test]
 #[cfg(unix)]
 fn a_live_group_is_present_and_a_reaped_one_is_absent() -> Result<(), Box<dyn std::error::Error>> {

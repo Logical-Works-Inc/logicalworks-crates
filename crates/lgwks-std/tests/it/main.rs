@@ -52,6 +52,8 @@ mod glob_public;
 mod latency_measured_paths;
 mod pattern_external;
 mod process_parity;
+#[cfg(all(unix, feature = "process"))]
+mod process_stop_release;
 mod prop_codecs;
 mod sim_adversary_base64;
 mod sim_adversary_calendar;
