@@ -395,6 +395,9 @@ mod sim_approval_scale;
 #[cfg(all(feature = "edge", feature = "script"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
 mod sim_apps;
+#[cfg(all(feature = "script", feature = "ephemeral"))]
+#[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
+mod sim_ask_replay;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
 mod sim_cancel_under_load;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
@@ -412,8 +415,7 @@ mod sim_cas_execute;
 mod sim_change_ticks;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_clock;
-#[cfg(feature = "wire")]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g4"))]
+#[cfg(all(feature = "wire", any(not(lwc_it_group), lwc_it_group = "g4")))]
 mod sim_clock_kill;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_clock_sleep;
@@ -540,8 +542,7 @@ mod sim_review_wire;
 mod sim_rt_front_door;
 #[cfg(any(not(lwc_it_group), lwc_it_group = "g3"))]
 mod sim_run_boundaries;
-#[cfg(feature = "script")]
-#[cfg(any(not(lwc_it_group), lwc_it_group = "g8"))]
+#[cfg(all(feature = "script", any(not(lwc_it_group), lwc_it_group = "g8")))]
 mod sim_run_events;
 #[cfg(all(feature = "ecs", feature = "wire"))]
 #[cfg(any(not(lwc_it_group), lwc_it_group = "scale"))]

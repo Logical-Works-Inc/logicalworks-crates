@@ -19,9 +19,9 @@ use lgwks_bot::journal::EffectEvidence;
 use lgwks_bot::proposal::StubModel;
 use lgwks_bot::rt::runtime::Handle;
 use lgwks_bot::script::{
-    AskDecode, AskRequest, EffectDisposition, EffectPolicy, FetchOptions, FetchResponse, FlowError,
-    Json, ModelOutput, ModelPort, OutsideWord, PostBody, Scope, SendOutcome, SendPort,
-    admit_outside, ask, fetch, send, with_effect_policy,
+    Allowance, AskDecode, AskRequest, EffectDisposition, EffectPolicy, FetchOptions, FetchResponse,
+    FlowError, Json, Justify, ModelOutput, ModelPort, OutsideWord, PostBody, Rule, Scope,
+    SendOutcome, SendPort, admit_outside, ask, fetch, send, with_effect_policy,
 };
 use lgwks_bot::task::{Host, task};
 use lgwks_bot::verb::EffectLifetime;
@@ -479,6 +479,75 @@ fn check_ask(driver: &Handle, host: &Host, model: &StubModel) -> Result<(), Voca
         return refuse(Section::Outside, "JSON decodes into the declared report");
     }
     say("outside: a direct ask decodes through the trait door")?;
+    check_tokens(driver, host)
+}
+
+/// A model that answers one fixed text and bills 40 tokens for each call.
+struct MeteredModel {
+    /// Calls answered so far.
+    calls: AtomicUsize,
+}
+
+impl ModelPort for MeteredModel {
+    /// Never fails: the answer and its bill are fixed.
+    type Error = FlowError;
+
+    /// The fixed text, billed 40 tokens.
+    async fn complete(&self, _prompt: &[u8], _max_tokens: u32) -> Result<ModelOutput, FlowError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(ModelOutput::from((b"metered".to_vec(), false)).with_billed(40))
+    }
+}
+
+/// A `justify` token rule bounds a run's model spend (ADR 0071): each ask of
+/// 60 reserves 60 of 100 and settles to its bill of 40, so two asks run, the
+/// third is refused before the model, and 20 tokens stay unspent.
+fn check_tokens(driver: &Handle, host: &Host) -> Result<(), VocabularyError> {
+    let metered = task(
+        "outside-tokens",
+        |scope: Scope, input: (Arc<MeteredModel>, Arc<Allowance>)| async move {
+            let (model, allowance) = input;
+            let rules = Justify::new(vec![Rule::tokens(
+                "model-tokens",
+                allowance,
+                "model-budget-spent",
+            )]);
+            let scope = scope.with_justification(rules);
+            let request: AskRequest = AskRequest::default().max_tokens(60);
+            for step in ["tokens-first", "tokens-second", "tokens-third"] {
+                let answer: Vec<u8> = ask(&scope, step, &*model, &request).await?;
+                lgwks_std::trace::debug!(bytes = answer.len(), "outside: a metered ask answered");
+            }
+            Ok::<(), FlowError>(())
+        },
+    )?;
+    let model = Arc::new(MeteredModel {
+        calls: AtomicUsize::new(0),
+    });
+    let allowance = Arc::new(Allowance::new(100));
+    let spent = driver.block_on(host.run(&metered, (Arc::clone(&model), Arc::clone(&allowance))));
+    let refused_by_rule = spent.error().is_some_and(
+        |error| matches!(*error, FlowError::Justified { ref rule, .. } if *rule == "model-tokens"),
+    );
+    if !refused_by_rule {
+        say(&format!(
+            "outside: the metered run ended {:?} after {} calls with {} left",
+            spent.error(),
+            model.calls.load(Ordering::SeqCst),
+            allowance.remaining()
+        ))?;
+        return refuse(
+            Section::Outside,
+            "the third ask is refused by the token rule",
+        );
+    }
+    if model.calls.load(Ordering::SeqCst) != 2 || allowance.remaining() != 20 {
+        return refuse(
+            Section::Outside,
+            "two asks bill 40 each and the refused one never reaches the model",
+        );
+    }
+    say("outside: a token rule refuses the ask past its budget, settled to the bill")?;
     Ok(())
 }
 

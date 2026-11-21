@@ -246,7 +246,7 @@
 "crates/lgwks-bot/src/script/approval.rs" = 10
 "crates/lgwks-bot/src/script/approval_policy.rs" = 4
 "crates/lgwks-bot/src/script/approval_records.rs" = 26
-"crates/lgwks-bot/src/script/ask.rs" = 9
+"crates/lgwks-bot/src/script/ask.rs" = 10
 "crates/lgwks-bot/src/script/ask_decode.rs" = 2
 "crates/lgwks-bot/src/script/compensate.rs" = 7
 "crates/lgwks-bot/src/script/control.rs" = 3
@@ -257,7 +257,7 @@
 "crates/lgwks-bot/src/script/fetch.rs" = 13
 "crates/lgwks-bot/src/script/graph.rs" = 16
 "crates/lgwks-bot/src/script/journaled_cancel.rs" = 11
-"crates/lgwks-bot/src/script/justify.rs" = 23
+"crates/lgwks-bot/src/script/justify.rs" = 24
 "crates/lgwks-bot/src/script/map.rs" = 21
 "crates/lgwks-bot/src/script/outside.rs" = 2
 "crates/lgwks-bot/src/script/ready.rs" = 10
@@ -537,9 +537,10 @@
 "crates/lgwks-bot/src/rt/sweep.rs" = 3
 "crates/lgwks-bot/src/rt/task.rs" = 2
 "crates/lgwks-bot/src/rt/time.rs" = 1
+"crates/lgwks-bot/src/script/ask.rs" = 1
 "crates/lgwks-bot/src/script/error.rs" = 2
 "crates/lgwks-bot/src/script/journaled_cancel.rs" = 11
-"crates/lgwks-bot/src/script/justify.rs" = 2
+"crates/lgwks-bot/src/script/justify.rs" = 3
 "crates/lgwks-bot/src/script/run_store/step.rs" = 1
 "crates/lgwks-bot/src/script/scope.rs" = 1
 "crates/lgwks-bot/src/script/scope/identity.rs" = 6

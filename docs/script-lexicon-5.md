@@ -12,7 +12,7 @@ Stands inside a line of Rust. Calls `ask_at`.
 
 Refuses: an `ask` with no `with (request)`.
 
-Guarantees: a truncated or undecodable output is refused typed, never decoded into a claim (decoupled); an `ask` with no request is refused at the word, naming the form (idiomatic).
+Guarantees: a truncated or undecodable output is refused typed, never decoded into a claim (decoupled); under a run store a resume replays the recorded answer and never calls the model twice; another prompt is refused typed (ephemeral); under a `justify` token rule each call reserves its budget before the model and settles to the bill; racing asks never spend past the allowance (hyperscale); an `ask` with no request is refused at the word, naming the form (idiomatic).
 ```text
 flow draft(model: &lgwks_bot::proposal::StubModel) -> String:
     let reply: String = ask model with (lgwks_bot::script::AskRequest::default())
