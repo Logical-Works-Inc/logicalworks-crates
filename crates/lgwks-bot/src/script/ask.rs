@@ -8,6 +8,12 @@
 //! undecodable output is refused typed, never decoded into a claim about what
 //! the whole output said.
 //!
+//! Under a run store the call is a durable step, as Temporal's activities and
+//! Restate's `ctx.run` are: the whole output is recorded with a digest of the
+//! prompt and budget, a resume replays it without calling the model, and a
+//! resume under another prompt is [`FlowError::Incompatible`]
+//! ([`Drift::Input`](crate::task::Drift::Input)). Held by `tests/it/sim_ask_replay.rs`.
+//!
 //! # Errors
 //!
 //! The word's own failures are [`FlowError`] arms: [`FlowError::Blocked`]
@@ -18,10 +24,14 @@
 
 use std::time::Duration;
 
+use lgwks_std::hash::{Digest, Hasher};
+
 use crate::cap::Cap;
 use crate::journal::frame::SaturatingFrom;
 use crate::proposal::StubModel;
+use crate::task::{DefinitionIdentity, Drift};
 
+use super::run_store::{remember_at, step_definition};
 use super::{FlowError, Scope, Site};
 
 /// One model call's token budget and deadline.
@@ -182,7 +192,8 @@ impl ModelPort for StubModel {
 /// [`FlowError::Blocked`] without the grant; [`FlowError::InvalidBound`] for
 /// a zero token budget or a truncated output; [`FlowError::TimedOut`] past
 /// the deadline; [`FlowError::Failed`] when `T` does not decode the output;
-/// and the provider's own failure as the flow's.
+/// [`FlowError::Incompatible`] when a resumed run recorded an answer to
+/// another prompt or budget; and the provider's own failure as the flow's.
 ///
 /// # Examples
 ///
@@ -223,7 +234,8 @@ where
     M: ModelPort,
 {
     let child = scope.enter(step)?;
-    let outcome = ask_in(&child, model, request).await;
+    let definition = step_definition(scope, step);
+    let outcome = ask_in(&child, &definition, model, request).await;
     child.settle(&outcome);
     outcome.map_err(|error| error.located(&child))
 }
@@ -247,13 +259,44 @@ where
     M: ModelPort,
 {
     let child = scope.enter_at(step, site)?;
-    let outcome = ask_in(&child, model, request).await;
+    let definition = step_definition(scope, step);
+    let outcome = ask_in(&child, &definition, model, request).await;
     child.settle(&outcome);
     outcome.map_err(|error| error.located(&child))
 }
 
+/// What a remembered `ask` records: the digest of the call it answered, then
+/// the whole output. The bytes rather than the decoded value, so the decode
+/// stays live and `T` owes no archive bound.
+type Answered = (Digest, Vec<u8>);
+
+/// The digest of what the model was asked: the prompt and the token budget.
+///
+/// The deadline is left out on purpose: it bounds how long the call may take,
+/// never what the model said, so a resume under a longer deadline still
+/// replays the answer the run already acted on.
+fn call_digest(request: &AskRequest) -> Digest {
+    let mut hasher = Hasher::new();
+    hasher.write_framed(b"lgwks.bot.ask.v1");
+    hasher.write_framed(&request.prompt);
+    hasher.write_framed(&request.max_tokens.to_le_bytes());
+    hasher.finalize()
+}
+
 /// The call itself, in the step `scope` already entered.
-async fn ask_in<T, M>(scope: &Scope, model: &M, request: &AskRequest) -> Result<T, FlowError>
+///
+/// A durable step under the run store when the run has one: the whole output
+/// is recorded under the step with [`call_digest`], so a resume after a crash
+/// returns the answer the run already acted on and never pays the model twice.
+/// A resume under another prompt or budget is [`Drift::Input`], refused before
+/// the model is called. A truncated output is refused inside the step, so it
+/// is never recorded and a resume asks again.
+async fn ask_in<T, M>(
+    scope: &Scope,
+    definition: &DefinitionIdentity,
+    model: &M,
+    request: &AskRequest,
+) -> Result<T, FlowError>
 where
     T: super::AskDecode,
     M: ModelPort,
@@ -271,45 +314,64 @@ where
         lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ask_in: returning an error to the caller");
         return refusal;
     }
-    let answered = match request.deadline {
-        Some(limit) if limit.is_zero() => {
-            let refusal = Err(FlowError::InvalidBound {
-                what: "the ask deadline",
-                value: 0,
-                max: u64::MAX,
-            });
-            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ask_in: returning an error to the caller");
-            return refusal;
-        }
-        Some(limit) => {
-            super::control::within(scope, "ask", limit, async {
-                model
-                    .complete(&request.prompt, request.max_tokens)
-                    .await
-                    .map_err(Into::into)
-            })
-            .await?
-        }
-        None => model
-            .complete(&request.prompt, request.max_tokens)
-            .await
-            .map_err(Into::into)?,
-    };
-    if answered.truncated {
-        let got = u64::saturating_from(answered.bytes.len());
+    if request.deadline == Some(Duration::ZERO) {
         let refusal = Err(FlowError::InvalidBound {
-            what: "the ask model output",
-            value: got,
-            max: request.max_tokens.into(),
+            what: "the ask deadline",
+            value: 0,
+            max: u64::MAX,
         });
-        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ask_in: the model output was truncated");
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ask_in: returning an error to the caller");
         return refusal;
     }
-    match T::decode(&answered.bytes) {
+    let want = call_digest(request);
+    let (asked, whole): Answered = remember_at(scope, scope.run(), definition, || async {
+        let answered = call(scope, model, request).await?;
+        if answered.truncated {
+            let got = u64::saturating_from(answered.bytes.len());
+            let refusal = Err(FlowError::InvalidBound {
+                what: "the ask model output",
+                value: got,
+                max: request.max_tokens.into(),
+            });
+            lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ask_in: the model output was truncated");
+            return refusal;
+        }
+        Ok((want, answered.bytes))
+    })
+    .await?;
+    if !asked.ct_eq(&want) {
+        let refusal = Err(FlowError::incompatible(
+            scope.path(),
+            Drift::Input {
+                named: want,
+                recorded: asked,
+            },
+        ));
+        lgwks_std::trace::debug!(error = ?refusal.as_ref().err(), "ask_in: the recorded answer was asked another question");
+        return refusal;
+    }
+    match T::decode(&whole) {
         Ok(typed) => Ok(typed),
         Err(failed) => {
             lgwks_std::trace::debug!(error = ?failed, "ask_in: the output did not decode");
             Err(failed)
         }
+    }
+}
+
+/// One model call, raced against the request's deadline when it declares one.
+async fn call<M>(scope: &Scope, model: &M, request: &AskRequest) -> Result<ModelOutput, FlowError>
+where
+    M: ModelPort,
+{
+    let completing = async {
+        model
+            .complete(&request.prompt, request.max_tokens)
+            .await
+            .map_err(Into::into)
+    };
+    match request.deadline {
+        Some(limit) => super::control::within(scope, "ask", limit, completing).await,
+        None => completing.await,
     }
 }

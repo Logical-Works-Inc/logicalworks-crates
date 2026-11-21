@@ -36,6 +36,7 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 2 is [`INVARIANTS-2.md`](INVARIANTS-2.
 - **INV-BOT-195** A step on a spawned task keeps its run's store, definition and effect policy, so it records, replays and gates as the body does. · why: #909 · enforced by: `tests/it/sim_scope_run_state.rs`
 - **INV-BOT-196** Concurrent resumes of one run on one host run each step body at most once; the losers are Refused with RunInFlight. · why: #1055 · enforced by: `tests/it/sim_resume_race.rs`
 - **INV-BOT-197** A sealed store answers a never-recorded step `Ok(None)`, and a key refusal fails the pending listing typed, never shortens it. · why: #1085, ADR 0065 · enforced by: `tests/it/sealed_pending_fault.rs`, `tests/it/sim_sealed_pending.rs`
+- **INV-BOT-198** Under a run store an `ask` records its whole answer with a digest of prompt and budget; a resume replays it without calling the model, and another prompt is `Drift::Input`. · why: ADR 0070 · enforced by: `tests/it/sim_ask_replay.rs`
 - **INV-BOT-JOURNAL-LOCK** A second `FileJournal::open` of a held file is `JournalError::Locked` before a byte is read. · why: #641 · enforced by: `journal::file::tests::refusals`
 - **INV-KERNEL-1** `lgwks_bot::kernel` is the supported path to the runtime modules, and a removal there is a major release. · why: #845 · enforced by: `tests/it/kernel_surface.rs`
 - **INV-EPOCH-1** A `RecordedInstant` archives as eight little-endian bytes, and a seeded `EpochClock` reads no real clock. · why: #845 · enforced by: `tests/it/sim_recorded_instant.rs`
