@@ -35,6 +35,7 @@ Cut 2026-11-21. Every dependency moves to its newest release (#1115 and this cut
 - A model call is a durable step, so a resume never pays twice (#1107). A `justify` token rule bounds the model spend of a run (#1108).
 - The `estate` smoke starts its own executable, so a host with no `/usr/bin/true` passes (#890).
 - A build with `ecs` and without `script` is clean under `-D warnings` (#1058).
+- A Landlock allowlist holds 4,096 rules, up from 64, and its paths sum to at most 1 MiB (#1114, ADR 0072).
 
 ## drishti 0.3.0, lgwks_ast 6.1.1, lgwks_macros 2.1.4
 

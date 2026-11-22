@@ -301,11 +301,28 @@ impl LandlockRules {
     /// The most rules one confinement carries.
     ///
     /// Each rule is one argument pair to the wrapper and one kernel rule, so
-    /// the list is bounded like every other spawn input.
-    pub const MAX_RULES: usize = 64;
+    /// the list is bounded like every other spawn input. 4,096 holds a
+    /// 500-entry home folder walked from `/` to a state directory with margin
+    /// (ADR 0072); the kernel itself takes rules until memory runs out. A full
+    /// list is this wrapper argv:
+    ///
+    /// ```text
+    /// setpriv --landlock-access fs \
+    ///     --landlock-rule path-beneath:<access>:<path>   (1 to 4,096 pairs) \
+    ///     -- <program> <args>
+    /// ```
+    pub const MAX_RULES: usize = 4_096;
 
     /// The longest path a rule names, in bytes (Linux's `PATH_MAX`).
     pub const MAX_PATH_BYTES: usize = 4_096;
+
+    /// The most bytes the paths of one confinement sum to.
+    ///
+    /// Each path is one wrapper argument, and `execve(2)` refuses an argv past
+    /// `ARG_MAX` (2 MiB at Linux's default 8 MiB stack) with `E2BIG`. With the
+    /// fixed text of each argument pair, 1 MiB of paths keeps the argv under
+    /// 1.2 MiB at [`Self::MAX_RULES`] rules, on every host (ADR 0072).
+    const MAX_TOTAL_PATH_BYTES: usize = 1 << 20;
 
     /// An empty allowlist; [`Self::validate`] refuses it until a rule is added.
     #[must_use]
@@ -332,8 +349,9 @@ impl LandlockRules {
     /// # Errors
     ///
     /// [`std::io::ErrorKind::InvalidInput`] for an empty list, one past
-    /// [`Self::MAX_RULES`], or a path that is relative, longer than
-    /// [`Self::MAX_PATH_BYTES`], not UTF-8, or holding a NUL or a newline.
+    /// [`Self::MAX_RULES`], paths that sum past 1 MiB, or a path that is
+    /// relative, longer than [`Self::MAX_PATH_BYTES`], not UTF-8, or holding a
+    /// NUL or a newline.
     pub fn validate(&self) -> io::Result<()> {
         if let Some(message) = self.refusal() {
             lgwks_std::trace::warn!(%message, "LandlockRules::validate refused an allowlist before the fork");
@@ -349,6 +367,16 @@ impl LandlockRules {
                 "a Landlock allowlist holds 1..={} rules, got {}",
                 Self::MAX_RULES,
                 self.rules.len()
+            ));
+        }
+        let total = self
+            .rules()
+            .map(|(path, _)| path.as_os_str().len())
+            .fold(0_usize, usize::saturating_add);
+        if total > Self::MAX_TOTAL_PATH_BYTES {
+            return Some(format!(
+                "a Landlock allowlist names at most {} path bytes in all, got {total} path bytes",
+                Self::MAX_TOTAL_PATH_BYTES
             ));
         }
         self.rules().find_map(|(path, _)| {
