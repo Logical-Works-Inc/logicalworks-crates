@@ -1,11 +1,12 @@
-# 4.1 Frontier — does the design beat credible alternatives?
+# 4.1 Frontier: does the design beat credible alternatives?
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 
-**✅ — argued from a survey, with the winning axis named.**
+**✅ Argued from a survey, with the winning axis named.**
 
-[`framework-comparison.md`](../framework-comparison.md) covers eight systems across
-crawler, Discord-bot, browser-agent, scraping and commercial-guidance families.
+The survey [`framework-comparison.md`](../framework-comparison.md) covers eight
+systems across crawler, Discord-bot, browser-agent, scraping and
+commercial-guidance families. The page
 [`frontier.md`](../frontier.md) covers nine research areas with fetched leaderboard
 and paper numbers (Similo 88.0% vs 75.6% on real drifted pages; ScreenSpot-Pro
 18.9% → 82.7% in eighteen months; the false-heal study's overlapping score
@@ -38,28 +39,28 @@ has not been measured on tasks that ask for it
 ([#270](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/270)). Until
 it is, the frontier claim rests on the authority axis above and not on authoring.
 
-That measurement now exists for reference solutions, and it falls the honest
-way in both directions (`bench/ai-authoring/README.md`, runs
-`20261008T003455Z-dry` and `20261008T005932Z-dry`, 140 dry trials, ten per
-cell, zero variance everywhere). On three held-out tasks whose oracles fail any
-solution lacking the guarantee — bounded capture of a forking child past 64
-MiB, tenant isolation at a thousand in flight with typed refusals, and
-exactly-once effect application across `SIGKILL` — the `script!` arm, the
-facade, the facade plus `FanOut` and the hand-rolled old surface pass every
-clause on every trial, and the `futures` comparator fails exactly the
-guarantee clauses on every trial (the flood, the orphan and the promptness of
-the cancel; the isolation, both refusals and the mixed thousand; the
-drop-duplicate and the kill-duplicate). Each oracle's negative control is a
-committed reference `futures` solution failing it with a committed `lgwks_bot`
-solution passing it, quoted in the README.
+That measurement now exists for reference solutions, and it cuts both ways
+(`bench/ai-authoring/README.md`, runs `20261008T003455Z-dry` and
+`20261008T005932Z-dry`, 140 dry trials, ten per cell, zero variance everywhere).
+Three held-out tasks have oracles that fail any solution lacking the guarantee:
+bounded capture of a forking child past 64 MiB, tenant isolation at a thousand
+in flight with typed refusals, and exactly-once effect application across
+`SIGKILL`. The `script!` arm, the facade, the facade plus `FanOut` and the
+hand-rolled old surface pass every clause on every trial. The `futures`
+comparator fails exactly the guarantee clauses on every trial: the flood, the
+orphan and the promptness of the cancel; the isolation, both refusals and the
+mixed thousand; the drop-duplicate and the kill-duplicate. Each oracle's negative
+control is a committed reference `futures` solution failing it with a committed
+`lgwks_bot` solution passing it, quoted in the README.
 
 What this does and does not move. The `script!` arm is measured for the first
 time and holds: 60 of 60 full passes across the three tasks. The `futures`
-lead on the old tasks stands unchallenged — nothing here re-runs models, and
+lead on the old tasks stands unchallenged. Nothing here re-runs models, and
 no interval is claimed over deterministic references. The frontier closed
-model and the human authors have not run. Its runner is back, in Rust (`ai-authoring`, a `lgwks_deps` binary driven by
-`bench/ai-authoring/bench.toml`; the Python runner stays deleted), and the
-README gives its exact command and its planned scale (990 trials).
+model and the human authors have not run. The runner is back, in Rust
+(`ai-authoring`, a `lgwks_deps` binary driven by `bench/ai-authoring/bench.toml`;
+the Python runner stays deleted), and the README gives its exact command and its
+planned scale (990 trials).
 
 What ran, at HEAD, for free, was a dry run of all 33 cells (`runs/20261016T225212Z-dry`;
 every `lgwks_bot` and `lexicon` cell passes every clause, `futures` fails
@@ -69,9 +70,9 @@ none survives). So did five journeys through the shipped binary under real
 cargo (a mutant the oracle cannot catch exits 1, an oracle past its bound is
 recorded as `timeout`, a `kill -9` and `--resume` leave no process behind).
 The README's per-task table says which arm wins where it is measured. So the
-frontier claim now rests on two legs — the authority axis above, and a
+frontier claim now rests on two legs: the authority axis above, and a
 measured authoring comparison on guarantee tasks where every `lgwks_bot` arm
-beats the ecosystem standard; no model run has separated the arms.
+beats the ecosystem standard. No model run has separated the arms.
 
 The model half ran first on 2026-10-17: one model (OpenCode's Go muse 1.3), 165
 trials, five per task and arm, 4,569,097 tokens billed
@@ -92,9 +93,9 @@ cell and human authors stay unmeasured, and those two run directories are not co
 What the runner costs the gate, measured 2026-10-16 on one aarch64-apple-darwin
 host at a load average of 5.7: it adds 89 unit tests and five journeys. A cold test
 build of its binary with every dependency, in an empty target directory with
-`CARGO_INCREMENTAL=0`, took 15.96 s wall, 54 s of CPU and 447 MB peak resident set;
-the 89 unit tests then ran in 5.75 s at 259 MB peak, and those plus the journeys and
-the `ci-local` tests (260 in all) in 13.5 s. The PR's first full CI run had three jobs
+`CARGO_INCREMENTAL=0`, took 15.96 s wall, 54 s of CPU and 447 MB peak resident set.
+The 89 unit tests then ran in 5.75 s at 259 MB peak. Those plus the journeys and
+the `ci-local` tests (260 in all) ran in 13.5 s. The PR's first full CI run had three jobs
 cancelled at the 300 s cap with the host's five-minute load average at 67, against
 262, 267 and 114 s for the same three jobs on main's last run. Sixteen cold seconds
 do not explain that, so the wall is the contention that #272 and #279 own, and it is

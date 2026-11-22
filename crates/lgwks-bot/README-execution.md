@@ -9,21 +9,21 @@ A `Bot` owns a `bevy_ecs::World` and a `Schedule` with exactly two systems,
 and neither awaits: they commit observations and record a decision. One tick is
 four phases, of which only the two middle ones are those systems:
 
-1. **Observe** — poll every source in bounded concurrent waves (32 in flight)
+1. **Observe**: poll every source in bounded concurrent waves (32 in flight)
    and await each wave. This happens on the caller's executor.
-2. **Fold** (`observe_fold`) — compare each result with the remembered one and
+2. **Fold** (`observe_fold`): compare each result with the remembered one and
    bump that source's `Revision(u64)` marker component *only when the value
    moved*. A poll that failed is reported here, before any `Revision` is
    written. The remembered value is the one the chain last acted on, so while a
    transition owns it the comparison is against that transition's binding.
-3. **Decide** (`fire_plan`) — walk the bot's *eligible work*, recorded in a
+3. **Decide** (`fire_plan`): walk the bot's *eligible work*, recorded in a
    ledger keyed by `(chain, entry)`, in declaration order: a chain whose
    `Revision` moved opens or resumes a transition, and a chain with work
    outstanding is walked whether or not it moved. Evaluate each entry's
    condition and record the effects whose conditions hold, in declaration order.
    Conditions are pure over the observed value, so this records exactly the
    program the old interleaved loop would have walked.
-4. **Act** — apply the recorded decisions in that order, awaited one at a time,
+4. **Act**: apply the recorded decisions in that order, awaited one at a time,
    so side effects stay deterministic, writing each entry's outcome back into
    the ledger as it goes. A chain's walk stops at the first entry it cannot
    settle, so an acknowledged effect is never replayed to reach a successor.
@@ -34,8 +34,8 @@ the ledger decides what that chain still owes from then on.
 
 **A transition is bound to one observed payload.** Opening or resuming a
 transition *moves* the observed value out of the fold's slot and into the
-transition, and every entry of that transition — every condition evaluated and
-every action run — reads that binding, never the newest observation. A value
+transition, and every entry of that transition (every condition evaluated and
+every action run) reads that binding, never the newest observation. A value
 that arrives while a transition still has entries open is not admitted; it is
 still in the slot, and it becomes the next transition's payload on the first
 tick after the current one has nothing open. Without the binding, a chain whose
@@ -65,7 +65,7 @@ Two consequences of that order are worth knowing before you rely on a tick:
 `tick` is the synchronous adapter: it drives phase 1 and phase 4 with
 `lgwks_std::task::block_on`, which parks the calling thread. That is correct on
 a plain thread and a deadlock inside a runtime, because a parked thread cannot
-advance the driver its own verbs are waiting on — the timer never fires, the
+advance the driver its own verbs are waiting on. The timer never fires, the
 socket never reports ready, and the sibling task the verb awaits never runs. So:
 
 - **Inside a runtime, `await bot.tick_async()`.** It is the whole tick, in the
@@ -76,13 +76,13 @@ socket never reports ready, and the sibling task the verb awaits never runs. So:
   Called on a thread a runtime already drives it does not park that thread: it
   returns `BotError::TickInsideRuntime` (`docs/guides/lgwks-bot/failures.md`).
 
-Dropping a `tick_async` future — a cancellation, a `select!`, a timeout — is
+Dropping a `tick_async` future (a cancellation, a `select!`, a timeout) is
 safe, but it is not the same as a tick that never started. Work the tick had not
 reached is untouched, and the entries after it keep their declared order. An
 entry whose attempt had *already begun* is held as `TransitionHold::Unrecorded`:
 the effect may be live, so it is never attempted again on its own. A later tick
-does not replay it — it returns `BotError::PendingTransition` and `Bot::pending()`
-names the entry, and `Bot::resolve_effect` is how the caller says what actually
+does not replay it. It returns `BotError::PendingTransition` and `Bot::pending()`
+names the entry, and `Bot::resolve_effect` is how the caller says what
 happened. This is the same hold a failed attempt under `EffectIndeterminate`
 produces, and it is deliberate: a tick that ends without a record is exactly the
 case the write-ahead record exists for.

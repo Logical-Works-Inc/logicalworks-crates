@@ -1,13 +1,13 @@
 # logicalworks-crates
 
-**logicalworks-crates is the Rust crate estate behind Logical Works: six independently versioned crates — primitives with no async runtime required, automation that runs unattended, one AST across many languages, the `script!` proc macro, an audited dependency storefront, and the Drishti frontend.**
+**logicalworks-crates is the Rust crate estate behind Logical Works. It holds six independently versioned crates: primitives with no async runtime required, automation that runs unattended, one AST across many languages, the `script!` proc macro, an audited dependency storefront, and the Drishti frontend.**
 
 [![CI](https://github.com/Logical-Works-Inc/logicalworks-crates/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Logical-Works-Inc/logicalworks-crates/actions/workflows/ci.yml) ![status: unstable](https://img.shields.io/badge/status-unstable-orange) ![license: Apache-2.0 and MPL-2.0](https://img.shields.io/badge/license-Apache--2.0%20%7C%20MPL--2.0-blue)
 [![lgwks_std](https://img.shields.io/crates/v/lgwks_std?label=lgwks_std)](https://crates.io/crates/lgwks_std) [![lgwks_bot](https://img.shields.io/crates/v/lgwks_bot?label=lgwks_bot)](https://crates.io/crates/lgwks_bot) [![lgwks_ast](https://img.shields.io/crates/v/lgwks_ast?label=lgwks_ast)](https://crates.io/crates/lgwks_ast) [![lgwks_macros](https://img.shields.io/crates/v/lgwks_macros?label=lgwks_macros)](https://crates.io/crates/lgwks_macros) [![lgwks_deps](https://img.shields.io/crates/v/lgwks_deps?label=lgwks_deps)](https://crates.io/crates/lgwks_deps) [![drishti](https://img.shields.io/crates/v/drishti?label=drishti)](https://crates.io/crates/drishti)
 
-> **Unstable.** Every interface here changes without notice until we stop breaking something every other day. A breaking change still bumps the major version, but nothing outside Logical Works is promised a stable surface yet. This note comes off when that is true.
+> **Unstable.** Every interface here can change without notice. A breaking change still bumps the major version, but no stable surface is promised outside Logical Works yet. This note comes off when that is true.
 
-[Should I use logicalworks-crates?](docs/should-i-use.md) — where each crate is right, where it is wrong, and what to use instead; the estate is not part of Braid, which pins three of these crates and depends on them, never the reverse.
+[Should I use logicalworks-crates?](docs/should-i-use.md) It says where each crate fits, where it does not, and what to use instead. The estate is not part of Braid: Braid pins three of these crates and depends on them, never the reverse.
 
 `lgwks_std`'s default features are not dependency-free; that caveat and the exact dependency graph are in [Choosing a crate](docs/choosing-a-crate.md).
 
@@ -15,24 +15,23 @@
 
 | Crate | Version | Docs | What it gives you |
 |---|---|---|---|
-| `lgwks_std` | 5.0.0 | [docs.rs](https://docs.rs/lgwks_std) | Everyday primitives with no async runtime required: JSON/RON/wire codecs, a blocking HTTP client, retry policies, structured logging with default debugger install, time and calendars, hashing, ids, globs, process control |
-| `lgwks_bot` | 10.0.0 | [docs.rs](https://docs.rs/lgwks_bot) | Orchestration you cannot write wrongly: `script!` flows with bounded fan-out, deadlines, retries under a shared budget, dependency graphs, sagas, bounded live feeds, justification rules, durable steps, admission of untrusted plans, readiness waits, tenant-keyed steps and a map of what a run declared |
+| `lgwks_std` | 5.0.0 | [docs.rs](https://docs.rs/lgwks_std) | Primitives with no async runtime required: JSON/RON/wire codecs, a blocking HTTP client, retry policies, structured logging with default debugger install, time and calendars, hashing, ids, globs, process control |
+| `lgwks_bot` | 10.0.0 | [docs.rs](https://docs.rs/lgwks_bot) | Orchestration: `script!` flows with bounded fan-out, deadlines, retries under a shared budget, dependency graphs, sagas, bounded live feeds, justification rules, durable steps, admission of untrusted plans, readiness waits, tenant-keyed steps and a map of what a run declared |
 | `lgwks_ast` | 6.1.1 | [docs.rs](https://docs.rs/lgwks_ast) | Parse many languages into one AST type. tree-sitter grammars behind cargo features, bounded traversal, and typed diagnostics for tools that report on code |
 | `lgwks_macros` | 2.1.4 | [docs.rs](https://docs.rs/lgwks_macros) | The syntax of `lgwks_bot::script!`, orchestration written as indented flows. Not a surface of its own: Rust requires a proc macro to live in its own crate, so use it through `lgwks_bot` |
 | `lgwks_deps` | 8.0.0 | [docs.rs](https://docs.rs/lgwks_deps) | One audited place to opt into third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
-| `drishti` | 0.3.0 | [docs.rs](https://docs.rs/drishti) | The Drishti frontend's design publication and reference core: Logical Works brand tokens, the eleven seeded ink effects, the GPU residency model, the Logic OS Canvas protocol, scene, motion and native host broker, a GPUI host (feature `ui`), and the `drishti` command over all of them. Its proof gates G01–G15 stay blocked |
+| `drishti` | 0.3.0 | [docs.rs](https://docs.rs/drishti) | The Drishti frontend's design publication and reference core: Logical Works brand tokens, the eleven seeded ink effects, the GPU residency model, the Logic OS Canvas protocol, scene, motion and native host broker, a GPUI host (feature `ui`), and the `drishti` command over all of them. Its proof gates G01 to G15 stay blocked |
 
 Versions move independently from one repository and one tag; the table lists this tree's manifests, not what is published ([`docs/releasing.md`](docs/releasing.md) keeps the two apart).
 
 > **Names.** `lgwks_std` (underscore) lives in `crates/lgwks-std` (hyphen) and is
 > imported `use lgwks_std::...`; `cargo install lgwks_deps` builds `lgwks-deps`.
 
-## Why Developers & AI Choose logicalworks-crates
+## What each crate does
 
-Resilient execution engineered for production autonomy:
-1. **Declarative Workflows (`lgwks_bot`)**: `script!` indented flows with compiler-bounded fan-out, shared deadlines, retry budgets, sagas, and agent plan admission.
-2. **Zero-Async Primitives (`lgwks_std`)**: HTTP, JSON, codecs, retry, and structured logging with zero async runtime required.
-3. **In-Process Durability**: Honest state journaling on ECS without external clusters or Temporal replay traps. See [comparison](docs/comparison-vs-temporal-tokio.md).
+1. **Declarative flows (`lgwks_bot`)**: `script!` indented flows with compiler-bounded fan-out, shared deadlines, retry budgets, sagas and agent plan admission.
+2. **No async runtime (`lgwks_std`)**: HTTP, JSON, codecs, retry and structured logging need none.
+3. **In-process durability**: state journals on the ECS with no external cluster. See the [comparison](docs/comparison-vs-temporal-tokio.md).
 
 ## Quickstart
 

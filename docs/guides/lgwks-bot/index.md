@@ -6,7 +6,7 @@ A Rust automation library built around four verbs: Observe, Evaluate, Execute,
 Query. One ECS world is the core: `Bot` runs change-triggered condition/action
 chains on its schedule. One driver on tokio sits below the world for tasks and
 I/O, used only where rebuilding a piece makes no sense, and `script!` is the
-framework above it ([ADR 0006](../../adr/0006-one-ecs-world-one-tokio-axum-driver.md)).
+language above it ([ADR 0006](../../adr/0006-one-ecs-world-one-tokio-axum-driver.md)).
 Capability checks apply to participating library calls; the crate is not a
 sandbox.
 
@@ -47,7 +47,7 @@ The synchronous adapter is `Bot::tick` (`crates/lgwks-bot/src/ecs/bot.rs:556`). 
 drives the non-`Send` verb futures on a thread-parking executor, so there is
 nothing to await. The same tick awaited on the caller's executor is
 `Bot::tick_async` (`crates/lgwks-bot/src/ecs/bot.rs:331`), and it is the one to call from
-inside a runtime — `tick` refuses there with `EcsError::TickInsideRuntime`
+inside a runtime: `tick` refuses there with `EcsError::TickInsideRuntime`
 rather than park the thread that owns the reactor. Do not write
 `bot.tick().await`; that is `tick` returning `usize`, then a `usize` that is not
 a future. See [failures](failures.md) for why the refusal is not a failed tick.
@@ -59,7 +59,8 @@ MSRV is Rust 1.98, edition 2024. Which release first carries a symbol, and what
 each major removed, is in [`CHANGELOG.md`](../../../CHANGELOG.md) and
 [`docs/changelog/`](../../changelog); 4.0.0 removed `EcsBot::world` and
 `Clock::sleep` under ADR 0006, 7.0.0 takes `lgwks_std` 4's own `json::Value`
-through `lgwks_bot::json`, and 8.1.0 adds [`lgwks_bot::kernel`](kernel.md).
+through `lgwks_bot::json`, 8.1.0 adds [`lgwks_bot::kernel`](kernel.md), and
+10.0.0 removes `sealed::runstore` and `sealed::SweepError`.
 
 ## Install and import
 

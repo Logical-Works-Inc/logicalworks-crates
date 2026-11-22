@@ -9,8 +9,8 @@ exactly the tree and the refusals `cargo build` does. The feature selects no
 grammar; it builds `proc-macro2` and nothing else.
 
 `script::read_source` finds every `script!` in one Rust file the way the
-compiler hands them to the macro (by token, at any nesting, under any path
-prefix; never inside a string or comment) and reads each through `parse`.
+compiler hands them to the macro: by token, at any nesting, under any path
+prefix, never inside a string or comment. It reads each through `parse`.
 `features = ["tool"]` adds `Script::to_json`, in the shape the runtime's
 `Architecture::to_json` writes, and the `lgwks-ast` binary:
 

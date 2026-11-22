@@ -12,13 +12,15 @@ Pages of this guide: [tasks](background-work.md) ·
 ## `Supervisor`: a ceiling on tasks
 
 `rt::supervise::Supervisor` (feature `sync`) owns a set of background tasks and
-stops them when it goes away. `Supervisor::new(max_in_flight)` takes the ceiling,
-clamps it into `1..=Semaphore::MAX_PERMITS`, and offers no argument that produces
-an unbounded supervisor (`crates/lgwks-bot/src/rt/supervise/supervisor.rs:250`).
-`Supervisor::default()` is the constructor for the caller who has no opinion: it
-discovers the ceiling from `std::thread::available_parallelism`, so the safe
-default is the *first* thing that resolves rather than something to remember to
-ask for, and it is still a real ceiling.
+stops them when it goes away.
+
+The constructor `Supervisor::new(max_in_flight)` takes the ceiling and clamps it
+into `1..=Semaphore::MAX_PERMITS`. It offers no argument that produces an
+unbounded supervisor (`crates/lgwks-bot/src/rt/supervise/supervisor.rs:250`).
+
+For the caller who has no opinion, `Supervisor::default()` discovers the ceiling
+from `std::thread::available_parallelism`. The safe default is the *first* thing
+that resolves, and it is still a real ceiling.
 
 Four properties, all in the module documentation
 (`crates/lgwks-bot/src/rt/supervise.rs:9`):
@@ -36,27 +38,27 @@ a finished task's slot until it is joined. Without reaping, the retained set
 would grow with total spawns rather than with live tasks.
 
 To wait for everything you placed without stopping it, await `wait_idle()`. It
-joins every task on the set's own wakeup — no timer, so no 1 ms tick per wait —
-cancels nothing, and returns how many tasks it joined; the supervisor is usable
+joins every task on the set's own wakeup (no timer, so no 1 ms tick per wait),
+cancels nothing, and returns how many tasks it joined. The supervisor is usable
 afterwards. A body that never returns keeps it waiting, so pair it with a
 `Budget` or use `shutdown` when the work must end. Polling `reap` in a sleep loop
 is the shape it replaces: on Tokio that loop costs a timer tick per round.
 
-Every task ends in exactly one `TaskOutcome`, read through `next_report` (or
-returned by `shutdown`), and each outcome carries the `TaskId` the supervisor
-assigned in spawn order. `Stats` counts them separately — `succeeded`,
-`cancelled`, `aborted`, `panicked`, and (with the `process` feature) `failed` —
-so a caller can tell work that finished from work that died from a command that
+Every task ends in exactly one `TaskOutcome`. Read it through `next_report`, or
+take it from `shutdown`. Each outcome carries the `TaskId` the supervisor
+assigned in spawn order. `Stats` counts them separately: `succeeded`,
+`cancelled`, `aborted`, `panicked`, and (with the `process` feature) `failed`.
+So a caller can tell work that finished from work that died from a command that
 exited non-zero. A process that exited 3 is a `Failed` outcome carrying its
 `ExitStatus`, which is not the same report as one this supervisor killed.
-`Stats::completed` is the resource count, a sum rather than a success count. The
-report buffer is capped at the in-flight ceiling; a caller that spawns without
-ever reading its reports loses detail, never memory, and
+The counter `Stats::completed` is the resource count, a sum rather than a success
+count. The report buffer is capped at the in-flight ceiling. A caller that spawns
+without ever reading its reports loses detail, never memory, and
 `Stats::reports_dropped` says how much.
 
-`with_runs(feed)` puts the supervisor's work into a bot's world (ADR 0006 R3):
-every task placed is an `admitted` event and every outcome a `settled` one,
-written through the `RunFeed`'s journal, and a bot bound with
+The call `with_runs(feed)` puts the supervisor's work into a bot's world (ADR 0006
+R3). Every task placed is an `admitted` event and every outcome a `settled` one,
+written through the `RunFeed`'s journal. A bot bound with
 `feed.bind(&mut bot, handler)` runs the handler once per settled task on its next
 tick, never twice across a restart. `Host::builder(..).runs(feed)` does the same
 for a host's runs, and refuses a run the feed cannot record.

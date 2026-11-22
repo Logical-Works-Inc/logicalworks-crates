@@ -8,7 +8,7 @@ Pages: [page 1](script-lexicon.md) · [page 2](script-lexicon-2.md) · page 3 ·
 
 Starts a line of its own. Calls none: `return Ok`.
 
-- `give back value` — return from the flow
+- `give back value`: return from the flow
 
 Refuses: `give back` inside a block that has its own value.
 
@@ -22,7 +22,7 @@ flow one() -> u8:
 
 Starts a line of its own. Calls `FlowError::failed` / `FlowError::transient`.
 
-- `fail with reason` / `fail transiently with reason` — stop with a permanent / retryable failure
+- `fail with reason` / `fail transiently with reason`: stop with a permanent / retryable failure
 
 Refuses: a reason missing after `with`.
 
@@ -37,8 +37,8 @@ flow check(ready: bool):
 
 Opens a block: its line ends in `:`. Calls `graph`.
 
-- `graph:` with `node name[ needs a, b]:` under it — every node once, each as soon as the nodes it needs have succeeded, longest remaining chain first, as many at once as the machine sustains; the value is the run's `GraphReport`
-- `graph, at most (limit) at once:` — the same, under a limit that comes from somewhere named
+- `graph:` with `node name[ needs a, b]:` under it: every node once, each as soon as the nodes it needs have succeeded, longest remaining chain first, as many at once as the machine sustains; the value is the run's `GraphReport`
+- `graph, at most (limit) at once:`: the same, under a limit that comes from somewhere named
 
 Refuses: a line under it that is not a `node`; a node needing itself, a node no line declares, or a cycle; a name declared twice; a concurrency bound typed as a number.
 
@@ -59,7 +59,7 @@ flow ship(repo: &Repo) -> usize:
 
 Opens a block: its line ends in `:`. Calls `GraphNode::new`.
 
-- `node name[ needs a, b]:` — one node of the enclosing `graph`: its body runs once, after `a` and `b` have succeeded
+- `node name[ needs a, b]:`: one node of the enclosing `graph`: its body runs once, after `a` and `b` have succeeded
 
 Refuses: a `node` outside a `graph`; a name that is not one word.
 
@@ -80,7 +80,7 @@ flow ship(repo: &Repo) -> usize:
 
 Opens a block: its line ends in `:`. Calls `compensated`.
 
-- `saga name:` with `compensate step:` after the steps it undoes — a named scope whose finished steps are undone, newest first, when a later line fails; its value is the body's
+- `saga name:` with `compensate step:` after the steps it undoes: a named scope whose finished steps are undone, newest first, when a later line fails; its value is the body's
 
 Refuses: a name that is not one word.
 
@@ -101,7 +101,7 @@ flow book(trip: &Trip) -> Ticket:
 
 Opens a block: its line ends in `:`. Calls `Compensations::add`.
 
-- `compensate step:` — the undo of `step`, registered once that step has finished, run only if the saga later fails
+- `compensate step:`: the undo of `step`, registered once that step has finished, run only if the saga later fails
 
 Refuses: a `compensate` outside a `saga`; a step no earlier line of the saga names.
 

@@ -6,7 +6,7 @@ Pages of this guide: [scope and finding](general-bot-fold.md) · [what is new](g
 
 Each step lands green and independently. Steps 1–6 have landed. Next is 7.
 
-1. **The interface model.** ✅ Landed in this change: `interface.rs` —
+1. **The interface model.** ✅ Landed in this change: `interface.rs`, with
    `ElementFacts`, the four recognition-vector components, `RecognitionVector`,
    `Recognition`.
 2. **Language understanding.** ✅ Landed in this change: `language.rs`, the
@@ -17,46 +17,45 @@ Each step lands green and independently. Steps 1–6 have landed. Next is 7.
    `lgwks_std::similarity`. Consulted only where the lexicon returns `Absent`,
    so it cannot change a verdict the deterministic tiers already reached, and
    the model's identity is recorded with every decision it informs (§3.6).
-4. **The locator ladder.** ✅ Landed: `interface.rs` gains `Anchor`, `Ladder`,
-   `LadderError`, `ElementFacts::with_anchor` / `anchor`, and
-   `RecognitionVector::recognize_with_ladder`, per §3.2. A rung decides by its
-   own anchor value: one hit resolves, two or more is `Ambiguous` and stops the
-   walk (a weak rung may not "recover" a strong-rung ambiguity), zero hits falls
-   through and the final `Absent` carries the strongest near-miss any rung
-   scored. `Ladder::new` sorts strongest-first and deduplicates, and rejects an
-   empty list the way `Weighted` rejects an empty component set.
+4. **The locator ladder.** ✅ Landed, per §3.2. The interface module gains
+   `Anchor`, `Ladder`, `LadderError`, `ElementFacts::with_anchor` / `anchor`, and
+   `RecognitionVector::recognize_with_ladder`. A rung decides by its own anchor
+   value. One hit resolves. Two or more is `Ambiguous` and stops the walk: a weak
+   rung may not "recover" a strong-rung ambiguity. Zero hits falls through, and
+   the final `Absent` carries the strongest near-miss any rung scored.
+   `Ladder::new` sorts strongest-first, deduplicates, and rejects an empty list
+   the way `Weighted` rejects an empty component set.
 5. **The missing typed outcomes.** Three of the same invariant. ✅ Landed:
    `Resolution::Degraded` (§3.6), the verdict a resolver returns when a
-   dependency it needs is unavailable — without it, *nothing matched* and *we
-   could not look* render identically and asking the person again is the wrong
+   dependency it needs is unavailable. Without it, *nothing matched* and *we
+   could not look* render identically, and asking the person again is the wrong
    repair for the second. And the two halves of the §3.1 defect:
    `BotError::EffectIndeterminate` so a timed-out `Execute` is not retyped
    `Failed` and retried into a duplicate.
 
-   **The second half landed wrong, and the correction is the interesting part.**
-   It shipped first as a three-arm `TerminalOutcome` (`Success | Partial |
-   Failure`) returned by `Terminal::outcome(unsettled)`, on the reasoning that a
-   run which left an effect unsettled is neither a success nor a failure. That
-   classifier then turned out to destroy exactly the information it was built to
-   carry, in two ways. It mapped every `Refused` terminal to `Failure` whatever
-   the unsettled count, so a refused run that had also left an earlier effect in
-   doubt reported the refusal and dropped the doubt. And `Partial`'s own
+   **The second half landed wrong, and the correction teaches the most.** It
+   shipped first as a three-arm `TerminalOutcome` (`Success | Partial |
+   Failure`) returned by `Terminal::outcome(unsettled)`. The reasoning: a run
+   that left an effect unsettled is neither a success nor a failure. That
+   classifier then destroyed the information it was built to carry, in two
+   ways. It mapped every `Refused` terminal to `Failure` whatever the unsettled
+   count, so a refused run that had also left an earlier effect in doubt
+   reported the refusal and dropped the doubt. And the `Partial` variant's own
    documentation claimed "part of its output is not known to exist, and part of
-   it is", which does not follow from the count it was handed: one attempted
+   it is". That does not follow from the count it was handed: one attempted
    effect whose response was lost may have produced none at all. `unsettled > 0`
    is uncertainty about *occurrence*, not evidence of partial completion.
 
    The repair is that the two facts are independent and are stored that way.
    `Outcome` carries a `Disposition` (`Completed | Referred | HandedOff |
-   Refused` — the routing class, payload-free) beside an `EffectLedger`, which
+   Refused`: the routing class, payload-free) beside an `EffectLedger`, which
    holds `confirmed` and `unsettled` counts. A refusal no longer overwrites
    uncertainty, and neither count is read as evidence of the other.
 
-   That is the same invariant arriving a fourth time, from the opposite
-   direction. The first three arrivals were types that could not say a thing;
-   this one was a type that said something it had not been told — which is the
-   harder failure to notice, because a loss of information leaves a smaller
-   surface than a missing one.
+   This is the invariant's fourth arrival, from the opposite direction. The first
+   three were types that could not say a thing. This one said something it had
+   not been told. That failure is harder to notice: a loss of information leaves
+   a smaller surface than a missing one.
 
    **They are one law, not two patches.** The error says an effect *may* have
    happened; the ledger is where that fact is retained rather than resolved.

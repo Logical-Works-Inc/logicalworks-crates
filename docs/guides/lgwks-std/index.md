@@ -1,6 +1,6 @@
 # lgwks_std consumer guide
 
-Everyday Rust primitives with no async runtime required, each behind one
+Rust primitives with no async runtime required, each behind one
 audited dependency stack. The package is `lgwks_std` (underscore) in the
 directory `crates/lgwks-std` (hyphen), used as `use lgwks_std::...`.
 
@@ -21,7 +21,7 @@ per target (ADR 0003). `full` adds it.
 
 | Feature | Modules | External deps |
 |---|---|---|
-| `core` | `encoding`, `fs`, `glob`, `hex`, `leb128`, `retry`, `task`, `time` | none |
+| `core` | `encoding`, `fs`, `glob`, `hex`, `leb128`, `retry`, `seeded`, `similarity`, `task`, `time` | none |
 | `trace` | `trace` | `tracing` |
 | `trace-install` | the default subscriber bootstrap | `tracing-subscriber` stack |
 | `random` | `random`, `id` | `getrandom` |
@@ -52,7 +52,7 @@ it needs both halves:
 lgwks_std = { version = "5", default-features = false, features = ["core"] }
 ```
 `default-features = false` removes `standard`. `features = ["core"]` puts the core
-modules back. A bare `lgwks_std = "4"` is **not** zero-dependency: it is `standard`.
+modules back. A bare `lgwks_std = "5"` is **not** zero-dependency: it is `standard`.
 
 This is checkable rather than assertable. From a clean project:
 
@@ -77,6 +77,7 @@ beneath it. The default build prints every stack of `standard` under it.
 |---|---|
 | `encoding` | base64 and percent-encoding |
 | `fs` | recursive directory walking with sandbox enforcement |
+| `seeded`, `similarity` | a seeded stream for simulations; edit-distance and cosine scorers |
 | `glob` | shell-style glob matching |
 | `hex` | hex encode and decode |
 | `leb128` | LEB128 variable-length integers |

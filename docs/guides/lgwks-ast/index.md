@@ -52,8 +52,8 @@ Rust code that names the variant is affected.
 ## Identify, parse, inspect
 
 The test `the_guide_walkthrough_refuses_what_it_should` runs this walkthrough. Grammar
-selection is by feature and the lookup follows it: `Language::of_path("src/lib.rs")` is
-`Language::Rust` and its `name()` is `"rust"`, while a path whose grammar this build did not
+selection is by feature, and the lookup follows it. `Language::of_path("src/lib.rs")` is
+`Language::Rust` and its `name()` is `"rust"`. A path whose grammar this build did not
 select (`main.c` without `lang-c`) comes back `None`. `try_parse("fn f() { let x = 1; }",
 language)` is a clean parse, and `inspect_ast(&parsed.root(), None)` reports no syntax
 issues, more than five nodes and a depth of at least three. A recoverable tree is refused,

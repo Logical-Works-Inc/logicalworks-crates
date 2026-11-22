@@ -8,7 +8,7 @@ consequence the name does not carry.
 
 ```toml
 default = ["script", "ecs", "trace", "wire", "ron"]
-script = ["rt", "time", "sync", "macros", "dep:lgwks_macros", "dep:lgwks_ast", "lgwks_ast/script", "lgwks_deps/script", "wire", "ecs"]
+script = ["rt", "time", "sync", "macros", "dep:lgwks_ast", "lgwks_ast/script", "lgwks_deps/script", "wire", "ecs"]
 ```
 That is the `cargo add lgwks_bot` build: `script!`, the four driver features it
 stands on, the ECS substrate and the encodings the journal persists through. It
@@ -26,11 +26,11 @@ boundary: `wasm32-wasip1` builds exactly these defaults (ADR 0003).
 | `macros` | `rt` | the `join!`, `select!`, and `try_join!` re-exports at the crate root |
 | `io` | `rt` | `rt::io`: `AsyncRead`, `AsyncWrite`, `AsyncBufRead`, `BufReader`, `BufWriter`, `duplex`, `copy` |
 | `net` | `io` | `rt::net`: `TcpListener`, `TcpStream`, `UdpSocket`, `lookup_host` |
-| `process` | `io`, `sync` | `rt::process`: `ProcessSpec` — how to describe a child, with `StdioPolicy::Capture` for a bounded stream. Running one is `Supervisor::spawn_process` (reported later) or `Supervisor::run_process` (returns its `ProcessRun`), and they are the only ways: `Child` and its pipes are deliberately not exported |
+| `process` | `io`, `sync` | `rt::process`: `ProcessSpec` describes a child, with `StdioPolicy::Capture` for a bounded stream. Run one with `Supervisor::spawn_process` (reported later) or `Supervisor::run_process` (returns its `ProcessRun`). They are the only ways: `Child` and its pipes are not exported |
 | `fs` | `io` | `rt::fs`: an async filesystem, a blocking-threadpool wrapper |
 | `edge` | `net`, `script` | `rt::edge`: the HTTP edge, axum on the driver, every request answered by a `RequestFeed` from its own tenant's state (ADR 0006 R4), and the world driven beside it on its wakes and `Every` deadlines (R5); the `edge-load` binary |
 | `signal` | `rt` | `rt::signal`: OS signal streams. Compiled only on `unix` or `windows` (`crates/lgwks-bot/src/rt.rs:139`) |
-| `ephemeral` | | `EffectScope::ephemeral()`, `RunId::mint()`, `EnvironmentId::mint()`. Host-only: minting needs OS entropy, and `lgwks_std::random` is linux/macOS/windows only. Off by default for the same reason `signal` is — the default set is built for `wasm32-wasip1` |
+| `ephemeral` | | `EffectScope::ephemeral()`, `RunId::mint()`, `EnvironmentId::mint()`. Host-only: minting needs OS entropy, and `lgwks_std::random` is linux/macOS/windows only. Off by default for the same reason `signal` is: the default set is built for `wasm32-wasip1` |
 | `script` | `rt`, `time`, `sync`, `macros`, `wire`, `ecs` | `script!`, `try_join!` and the `script` module, the supported interface; reads flows through `lgwks_ast`'s `script` reader. On by default |
 | `ecs` | `wire` | the `bevy_ecs` substrate, `Bot` and the four verbs. On by default |
 | `trace` | | `lgwks_std::trace` without its installer. On by default |
@@ -63,7 +63,7 @@ diagnostics. `net` adds `lgwks_std/http`, so no TLS stack is compiled without it
 A consumer reading from a pipe or a file needs `AsyncRead` without a socket
 layer, so `io` is its own feature. `net`, `process`, and `fs` each require `io`
 rather than the reverse. Selecting `rt` alone gives you `JoinSet`,
-`join_all_bounded` (with `sync`), and `block_on`, and no reader or writer traits.
+`join_all_bounded` (with `sync`) and `block_on`. It gives no reader or writer traits.
 `process` additionally requires `sync`, because `Command` describes a child and
 `Supervisor::spawn_process` is what runs it: a `process` build without `sync`
 would ship the description with its only remaining runner being `Command::spawn`,

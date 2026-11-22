@@ -16,28 +16,28 @@ your own bound.
 
 ### Bytes, which the step budget does not bound
 
-A step budget bounds how many times something happens and not how large it is,
-and the two are independent: one `say` node is one step whether it says four
-bytes or four gigabytes, and a document that names `${answer}` twenty thousand
-times is a two-hundred-kilobyte file whose expansion is a hundred and sixty
-megabytes. `Session` therefore enforces four byte ceilings as well
+A step budget bounds how many times something happens, not how large it is. The
+two are independent. One `say` node is one step whether it says four bytes or
+four gigabytes. A document that names `${answer}` twenty thousand times is a
+two-hundred-kilobyte file whose expansion is a hundred and sixty megabytes.
+`Session` therefore enforces four byte ceilings as well
 (`crates/lgwks-bot/src/session/limits.rs:16`):
 
-- `MAX_UTTERANCE_BYTES` — the bytes accepted in one answer, checked in
+- `MAX_UTTERANCE_BYTES`: the bytes accepted in one answer, checked in
   `Session::answer` before the step is charged and before the utterance is
   copied anywhere, so a refused line consumes no budget and leaves no record.
-- `MAX_VALUE_BYTES` — the bytes one stored variable value occupies when
+- `MAX_VALUE_BYTES`: the bytes one stored variable value occupies when
   rendered. Checked at load, against every candidate of every ask, so a
   candidate the session could never store is refused before anyone is asked it
   (`BotError::AskOptionTooLarge`).
-- `MAX_RECORD_BYTES` — the bytes of one rendered record payload.
-- `MAX_SESSION_BYTES` — the total bytes one session retains across its whole
+- `MAX_RECORD_BYTES`: the bytes of one rendered record payload.
+- `MAX_SESSION_BYTES`: the total bytes one session retains across its whole
   transcript and visited path, which is what bounds a conversation the graph
   lets repeat.
 
 Expansion is bounded at the *computed* size rather than the built one. A
-template is compiled once into literal and placeholder parts, and the sum of the
-parts is accumulated with `checked_add` before any output buffer exists; a
+template is compiled once into literal and placeholder parts. The sum of the
+parts is accumulated with `checked_add` before any output buffer exists. A
 template whose computed expansion exceeds the record ceiling is refused with
 `BotError::TemplateExpansionTooLarge`, and arithmetic that would overflow is the
 same refusal at a larger size. A template whose *literal* bytes alone exceed the
@@ -58,7 +58,7 @@ reports the aggregate charged so far.
 Which one a node produces is computed in exactly one place,
 `FlowSpec::effective_terminal`, and validation and execution both read it. An
 `End` node completes unless the terminal map declares something else, and every
-declared outcome is a genuine override there — that is how a flow refuses
+declared outcome is a genuine override there. That is how a flow refuses
 (`Terminal::Refused`) rather than ending quietly. A `Handoff` or `Refer` node
 already names its target, so the only declaration it accepts is the one that
 repeats that outcome; one that contradicts it, whether a different target or a

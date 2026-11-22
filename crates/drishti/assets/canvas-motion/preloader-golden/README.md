@@ -10,7 +10,7 @@ Golden checks for `surfaces/landing/src/timelines/landing-preloader.timeline.jso
 | Phase 2: Logo reposition | 600–1400ms | 5 checks (existence, from/to, start_ms, end_ms) |
 | Phase 3: Chrome reveal | 1200–2000ms | 6 checks (header opacity + clipPath from/to, start_ms) |
 | Phase 4: Preloader dismiss | 2200ms | 4 checks (existence, from=1, to=0, start_ms) |
-| Document fields | — | 4 checks (keys, id, version, labels) |
+| Document fields | n/a | 4 checks (keys, id, version, labels) |
 
 ## Running
 

@@ -30,7 +30,7 @@ not the paper. Do not cite the paper for behaviour it does not describe.
   over time."*** Any comparator that can tie must be strengthened until it
   cannot. This is the rule of deterministic event ordering at every collection
   that is iterated, arrived at independently.
-- **FoundationDB splits three RNG streams** — `deterministicRandom()`,
+- **FoundationDB splits three RNG streams**: `deterministicRandom()`,
   `nondeterministicRandom()`, and `debugRandom()`, so that a debug draw cannot
   shift the main stream. It uses `boost::mt19937_64` rather than `std::`
   distributions specifically because those differ between libstdc++ and libc++,

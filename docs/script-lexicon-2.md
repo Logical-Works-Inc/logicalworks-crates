@@ -8,7 +8,7 @@ Pages: [page 1](script-lexicon.md) · page 2 · [page 3](script-lexicon-3.md) ·
 
 Opens a block: its line ends in `:`. Calls `Scope::item`.
 
-- `for x in xs:` — every item in turn, each in its own scope
+- `for x in xs:`: every item in turn, each in its own scope
 
 Refuses: a missing pattern or missing items.
 
@@ -23,7 +23,7 @@ flow notify(users: Vec<User>):
 
 Opens a block: its line ends in `:`. Calls none: Rust `if`.
 
-- `if cond:` / `else if cond:` / `else:` — as written
+- `if cond:` / `else if cond:` / `else:`: as written
 
 Refuses: a missing condition.
 
@@ -52,7 +52,7 @@ Guarantees: only ever continues an `if` chain (idiomatic).
 
 Opens a block: its line ends in `:`. Calls the block's own.
 
-- `let x = <block>:` — the block's last line becomes `x`
+- `let x = <block>:`: the block's last line becomes `x`
 
 Refuses: a `let` with no `=` or nothing after it.
 
@@ -68,7 +68,7 @@ flow total(xs: Vec<u8>) -> u8:
 
 Stands inside a line of Rust. Calls the callee flow.
 
-- `run other(args)` — call another flow in this scope, await it, propagate its failure
+- `run other(args)`: call another flow in this scope, await it, propagate its failure
 
 Refuses: nothing of its own.
 
@@ -83,7 +83,7 @@ flow outer(site: &Site) -> usize:
 
 Stands inside a line of Rust. Calls `observe`.
 
-- `observe domain::id of target` — poll the source the host's registry declares under `domain::id`, built from `target`, as a step of its own; bind it with a type, `let n: u16 = ..`
+- `observe domain::id of target`: poll the source the host's registry declares under `domain::id`, built from `target`, as a step of its own; bind it with a type, `let n: u16 = ..`
 
 Refuses: an identifier with no `of <target>`.
 
@@ -98,7 +98,7 @@ flow open(repo: &str) -> u16:
 
 Stands inside a line of Rust. Calls `act`.
 
-- `act domain::id on target with value` — run the action the host's registry declares under `domain::id`, built from `target`, on `value`, as a step of its own
+- `act domain::id on target with value`: run the action the host's registry declares under `domain::id`, built from `target`, on `value`, as a step of its own
 
 Refuses: an identifier with no `on <target> with <value>`.
 

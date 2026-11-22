@@ -50,11 +50,11 @@ Skip a crate that did not move. An uploaded version cannot be withdrawn, and a c
 
 ## 4. Tag after the upload
 
-A tag or a release created before the upload is a claim the registry does not back. Tags are `<package>-v<version>`, as in `lgwks_bot-v8.1.0` and `drishti-v0.1.3`:
+A tag or a release created before the upload is a claim the registry does not back. Tags are `<package>-v<version>`, as in `lgwks_bot-v10.0.0` and `drishti-v0.3.0`:
 
 ```sh
-git tag lgwks_std-v4.1.1 && git push origin lgwks_std-v4.1.1
-gh release create lgwks_std-v4.1.1 --title "lgwks_std 4.1.1" --notes-file <notes>
+git tag lgwks_std-v5.0.0 && git push origin lgwks_std-v5.0.0
+gh release create lgwks_std-v5.0.0 --title "lgwks_std 5.0.0" --notes-file <notes>
 ```
 The first `script!` block of `crates/lgwks-bot/README-script.md` at the tag is what the consumer below compiles for `lgwks_bot`.
 

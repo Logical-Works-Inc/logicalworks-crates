@@ -303,7 +303,7 @@ pub(super) fn render_table(rows: &[Row], run: &Run, results: &[Tested], head: &s
         named_total = named_total.saturating_add(row.tests.len());
         passed_total = passed_total.saturating_add(passed);
         let gap = match row.gap.trim() {
-            "" => "—",
+            "" => "none",
             found => found,
         };
         lines.push(format!(

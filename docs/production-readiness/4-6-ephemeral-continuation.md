@@ -1,4 +1,4 @@
-# 4.6 Ephemeral, continued — the ceiling and continuation
+# 4.6 Ephemeral, continued: the ceiling and continuation
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 [4.6](4-6-ephemeral.md) has the axis score, the real-store observations and the
@@ -8,14 +8,16 @@ length-prefix refusal this page follows.
 (#267).** Both `open` and `append` still refuse with
 `JournalError::CapacityExceeded` at `MAX_JOURNAL_BYTES` or `MAX_JOURNAL_EVENTS`,
 naming the limit, and never truncate. A journal opened with
-`FileJournal::open_continuing` continues itself before it gets there: at 80% of
+`FileJournal::open_continuing` continues itself before it gets there. At 80% of
 either ceiling (`ContinuationPolicy::declared`, which leaves the settlement
-headroom #143 asked for) it writes one sealed checkpoint frame, byte for byte, into
-itself and into a successor (`<name>.cont/000001`, then the next six-digit name).
-The checkpoint carries the folded state, one record per action for what is settled
-and every unresolved attempt in full, so an attempt that was `OutcomeUnknown` stays
-`OutcomeUnknown` across the boundary until evidence settles it, and a settled
-attempt presented again is refused rather than re-admitted. The controller asks the
+headroom #143 asked for) it writes one sealed checkpoint frame, byte for byte,
+into itself and into a successor (`<name>.cont/000001`, then the next six-digit
+name).
+
+The checkpoint carries the folded state: one record per action for what is settled,
+and every unresolved attempt in full. An attempt that was `OutcomeUnknown` stays
+`OutcomeUnknown` across the boundary until evidence settles it. A settled attempt
+presented again is refused rather than re-admitted. The controller asks the
 trigger on its own append path (`ecs::Effects::append`), so a bot built over a
 continuing journal continues without the host doing anything
 (`durable_dispatch::the_controller_continues_its_own_journal_on_the_shipped_append_path`).
@@ -36,35 +38,38 @@ Apple silicon, one run each, the shipped trigger):
 | live successor on disk behind 1 K / 100 K / 1 M attempts | 19,780 / 20,100 / 20,100 bytes | same |
 
 The two columns are one program. The journal's live memory is the right column,
-flat at about 20 MB; the left column's resident set is macOS's allocator keeping
+flat at about 20 MB. The left column's resident set is macOS's allocator keeping
 freed large blocks for reuse (`vmmap` attributes 276 MB at 300,000 attempts to
-"Malloc Large (empty)" against 28 MB of live heap), which a host under memory
-pressure gets back and which glibc returns for blocks over its mmap threshold.
+"Malloc Large (empty)" against 28 MB of live heap). A host under memory pressure
+gets that memory back, and glibc returns blocks over its mmap threshold.
 Neither column grows with the history: a successor weighs its carry, not what is
 behind it.
 
-Crash safety is proved with real processes:
+Crash safety is proved with real processes. The test
 `journal_continuation::a_kill_at_every_seal_boundary_leaves_exactly_one_authoritative_journal`
-`SIGKILL`s a child at each of the four write and sync boundaries inside a
+sends `SIGKILL` to a child at each of the four write and sync boundaries inside a
 continuation. Each reopen through the original path finds exactly one journal that
-takes appends, holds every settled attempt as settled and refuses each a second
-time, still holds the unknown attempt as unknown, and continues again on demand.
-`tests/it/sim_continuation_seal.rs` sweeps the mechanism underneath as 25 seeded
-properties, each replayed for an identical trace: where each trigger falls, the
-generation names, the seal frame's bytes in both files, every refusal around a
-sealed or half-sealed chain, both checkpoint bounds at their size and one past it,
-and what a reopen and a streaming replay read back on every file of a chain. The
-sweep found three defects the example tests had not: a successor could not be
-streamed at all, the action bound was a count no checkpoint could reach, and a
-lengthened event behind a carried seal was trimmed as a torn append.
+takes appends. That journal holds every settled attempt as settled and refuses each
+a second time, still holds the unknown attempt as unknown, and continues again on
+demand.
 
-**Not claimed.** Sealed predecessors are kept until the host removes them; the
+The file `tests/it/sim_continuation_seal.rs` sweeps the mechanism underneath as 25
+seeded properties, each replayed for an identical trace. They cover where each
+trigger falls, the generation names, the seal frame's bytes in both files, every
+refusal around a sealed or half-sealed chain, and both checkpoint bounds at their
+size and one past it. They also cover what a reopen and a streaming replay read
+back on every file of a chain. The sweep found three defects the example tests had
+not. A successor could not be streamed at all. The action bound was a count no
+checkpoint could reach. A lengthened event behind a carried seal was trimmed as a
+torn append.
+
+**Not claimed.** Sealed predecessors are kept until the host removes them. The
 journal has no retention policy of its own, and the measurement above deletes each
 one once its successor exists. A run holding more than 128 unresolved attempts at a
-boundary cannot continue (`MAX_CHECKPOINT_UNRESOLVED`), and it is refused rather
-than truncated, so a controller that never reconciles still meets the ceiling. A
+boundary cannot continue (`MAX_CHECKPOINT_UNRESOLVED`). It is refused rather than
+truncated, so a controller that never reconciles still meets the ceiling. A
 checkpoint folds at most 160 actions (`MAX_CHECKPOINT_SETTLED`), the most whose
-widest records fit the one 64 KiB frame beside a full unresolved carry, so a bot
-with more actions than that cannot continue and is refused by that count. And
-the byte watermark bounds the file, not the records needed to settle work already
-handed to the outside world.
+widest records fit the one 64 KiB frame beside a full unresolved carry. A bot with
+more actions than that cannot continue and is refused by that count. And the byte
+watermark bounds the file, not the records needed to settle work already handed to
+the outside world.

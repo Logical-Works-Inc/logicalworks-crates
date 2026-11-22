@@ -4,8 +4,8 @@ Part of [production readiness](../production-readiness.md), §5 and §6.
 
 ## 5. Why Rust, without the adjectives
 
-"Blazing fast and safe" is a marketing sentence. Here is what the language
-contributes, and what it does not.
+A claim of speed and safety with no number is a marketing sentence. This section
+states what the language contributes, and what it does not.
 
 **Speed, relative to the RPA category.** The commercial guidance platforms run
 their rules engine on the application's own JavaScript thread. That is the
@@ -14,8 +14,8 @@ than a tuning problem: every check competes with the host application for the
 frame budget. `lgwks_bot` runs beside the process and observes it. Flow
 engines (Node-RED, n8n) pay interpreter dispatch on every decision; `Evaluate`
 here is a monomorphised Rust closure. JVM and .NET automation platforms pay GC
-pauses at exactly the wrong moments — during a UI wait — and Rust has no collector.
-Those are category-level differences and they compound.
+pauses at exactly the wrong moments, during a UI wait, and Rust has no collector.
+Those are category-level differences, and they compound.
 
 **Speed, relative to a for-loop.** Slower, by 26x to 2 738x ([§4.9](4-9-performance.md)).
 
@@ -52,13 +52,14 @@ direction of bias.
   comparison, and because the claim being tested is about the mechanism, not the
   catalogue.
 - **No human usability measurement.** [`async-sdk-shape.md`](../async-sdk-shape.md)
-  states the contract — a task author supplies the script, not the machinery.
+  states the contract: a task author supplies the script, not the machinery.
   #87 implemented it (closed 2026-10-03). Through 2026-10-04 `bench/ai-authoring/runs/`
   held 324 fixed-model trials across six model runs plus 38 dry and mutant control
-  trials (`results.jsonl` line counts), including the four-arm comparison against
-  `futures` that §4.1 scores. A 165-record matrix followed on 2026-10-17, 330 local-model
-  records sit outside the repository, and control trials now stand at 263. A fixed model is not a person (INV-BOT-141), so
-  human authoring time is still unmeasured, and excluding it favours this crate.
+  trials (`results.jsonl` line counts). They include the four-arm comparison against
+  `futures` that §4.1 scores. A 165-record matrix followed on 2026-10-17, 330
+  local-model records sit outside the repository, and control trials now stand at
+  263. A fixed model is not a person (INV-BOT-141). Human authoring time is still
+  unmeasured, and excluding it favours this crate.
 - **No cost-per-outcome numbers.** RPA is bought on cost per successful
   transaction. Nothing here measures that.
 - **No AI-in-the-loop comparison.** The claim is scoped to non-full-AI

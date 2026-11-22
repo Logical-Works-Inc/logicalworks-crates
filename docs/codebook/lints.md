@@ -23,19 +23,19 @@ in `GOVERNANCE.md` and pause the work that depends on the choice.
 
 ### 2.1 `forbid`, never `deny`
 
-Every lint in `[workspace.lints]` is `forbid` unless this codebook records an
-exception. A `deny` is defeated by any single `#[allow]` anywhere in the crate,
-including one smuggled in by a macro this workspace does not own. `forbid`
-cannot be lowered from source; a conflicting allow is a hard `E0453`. That
-property is the only reason the contract binds without a human in the loop.
+The anti-pattern lints in `[workspace.lints]` are `forbid`. A `deny` is defeated
+by any single `#[allow]` anywhere in the crate, including one smuggled in by a
+macro this workspace does not own. `forbid` cannot be lowered from source; a
+conflicting allow is a hard `E0453`. That property is why the contract binds
+without a human in the loop.
 
-**Documented exceptions** (each is `deny`, and each is `deny` for a reason that
-`forbid` cannot express):
+These are `deny` instead:
 
 | Lint | Why `deny` |
 |---|---|
-| `clippy::disallowed_methods` / `clippy::disallowed_types` | API bans with real, narrow, test-scoped exceptions: a test of the thread-parking `lgwks_std::task` must spawn a thread and sleep, so it carries a reasoned `#[expect]` at the test module |
-| `missing_docs` / `rustdoc::broken_intra_doc_links` | documentation rules the workspace holds at `deny`, read by the doc lanes |
+| `clippy::disallowed_methods`, `disallowed_names`, `disallowed_types` | API bans with real, narrow, test-scoped exceptions: a test of the thread-parking `lgwks_std::task` must spawn a thread and sleep, so it carries a reasoned `#[expect]` at the test module |
+| `missing_docs`, `rustdoc::broken_intra_doc_links` | documentation rules the doc lanes read |
+| The 15-axis floor: 27 clippy and 10 rustc lints | The floor's level (rust-guard `LINT_FLOOR`, 2026-11-19). Each moves to `forbid` once it is measured clean |
 
 `print_stderr`, `print_stdout` and `exit` are `forbid`: a binary writes through an `io::Write` handle and returns an `ExitCode`. `unsafe_code` is `forbid` too, and `lgwks_std` alone copies the table with one line lowered to `allow` for its syscall modules, held closed by two tests (INV-STD-UNSAFE-1).
 
@@ -69,18 +69,15 @@ have since moved to `forbid`, so a fixture cannot lower them at all.
 
 ### 2.3 The coverage ceiling
 
-**The corpus has 75 entries and the workspace configures 75 lints, but the two
-numbers are not a partition.** The table holds 68 `clippy` lints, 6 `rustc` lints
-(three of them moved out of the `clippy::` namespace because they are not
-clippy's) and 1 `rustdoc` lint: 70 at `forbid`, 4 at `deny` and 1 at `warn`. Other
-entries of the corpus need Miri, hardware performance counters, allocation
-profiling, or human review; they are not lint-expressible and no configuration
-will catch them.
+**The corpus has 75 entries, and the workspace table is not a partition of it.**
+The table holds 96 `clippy` lints (66 at `forbid`, 30 at `deny`), 16 `rustc`
+lints (4 at `forbid`, 11 at `deny`, 1 at `warn`) and 1 `rustdoc` lint at `deny`
+(counted from the root `Cargo.toml`). Other entries of the corpus need Miri,
+hardware performance counters, allocation profiling, or human review. They are
+not lint-expressible and no configuration will catch them.
 
-Claiming "all anti-patterns are enforced" is false, and so is the older
-"25 of 75 name an enforceable lint" figure this replaces — 25 + 4 + 50 = 79 does
-not partition 75, and 25 was never a count of anything in the tree. State the
-ceiling wherever coverage is claimed. The non-expressible remainder clusters as
+Claiming "all anti-patterns are enforced" is false. State the ceiling wherever
+coverage is claimed. The non-expressible remainder clusters as
 UB and aliasing (Miri), false sharing and cache layout (counters), allocation
 and monomorphization (profilers), and API and domain-modelling shape (review).
 

@@ -5,7 +5,7 @@
 | Page |
 |---|
 | [Surfaces and dependencies](invariants/surfaces.md) |
-| [lgwks_bot — durable execution](invariants/bot.md) |
+| [lgwks_bot: durable execution](invariants/bot.md) |
 | [lgwks_std](invariants/std.md) |
 | [lgwks_ast](invariants/ast.md) |
 | [Docs](invariants/docs.md) |

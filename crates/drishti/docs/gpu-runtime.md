@@ -34,7 +34,7 @@ produces no demand. This is the "no demand: sleep" rule made executable.
 
 ## Budgets are enforced
 
-A profile declares finite limits — `Budgets` names the maximum shapes per
+A profile declares finite limits. `Budgets` names the maximum shapes per
 frame, uploaded bytes per frame, in-flight hosts and admitted hosts. When a
 frame would exceed a budget, `present` returns `RuntimeError::Backpressure` and
 **commits nothing**: no cache entry, no transfer counter, no frame counter. The
@@ -70,7 +70,7 @@ work finishes. Recovery is not a silent retry: `recover` bumps the device
 epoch, which invalidates every prior submission and forces the next frame to
 upload afresh.
 
-The epoch is the same rule J13 asks a real capture to demonstrate — a result
+The epoch is the same rule J13 asks a real capture to demonstrate: a result
 computed on device epoch *n* may not be adopted or reused on epoch *n+1* without
 new evidence.
 

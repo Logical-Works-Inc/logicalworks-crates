@@ -30,29 +30,29 @@ ceiling, so memory a capture can hold is bounded by policy.
 
 A child whose output is a sequence of length-prefixed records is read with
 `CapturedStream::frames(ceiling)`, the door from a `ProcessRun`'s captured
-stdout to the crate's one frame grammar. It cannot fail — a byte slice never
-refuses a read — so the answer is the records plus a single `FrameRead` saying
+stdout to the crate's one frame grammar. It cannot fail, because a byte slice
+never refuses a read. The answer is the records plus a single `FrameRead` saying
 why the pass stopped.
 
 Four ways that ending goes, and they are different facts:
 
-- **`Frame`** — the prefix arrived and every byte it named followed.
-- **`TruncatedPrefix` / `TruncatedPayload`** — the *child* stopped writing
+- **`Frame`**: the prefix arrived and every byte it named followed.
+- **`TruncatedPrefix` / `TruncatedPayload`**: the *child* stopped writing
   mid-record. Only for a capture that is **not** `truncated`.
-- **`MalformedPrefix`** — a complete prefix declared `0`, or a length past the
+- **`MalformedPrefix`**: a complete prefix declared `0`, or a length past the
   reader's `ceiling`. Both name no record this grammar writes.
-- **`CeilingReached`** — either the reader retained its whole `ceiling` of
+- **`CeilingReached`**: either the reader retained its whole `ceiling` of
   payload bytes, or a legal record declared more than the room remaining. A
   well-formed record with nowhere to go is a bound, not rot.
 
 The case worth stating plainly: **a `truncated` capture never reports a clean
 end.** Its retained bytes are a prefix *the capture* cut, so they are not the
-child's whole output however they happen to end — including when they end
-exactly on a record boundary, which is precisely what a naive reader reports as
-a complete stream. `frames()` therefore overrides the three endings that are
-*about where the bytes stop* — `EndOfStream`, `TruncatedPrefix`,
-`TruncatedPayload` — with `CeilingReached { ceiling: <the capture's retained
-capacity> }`, and `is_complete()` is `false` for each.
+child's whole output however they happen to end. That includes ending exactly on
+a record boundary, which a naive reader reports as a complete stream. The
+`frames()` call therefore overrides the three endings that are *about where the
+bytes stop*: `EndOfStream`, `TruncatedPrefix` and `TruncatedPayload`. It answers
+`CeilingReached { ceiling: <the capture's retained capacity> }` for each, and
+`is_complete()` is `false` for each.
 
 The two it leaves alone are the two the cut cannot have reached. A
 `MalformedPrefix` was decided from a *whole* prefix the capture did retain, so

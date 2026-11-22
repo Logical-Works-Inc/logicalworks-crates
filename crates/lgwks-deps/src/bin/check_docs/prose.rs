@@ -21,6 +21,20 @@ pub(crate) const MAX_SENTENCE_WORDS: usize = 45;
 /// The most sentences one paragraph or list item may hold.
 pub(crate) const MAX_PARAGRAPH_SENTENCES: usize = 8;
 
+/// Phrases that sell rather than state, matched in lower case. Each was in a page
+/// here, or is the stock form of one; the Director's order of 2026-11-22 ended it.
+const SALES: [&str; 9] = [
+    "why developers",
+    "seamless",
+    "blazing",
+    "world-class",
+    "cutting-edge",
+    "best-in-class",
+    "game-chang",
+    "engineered for",
+    "next-generation",
+];
+
 /// How deep the walk under `docs/` goes; a tree deeper than this is refused.
 const MAX_DEPTH: usize = 8;
 
@@ -296,6 +310,27 @@ fn judge_paragraph(
     }
 }
 
+/// The voice findings on one prose line: an em dash joins two statements that
+/// ASD-STE100 keeps apart, and a sales phrase claims what no test holds. Inline
+/// code is a literal, so `plain` has already taken it out.
+fn judge_voice(line: &str, number: usize, out: &mut Vec<Finding>) {
+    let words = plain(line);
+    if words.contains('\u{2014}') {
+        out.push(Finding {
+            line: number,
+            what: "an em dash joins two statements: use a colon, a comma or a new sentence"
+                .to_owned(),
+        });
+    }
+    let lowered = words.to_lowercase();
+    if let Some(phrase) = SALES.iter().find(|phrase| lowered.contains(*phrase)) {
+        out.push(Finding {
+            line: number,
+            what: format!("\"{phrase}\" sells: state the fact and the test that holds it"),
+        });
+    }
+}
+
 /// The repository path a link target names, or `None` for a URL, an anchor or
 /// a rustdoc intra-doc path such as `crate::verb::Query`.
 fn local_target(target: &str) -> Option<&str> {
@@ -425,6 +460,9 @@ pub(crate) fn check_page(root: &Path, page: &Page, judged: Judged<'_>) -> Vec<Fi
                 });
             }
             level = depth;
+        }
+        if found != Kind::Fence && judged.covers(number, number) {
+            judge_voice(line, number, &mut out);
         }
         if found != Kind::Fence {
             for target in link_targets(line) {
@@ -602,6 +640,28 @@ mod tests {
         assert_eq!(sentences("One two. Three four.").len(), 2);
         assert_eq!(sentences("Use e.g. this one. Then stop.").len(), 2);
         assert_eq!(sentences("Version 4.0.0 is out. It ships.").len(), 2);
+    }
+
+    /// An em dash and a sales phrase are refused in prose in any case; the same
+    /// text in inline code or a fence is a literal, and a line outside the judged
+    /// ranges is not read.
+    #[test]
+    fn the_voice_rule_reads_only_prose() {
+        for line in [
+            "One thing \u{2014} then another.",
+            "Why Developers & AI Choose it.",
+            "A SEAMLESS run.",
+        ] {
+            let found = judge(&format!("# T\n\n{line}\n"));
+            assert_eq!(found.len(), 1, "{line}: {found:?}");
+        }
+        assert!(judge("# T\n\nThe `a\u{2014}b` literal and `seamless` name.\n").is_empty());
+        assert!(judge("# T\n\nSays.\n\n```text\nseamless \u{2014}\n```\n").is_empty());
+        let elsewhere = judge_over(
+            "# T\n\nSays.\n\nA seamless run.\n",
+            Judged::Added(&[(3, 3)]),
+        );
+        assert!(elsewhere.is_empty(), "{elsewhere:?}");
     }
 
     /// A relative link to a missing file is refused; a URL and an anchor are not

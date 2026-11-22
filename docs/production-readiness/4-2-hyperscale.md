@@ -1,20 +1,20 @@
-# 4.2 Hyperscale — more than a million concurrent, correct
+# 4.2 Hyperscale: more than a million concurrent, correct
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 
-**⚠️ — measured at a million concurrent, through a saturation curve on this
-host, and under a 2 CPU / 2 GiB cgroup; the facade's closed-loop cost is
+**⚠️ Measured at a million concurrent, through a saturation curve on this
+host, and under a 2 CPU / 2 GiB cgroup. The facade's closed-loop cost is
 1.02x–1.17x raw Tokio at p50 and 0.93x–1.41x at p99. No real 1–2 vCPU machine
 has run it: the cgroup run is one run in a VM on the development Mac.**
 
 Every number is from `bench/async`, is this host, this toolchain and this run,
 and is read with its condition beside it. Host: **Apple M5 Pro, 15 cores, 24 GB,
-macOS 27.0, rustc 1.99.0.** That host is **shared** and its one-minute load
-average ran from 2 to 97 across the work, so the rig now reads and prints the
-load with every run: a scenario table taken with three other builds running on
+macOS 27.0, rustc 1.99.0.** That host is **shared**, and its one-minute load
+average ran from 2 to 97 across the work. The rig therefore reads and prints the
+load with every run. A scenario table taken with three other builds running on
 it reported the *baseline* at 1.08 ms where an idle host reported 0.35 ms, a 3x
 shift in the control leg of a paired comparison. Each table below carries its
-load, and the paired facade-versus-baseline columns are not contaminated by it
+load. The paired facade-versus-baseline columns are not contaminated by it,
 because both sides of a point see the same load.
 
 **The knee, at six in-flight bounds** (backpressure door, load 79.13, 6:48.56
@@ -36,15 +36,15 @@ within 0.5% on achieved rate at five of the six. At a service time of 3.2 ms or
 more the ceiling is the binding constraint, not the accounting.
 
 **Past the knee it refuses, and it refuses at exactly the declared bound.**
-`try_spawn` at 320,000 arrivals/s: bound 16,384 admitted **exactly 16,384**,
-bound 100,000 admitted **exactly 100,000**, bound 131,072 admitted **exactly
-131,072**, both sides, to the same number; 59% of arrivals refused and counted in
-`Stats::refused`; peak RSS unchanged at the bound's worth of state; the p99 of
-what *was* admitted still one service time.
+The call `try_spawn` at 320,000 arrivals/s admitted **exactly 16,384** at bound
+16,384, **exactly 100,000** at bound 100,000 and **exactly 131,072** at bound
+131,072, on both sides, to the same number. 59% of arrivals were refused and
+counted in `Stats::refused`. Peak RSS was unchanged at the bound's worth of
+state. The p99 of what *was* admitted stayed at one service time.
 
-**A million concurrent, reached.** 1,048,576 tasks **concurrently admitted** —
-the tier is the bound and every body parks until the whole tier is admitted, so
-the peak is observed rather than inferred — all completed, on both sides:
+**A million concurrent, reached.** 1,048,576 tasks were **concurrently admitted**
+and all completed, on both sides. The tier is the bound and every body parks
+until the whole tier is admitted, so the peak is observed rather than inferred:
 
 | tier | facade peak RSS | facade RSS per in-flight task | baseline RSS/task | facade p50 | baseline p50 |
 |---:|---:|---:|---:|---:|---:|
@@ -53,27 +53,27 @@ the peak is observed rather than inferred — all completed, on both sides:
 | 1,048,576 | 2,137,751,552 B | **2,039 B** | 2,595 B | 1,007.7 ms | 726.7 ms |
 
 **Peak RSS per in-flight task at the million tier: 2,039 bytes**, against the raw
-baseline's 2,595 — memory favours the facade, by 21%. Admission latency does not:
+baseline's 2,595. Memory favours the facade, by 21%. Admission latency does not:
 1.39x the baseline's at both wide tiers.
 
 **Overload and recovery** (load 19.88): a 30-second overload at twice the knee
 built a 229,554-arrival queue and took the served p99 from 6.7 ms to 11.4 s, with
-**nothing refused and nothing lost** — offered = admitted = completed on both
+**nothing refused and nothing lost**. Offered = admitted = completed on both
 sides, checked by the rig's conservation gate. The facade drained in 0.023 ms
-against the baseline's 4.801 ms; both sides' served p99 was back inside its own
+against the baseline's 4.801 ms. Both sides' served p99 was back inside its own
 baseline at the first recovery window, 500.7 ms and 505.1 ms after the overload
 stopped. The recovery figure is a **bound at one 500 ms window's resolution**, not
 a point estimate.
 
 **Allocations, per supervised task**, 1,024 tasks at bound 8, one harness:
-**15.33 before, 3.61 after**, against a raw baseline's 2.02 — the issue's ≤ 6
-target met, by cutting an eagerly-built `watch` channel per cancellation token
+**15.33 before, 3.61 after**, against a raw baseline's 2.02. The issue's ≤ 6
+target is met, by cutting an eagerly-built `watch` channel per cancellation token
 and a 100 ms timer armed on every uncontended spawn. The remaining 3.61 is
 itemised in `bench/async/README.md` with the guarantee each allocation pays for.
 
 **The latency target is met, and it moved by a different change.** The issue
-asks for ≤ 2x the baseline at p99 on every scenario. `bench/async --rounds=15`
-at main `22f1d526` (#553, load 6.86) reads p99 1.41x / 1.02x / 1.09x / 0.93x
+asks for ≤ 2x the baseline at p99 on every scenario. A run of
+`bench/async --rounds=15` at main `22f1d526` (#553, load 6.86) reads p99 1.41x / 1.02x / 1.09x / 0.93x
 (quiet / fanout / capacity / single-permit), p50 1.17x / 1.02x / 1.06x / 1.07x,
 and 3.46 allocations per task. The 4.49x this section carried was the drain's
 1 ms Tokio timer tick, whose granularity cost every drain a fixed 1.3–1.6 ms that
@@ -83,9 +83,9 @@ ratios not at all, which is how the gap was found to be the timer.
 
 **The 2 CPU / 2 GiB profile, run in a container.** macOS exposes no cgroup, no
 `taskset`, no `taskpolicy` CPU set and no `cpulimit` (all four checked on the
-reference host, all four absent), and `--workers=2` produced identical knees at
-every bound because every open-loop body is a timer. So `linux-container-tests --
-vps` runs every `bench/async` door in a Linux container on the same machine
+reference host, all four absent). The flag `--workers=2` produced identical knees
+at every bound because every open-loop body is a timer. So the command
+`linux-container-tests -- vps` runs every `bench/async` door in a Linux container on the same machine
 (OrbStack, `rust:1.99.0-bookworm`, release build) under `cpu.max 200000 100000`
 and a 2 GiB `memory.max` with swap capped to the same; the cap and the doors are
 data in `bench/async/vps/profile.toml`. Taken 2026-10-11 at host load 2.8,

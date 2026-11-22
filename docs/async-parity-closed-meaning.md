@@ -16,13 +16,13 @@ action.
 
 **Why not the engine's `pause`.** It would require enabling `tokio/test-util`,
 which is a new feature edge on the `tokio` edge this workspace admits by exact
-allowlist (`contract/APPROVED.toml`, INV-DEP-3) — not a decision a parity review
-makes on its own. And it would be the *wrong* shape for this crate: `pause`
+allowlist (`contract/APPROVED.toml`, INV-DEP-3). A parity review does not make
+that decision on its own. And it would be the *wrong* shape for this crate: `pause`
 swaps the engine's timer and leaves every `std::time::Instant` reading in the
 program still on real time. This crate already has wall-clock budgets
 (`Supervisor`'s cooperative drain grace, a process deadline), so a "paused"
 runtime would still hang on any of them. A declared clock names which clock
-governs each deadline and keeps the watchdog separate — the property
+governs each deadline and keeps the watchdog separate: the property
 `INV-BOT-30` states and `tests/it/sim_clock.rs` proves.
 
 **What this does not claim.** A declared clock determinizes *which deadline is
@@ -82,7 +82,7 @@ and are kept apart:
 4. **Bounded APIs are bounded where they say they are.** `join_all_bounded`
    bounds concurrent tasks by `limit`, and the `Supervisor` refuses past its
    in-flight ceiling. The **low-level `rt::task::JoinSet` has no capacity
-   ceiling at all** — it tracks and aborts on drop, and a consumer can insert
+   ceiling at all**: it tracks and aborts on drop, and a consumer can insert
    unboundedly many tasks into it. A bound on one API is not a property of the
    runtime.
 5. **Progress detail can be dropped; terminal state is authoritative.** The
@@ -94,9 +94,9 @@ and are kept apart:
 So the accurate sentence is: *this crate offers a supervised API whose declared
 ceilings are real, and which cannot express an untracked task; it does not
 guarantee that a supervised task terminates when asked, and it makes no
-preemption claim.* Any stronger reading — that a bounded API cannot leak, that
-cancellation always wins, that shutdown implies termination — is not what the
-code does.
+preemption claim.* The code does not support any stronger reading: not that a
+bounded API cannot leak, not that cancellation always wins, not that shutdown
+implies termination.
 
 ## 6. What parity is not claimed
 

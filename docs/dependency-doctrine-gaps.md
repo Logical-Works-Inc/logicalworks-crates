@@ -89,7 +89,7 @@ unregistered (`UnregisteredEdge`). Both directions are enforced.
   under it. What it cannot do is stand down violations: a register reading
   `enforce = false` while the tree carries dependency-edge violations is itself
   refused as `AdoptionModeRefusals`, naming the count it stood down, and `check`
-  exits 2 — the same code it exits under `enforce = true`. The verdict is a
+  exits 2, the same code it exits under `enforce = true`. The verdict is a
   function of the refusals alone, so the reviewable one-token diff that adoption
   mode depends on cannot change a build's result. (Issue #204.)
 - `deps_are_approved_leaves` in `crates/lgwks-deps/src/tests/leaves.rs` pins the exact

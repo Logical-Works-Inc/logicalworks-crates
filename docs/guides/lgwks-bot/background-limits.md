@@ -51,16 +51,21 @@ and `spawn_blocking` are for a build with no async runtime. There is a
 ## What the tests exercise
 
 `crates/lgwks-bot/src/rt/supervise/tests.rs:1` runs the module's own tests under the
-ordinary workspace test run. They cover an iteration budget stopping at its
-limit, an `Ongoing` budget stopping at a cancel, cancellation interrupting a body
-that is still awaiting, `try_spawn` refusing at the bound rather than growing,
-the retained set staying at the bound across 64 spawns, a dropped supervisor
-cancelling its tasks, and `shutdown` draining every task. Four of them are the
-regression for the terminal-outcome reports: a panicking task is not counted as
-a success and its payload is preserved, a task that panicked after an effect is
-not reported as one that finished, cooperative cancellation and abort are told
-apart, and a shutdown that outlives the report cap still hands every outcome
-over.
+ordinary workspace test run. They cover these cases:
+
+- An iteration budget stops at its limit.
+- An `Ongoing` budget stops at a cancel.
+- Cancellation interrupts a body that is still awaiting.
+- `try_spawn` refuses at the bound and does not grow.
+- The retained set stays at the bound across 64 spawns.
+- A dropped supervisor cancels its tasks.
+- `shutdown` drains every task.
+
+Four tests are the regression for the terminal-outcome reports. A panicking task
+is not counted as a success, and its payload is preserved. A task that panicked
+after an effect is not reported as one that finished. Cooperative cancellation
+and abort are told apart. A shutdown that outlives the report cap still hands
+every outcome over.
 
 The black-box acceptance for `spawn_process` is
 `crates/lgwks-bot/tests/it/rt_process.rs`, run with `--features full`. A zero
@@ -78,6 +83,7 @@ The Landlock acceptance on Linux is `crates/lgwks-bot/tests/it/sim_landlock.rs`.
 Seeded grant sets decide every read for the child and its `setsid -w`
 grandchild, and 16 and 100 concurrent tenants never read each other's files.
 The kernel applies a 1,000-rule allowlist whole, and invalid, missing-path and
-foreign-platform allowlists start nothing. The example
+foreign-platform allowlists start nothing. An allowlist holds at most 4,096 rules
+and 1 MiB of path bytes (ADR 0072). The example
 `crates/lgwks-bot/examples/landlock_cost.rs` times that 1,000-rule spawn at
 p50, p95 and p99.

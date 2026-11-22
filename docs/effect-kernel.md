@@ -98,6 +98,6 @@ flowchart TD
 `classify_settlement` compares the whole ownership identity (run, flow, and
 environment). A key from another run, flow, or environment is `NoSuchWork`
 and must not mutate anything. `apply_settlement` runs only when the live slot
-still has something to move; an abandoned entry reopened by a `NotApplied`
-confirmation is exactly that case, and answering `Duplicate` before the move
-is how that reopen stopped happening.
+still has something to move. An abandoned entry reopened by a `NotApplied`
+confirmation is that case. Answering `Duplicate` before the move stops the
+reopen.

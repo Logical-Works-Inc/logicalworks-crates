@@ -18,7 +18,7 @@ you to discover.
   of the set it was admitted with. `EcsBot::replace_grants` narrows a running bot,
   and a broker's fence withdraws a reach (INV-FENCE-1). See [authority](authority.md).
 - **A spec is a document, not the DSL.** `Bot::from_spec` materializes a
-  validated `BotSpec` against a `DomainRegistry` — see [domains](domains.md) —
+  validated `BotSpec` against a `DomainRegistry` (see [domains](domains.md))
   through the same `assemble`/`build` path a native bot uses. It is
   all-or-nothing and reports every presently knowable unmet need in one
   attributed `NeedSet`; authority still comes only from the `GrantSet` the

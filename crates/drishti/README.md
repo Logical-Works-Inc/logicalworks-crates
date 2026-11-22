@@ -2,7 +2,7 @@
 
 **Frontend is orchestration. Creators express experiences; the framework owns the coordination that makes them coherent.**
 
-**Version 0.0.1 published the documentation-only design package. Version 0.1.0 published the first realized presentation layer. Version 0.2.0 folds in the Canvas mechanisms below.** The presentation layer is the Logical Works ink lab (`src/ink_lab.rs`), its brand tokens (`src/design.rs`), the GPU residency model (`src/runtime.rs`), and a native GPU host (`src/native.rs`, feature `ui`) that presents ink frames in a GPUI window. GPUI arrives through the estate storefront (`lgwks_deps/gpui`). A browser host, the goo filter (GPUI 0.2 has no blur or threshold pass), and a qualified Keel integration are still absent.
+**Version 0.0.1 published the documentation-only design package. Version 0.1.0 published the first realized presentation layer. Version 0.2.0 folded in the Canvas mechanisms below. Version 0.3.0 reads the ink and runtime values through methods, not fields.** The presentation layer is the Logical Works ink lab (`src/ink_lab.rs`), its brand tokens (`src/design.rs`), the GPU residency model (`src/runtime.rs`), and a native GPU host (`src/native.rs`, feature `ui`) that presents ink frames in a GPUI window. GPUI arrives through the estate storefront (`lgwks_deps/gpui`). A browser host, the goo filter (GPUI 0.2 has no blur or threshold pass), and a qualified Keel integration are still absent.
 
 **The crate also holds the Logic OS Canvas mechanisms.** They come from kernel#850 row 15, on the Director's order of 2026-11-03 to deprecate the kernel by absorption (D17 in `docs/decisions.md`). The crate holds the canvas protocol vocabulary and workspace validation, the deterministic motion core, and the bounded native scene and reducer. It also holds the headless trace host with its checker. The native-host contract covers the signal broker, session and governance stores, telemetry, command bar and attestation evidence. Each part has its falsifying tests. These are tested Rust, not qualified product claims: no GPU backend, browser host, or product journey is asserted passed by them. The native-host broker scopes every inspector read to the caller's session and tenant, gates the command bar and cross-tenant reads on an injected grant store, bounds its registries, and reports every decision to a required audit sink (D18).
 
@@ -10,11 +10,11 @@
 cargo run --release --features ui --example ink_lab                       # open the ink lab
 cargo run --release --features ui --example ink_lab -- --frames 600 --json # measured session
 ```
-Drishti is a Rust-first frontend framework design grounded in immersive, context-preserving interaction: documents recall where work stopped, workflows become inspectable routes, and people compose automation from meaningful operations rather than callback plumbing. Ordinary forms and conventional applications remain first-class; immersion is not compulsory animation or a mandatory 3D world.
+Drishti is a Rust-first frontend framework design grounded in context-preserving interaction: documents recall where work stopped, workflows become inspectable routes, and people compose automation from meaningful operations rather than callback plumbing. Ordinary forms and conventional applications remain first-class. Immersion is not compulsory animation or a mandatory 3D world.
 
-The default presentation language is the Director's Logical Works brand — **flat build, liquid motion**: semantic tokens that name roles, nine flat colourways, and eleven ink effects that always settle on the crisp static mark. The brand is not a skin over the framework; its "everything resolves" rule is the same requirement as reduced-motion equivalence and accessible navigation, so the ink lab is part of the correctness surface.
+The default presentation language is the Director's Logical Works brand: **flat build, liquid motion**: semantic tokens that name roles, nine flat colourways, and eleven ink effects that always settle on the crisp static mark. The brand is not a skin over the framework. Its "everything resolves" rule is the same requirement as reduced-motion equivalence and accessible navigation, so the ink lab is part of the correctness surface.
 
-The vision is primary. Universality, ergonomics, security, efficiency, accessibility, portability, and evidence are constraints and comparison axes—not competing product identities. Merely replacing JavaScript syntax, using a GPU, or adding another graph is not the value proposition.
+The vision is primary. Universality, ergonomics, security, efficiency, accessibility, portability and evidence are constraints and comparison axes, not competing product identities. Replacing JavaScript syntax, using a GPU, or adding another graph is not the value proposition.
 
 ## Read in order
 
@@ -24,8 +24,8 @@ The vision is primary. Universality, ergonomics, security, efficiency, accessibi
 4. `docs/decisions.md`: finalized product contract, all 40 answers and conflict-resolution provenance, source conflicts, and blocking proof obligations.
 5. `docs/research.md`: scripting, prior art, and what evidence changed the design.
 6. `docs/assurance.md`: strict acceptance and eventual Keel integration.
-7. `docs/inklab.md`: the Logical Works brand as the presentation layer — tokens, the eleven ink effects, and the adaptive engine.
-8. `docs/gpu-runtime.md`: the GPU residency model — demand scheduling, budgets, reuse, transfer accounting, and device epochs.
+7. `docs/inklab.md`: the Logical Works brand as the presentation layer: tokens, the eleven ink effects, and the adaptive engine.
+8. `docs/gpu-runtime.md`: the GPU residency model: demand scheduling, budgets, reuse, transfer accounting, and device epochs.
 9. `contract/requirements.tsv` and `experience/journeys.tsv`: normative requirements and falsification cases.
 10. `docs/status.md`: what exists, what was checked, and what remains unproved.
 
@@ -64,7 +64,7 @@ cargo clippy -p drishti --all-targets --features desktop --locked -- -D warnings
 cargo nextest run -p drishti --locked
 cargo nextest run -p drishti --features desktop --locked
 ```
-These commands do not discharge runtime, security, experience, performance, or Keel obligations; G01–G15 in `docs/decisions.md` stay blocked. There is deliberately no empty runtime scaffold or green placeholder lane.
+These commands do not discharge runtime, security, experience, performance, or Keel obligations. G01 to G15 in `docs/decisions.md` stay blocked. There is deliberately no empty runtime scaffold or green placeholder lane.
 
 ## Finalized requirements amendment
 
@@ -73,4 +73,4 @@ The 2026-09-12 contract amendment in `docs/contract.md` captures the Director's 
 ## Publisher
 
 Logical Works Incorporated publishes `drishti` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to use each one and when to skip it.

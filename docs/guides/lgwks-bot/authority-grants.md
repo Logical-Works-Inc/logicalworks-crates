@@ -32,7 +32,7 @@ world.insert_resource(Grants(grants.clone()));
 (`crates/lgwks-bot/src/gate.rs:14`) adds and inspects through `empty`, `all_shipped`,
 `grant`, `grant_expiring`, `admit`, `uncovered`, `issue` and `issue_at`. There is no `revoke`,
 and no method that removes a capability: the set is data, and revoking it is an
-operation on the bot that holds it — `EcsBot::replace_grants` — not on the set.
+operation on the bot that holds it, `EcsBot::replace_grants`, not on the set.
 
 The consequences, stated plainly:
 
@@ -46,7 +46,7 @@ The consequences, stated plainly:
   mint and a built bot mints afresh on every call, so it does not narrow a
   running bot.
 - Narrowing a running bot is `replace_grants`: it swaps the retained set
-  between ticks — atomic with respect to them, since both take `&mut self` —
+  between ticks, atomic with respect to them since both take `&mut self`,
   and reports what it withdrew and added. The next tick's calls for a withdrawn
   capability are denied; proofs already minted keep covering what they were
   minted for until their lifetimes lapse.
@@ -69,9 +69,9 @@ from its grant set rather than from a reading of every domain implementation.
 
 ## There is no run-time capability hold, because it would be unreachable
 
-The obvious next step after a total refusal — an action denied while the bot is
-running, the entry held, the caller supplies the capability, the tick carries on
-from there — is **not implemented, and the reason is not effort. An action
+The obvious next step after a total refusal is an action denied while the bot is
+running, the entry held, the caller supplying the capability, and the tick
+carrying on. It is **not implemented, and the reason is not effort. An action
 cannot be denied for want of a capability at run time.** Two facts make that so:
 
 - `EcsBot::assemble` admits every declared requirement before the world is built
@@ -86,8 +86,8 @@ cannot be denied for want of a capability at run time.** Two facts make that so:
   entry.
 
 So a run-time hold has nothing to resume from: `BotError::CapabilityDenied`
-after admission means the retained list itself narrowed — through
-`replace_grants` — and the repair is a wider `replace_grants`, not a held
+after admission means the retained list itself narrowed through
+`replace_grants`. The repair is a wider `replace_grants`, not a held
 entry. The `failure_state` arm that folds a denial into an abandoned entry
 (`crates/lgwks-bot/src/ecs/admit.rs:345`) is the record of exactly that: a
 denial now reachable at run time, reported rather than resumed.
@@ -97,7 +97,7 @@ The consequence worth knowing is the *reverse* of a hold, and it is a real gap:
 > **An action that declares `&[]` and performs a side effect passes the gate
 > silently.**
 
-The gate checks the declared set, and `&[]` is trivially covered — so "this
+The gate checks the declared set, and `&[]` is trivially covered. So "this
 action needs nothing" and "this action's author never said" are the same value,
 and the crate cannot tell them apart. Everything above about authority is a
 statement about the capabilities a domain **declares**. Making an undeclared

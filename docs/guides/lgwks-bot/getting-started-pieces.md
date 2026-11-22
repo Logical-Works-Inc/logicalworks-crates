@@ -18,7 +18,7 @@ value is asked for, and a source whose value is not a `u32` is refused with
 after `with`. `required_caps` is `bot.notify`, and the check runs before
 the effect, not after it. `effect_lifetime` says the page stays in this process
 (`EffectLifetime::Local`). An action that does not say so defaults to
-`EffectLifetime::External`, and `act` refuses it before it runs; the program as
+`EffectLifetime::External`, and `act` refuses it before it runs. The program as
 first written, without that method, stopped at the page with `act runs only an
 action whose effect stays in this process`.
 
@@ -35,12 +35,12 @@ step: `observe` and `act` call the registry, `if` is Rust's `if`, and `give back
 returns from the flow. The whole vocabulary is on one page,
 [the lexicon](../../script-lexicon.md).
 
-**The host.** `Host::builder("queue-watch")` names the tenant. `.domains(..)`
-installs the registry the flow resolves against, `.grants(..)` is what the run is
-allowed (`GrantSet::empty().grant(Cap::notify())` allows paging and nothing
-else), and `.default_deadline(..)` sets the deadline a run gets (30 seconds here).
-`task("watching", ..)` wraps the flow, `host.run(&task, input)` runs it, and the
-`Report` it returns holds the result.
+**The host.** `Host::builder("queue-watch")` names the tenant. The method
+`.domains(..)` installs the registry the flow resolves against. The method
+`.grants(..)` is what the run is allowed (`GrantSet::empty().grant(Cap::notify())`
+allows paging and nothing else). The method `.default_deadline(..)` sets the
+deadline a run gets (30 seconds here). `task("watching", ..)` wraps the flow, and
+`host.run(&task, input)` runs it. The `Report` it returns holds the result.
 
 ## Reading a run
 

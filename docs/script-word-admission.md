@@ -74,13 +74,12 @@ file, so a row cannot cite evidence that was never written.
 
 ## 5. A deterministic simulation of the primitive
 
-The word's runtime gets a `sim_*` family under `crates/lgwks-bot/tests/it/`:
-flows the real macro expanded, on a real `Host`, with every input drawn from
-a seed, an oracle computed independently of the code under test, and a
-sweep through `sim::assert_replays` so the same seed gives the same trace
-hash. `sim_script_domains.rs` (#388) is the pattern: four families of 1,024
-seeds, one of them comparing the script's trace against the `BotSpec` path
-over the same registry.
+The word's runtime gets a `sim_*` family under `crates/lgwks-bot/tests/it/`. It
+runs flows the real macro expanded on a real `Host`, with every input from a
+seed. Its oracle is computed apart from the code under test. A sweep through
+`sim::assert_replays` holds the same trace hash for the same seed.
+`sim_script_domains.rs` (#388) is the pattern: four families of 1,024 seeds. One
+compares the script's trace against the `BotSpec` path over the same registry.
 
 The parser side gets the same treatment in
 `crates/lgwks-ast/src/script/sim_script.rs`: the drawn scripts must say the

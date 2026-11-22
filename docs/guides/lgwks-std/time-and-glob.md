@@ -25,19 +25,23 @@ epoch for an unrepresentable instant.
 ## Glob text semantics
 
 `glob::matches(pattern, path)` remains the one-call legacy entry point. It is
-anchored, case-sensitive, does not normalize Unicode, treats backslash and
-leading dots as ordinary text, and interprets `?` and classes as one Unicode
-scalar (not a grapheme cluster). `/` is excluded from `?`, `*`, and all classes,
-including negated classes. `*` stays inside one slash-delimited segment;
-`**` may cross separators. The legacy dialect accepts `**` inside a component
-and treats an unmatched `[` as a literal. Classes use `[abc]`; a leading `!` or
-`^` negates, and `x-y` is an inclusive Unicode-scalar range when the hyphen is
-between two members. A hyphen at either edge is literal. A leading `]` is a
-member only when a later `]` closes the class; `[]` is therefore unclosed.
-Strict compilation rejects unclosed classes and descending ranges. Legacy
-compilation treats an unclosed `[` as a literal and a descending range as
-matching nothing. Backslash never escapes metacharacters; use a class such as
-`[*]` or `[?]` to match those characters. There is no byte-matching policy.
+anchored, case-sensitive and does not normalize Unicode. It treats backslash and
+leading dots as ordinary text. It reads `?` and classes as one Unicode scalar
+(not a grapheme cluster). A slash is excluded from `?`, `*`, and all classes,
+including negated classes. A single `*` stays inside one slash-delimited segment,
+and `**` may cross separators. The legacy dialect accepts `**` inside a component
+and treats an unmatched `[` as a literal.
+
+Classes use `[abc]`. A leading `!` or `^` negates. A range `x-y` is an inclusive
+Unicode-scalar range when the hyphen is between two members. A hyphen at either
+edge is literal. A leading `]` is a member only when a later `]` closes the
+class, so `[]` is unclosed.
+
+Strict compilation rejects unclosed classes and
+descending ranges. Legacy compilation treats an unclosed `[` as a literal and a
+descending range as matching nothing. Backslash never escapes metacharacters:
+use a class such as `[*]` or `[?]` to match those characters. There is no
+byte-matching policy.
 
 New callers can use `GlobPattern::compile` for checked syntax. It reports an
 unclosed class, a descending range, or `**` outside a complete path component
@@ -50,12 +54,12 @@ allocation per token. This is matching over caller-supplied text, not native
 `OsStr` matching, path separator normalization, directory traversal, or full
 POSIX shell behavior.
 
-The upstream `glob::Pattern` is a useful Unix-shell matcher but rejects
-unclosed classes and constrains `**`; its contract is not a drop-in replacement
-for the legacy dialect. `globset` is optimized for compiled sets of filesystem
-patterns, not this crate's single-pattern zero-dependency core. `lgwks_std`
-keeps its own bounded automaton and names its differences instead of claiming
-complete parity with either interface.
+The upstream `glob::Pattern` is a Unix-shell matcher that rejects unclosed
+classes and constrains `**`. It is not a drop-in replacement for the legacy
+dialect. The `globset` crate is built for compiled sets of filesystem patterns,
+not this crate's single-pattern zero-dependency core. `lgwks_std` keeps its own
+bounded automaton and names its differences. It claims no complete parity with
+either interface.
 
 Compiling `src/**/[a-z]?.rs` once and matching it with one reused `GlobScratch`
 accepts both `src/a1.rs` and `src/sub/a1.rs`; the integration test

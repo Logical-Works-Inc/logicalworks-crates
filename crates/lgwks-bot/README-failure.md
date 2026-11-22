@@ -5,8 +5,8 @@ Pages of this README: [overview](README.md) · [execution model](README-executio
 ### Failure
 
 `tick` and `tick_async` return `Err(BotError)` in three situations, and they
-mean different things. A fourth `Err` is not a failure of the tick at all — the
-synchronous adapter refusing a call site — and it is documented at the end of
+mean different things. A fourth `Err` is not a failure of the tick at all. It is the
+synchronous adapter refusing a call site, and it is documented at the end of
 this section rather than among them.
 
 **A poll failed.** No `Revision` was written, so no condition was evaluated and
@@ -40,7 +40,7 @@ Two consequences follow, and neither is fixed by retrying blindly:
   source never moves again, and the entries after it are not skipped to reach
   anything. `tick` returns `Err(BotError::PendingTransition)` while work is held,
   so a clean tick is never "the transition was handled" when it was not, and
-  `Bot::pending()` lists every entry that is not finished — including any entry
+  `Bot::pending()` lists every entry that is not finished, including any entry
   the attempt budget gave up on, with its reason. An entry that was given up on
   is a *barrier*, not a step behind you: the entries after it are not attempted
   while it stands, because declaration order is a prerequisite chain, and they
@@ -52,7 +52,7 @@ Two consequences follow, and neither is fixed by retrying blindly:
   That variant exists precisely so this is readable from the type rather than
   inferred from a cause string: `BotError::DomainError` means the effect did not
   happen and a retry is a retry, while `EffectIndeterminate` means a retry is a
-  possible duplicate — a second merge, message, or process launch. Consumers
+  possible duplicate, such as a second merge, message, or process launch. Consumers
   that retry should match on the variant and treat these two differently.
 
 An effect that may already have happened is never re-attempted on its own: the

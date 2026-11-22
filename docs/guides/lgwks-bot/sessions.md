@@ -3,7 +3,7 @@
 Pages of this guide: [the flow and its pieces](sessions.md) · [bounds and outcomes](sessions-bounds.md)
 
 > **Needs `lgwks_bot` 0.5.0 or later.** The `session` module first shipped in the
-> `lgwks_bot-v0.5.0` tag; the `lgwks_bot-v0.4.2` tag does not export it.
+> `lgwks_bot-v0.5.0` tag. The `lgwks_bot-v0.4.2` tag does not export it.
 
 `Session` interprets a validated, declarative flow document and records the
 conversation as it goes. It is a cursor over a graph, not a pipeline: the module
@@ -63,10 +63,11 @@ A variant is written with its own name. `NodeKind` is a serde externally tagged
 enum, so a unit variant is its own name (`end`) and a variant carrying fields
 takes them in parentheses (`say(text: "hello")`). This is the document's contract
 rather than a notation detail: the same variant is the bare string `"end"` in
-JSON, and `{"say": {"text": "hello"}}` there. Every enum a flow document carries
-is tagged this way — `NodeKind`, `FlowEdge`, `Terminal`, `Predicate`,
-`ValueExpr`, `Value` and `VarType` — so no part of a document has a `kind` field.
-`from_ron` says so in its own documentation, and
+JSON, and `{"say": {"text": "hello"}}` there.
+
+Every enum a flow document carries is tagged this way: `NodeKind`, `FlowEdge`,
+`Terminal`, `Predicate`, `ValueExpr`, `Value` and `VarType`. No part of a
+document has a `kind` field. The `from_ron` documentation says so, and
 `crates/lgwks-bot/tests/it/flow_ron.rs` pins it in both directions, including that
 the older `(kind: "end")` spelling no longer decodes.
 
@@ -95,19 +96,22 @@ differing from a declared choice only in case stores the declared spelling.
 `Journal` are traits, and neither is required to be a model or a file.
 
 `Journal` has two methods, and they carry different things.
-`Journal::record` receives the rendered conversation — the transcript — and
+`Journal::record` receives the rendered conversation, the transcript, and
 cannot report a failure. `Journal::record_decision` receives a
-`DecisionReceipt` and returns `Result<ReceiptAcceptance, JournalError>`; it is
+`DecisionReceipt` and returns `Result<ReceiptAcceptance, JournalError>`. It is
 required rather than defaulted, because a sink that has to do nothing to look
 successful is a sink that silently drops every receipt. A sink that refuses one
 aborts the answer (`BotError::ReceiptNotRecorded`) and the session does not move.
-The receipt is what the run decided and on whose authority; `Session::decisions`
+The receipt is what the run decided and on whose authority. `Session::decisions`
 returns the receipts it recorded, and `Session::transcript` the conversation. See
 `docs/guides/lgwks-bot/resolution.md` for the receipt's fields.
 
-`Session::answer` is synchronous and returns `Result<(), BotError>`. The failure
-cases are typed: `SessionTerminated` for an answer after the flow stopped,
-`SessionNotAwaitingAnswer` for one at a node that is not an ask,
-`ResolverReturnedInvalidOption` for a resolver that names an index outside the
-candidate list, `MissingAskRoute` for a route table missing the selected option,
-and `ReceiptNotRecorded` for a journal that would not take the decision receipt.
+The call `Session::answer` is synchronous and returns `Result<(), BotError>`.
+Its failure cases are typed:
+
+- `SessionTerminated`: an answer after the flow stopped.
+- `SessionNotAwaitingAnswer`: an answer at a node that is not an ask.
+- `ResolverReturnedInvalidOption`: a resolver that names an index outside the
+  candidate list.
+- `MissingAskRoute`: a route table missing the selected option.
+- `ReceiptNotRecorded`: a journal that would not take the decision receipt.

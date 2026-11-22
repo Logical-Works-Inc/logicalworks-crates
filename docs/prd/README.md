@@ -10,14 +10,14 @@ spine, so there is one policy and not two.
 
 | Attribute | 29148 clause | What it must say |
 |---|---|---|
-| `### PR-0001.1 Title` | 5.2.5 — identifier | one identifier, one requirement, unique in the set |
-| `**Statement.**` | 5.2.5 — singularity, unambiguity | one capability, normative: it says what the system MUST do |
-| `**Rationale.**` | 5.2.5 — rationale | why the requirement exists |
-| `**Source.**` | 5.2.7 — source | the authority and the date: the Director, a standard, an incident |
-| `**Priority.**` | 5.2.7 — priority | `must`, `should` or `could` |
-| `**Fit criterion.**` | 5.2.5 — verifiability | the observation that decides it, as a number or an outcome |
-| `**Verified by.**` | 6.4 — verification | the test, gate or lane that makes the observation |
-| `**Traces to.**` | 5.2.7 — traceability | the `R<id>` of `REQUIREMENTS.md` or the ADR this refines |
+| `### PR-0001.1 Title` | 5.2.5, identifier | one identifier, one requirement, unique in the set |
+| `**Statement.**` | 5.2.5, singularity and unambiguity | one capability, normative: it says what the system MUST do |
+| `**Rationale.**` | 5.2.5, rationale | why the requirement exists |
+| `**Source.**` | 5.2.7, source | the authority and the date: the Director, a standard, an incident |
+| `**Priority.**` | 5.2.7, priority | `must`, `should` or `could` |
+| `**Fit criterion.**` | 5.2.5, verifiability | the observation that decides it, as a number or an outcome |
+| `**Verified by.**` | 6.4, verification | the test, gate or lane that makes the observation |
+| `**Traces to.**` | 5.2.7, traceability | the `R<id>` of `REQUIREMENTS.md` or the ADR this refines |
 
 A PRD also holds four sections: `## Stakeholders and operational concept` (who
 the product is for and the environment it runs in), `## Requirements`,

@@ -35,9 +35,9 @@ before it ever ticks. The same gate runs on both terminal builder calls
 `assemble`.
 
 **One refusal carries every unmet requirement.** `BotError::CapabilityDenied`
-holds a `Deficit` (`crates/lgwks-bot/src/cap.rs:206`) — the whole difference
-between what the bot requires and what it was granted — rather than the first
-element of it. The shape matters more than it looks: a check that returns one
+holds a `Deficit` (`crates/lgwks-bot/src/cap.rs:206`), the whole difference
+between what the bot requires and what it was granted, not the first element
+of it. The shape matters more than it looks: a check that returns one
 missing capability at a time makes admission a loop where each pass reveals one
 more word. A bot short of four capabilities then takes four refusals to
 diagnose, and the caller never holds the whole picture. Each `Shortage` also names the
@@ -59,7 +59,7 @@ reaches a fixed point.
 
 The repair is the *shortfall*, not a restatement of the requirement: a
 capability that was already granted is not in it. Closing the requirement is the
-two-step composition — the deficit's set folded into the held set — and a test
+two-step composition: the deficit's set folded into the held set. A test
 asserts both halves, because "the repair admits the requirement" and "the repair
 admits the missing capabilities" are different claims and only the second is
 true.

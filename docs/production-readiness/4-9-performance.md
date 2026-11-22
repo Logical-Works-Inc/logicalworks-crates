@@ -1,14 +1,14 @@
-# 4.9 Performance — fastest correct implementation
+# 4.9 Performance: fastest correct implementation
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 
-**⚠️ — measured honestly on both paths: the synchronous tick loses by 26x to
+**⚠️ Measured on both paths. The synchronous tick loses by 26x to
 2 738x, and the async facade loses by 2% to 17% at p50, with one scenario's
 interval spanning parity.**
 
 Full method, raw numbers, fairness gate and exclusions are in
-[`bench/README.md`](../../bench/README.md). The summary, with the loss stated at
-the same volume as the wins, is one run of `bench/` on this host on 2026-10-20, at load
+[`bench/README.md`](../../bench/README.md). The summary states the loss at the same
+volume as the wins. It is one run of `bench/` on this host on 2026-10-20, at load
 average 2.02 to 2.27 across the three doors, on Rust 1.99.0. The last column is the
 run on main `940e253cd` just before #279's changes:
 
@@ -19,22 +19,22 @@ run on main `940e253cd` just before #279's changes:
 | `churn-64x1` | 136 810.7 | 49.9 | 2 738.39x slower | [2 696.48, 2 766.73] | 2 698.16x |
 | `fanout-1x64` | 112 783.5 | 42.3 | 2 652.57x slower | [2 643.48, 2 668.72] | 2 553.41x |
 | `wide-256x10` | 54 662.7 | 130.1 | 414.36x slower | [401.03, 423.36] | 429.32x |
-| `wide-1024x10` | 238 705.6 | 530.6 | 451.45x slower | [440.97, 458.55] | — |
-| `wide-4096x10` | 1 167 018.7 | 2 053.1 | 568.06x slower | [550.42, 575.49] | — |
-| `wide-16384x10` | 8 471 299.9 | 8 490.6 | 996.37x slower | [988.15, 1 004.88] | — |
+| `wide-1024x10` | 238 705.6 | 530.6 | 451.45x slower | [440.97, 458.55] | n/a |
+| `wide-4096x10` | 1 167 018.7 | 2 053.1 | 568.06x slower | [550.42, 575.49] | n/a |
+| `wide-16384x10` | 8 471 299.9 | 8 490.6 | 996.37x slower | [988.15, 1 004.88] | n/a |
 
 The interval is the rig's own: a bootstrap over the per-round paired ratios, so
 it bounds the ratio and not the ns/tick column. The four `wide-*x10` rows hold the
-change-tick fraction at one in ten and vary only the source count, and the log-log
-least squares over them reads **slope 1.206** — 2.31x cost per doubling of the
-source count — printed by the same run as `wide scaling`.
+change-tick fraction at one in ten and vary only the source count. The log-log
+least squares over them reads **slope 1.206**, which is 2.31x cost per doubling of
+the source count. The same run prints it as `wide scaling`.
 
 A hand-rolled loop doing provably identical work is **26x to 2 738x faster**.
 If your workload is a hot path, use the loop. This page says so with a
 number rather than burying it. #279's targets (≤ 10x quiet, ≤ 30x churn) are
 **missed** on every scenario. The previous run of the same binary read 29.47x,
-66.61x, 2 691.57x, 2 569.68x and 409.54x, so the run-to-run spread is about two
-to three points on the quiet rows and wider than any bootstrap interval. The
+66.61x, 2 691.57x, 2 569.68x and 409.54x. The run-to-run spread is therefore about
+two to three points on the quiet rows, and wider than any bootstrap interval. The
 effect-heavy rows did not move at all (no change here touches the effect path).
 
 **What changed, and what it bought.** Three things, all on the quiet tick. A
@@ -46,13 +46,13 @@ confirm that nothing happened.
 
 **A quiet tick now makes no heap allocation**
 (`--alloc-report`, per-tick trace of `steady-64x100`: `98:0 99:0 100:558 101:0
-102:0`), down from one — `block_on`'s waker — and from 20 before per-source
+102:0`). That is down from one (`block_on`'s waker), and from 20 before per-source
 change ticks. The 558 on the tick where 64 sources move is the boxed
 observation, the ledger transition and the journal records, about 8.7 per moved
 chain. Means: 4.3 (`poll-only`), 8.8 (`steady`), 878.1 (`churn`), 345.1
-(`fanout`), and 346.1 / 1 404.9 / 5 624.9 / 22 483.2 for the wide rows — linear
-in the source count (4.06x, 4.00x, 4.00x per four times the sources) — against
-0.0 for the baseline.
+(`fanout`), and 346.1 / 1 404.9 / 5 624.9 / 22 483.2 for the wide rows. The wide
+rows are linear in the source count (4.06x, 4.00x, 4.00x per four times the
+sources), against 0.0 for the baseline.
 
 A fourth thing, timed against the code it replaced in one binary: a tick that
 polled nothing, holds no transition and is not parked settles in place and reads
@@ -61,27 +61,27 @@ path against 849.9 on the new (13.8%), and `steady` 2 132.3 against 2 004.8 (6.0
 ([`bench/bot-headline.md`](../../bench/bot-headline.md)).
 
 **The gap, itemised by stage** (`--profile`, same binary; ns per tick, and the
-instrument adds about 212 ns). `poll-only` (plain tick 860.3): poll 411 (51.0%),
-schedule 222 (27.5%), the other four 141 together. `steady` (plain 2 012.9):
-poll 398 (20.7%), schedule 218 (11.4%), fingerprint 76, compare 38, decide 64,
-act 1 123 (58.5%). `churn`, `fanout` and `wide-256`: act is 83.9%, 98.7% and
-79.9%. The ≤ 10x quiet target is not reachable by this route: it asks for a tick
-of about 323 ns against a baseline of 32.4 ns, and the poll stage alone is 411
-ns, 6.4 ns per source for the `revision()` read, the change-tick compare and one
-declared-state read. The ≤ 30x churn target is not reachable by design: each
+instrument adds about 212 ns). The row `poll-only` (plain tick 860.3) spends poll 411
+(51.0%), schedule 222 (27.5%), and the other four 141 together. The row `steady`
+(plain 2 012.9) spends poll 398 (20.7%), schedule 218 (11.4%), fingerprint 76,
+compare 38, decide 64 and act 1 123 (58.5%). In `churn`, `fanout` and `wide-256`,
+act is 83.9%, 98.7% and 79.9%. The ≤ 10x quiet target is not reachable by this route. It asks for a tick
+of about 323 ns against a baseline of 32.4 ns. The poll stage alone is 411 ns,
+which is 6.4 ns per source for the `revision()` read, the change-tick compare and
+one declared-state read. The ≤ 30x churn target is not reachable by design: each
 effect writes a ledger transition, a warrant and a journal record, and `act` is
 where the time goes.
 
-These ratios are larger than the 72x–256x this section once carried because
+These ratios are larger than the 72x–256x this section once carried, because
 that run's bots fired effects with no ledger, no warrant and no record, and
 skipped 99 of every 100 polls through a digest seam that has since been
 removed. Neither configuration is one the crate builds today
 ([`bench/README.md`](../../bench/README.md) states both). **Admission stays
-linear; the tick does not.** Building 16,384 chains costs 3.7 ms against 1.1 ms
-at 64 chains. Per fired effect, though, `act` reads 2.9, 3.6, 5.1 and 9.7 µs at 256,
+linear; the tick does not:** 16,384 chains build in 3.7 ms against 1.1 ms at 64,
+but per fired effect `act` reads 2.9, 3.6, 5.1 and 9.7 µs at 256,
 1 024, 4 096 and 16 384 sources, which is 178x for 64x the sources. Poll,
 fingerprint, compare, schedule and decide grow 63x to 70x over the same range.
-The profile charges that to the effect dispatch; this run does not separate the
+The profile charges that to the effect dispatch. This run does not separate the
 ledger write from the journal record inside it. `Auth::check` was quadratic in
 the capability count and is now `n·log2 n`: 12.9 µs → 3.6 µs at 128 capabilities.
 
@@ -103,14 +103,14 @@ unnoticed later:**
     | `at-capacity` | 512 | 4 | 1.06x | [1.04, 1.13] | 1.09x |
     | `single-permit` | 512 | 1 | 1.07x | [1.06, 1.08] | 0.93x |
 
-    and 3.46 allocations per task against raw Tokio's 2.02 (the attribution run
-    itemises 3.61, cut from 15.33 by removing an eagerly-built `watch` channel
-    per cancellation token and a 100 ms timer armed on every uncontended spawn;
-    the ≤ 2x-at-p99 latency target is met since #320 — see §4.2). The p99
-    column is a point reading; the interval is on p50. This is a closed-loop
-    measurement at one bound per scenario; the open-loop saturation curve, the
-    six-bound knees, the million concurrently admitted tasks, the overload
-    recovery and the 2 CPU / 2 GiB cgroup run are §4.2 (#269).
+    The facade makes 3.46 allocations per task against raw Tokio's 2.02. The
+    attribution run itemises 3.61, cut from 15.33 by removing an eagerly-built
+    `watch` channel per cancellation token and a 100 ms timer armed on every
+    uncontended spawn. The ≤ 2x-at-p99 latency target is met since #320 (§4.2).
+    The p99 column is a point reading, and the interval is on p50. This is a
+    closed-loop measurement at one bound per scenario. The open-loop saturation
+    curve, the six-bound knees, the million concurrently admitted tasks, the
+    overload recovery and the 2 CPU / 2 GiB cgroup run are §4.2 (#269).
 2. The comparator is a hand-rolled loop in the same process. There is no
    measurement against UiPath, n8n, Node-RED or Temporal. Such a measurement
    would be a category error dressed as a result, and this page does not

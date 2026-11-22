@@ -2,9 +2,9 @@
 
 Pages of this guide: [scope and finding](general-bot-fold.md) · [what is new](general-bot-fold-new.md) · [recorder, settlement, language](general-bot-fold-language.md) · [semantic tier and mapping](general-bot-fold-semantic.md) · [reaching a page](general-bot-fold-reach.md) · [evasion and injection](general-bot-fold-evasion.md) · [sequence 1 to 5](general-bot-fold-sequence.md) · [sequence 6 to 14](general-bot-fold-frontier.md)
 
-Status: **design record.** Steps 1 to 6 of the sequence are implemented —
-`crates/lgwks-bot/src/interface.rs` onward — and the rest is sequenced in §6. Nothing here changes the four verbs, the
-authority model, or the ECS schedule.
+Status: **design record.** Steps 1 to 6 of the sequence are implemented, from
+`crates/lgwks-bot/src/interface.rs` onward, and the rest is sequenced in §6.
+Nothing here changes the four verbs, the authority model, or the ECS schedule.
 
 ## 1. What this page is for
 
@@ -17,9 +17,9 @@ covers ground this workspace has not.
 This page folds that design into `lgwks_bot`. "Fold" means: for each
 subsystem, either name the artefact in this workspace that already *is* it, or
 name the exact seam it becomes, or refuse it and say why. It is not a
-comparison and not a plan to build a second platform. The failure mode it exists
-to prevent is a parallel architecture — a second IR, a second interpreter, a
-second authority model — arriving one subsystem at a time.
+comparison and not a plan to build a second platform. It exists to prevent one
+failure: a parallel architecture (a second IR, a second interpreter, a second
+authority model) arriving one subsystem at a time.
 
 The fold is at the design level. No code is copied from the described platform
 or from any of the projects whose published architecture it shares. If code is

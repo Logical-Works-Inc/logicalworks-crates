@@ -122,7 +122,10 @@ fn a_green_journey_records_renders_exports_and_checks() -> TestResult {
         "{out}"
     );
     let table = fs::read_to_string(fixture.path().join("docs/spec.md"))?;
-    assert!(table.contains("| T01 | exercised | 2/2 | — |"), "{table}");
+    assert!(
+        table.contains("| T01 | exercised | 2/2 | none |"),
+        "{table}"
+    );
     assert!(
         table.contains("| T02 | present | 1/1 | the second half is not asserted |"),
         "{table}"
@@ -133,6 +136,28 @@ fn a_green_journey_records_renders_exports_and_checks() -> TestResult {
         "{exported}"
     );
     assert!(exported.ends_with("}\n"), "the export ends with a newline");
+    Ok(())
+}
+
+/// Spec: `docs/orchestration-acceptance.spec.md`, a page for people. A row with
+/// no gap says `none` in words, so the generated block holds no em dash for the
+/// prose voice rule of `check-docs` to refuse.
+#[test]
+fn an_empty_gap_renders_none() -> TestResult {
+    let (fixture, mut arguments) = journey(true)?;
+    arguments.extend([
+        "--spec".to_owned(),
+        "docs/spec.md".to_owned(),
+        "--write-table".to_owned(),
+    ]);
+    let (code, out, err) = run(&arguments)?;
+    assert_eq!(code, 0, "{out}{err}");
+    let table = fs::read_to_string(fixture.path().join("docs/spec.md"))?;
+    assert!(
+        table.contains("| T01 | exercised | 2/2 | none |"),
+        "{table}"
+    );
+    assert!(!table.contains('\u{2014}'), "{table}");
     Ok(())
 }
 

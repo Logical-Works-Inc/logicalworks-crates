@@ -37,7 +37,7 @@ exposes no `spawn`/`status`/`output` and that the task set has no `detach_all`.
 What it does **not** do is the external observation the row asks for: it proves
 a compile-time refusal, not that a sanctioned run was executed and observed. A
 compile failure caused by missing dependencies is not a passing API-negative
-test either — that failure mode is indistinguishable from the intended one
+test either: that failure mode is indistinguishable from the intended one
 unless the probe also asserts the *positive* case compiles, which
 `supervisor_is_the_sanctioned_process_runner` is for. The full
 externally-evidenced campaign for T21 and T22 remains unaccepted.

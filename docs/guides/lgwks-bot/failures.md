@@ -6,8 +6,8 @@ Both entry points return `Result<usize, EcsError>`: `Bot::tick` is the
 synchronous adapter (`crates/lgwks-bot/src/ecs/bot.rs:556`) and `Bot::tick_async` is
 the one to `await` from inside a runtime (`crates/lgwks-bot/src/ecs/bot.rs:331`).
 Four different things can produce an `Err`. Three are failures that mean
-different things for your data — the distinction is the difference between a
-retry and a duplicate — and the fourth is the adapter refusing to run a tick at
+different things for your data. The distinction is the difference between a
+retry and a duplicate. The fourth is the adapter refusing to run a tick at
 all.
 
 Cases one and two are the two the `observe_fold` and `fire_plan` systems produce,
@@ -49,9 +49,9 @@ runs.
 ## Case two: an action failed
 
 Actions run in declaration order, but deciding and doing are two systems. The
-`fire_plan` system walks the eligible work — a chain whose `Revision` moved opens
+`fire_plan` system walks the eligible work. A chain whose `Revision` moved opens
 a transition, and a chain with a transition outstanding is walked whether or not
-it moved — and records one ordered `Step` per condition that held
+it moved. The system records one ordered `Step` per condition that held
 (`crates/lgwks-bot/src/ecs/fold.rs:397`). The `run_steps` pass then awaits those steps
 on the caller's executor in exactly that order
 (`crates/lgwks-bot/src/ecs/bot.rs:405`). It breaks on the first failure and records
@@ -60,9 +60,10 @@ it, and there is no rollback:
 ```rust,ignore
 match entry.action.run_any(&grants.0, value).await {
 ```
-`value` is the payload the transition is bound to — moved into it when it opened
-or resumed, and read from there by every entry of that transition, so a retry
-after a failure runs against the same input the failed attempt did.
+`value` is the payload the transition is bound to. It moved into the transition
+when it opened or resumed, and every entry of that transition reads it from
+there, so a retry after a failure runs against the same input the failed
+attempt did.
 
 Every action before the failure already ran, and its effect is live. `Err` here
 means "this run did not finish", not "nothing happened".
@@ -86,7 +87,7 @@ three.
 - **Every entry of a transition runs against the one payload the transition was
   opened under.** The observed value is *moved* into the transition when it opens
   or resumes, so a retry after a failure reads the same input the entry that
-  failed read — not whatever the source has since become. A newer value is
+  failed read, not whatever the source has since become. A newer value is
   admitted only once the transition has nothing open, and it then becomes the
   next transition's payload for every entry. Without this, one transition would
   produce effects of two different inputs: an entry acknowledged against the old
@@ -97,13 +98,13 @@ three.
   settle, so an acknowledged effect is never replayed to reach a successor. That
   includes an entry it has *given up* on: declaration order is not success
   dependency, and an abandonment is the strongest statement that the entry behind
-  it must not run — a draft that was never reserved has nothing to send.
+  it must not run: a draft that was never reserved has nothing to send.
   Successors stay reported behind it, and the way past is evidence
   (`EffectEvidence::NotApplied`), which revives the entry and them with it.
 - **Giving up is reported, not silent.** When the budget is spent the entry is
   abandoned, the tick still returns the action's own typed error, and
   `Bot::pending()` names the entry, the reason (`AbandonReason`), and the source
   revision. A `pending()` that lists anything is work that is still owed, and a
-  clean `Ok` tick — with `Err(BotError::PendingTransition)` in place of silence
-  whenever work is held and nothing failed — cannot be read as "the transition
-  was handled".
+  clean `Ok` tick cannot be read as "the transition was handled". Whenever work
+  is held and nothing failed, the tick returns `Err(BotError::PendingTransition)`
+  in place of silence.

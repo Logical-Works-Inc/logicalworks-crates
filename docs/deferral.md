@@ -12,7 +12,7 @@ customer the revenue slice does not have yet. Until the trigger is met, adding
 the crate creates a second owner and a larger cold build.
 
 A request that needs one of these links its issue, shows the measured gap, and
-is closed with the trigger and the owner — never with "not now". The estate
+is closed with the trigger and the owner, never with "not now". The estate
 owner is fixed first: a retrieval defect is fixed in the owner, not routed
 around with a new vector database.
 
@@ -27,7 +27,7 @@ around with a new vector database.
 
 ## Post-revenue, not out of scope
 
-The full mission — Logic OS replaces Microsoft's whole stack by 2027-03-21 —
+The full mission (Logic OS replaces Microsoft's whole stack by 2027-03-21)
 stands. The Azure and Cloudflare families above are sequencing, not a scope
 cut: each row keeps its trigger, owner and replacement, and the catalog is
 reviewed after the revenue slice is live, not before.

@@ -1,6 +1,6 @@
 # Status and evidence boundary
 
-Version: 0.2.0. Last audited: 2026-11-14. Product stage: **design publication plus deterministic reference cores**.
+Version: 0.3.0. Last audited: 2026-11-14. Product stage: **design publication plus deterministic reference cores**.
 
 ## Present
 
@@ -16,7 +16,7 @@ Version: 0.2.0. Last audited: 2026-11-14. Product stage: **design publication pl
 
 ## Absent / unverified
 
-No qualified GPU backend, browser host, interpreter integration, sandbox, host authority adapter, shared compute/render residency, or performance result is implemented. The native host has run on macOS only; Windows and Linux compile through the same feature and have not been run. The ink lab and residency model are deterministic reference cores, not a qualified renderer; `BYTES_PER_SHAPE` transfers are modelled, not captured. All product journeys — including J31–J33 — remain `unmeasured`. Keel is not wired. No executable gate claims runtime acceptance.
+No qualified GPU backend, browser host, interpreter integration, sandbox, host authority adapter, shared compute/render residency, or performance result is implemented. The native host has run on macOS only; Windows and Linux compile through the same feature and have not been run. The ink lab and residency model are deterministic reference cores, not a qualified renderer; `BYTES_PER_SHAPE` transfers are modelled, not captured. All product journeys, including J31–J33, remain `unmeasured`. Keel is not wired. No executable gate claims runtime acceptance.
 
 The planned runtime tree is only partly realized: the on-disk seats are `src/design.rs`, `src/ink_lab.rs`, `src/runtime.rs`, `src/native.rs` and `src/bin/drishti`, plus the Canvas modules `canvas_protocol`, `motion`, `canvas_scene`, `preview` and `native_host`. Documentation modules remain a publishing mechanism, not placeholder runtime implementations. This package cannot be used to build a frontend today.
 

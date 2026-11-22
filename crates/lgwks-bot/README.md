@@ -1,6 +1,6 @@
 # lgwks_bot
 
-**Resilient workflow orchestration & durable execution engine for Rust: indented `script!` flows with bounds the macro enforces, shared retry budgets, values a resume reads back, and native admission barriers for AI agent plans.**
+**Workflow orchestration and durable execution for Rust: indented `script!` flows with bounds the macro enforces, shared retry budgets, values a resume reads back, and admission gates for AI agent plans.**
 
 Pages of this README: [overview](README.md) · [execution model](README-execution.md) · [failure](README-failure.md) · [authority, domains and specs](README-authority.md) · [script!](README-script.md) · [async runtime](README-runtime.md) · [supervision](README-supervision.md)
 
@@ -12,28 +12,26 @@ Install via Cargo:
 cargo add lgwks_bot
 ```
 
-## Why lgwks_bot?
+## Why lgwks_bot
 
-Writing resilient async logic in Rust usually forces a bad compromise:
-- **Raw Tokio**: Hand-rolling `select!`, semaphore permits, and custom retry loops prone to leaked futures, zombie tasks, and retry storms.
-- **Distributed Workflow Engines (Temporal)**: Great durability, but requires operating external server clusters, databases, and managing fragile event-history replay compatibility across versions.
+Raw Tokio leaves `select!`, semaphore permits and retry loops to you. Each can leak a future, strand a task or storm a backend. A distributed workflow engine such as Temporal adds durability, but you operate its servers and keep its event-history replay compatible across versions.
 
-`lgwks_bot` embeds enterprise durable workflow orchestration directly inside your Rust process. Zero external servers required.
+`lgwks_bot` runs durable orchestration inside your Rust process, with no external server.
 
-## The 8 Production Traps Ruled Out by Design
+## What the blocks rule out
 
-| Block | What it structurally rules out |
+| Block | What it rules out |
 |---|---|
-| `each x in xs:` | **Unbounded fan-out & leaks**: Concurrency is bounded; if an item fails, siblings abort cleanly. |
-| `within 2s:` | **Silent hangs & zombie tasks**: A deadline on the scope's clock; cancellation propagates down the tree. |
-| `retry up to 3 times, waiting 100ms:` | **Retry storms**: Unified attempt budget with jitter; permanent errors are never retried. |
-| `together:` | **Unstructured concurrency**: Replaces `tokio::spawn` with structured branches. |
-| `step name:` | **Anonymous failures**: A named scope with its own key and error location. |
-| `remember name:` | **Lost work on a crash**: The block runs once per run; a resume reads its value back. |
-| `ready x from (readiness) within 30s:` | **Sleep-based readiness guesses**: Readiness probes instead of sleep loops. |
-| `admit from model through (gate):` | **Untrusted AI execution**: Gated admission ensures untrusted LLM outputs cannot execute without validation. |
+| `each x in xs:` | Unbounded fan-out and leaks: concurrency is bounded, and a failed item aborts its siblings. |
+| `within 2s:` | Silent hangs: a deadline on the scope's clock, with cancellation down the tree. |
+| `retry up to 3 times, waiting 100ms:` | Retry storms: one attempt budget with jitter, and permanent errors never retry. |
+| `together:` | Unstructured concurrency: structured branches in place of `tokio::spawn`. |
+| `step name:` | Anonymous failures: a named scope with its own key and error location. |
+| `remember name:` | Lost work on a crash: the block runs once per run, and a resume reads its value back. |
+| `ready x from (readiness) within 30s:` | Sleep-based readiness guesses: a readiness signal in place of a sleep loop. |
+| `admit from model through (gate):` | Untrusted model output: it cannot run until the gate admits it. |
 
-For an architectural comparison against Temporal and raw Tokio, see [Durable Execution in Rust](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md).
+The [comparison with Temporal and raw Tokio](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/comparison-vs-temporal-tokio.md) has the detail.
 
 ## Quickstart
 
@@ -84,7 +82,7 @@ settled, a timer firing is an event written to it, and effects leave through
 the journal. One driver on tokio and axum sits below the world, used only where
 rebuilding the piece makes no sense, and a consumer never names it: it is owned
 through the `lgwks_deps` storefront. Above the world sits `script!`, the
-framework an agent or a developer writes in.
+language an agent or a developer writes in.
 
 The boundary is a test, not a convention: `tests/it/core_boundary.rs` fails the
 build if a core module names the driver or a file outside `ecs/` names bevy.
@@ -108,11 +106,11 @@ Async-client limits are in [distributed-mesh boundaries](../../docs/distributed-
 ## Publisher
 
 Logical Works Incorporated publishes `lgwks_bot` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to use each one and when to skip it.
 
 ## License
 
-MPL-2.0 — Copyright 2026 Logical Works Incorporated
+MPL-2.0, Copyright 2026 Logical Works Incorporated.
 
-Deliberately not the workspace's Apache-2.0. The bot is the artefact the rest of the estate embeds, so it carries file-level copyleft while its siblings stay permissive.
-A proprietary consumer is still permitted — MPL-2.0 §3.3 — and only modification of the MPL-covered files carries an obligation. See [`LICENSING.md`](../../LICENSING.md).
+This differs from the workspace's Apache-2.0 on purpose. The rest of the estate embeds the bot, so it carries file-level copyleft while its siblings stay permissive.
+A proprietary consumer is still permitted (MPL-2.0 §3.3). Only a change to an MPL-covered file carries an obligation. See [`LICENSING.md`](../../LICENSING.md).

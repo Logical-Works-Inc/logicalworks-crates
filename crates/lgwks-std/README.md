@@ -1,25 +1,24 @@
 # lgwks_std
 
-Everyday Rust primitives with no async runtime required: hex, base64,
-timestamps, UUIDs, hashing, glob matching, regex, JSON, HTTP, and structured
-logging, as single-import calls, each behind one audited dependency stack.
+Rust primitives with no async runtime required: hex, base64, timestamps, UUIDs,
+hashing, glob matching, regex, JSON, HTTP and structured logging, as
+single-import calls, each behind one audited dependency stack.
 
 The default `standard` set carries every capability but `http` (its TLS stack
-compiles C per target); `full` adds it. Each is one feature and one vetted stack.
+compiles C per target). `full` adds it. Each is one feature and one vetted stack.
 
-`trace` is default-on. Structured logging is the replacement for terminal
-output in library code, so it has to be reachable without selecting a feature
-first. It includes the `tracing` facade and the default subscriber bootstrap
-(`LGWKS_LOG`/`RUST_LOG` filtering, compact, pretty and JSON-lines output) and
-keeps `tracing-attributes` off, so the `syn` macro stack stays out.
+`trace` is default-on. Structured logging replaces terminal output in library
+code, so it is reachable with no feature choice. It includes the `tracing` facade
+and the default subscriber bootstrap (`LGWKS_LOG`/`RUST_LOG` filtering, compact,
+pretty and JSON-lines output). It keeps `tracing-attributes` off, so the `syn`
+macro stack stays out.
 
 **Want a zero-dependency build?**
 
 ```sh
 cargo add lgwks_std --no-default-features --features core
 ```
-That is the only configuration in which this crate pulls nothing at all, and it
-is verified by command rather than asserted. `cargo tree -p lgwks_std
+Only this configuration pulls nothing at all. `cargo tree -p lgwks_std
 --no-default-features --features core -e normal` prints one line: `lgwks_std`
 itself. The package is `lgwks_std` (underscore); its directory is
 `crates/lgwks-std` (hyphen).
@@ -36,8 +35,8 @@ cargo run -p lgwks_std --example quickstart            # 10-line tour (this repo
 
 The core modules (`hex`, `time`, `encoding`, `glob`) need no feature: call
 `hex::encode`, `time::now_rfc3339`, `encoding::base64::encode` and
-`glob::matches`. The `trace` feature gives `trace::install_default` and
-the `info!` and `warn!` level macros. The other features each add one vetted
+`glob::matches`. The `trace` feature gives the `info!` and `warn!` level
+macros, and `trace-install` gives `trace::install_default`. The other features each add one vetted
 stack (`json` is serde and serde_json, `ron` is serde and ron, `http` is ureq
 and iri-string, `fs-raw` and `process` share rustix): `id::Uuid` (`random`),
 `hash::blake3` (`hash`), `pattern::Regex` (`pattern`) and `json::from_str`.
@@ -56,7 +55,7 @@ One manifest key, three alternative lines. Use exactly one of them:
 ```toml
 [dependencies]
 # Zero external deps: defaults off, core selected. The default build is
-# `standard`, so a bare `lgwks_std = "4"` is NOT zero-dependency.
+# `standard`, so a bare `lgwks_std = "5"` is NOT zero-dependency.
 lgwks_std = { version = "5", default-features = false, features = ["core"] }
 
 # Only what you pick, with the defaults off.
@@ -69,7 +68,7 @@ The feature table, module reference, JSON and RON decoder notes, entropy target
 rules, walk threat models, time profile and glob text semantics are in the
 [reference](../../docs/guides/lgwks-std/reference.md) and the
 [time and glob notes](../../docs/guides/lgwks-std/time-and-glob.md).
-Boundaries: [distributed-mesh boundaries](../../docs/distributed-boundaries.md), [bounded background work](../../docs/guides/lgwks-bot/background-work.md), [what a failed tick means](../../docs/guides/lgwks-bot/failures.md).
+Boundaries: [distributed boundaries](../../docs/distributed-boundaries.md), [bounded background work](../../docs/guides/lgwks-bot/background-work.md), [what a failed tick means](../../docs/guides/lgwks-bot/failures.md).
 
 ## Dependency philosophy
 
@@ -77,24 +76,24 @@ Every direct dependency is a vetted leaf or single-purpose stack registered by
 semantic capability and owner. `lgwks-deps check` audits authored edges from
 Cargo metadata; Cargo.lock preserves the exact transitive provenance.
 
-- **blake3** — 3 zero-dep leaves (arrayvec, cfg-if, constant_time_eq)
-- **regex** — 4 BurntSushi-internal crates, zero external deps
-- **serde** — derive stack (proc-macro2, quote, syn)
-- **serde_json** — 2 leaves beyond serde (itoa, ryu)
-- **ron** — 1 leaf beyond serde (bitflags)
-- **rkyv** — 5 djkoloski crates, zero external deps
-- **getrandom** — zero deps in std-only mode
-- **ureq** — blocking HTTP client, rustls-only TLS stack plus small leaves
-- **iri-string** — zero-dep URI validation leaf at default features
-- **ed25519-dalek** — detached seals for the `sign` feature (`alloc` and `zeroize`, no rand_core; key generation reads `lgwks_std::random`)
-- **rustix** — safe POSIX syscall surface for the `fs-raw` and `process` primitives; Unix-only, optional
-- **tracing** — default-on structured event facade for library diagnostics.
-- **tracing-subscriber** — default debugger bootstrap. `install_default("service")`
+- **blake3**: 3 zero-dep leaves (arrayvec, cfg-if, constant_time_eq)
+- **regex**: 4 BurntSushi-internal crates, zero external deps
+- **serde**: derive stack (proc-macro2, quote, syn)
+- **serde_json**: 2 leaves beyond serde (itoa, ryu)
+- **ron**: 1 leaf beyond serde (bitflags)
+- **rkyv**: 5 djkoloski crates, zero external deps
+- **getrandom**: zero deps in std-only mode
+- **ureq**: blocking HTTP client, rustls-only TLS stack plus small leaves
+- **iri-string**: zero-dep URI validation leaf at default features
+- **ed25519-dalek**: detached seals for the `sign` feature (`alloc` and `zeroize`, no rand_core; key generation reads `lgwks_std::random`)
+- **rustix**: safe POSIX syscall surface for the `fs-raw` and `process` primitives; Unix-only, optional
+- **tracing**: default-on structured event facade for library diagnostics
+- **tracing-subscriber**: default debugger bootstrap. `install_default("service")`
   installs env-filtered compact output, and `LGWKS_LOG_FORMAT=json` switches the
   same stream to JSON lines. `attributes` stays off, so `#[instrument]` and its
-  proc-macro stack do not enter this crate.
+  proc-macro stack stay out.
 
-`core` alone carries zero external dependencies; the default build is `standard`, every capability but `http`. Every other feature flag is one capability and one stack.
+`core` alone carries zero external dependencies. The default build is `standard`.
 
 ## Minimum supported Rust version
 
@@ -113,4 +112,4 @@ when code or dependency requirements demand it.
 | [`lgwks_deps`](https://docs.rs/lgwks_deps) | The audited storefront for third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
 
 Logical Works Incorporated publishes `lgwks_std` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it. License: Apache-2.0, Copyright 2026 Logical Works Incorporated.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to use each one and when to skip it. License: Apache-2.0, Copyright 2026 Logical Works Incorporated.
