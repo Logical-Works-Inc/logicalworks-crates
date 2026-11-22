@@ -1201,7 +1201,7 @@ review = "2027-02-01"
 [[approved]]
 crate = "jsonschema"
 tier = "boundary"
-version = "^0.61.2"
+version = "^0.62.0"
 license = "MIT"
 owner = "lgwks_deps"
 capability = "format.json-schema"
