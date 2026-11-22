@@ -265,6 +265,11 @@ pub(crate) trait ExecuteAny {
     /// with the wrong type is refused rather than archived as something else:
     /// archiving a value the action would not accept would let an approval
     /// match bytes the action never runs on.
+    ///
+    /// Gated with its only caller, `script::act`: a build without `script` has
+    /// nothing that archives an input, and a method nothing there can call is
+    /// not part of that build's surface.
+    #[cfg(feature = "script")]
     fn archive_input(&self, _input: &Erased) -> Option<Vec<u8>> {
         None
     }
@@ -384,6 +389,7 @@ where
         self.0.effect_lifetime()
     }
 
+    #[cfg(feature = "script")]
     fn archive_input(&self, input: &Erased) -> Option<Vec<u8>> {
         input
             .as_any()
@@ -407,5 +413,43 @@ where
         input: &'a Erased,
     ) -> crate::verb::BoxFuture<'a, Result<Box<dyn Any>, EcsError>> {
         self.execute_erased(Some(clock), grants, input)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// This module's own text, as shipped.
+    const ERASE: &str = include_str!("erase.rs");
+
+    /// Source: #1058. A consumer building `lgwks_bot` with `ecs` and without `script` (the bench
+    /// rig turns features on one by one) failed `-D warnings` with `method archive_input is never
+    /// used`, because only `script::act` calls `ExecuteAny::archive_input` and the method was
+    /// compiled without it. Requirement: the trait method and its `TypedExec` override each sit
+    /// directly under `#[cfg(feature = "script")]`, so the method exists exactly where its caller
+    /// does. The name is split below so this test does not find itself.
+    #[test]
+    fn an_erased_archive_input_is_compiled_only_with_its_one_caller() {
+        let lines: Vec<&str> = ERASE.lines().collect();
+        let mut declared = 0_usize;
+        for (at, line) in lines.iter().enumerate() {
+            if !line.contains(concat!("fn archive", "_input(")) {
+                continue;
+            }
+            declared = declared.saturating_add(1);
+            let above = at
+                .checked_sub(1)
+                .and_then(|previous| lines.get(previous))
+                .map(|text| text.trim());
+            assert_eq!(
+                above,
+                Some("#[cfg(feature = \"script\")]"),
+                "line {} declares the erased archive outside the feature of its only caller",
+                at.saturating_add(1)
+            );
+        }
+        assert_eq!(
+            declared, 2,
+            "the trait method and the `TypedExec` override are the two declarations"
+        );
     }
 }

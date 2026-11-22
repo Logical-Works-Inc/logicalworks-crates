@@ -100,16 +100,50 @@ fn read_table_pairs() -> io::Result<Vec<(i32, i32)>> {
         .collect()
 }
 
+/// Every other unix (iOS, FreeBSD): no reader of the process table is written for it, and
+/// `darwin::table` is the macOS syscall, unproven where an app sandbox may filter the table.
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "linux")),
+    feature = "process"
+))]
+fn read_table_pairs() -> io::Result<Vec<(i32, i32)>> {
+    no_table_reader()
+}
+
+/// The refusal of a host with no process-table reader: [`io::ErrorKind::Unsupported`], never an
+/// empty table, because a sweep over an empty table kills nothing and reports success. It lives
+/// here, not inside the one arm that calls it, so every test host runs its test, Windows
+/// included: Miri runs the sims of this module for `x86_64-pc-windows-msvc`.
+#[cfg(all(
+    feature = "process",
+    any(all(unix, not(any(target_os = "macos", target_os = "linux"))), test)
+))]
+pub(super) fn no_table_reader() -> io::Result<Vec<(i32, i32)>> {
+    let refusal = Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "process capture_descendants_many has no process-table reader on this unix",
+    ));
+    #[cfg(feature = "trace")]
+    crate::trace::debug!(
+        error = ?refusal.as_ref().err(),
+        "read_table_pairs: no process-table reader on this target, refusing the sweep"
+    );
+    refusal
+}
+
 /// Linux and macOS: traverses each root in `roots`, bounded by [`MAX_CAPTURE_ROOTS`].
 /// Past 32 roots on Linux, and at any count on macOS, one process table read
 /// serves them all; 32 or fewer on Linux walk `/proc` per root, which is cheaper
-/// and is not one instant across the roots.
+/// and is not one instant across the roots. Any other unix has no table reader and
+/// answers [`std::io::ErrorKind::Unsupported`].
 ///
 /// # Errors
 ///
 /// Returns [`std::io::ErrorKind::InvalidInput`] if `roots.len() > MAX_CAPTURE_ROOTS`
 /// or if any root in `roots` is non-positive (`<= 0`). Returns an error if the
-/// process table cannot be read.
+/// process table cannot be read, and [`std::io::ErrorKind::Unsupported`] on a unix
+/// that has no reader for it.
 #[doc(hidden)]
 #[cfg(all(unix, feature = "process"))]
 pub fn capture_descendants_many(roots: &[i32]) -> io::Result<BTreeMap<i32, DescendantSet>> {

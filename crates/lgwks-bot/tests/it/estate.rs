@@ -404,6 +404,48 @@ mod durable {
         Ok(())
     }
 
+    /// Source: the smoke ran `/usr/bin/true`, which Nix hosts and some distributions do not have
+    /// (#890). Requirement: the smoke proves its process doors from a clean directory with a
+    /// `PATH` that holds no system directory, running only the program it already owns, and that
+    /// program (`estate probe`) exits zero and says nothing.
+    #[test]
+    fn the_smoke_needs_no_program_from_the_host_path() -> TestResult {
+        let scratch = Scratch::new("estate")?;
+        let probe = std::process::Command::new(env!("CARGO_BIN_EXE_estate"))
+            .arg("probe")
+            .current_dir(scratch.path())
+            .env_clear()
+            .env("PATH", scratch.path())
+            .output()?;
+        assert!(
+            probe.status.success(),
+            "the probe exits zero: {}",
+            String::from_utf8_lossy(&probe.stderr)
+        );
+        assert!(
+            probe.stdout.is_empty(),
+            "the probe says nothing: {}",
+            String::from_utf8_lossy(&probe.stdout)
+        );
+        let smoke = std::process::Command::new(env!("CARGO_BIN_EXE_estate"))
+            .current_dir(scratch.path())
+            .env_clear()
+            .env("PATH", scratch.path())
+            .output()?;
+        let stdout = String::from_utf8_lossy(&smoke.stdout);
+        assert!(
+            smoke.status.success(),
+            "the smoke exits clean with no system PATH: {stdout} {}",
+            String::from_utf8_lossy(&smoke.stderr)
+        );
+        #[cfg(all(unix, feature = "process"))]
+        assert!(
+            stdout.contains("process doors: gated lane completed under task"),
+            "the gated lane ran its own program: {stdout}"
+        );
+        Ok(())
+    }
+
     #[test]
     fn the_smoke_binary_opens_all_four_library_doors() -> TestResult {
         // The doors (#990) on the shipped binary: each prints its proof only when

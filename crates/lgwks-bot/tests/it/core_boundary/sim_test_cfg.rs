@@ -480,7 +480,7 @@ fn sim_real_sources_monkey_planted_items_change_only_what_they_ship() -> Result<
         let Some(own) = super::layer_index(relative) else {
             continue;
         };
-        if !super::is_test_file(relative) && own.saturating_add(1) < super::LAYERS.len() {
+        if !super::is_test_file(relative, &tree) && own.saturating_add(1) < super::LAYERS.len() {
             layered.push((relative, text, own));
         }
     }

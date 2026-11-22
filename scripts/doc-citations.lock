@@ -121,7 +121,7 @@ crates/lgwks-bot/src/session/value.rs:94	String,
 crates/lgwks-bot/src/session/value.rs:151	pub fn decode_answer(&self, answer: &str) -> Result<Value, AnswerRejection> {
 crates/lgwks-bot/src/session/value.rs:207	pub(crate) fn decode_integer(raw: &str) -> Option<i64> {
 crates/lgwks-bot/src/spec.rs:343	pub use crate::ecs::{
-crates/lgwks-bot/src/spec/erase.rs:351	let auth: Auth = grants.issue(self.0.required_caps())?;
+crates/lgwks-bot/src/spec/erase.rs:356	let auth: Auth = grants.issue(self.0.required_caps())?;
 crates/lgwks-bot/src/task/admit.rs:43	where
 crates/lgwks-bot/src/task/ledger.rs:81	fn genesis_head() -> Digest {
 crates/lgwks-bot/src/task/store.rs:143	fn genesis_head() -> Digest {

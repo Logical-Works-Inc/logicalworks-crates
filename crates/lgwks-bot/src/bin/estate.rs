@@ -134,10 +134,14 @@ impl Drop for Scratch {
 }
 
 /// The sub-command the arguments name, run; `None` when they name none and the smoke is the job.
+///
+/// `probe` exits zero and says nothing: the one program the process doors start, so the smoke
+/// needs no `true` from the host (#890).
 fn subcommand() -> Option<Result<(), SmokeError>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (first, rest) = args.split_first()?;
     match first.as_str() {
+        "probe" => Some(Ok(())),
         "serve" => Some(serve_ref::run(rest).map_err(|cause| SmokeError::command("serve", &cause))),
         "apps" => Some(apps::run(rest).map_err(|cause| SmokeError::command("apps", &cause))),
         "approvals" => {
