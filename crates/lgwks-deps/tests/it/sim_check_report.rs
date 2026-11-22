@@ -90,5 +90,15 @@ fn sim_check_report_admits_the_repository_root_in_both_modes() -> TestResult {
         payload.contains("\"admitted\": true"),
         "a pass reads as admitted: {payload}"
     );
+    // A major bump that moves the manifest but not the register (Dependabot
+    // #1109) is a requirement drift, and only enforcement mode refuses it.
+    assert!(
+        payload.contains("\"mode\": \"enforcement\""),
+        "the control is judged where a drifted requirement refuses: {payload}"
+    );
+    assert!(
+        !payload.contains("contract approves"),
+        "no requirement drifts from contract/APPROVED.toml: {payload}"
+    );
     Ok(())
 }
