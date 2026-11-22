@@ -11,15 +11,16 @@ use std::error::Error;
 use std::path::Path;
 
 use super::test_cfg::read;
+use super::test_decl::{Sources, is_test_file};
 use super::{
-    KERNEL, KERNEL_DRIVERS, KERNEL_SUPER, LAYERS, Rng, is_test_file, layer_index, layer_of, names,
-    read_tree,
+    KERNEL, KERNEL_DRIVERS, KERNEL_SUPER, LAYERS, Rng, layer_index, layer_of, names, read_tree,
 };
 
 /// Every upward import in the production code of one source file, as the line,
 /// the file's layer and the path it names: a `crate::<module>` of a higher
 /// layer, and for the kernel a tokio or axum path and the `super::` chains of
-/// `KERNEL_SUPER`. A file outside every layer and a test file name none.
+/// `KERNEL_SUPER`. A file outside every layer names none; whether the file is
+/// test code is the caller's question (`test_decl`), asked of the tree.
 pub(super) fn upward_imports(relative: &str, text: &str) -> Vec<(usize, &'static str, String)> {
     let mut found = Vec::new();
     let Some(own) = layer_index(relative) else {
@@ -28,9 +29,6 @@ pub(super) fn upward_imports(relative: &str, text: &str) -> Vec<(usize, &'static
     let Some(layer) = LAYERS.get(own) else {
         return found;
     };
-    if is_test_file(relative) {
-        return found;
-    }
     let mut refused: Vec<String> = LAYERS
         .iter()
         .skip(own.saturating_add(1))
@@ -70,26 +68,35 @@ pub(super) fn pick<T: Copy>(rng: &mut Rng, items: &[T]) -> Result<T, Box<dyn Err
 
 /// Every upward edge the sources under `src` hold, one per file and upper module.
 pub(super) fn in_tree(src: &Path) -> Result<Vec<Upward>, Box<dyn Error>> {
+    Ok(upward_in(&read_tree(src)?))
+}
+
+/// Every upward edge the files of `tree` hold, one per file and upper module, leaving out each
+/// file its parent declares as test code. A file named `test_*` that ships is read (#1101).
+pub(super) fn upward_in(tree: &Sources) -> Vec<Upward> {
     let mut found: Vec<Upward> = Vec::new();
-    for (relative, text) in read_tree(src)? {
-        for (_, layer, path) in upward_imports(&relative, &text) {
+    for file in tree {
+        if is_test_file(&file.0, tree) {
+            continue;
+        }
+        for (_, layer, path) in upward_imports(&file.0, &file.1) {
             let module = match path.strip_prefix("crate::") {
                 Some(rest) => rest.to_owned(),
                 None => path,
             };
             if !found
                 .iter()
-                .any(|edge| edge.file == relative && edge.module == module)
+                .any(|edge| edge.file == file.0 && edge.module == module)
             {
                 found.push(Upward {
-                    file: relative.clone(),
+                    file: file.0.clone(),
                     layer,
                     module,
                 });
             }
         }
     }
-    Ok(found)
+    found
 }
 
 /// One upward import found in the tree: the file, its layer, the upper module.

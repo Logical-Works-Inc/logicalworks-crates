@@ -27,10 +27,11 @@
 //!
 //! Comments are not code: a line is read up to its first `//`. Tests are not
 //! the core either: a test drives the core from above, the way the driver
-//! does, so a test file (`tests.rs`, a `tests/` directory, `sim_*`) and an item
+//! does, so a file its parent module declares under a test item and an item
 //! under `#[test]` or a `cfg` no build without `test` satisfies are not read
 //! (#1096, `test_cfg`, through lgwks_ast's Rust grammar). The code after such an
-//! item is read, and a file the grammar refuses is named and read whole.
+//! item is read, and a file the grammar refuses is named and read whole. A
+//! file is never exempt by its name: `test_decl` reads the declaration (#1101).
 
 use std::error::Error;
 use std::fs;
@@ -52,6 +53,10 @@ mod layer_edges;
 
 /// Which lines of a file are test code: an item under a `cfg` that needs `test`.
 mod test_cfg;
+
+/// Which files are test code: the ones their parent module declares under a test item.
+mod test_decl;
+use test_decl::{edges_in, is_test_file, planted};
 
 /// Hostile seeded sweeps over that reader, against a reference model.
 mod sim_test_cfg;
@@ -194,24 +199,11 @@ fn names(code: &str, path: &str) -> bool {
     })
 }
 
-/// Whether `relative` is a test file rather than shipped code.
-fn is_test_file(relative: &str) -> bool {
-    relative.split('/').any(|part| {
-        part == "tests"
-            || part == "tests.rs"
-            || part.starts_with("sim_")
-            || part.starts_with("test_")
-    })
-}
-
 /// Every boundary edge in one source file, as `path:line: reason`.
 fn edges(relative: &str, text: &str) -> Vec<String> {
     let core = CORE.iter().any(|name| in_module(relative, name));
     let ecs = in_module(relative, "ecs");
     let mut found = Vec::new();
-    if is_test_file(relative) {
-        return found;
-    }
     let reading = test_cfg::read(text);
     if let Some(ref refusal) = reading.refused {
         found.push(test_cfg::refusal_edge(relative, refusal));
@@ -284,8 +276,9 @@ fn read_tree(src: &Path) -> Result<Vec<(String, String)>, Box<dyn Error>> {
 fn the_core_names_no_driver_and_only_ecs_names_bevy() -> Result<(), Box<dyn Error>> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut found = Vec::new();
-    for (relative, text) in read_tree(&src)? {
-        found.extend(edges(&relative, &text));
+    let tree = read_tree(&src)?;
+    for file in &tree {
+        found.extend(edges_in(&file.0, &file.1, &tree));
     }
     for site in UNWIND_SITES {
         if !catches_a_panic(&fs::read_to_string(src.join(site))?) {
@@ -348,7 +341,16 @@ fn a_new_catch_unwind_site_is_refused() {
         "a listed site stands until W6 removes it"
     );
     assert!(edges("rt/supervise.rs", "// never catch_unwind here").is_empty());
-    assert!(edges("app/sim_app.rs", "let _caught = catch_unwind(work);").is_empty());
+    let hosted = planted(&[("app.rs", "#[cfg(test)]\nmod sim_app;\n")]);
+    assert!(
+        edges_in(
+            "app/sim_app.rs",
+            "let _caught = catch_unwind(work);",
+            &hosted
+        )
+        .is_empty(),
+        "a test module's catch is not a site"
+    );
     assert!(catches_a_panic("use std::panic::catch_unwind;\n"));
     let tested = "fn run() {}\n#[cfg(test)]\nmod tests {\n    use std::panic::catch_unwind;\n}\n";
     assert!(
@@ -378,9 +380,16 @@ fn bevy_outside_ecs_is_refused_and_comments_are_not_code() {
 /// A test drives the core from above and is not read; the code before a test
 /// module still is.
 fn test_code_is_a_caller_and_production_code_above_it_is_still_read() {
-    assert!(edges("journal/file/tests.rs", "use crate::rt::runtime::block_on;").is_empty());
-    assert!(edges("clock/tests/wait.rs", "use crate::rt::time;").is_empty());
-    assert!(edges("sim_gate.rs", "use crate::task::Host;").is_empty());
+    let tests = planted(&[("journal/file.rs", "#[cfg(test)]\nmod tests;\n")]);
+    let block_on = "use crate::rt::runtime::block_on;";
+    assert!(edges_in("journal/file/tests.rs", block_on, &tests).is_empty());
+    let nested = planted(&[
+        ("clock.rs", "#[cfg(test)]\nmod tests;\n"),
+        ("clock/tests.rs", "mod wait;\n"),
+    ]);
+    assert!(edges_in("clock/tests/wait.rs", "use crate::rt::time;", &nested).is_empty());
+    let sim = planted(&[("lib.rs", "#[cfg(test)]\nmod sim_gate;\n")]);
+    assert!(edges_in("sim_gate.rs", "use crate::task::Host;", &sim).is_empty());
     let owner = "fn flush() {}\n\n#[cfg(test)]\nmod tests {\n    use crate::task::RunStore;\n}\n";
     assert!(
         edges("journal/owner.rs", owner).is_empty(),
@@ -530,6 +539,7 @@ fn a_kernel_module_naming_the_kernel_or_a_neighbour_word_is_not_refused() {
 /// file or directory of the crate, so the table cannot drift from the tree.
 fn every_top_level_module_is_in_exactly_one_layer() -> Result<(), Box<dyn Error>> {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let tree = read_tree(&src)?;
     let mut present = Vec::new();
     for entry in fs::read_dir(&src)? {
         let path = entry?.path();
@@ -541,7 +551,11 @@ fn every_top_level_module_is_in_exactly_one_layer() -> Result<(), Box<dyn Error>
         };
         let is_module =
             path.is_dir() || path.extension().is_some_and(|extension| extension == "rs");
-        if is_module && !is_test_file(&stem) && stem != "lib" && stem != "bin" {
+        if is_module
+            && !is_test_file(&format!("{stem}.rs"), &tree)
+            && stem != "lib"
+            && stem != "bin"
+        {
             present.push(stem);
         }
     }
