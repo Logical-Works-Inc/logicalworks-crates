@@ -257,12 +257,12 @@ tokenizers = { version = "0.23", optional = true }
 # Interim zoned time: jiff with system zoneinfo plus bundled fallback, no
 # default features so the no-flag build stays portable. Consumers opt in via
 # --features time-jiff and reach it only through lgwks_deps::storefront::jiff.
-jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo", "tzdb-concatenated"], optional = true }
+jiff = { version = "1.0", default-features = false, features = ["std", "tz-system", "tzdb-bundle-platform", "tzdb-zoneinfo", "tzdb-concatenated"], optional = true }
 # Durable state: the one SQLite every estate service opens (estate issues
 # #696, #700): one requirement here, the exact release in `Cargo.lock` (ADR
 # 0031). Bundled so no system library is needed, and no default features so
 # the no-flag build stays portable: the engine is selected, never the crate.
-rusqlite = { version = "0.42.0", default-features = false, features = ["bundled"], optional = true }
+rusqlite = { version = "0.43.0", default-features = false, features = ["bundled"], optional = true }
 # drishti's fold (ADR 0058). `p256` keeps `ecdsa` (signing, verifying, DER) and
 # `std` only; `libm` is the pure-Rust float library; the three desktop crates take
 # caret requirements and `Cargo.lock` holds the releases the preview's golden
@@ -271,7 +271,7 @@ libm = { version = "0.2", optional = true } # gap: Logical-Works-Inc/logicalwork
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"], optional = true } # gap: Logical-Works-Inc/logicalworks-crates#840
 winit = { version = "0.30.12", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
 softbuffer = { version = "0.4.6", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
-cosmic-text = { version = "0.14.2", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
+cosmic-text = { version = "0.19.0", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
 # Sealed records: the one AEAD every sealed estate record seals under (estate
 # issue #785): one requirement here, the exact release in `Cargo.lock` (ADR
 # 0031). ChaCha20-Poly1305 is pure Rust with no C toolchain, so the no-flag

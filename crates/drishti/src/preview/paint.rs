@@ -38,7 +38,9 @@ impl Painter {
         {
             let mut borrowed = buffer.borrow_with(&mut self.fonts);
             borrowed.set_size(Some(width.max(1.0)), Some(height.max(1.0)));
-            borrowed.set_text(text, &Attrs::new(), Shaping::Advanced);
+            // cosmic-text 0.19 takes the alignment here; `None` keeps 0.14's
+            // default of left-aligned text.
+            borrowed.set_text(text, &Attrs::new(), Shaping::Advanced, None);
             borrowed.shape_until_scroll(true);
         }
         buffer
