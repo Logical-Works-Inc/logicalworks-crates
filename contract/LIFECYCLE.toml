@@ -154,6 +154,13 @@ last_reviewed = "2026-10-26"
 review = "https://crates.io/crates/gpui"
 
 [[lifecycle]]
+crate = "gpui_platform"
+replacement = "The gpui row's replacement: it is gpui's platform half on Zed main."
+removal_trigger = "The gpui edge is removed, or gpui puts its backends back in its own crate."
+last_reviewed = "2026-11-22"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/1122"
+
+[[lifecycle]]
 crate = "candle-core"
 replacement = "An estate inference runtime once a paying workload needs tensors."
 removal_trigger = "A paying inference workload names a measured gap and the storefront has no consumer."

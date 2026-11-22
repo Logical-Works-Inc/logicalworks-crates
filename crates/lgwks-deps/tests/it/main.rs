@@ -121,4 +121,5 @@ mod sim_vendor_coverage;
 mod sqlite_defaults;
 /// No workflow step idles: a `sleep` in CI spends the run's 300 s wall on nothing.
 mod workflow_idle_sleeps;
+mod workspace_lock;
 mod workstream_c;

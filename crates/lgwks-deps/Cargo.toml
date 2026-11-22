@@ -75,7 +75,7 @@ script = ["dep:proc-macro2"]
 # desktop UI framework; `tokio` is the async engine behind `lgwks_bot`'s runner
 # surface. None is in the default set; the `default` comment above says why, and
 # `lgwks-deps catalog` lists each one.
-gpui = ["dep:gpui", "gpui/default"]
+gpui = ["dep:gpui", "gpui/default", "dep:gpui_platform"]
 appcui = ["dep:appcui"]
 # Day-0 revenue slice (#721): HTTP routing, HTTP middleware and the AI input
 # guard. Pure-Rust, permissive licences, default-off like every other
@@ -221,7 +221,14 @@ quote = { version = "1", optional = true }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "tracing"], optional = true }
 tower-http = { version = "0.7", default-features = false, features = ["cors", "trace", "compression-gzip", "compression-deflate"], optional = true }
 llm-guard = { version = "0.2", default-features = false, features = ["fuzzy"], optional = true }
-gpui = { version = "0.2", optional = true }
+# Upstream pin (contract/PATCHES.toml): gpui 0.2.2 on crates.io pulls block
+# 0.1.6 and proc-macro-error2, two future-incompat lints (rust#74840,
+# rust#127909). Zed main fixed both (zed#62468); the release is asked in
+# zed#67338. `cargo publish` drops `git` and keeps `version`. On main the
+# platform backends left gpui for `gpui_platform`, which crates.io does not
+# hold yet, so a publish of this crate waits on that release.
+gpui = { version = "0.2", git = "https://github.com/zed-industries/zed", rev = "f126950f9d3b62666f97437ae5d4ccac2272c4db", optional = true }
+gpui_platform = { version = "0.1", git = "https://github.com/zed-industries/zed", rev = "f126950f9d3b62666f97437ae5d4ccac2272c4db", default-features = false, features = ["font-kit", "wayland", "x11"], optional = true }
 appcui = { version = "0.5.7", default-features = false, optional = true }
 # Bevy's ECS and the three crates that make it a runtime. `default-features =
 # false` throughout, and two omissions are deliberate: `bevy_reflect` stays off

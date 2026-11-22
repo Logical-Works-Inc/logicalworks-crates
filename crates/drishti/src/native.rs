@@ -28,7 +28,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use lgwks_deps::gpui::{
-    App, AppContext as _, Application, Bounds, Pixels, SharedString, TitlebarOptions, WindowBounds,
+    App, AppContext as _, Bounds, Pixels, SharedString, TitlebarOptions, WindowBounds,
     WindowOptions, size,
 };
 
@@ -172,7 +172,7 @@ fn finish(finisher: &Finisher, outcome: Result<SessionReport, NativeError>) {
 /// on inside the callback rather than after `run`.
 pub fn run(launch: Launch, on_finish: impl FnOnce(Result<SessionReport, NativeError>) + 'static) {
     let finisher: Finisher = Rc::new(Cell::new(Some(Box::new(on_finish))));
-    Application::new().run(move |cx: &mut App| {
+    lgwks_deps::gpui_platform::application().run(move |cx: &mut App| {
         let lab = match InkLab::new(launch, Rc::clone(&finisher)) {
             Ok(lab) => lab,
             Err(error) => {
