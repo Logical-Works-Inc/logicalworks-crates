@@ -23,7 +23,7 @@ so they cannot be mistaken for a condition that simply did not fire.
   `EvaluateError`; a mismatch in the action's input is
   `BotError::TypeMismatch`, naming the site that caught it and both types
   (`crates/lgwks-bot/src/spec.rs`). It names no domain, because a mismatch
-  means no domain was reached — and it is `Terminal`, so it costs one attempt
+  means no domain was reached. It is `Terminal`, so it costs one attempt
   rather than a whole retry budget. The `Auth` is issued before the downcast in
   the action path, so a type mismatch fails without a side effect.
 - The witness is checked before either downcast. Each chain records the type its
@@ -40,11 +40,13 @@ A poll failure stops the tick before any effect: all sources are polled before
 any `Revision` is written, so a failing poll cannot leave one source updated and
 another not, and `tick` returns the first error in declaration order.
 
-An action failure does not stop the later chains. `fire_plan` walks every chain
-in declaration order and `run_steps` runs them in that same order, parking the
-first failure it saw and reporting that one, while the chains behind the failing
-one still run and still record their work. `TickError` is a resource rather than
-a return value because an exclusive system returns `()` and cannot propagate
-(`crates/lgwks-bot/src/ecs/resources.rs:79`); `tick` takes it after the schedule runs, and
-it takes precedence over the `PendingTransition` report because it carries the
-typed variant a retry classifier matches on.
+An action failure does not stop the later chains. The `fire_plan` system walks
+every chain in declaration order, and `run_steps` runs them in that same order.
+It parks the first failure it saw and reports that one. The chains behind the
+failing one still run and still record their work.
+
+`TickError` is a resource rather than a return value, because an exclusive system
+returns `()` and cannot propagate (`crates/lgwks-bot/src/ecs/resources.rs:79`).
+The `tick` call takes it after the schedule runs. It takes precedence over the
+`PendingTransition` report because it carries the typed variant a retry
+classifier matches on.

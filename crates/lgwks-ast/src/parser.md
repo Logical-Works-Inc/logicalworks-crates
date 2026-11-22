@@ -15,7 +15,7 @@ and parses through this crate and does not depend on `ast-grep` directly.
 The README and this page are included on a hidden item at the crate root
 (`src/lib.rs`), so their examples are built and run as doctests, and
 `cargo test -p lgwks_ast --doc` fails if an example stops compiling or
-stops asserting what its text claims — as it did while `try_parse`
+stops asserting what its text claims, as it did while `try_parse`
 was documented as if it were infallible.
 
 ## Code observability
@@ -39,7 +39,7 @@ consumer that narrows the set pays for no grammar it cannot select.
 Two notes on reading that table. `lang-tsx` is a *selection*, not a separate
 grammar: ast-grep parses `.tsx` with the TypeScript parser, so it forwards to
 the same crate as `lang-typescript` and pulls nothing further. And a `#!`
-line resolves a language where a filename cannot — see
+line resolves a language where a filename cannot: see
 [`Language::of_shebang`], which is how an extensionless `bin/deploy` is
 identified at all.
 

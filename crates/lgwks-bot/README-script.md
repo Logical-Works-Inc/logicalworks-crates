@@ -11,8 +11,8 @@ said: indented flows of `each`, `within`, `retry`, `together`, `step`, `admit`, 
 because orchestration is where generated code fails most: fan-outs with no
 bound, retries with no budget, waits with no deadline, work that loses track of
 which tenant it is for, and a system nobody can see the shape of. The first
-three have no spelling and the last two are automatic; and deadlines and stops
-are cooperative — they take effect at every `.await` and every `for`
+three have no spelling and the last two are automatic. Deadlines and stops
+are cooperative: they take effect at every `.await` and every `for`
 iteration, while a synchronous stretch between two awaits is not preempted.
 
 ```rust
@@ -56,8 +56,8 @@ asynchronous, concurrent and bounded. What every flow gets without asking:
   many runs (`Host::builder`) installs one shared budget instead of one per
   run: the reserve is the host's, credit above it is earned by the host's
   traffic, expires after ten seconds without a first attempt and never pools
-  past twice the reserve — gRPC's per-server throttle shape beside Finagle's
-  per-client budget. Per-call-site retry counts are how retry storms happen:
+  past twice the reserve. That is gRPC's per-server throttle shape beside
+  Finagle's per-client budget. Per-call-site retry counts are how retry storms happen:
   under correlated failure a naive policy cut success from 55.4% to 41.5%
   against not retrying at all, while a budget held the baseline
   ([arXiv:2608.25403](https://arxiv.org/abs/2608.25403)); the same loop

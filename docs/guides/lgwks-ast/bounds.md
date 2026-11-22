@@ -9,9 +9,9 @@ This page lists every limit a checked parse enforces, and why each one is set.
   within one node of the limit, so refusal does not itself walk an unbounded
   tree. It is measured on the tree *after* tree-sitter builds it, so it bounds
   the validation walk, not the parser's own allocation. On dense sources this
-  ceiling is the one that binds first — a 2 MiB file of `x;\n` reaches it at
-  roughly 2.2 bytes per node — so the node limit, not the byte limit, is what
-  refuses that input.
+  ceiling is the one that binds first: a 2 MiB file of `x;\n` reaches it at
+  roughly 2.2 bytes per node, so the node limit, not the byte limit, refuses
+  that input.
 - `MAX_AST_DEPTH`: 512 levels of branch depth, measured on the same walk and
   refused as `AstTooDeep`, a separate arm from `AstTooLarge`.
 - `DEFAULT_PARSE_DEADLINE`: 10 s. The parser asks at every hundredth operation
@@ -20,9 +20,9 @@ This page lists every limit a checked parse enforces, and why each one is set.
 - `MAX_DETECT_BYTES`: 64 KiB per content-detection probe. `try_detect_content`
   tries each distinct caller-named candidate in full, so the probe is bounded
   well below `MAX_SOURCE_BYTES`; `detect` never parses at all.
-- `MAX_SHEBANG_BYTES`: 256 bytes — the `#!` line is the only part of a file
-  `of_shebang` reads, and a script whose first line is longer than that is
-  treated as unidentified rather than scanned further.
+- `MAX_SHEBANG_BYTES`: 256 bytes. The `#!` line is the only part of a file
+  `of_shebang` reads, and a script whose first line is longer is unidentified,
+  not scanned further.
 - `try_parse` refuses an `ERROR`/`MISSING` recovery node: a recoverable tree
   is not proof of valid syntax. `parse` is the unchecked escape hatch for
   diagnostics and tests that inspect malformed trees on purpose.
@@ -39,8 +39,8 @@ This page lists every limit a checked parse enforces, and why each one is set.
   refusals (size, parser, node and depth budgets, deadline) sit at the end of the file.
 
   Two limits of that span are worth stating. A `MISSING` node is zero-width by
-  construction — it marks an insertion point,
-  not text — so its span is empty and underlines nothing. An `ERROR` node
+  construction: it marks an insertion point,
+  not text. Its span is empty and underlines nothing. An `ERROR` node
   spans the whole region the grammar could not parse, which may include
   perfectly valid lines around the real fault. Use the line and column to locate
   the fault, and treat the span as a region rather than as the offending text.

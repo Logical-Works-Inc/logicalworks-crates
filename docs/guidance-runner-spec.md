@@ -56,8 +56,8 @@ the maintainer, and the reason governs the whole design:
 > solve a similar problem for a different purpose. The standard is the best bot
 > that can be built, not the smallest one that satisfies today's consumer.
 
-So the estate assets inform the *shape* — a bounded journal, an authoritative
-fold, a revocation clock — while the bot keeps its own seams and its own
+So the estate assets inform the *shape* (a bounded journal, an authoritative
+fold, a revocation clock), while the bot keeps its own seams and its own
 abstractions. Where a sibling asset is genuinely the right mechanism later, it
 arrives as a new `impl` behind a seam that already exists, not by narrowing the
 bot's surface. Workstream A still consumes rather than duplicates the similarity

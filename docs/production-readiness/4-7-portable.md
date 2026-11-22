@@ -1,9 +1,9 @@
-# 4.7 Portable — same semantics on all declared targets
+# 4.7 Portable: same semantics on all declared targets
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 
-**⚠️ — Linux and macOS run suites, Windows one containment job, seven targets
-are built. A build receipt is not an execution receipt; this says which is which.**
+**⚠️ Linux and macOS run suites, Windows one containment job, seven targets
+are built. A build receipt is not an execution receipt, and this page says which is which.**
 
 Every job in `.github/workflows/ci.yml` runs on a GitHub-hosted runner:
 `ubuntu-24.04-arm` for the Linux legs, `macos-15` for the Darwin seams and
@@ -13,7 +13,7 @@ those storefront features and of process containment, and not of the estate. The
 Linux paths execute in the `rust:1.99.1-trixie` container on `ubuntu-24.04-arm`
 (`tests_linux`), and `lgwks_std`'s full suite runs on the same runner image. A
 `wasm32-wasip1` boundary lane checks that the default feature set compiles for
-WASI — a build check, not an executed containment test. `os.uname` and other
+WASI. It is a build check, not an executed containment test. `os.uname` and other
 host-only calls are behind `platform` dispatch.
 
 **The executed target matrix (#276).** The `check-target-matrix` binary of
@@ -29,88 +29,89 @@ an empty target directory:
 | `wasm32-wasip1` | builds | builds | builds | builds | builds | **not exercised** |
 | `aarch64-apple-ios` | builds | builds | builds | builds | builds | builds |
 
-This table is the run named above. Since then #892 reports the `aarch64-apple-ios`
-row failing for `lgwks_std` and `lgwks_ast`: `read_table_pairs` has no iOS
-definition, so that row claims nothing until #892 closes.
+This table is the run named above. The `aarch64-apple-ios` row failed for
+`lgwks_std` and `lgwks_ast` under #892, because `read_table_pairs` had no iOS
+definition. #1116 fixed it, and `lgwks_std` now builds for `aarch64-apple-ios`. A unix
+with no process-table reader refuses `capture_descendants_many` with `Unsupported`.
 
 **"Builds" is a build receipt and "not exercised" is a named gap, not a pass.**
 The two `aarch64-unknown-linux-gnu` cells marked **builds** come from the arm64
 Linux container (`linux-container-tests targets`), whose C compiler targets that
-triple; the host lane still records them exempt for want of a cross C toolchain
-(#642). The seven not-exercised cells each fail with `failed to find tool
-"aarch64-linux-gnu-gcc"` (or the musl, Android, FreeBSD or `clang` equivalent):
-`ring`, through `http`'s rustls, and the tree-sitter grammars under `lgwks_ast`
-compile C per target and this runner has no cross C toolchain; the lane names
-the compiler each would need and fails on any other reason, so the exemption
-cannot become a lid. **Support is claimed for `lgwks_std` on seven targets with
-`full` only where the row says `builds`, and for `lgwks_ast` and `lgwks_deps` where theirs does — never for a target not exercised.**
+triple. The host lane still records them exempt for want of a cross C toolchain
+(#642).
 
-`random` was the module that made the gap load-bearing: it carried a
-three-target `compile_error!` while the backend it wraps supported dozens more,
-so `lgwks_std` with `random` or `http` could not be built for iOS, Android, a
-BSD or WASI at all. It now holds no target list of its own, and its typed
-`EntropyError` is what a caller on any of these targets gets when the source
-fails.
+The seven not-exercised cells each fail with `failed to find tool
+"aarch64-linux-gnu-gcc"` (or the musl, Android, FreeBSD or `clang` equivalent).
+The crate `ring`, through `http`'s rustls, and the tree-sitter grammars under
+`lgwks_ast` compile C per target, and this runner has no cross C toolchain. The
+lane names the compiler each would need and fails on any other reason, so the
+exemption cannot become a lid. **Support is claimed for `lgwks_std` on seven targets
+with `full` only where the row says `builds`. It is claimed for `lgwks_ast` and
+`lgwks_deps` where theirs does. It is never claimed for a target not exercised.**
 
-**Containment per OS, as executed evidence (#263, #337).** On Unix the supervisor
-captures the leader's descendants and stops each by pid as well as signalling
-the group, so a `setsid` escapee is stopped: `tests/it/process_escape.rs`
-observes it gone with `kill -0`, 4 tests × 1,000 iterations with zero failures
-on `aarch64-apple-darwin` (4,000 executions, `--retries 0`, `leaky` only where
-the test intends it). On Linux the tree additionally runs in its own cgroup v2
-scope, killed first with `cgroup.kill`, and the supervisor adopts orphans
-through the child-subreaper flag: `sim_confinement ::
-a_cgroup_scope_kills_a_setsid_escapee_where_the_mount_allows` passes with the
-receipt naming `CgroupKill` where the mount admits a scope (privileged
-`rust:1.99.0-bookworm` container, `aarch64`), and falls back to the capture
-rounds where it does not; `sim_kernel_owners ::
-an_adopted_orphan_is_named_by_its_adoption` proves the attribution (a pid that
-is both captured and adopted is signalled, then reaped), and the sweep in
-`start` / `confirm_absence` collects the adoptees no guard captured, so a
-killed descendant is never left as a `kill -0`-present zombie. The fire test
-(`tests/it/process_fire.rs`, INV-BOT-164, Linux container leg) cancels 1,000
-supervised depth-3 trees (a root `sh`, a middle `sh`, a `sleep` leaf) at
-in-flight 100 (ten rounds) and at in-flight 1,000 (one round, 3,000 processes)
-and reads the leaves from `/proc` instead of the receipt: zero survivors in
-every round. Measured in the `aarch64` OrbStack container (`Max processes`
-24,093, pid limit `max`): cancel-to-report p50/p95/p99 13.2/20.4/24.8 ms at 100
-and 155/165/165 ms at 1,000, peak RSS 16,096 KiB and 49,076 KiB, receipts
-naming `ProcChildrenTree` for 867 and 997 trees and `SubreaperAdoption` for 133
-and 3, none `CgroupKill`. A descendant orphaned to init before the cleanup ran, where no
-subreaper adopted it, is still not reachable from the leader: a cleanup that
-begins after the leader exited on its own reads no table and reports
-`ResidualRisk::LeaderExited`, so its containment is never `is_complete()`
-(INV-BOT-158, #347). macOS lanes additionally confine through
-`ProcessSpec::confinement` (`sim_confinement ::
-a_sandboxed_child_is_denied_its_denied_subtree`): a denied write fails with the
-kernel's refusal and leaves no file, while a confined `true` still exits zero.
-The sandbox costs one extra fork and exec per spawn, measured on this host at
-p50 10.80 ms against 3.17 ms for a bare `true` (n=200 each); the in-process
-`sandbox_init` that would avoid it needs an FFI leaf the workspace gate
-refuses, and Linux subtree-deny needs Landlock syscall bindings the estate has
-not admitted — both recorded, neither shipped. On Windows (#263) each supervised
-process joins a job object as it starts, and cancel, deadline, exit and drop
-terminate the whole job: the receipt is `CleanupConfirmed` with
-`ContainmentMechanism::JobObject` only when the kernel reads the job's membership
-empty, and a spec that captures a stream is refused before the fork. The calls
-are fourteen `kernel32` externs in `lgwks_std::process::windows`, the one Windows
-`unsafe` leaf (an exception the guard's register names), with no Windows API
-crate. The settle decision table runs on every host against a scripted job (7
-tests) and the Windows target type-checks for both crates, tests included. The
-leaf's ten scripted-kernel tests (`process::windows::tests`) also run under Miri
-cross-interpreted for `x86_64-pc-windows-msvc` (`cargo miri nextest run`): 10
-passed in 17.8 s with no undefined behaviour reported, which checks the pointers
-and lengths the leaf hands its call table and not the `kernel32` externs behind
-it. `tests/process_job.rs` drives a real job on a Windows host: the
-`Process containment on Windows` CI job (`windows-latest`, lane
-`process-windows`) runs its eleven tests under nextest: a cancelled job holding a
-grandchild settling empty, a deadline, a refused capture, and T19–T21 as four named tests and four seeded simulations.
-The Windows receipt is that run's JUnit report (`docs/acceptance/t-rows-windows.toml`) plus the scripted and Miri ones.
+The `random` module made the gap load-bearing: it carried a three-target
+`compile_error!` while the backend it wraps supported dozens more, so `lgwks_std`
+with `random` or `http` could not be built for iOS, Android, a BSD or WASI at all.
+It now holds no target list of its own. Its typed `EntropyError` is what a caller
+on any of these targets gets when the source fails.
 
-**The feature × OS × backend × assurance matrix, and what it does not say.** The bot's supervised process backend returns `Unsupported` off Unix and Windows,
-and a green `windows-latest` job is a *containment* receipt only for `process-windows`, which stops a real job object; every other Windows job builds or lints.
-A build check and an executed containment test are different facts, and only the second one is a portability claim about the runtime.
-The seven-target matrix above is itself a build receipt: every row was executed by `cargo check` and none of them ran a test.
+**Containment per OS, as executed evidence (#263, #337).**
+
+- **Unix.** The supervisor captures the leader's descendants and stops each by pid as well as
+  signalling the group, so a `setsid` escapee is stopped. `tests/it/process_escape.rs` observes it
+  gone with `kill -0`: 4 tests × 1,000 iterations with zero failures on `aarch64-apple-darwin`
+  (4,000 executions, `--retries 0`, `leaky` only where the test intends it).
+- **Linux.** The tree also runs in its own cgroup v2 scope, killed first with `cgroup.kill`, and the
+  supervisor adopts orphans through the child-subreaper flag. The test
+  `sim_confinement::a_cgroup_scope_kills_a_setsid_escapee_where_the_mount_allows` passes with the
+  receipt naming `CgroupKill` where the mount admits a scope (privileged `rust:1.99.0-bookworm`
+  container, `aarch64`), and falls back to the capture rounds where it does not. The test
+  `sim_kernel_owners::an_adopted_orphan_is_named_by_its_adoption` proves the attribution: a pid that
+  is both captured and adopted is signalled, then reaped. The sweep in `start` / `confirm_absence`
+  collects the adoptees no guard captured, so a killed descendant is never left as a zombie.
+- **Linux fire test** (`tests/it/process_fire.rs`, INV-BOT-164, container leg). It cancels 1,000
+  supervised depth-3 trees (a root `sh`, a middle `sh`, a `sleep` leaf) at in-flight 100 (ten
+  rounds) and at in-flight 1,000 (one round, 3,000 processes), reads the leaves from `/proc`
+  instead of the receipt, and finds zero survivors in every round. Measured in the `aarch64`
+  OrbStack container (`Max processes` 24,093, pid limit `max`): cancel-to-report p50/p95/p99
+  13.2/20.4/24.8 ms at 100 and 155/165/165 ms at 1,000, peak RSS 16,096 KiB and 49,076 KiB. The
+  receipts name `ProcChildrenTree` for 867 and 997 trees and `SubreaperAdoption` for 133 and 3.
+  None name `CgroupKill`.
+- **The orphan gap.** A descendant orphaned to init before the cleanup ran, where no subreaper
+  adopted it, is still not reachable from the leader. A cleanup that begins after the leader
+  exited on its own reads no table and reports `ResidualRisk::LeaderExited`, so its containment is
+  never `is_complete()` (INV-BOT-158, #347).
+- **macOS.** Lanes also confine through `ProcessSpec::confinement`
+  (`sim_confinement::a_sandboxed_child_is_denied_its_denied_subtree`). A denied write fails with
+  the kernel's refusal and leaves no file, and a confined `true` still exits zero. The sandbox
+  costs one extra fork and exec per spawn, measured at p50 10.80 ms against 3.17 ms for a bare
+  `true` (n=200 each). The in-process `sandbox_init` that would avoid it needs an FFI leaf the
+  workspace gate refuses. Linux subtree-deny needs Landlock syscall bindings the estate has not
+  admitted. Both are recorded, and neither shipped.
+- **Windows (#263).** Each supervised process joins a job object as it starts, and cancel,
+  deadline, exit and drop terminate the whole job. The receipt is `CleanupConfirmed` with
+  `ContainmentMechanism::JobObject` only when the kernel reads the job's membership empty. A spec
+  that captures a stream is refused before the fork. The calls are fourteen `kernel32` externs in
+  `lgwks_std::process::windows`, the one Windows `unsafe` leaf (an exception the guard's register
+  names), with no Windows API crate.
+- **Windows evidence.** The settle decision table runs on every host against a scripted job (7
+  tests), and the Windows target type-checks for both crates, tests included. The leaf's ten
+  scripted-kernel tests (`process::windows::tests`) also run under Miri cross-interpreted for
+  `x86_64-pc-windows-msvc` (`cargo miri nextest run`): 10 passed in 17.8 s with no undefined
+  behaviour reported. That checks the pointers and lengths the leaf hands its call table, not the
+  `kernel32` externs behind it. The file `tests/process_job.rs` drives a real job on a Windows
+  host. The `Process containment on Windows` CI job (`windows-latest`, lane `process-windows`)
+  runs its eleven tests under nextest: a cancelled job holding a grandchild settling empty, a
+  deadline, a refused capture, and T19–T21 as four named tests and four seeded simulations. The
+  Windows receipt is that run's JUnit report (`docs/acceptance/t-rows-windows.toml`) plus the
+  scripted and Miri runs.
+
+**The feature × OS × backend × assurance matrix, and what it does not say.** The bot's supervised
+process backend returns `Unsupported` off Unix and Windows. A green `windows-latest` job is a
+*containment* receipt only for `process-windows`, which stops a real job object. Every other
+Windows job builds or lints. A build check and an executed containment test are different facts,
+and only the second one is a portability claim about the runtime. The seven-target matrix above is
+itself a build receipt: every row was executed by `cargo check` and none of them ran a test.
 
 *Not covered:* 32-bit, any target outside the seven rows, and any executed test on a non-hosted-runner target.
 The performance numbers in §4.9 are from one machine and are explicitly not a cross-platform claim.

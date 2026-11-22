@@ -33,22 +33,22 @@ permissive licence anyone may take it, modify it, and ship those modifications
 closed, and no later release recovers that. MPL-2.0 is file-level copyleft,
 which is the smallest licence that prevents exactly that and nothing else:
 
-- **Use is unrestricted.** Closed, open, internal, hosted, sold — no condition
+- **Use is unrestricted.** Closed, open, internal, hosted or sold: no condition
   attaches to running it.
 - **Modification of the MPL-covered files carries one obligation.** MPL-2.0 §3.2
   requires those modified files to be made available in source form. Files added
   at another layer carry no such obligation.
 - **A larger work may be distributed under other terms.** MPL-2.0 §3.3 says so
   explicitly, which is why a proprietary consumer remains permitted and why the
-  three Apache-2.0 sibling crates are unaffected.
+  five Apache-2.0 sibling crates are unaffected.
 
-The three siblings stay Apache-2.0 because they are libraries with a different
+The five siblings stay Apache-2.0 because they are libraries with a different
 job: they exist to be consumed as widely as possible, and copyleft on them would
 cost adoption without protecting anything the bot does not already protect.
 
 ## Commercial licence
 
-MPL-2.0 permits closed **use**. It does not permit closed **modification** —
+MPL-2.0 permits closed **use**. It does not permit closed **modification**.
 §3.2 obliges you to publish your changes to the MPL-covered files. An
 organisation that needs to modify the bot's sources without that obligation can
 license it commercially instead, on terms granting exactly that relief and
@@ -64,11 +64,10 @@ rights in **every** contribution to it. A contribution accepted under the
 inbound MPL alone cannot be relicensed commercially, which would make the offer
 above impossible to honour for any release containing it.
 
-A signed contributor licence agreement would therefore be required before a
-non-trivial contribution could be merged. **`lgwks_bot` is closed to outside
-contributions until one exists**, and that is a door rather than a queue: a patch
-sent today has no path to merge and is refused on arrival rather than parked
-pending a decision.
+A signed contributor licence agreement is therefore required before a
+non-trivial contribution can merge. **`lgwks_bot` is closed to outside
+contributions until one exists.** That is a door, not a queue. A patch sent
+today has no path to merge, and it is refused on arrival, not parked.
 
 Selecting the instrument is deferred. The two standard candidates are the Apache
 Individual CLA and the Harmony Contributor Assignment Agreement, and the choice

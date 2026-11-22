@@ -1,15 +1,15 @@
-# 4.5 Decoupled — components independently replaceable
+# 4.5 Decoupled: components independently replaceable
 
 Part of [production readiness](../production-readiness.md), §4, nine axes.
 
-**✅ — the seams are real and are load-bearing.**
+**✅ The seams are real and are load-bearing.**
 
 - `lgwks_deps` is a dependency storefront with a closed tier vocabulary
   (`boundary` / `vendor`) and a checked `APPROVED.toml`. The tier is enforced
   in one respect only: a `vendor` approval over a registry or git edge is
   refused (`VendorTierConflict`). Admission is otherwise decided by owner,
-  source, origin, requirement, features, scope and licence, not by tier. No crate authors a
-  `tokio` edge; the async surface is a facade reached through the storefront.
+  source, origin, requirement, features, scope and licence, not by tier. No crate
+  authors a `tokio` edge. The async surface is a facade reached through the storefront.
   A build cannot acquire an unaudited dependency without the gate refusing.
 - `EffectJournal` is a trait, and `DurableAck::new` is public specifically
   because an adapter outside the crate is where an acknowledgement is produced.
@@ -17,7 +17,7 @@ Part of [production readiness](../production-readiness.md), §4, nine axes.
 - `state` and `authority` are separate: `GrantSet` does not own the schedule, the
   journal does not own the effects, the verbs do not own the runtime.
 - The public surface is a ratchet rather than a habit: `contract/PUBLIC_SURFACE.toml`
-  records, per library file, the exact number of `pub` items it declares, and the
+  records, per library file, the exact number of `pub` items it declares. The
   `std-first` lane (`check-std-first`) refuses a file whose count rises, a file the
   table does not list, and a ceiling the tree has fallen below. A new public item is
   therefore a visible edit to the table: INV-SURFACE-1, #526.
@@ -27,11 +27,11 @@ Part of [production readiness](../production-readiness.md), §4, nine axes.
   The `lgwks_macros` crate carries the same table in its own crate documentation. A page
   that drifts from the lexicon, or a `lib.rs` that does not begin with the include,
   fails `lexicon_docs::every_front_page_opens_with_the_lexicon`: INV-FRONT-1, #526.
-- The `lgwks_bot` getting-started guide runs a `script!` program: its pages follow
-  `crates/lgwks-bot/examples/queue_watch.rs`, which is a test target (`test = true`):
-  `queue_watch::tests::the_getting_started_program_runs` runs its `main`, three
-  runs and three asserted page counts, under nextest (#896). The example ceilings
-  for the guide's `index.md`, `getting-started-pieces.md` and
+- The `lgwks_bot` getting-started guide runs a `script!` program. Its pages follow
+  `crates/lgwks-bot/examples/queue_watch.rs`, which is a test target (`test = true`).
+  The test `queue_watch::tests::the_getting_started_program_runs` runs its `main`,
+  three runs and three asserted page counts, under nextest (#896). The example
+  ceilings for the guide's `index.md`, `getting-started-pieces.md` and
   `getting-started-program.md` fell to zero (INV-EXAMPLE-1).
 - The registry and front-door flows run as tests, not doctests. The same
   `queue_watch` test runs a flow over a `domains!` registry on a granted and an
@@ -49,18 +49,20 @@ Part of [production readiness](../production-readiness.md), §4, nine axes.
 
 *Not covered:* downstream compatibility rests on one consumer. Keel's migration
 to `lgwks_bot` 1.x (`docs/guides/lgwks-bot/migrating-to-1-0.md`) is the only
-external caller with evidence; a workspace caller search proves nothing about
-others. A source tag is not a registry upload; `docs/releasing.md` says what proves
-one. The surface table fixes today's surface and
-every root has shrunk. The modules and re-exports of `lgwks_bot`, `lgwks_std`,
-`lgwks_deps` and `lgwks_ast` sit behind `#[doc(hidden)]`. So the `lgwks_bot` rustdoc
-lists `script!`, `try_join!`, the `script` module, `kernel` and `app`, and its root
-re-exports nothing else (#1016, ADR 0064); the `lgwks_ast` rustdoc lists the
-`script` module, and the other two list prose only. The `README.md`
-and `parser.md` of `lgwks_ast` carry the
-direct-use examples, so they are no longer its front page: they stay compiled on a
-hidden item at its root, which keeps their examples running as doctests. A
-`#[doc(hidden)]` on `mod x;` hides that line only, so the files of a
-hidden module keep their own ceilings and a new `pub` item inside one is still
-refused: `a_new_pub_item_inside_a_hidden_module_is_refused_by_its_own_file` in
+external caller with evidence. A workspace caller search proves nothing about
+others. A source tag is not a registry upload, and `docs/releasing.md` says what
+proves one.
+
+The surface table fixes today's surface, and every root has shrunk. The modules and
+re-exports of `lgwks_bot`, `lgwks_std`, `lgwks_deps` and `lgwks_ast` sit behind
+`#[doc(hidden)]`. So the `lgwks_bot` rustdoc lists `script!`, `try_join!`, the
+`script` module, `kernel` and `app`, and its root re-exports nothing else (#1016,
+ADR 0064). The `lgwks_ast` rustdoc lists the `script` module, and the other two
+list prose only. The `README.md` and `parser.md` of `lgwks_ast` carry the
+direct-use examples, so they are no longer its front page. They stay compiled on a
+hidden item at its root, which keeps their examples running as doctests.
+
+A `#[doc(hidden)]` on `mod x;` hides that line only. The files of a hidden module
+keep their own ceilings, and a new `pub` item inside one is still refused. The
+test `a_new_pub_item_inside_a_hidden_module_is_refused_by_its_own_file` in
 `check-std-first` holds it (#896).

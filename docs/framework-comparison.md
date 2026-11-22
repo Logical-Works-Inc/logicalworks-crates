@@ -28,9 +28,9 @@ this crate.
 
 > "It is all fundamentally the same fucking idea."
 
-The survey supports it. Every framework examined — a Rust crawler, a Discord bot
-library, two browser-agent SDKs, two scraping frameworks, and two commercial
-automation platforms — implements the same five parts:
+The survey supports it. Every framework examined implements the same five parts:
+a Rust crawler, a Discord bot library, two browser-agent SDKs, two scraping
+frameworks, and two commercial automation platforms.
 
 | Part | What it is |
 |---|---|
@@ -46,13 +46,13 @@ parameters.
 
 ## Four axes, and only four
 
-1. **Observation surface** — HTTP bytes, an event stream, a DOM/accessibility
+1. **Observation surface**: HTTP bytes, an event stream, a DOM/accessibility
    tree, pixels, or live form state.
-2. **Concurrency model** — parallel-and-stateless with deduplication;
+2. **Concurrency model**: parallel-and-stateless with deduplication;
    long-lived connection per shard; in-page on the application's own thread;
    or strictly sequential.
-3. **Decision source** — authored rule, fitted model, or model inference.
-4. **Authority** — what an action is permitted to do, and who can prove it.
+3. **Decision source**: authored rule, fitted model, or model inference.
+4. **Authority**: what an action is permitted to do, and who can prove it.
 
-Axes 1 and 3 are where the commercial field competes. Axes 2 and 4 are where the
-engineering differs — and axis 4 is empty everywhere.
+The commercial field competes on axes 1 and 3. The engineering differs on axes 2
+and 4, and axis 4 is empty everywhere.

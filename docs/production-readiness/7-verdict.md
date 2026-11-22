@@ -16,8 +16,8 @@ To change the verdict, in the order that matters:
    under a real store and #108 a real frame. Row T21 of #107 now has its descendant
    stopped and observed gone on Unix (#263, INV-BOT-112). Windows holds its tree in a
    job object with no escape driven against it, and a descendant orphaned to init
-   stays uncontained. The difference they measure — "the bot
-   survives its own machine dying" — is still open.
+   stays uncontained. The difference they measure, "the bot survives its own
+   machine dying", is still open.
 2. **Close the Generalized rows marked ❌ in §4.4.** Focus steal, selector drift,
    a mutating accessibility tree.
    This is the long pole and the reason RPA is hard.
@@ -29,8 +29,8 @@ To change the verdict, in the order that matters:
 5. **Hyperscale, on the profile the estate names.** §4.2 has the saturation
    curve, the declared knees, a million concurrent tasks, the recovery
    measurement and the 2 CPU / 2 GiB cgroup run. What it does not have is a real
-   **1–2 vCPU / 1–2 GB VPS** figure: the cgroup run is one run in a VM on the
-   development Mac, and every open-loop body is a timer, so the figure needs a
+   **1–2 vCPU / 1–2 GB VPS** figure. The cgroup run is one run in a VM on the
+   development Mac, and every open-loop body is a timer. The figure needs a
    machine whose cores are one or two and a CPU-bound body.
 6. **Measure the authoring case on tasks that ask for it.** #87's contract is
    built and the fixed-model run says `futures` is the better surface on the

@@ -8,7 +8,7 @@ Pages: [page 1](script-lexicon.md) · [page 2](script-lexicon-2.md) · [page 3](
 
 Opens a block: its line ends in `:`. Calls `pump`.
 
-- `whenever x in batches, buffering N, drop oldest:` (or `drop newest`, `refuse`) — each event of a live feed in arrival order, each in its own scope; `batches` is awaited for the next `Option<Vec<_>>` and `None` ends the feed; at most `N` events wait, and past that the policy decides; the value is the run's `PumpReport`
+- `whenever x in batches, buffering N, drop oldest:` (or `drop newest`, `refuse`): each event of a live feed in arrival order, each in its own scope; `batches` is awaited for the next `Option<Vec<_>>` and `None` ends the feed; at most `N` events wait, and past that the policy decides; the value is the run's `PumpReport`
 
 Refuses: a feed with no `buffering N`; a buffer outside `1..=65536`; an overflow policy other than `drop oldest`, `drop newest` or `refuse`.
 
@@ -24,7 +24,7 @@ flow watch(feed: &Feed) -> u64:
 
 Opens a block: its line ends in `:`. Calls `Scope::with_justification`.
 
-- `justify with (rules):` — the block in a scope that answers to `rules`: every step, node and retry attempt inside asks them first, and is slowed, parked or stopped as they decide
+- `justify with (rules):`: the block in a scope that answers to `rules`: every step, node and retry attempt inside asks them first, and is slowed, parked or stopped as they decide
 
 Refuses: a `justify` with no `with (rules)`.
 
@@ -41,7 +41,7 @@ flow sync(api: &Api, rules: &Justify) -> u16:
 
 Opens a block: its line ends in `:`. Calls `remembered_at`.
 
-- `remember name:` — the block once per run; a resume reads its value back
+- `remember name:`: the block once per run; a resume reads its value back
 
 Refuses: a name that is not one word.
 
@@ -57,7 +57,7 @@ flow ask(model: &Model) -> String:
 
 Opens a block: its line ends in `:`. Calls `admit_at`.
 
-- `admit from model through (gate):` (or `tool`, `document`) — the block's bytes admitted as a `Plan`; a refusal fails the step
+- `admit from model through (gate):` (or `tool`, `document`): the block's bytes admitted as a `Plan`; a refusal fails the step
 
 Refuses: a producer other than `model`, `tool`, `document`.
 
@@ -73,7 +73,7 @@ flow plan(reply: &[u8], gate: &Gate) -> usize:
 
 Opens a block: its line ends in `:`. Calls `Readiness::wait`.
 
-- `ready x from (readiness) within 30s:` — the block once `readiness` is signalled, `x` bound to it
+- `ready x from (readiness) within 30s:`: the block once `readiness` is signalled, `x` bound to it
 
 Refuses: a `ready` with no `within`.
 
@@ -89,7 +89,7 @@ flow rows(db: &Readiness<Pool>) -> u64:
 
 Opens a block: its line ends in `:`. Calls `approval_at`.
 
-- `await approval <label> within 30s:` — the block's bytes parked for a human decision, bound as `Approved`; the payload returns once decided
+- `await approval <label> within 30s:`: the block's bytes parked for a human decision, bound as `Approved`; the payload returns once decided
 
 Refuses: an `await approval` with no `within`; a label that is not one word.
 
@@ -105,8 +105,8 @@ flow ship(payload: Vec<u8>) -> Vec<u8>:
 
 Stands inside a line of Rust. Calls `fetch_at`.
 
-- `fetch <url> with (options)` — one HTTP exchange under `options`: deadline, attempt budget and body bound declared in the word
-- `fetch <url>` — the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry`
+- `fetch <url> with (options)`: one HTTP exchange under `options`: deadline, attempt budget and body bound declared in the word
+- `fetch <url>`: the same under defaults, inheriting the deadline and retries of the enclosing `within` and `retry`
 
 Refuses: a `fetch` with no URL.
 

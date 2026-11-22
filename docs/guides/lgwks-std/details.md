@@ -63,9 +63,9 @@ test `public_compile_reuse_and_legacy_call_share_text_semantics` in
 that does not occupy a complete path component. The recognized component forms
 include `**/`, `/**`, and `/**/`. Use
 `GlobPattern::compile_with_dialect(pattern, GlobDialect::Legacy)` for a named
-migration path. The compiled tokens and class ranges use O(M) storage; reused
-scratch holds scalar indexing and two rolling rows in O(N), with no row
-allocation per token. `glob` is not a drop-in replacement for the upstream
+migration path. The compiled tokens and class ranges use O(M) storage.
+Reused scratch holds scalar indexing and two rolling rows in O(N), with no row
+allocation per token. This module is not a drop-in replacement for the upstream
 `glob::Pattern`: its accepted legacy forms differ, and it does not provide
 directory traversal.
 

@@ -6,8 +6,8 @@ Part of [Guidance runner specification](guidance-runner-spec.md).
 
 These bind all future element-resolution work, including the deferred interface
 model. They are not preferences. Each follows from a measured result recorded in
-[`frontier.md`](frontier.md), and each must be enforced **structurally** — by the
-types and the seams — rather than by convention or reviewer discipline.
+[`frontier.md`](frontier.md), and each must be enforced **structurally**, by the
+types and the seams, not by convention or reviewer discipline.
 
 **1. The resolver never routes an uncertain resolution to a human for
 element-level confirmation.** `Ambiguous` is a terminal observation state. The bot
@@ -26,7 +26,7 @@ from one.
 **4. Structural resolution only; a visual path requires Set-of-Mark.** If a
 visual component is ever added, the model selects an identifier the resolver
 minted and never emits or infers a coordinate. Anchor-by-proximity and geometric
-relationship inference — distances, angles, line segments, whitespace heuristics —
+relationship inference (distances, angles, line segments, whitespace heuristics)
 are excluded outright.
 
 **5. Failure is refusal, not repair.** A resolution that cannot be verified
@@ -41,19 +41,18 @@ gone" have *overlapping* score distributions: deleted-element decoys score
 or filter separates them, and the strongest available semantic reranker was
 *unanimously wrong* on absent elements while being right on present ones.
 
-Constraint 1 follows directly: if no score can distinguish the two cases, then a
-human presented with a candidate cannot be given the information needed to
-distinguish them either, and asking them to adjudicate converts a bounded failure
-into an unbounded one. Constraints 2 and 3 follow from the same overlap — a
-learning loop trained on that signal is being trained on noise. Constraint 4
-follows from the measurement that structural resolution outperforms visual
-resolution on exactly this problem. Constraint 5 is the consequence of all four:
-since guessing cannot be made reliable, the only honest output is a refusal that
+Constraint 1 follows directly. If no score can distinguish the two cases, a human
+shown a candidate cannot get the information to distinguish them either. Asking
+them to adjudicate turns a bounded failure into an unbounded one. Constraints 2
+and 3 follow from the same overlap: a learning loop trained on that signal trains
+on noise. Constraint 4 follows from the measurement that structural resolution
+beats visual resolution on this problem. Constraint 5 follows from all four:
+guessing cannot be made reliable, so the only true output is a refusal that
 carries its own evidence.
 
 Together these make `Ambiguous` and `Absent` **first-class outcomes with no
-downstream repair path**, which is what gives `ElementRef` its guarantee — it is
-minted only from `Resolved`, so nothing guessed can reach `Execute`.
+downstream repair path**. That gives `ElementRef` its guarantee: it is minted
+only from `Resolved`, so nothing guessed can reach `Execute`.
 
 ## Evidence required before merge
 

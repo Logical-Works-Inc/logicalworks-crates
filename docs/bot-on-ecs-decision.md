@@ -44,7 +44,7 @@ which §12 names as a failure mode. It is taken deliberately, not overlooked, an
 the recorder is what will exercise it.
 
 One consequence to settle while building it: a seeded scheduler needs a userspace
-deterministic PRNG, and `lgwks_std::random` enforces INV-RANDOM-1 —
+deterministic PRNG, and `lgwks_std::random` enforces INV-RANDOM-1:
 "never a silent fallback to a clock, a counter, or userspace PRNG". The carve-out
 is that a replay device is not an entropy source, and it has to be argued in the
 module rather than assumed at the call site. `lgwks_std::seeded` (#344,
@@ -59,7 +59,7 @@ Each step must leave the gate (`./scripts/ci-local.sh`) green.
    `cargo fmt --all -- --check` exit 0; `lgwks-deps check .` exit 0 with 27
    approvals; `lgwks-std-package-smoke.sh` passed.
 1. **The scheduler decision** from §9: vendored zed `scheduler`, or an
-   `lgwks_std` module. ✅ **Decided — the `lgwks_std` module**, taken by the
+   `lgwks_std` module. ✅ **Decided: the `lgwks_std` module**, taken by the
    project owner on 2026-09-21. Not yet built; §9 records both rungs and what
    the decision was taken against.
 2. **A `Spec -> Schedule` executor.** ✅ Landed, and it *replaced* the old one
@@ -74,7 +74,7 @@ Each step must leave the gate (`./scripts/ci-local.sh`) green.
    `domain_id -> constructor` registry (`DomainRegistry`, the `domains!` list)
    names the concrete `Source`/`Action` a document's strings resolve to. The call
    `Bot::from_spec(spec, registry, grants, effects)` materializes a runnable
-   `Bot` through the same `assemble`/`build` path a native bot uses — no second
+   `Bot` through the same `assemble`/`build` path a native bot uses, with no second
    interpreter and no second execution path, so the two produce the same
    operation trace. Admission is all-or-nothing: every presently knowable unmet
    need is reported in one attributed `NeedSet`, and a registry with a duplicate

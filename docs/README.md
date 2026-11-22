@@ -1,14 +1,12 @@
 # Documentation
 
-The index of every document in this repository. The `llms-txt` binary of `lgwks_deps`
-builds `llms.txt` from the table below and fails when a document under
-`docs/` is missing from it.
+The index of every document here. The `llms-txt` binary of `lgwks_deps` builds
+`llms.txt` from this table and fails when a document under `docs/` is missing.
+
+To use a crate, start with the [consumer guides](guides/index.md). The rest of
+the table is design history and contributor policy.
 
 ## Documentation
-
-Depth lives in [`docs/`](), not in this file. If you are here to use a
-crate rather than to change one, start with the [consumer guides](guides/index.md);
-the rest of this table is design history and contributor policy.
 
 | Document | Covers |
 |---|---|
@@ -16,7 +14,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/use-cases.md`](use-cases.md) | What each crate is for, what none of them is, how they differ from the crates a search finds first, agent security and in-process background work. |
 | [`docs/choosing-a-crate.md`](choosing-a-crate.md) | Which crate and feature for a need, the exact dependency graph, and the default-feature caveat on the zero-dependency core. |
 | [`docs/should-i-use.md`](should-i-use.md) | The decision question a reader arrives with: who publishes this, when to use each crate, when not to, and what to use instead. |
-| [`docs/comparison-vs-temporal-tokio.md`](comparison-vs-temporal-tokio.md) | Durable Execution & Workflow Orchestration in Rust: architectural tradeoffs, benchmarks, and failure mode comparison across lgwks_bot, Temporal, and raw Tokio. |
+| [`docs/comparison-vs-temporal-tokio.md`](comparison-vs-temporal-tokio.md) | `lgwks_bot` against Temporal and raw tokio: tradeoffs, benchmarks and failure modes. |
 | [`docs/guides/index.md`](guides/index.md) | Choose a crate, the versions in this tree, and the supported interface. |
 | [`docs/guides/lgwks-bot/index.md`](guides/lgwks-bot/index.md) | `lgwks_bot`: purpose, non-goals, and the supported versions. |
 | [`docs/guides/lgwks-bot/getting-started.md`](guides/lgwks-bot/getting-started.md) | One source, one condition, one effect, compiled and run. |
@@ -46,7 +44,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/async-sdk-shape.md`](async-sdk-shape.md) | The async surface as an SDK: its shape, its invariants, and how to migrate. |
 | [`docs/declarative-orchestration.spec.md`](declarative-orchestration.spec.md) | The task-first front door: typed task, host and report, and straight-line typed results. Implemented in part as `lgwks_bot::task`; each requirement is owned by the falsifier rows that require it. |
 | [`docs/declarative-orchestration-composition.spec.md`](declarative-orchestration-composition.spec.md) | Part two of the task-first specification: composition, admission and repair, one registry and execution path, ownership and visibility. |
-| [`docs/orchestration-lifecycle.spec.md`](orchestration-lifecycle.spec.md) | Single-owner state, atomic fingerprint and value commits, attempt-bound evidence, readiness and process-tree ownership, and the honest durability boundary. |
+| [`docs/orchestration-lifecycle.spec.md`](orchestration-lifecycle.spec.md) | Single-owner state, atomic fingerprint and value commits, attempt-bound evidence, readiness and process-tree ownership, and the durability boundary. |
 | [`docs/script-language.spec.md`](script-language.spec.md) | The `script!` language: one lexicon, one parser, one call per line, guarantees carried by words, and where the parser lives. Implemented. |
 | [`docs/catalog.md`](catalog.md) | Every capability the estate owns, its owner path, its crate, its feature and whether it is on by default. Generated from `contract/CATALOG.toml`; the std-first gate's refusals name rows in it. |
 | [`docs/adr/README.md`](adr/README.md) | The architecture decision record contract: every record against ISO/IEC/IEEE 42010, the fields it must hold, and the index of records. |
@@ -84,7 +82,7 @@ the rest of this table is design history and contributor policy.
 | [`docs/std-ast-deps-closure-matrix.md`](std-ast-deps-closure-matrix.md) | All twenty-four `lgwks_std` modules, `lgwks_ast` and `lgwks_deps`: each with its feature, its evidence state, the test that exists on the named revision, and its owning issue. |
 | [`docs/std-deps-capability-gaps.spec.md`](std-deps-capability-gaps.spec.md) | First-party (`ELIMINATE`) and storefront (`BOUNDARY`) specifications for open `lgwks_std` and `lgwks_deps` capability gaps (`#794`..`#854`), linking part two. |
 | [`docs/invariants-long-form.md`](invariants-long-form.md) | The reasoning, measurements and stated limits behind each one-line rule in `INVARIANTS.md`. |
-| [`docs/releasing.md`](releasing.md) | The release process. |
+| [`docs/releasing.md`](releasing.md) | The publish order, the gates, the release commit, the tags and the published-consumer proof. |
 | [`docs/governance/law.md`](governance/law.md) | Governance §2: the production engineering law. |
 | [`docs/workflow/local-ci.md`](workflow/local-ci.md) | Workflow §1, §10 and §11: local CI, the runner map, and the mandatory WWFD cycle. |
 | [`docs/workflow/delivery-loop.md`](workflow/delivery-loop.md) | Workflow §2 and §3: the delivery loop, its seven rules, and RAG for implementation expertise. |

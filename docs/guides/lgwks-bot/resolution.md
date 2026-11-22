@@ -3,7 +3,7 @@
 Pages of this guide: [verdicts](resolution.md) · [the two readings and the lexical tier](resolution-readings.md) · [aliases, the semantic tier and the receipt](resolution-aliases.md) · [policy and logging](resolution-policy.md)
 
 > **Needs `lgwks_bot` 0.5.0 or later.** `language` and `semantic` first shipped in the
-> `lgwks_bot-v0.5.0` tag; the `lgwks_bot-v0.4.2` tag does not export them.
+> `lgwks_bot-v0.5.0` tag. The `lgwks_bot-v0.4.2` tag does not export them.
 
 A session asks a question with a known set of options and a person answers in
 free text. Two implementations of the `Resolver` seam turn that text into a
@@ -24,16 +24,16 @@ The id is what scopes a learned alias: a phrase confirmed at one question is a
 different fact from the same phrase at another question, and the resolver is told
 which question it is answering.
 
-The kind is an `AnswerDomain`, derived from the declared `VarType` rather than
-chosen per call (`crates/lgwks-bot/src/session/value.rs:94`): an `Integer` variable
-declares `Integer`, and `String`, `Boolean` and `Choice` declare `Label`.
+The kind is an `AnswerDomain`. It is derived from the declared `VarType` rather
+than chosen per call (`crates/lgwks-bot/src/session/value.rs:94`). An `Integer`
+variable declares `Integer`, and `String`, `Boolean` and `Choice` declare `Label`.
 `Question::new` defaults to `Label`, so a caller that says nothing gets the
-lexical reading described below and no caller's meaning changes by surprise.
+lexical reading described below, and no caller's meaning changes by surprise.
 
 ## The verdict is five-valued, and it carries its own provenance
 
-`Resolver::resolve` returns a `Verdict` — a `Resolution` together with the
-`Provenance` that produced it, in one value — and never an `Option<usize>`
+`Resolver::resolve` returns a `Verdict`, a `Resolution` together with the
+`Provenance` that produced it, in one value. It never returns an `Option<usize>`
 (`crates/lgwks-bot/src/session/resolve.rs:27`). The trait documentation gives the
 reason the verdict is five-valued. A two-way verdict collapses "nothing matched"
 and "several matched equally well" into one `None`. The second is the dangerous
@@ -63,51 +63,56 @@ measurement was taken, and reporting `0.0` would be an observation that never
 happened.
 
 `StaleAlias` is separated from `Absent` for the same reason
-(`crates/lgwks-bot/src/session/resolve.rs:256`). `Absent` says the words did not fit the
+(`crates/lgwks-bot/src/session/resolve.rs:256`).
+
+`Absent` says the words did not fit the
 options and a rephrase may help. `StaleAlias` says the words *did* have a
 confirmed meaning at this question and the option it was bound to is no longer
-offered — so the repair is not a rephrase, it is a conversation, and it names
+offered. The repair is not a rephrase, it is a conversation. The verdict names
 both halves of the broken binding because either alone is unactionable.
 
 `Provenance` (`crates/lgwks-bot/src/session/resolve.rs:40`) holds two fields, and the
 second is optional on purpose:
 
-- **`PolicyVersion`** — always present, including on the lexicon path, because
+- **`PolicyVersion`**: always present, including on the lexicon path, because
   "the lexicon decided this" is itself a claim about a rule. It is
   content-addressed over the tier's own parameters (`PolicyVersion::new`
   digests the numbers it is handed), so retuning a threshold in a later release
   changes the revision. A hand-kept version string is a claim that can drift.
-- **`Option<EmbedderIdentity>`** — present only when a model was consulted. A
+- **`Option<EmbedderIdentity>`**: present only when a model was consulted. A
   lexicon verdict is reproducible from the input alone, and naming a model on it
   would attribute that verdict to a model that never ran. A degraded verdict
   does name its model, deliberately: the model is what was expected to answer
   and did not, so a record of the failure that omits it cannot be reproduced.
 
 `DegradedReason` has two variants in the inspected source
-(`crates/lgwks-bot/src/session/resolve.rs:245`). `EmbedderUnavailable` is reached when
+(`crates/lgwks-bot/src/session/resolve.rs:245`).
+
+`EmbedderUnavailable` is reached when
 the semantic tier's embedder returns an error or a vector of the wrong length.
 `UnmeasurableEmbedding` is reached when an embedding comes back as a value no
-angle can be computed from — an all-zero vector, or one carrying `NaN` or an
-infinity. The first is a dependency that is down; the second is a dependency
-that answered with something unusable. Different causes, different repairs, so
-they are not one variant.
+angle can be computed from: an all-zero vector, or one carrying `NaN` or an
+infinity. The first is a dependency that is down. The second is a dependency
+that answered with something unusable. Different causes need different repairs,
+so they are not one variant.
 
-`lgwks_std::similarity::CosineError` splits that second case further, naming a
-zero magnitude apart from a non-finite value, because the two send you to
-different places: a zero vector is usually an empty or padded input, a
-non-finite one a numeric fault inside the provider. The resolver does not repeat
+The type `lgwks_std::similarity::CosineError` splits that second case further,
+naming a zero magnitude apart from a non-finite value, because the two send you to
+different places. A zero vector is usually an empty or padded input. A
+non-finite one is a numeric fault inside the provider. The resolver does not repeat
 the split in its own verdict, because it routes both the same way.
 
-An incomplete comparison set is never decided. If any embedding in the set — the
-utterance's or a competitor's — carries no direction, the whole decision
+An incomplete comparison set is never decided. If any embedding in the set (the
+utterance's or a competitor's) carries no direction, the whole decision
 degrades rather than scoring the surviving options. Dropping the unusable
-candidate leaves a field one member short, and a winner measured against fewer
-competitors than the list holds reports a lead it never held; scoring the
+candidate leaves a field one member short. A winner measured against fewer
+competitors than the list holds reports a lead it never held. Scoring the
 degenerate vector as `0.0` would assert a similarity that was never observed.
-GitHub issue #50 filed this: a zero competitor turned
-`Resolved { score: 1.0, lead: 1.0 }` — the whole of the winner's score, reported
-as a margin over a competitor that was never measured — into an ordinary
-verdict, and a zero *utterance* vector turned every comparison invalid and
-reported `Absent { best_score: 0.0 }`, which is what a healthy model returns
-when it looks at a field and finds nothing. Unknown future `CosineError`
-variants fail closed into the same degraded verdict rather than being skipped.
+
+GitHub issue #50 filed this. A zero competitor turned
+`Resolved { score: 1.0, lead: 1.0 }` into an ordinary verdict. That value is the
+whole of the winner's score, reported as a margin over a competitor that was never
+measured. A zero *utterance* vector turned every comparison invalid and reported
+`Absent { best_score: 0.0 }`, which is what a healthy model returns when it looks
+at a field and finds nothing. Unknown future `CosineError` variants fail closed
+into the same degraded verdict rather than being skipped.

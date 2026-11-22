@@ -21,9 +21,9 @@ without GitHub, and writes a receipt.
 `scripts/gate-lanes.toml` is the one definition of "the gate". The `ci-local`
 binary of `lgwks_deps` executes the lanes from it; `.github/workflows/ci.yml` runs
 the same commands against the same lane ids; the `check-gate-parity` binary refuses
-any drift between the two. They do **not** run in the same order — CI fans the lanes out
-across jobs and needs — and a green local run is evidence only for the lanes
-whose `surfaces` include `local`. The receipt names every lane this surface
+any drift between the two. They do **not** run in the same order, because CI fans
+the lanes out across jobs and needs. A green local run is evidence only for the
+lanes whose `surfaces` include `local`. The receipt names every lane this surface
 did not cover.
 
 When the two disagree, the lane table is the source of truth and the
@@ -31,17 +31,21 @@ disagreement is a defect in whichever side diverged. Fix that side and re-run
 both.
 
 Two evidence lanes exist because they are user-facing claims rather than
-ordinary unit-test counts. `simulation-evidence` parses Nextest's executable
-test listing and also counts source-visible `#[test]` attributes under
-`tests/sim/` and `sim_*` files, then refuses the gate unless each view is at
-least half deterministic simulation. `debug-e2e` drives the public
-`lgwks-deps debug` command through its JSON success path and a fail-closed
-manifest fixture, and prints the successful end-to-end journey result CI must
-show. CI runs both lanes in the workspace job and exposes each verdict as its
-own PR check row, `successful simulation result` and `successful end-to-end
-journey result`, so the checks list shows the result without requiring a reader
-to open the aggregate log. A check row reads the report its lane wrote and
-passes only on that lane's own pass line; it does not build the workspace again.
+ordinary unit-test counts.
+
+- The lane `simulation-evidence` parses Nextest's executable test listing. It also
+  counts source-visible `#[test]` attributes under `tests/sim/` and `sim_*`
+  files. It refuses the gate unless each view is at least half deterministic
+  simulation.
+- The lane `debug-e2e` drives the public `lgwks-deps debug` command through its
+  JSON success path and a fail-closed manifest fixture. It prints the successful
+  end-to-end journey result CI must show.
+
+CI runs both lanes in the workspace job. It exposes each verdict as its own PR
+check row, `successful simulation result` and `successful end-to-end journey
+result`, so the checks list shows the result without opening the aggregate log. A
+check row reads the report its lane wrote and passes only on that lane's own pass
+line. It does not build the workspace again.
 
 Every job runs on a GitHub-hosted runner, because the repository is public and a
 self-hosted runner would execute a fork's pull request on its host

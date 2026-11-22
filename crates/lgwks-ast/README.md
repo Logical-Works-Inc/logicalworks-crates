@@ -2,12 +2,12 @@
 
 A multi-language AST front end for tools that read source code.
 
-A code tool needs the same three things: identify a source file's language by
-extension, by its `#!` line, or by explicitly trial-parsing a small candidate
-set, select that language's tree-sitter grammar, and walk the resulting syntax
-tree safely. This crate provides those paths under explicit bounds. It does not
-parse full Vue/Svelte containers; those extensions select the JavaScript
-grammar as a filename heuristic.
+A code tool needs three things. It identifies a source file's language by
+extension, by its `#!` line, or by trial-parsing a small candidate set. It
+selects that language's tree-sitter grammar. It walks the syntax tree safely.
+This crate provides those paths under explicit bounds. It does not parse full
+Vue or Svelte containers: those extensions select the JavaScript grammar as a
+filename heuristic.
 
 It also provides `define_error!` and the expansion behind `lgwks_macros`'s
 `#[derive(Error)]`, so a parser and its consumers report failures through one
@@ -75,15 +75,14 @@ registers its own through `CustomLang`.
 `lgwks-ast scan [--json] [PATH...]` runs five detectors over every `.rs` file
 under the paths named: a swallowed error, a `return Err(..)` nothing logs, a
 silenced lint, an overlong `?` chain, and a docstring that only paraphrases its
-function. It reads Rust through the same checked parse the rest of the crate
-uses, so a file past a bound is refused by name and counted rather than quietly
-passed.
+function. It reads Rust through the same checked parse as the rest of the crate,
+so a file past a bound is refused by name and counted, never passed.
 
-The exit status is the verdict, and the two failures are two statuses: `0` when
-the tree is clean, `1` when findings stand against a tree every file of which
-was read, `2` when a file could not be read (with or without findings beside
-it), and `64` when the command line is wrong. A caller that gates on the status
-therefore never reads "defects found" as "nothing was measured".
+The exit status is the verdict: `0` when the tree is clean, `1` when findings
+stand against a tree whose every file was read, `2` when a file could not be
+read (with or without findings), and `64` when the command line is wrong. A
+caller that gates on the status never reads "defects found" as "nothing was
+measured".
 
 ## More
 
@@ -102,13 +101,13 @@ crate reaches `lgwks_std` only through its `tool` feature.
 
 | Crate | What it gives you |
 |---|---|
-| [`lgwks_std`](https://docs.rs/lgwks_std) | Everyday primitives with no async runtime required: codecs, a blocking HTTP client, retry, default structured debugging, time, hashing, ids |
+| [`lgwks_std`](https://docs.rs/lgwks_std) | Primitives with no async runtime required: codecs, a blocking HTTP client, retry, default structured debugging, time, hashing, ids |
 | [`lgwks_bot`](https://docs.rs/lgwks_bot) | `script!`: orchestration with bounded fan-out, deadlines, retries under a shared budget and tenant-keyed steps |
 | [`lgwks_deps`](https://docs.rs/lgwks_deps) | The audited storefront for third-party stacks, plus `lgwks-deps check` and `lgwks-deps debug` to prove dependency and debugger wiring |
 
 Logical Works Incorporated publishes `lgwks_ast` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`.
-[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+[Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to use each one and when to skip it.
 
 ## License
 
-Apache-2.0 — Copyright 2026 Logical Works Incorporated
+Apache-2.0, Copyright 2026 Logical Works Incorporated.

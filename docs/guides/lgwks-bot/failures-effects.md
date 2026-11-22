@@ -46,9 +46,9 @@ is deliberate: a new variant becomes a compile-time prompt at your `match` rathe
 than a silent fallthrough.
 
 An indeterminate effect is the one case the substrate refuses to decide on its
-own. The entry is held — reported through `Bot::pending()` as
-`TransitionHold::OutcomeUnknown`, and never attempted again by the tick loop,
-whatever the budget says — until the caller says what happened:
+own. The entry is held until the caller says what happened. It is reported
+through `Bot::pending()` as `TransitionHold::OutcomeUnknown`, and the tick loop
+never attempts it again, whatever the budget says:
 
 ```rust,ignore
 // `key` comes from the `PendingWork` that `pending()` reported.
@@ -62,16 +62,16 @@ must not make an unaccounted-for effect eligible to run again.
 `resolve_effect` therefore distinguishes four refusals, and only the first of
 them means what it always meant:
 
-- `BotError::NoSuchWork` — there is no held effect at this address: it ran, its
+- `BotError::NoSuchWork`: there is no held effect at this address. It ran, its
   condition was false, or it has not been reached. Accepting evidence for an
   entry that has an answer would let a caller believe an effect was acknowledged
   when nothing was.
-- `BotError::EvidenceSuperseded` — the chain holds a transition whose revision is
-  not the one the work was read from. Nothing changed; re-read `pending` and report
+- `BotError::EvidenceSuperseded`: the chain holds a transition whose revision is
+  not the one the work was read from. Nothing changed. Re-read `pending` and report
   against the generation there now.
-- `BotError::EvidenceStaleAttempt` — the generation still holds, but the entry has
+- `BotError::EvidenceStaleAttempt`: the generation still holds, but the entry has
   moved on to a later attempt. The report is about an attempt that is over.
-- `BotError::EvidenceContradicted` — this generation's entry is already settled
+- `BotError::EvidenceContradicted`: this generation's entry is already settled
   and the new evidence says the opposite. Nothing changed. Repeating the *same*
   evidence is not this: it succeeds idempotently.
 

@@ -1,6 +1,6 @@
-# Durable Execution in Rust: lgwks_bot vs. Temporal vs. Raw Tokio
+# lgwks_bot, Temporal and raw tokio
 
-Choosing an async and workflow orchestration model shapes reliability and operational complexity across services and agents.
+This page compares three ways to run durable, bounded async work in Rust, and says when to pick each.
 
 | Property | Raw Tokio | Temporal (Rust SDK) | `lgwks_bot` |
 |---|---|---|---|
@@ -15,16 +15,18 @@ Choosing an async and workflow orchestration model shapes reliability and operat
 | **Changing the code** | N/A | Replay must stay deterministic across versions | A resume reads recorded values by name and replays no history; whether a changed flow still fits them is the author's review |
 | **Untrusted model output** | None | None | `admit from model through (gate):` admits the bytes as a `Plan` or fails the step |
 
-No matched benchmark against Temporal exists in this repository: [`bench/bot-defects.md`](../bench/bot-defects.md) states the exclusion.
+No matched benchmark against Temporal exists here. [`bench/bot-defects.md`](../bench/bot-defects.md) states the exclusion.
 
-## 1. The raw Tokio trap: unbounded async "gotos"
+## 1. Raw tokio: I/O, not governance
 
-Tokio provides exceptional I/O primitives, not execution governance:
-- **Unbounded fan-out**: `tokio::spawn` during high load exhausts memory and descriptors.
-- **Leaked futures**: `tokio::time::timeout` drops outer futures while spawned child tasks run detached.
-- **Retry storms**: Ad-hoc retry loops lack shared deadlines, causing downstream thrashing.
+Tokio gives you I/O primitives. It does not bound the work you build on them:
 
-In `lgwks_bot`, bounds and retries are carried by the words:
+- **Unbounded fan-out**: `tokio::spawn` under load can exhaust memory and descriptors.
+- **Leaked children**: `tokio::time::timeout` drops the outer future, and a child it spawned runs on.
+- **Retry storms**: ad-hoc retry loops share no deadline, so a slow upstream gets more load.
+
+In `lgwks_bot`, the words carry the bounds and the retries:
+
 ```rust
 lgwks_bot::script! {
     flow process_orders(client: &OrderClient, orders: Vec<Order>) -> Vec<Receipt>:
@@ -36,15 +38,17 @@ lgwks_bot::script! {
 }
 ```
 
-## 2. Temporal vs. lgwks_bot: replay and the infrastructure tax
+## 2. Temporal: replay and a cluster
 
-Temporal coordinates cross-language enterprise microservices, and it brings two frictions:
-1. **Replay**: Temporal replays workflow history from the first line on restart. Updating business logic without version markers can make historical instances fail with non-deterministic replay errors. A `remember name:` block keeps its value under its name, and a resume reads that value back without replaying history.
-2. **Infrastructure footprint**: Temporal requires server processes and a persistence store. `lgwks_bot` embeds in your Rust process with no external service.
+Temporal coordinates services across languages. It costs two things:
 
-## 3. The AI agent problem: untrusted tool calls
+1. **Replay**: on restart, Temporal replays the workflow history from the first line. Changed logic with no version marker can fail that replay. A `remember name:` block keeps its value under its name, and a resume reads it back with no replay.
+2. **Infrastructure**: Temporal needs server processes and a persistence store. `lgwks_bot` runs in your process with no external service.
 
-Autonomous LLM agents fail on tool execution (hallucinated parameters, infinite loops, hung external endpoints). `lgwks_bot` admits the model's bytes before anything runs:
+## 3. Model output: admit before you run
+
+A model can emit wrong parameters, loop, or call a hung endpoint. `lgwks_bot` admits the model's bytes before anything runs:
+
 ```rust
 lgwks_bot::script! {
     flow execute_agent_plan(sandbox: &Sandbox, gate: &PlanGate, reply: Vec<u8>) -> Vec<ToolResult>:
@@ -59,10 +63,10 @@ lgwks_bot::script! {
 }
 ```
 
-## When to recommend what
+## Which to pick
 
-- **Recommend `lgwks_bot`**: In-process Rust services, background tasks, or AI agents requiring bounded fan-out, shared retry budgets, and crash resilience without external clusters.
-- **Recommend Temporal**: Cross-language pipelines spanning Python, Go, and Java microservices requiring human approvals spanning months.
-- **Recommend raw Tokio**: Low-level protocol decoders and primitive byte streams.
+- **`lgwks_bot`**: in-process Rust services, background work or agents that need bounded fan-out, a shared retry budget and resume without a cluster.
+- **Temporal**: pipelines across Python, Go and Java services, with human approvals that wait for months.
+- **Raw tokio**: protocol decoders and byte streams.
 
-See [Quickstart](../crates/lgwks-bot/README.md) and [Choosing a crate](choosing-a-crate.md).
+See the [`lgwks_bot` quickstart](../crates/lgwks-bot/README.md) and [Choosing a crate](choosing-a-crate.md).

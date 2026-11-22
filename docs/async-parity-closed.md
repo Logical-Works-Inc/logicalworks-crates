@@ -16,7 +16,7 @@ That answer is withdrawn, and the reason generalises past it: a single-threaded
 spawn returns the *same droppable handle* as the multi-threaded one. A caller
 could start a local task and forget it exactly as easily, with the added trap
 that the handle's type could not be named at the call site, so it could not even
-be stored. The thesis — no verb here starts work and hands back a handle to it —
+be stored. The thesis (no verb here starts work and hands back a handle to it)
 decides both.
 
 What serves the thesis is *driving* instead of spawning: await the future

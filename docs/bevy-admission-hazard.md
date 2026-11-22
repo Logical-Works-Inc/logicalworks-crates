@@ -54,12 +54,12 @@ admission.
 
 **Adopted alongside `bevy_ecs`:**
 
-- **`bevy_time`** — `Time<Virtual>` (`crates/bevy_time/src/virt.rs:75`) is a real
+- **`bevy_time`**: `Time<Virtual>` (`crates/bevy_time/src/virt.rs:75`) is a real
   virtual clock: `pause`, `set_relative_speed`, `max_delta`, `effective_speed`,
   and a `Time<Fixed>` overstep accumulator in `fixed.rs`. It was
   admitted so a test could run 10,000 ticks without touching the wall clock, and
   no workspace code consumes it yet ([the re-run](bevy-0.20-spike.md) §5).
-- **`bevy_state`** — `NextState` (`state/resources.rs:181`), `State<S>`,
+- **`bevy_state`**: `NextState` (`state/resources.rs:181`), `State<S>`,
   `PreviousState`, `StateTransitionEvent`, `apply_state_transition`
   (`state/freely_mutable_state.rs:49`), plus `SubStates` and `ComputedStates`.
   This is a declared state machine with generational transitions and enter/exit

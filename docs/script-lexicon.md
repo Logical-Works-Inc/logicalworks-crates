@@ -18,7 +18,7 @@ Each line is one step: it starts with one of the words below, or it is a line of
 
 Opens a flow at the top level. Calls `Scope::enter`.
 
-- `[pub] flow name(inputs) [-> Output]:` — an `async fn` taking the tenant `Scope` first and returning `Result<Output, FlowError>`
+- `[pub] flow name(inputs) [-> Output]:`: an `async fn` taking the tenant `Scope` first and returning `Result<Output, FlowError>`
 
 Refuses: a promised output the last line never produces.
 
@@ -32,8 +32,8 @@ flow count(items: Vec<u8>) -> usize:
 
 Opens a block: its line ends in `:`. Calls `each`.
 
-- `each x in xs:` — every item, as many at once as the machine sustains, results in input order, first failure stops the rest
-- `each x in xs, at most (limit) at once:` — the same, under a limit that comes from somewhere named (an upstream's quota)
+- `each x in xs:`: every item, as many at once as the machine sustains, results in input order, first failure stops the rest
+- `each x in xs, at most (limit) at once:`: the same, under a limit that comes from somewhere named (an upstream's quota)
 
 Refuses: a concurrency bound typed as a number; a bound outside `1..=65536`.
 
@@ -49,7 +49,7 @@ flow sizes(pages: Vec<String>) -> Vec<usize>:
 
 Opens a block: its line ends in `:`. Calls `within`.
 
-- `within 2s:` — the block, or `TimedOut` when the deadline passes
+- `within 2s:`: the block, or `TimedOut` when the deadline passes
 
 Refuses: a zero duration; a duration with no unit.
 
@@ -65,7 +65,7 @@ flow ping(host: &Host) -> u16:
 
 Opens a block: its line ends in `:`. Calls `retry`.
 
-- `retry up to 3 times[, waiting 100ms]:` — the block again while it fails transiently, same key each attempt, within the run's retry budget
+- `retry up to 3 times[, waiting 100ms]:`: the block again while it fails transiently, same key each attempt, within the run's retry budget
 
 Refuses: attempts outside `1..=1000`; a zero wait.
 
@@ -81,7 +81,7 @@ flow fetch(site: &Site) -> Page:
 
 Opens a block: its line ends in `:`. Calls `try_join!`.
 
-- `together:` — each line underneath concurrently; `let x = ..` lines bind their result
+- `together:`: each line underneath concurrently; `let x = ..` lines bind their result
 
 Refuses: anything before its `:`; an indent under a line that opens no block.
 
@@ -97,7 +97,7 @@ flow both(left: &Api, right: &Api):
 
 Opens a block: its line ends in `:`. Calls `Scope::enter`.
 
-- `step name:` — a named scope: its own key and error location
+- `step name:`: a named scope: its own key and error location
 
 Refuses: a name that is not one word.
 

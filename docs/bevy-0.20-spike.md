@@ -33,21 +33,20 @@ Two behaviours changed, both in the direction the admission wanted:
 - **The unordered sync point is now a refusal, not a loss.** On 0.19.1 adding
   `ApplyDeferred` beside its writer without an order ran and lost the last
   effect. With `ambiguity_detection: LogLevel::Error`, 0.20 refuses the
-  schedule at build — `Systems with conflicting access have indeterminate run
+  schedule at build: `Systems with conflicting access have indeterminate run
   order` — which is exactly the failure mode the admission's second condition
   asked for.
 
-Both conditions of admission remain in force. They are the design that holds on
-either version, and they are what the code does: effects are written by
-exclusive systems at named points, and `Schedule::initialize` plus ambiguity
-detection run at `Bot::build()` time. `initialize` now takes `&mut World` in
-0.20; `lgwks_bot::ecs` already calls it that way, so the bump needed no source
-change.
+Both conditions of admission remain in force. They hold on either version, and
+the code does them. Effects are written by exclusive systems at named points.
+`Schedule::initialize` and ambiguity detection run at `Bot::build()` time. In
+0.20, `initialize` takes `&mut World`. `lgwks_bot::ecs` already calls it that
+way, so the bump needed no source change.
 
 ## 2. `Changed<T>` precision
 
 Two components move to 503 at tick 2 and back to 200 at tick 4. Changed
-entities per tick: **`[2, 0, 2, 0, 2]`** — identical to the 0.19.1 measurement.
+entities per tick: **`[2, 0, 2, 0, 2]`**, identical to the 0.19.1 measurement.
 The condition is still a tick comparison that matches exactly when the value
 moved.
 

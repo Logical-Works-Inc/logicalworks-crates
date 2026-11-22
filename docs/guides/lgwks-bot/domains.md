@@ -1,12 +1,12 @@
 # The registry: what a spec's identifiers resolve to
 
 > **Needs `lgwks_bot` 0.5.0 or later.** `DomainRegistry`, `Source`, `Action` and `domains!` first shipped in the
-> `lgwks_bot-v0.5.0` tag; the `lgwks_bot-v0.4.2` tag does not export them.
+> `lgwks_bot-v0.5.0` tag. The `lgwks_bot-v0.4.2` tag does not export them.
 
 A `BotSpec` carries identifiers, not code. `ChainSpec::source` is a string such
 as `"github::pr_status"`, `ActionSpec::domain` is a string such as
 `"notify::slack"`, and the `target` beside each is a parameter whose meaning the
-domain itself defines — `"owner/repo"`, `"#deploys"`. Something has to turn
+domain itself defines, such as `"owner/repo"` or `"#deploys"`. Something has to turn
 those strings back into a running `Observe` or `Execute`. That is
 `DomainRegistry`.
 
@@ -67,7 +67,7 @@ that only observes is a bot.
 
 The registry answers *which constructor* an identifier names. It never decides
 what a bot may reach. Authority comes from the `GrantSet` the caller holds, and
-every erased verb checks its own caps at the call site — `call.0.check(&[])` in
+every erased verb checks its own caps at the call site: `call.0.check(&[])` in
 the example above. A spec therefore cannot grant itself anything by naming a
 domain, which is what makes accepting a spec from wire data safe at all.
 
@@ -82,7 +82,7 @@ elsewhere, and no amount of retrying adds it.
 
 A constructor's own refusal surfaces unchanged. A domain that cannot parse its
 `target` returns its own typed error from `build_source`, and the registry passes
-it through rather than wrapping it — the domain is the only thing that knows what
+it through rather than wrapping it. The domain is the only thing that knows what
 its target means.
 
 The two lists are looked up separately, so a source identifier never resolves as
@@ -94,8 +94,7 @@ a read from becoming a write when a spec is written carelessly.
 `Bot::from_spec(spec, registry, grants, effects)` walks a `BotSpec` against this
 registry and produces a runnable `Bot`, through the **same** `assemble`/`build`
 path a native bot uses. The two obstacles that once stood in front of it are
-closed, and how they are closed is worth knowing because it fixes the shape of
-the wire contract:
+closed, and how they are closed fixes the shape of the wire contract:
 
 - **A condition carries its parameters in its identifier.** `ChainSpec::on` is
   still `Vec<(String, ActionSpec)>`, and the identifier is what names the
@@ -104,12 +103,12 @@ the wire contract:
   `Source::ordered` (its output is `PartialOrd + FromStr`); a struct-output
   source registers with `Source::new` and answers `always` and `changed`.
   The vocabulary is closed and resolved by the source itself, against the type
-  it actually produces.
+  it produces.
 - **A source states its own durable type.** `Source::new` captures the output's
-  `InputIdentity::SCHEMA_ID` — a declared, versioned string, not a process-local
-  `TypeId` — alongside the change filter and the admitted-input identity, and it
+  `InputIdentity::SCHEMA_ID` (a declared, versioned string, not a process-local
+  `TypeId`) alongside the change filter and the admitted-input identity, and it
   is the source that answers `condition(identifier)` for its own output type.
-  A condition therefore resolves against the type it will really see.
+  A condition therefore resolves against the type it will see.
 
 Because admission is all-or-nothing, a document with any unmet need is refused
 with one attributed `NeedSet`: an unknown source or action domain, a constructor

@@ -7,7 +7,7 @@ independently versioned crates, each usable alone (`lgwks_std`, `lgwks_bot`,
 ecosystem: it is the layer where a program's authority, its dependency graph and
 its code reading are decided once instead of in every project.
 
-For an in-depth architectural comparison against external workflow clusters and bare async runtimes, see [Durable Execution & Workflow Orchestration: lgwks_bot vs. Temporal vs. Raw Tokio](comparison-vs-temporal-tokio.md).
+For `lgwks_bot` against Temporal and raw tokio, see [the comparison](comparison-vs-temporal-tokio.md).
 
 **It is not part of Braid.** Braid is one consumer of these crates, pinned to an
 older commit of its own choosing; nothing here depends on Braid, imports it, or

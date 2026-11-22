@@ -28,9 +28,9 @@ The doctrine is split by responsibility; the section numbers are stable:
 Cognitive load is `std` + `bot` + `deps`, plus the standalone `ast`:
 
 - `lgwks_std`: the core surface, depended on by the other three or used alone.
-- `lgwks_bot` — async, runners, actors.
-- `lgwks_deps` — the **storefront**: install it, select features, get deps.
-- `lgwks_ast` — the one parser. Its only workspace edge is the optional one to
+- `lgwks_bot`: async, runners, actors.
+- `lgwks_deps`: the **storefront**. Install it, select features, get deps.
+- `lgwks_ast`: the one parser. Its only workspace edge is the optional one to
   `lgwks_std` for its `tool`.
 
 A new dependency is registered with `owner = "lgwks_deps"` and exposed as an
@@ -98,13 +98,15 @@ crate, requirement, and source class named.
 
 ## Schema 3: every edge mortgages its exit in the register (#788)
 
-Each `[[approved]]` entry carries a required `[approved.retire]` table with
-`replacement` (the `std`, `core`, `alloc` or workspace module path that will
-own the capability), `blocker` (one sentence naming what is missing today),
-`cost` (an inline table with the measured `cold_build_s`, `crates`,
-`binary_bytes`, the `measured` date and the exact `command`), and `review`
-(the date the mortgage lapses). `[policy] schema = 3`; an older register is
-refused with the migration. `lgwks-deps check` refuses a missing table, an
-unowned replacement, an expired review and a non-positive cost, each naming
-the entry and the field. `lgwks-deps retire --report [--json]` prints every
-mortgage with the summed distance to zero.
+Each `[[approved]]` entry carries a required `[approved.retire]` table:
+
+- `replacement`: the `std`, `core`, `alloc` or workspace module path that will own the capability.
+- `blocker`: one sentence naming what is missing today.
+- `cost`: an inline table of the measured `cold_build_s`, `crates` and `binary_bytes`, the `measured` date and the exact `command`.
+- `review`: the date the mortgage lapses.
+
+The register states `[policy] schema = 3`, and an older register is refused with
+the migration. `lgwks-deps check` refuses a missing table, an unowned
+replacement, an expired review and a non-positive cost, naming the entry and the
+field. `lgwks-deps retire --report [--json]` prints every mortgage with the
+summed distance to zero.

@@ -56,24 +56,24 @@ The usage block also lists `invariants`, `retire` and `advisories`.
 Approval is a committed diff with a human's name on it, and the register format
 is documented in `contract/APPROVED.toml`.
 
-`[policy] enforce = false` is an adoption posture, **not an off switch**. It is
-a supported posture over a tree the gate admits: `check` still reports every
-refusal it finds, and a tree with no refusals still exits 0. What it no longer
-does is make a violating tree pass. A register that reads `enforce = false`
-while the tree carries dependency-edge violations is itself refused, by
-a named `AdoptionModeRefusals` refusal that states how many violations the
-posture stood down, and `check` exits 2 — identically to `enforce = true`. The
-verdict is therefore a function of the refusals alone; flipping that one token
-cannot change a build. See issue #204.
+`[policy] enforce = false` is an adoption posture, **not an off switch**. `check`
+still reports every refusal it finds, and a tree with no refusals still exits 0.
+A register that reads `enforce = false` over a tree with dependency-edge
+violations is refused by `AdoptionModeRefusals`, which states how many
+violations the posture stood down, and `check` exits 2 as it does with
+`enforce = true`. Flipping that one token cannot change a build. See issue #204.
+
+The gate's types read through methods, not fields (8.0.0): `Contract::enforce`
+and `repository`, `Outcome::status` and `line`, and a `metadata` edge's `kind`,
+`source`, `optional`, `workspace` and `target_repository`.
 
 `vendor check` is the physical counterpart of the register: the register states
 which edges are owned, a vendored tree states which bytes an offline build
-resolves, and the subcommand binds the two by hash. **Status in this repository:**
-no `vendor/` tree is tracked (`git ls-files vendor` lists nothing) and
-`.cargo/config.toml` names no `[source.vendored-sources]`, so no build resolves
-from one and `lgwks-deps vendor check .` refuses with "names no
+resolves, and the subcommand binds the two by hash. This repository tracks no
+`vendor/` tree and `.cargo/config.toml` names no `[source.vendored-sources]`,
+so `lgwks-deps vendor check .` refuses here with "names no
 [source.vendored-sources] directory". The subcommand is for a repository that
-vendors; nothing here makes repositories share one physical copy.
+vendors.
 
 `tier` is read in exactly one place: an approval at the `vendor` tier whose
 authored edge still resolves from a registry or git source is refused by name as
@@ -113,8 +113,8 @@ enforced.
 
 ## The other crates
 
-Logical Works Incorporated publishes `lgwks_deps` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`. [Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to reach for each one and when to skip it.
+Logical Works Incorporated publishes `lgwks_deps` as one of six independently versioned crates in [logicalworks-crates](https://github.com/Logical-Works-Inc/logicalworks-crates#readme): `lgwks_std`, `lgwks_bot`, `lgwks_ast`, `lgwks_macros`, `lgwks_deps` and `drishti`. [Should I use logicalworks-crates?](https://github.com/Logical-Works-Inc/logicalworks-crates/blob/HEAD/docs/should-i-use.md) says when to use each one and when to skip it.
 
 ## License
 
-Apache-2.0 — Copyright 2026 Logical Works Incorporated
+Apache-2.0, Copyright 2026 Logical Works Incorporated.

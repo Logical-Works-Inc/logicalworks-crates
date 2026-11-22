@@ -6,12 +6,15 @@
 //! [`LEXICON`] and must appear verbatim, and every guarantee a word makes must
 //! name a test that exists.
 
+mod page_error;
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 
 use lgwks_ast::script::{Evidence, Kind, LEXICON, Position, Word};
 
 use crate::tests::{REFUSALS, expand};
+use page_error::{PageError, io};
 
 /// The workspace root, which every path a test names is relative to.
 fn workspace_root() -> PathBuf {
@@ -53,7 +56,7 @@ fn wrapped_example() -> String {
 
 /// The README's word table: every row, with the columns the crate
 /// documentation leaves to the README.
-fn readme_table() -> Result<String, String> {
+fn readme_table() -> Result<String, PageError> {
     let mut lines = Vec::with_capacity(LEXICON.len());
     for row in &LEXICON {
         let written: Vec<&str> = row.forms().iter().map(|form| form.written()).collect();
@@ -79,7 +82,7 @@ fn readme_table() -> Result<String, String> {
 }
 
 /// A row's guarantees as one README cell: each claim with its axis and proof.
-fn guarantees(row: &Word) -> Result<String, String> {
+fn guarantees(row: &Word) -> Result<String, PageError> {
     let mut cited = Vec::with_capacity(row.guarantees().len());
     for guarantee in row.guarantees() {
         cited.push(format!(
@@ -93,7 +96,7 @@ fn guarantees(row: &Word) -> Result<String, String> {
 }
 
 /// The evidence as the README cites it.
-fn cite(evidence: &Evidence) -> Result<String, String> {
+fn cite(evidence: &Evidence) -> Result<String, PageError> {
     match *evidence {
         Evidence::Refusal(case) => Ok(format!("refusal *{case}*")),
         // A path with no directory is already the file's own name.
@@ -103,7 +106,7 @@ fn cite(evidence: &Evidence) -> Result<String, String> {
         }),
         // `Evidence` is `#[non_exhaustive]`: a kind of proof a newer
         // `lgwks_ast` adds has no citation form here until one is written.
-        _ => Err(format!("no citation form for {evidence:?}")),
+        _ => refuse(PageError::NoCitationForm(format!("{evidence:?}"))),
     }
 }
 
@@ -113,10 +116,10 @@ fn plain(text: &str) -> String {
     text.replace("[`", "`").replace("`]", "`")
 }
 
-/// An empty cell written as a dash, so a reader sees "nothing" rather than a
-/// gap.
+/// An empty cell written as `none`, so a reader sees "nothing" in words, not a
+/// gap or a dash the prose voice rule refuses.
 fn cell(text: &str) -> &str {
-    if text.is_empty() { "—" } else { text }
+    if text.is_empty() { "none" } else { text }
 }
 
 /// The crate documentation's block table is the one the lexicon renders.
@@ -131,7 +134,7 @@ fn the_crate_doc_table_is_rendered_from_the_lexicon() {
 
 /// The README's word table is the one the lexicon renders.
 #[test]
-fn the_readme_table_is_rendered_from_the_lexicon() -> Result<(), String> {
+fn the_readme_table_is_rendered_from_the_lexicon() -> Result<(), PageError> {
     let table = readme_table()?;
     assert!(
         include_str!("../README.md").contains(&table),
@@ -157,7 +160,7 @@ fn every_spelling_has_exactly_one_row() {
 /// Every row's example is a script the macro expands, and it uses the word it
 /// illustrates.
 #[test]
-fn every_example_expands_and_uses_its_word() -> Result<(), String> {
+fn every_example_expands_and_uses_its_word() -> Result<(), PageError> {
     for row in &LEXICON {
         let spelling = row.kind().spelling();
         let uses_word = row
@@ -165,8 +168,10 @@ fn every_example_expands_and_uses_its_word() -> Result<(), String> {
             .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
             .any(|token| token == spelling);
         assert!(uses_word, "the example for `{spelling}` never says it");
-        expand(row.example())
-            .map_err(|refusal| format!("the example for `{spelling}` is refused: {refusal}"))?;
+        expand(row.example()).map_err(|refusal| PageError::ExampleRefused {
+            spelling: spelling.to_owned(),
+            refusal,
+        })?;
     }
     Ok(())
 }
@@ -177,28 +182,31 @@ fn every_example_expands_and_uses_its_word() -> Result<(), String> {
 /// cannot outlive its proof. The tests themselves run in the same gate, so
 /// existing is what is left to check here.
 #[test]
-fn every_guarantee_names_a_test_that_exists() -> Result<(), String> {
+fn every_guarantee_names_a_test_that_exists() -> Result<(), PageError> {
     for row in &LEXICON {
         let spelling = row.kind().spelling();
         if row.guarantees().is_empty() {
-            return Err(format!("`{spelling}` guarantees nothing"));
+            return refuse(PageError::GuaranteesNothing(spelling.to_owned()));
         }
         for guarantee in row.guarantees() {
-            resolve(guarantee.evidence())
-                .map_err(|why| format!("`{spelling}` ({}): {why}", guarantee.claim()))?;
+            resolve(guarantee.evidence()).map_err(|why| PageError::Unproven {
+                spelling: spelling.to_owned(),
+                claim: guarantee.claim().to_owned(),
+                why: Box::new(why),
+            })?;
         }
     }
     Ok(())
 }
 
 /// Find the test `evidence` names.
-fn resolve(evidence: &Evidence) -> Result<(), String> {
+fn resolve(evidence: &Evidence) -> Result<(), PageError> {
     match *evidence {
         Evidence::Refusal(case) => {
             if REFUSALS.iter().any(|&(name, _, _)| name == case) {
                 Ok(())
             } else {
-                Err(format!("no compile-fail case named {case:?}"))
+                refuse(PageError::NoCompileFailCase(case.to_owned()))
             }
         }
         Evidence::Sim { file, test } => {
@@ -206,19 +214,19 @@ fn resolve(evidence: &Evidence) -> Result<(), String> {
                 .rsplit_once('/')
                 .is_some_and(|(_, name)| name.starts_with("sim_"));
             if !is_sim {
-                let refusal = format!("{file} is not a simulation file");
-                lgwks_std::trace::debug!(error = %refusal, "resolve: returning an error to the caller");
-                return Err(refusal);
+                return refuse(PageError::NotSimulation(file.to_owned()));
             }
-            let source = std::fs::read_to_string(workspace_root().join(file))
-                .map_err(|error| format!("{file}: {error}"))?;
+            let source = std::fs::read_to_string(workspace_root().join(file)).map_err(io(file))?;
             if defines_test(&source, test) {
                 Ok(())
             } else {
-                Err(format!("{file} has no test or swept family `{test}`"))
+                refuse(PageError::NoTest {
+                    file: file.to_owned(),
+                    test: test.to_owned(),
+                })
             }
         }
-        _ => Err(format!("no resolver for {evidence:?}")),
+        _ => refuse(PageError::NoResolver(format!("{evidence:?}"))),
     }
 }
 
@@ -257,15 +265,20 @@ fn a_guarantee_whose_test_is_gone_is_refused() {
     let attributed = "/// Doc.\n#[test]\nfn proves() {}\n";
     assert!(defines_test(attributed, "proves"), "a `#[test]` resolves");
     assert!(
-        resolve(&Evidence::Refusal("no such case")).is_err(),
+        matches!(
+            resolve(&Evidence::Refusal("no such case")),
+            Err(PageError::NoCompileFailCase(_))
+        ),
         "an unknown compile-fail case does not"
     );
     assert!(
-        resolve(&Evidence::Sim {
-            file: "crates/lgwks-bot/tests/it/script_flow.rs",
-            test: "a_deadline_that_passes_fails_the_step_as_timed_out",
-        })
-        .is_err(),
+        matches!(
+            resolve(&Evidence::Sim {
+                file: "crates/lgwks-bot/tests/it/script_flow.rs",
+                test: "a_deadline_that_passes_fails_the_step_as_timed_out",
+            }),
+            Err(PageError::NotSimulation(_))
+        ),
         "a test outside a simulation file is not evidence"
     );
 }
@@ -305,7 +318,7 @@ fn lines(text: &str) -> usize {
 }
 
 /// Refuse with `why`, logged first.
-fn refuse<T>(why: String) -> Result<T, String> {
+fn refuse<T>(why: PageError) -> Result<T, PageError> {
     lgwks_std::trace::debug!(error = %why, "lexicon pages: refused");
     Err(why)
 }
@@ -361,7 +374,7 @@ fn intro() -> String {
 /// Words fill pages in table order, a word never split, each page at most
 /// [`PAGE_LINES`] lines with its header, so the lexicon can grow without a page
 /// outgrowing the size law.
-fn pages() -> Result<Vec<String>, String> {
+fn pages() -> Result<Vec<String>, PageError> {
     let header_lines = lines(&page_header(1, 1));
     let mut bodies = vec![intro()];
     for row in &LEXICON {
@@ -375,10 +388,7 @@ fn pages() -> Result<Vec<String>, String> {
         match bodies.last_mut() {
             Some(body) if fits(body) => body.push_str(&section),
             _ if !fits("") => {
-                return refuse(format!(
-                    "the `{}` section alone is past {PAGE_LINES} lines",
-                    heading(row.kind())
-                ));
+                return refuse(PageError::SectionTooLong(heading(row.kind()).to_owned()));
             }
             _ => bodies.push(section),
         }
@@ -392,11 +402,11 @@ fn pages() -> Result<Vec<String>, String> {
 }
 
 /// One word's section of the page.
-fn section(row: &Word) -> Result<String, String> {
+fn section(row: &Word) -> Result<String, PageError> {
     let forms: String = row
         .forms()
         .iter()
-        .map(|form| format!("- {} — {}\n", form.written(), plain(form.means())))
+        .map(|form| format!("- {}: {}\n", form.written(), plain(form.means())))
         .collect();
     let forms = if forms.is_empty() {
         "Written as part of `if`'s forms.\n".to_owned()
@@ -440,7 +450,7 @@ fn heading(kind: Kind) -> &'static str {
 }
 
 /// Where a word stands, as a sentence.
-fn stands(position: Position) -> Result<&'static str, String> {
+fn stands(position: Position) -> Result<&'static str, PageError> {
     match position {
         Position::Flow => Ok("Opens a flow at the top level"),
         Position::Block => Ok("Opens a block: its line ends in `:`"),
@@ -448,7 +458,7 @@ fn stands(position: Position) -> Result<&'static str, String> {
         Position::Inline => Ok("Stands inside a line of Rust"),
         // `Position` is `#[non_exhaustive]`: a place a newer `lgwks_ast` adds
         // has no sentence here until one is written.
-        _ => Err(format!("no sentence for {position:?}")),
+        _ => refuse(PageError::NoSentence(format!("{position:?}"))),
     }
 }
 
@@ -459,7 +469,7 @@ fn stands(position: Position) -> Result<&'static str, String> {
 /// under it for any common tokenizer. Set `LGWKS_WRITE_LEXICON_PAGE` to write
 /// the rendered pages instead of failing on stale ones.
 #[test]
-fn the_lexicon_page_is_rendered_from_the_lexicon() -> Result<(), String> {
+fn the_lexicon_page_is_rendered_from_the_lexicon() -> Result<(), PageError> {
     let rendered = pages()?;
     let writing = std::env::var_os(WRITE_PAGE).is_some();
     let mut bytes: usize = 0;
@@ -467,32 +477,24 @@ fn the_lexicon_page_is_rendered_from_the_lexicon() -> Result<(), String> {
         let name = page_path(index.saturating_add(1));
         let path = workspace_root().join(&name);
         if writing {
-            std::fs::write(&path, page).map_err(|error| format!("{name}: {error}"))?;
+            std::fs::write(&path, page).map_err(io(name.as_str()))?;
         }
-        let committed =
-            std::fs::read_to_string(&path).map_err(|error| format!("{name}: {error}"))?;
+        let committed = std::fs::read_to_string(&path).map_err(io(name.as_str()))?;
         if committed != *page {
-            return refuse(format!(
-                "{name} is generated from LEXICON and differs from it; rerun this test \
-                 with {WRITE_PAGE}=1 and commit the pages"
-            ));
+            return refuse(PageError::Stale(name));
         }
         if lines(page) > PAGE_LINES {
-            return refuse(format!("{name} is past {PAGE_LINES} lines"));
+            return refuse(PageError::PageTooLong(name));
         }
         bytes = bytes.saturating_add(page.len());
     }
     let leftover = page_path(rendered.len().saturating_add(1));
     if workspace_root().join(&leftover).exists() {
-        return refuse(format!(
-            "{leftover} is a page the lexicon no longer renders; delete it"
-        ));
+        return refuse(PageError::Leftover(leftover));
     }
     let tokens = bytes.div_ceil(4);
     if tokens > PAGE_TOKENS {
-        return refuse(format!(
-            "the lexicon pages are {tokens} tokens (bytes / 4, rounded up), past {PAGE_TOKENS}"
-        ));
+        return refuse(PageError::OverBudget(tokens));
     }
     Ok(())
 }
@@ -500,17 +502,14 @@ fn the_lexicon_page_is_rendered_from_the_lexicon() -> Result<(), String> {
 /// Paging is not vacuous: every page fits the size law, the words appear once
 /// each in table order across the pages, and every page links every other.
 #[test]
-fn the_lexicon_pages_hold_every_word_once_within_the_size_law() -> Result<(), String> {
+fn the_lexicon_pages_hold_every_word_once_within_the_size_law() -> Result<(), PageError> {
     let rendered = pages()?;
     let whole: String = rendered.concat();
     let mut from = 0;
     for row in &LEXICON {
         let marker = format!("\n## `{}`\n", heading(row.kind()));
         let Some(at) = whole.get(from..).and_then(|rest| rest.find(&marker)) else {
-            return refuse(format!(
-                "`{}` is missing or out of order",
-                heading(row.kind())
-            ));
+            return refuse(PageError::MissingWord(heading(row.kind()).to_owned()));
         };
         from = from.saturating_add(at).saturating_add(marker.len());
         assert_eq!(whole.matches(&marker).count(), 1, "{marker:?} appears once");
@@ -549,9 +548,19 @@ const FRONT_PAGES: [&str; 4] = [
 /// begins with the fragment, ahead of every other line it carries.
 const OPENER: &str = "#![doc = include_str!(\"lexicon.md\")]\n";
 
-/// Where a crate page reaches the full lexicon page.
-const PAGE_URL: &str =
-    "https://github.com/Logical-Works-Inc/logicalworks-crates/blob/main/docs/script-lexicon.md";
+/// Where a crate page reaches the full lexicon page: the manifest's
+/// `repository`, so the endpoint has one source.
+const PAGE_URL: &str = concat!(
+    env!("CARGO_PKG_REPOSITORY"),
+    "/blob/main/docs/script-lexicon.md"
+);
+
+/// Where a crate page reaches `Scope`, which only `lgwks_bot` can link by
+/// path: its source in the manifest's `repository`.
+const SCOPE_URL: &str = concat!(
+    env!("CARGO_PKG_REPOSITORY"),
+    "/blob/main/crates/lgwks-bot/src/script/scope.rs"
+);
 
 /// What every crate's front page opens with: the way in, one example and the
 /// block table, rendered from [`LEXICON`] so no page says what the parser does
@@ -567,7 +576,7 @@ fn front() -> String {
          line of Rust, passed through as written. What each word refuses and \
          guarantees is on [the one-page lexicon]({PAGE_URL}).\n\n\
          {}\n\
-         [`Scope`]: https://docs.rs/lgwks_bot/latest/lgwks_bot/script/struct.Scope.html\n",
+         [`Scope`]: {SCOPE_URL}\n",
         wrapped_example(),
         table(""),
     )
@@ -595,7 +604,7 @@ fn flaws(directory: &str, committed: &str, lib: &str, rendered: &str) -> Vec<Str
 /// is the one the lexicon renders. Set `LGWKS_WRITE_LEXICON_PAGE` to write the
 /// fragments instead of failing on a stale one.
 #[test]
-fn every_front_page_opens_with_the_lexicon() -> Result<(), String> {
+fn every_front_page_opens_with_the_lexicon() -> Result<(), PageError> {
     let rendered = front();
     let writing = std::env::var_os(WRITE_PAGE).is_some();
     let mut found = Vec::new();
@@ -603,22 +612,18 @@ fn every_front_page_opens_with_the_lexicon() -> Result<(), String> {
         let src = workspace_root().join(directory).join("src");
         let fragment = src.join("lexicon.md");
         if writing {
-            std::fs::write(&fragment, &rendered)
-                .map_err(|error| format!("{directory}: {error}"))?;
+            std::fs::write(&fragment, &rendered).map_err(io(directory))?;
         }
         let committed = std::fs::read_to_string(&fragment)
-            .map_err(|error| format!("{directory}/src/lexicon.md: {error}"))?;
+            .map_err(io(format!("{directory}/src/lexicon.md")))?;
         let lib = std::fs::read_to_string(src.join("lib.rs"))
-            .map_err(|error| format!("{directory}/src/lib.rs: {error}"))?;
+            .map_err(io(format!("{directory}/src/lib.rs")))?;
         found.extend(flaws(directory, &committed, &lib, &rendered));
     }
     if found.is_empty() {
         return Ok(());
     }
-    Err(format!(
-        "{}; rerun this test with {WRITE_PAGE}=1 and commit the fragments",
-        found.join("; ")
-    ))
+    refuse(PageError::FrontPages(found))
 }
 
 /// The check is not vacuous: a stale fragment and a `lib.rs` that opens with

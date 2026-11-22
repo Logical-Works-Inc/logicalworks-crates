@@ -14,7 +14,7 @@ capacity, define a `Task` with `task(name, body)`, and call `host.run(&task,
 input).await`. The `Report` carries the disposition, the typed output, the
 located error and a bounded step trail (INV-BOT-20, exercised by
 `tests/it/task_front_door.rs` and `tests/it/sim_task.rs`). **Bodies are polled on the
-calling task, so they need not be `Send` and inputs may borrow** — which is the
+calling task, so they need not be `Send` and inputs may borrow**, which is the
 property this page argued for and which `async-parity.md` §3 now records as
 the shipped route for a non-`Send` future.
 

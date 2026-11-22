@@ -49,11 +49,11 @@ approval is unregistered.
 `vendor check` binds the register to the bytes the offline build resolves, by
 hash.
 
-`debug` is the cargo-doctor path for the debugging lifecycle. It installs the
-default `lgwks_std::trace` debugger in its own process, emits lifecycle events,
-and inspects the repository manifest to prove the default `trace` surface still
-includes `tracing-subscriber`. `--json` keeps the report on stdout and the
-trace stream on stderr so agents can parse it without scraping terminal text.
+The `debug` command is the cargo-doctor path for the debugging lifecycle. It
+installs the default `lgwks_std::trace` debugger in its own process and emits
+lifecycle events. It inspects the repository manifest to prove the default
+`trace` surface still includes `tracing-subscriber`. `--json` keeps the report on
+stdout and the trace stream on stderr, so agents parse it without scraping text.
 
 The binary diagnoses. It never approves. Approval is a committed diff in
 `contract/APPROVED.toml` with a human's name on it.

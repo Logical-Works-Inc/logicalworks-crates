@@ -8,10 +8,10 @@ Ranked by expected value to this project.
 
 **1. Declared observation scope, borrowed from Discord's `intents`.** The bot has
 `GrantSet` bounding what an *action* may do, and nothing bounding what it may
-*observe*. A declared, enumerated observation intent the runtime enforces — where
-capturing an undeclared surface is an error rather than a silent success — closes
-the read side of the same gap. This is the single most valuable idea in the
-survey and it has no equivalent in the estate today.
+*observe*. A declared, enumerated observation intent that the runtime enforces
+closes the read side of the same gap: capturing an undeclared surface is an
+error, not a silent success. This is the most valuable idea in the survey, and
+the estate has no equivalent today.
 
 **2. Tiered escalation with a measured firing rate.** Already adopted for the
 resolver; `spider-rs` confirms it generalises, and the same shape should apply to
@@ -23,7 +23,7 @@ frameworks that scaled all did this; the platforms that did not are the slow
 ones.
 
 **4. Model output into a validated type, never free text.** Enforced twice
-independently — Crawlee's validated model, `forge-md-runtime`'s advisory
+independently: Crawlee's validated model, `forge-md-runtime`'s advisory
 candidate.
 
 **5. One schema, generated surfaces, a cordoned runtime.** Stagehand's shape, and
@@ -41,12 +41,12 @@ differentiate on authority because their value proposition is unconstrained
 automation, and the open frameworks have not needed it because their users are
 the operators.
 
-So the honest conclusion is: **the thesis is correct.** This is one idea,
-differentiated on observation surface and decision source, packaged and sold on
-hosting and bypass infrastructure. The two axes that would carry real
-differentiation — authority bounded at the invocation, and decision provenance
-that survives third-party verification — are the two nobody occupies.
+So the conclusion: **the thesis is correct.** This is one idea, differentiated on
+observation surface and decision source, packaged and sold on hosting and bypass
+infrastructure. Nobody occupies the two axes that would carry real
+differentiation: authority bounded at the invocation, and decision provenance
+that survives third-party verification.
 
-Which is a better position than it sounds. It means the bot does not need to
-invent a new category to be different. It needs to be the first implementation of
+That position is better than it sounds. The bot does not need to invent a new
+category to be different. It needs to be the first implementation of
 the *same* idea that bounds itself and can prove what it did.

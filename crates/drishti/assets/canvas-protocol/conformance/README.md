@@ -6,7 +6,7 @@ Language-neutral JSON test fixtures for the canvas substrate protocol. These fix
 
 | Directory | Count | Shape |
 |---|---|---|
-| `valid_envelopes/` | 30 | Raw envelope object — must pass `validateEnvelope` |
+| `valid_envelopes/` | 30 | Raw envelope object, must pass `validateEnvelope` |
 | `invalid_envelopes/` | 30 | `{ "input": ..., "expected_error": "..." }` — must fail `validateEnvelope` |
 | `pattern_match/` | 50 | `{ "pattern": ..., "envelope": ..., "expected": bool }` |
 | `capability/` | 15 | `{ "have": [...], "need": "...", "expected": "ok" | "err" }` |

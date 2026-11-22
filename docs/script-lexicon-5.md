@@ -8,7 +8,7 @@ Pages: [page 1](script-lexicon.md) · [page 2](script-lexicon-2.md) · [page 3](
 
 Stands inside a line of Rust. Calls `ask_at`.
 
-- `ask <model> with (request)` — one model call under `request`: token budget and deadline, decoded into the declared type
+- `ask <model> with (request)`: one model call under `request`: token budget and deadline, decoded into the declared type
 
 Refuses: an `ask` with no `with (request)`.
 
@@ -23,7 +23,7 @@ flow draft(model: &lgwks_bot::proposal::StubModel) -> String:
 
 Stands inside a line of Rust. Calls `send_at`.
 
-- `send <receiver> with <payload>` — one outbound effect through `receiver`: intent first, dispatched once, settled from evidence
+- `send <receiver> with <payload>`: one outbound effect through `receiver`: intent first, dispatched once, settled from evidence
 
 Refuses: a `send` with no `with <payload>`.
 
@@ -38,8 +38,8 @@ flow mail(mailer: &StubMailer, payload: Vec<u8>) -> lgwks_bot::script::SendOutco
 
 Opens a block: its line ends in `:`. Calls `serve_at`.
 
-- `serve on port from env PORT, at most (limit) runs in flight:` — the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency
-- `serve on port (port), at most (limit) runs in flight:` — the same on a literal port expression
+- `serve on port from env PORT, at most (limit) runs in flight:`: the tenant HTTP edge on that port, at most `limit` runs in flight, every `route` under it served with idempotency
+- `serve on port (port), at most (limit) runs in flight:`: the same on a literal port expression
 
 Refuses: a `serve` with no `at most (limit) runs in flight`; a limit outside `1..=65536`; a line under it that is not a `route`.
 
@@ -56,7 +56,7 @@ flow drafts() -> u16:
 
 Opens a block: its line ends in `:`. Calls `TypedRoute::new`.
 
-- `route POST /drafts (body: DraftRequest) -> Draft:` — one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output
+- `route POST /drafts (body: DraftRequest) -> Draft:`: one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output
 
 Refuses: a `route` outside a `serve`; a `route` with no typed body; a method other than `GET` or `POST`.
 

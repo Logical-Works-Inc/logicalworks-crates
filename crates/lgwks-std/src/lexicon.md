@@ -44,4 +44,4 @@ Each line is one step. It starts with one of the words below, or it is a line of
 | `serve on port (port), at most (limit) runs in flight:` | the same on a literal port expression |
 | `route POST /drafts (body: DraftRequest) -> Draft:` | one typed route of the enclosing `serve`: the body decodes as the named type and the value answers as the named output |
 
-[`Scope`]: https://docs.rs/lgwks_bot/latest/lgwks_bot/script/struct.Scope.html
+[`Scope`]: https://github.com/Logical-Works-Inc/logicalworks-crates/blob/main/crates/lgwks-bot/src/script/scope.rs

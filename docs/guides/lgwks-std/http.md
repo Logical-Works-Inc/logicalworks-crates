@@ -6,10 +6,16 @@ validation. Three shapes: one shot, pooled, streamed.
 ## One shot
 
 `get`, `post` and their `_with` forms build a fresh agent per call: no
-pooling, no shared state. That is the documented cost model for a single
-shot. Redirects follow to ten hops by default, headers strip across
-origins, and HTTP statuses never error — only transport failure, timeout,
-and invalid URLs do (`lgwks_std::http::Error` keeps its stage and class).
+pooling, no shared state. That is the cost model for a single shot.
+Redirects follow to ten hops by default, headers strip across origins, and
+HTTP statuses never error. Only transport failure, timeout and invalid URLs
+do (`lgwks_std::http::Error` keeps its stage and class).
+
+`Options` fields are private: set each through the builder method of the same
+name. A `Response` reads through methods: `status()`, `truncation()`,
+`headers()`, `header_values()`, `final_target()`, `redirect_chain()`, `body()`
+and `text()`. `text()` returns `Err` for a body that is not UTF-8. `text_lossy`
+is removed (5.0.0).
 
 ## Pooled bursts
 
@@ -21,7 +27,7 @@ let response = client.get_with(url, client.options())?;
 ```
 One agent, many exchanges: a second request to a reached origin reuses the
 idle keep-alive connection. `PoolConfig` sets the idle ceilings and the
-idle age (ten connections, three per host, fifteen seconds — ureq's own
+idle age (ten connections, three per host, fifteen seconds: ureq's own
 defaults). Clones share one pool. A per-call option that changes an
 agent-level setting (timeouts, identity, pool sizes) runs that call on a
 one-shot agent instead: still correct, just unpooled for that call. The
@@ -30,13 +36,13 @@ loopback burst against the one-shot path.
 
 ## Streams, events, and pages
 
-`Client::get_stream` leaves the final body on the wire under the same
-ceiling (`max_body_bytes`, whole or preview). `into_sse` dispatches
-its body as server-sent events: comments ignored, `event`/`data`/`id`/`retry` per the
-specification, multi-line data joined with `\n`, last-seen id persisted,
-and a line longer than the ceiling always refused. `paginate` walks a
-cursor-paginated listing to `None` under `PaginationLimits` — no offset
-spelling anywhere, and a bound that stops a server that never ends.
+The call `Client::get_stream` leaves the final body on the wire under the same
+ceiling (`max_body_bytes`, whole or preview). The adapter `into_sse` dispatches
+its body as server-sent events. Comments are ignored, and `event`/`data`/`id`/`retry`
+follow the specification. Multi-line data joins with `\n`, the last-seen id
+persists, and a line longer than the ceiling is always refused. The walker
+`paginate` follows a cursor-paginated listing to `None` under `PaginationLimits`. It has no offset
+spelling, and its bound stops a server that never ends.
 
 ## Private CAs and client identity
 

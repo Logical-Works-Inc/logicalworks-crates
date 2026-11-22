@@ -13,11 +13,11 @@ call. Spend them like the expensive resource they are.
 
 The escalation ladder, exhausted in order before spawning anything:
 
-1. **CodeGraph** — is it already in this repo? Module DAG, callers, consumers.
-2. **Graphify** — is it already in the estate?
-3. **A quick 9router search** — one `/v1/search` call answers most "what is the
+1. **CodeGraph**: is it already in this repo? Module DAG, callers, consumers.
+2. **Graphify**: is it already in the estate?
+3. **A quick 9router search**: one `/v1/search` call answers most "what is the
    standard for X" questions outright.
-4. **wwfd** — has the estate already solved this?
+4. **wwfd**: has the estate already solved this?
 
 Only if still uncertain after all four, spawn an agent. An agent is the last
 rung, not the first.
@@ -51,13 +51,13 @@ Every resource declares owner, lifetime, and cleanup.
 The five enforced rules (`rust-guard`, wired into Claude Code, Codex, OpenCode,
 and the global git pre-commit) cover the shell as well as the editor:
 
-1. **OWNERSHIP** — never edit, commit, or sweep a repo the estate does not own.
-2. **ARTIFACTS** — never commit derived build output (`graphify-out/`, `target/`,
+1. **OWNERSHIP**: never edit, commit, or sweep a repo the estate does not own.
+2. **ARTIFACTS**: never commit derived build output (`graphify-out/`, `target/`,
    `.lgwks/`, `node_modules/`, `.codegraph/`).
-3. **SUPPRESSION** — every `#[allow]` / `#[expect]` carries `reason = "..."`.
-4. **PRINTS** — no `eprintln!` / `println!` / `writeln!(stderr, ..)` in library
+3. **SUPPRESSION**: every `#[allow]` / `#[expect]` carries `reason = "..."`.
+4. **PRINTS**: no `eprintln!` / `println!` / `writeln!(stderr, ..)` in library
    code. Use `tracing`. `main.rs`, `src/bin/`, `examples/`, `benches/` exempt.
-5. **COMPILE** — an edit that leaves the crate not compiling is refused. Judge by
+5. **COMPILE**: an edit that leaves the crate not compiling is refused. Judge by
    rustc error codes, never by diagnostic count.
 
 A refusal is a correction, not a discussion and not a stop. Fix it and carry on.

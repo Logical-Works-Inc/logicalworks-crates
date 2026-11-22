@@ -1,15 +1,16 @@
 # Choosing a crate
 
-**Two qualifications on "zero-dependency core", because at the crate level it is
-not true.** Only `--no-default-features --features core` pulls nothing at all;
-the *default* feature set is `standard`, every capability but `http`.
-`lgwks_std`'s README carries this caveat, and the
+This page maps a need to a crate and a feature, and states the dependency graph.
+
+**The core is not zero-dependency by default.** Only `--no-default-features
+--features core` pulls nothing. The default set is `standard`: every capability
+but `http`. The `lgwks_std` README says so too, and the
 [repository quickstart](../README.md#quickstart) assumes the default set.
 
-**The dependency graph, stated exactly.** `lgwks_std` depends on nothing in this
-workspace. `lgwks_ast` depends on `lgwks_std` only for its `tool`. `lgwks_deps`
-depends on `lgwks_std` and `lgwks_ast`. `lgwks_macros` depends on those three.
-`lgwks_bot` depends on those four, and `drishti` on `lgwks_bot`, `lgwks_std` and
+**The dependency graph.** `lgwks_std` depends on nothing in this workspace.
+`lgwks_ast` depends on `lgwks_std` only for its `tool`. `lgwks_deps` depends on
+`lgwks_std` and `lgwks_ast`. `lgwks_macros` depends on those three. `lgwks_bot`
+depends on those four. `drishti` depends on `lgwks_bot`, `lgwks_std` and
 `lgwks_deps`.
 
 | I need... | Reach for | Feature |
@@ -34,23 +35,23 @@ depends on `lgwks_std` and `lgwks_ast`. `lgwks_macros` depends on those three.
 | Native terminal UI (AppCUI) | `lgwks_deps` | `appcui` with `default-features = false`, version as `contract/APPROVED.toml` pins it |
 | Detached ed25519 seals that verify offline from the public key | `lgwks_std::sign` | `sign`, default (ed25519-dalek, alloc-only, no rand_core) |
 
-Three behaviours are worth knowing before you depend on them, and each is
-documented where it applies. `tempfile` is a development-only edge, so there is
-no production temporary-directory path. Typed errors derive through `lgwks_macros`
-(`#[derive(lgwks_macros::Error)]`) rather than `lgwks_std`. The
-`join!`/`select!`/`try_join!` re-exports in `lgwks_bot` require the `macros`
-feature, and there is deliberately no `#[tokio::main]` equivalent: entry is
-through `Runtime::block_on`.
+Know three things before you depend on them:
+
+- `tempfile` is a development-only edge. There is no production temporary-directory path.
+- Typed errors derive through `lgwks_macros` (`#[derive(lgwks_macros::Error)]`), not `lgwks_std`.
+- `join!`, `select!` and `try_join!` in `lgwks_bot` need the `macros` feature. There is no `#[tokio::main]`: enter through `Runtime::block_on`.
 
 ## The assembled runtime
 
-One tenant, one call: `lgwks_bot::rt::estate::Estate` (the `script` feature)
-owns the runtime, the supervisor and the host behind three declared tiers
-(`in_process`, `supervised`, `durable`), runs tasks through `run_task` or
-`run_blocking`, and drains to one terminal report with `shutdown` or
-`shutdown_blocking`. `durable` also needs the `ephemeral` feature and does not
-exist without it. `host`, `supervisor` and `handle` reach what the estate owns,
-so supervised work is counted on the report. `tests/it/estate.rs` runs every
-door, including a drop and a refused build inside a runtime, and
-`tests/it/sim_estate.rs` holds the ceiling at 100, 1,000 and 10,000 runs.
-`src/bin/estate.rs` runs the same evening as a smoke that a test runs.
+`lgwks_bot::rt::estate::Estate` (the `script` feature) is one tenant behind one
+call. It owns the runtime, the supervisor and the host behind three tiers:
+`in_process`, `supervised` and `durable`. `durable` also needs the `ephemeral`
+feature.
+
+- Run work with `run_task` or `run_blocking`.
+- Drain to one terminal report with `shutdown` or `shutdown_blocking`.
+- Reach what the estate owns with `host`, `supervisor` and `handle`. Supervised work is counted on the report.
+
+`tests/it/estate.rs` runs every door, including a drop and a refused build inside
+a runtime. `tests/it/sim_estate.rs` holds the ceiling at 100, 1,000 and 10,000
+runs. `src/bin/estate.rs` runs the same evening as a smoke that a test runs.

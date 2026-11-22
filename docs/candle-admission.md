@@ -93,21 +93,21 @@ second copy; or drop `candle-transformers` and hand-write the encoder on
 
 On the edited source, macOS arm64 (M-series), Rust 1.98.0:
 
-- `lgwks-deps check .` — exit 0, **23 semantic approvals** (was 19), every
+- `lgwks-deps check .`: exit 0, **23 semantic approvals** (was 19), every
   authored external edge owned.
-- `cargo metadata --locked` — exit 0.
+- `cargo metadata --locked`: exit 0.
 - Default closure: `cargo tree -p lgwks_deps --no-default-features -e normal`
   contains **no** Candle or tokenizers package (facade only).
 - `cargo check -p lgwks_deps --no-default-features --features
   ml-candle,ml-tokenizers --lib --locked`: exit 0; compiled `candle-core
   0.11.0`, `candle-nn`, `candle-transformers 0.11.0`, `tokenizers 0.23.2`; ML
   closure measured at **364 packages**.
-- `cargo clippy --workspace --all-targets --locked -- -D warnings` — exit 0.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: exit 0.
 - `cargo clippy -p lgwks_deps --no-default-features --features
   ml-candle,ml-tokenizers --lib --locked -- -D warnings`: exit 0.
-- `cargo fmt --all -- --check` — exit 0.
-- `cargo test --workspace --all-targets --locked` — exit 0, 0 failures.
-- `./scripts/lgwks-std-package-smoke.sh` — exit 0, "lgwks_std package smoke
+- `cargo fmt --all -- --check`: exit 0.
+- `cargo test --workspace --all-targets --locked`: exit 0, 0 failures.
+- `./scripts/lgwks-std-package-smoke.sh`: exit 0, "lgwks_std package smoke
   passed".
 
 Not verified here: Linux/Windows compilation, the Metal backend

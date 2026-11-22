@@ -8,7 +8,7 @@ Pages of this guide: [tasks](background-work.md) ·
 ## `Supervisor::spawn_process`: a child process nobody can abandon
 
 `Supervisor::spawn_process(spec)` starts a child under the same in-flight
-ceiling as `spawn`, and returns a `TaskId` — not a `Child`
+ceiling as `spawn`, and returns a `TaskId`, not a `Child`
 (`crates/lgwks-bot/src/rt/supervise/run.rs:95`). `rt::process::ProcessSpec` lets
 you say what to run without exposing an executable engine handle.
 The task this places is the only owner the process has:
@@ -18,14 +18,16 @@ The task this places is the only owner the process has:
 the command (`sh -c`), and the supervisor starts, bounds and owns it through
 `spawn_process(&spec)`.
 
-Three differences from a raw `Child`:
+Four differences from a raw `Child`:
 
 - **The whole tree is stopped, not just the child.** A shell started this way
-  can spawn a pipeline, and `Child::kill` reaches only the shell — its
+  can spawn a pipeline, and `Child::kill` reaches only the shell. Its
   grandchildren keep running with nobody holding their handles. On Unix the kill
   is `killpg` on the child's own group (`lgwks_std::process::kill_process_group`),
   while the unreaped leader pins that group id. A later signal-zero probe can
-  verify absence without signalling a potentially reused id. On Windows the child
+  verify absence without signalling a potentially reused id.
+
+  On Windows the child
   is assigned to a job object the moment it starts
   (`crates/lgwks-bot/src/rt/supervise/job.rs`); cancel, deadline and exit
   terminate the job, and the receipt is `CleanupConfirmed` only when the kernel
@@ -61,8 +63,8 @@ to them is a record written before the kill.
 `Supervisor::spawn_process_identified(spec)` starts the child exactly as
 `spawn_process` does and also returns the identity of its group leader
 (`crates/lgwks-bot/src/rt/supervise/run.rs:134`): the pid **and** the instant the OS
-records that pid's process started. Store `leader().to_string()` durably — a
-database row, written before the lane does work — and a successor parses it back
+records that pid's process started. Store `leader().to_string()` durably (a
+database row, written before the lane does work), and a successor parses it back
 and calls `reap_orphaned_group` (`crates/lgwks-std/src/process/identity.rs:388`):
 
 `a_stored_leader_identity_parses_back_and_a_gone_group_is_not_signalled`
@@ -76,11 +78,11 @@ process it names: after the leader exits the OS may hand the number to a
 stranger. The reap re-reads the start of the recorded pid and signals only on an
 exact match; a pid nobody holds is `LeaderGone` and one whose start differs is
 `LeaderReused`, and neither is signalled. On Linux the start is the boot id and
-the kernel's start tick; elsewhere it is `ps -o lstart`, read in UTC under the C
+the kernel's start tick. Elsewhere it is `ps -o lstart`, read in UTC under the C
 locale, with a resolution of one second. `spawn_process` does not pay for the read
-— on macOS it is one `ps` run — which is why it is a separate door.
+(on macOS it is one `ps` run), which is why it is a separate door.
 
 **Not covered:** the read and the signal are two calls, so a pid reissued between
-them would be signalled (the allocator has to wrap its whole range first); a group
-whose leader already exited is not reachable from the record; and storing the
+them would be signalled (the allocator has to wrap its whole range first). A group
+whose leader already exited is not reachable from the record. Storing the
 record is the caller's job.

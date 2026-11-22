@@ -44,7 +44,7 @@ reports `"c"`, which is the stable identity findings match on, and the feature i
 | `lang-ruby` | Ruby | `rb` |
 | `lang-solidity` | Solidity | `sol` |
 | `lang-yaml` | YAML | `yaml`, `yml` |
-| `full` | all of the above | — |
+| `full` | all of the above | all of the above |
 
 A language whose feature is off does not exist in `Language::ALL` and is never
 returned by `Language::of_path`, so a consumer never compiles a grammar it

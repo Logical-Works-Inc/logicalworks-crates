@@ -26,18 +26,18 @@ Import from the in-tree column. "Feature" is the `lgwks_std` cargo feature.
 | `ureq`, `reqwest` (blocking) | `lgwks_std::http` | `http` | blocking GET/POST; run on `spawn_blocking` from async |
 | `url`, `iri-string` (validation) | `lgwks_std::http::validate_url` | `http` | absolute http(s) only |
 | `tokio` | `lgwks_bot::rt` | `rt` | `lgwks_deps` owns the optional storefront edge; bot reaches it through its `tokio` feature |
-| `gpui` | `lgwks_deps` feature `gpui` | — | storefront; default-off, user-selected |
+| `gpui` | `lgwks_deps` feature `gpui` | none | storefront; default-off, user-selected |
 | `futures`, `pollster`, `async-trait`, `tokio` (sync-only use) | `lgwks_std::task` | core | zero-dep synchronous executor; see §4 |
 | `tokio::time`, `tokio::sync`, `tokio::net`, `tokio::process`, `tokio::fs`, `tokio::signal` | `lgwks_bot::rt::{time, sync, net, process, fs, signal}` | `time`, `sync`, `net`, `process`, `fs`, `signal` | feature-gated through `lgwks_deps` |
-| actor/state frameworks | `lgwks_bot` | — | capability-gated four-verb bots |
-| `tree-sitter`, `ast-grep-core`, `ast-grep-language` | `lgwks_ast` | — | one shared multi-language parser |
+| actor/state frameworks | `lgwks_bot` | none | capability-gated four-verb bots |
+| `tree-sitter`, `ast-grep-core`, `ast-grep-language` | `lgwks_ast` | none | one shared multi-language parser |
 | `syn`, `proc-macro2` (source scanning) | `lgwks_ast::scan` | `scan` | through the one parser (ADR 0002); see §5 |
-| `cargo-deny`-style admission | `lgwks_deps` | — | `check`, `tiers`, `request`, `vendor`, `freshness` |
-| `rustix`, `libc` (OS syscalls) | extend `lgwks_std` behind a feature | — | `rustix` is the approved syscall layer (`fs-raw`); add the primitive to the facade, do not import rustix from a consumer |
+| `cargo-deny`-style admission | `lgwks_deps` | none | `check`, `tiers`, `request`, `vendor`, `freshness` |
+| `rustix`, `libc` (OS syscalls) | extend `lgwks_std` behind a feature | none | `rustix` is the approved syscall layer (`fs-raw`); add the primitive to the facade, do not import rustix from a consumer |
 | `nix`, raw `killpg(pgid, 0)` (process-group probe) | `lgwks_std::process::process_group_exists` | `process` | rustix signal-zero beside `kill_process_group`, one backend for the kill and its confirmation (#263); `lgwks_deps::process_group::exists` is a deprecated forward |
-| `once_cell`, `lazy_static` | `std::sync::{OnceLock, LazyLock}` | — | in `std` since 1.80 |
-| `num_cpus` | `std::thread::available_parallelism` | — | in `std` |
-| `tempfile` (tests only) | `tempfile` | — | dev-kind edge, already approved (`test.atomic-tempdir`) |
+| `once_cell`, `lazy_static` | `std::sync::{OnceLock, LazyLock}` | none | in `std` since 1.80 |
+| `num_cpus` | `std::thread::available_parallelism` | none | in `std` |
+| `tempfile` (tests only) | `tempfile` | none | dev-kind edge, already approved (`test.atomic-tempdir`) |
 
 The measured source for each row is the module header in
 `crates/lgwks-std/src/*.rs`; the register rows are `contract/APPROVED.toml`.

@@ -6,7 +6,7 @@ Part of the [lgwks_std consumer guide](index.md). Moved from the crate README.
 
 | Feature | Modules | What it adds | External deps |
 |---------|---------|-------------|---------------|
-| `core` | encoding, fs, glob, hex, leb128, retry, seeded, similarity, task, time | — | **0** |
+| `core` | encoding, fs, glob, hex, leb128, retry, seeded, similarity, task, time | none | **0** |
 | `trace` | trace | Structured logging; `trace-install` adds the default debugger install | tracing; tracing-subscriber stack with `trace-install` |
 | `random` | random, id | UUID v4 and time-ordered v7, OS entropy | getrandom |
 | `hash` | hash | BLAKE3 content-addressable hashing | blake3 |
@@ -19,8 +19,8 @@ Part of the [lgwks_std consumer guide](index.md). Moved from the crate README.
 | `fs-raw` | fs | Bytes available on a filesystem, unprivileged; handle-relative `fs::capability::Dir` for trees being rewritten while you walk them | rustix |
 | `process` | process | Signal a whole process group; observe a child's exit without releasing its pid | rustix |
 | `sign`, `build`, `legacy` | sign, build, legacy | Detached seals; a build script's digest; legacy format codecs | ed25519-dalek for `sign`; none else |
-| `standard` (default) | all but `http` | — | all of those |
-| `full` | all of the above | — | all of the above |
+| `standard` (default) | all but `http` | none | all of those |
+| `full` | all of the above | none | all of the above |
 
 ## Module reference
 
@@ -30,10 +30,10 @@ Part of the [lgwks_std consumer guide](index.md). Moved from the crate README.
 | `fs` | Recursive directory walking for trusted trees, with omissions reported rather than hidden and a best-effort in-root symlink policy; a predicate walk that prunes subtrees unread and returns each entry's `lstat` and root-relative path | `walkdir` (including `filter_entry` pruning) |
 | `glob` | Unicode-scalar path-text matching; checked strict compile plus explicit legacy dialect | `glob` (matching only; no directory walking or POSIX shell expansion) |
 | `hex` | Hex encode and decode | `hex` |
-| `leb128` | LEB128 variable-length integer encoding | — |
-| `retry` | Retry budgets: attempts, exponential backoff with caller jitter, deadlines | — |
+| `leb128` | LEB128 variable-length integer encoding | none |
+| `retry` | Retry budgets: attempts, exponential backoff with caller jitter, deadlines | none |
 | `seeded` | A deterministic xoshiro256\*\* stream for simulations: one seed, one sequence on every target, unbiased bounded draws. Not a source of randomness | `rand_xoshiro` + `rand::Rng::gen_range`, hand-rolled splitmix64 |
-| `task` | Executor that drives futures on the current thread: `block_on`, interleaved `join_all`, off-thread `spawn_blocking` | — |
+| `task` | Executor that drives futures on the current thread: `block_on`, interleaved `join_all`, off-thread `spawn_blocking` | none |
 | `time` | RFC 3339 timestamps, calendar math | `chrono`, `time` |
 | `random` | OS entropy via `getrandom`, typed OS cause | `getrandom` |
 | `id` | UUID v4 generation, time-ordered v7 generation (strictly increasing across the process, safe under a backwards clock) and parsing | `uuid` |
@@ -43,10 +43,10 @@ Part of the [lgwks_std consumer guide](index.md). Moved from the crate README.
 | `ron` | RON encoding and decoding via serde | `ron` |
 | `wire` | Zero-copy binary wire serialization via rkyv | `rkyv` |
 | `http` | Blocking HTTP GET/POST with strict URL validation | `ureq`, `iri-string` |
-| `online` | TCP reachability probing, zero-dep | — |
-| `similarity` | Edit-distance and cosine scorers, weighted composition, acceptance thresholds | — |
-| `process` | Process-group signalling and unreaped exit observation (Unix-only) | — |
-| `fs::capability` | Handle-relative `openat`/`statat`/`unlinkat`/`mkdirat` access (Unix-only) | — |
+| `online` | TCP reachability probing, zero-dep | none |
+| `similarity` | Edit-distance and cosine scorers, weighted composition, acceptance thresholds | none |
+| `process` | Process-group signalling and unreaped exit observation (Unix and Windows) | none |
+| `fs::capability` | Handle-relative `openat`/`statat`/`unlinkat`/`mkdirat` access (Unix-only) | none |
 
 ## JSON and RON decoding
 
@@ -71,14 +71,16 @@ substitutes nothing, and the error carries the OS's own code
 `io::ErrorKind` that code maps to. A caller can tell an interruption from a host
 with no entropy device instead of reading a message.
 
-On a refusal the buffer passed to `fill_bytes` is **unspecified** — partly
-written, wholly written, or untouched — and must not be read. `bytes::N` has no
+On a refusal the buffer passed to `fill_bytes` is **unspecified** (partly
+written, wholly written, or untouched) and must not be read. `bytes::N` has no
 such window: a failed draw returns no array.
 
 The `check-target-matrix` binary of `lgwks_deps` is the gate lane that runs `cargo check` across
 the declared target set (Linux glibc and musl, aarch64 and x86_64, WASI,
-FreeBSD, Android, iOS, and the host). So "supported" means a build that was
-executed rather than a `cfg` that was read. Issue #892 tracks the iOS failure that lane reports.
+FreeBSD, Android, iOS, and the host). "Supported" means a build that was
+executed, not a `cfg` that was read. `lgwks_std` builds for `aarch64-apple-ios`
+(#892, fixed in #1116). A unix with no process-table reader refuses
+`capture_descendants_many` with `Unsupported`.
 
 ## Threat models: which walk to use
 
@@ -89,7 +91,7 @@ process can rewrite mid-walk.
 
 For that, use `fs::capability::Dir`. It opens a directory once and resolves every
 name beneath it from that one descriptor, so a name swapped underneath the walk
-cannot redirect it — the failure is `ENOENT` on the entry that changed, which
+cannot redirect it. The failure is `ENOENT` on the entry that changed, which
 `walk_dir_tolerant`'s omissions already have a place to record. Its
 `entry_names` is Linux-only, because listing a descriptor needs `getdents64` and
 the BSDs have no equivalent syscall; every other operation is `*at(2)`. A listing

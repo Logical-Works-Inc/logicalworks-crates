@@ -1,4 +1,4 @@
-# `cargo-metadata` — a real locked workspace, one dimension at a time
+# `cargo-metadata`: a real locked workspace, one dimension at a time
 
 Each member package depends on the single local `engine` package and varies
 exactly one authored dimension from `baseline`:

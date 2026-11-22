@@ -48,13 +48,13 @@ be inferred:
 - `kernel-check` of `proofs/bot-spec.sml` is an abstract-model proof, **not** a
   refinement proof of this Rust.
 
-## Part 1 — the twenty-four `lgwks_std` modules
+## Part 1: the twenty-four `lgwks_std` modules
 
 One row per `pub mod` in `crates/lgwks-std/src/lib.rs`, on its own page,
 [Part 1](std-ast-deps-closure-matrix-std.md), checked against `lib.rs` by
 the `check-doc-citations` binary of `lgwks_deps`.
 
-## Part 2 — `lgwks_ast`: finished, and explicitly not re-opened
+## Part 2: `lgwks_ast` is finished, and explicitly not re-opened
 
 `lgwks_ast` is the finished standalone parser. It is complete rather than
 parked, so it is not a candidate for new capability, and this matrix does not
@@ -65,9 +65,9 @@ propose growing it into a fourth surface.
 | 28 declared grammars, default 7 | exercised | `DECLARED_GRAMMARS: usize = 28` (`crates/lgwks-ast/src/parser/feature_matrix_tests.rs:172`) with a fixture table asserted to cover every declared grammar; `default =` in `Cargo.toml` lists 7 `lang-*` |
 | Every declared grammar accepts its valid fixture and refuses its malformed one without a recovery node | exercised | The `GrammarFixture` table and its completeness assertion (`crates/lgwks-ast/src/parser/feature_matrix_tests.rs:329-332`) |
 | Depth-bounded traversal, typed diagnostics with spans | exercised | Retained repair; see the crate's own tests |
-| **Not claimed here** | — | In-process bot code inspection is [#150](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/150)'s, and parser/detection/inspection semantics are [#165](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/165)'s. **Neither is verified by this matrix.** |
+| **Not claimed here** | none | In-process bot code inspection is [#150](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/150)'s, and parser/detection/inspection semantics are [#165](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/165)'s. **Neither is verified by this matrix.** |
 
-## Part 3 — `lgwks_deps`: admission is a decision, not a capability
+## Part 3: in `lgwks_deps`, admission is a decision, not a capability
 
 | Property | State | Evidence |
 |---|---|---|
@@ -79,7 +79,7 @@ propose growing it into a fourth surface.
 | Unambiguous register parsing, complete member records, collector error-path cleanup | exercised | `contract::tests::duplicate_entry_keys_refuse_both_identical_and_conflicting_values` ([#157](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/157), closed) and `injected_collection_fault_matrix_keeps_cleanup_owned_and_truthful` ([#159](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/159), closed); both landed through #197, before this page's revision |
 | Every selected capability has a usable public import path downstream | exercised | `tests/it/sim_metadata_dimensions.rs` and the storefront consumers ([#169](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/169), closed through #218) |
 
-## Part 4 — closure
+## Part 4: closure
 
 This matrix was **not** the closure condition. The tracker closed when its full
 concept register was accounted for at the owning issues, which are:
