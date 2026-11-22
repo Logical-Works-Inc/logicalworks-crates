@@ -42,8 +42,8 @@ and
 `tests/it/durable_dispatch.rs::a_reconstructed_bot_retires_an_unchanged_state_rather_than_firing_again`.
 Either regressing refutes R10.
 
-**Status.** `partial`, measured against an in-memory journal and — for the five
-journal-ladder observations, #100 #101 #102 #104 and #106 — measured against a
+**Status.** `partial`, measured against an in-memory journal and, for the five
+journal-ladder observations (#100 #101 #102 #104 and #106), measured against a
 real file-backed store under a real process kill
 (`tests/it/durable_crash_observation.rs`). Issue
 [#109](https://github.com/Logical-Works-Inc/logicalworks-crates/issues/109) closed on

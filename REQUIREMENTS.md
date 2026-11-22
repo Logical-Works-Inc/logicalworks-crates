@@ -50,7 +50,7 @@ when the work is computationally bounded onto another lane. Escalation is
 declared at construction. Nothing escalates on a heuristic.
 
 **The hard part is not the work.** The hard part is meeting every abstract,
-weird, human and in-real-life complexity and slop: the target that is gone
+weird, human and in-real-life complexity and slop. It is the target that is gone
 rather than moved, the dialog that stole focus, the file that was half-written,
 the clock that disagrees, the credential that expired mid-run, the operator who
 cancelled, the intermediary that retried a non-idempotent effect. Those are

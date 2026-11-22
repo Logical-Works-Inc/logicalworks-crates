@@ -5,7 +5,7 @@ Status: **accepted**, 2026-10-29. Refines ADR 0006 (script as the orchestration 
 Stakeholders: the Director; the agent adding a capability; a flow author who writes only `script!`
 Concerns: runtime capabilities shipped as Rust APIs only, so a flow could not reach them by a word
 Requirements: R1, R2, R3, R7
-Viewpoint: the vocabulary viewpoint — one row per runtime capability: its word, or why it has none
+Viewpoint: the vocabulary viewpoint: one row per runtime capability, with its word, or why it has none
 Elements and relations: `lgwks_bot::script` and `rt`, `lgwks_ast::script::LEXICON`, `lgwks_macros::emit`; `word lowers to entrypoint`
 
 ## Context
@@ -38,8 +38,8 @@ record said why.
 | Capability | Word | Why |
 |---|---|---|
 | `each`, `each_at`, `FanOut` | `each` | `FanOut` is `each` for Rust outside a flow, with the caller's own error type |
-| `within`, `retry`, `at_most`, `attempts` | `within`, `retry` | — |
-| `graph`, `compensated`, `pump`, `stream_at` | `graph`, `saga`, `whenever` | — |
+| `within`, `retry`, `at_most`, `attempts` | `within`, `retry` | n/a |
+| `graph`, `compensated`, `pump`, `stream_at` | `graph`, `saga`, `whenever` | n/a |
 | `Justify` and its rules | `justify` | the rules are values a host builds; the word applies them |
 | `observe`, `act`, `observe_typed`, `act_typed` | `observe`, `act` | the typed forms are the words bound with a type |
 | `Readiness::new`, `ready`, `fail`, `shutdown` | none | the signalling side is the service starting, which is host code; the flow is the dependant, and `ready` is its word |
@@ -55,7 +55,7 @@ record said why.
 ## Alternatives rejected
 
 A word for every public item, host wiring included: a `serve` or `wake` word would put the driver
-inside a step of the world it drives, a cycle ADR 0006 rules out, and would grow the lexicon past
+inside a step of the world it drives, a cycle ADR 0006 rules out. It would also grow the lexicon past
 the 4,000-token budget its pages are held to. Cost: words with no flow that could use them.
 
 A record only, with no new words: the three capabilities above are flow steps the module docs had

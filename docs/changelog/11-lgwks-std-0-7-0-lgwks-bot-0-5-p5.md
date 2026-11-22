@@ -9,9 +9,9 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   `RecordingFailed` and retries recording only; it never re-enters the action
   (`tests/durable_dispatch.rs::an_unrelated_outcome_receipt_is_refused_without_reentering_the_effect`).
 - A ladder-complete `OutOfOrder` is idempotent success only when the *same*
-  evidence is already recorded. `ensure_outcome` used to treat any such refusal
+  evidence is already recorded. The function `ensure_outcome` used to treat any such refusal
   as success without looking, so a contradictory `Applied` could be
-  acknowledged. `RecordingFailed` retries now go through the same
+  acknowledged. Retries of `RecordingFailed` now go through the same
   `ensure_outcome` write, which is what makes an ambiguous commit-then-error
   retry land rather than loop.
 - `classify_settlement` checks the environment half of ownership identity, not
@@ -21,7 +21,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
 ## lgwks_bot Documentation
 
 - Five citations in `docs/guides/lgwks-bot/` were re-anchored to the lines this
-  change moved in `ecs.rs`. `getting-started.md` also credited the
+  change moved in `ecs.rs`. The file `getting-started.md` also credited the
   `Observe::Output: PartialEq` requirement to `EcsBuilder::observe`, which
   carries no such bound; it lands on `EcsObserveBuilder::observe`, the call that
   closes a chain, and the citation now points at the bound.
@@ -44,14 +44,14 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
 
 ## Repository Added
 
-- `scripts/check-std-first.py`, and a CI step that runs it. `lgwks-deps check`
-  enforces the manifest half of the `std`-first rule and cannot see the other
-  half, which lives in the source: a `use` of a crate no manifest declares
-  (buildable only because something else in the graph re-exports it), and a
+- The script `scripts/check-std-first.py`, and a CI step that runs it. The command `lgwks-deps check`
+  enforces the manifest half of the `std`-first rule. It cannot see the other
+  half, which lives in the source. One case is a `use` of a crate no manifest declares
+  (buildable only because something else in the graph re-exports it). The other is a
   capability hand-rolled beside the `lgwks_std` module that already provides it.
   Every crate reached past `std` and the four surfaces is reported with the
-  approval record behind it — owner, capability and the reason the approver
-  wrote — so `--justify` prints the answer to "why is this edge here" instead of
+  approval record behind it: owner, capability and the reason the approver
+  wrote. So `--justify` prints the answer to "why is this edge here" instead of
   leaving it to a reviewer's memory.
 
   It carries four written exemptions, each pinning the exempted line's text as
@@ -66,11 +66,11 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   commit and the branch push ran every one of them again for the same tree. A
   `concurrency` group supersedes a run on a branch that has been pushed again,
   and never supersedes a run on `main`.
-- **The rustdoc gate is runnable outside CI.** `scripts/doc-lanes.sh` holds the
+- **The rustdoc gate is runnable outside CI.** The script `scripts/doc-lanes.sh` holds the
   four lanes the Docs job runs, and the job, `AGENTS.md` and `docs/releasing.md`
   all call it instead of restating the commands. Which links break depends on which features are on,
-  so the gate is four lanes and not one command, and none of them was reachable
-  from the `Checks that must pass` list, which named no doc build at all: a
+  so the gate is four lanes and not one command. None of them was reachable
+  from the `Checks that must pass` list, which named no doc build at all. A
   broken intra-doc link is a warning rather than an error, so the crate built
   green and the break surfaced only after the push.
 
@@ -85,7 +85,7 @@ Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Pag
   resolving onto unrelated code while CI reported green. Demonstrated on a copy
   of this tree with `cap.rs` grown by one line: the previous check exits 0 with
   "107 citations resolve", this one exits 1 and names all seven that moved.
-  `--update` rewrites the lock and prints every line whose text changed under a
+  The option `--update` rewrites the lock and prints every line whose text changed under a
   citation and which page cites it, so the review is the diff.
 
 ## Repository Fixed

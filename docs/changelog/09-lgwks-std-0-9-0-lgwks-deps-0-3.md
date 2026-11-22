@@ -3,10 +3,10 @@
 The release notes, page 1 of 1. [Changelog index](../../CHANGELOG.md)
 
 The second cut of the day, for the #157, #158, #159, #161, #162, #167 and #168
-work that landed in #197. `lgwks_std` and `lgwks_deps` each carry a break, so
-they take the minor position. `lgwks_bot` re-exports `lgwks_std::json` and
-depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
-`lgwks_deps` requirement and takes a patch. `lgwks_ast` does not move.
+work that landed in #197. The crates `lgwks_std` and `lgwks_deps` each carry a break, so
+they take the minor position. The crate `lgwks_bot` re-exports `lgwks_std::json` and
+depends on `lgwks_deps`, so it moves with them. The crate `lgwks_macros` only raises its
+`lgwks_deps` requirement and takes a patch. The crate `lgwks_ast` does not move.
 
 ## lgwks_std Breaking
 
@@ -54,9 +54,9 @@ depends on `lgwks_deps`, so it moves with them. `lgwks_macros` only raises its
 
 - Both registers read one strict TOML subset. A repeated key in an entry is
   refused and names both lines instead of letting the last write win. Values
-  are single-line basic strings; no value may contain a control character,
+  are single-line basic strings. No value may contain a control character,
   raw or escaped, and literal, multiline, bare and trailing-token values are
-  refused. `source`, `allowed_kinds`, `allowed_consumers` and the
+  refused. The fields `source`, `allowed_kinds`, `allowed_consumers` and the
   crate/owner identifiers are closed vocabularies. `approved_on` must be a
   real Gregorian date, so `2026-13-45` and `1900-02-29` are refused. (#157)
 - Workspace metadata in which a member has no package record, several records

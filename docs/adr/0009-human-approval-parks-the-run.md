@@ -2,11 +2,11 @@
 
 Status: **accepted**, 2026-11-01. Refines ADR 0008 (every capability is an SDK, an entrypoint and a word).
 
-Stakeholders: the Director; the agent adding a capability; a flow author who writes only `script!`; the operator who decides parked approvals on the estate CLI
-Concerns: an effect that leaves the process running without the human decision it owes; a run held open by a wait nobody bounded
+Stakeholders: the Director; the agent adding a capability; a flow author who writes only `script!`; the operator who decides parked approvals on the estate CLI.
+Concerns: an effect that leaves the process running without the human decision it owes; a run held open by a wait nobody bounded.
 Requirements: R1, R2, R3, R7
-Viewpoint: the vocabulary viewpoint — one row per runtime capability: its word, entrypoint and evidence
-Elements and relations: `lgwks_bot::script::approval` and `task::Host::{decide, pending, audit}`; `lgwks_ast::script::LEXICON`, `lgwks_ast::script::parse`, `lgwks_macros::emit`; `word lowers to entrypoint`; the estate CLI drives `Host::decide` over the file store
+Viewpoint: the vocabulary viewpoint: one row per runtime capability, its word, entrypoint and evidence.
+Elements and relations: `lgwks_bot::script::approval` and `task::Host::{decide, pending, audit}`; `lgwks_ast::script::LEXICON`, `lgwks_ast::script::parse`, `lgwks_macros::emit`; `word lowers to entrypoint`; the estate CLI drives `Host::decide` over the file store.
 
 ## Context
 
@@ -81,7 +81,7 @@ not). Related: ADR 0003 (every capability on by default), #526 (the supported su
 `lgwks_macros`: `every_refusal_names_its_replacement` (the `approval with no deadline` case),
 `the_structured_words_expand_to_their_runtime_calls`, `every_guarantee_names_a_test_that_exists`,
 `the_lexicon_page_is_rendered_from_the_lexicon` (token budget), and the README and front-page
-table tests. `lgwks_bot`: `tests/it/approval.rs` (park, restart, mismatch, foreign tenant with
+table tests. For `lgwks_bot`: `tests/it/approval.rs` (park, restart, mismatch, foreign tenant with
 audit, lapse, ceiling, gate, match, race, no store and ephemeral store) and
 `tests/it/sim_approval.rs` (`parked_runs_resume_after_a_decision` and the replay/divergence
 pair). `lgwks_ast`: the grammar band draws the word (`sim_one_band_says_every_word`).

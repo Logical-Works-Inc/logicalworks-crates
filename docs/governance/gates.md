@@ -7,7 +7,7 @@ Part of [`GOVERNANCE.md`](../../GOVERNANCE.md), which indexes every section.
 The gate is one definition: `scripts/gate-lanes.toml`. `./scripts/ci-local.sh`
 executes the local lanes from it and CI executes the same lane commands, and
 the `check-gate-parity` binary refuses any drift between the two. They do not
-run in the same order — CI fans lanes out across jobs — and a green local run
+run in the same order, because CI fans lanes out across jobs. A green local run
 is evidence only for the lanes whose `surfaces` include `local`. The receipt
 names what it did not cover. A disagreement is a defect in whichever side
 diverged from the lane table.

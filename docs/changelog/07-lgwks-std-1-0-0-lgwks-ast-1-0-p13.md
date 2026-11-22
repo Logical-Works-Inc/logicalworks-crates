@@ -74,7 +74,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
 ## Documentation
 
 - The frontier comparisons now cite primary sources with pinned versions and an
-  access date (2026-10-02). `docs/framework-comparison.md` and
+  access date (2026-10-02). The files `docs/framework-comparison.md` and
   `docs/async-parity.md` name each external project's release or tag
   (`spider-rs` v2.52.2, `discord.py` 2.7.1, `serenity` v0.12.5, Stagehand
   `@browserbasehq/stagehand@3.7.3`, `@crawlee/core` 3.18.2, Scrapy 2.19.0,

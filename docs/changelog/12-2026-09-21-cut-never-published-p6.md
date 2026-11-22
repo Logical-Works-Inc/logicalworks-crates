@@ -8,12 +8,13 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   generation, and the refusal that stops a stale command from dispatching.** A
   durable record of a dispatch aimed at an environment that has already been
   replaced is accurate and still wrong, so the record cannot be where that is
-  caught. `Broker` owns which environments a run has and which generation each
+  caught. The `Broker` owns which environments a run has and which generation each
   is at, and `authorize` mints an `Authority` only when the generation named by
   the `EffectKey` is the one currently held.
   - **A stale generation and a generation the broker never issued are different
-    errors.** `Superseded` means the key names an older generation: the real
-    case, a command that was correct and is now fenced. `NeverIssued` means it
+    errors.** The error `Superseded` means the key names an older generation:
+    the real case, a command that was correct and is now fenced. The error
+    `NeverIssued` means it
     names a newer one the broker never minted, so the key did not come from this
     broker at all. One "generation mismatch" error would print the same sentence
     for both while calling for opposite investigations.
@@ -27,8 +28,8 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     two instants. A replacement landing between them leaves a warrant that was
     minted legitimately and is now stale, and a check that only runs at mint time
     does not deliver RQ-006's "replacement invalidates all old commands". So
-    `revalidate` re-runs the identical comparison at the boundary, and it shares
-    one private `check_generation` with `authorize` rather than repeating it: a
+    `revalidate` re-runs the identical comparison at the boundary. It shares
+    one private `check_generation` with `authorize` rather than repeating it. A
     second copy that drifted would refuse to mint a warrant and accept it at the
     boundary, which is the failure fencing exists to prevent.
   - **`prepare_dispatch` is where the RQ-007 order stops being prose.** It

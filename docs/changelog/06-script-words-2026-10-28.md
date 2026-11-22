@@ -8,10 +8,10 @@ among several. This release makes them words of the language, so `script!` is
 the one entry point for every orchestration shape, and republishes all five
 crates together, `lgwks_macros` included.
 
-Two crates take a major bump. `lgwks_ast`, because `LEXICON` grows from 15
-words to 21 and its type is `[Word; 21]`. `lgwks_bot`, because
+Two crates take a major bump. The crate `lgwks_ast` does so because `LEXICON` grows from 15
+words to 21 and its type is `[Word; 21]`. The crate `lgwks_bot` does so because
 `Compensations::add` now returns `Result<(), FlowError>` (one past
-`MAX_COMPENSATIONS` is refused instead of growing without bound) and
+`MAX_COMPENSATIONS` is refused instead of growing without bound). Also,
 `GraphReport::waves` now lists the nodes started at each scheduling point
 rather than a level-by-level wave.
 
@@ -24,7 +24,7 @@ rather than a level-by-level wave.
   `Statement::Compensate`, and `Graph`, `Node`, `Compensate`, `Overflow`,
   `Whenever` and `Justify`.
 - The parser refuses a graph whose needs repeat, name no node, name the node
-  itself or form a cycle; a `node` outside a `graph`; a `compensate` outside a
+  itself or form a cycle. It also refuses a `node` outside a `graph`; a `compensate` outside a
   `saga` or naming no step before it; a `whenever` with no policy or a buffer
   outside `1..=65536`; and a `justify` with no rules. Each refusal names what
   to write instead.

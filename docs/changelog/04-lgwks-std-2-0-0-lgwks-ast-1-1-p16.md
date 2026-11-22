@@ -2,12 +2,12 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 16 of 20. [Changelog index](../../CHANGELOG.md)
 
-## lgwks_std — the blocking pool's ceiling and its shutdown (#264) (continued)
+## lgwks_std: the blocking pool's ceiling and its shutdown (#264) (continued)
 
 - `task::configure_blocking_pool(threads)` fixes the pool's thread ceiling
   once, before the pool first runs a job. The pool's own creation is the
-  arbitration — a configure and a first use race to build it, so neither can
-  miss the other's write — and a ceiling is therefore never silently ignored.
+  arbitration: a configure and a first use race to build it, so neither can
+  miss the other's write, and a ceiling is therefore never silently ignored.
   A later attempt is refused with the new `PoolConfigError`: `InUse` once the
   pool has run work, `AlreadyConfigured` naming the ceiling in force,
   `InvalidCeiling` for a ceiling below one. Asking again for the ceiling
@@ -29,7 +29,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   same lock that counted the thread, so a shutdown can never observe a thread
   it cannot join.
 - **A start now joins the threads that have already returned**, so a process
-  whose load is bursty — a burst, an idle period, a burst — no longer keeps
+  whose load is bursty (a burst, an idle period, a burst) no longer keeps
   one handle per exited thread for ever. What the handle list holds is exactly
   `live + (threads that have left the accounting and not yet returned)`: every
   entry beyond `live` is a real thread still executing its last instructions,
@@ -38,16 +38,16 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   *has* returned is joined at the next start or at a shutdown.
 - The pool is an `Arc`, so a thread owns its own reference and a caller can own
   and drop a pool; the tests' last `Box::leak` is gone.
-- Two seeded simulation families cover the new paths: `sim_pool` drives the
-  accounting through configure attempts that move nothing and a shutdown
-  closing admission mid-schedule (2,000 seeds × 2,000 steps), and
-  `sim_pool_lifetime` drives real OS threads through burst drains, an expired
+- Two seeded simulation families cover the new paths. The first, `sim_pool`,
+  drives the accounting through configure attempts that move nothing and a
+  shutdown closing admission mid-schedule (2,000 seeds × 2,000 steps). The
+  second, `sim_pool_lifetime`, drives real OS threads through burst drains, an expired
   deadline, a parked thread, a refused ceiling, and burst/idle cycles that
   would grow the handle list if nothing reaped it. A process-owning test
   binary exercises the two public functions against the real process-wide
   pool, because a shutdown closes admission for the life of its process.
 
-## lgwks_std — `random` reaches every target its backend does, and says why it failed (#276)
+## lgwks_std: `random` reaches every target its backend does, and says why it failed (#276)
 
 - `random` no longer refuses to compile on every target but Linux, macOS and
   Windows. The three-target `compile_error!` was a narrower claim than the
@@ -85,8 +85,8 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   the run at 307 s, past the five-minute budget.
 - New required lane `target-matrix`, running the new
   `scripts/check-target-matrix.sh`. It installs each declared target with
-  `rustup` and checks `lgwks_std`, `lgwks_ast` and `lgwks_deps` against it: the
-  Rust-only surface is required everywhere, and a check that needs a C
+  `rustup` and checks `lgwks_std`, `lgwks_ast` and `lgwks_deps` against it. The
+  Rust-only surface is required everywhere. A check that needs a C
   toolchain the runner lacks is recorded with its exact error and a named
   reason instead of being dropped. A failure that is not that reason fails the
   lane. It runs as its own CI job rather than on the critical path.

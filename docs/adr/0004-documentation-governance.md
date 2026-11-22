@@ -4,18 +4,18 @@ Status: **accepted**, 2026-10-22. Director's order of 2026-10-22: "U WILL ALSO
 ADD FULL DOCUMENTATION GOVERNANCE WITH ADRS WHICH ARE ISO 42010 COMPLIANT, PRDS
 WHICH ARE ISO29148 COMPLIANT." Issue: #732.
 
-Stakeholders: the Director; the executing agent; a reviewer of a decision made before this record; an auditor of the product requirement set
+Stakeholders: the Director; the executing agent; a reviewer of a decision made before this record; an auditor of the product requirement set.
 Concerns: a decision recorded without its stakeholders, rationale or verification cannot be reviewed after the fact; a requirement without a fit criterion cannot be verified
 Requirements: R13, R12, R1
-Viewpoint: the record viewpoint — one view per record, each view the record's own headings against the 42010 or 29148 field list
+Viewpoint: the record viewpoint: one view per record, each view the record's own headings against the 42010 or 29148 field list
 Elements and relations: the two record sets (`docs/adr`, `docs/prd`), the `check-docs` reader and the `doc-governance` lane; relations: `lane runs reader`, `reader judges record`, `record traces to requirement`
 
 ## Context
 
 The repository held two ADRs and no product requirement document. The ADR style
-was good prose and no contract: nothing required a record to name its
+was good prose and no contract. Nothing required a record to name its
 stakeholders, its concerns, its viewpoint, its elements or its verification, so
-a record could read as complete and answer none of the questions 42010 asks of
+a record could read as complete. It could still answer none of the questions 42010 asks of
 an architecture description. `REQUIREMENTS.md` held the immutable spine, and a
 new product requirement had no home at all.
 
@@ -31,9 +31,9 @@ from its evidence without anything noticing.
    `docs/prd/README.md` list every required field and the clause it comes from.
 2. **The fields are read, not trusted.** `check-docs` refuses a record missing a
    field, a status with no date, a section out of the set, a requirement whose
-   statement is not normative, a priority outside `must|should|could`, a
-   requirement with no fit criterion, no verification or no trace, and a repeated
-   identifier. The `doc-governance` lane runs it in local CI and in CI.
+   statement is not normative, and a priority outside `must|should|could`. It
+   also refuses a requirement with no fit criterion, no verification or no trace,
+   and a repeated identifier. The `doc-governance` lane runs it in local CI and in CI.
 3. **A record is superseded, never rewritten.** A later record names the one it
    supersedes in `## Correspondence`; the superseded record's status changes and
    nothing else in it does.

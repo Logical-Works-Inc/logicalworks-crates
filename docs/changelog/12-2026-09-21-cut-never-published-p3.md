@@ -17,25 +17,25 @@ hands the caller something droppable.** A `JoinHandle` a caller can drop is a
 task whose outcome nobody ever sees; a `Child` is the same shape with a
 process attached. Both were reachable, and both are gone. The only way to start
 concurrent work is `Supervisor`, and the only way to start a process is a
-supervised one. Nothing is weakened to pay for it — the guarantees move from
+supervised one. Nothing is weakened to pay for it: the guarantees move from
 convention to the type system, because the constructors are gone.
 
 Removed, each with what replaced it:
 
-- `rt::task::spawn`, `rt::task::spawn_local`, `rt::task::spawn_blocking` — the
+- `rt::task::spawn`, `rt::task::spawn_local`, `rt::task::spawn_blocking`: the
   three functions that returned a droppable `JoinHandle`. Fan-out is
   `rt::task::join_all_bounded` (bounded, ordered) or a `JoinSet` the caller
   owns; what outlives the call belongs in a `Supervisor`. `spawn_local`'s
   re-export of `LocalSet` went with it: a local set whose tasks could be
   detached is the same hole one thread down.
-- The `rt::task` re-exports of `JoinHandle` and `LocalSet` — nothing public
+- The `rt::task` re-exports of `JoinHandle` and `LocalSet`: nothing public
   returns either any more. `JoinSet`, `JoinError`, and `AbortHandle` remain:
   those are the tracked envelope and the results it yields.
-- `rt::runtime::Handle::spawn` — the same droppable handle, reached through the
+- `rt::runtime::Handle::spawn`: the same droppable handle, reached through the
   runtime instead of the module. This one was not in the original scope and is
   removed because the stated principle decides it: a handle that cannot start
   work but can *drive* it (`Handle::block_on`) still covers every legitimate use.
-- `rt::process::{Child, ChildStdin, ChildStdout, ChildStderr}` — a `Child` is a
+- `rt::process::{Child, ChildStdin, ChildStdout, ChildStderr}`: a `Child` is a
   handle to a running process, and `Child::kill` reaches neither a shell's
   grandchildren nor a process whose handle was dropped. `Command` stays public:
   a caller must still be able to describe what to run.
@@ -44,7 +44,7 @@ Added:
 
 - `Supervisor::spawn_process(&mut Command) -> io::Result<TaskId>`. Takes a
   command, awaits an in-flight permit exactly as `spawn` does, and returns no
-  handle — a `TaskId`, which cannot join, abort, or wait. The task it places is
+  handle, only a `TaskId`, which cannot join, abort, or wait. The task it places is
   the process's only owner: the child is put in its own process group and the
   **group** is killed when the task is cancelled or the supervisor drops, so a
   shell cannot leave grandchildren behind. This is what `contract/APPROVED.toml`
@@ -57,13 +57,13 @@ Added:
 - `TaskOutcome::Failed { task, status }`, `TaskOutcome::is_process_failure`,
   `TaskOutcome::exit_status`, `Stats::failed`, and `ShutdownReport::failed`. A
   process that exited non-zero, died from a signal, or whose status could not be
-  read is a *failure* carrying its `ExitStatus` — not a completion, and not the
+  read is a *failure* carrying its `ExitStatus`, not a completion, and not the
   same report as a kill this supervisor ordered. Without this the three cases
   were one increment, and a bot running a failing command read as a healthy one.
 - `clippy.toml` bans `tokio::process::Command::spawn` with
-  `Supervisor::spawn_process` as its named replacement. `Command` is the
-  engine's own type, so its methods cannot be narrowed, and this is the one
-  remaining path that is closed by a lint rather than by the type system — named
+  `Supervisor::spawn_process` as its named replacement. The type `Command` is the
+  engine's own type, so its methods cannot be narrowed. This is the one
+  remaining path that is closed by a lint rather than by the type system, named
   here rather than left to be discovered.
 
 Changed:
@@ -94,7 +94,7 @@ Changed:
   invented" and "settle the wrong attempt" stop being representable rather than
   being refused after the fact. `WorkId` remains as the address a report names,
   which is what it always was: SPEC-02's "a slot index is instrumentation only".
-  This is the intentional tightening RQ-059 asks to be documented — a program
+  This is the intentional tightening RQ-059 asks to be documented: a program
   that named a slot and a revision still compiles if it reads its work from
   `pending()`, and a program that fabricated the pair no longer does.
 

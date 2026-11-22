@@ -27,7 +27,7 @@ its 500 ns bound. The workload and the bound are unchanged.
 - Measured on the Director's Mac, three runs each of
   `cargo run --release --locked -p lgwks_std --example latency_tails`:
   `json parse` p50 302 to 310 ns (p99 374 to 388) before, 195 to 196 ns
-  (p99 214 to 247) after; `json write` p50 100 to 103 ns before, 124 to
+  (p99 214 to 247) after. And `json write` read p50 100 to 103 ns before, 124 to
   125 ns after, because reading an inline string checks its UTF-8.
 - `lgwks new` scaffolds pin `lgwks_std = "=4.0.0"`.
 

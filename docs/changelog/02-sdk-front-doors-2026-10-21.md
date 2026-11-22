@@ -17,7 +17,7 @@ returns: `check_verdict` hands back `metadata::Collected<Verdict>`, and
 `into_parts` separates the verdict from the cleanup obligation that a refused
 or interrupted metadata read could not confirm.
 
-## lgwks_deps — the supported metadata surface (#526)
+## lgwks_deps: the supported metadata surface (#526)
 
 - **Added** `lgwks_deps::metadata::Collected` to the supported surface. It is
   the type `check_verdict` returns: the gate's verdict plus the cleanup failure
@@ -25,9 +25,9 @@ or interrupted metadata read could not confirm.
   `Collected::into_parts` is the only way out of it, so a consumer cannot read
   the verdict and forget the cleanup.
 - **Added** `lgwks_deps::metadata::MetadataError` to the supported surface. It
-  is the typed reason a metadata read refused — the cargo command failed, the
-  document would not decode, the byte budget was spent, the deadline passed —
-  and it is what a consumer needs to `match` on a refusal instead of
+  is the typed reason a metadata read refused: the cargo command failed, the
+  document would not decode, the byte budget was spent, or the deadline passed.
+  It is what a consumer needs to `match` on a refusal instead of
   printing it.
 - **Changed** the accepted public surface, exactly: `contract/PUBLIC_SURFACE.toml`
   now carries `"crates/lgwks-deps/src/metadata.rs" = 2`. The ceiling is exact
@@ -35,13 +35,13 @@ or interrupted metadata read could not confirm.
   than a silent widening, and `check-std-first --surface-baseline` prints the
   same table the tree implies.
 - **Added** the downstream proof, `crates/lgwks-deps/tests/it/sdk_surface.rs`.
-  It names only public paths — `Contract`, `GateError`, `MetadataError`,
-  `Refusal`, `Verdict`, `Collected<Verdict>` — and drives the real register
+  It names only public paths: `Contract`, `GateError`, `MetadataError`,
+  `Refusal`, `Verdict`, `Collected<Verdict>`. It drives the real register
   through `check_verdict`, so a name that leaves the surface fails to compile
   in this repository instead of in a user's build. It also asserts that a
   complete metadata read leaves no cleanup obligation behind.
 
-## lgwks_ast — 2.2.0
+## lgwks_ast 2.2.0
 
 - The 2.1.0 surface is unchanged and stays documented: `Language`, `try_parse`,
   `inspect_ast`, `ParseError` and `Diagnostic` for the parser, `lgwks_ast::scan`
@@ -57,8 +57,8 @@ or interrupted metadata read could not confirm.
   set rather than two.
 
 **Does not claim:** that an item outside the three documented surfaces carries
-a compatibility promise (it does not; everything else stays `#[doc(hidden)]`);
-that `Collected`'s cleanup obligation can be ignored (a consumer that drops it
-leaks the capture files, which is why `into_parts` is the only accessor); or
-that a metadata read is now cheaper — the change is visibility, and the
+a compatibility promise (it does not; everything else stays `#[doc(hidden)]`).
+It does not claim that `Collected`'s cleanup obligation can be ignored (a consumer that drops it
+leaks the capture files, which is why `into_parts` is the only accessor). It does not claim that
+a metadata read is now cheaper. The change is visibility, and the
 subprocess, byte budget and deadline are the ones 4.1.0 shipped.

@@ -7,7 +7,7 @@ portable runtime; `--no-default-features` is the process-only opt-out.
 Stakeholders: the Director; a consumer supervising processes; the catalog gate
 Concerns: a process supervisor must not compile TLS, archive, UI, or subscriber
 Requirements: R1, R6, R11, R13
-Viewpoint: the capability viewpoint — one row per capability, its owner and default
+Viewpoint: the capability viewpoint: one row per capability, its owner and default
 Elements and relations: `lgwks_bot` features and their modules; `default set carries feature`
 
 ## Context
@@ -80,7 +80,7 @@ Process-only fixture
 
 | Closure | Lines | Packages | Cold build | Peak RSS | Result |
 |---|---|---|---|---|---|
-| before (seven crates) | 249 | 134 | 51.07 s | — | builds with TLS/archive/ECS/subscriber |
+| before (seven crates) | 249 | 134 | 51.07 s | n/a | builds with TLS/archive/ECS/subscriber |
 | after (none of seven) | 46 | 32 | 19.52 s | 602 MiB | `cargo tree` holds no `bevy_ecs`, `rkyv`, `ron`, `tracing-subscriber`, `ureq`, `rustls`, `ring` |
 
 Default (`cargo check -p lgwks_bot --locked`) stays exit 0 with no warnings;

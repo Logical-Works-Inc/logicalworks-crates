@@ -6,7 +6,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 
 - **Breaking, effective at the next `lgwks_bot` version published from this
   tree.** `BotError::CapabilityDenied`'s payload changes from
-  `required: Cap` — one capability — to `deficit: Deficit`, which carries all of
+  `required: Cap` (one capability) to `deficit: Deficit`, which carries all of
   them. A consumer matching `CapabilityDenied { required }` must read
   `deficit.first().required()`, or iterate `deficit.shortages()` to see the
   whole shortfall. The variant name, and every `CapabilityDenied { .. }` match,
@@ -22,7 +22,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 
 ## Changed
 
-- `Resolver` takes a `Question` — id, options and answer domain — instead of an
+- `Resolver` takes a `Question` (id, options and answer domain) instead of an
   option slice, because resolving a tier needs the question's identity.
   `Resolution::Ambiguous` gained a `tier` field; the enum is `#[non_exhaustive]`,
   so that part is additive. These are development APIs and are not in any

@@ -3,11 +3,11 @@
 Release: lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 / lgwks_macros 0.1.0 - 2026-09-30. Page 1 of 2. [Changelog index](../../CHANGELOG.md)
 
 Every crate that moves takes the minor position, because each carries a break
-against what crates.io holds. `lgwks_std` changes `http`, `time` and `glob`
-signatures. `lgwks_ast` changes the return type of `try_detect_content`.
-`lgwks_deps` makes the public fields of its metadata records private.
-`lgwks_bot` re-exports `lgwks_std::json` and depends on `lgwks_deps`, so it
-moves with both of them. `lgwks_macros` is new and must be uploaded before
+against what crates.io holds. The crate `lgwks_std` changes `http`, `time` and `glob`
+signatures. The crate `lgwks_ast` changes the return type of `try_detect_content`.
+The crate `lgwks_deps` makes the public fields of its metadata records private.
+The crate `lgwks_bot` re-exports `lgwks_std::json` and depends on `lgwks_deps`, so it
+moves with both of them. The crate `lgwks_macros` is new and must be uploaded before
 `lgwks_bot`, which depends on it.
 
 ## lgwks_std Added

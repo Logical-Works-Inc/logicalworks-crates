@@ -27,9 +27,9 @@ because a default-off implementation is a candidate rather than an architecture.
 
 ## lgwks_bot Removed
 
-- `Bot::block_on_tick` — a pure alias for `tick` once `tick` became
+- `Bot::block_on_tick`: a pure alias for `tick` once `tick` became
   synchronous. Two equivalent entry points for one job is one too many.
-- `Bot::chains()` — replaced by `Bot::source_domains()`, which answers what a
+- `Bot::chains()`: replaced by `Bot::source_domains()`, which answers what a
   caller wanted ("what is this bot watching") without exposing erased
   observer objects.
 - The `Chain`, `ChainEntry`, and `ObserveBuilder::entries` types. `ChainEntry`
@@ -43,11 +43,11 @@ because a default-off implementation is a candidate rather than an architecture.
   listen to one, and the type was previously absent, so the requirement named
   something unobtainable. Built on `tokio::sync::watch`, not `tokio-util`: no
   new third-party edge.
-- `rt::supervise` — `Supervisor`, `Budget`, `Outcome`, `repeat`. Background work
+- `rt::supervise`: `Supervisor`, `Budget`, `Outcome`, `repeat`. Background work
   that cannot leak and cannot run away. A task cannot leak because nothing is
-  detached (no handle to drop), there is no unbounded constructor and no
+  detached (no handle to drop), and there is no unbounded constructor and no
   internal queue (a bounded permit is acquired *before* the spawn, and
-  `try_spawn` refuses rather than grows), every entry point reaps finished tasks
+  `try_spawn` refuses rather than grows). It also cannot leak because every entry point reaps finished tasks
   so the retained set tracks the live bound rather than the lifetime total, and
   `Drop` cancels and aborts. A loop cannot run away because `repeat` cannot be
   written without a `Budget`, and every iteration *races* cancellation instead

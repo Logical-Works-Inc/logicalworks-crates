@@ -2,12 +2,12 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 15 of 20. [Changelog index](../../CHANGELOG.md)
 
-## lgwks_ast — the parse had no time bound, and the walk was quadratic (#277) (continued)
+## lgwks_ast: the parse had no time bound, and the walk was quadratic (#277) (continued)
 
 - **The validation walk is linear now, and was not.** `inspect_ast` and
   `diagnostic::diagnostics` reached each child through
-  `ast_grep_core::Node::child(i)` by index, which is `O(i)` on a node whose
-  visible children are not its structural children — exactly what a
+  `ast_grep_core::Node::child(i)` by index. That is `O(i)` on a node whose
+  visible children are not its structural children, which is exactly what a
   recovery-heavy parse produces. Measured on Rust source of unbalanced
   delimiters: 16 385 nodes wide and 2 deep spent **1.39 s in the walk against
   1.06 ms in the parser**, and doubling the width quadrupled the walk, inside
@@ -29,51 +29,52 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   reserves that for the Director's word. Nothing here fakes it with a thread
   that cannot be stopped.
 - **Measured, per grammar, in `bench/README.md` and
-  `bench/ast-budget.tsv`** (224 rows): throughput p50/p99 and peak RSS at the
-  2 MiB ceiling on representative and adversarial input, the share of a checked
-  parse spent in the validation walk, and p99 plus peak RSS for a bounded
-  fan-out at 100, 1 000, 10 000 and 100 000 concurrent parses. Produced by
-  `examples/parse_budget.rs` under `scripts/measure-ast-budget.sh`. Three
-  findings from it:
+  `bench/ast-budget.tsv`** (224 rows). The table holds throughput p50/p99 and
+  peak RSS at the 2 MiB ceiling on representative and adversarial input, and the
+  share of a checked parse spent in the validation walk. It also holds p99 plus
+  peak RSS for a bounded fan-out at 100, 1 000, 10 000 and 100 000 concurrent
+  parses. Produced by `examples/parse_budget.rs` under
+  `scripts/measure-ast-budget.sh`. Three findings from it:
   - **The documented memory ceiling is 723 MiB resident** for one parse of a
-    2 MiB file with the Ruby grammar, against a 2.1 MiB process floor; the
+    2 MiB file with the Ruby grammar, against a 2.1 MiB process floor. The
     cheapest grammar at the same size is `solidity` at 100 MiB, so a caller
     cannot size a parser from the input alone.
   - **The parser, not the walk, is the unbounded work on hostile input.** The
     validation walk is 10–15 ms on the three worst adversarial rows and the parse
-    is 25–97 seconds — 256 KiB of nested braces takes the Dart grammar
+    is 25–97 seconds: 256 KiB of nested braces takes the Dart grammar
     **97.5 seconds**, and at the 2 MiB ceiling it did not finish in 120 s. This
     is precisely what the missing deadline would bound and cannot be bounded from
     inside this crate.
-  - **Peak RSS is flat in the concurrency level** — 195 to 198 MiB for `rust`
-    across 100 to 100 000 concurrent 64 KiB parses — because the per-parse bound
+  - **Peak RSS is flat in the concurrency level**: 195 to 198 MiB for `rust`
+    across 100 to 100 000 concurrent 64 KiB parses, because the per-parse bound
     is what makes a fleet of them bounded.
-- **The markdown grammar no longer aborts the process.** It did:
-  `tree-sitter-markdown` 0.5.3's external scanner serializes its open block
-  containers into a fixed 1 024-byte buffer and *asserts* when they do not fit,
-  and an assertion in a C parser is `abort()`, so `"- "` repeated 255 times
-  (510 bytes) ended the process with `SIGABRT` rather than returning anything —
-  reachable from a hostile PR that adds a nested list to a README. The grammar
-  arrives compiled through `ast-grep-language`, so the crate cannot patch the
-  scanner; it refuses the source before the scanner sees it.
-  `MAX_MARKDOWN_CONTAINERS_PER_LINE` (64) and the new
-  `ParseError::ContainerNestingTooDeep` apply
-  `lgwks_ast::markdown_containers` on the markdown path only, in one `O(bytes)`
-  pass with `O(1)` state. The bound is measured, not guessed: seventeen
-  container shapes were bisected from a child process, and **every shape that
-  aborts does so at 255 open containers** — 255 repetitions of `- `, 128 of
-  `> - `, 85 of `>>> `, and the same 255 for indentation-nested lists, fenced
-  and indented code inside quotes. Three shapes never abort, because markdown
-  does not nest blockquotes, ordered lists or tab runs by indentation. The
-  count over-estimates where indentation and markers both carry depth, so 64
-  cannot be 255: a margin of about 4x, on the safe side. `tests/it/hostile.rs`
-  proves it from child processes — every shape at bound-1, bound and bound+1,
-  every shape at its own measured abort depth, and 1 000 seeded mixes, 1 065
-  children, zero `SIGABRT`. An exhaustive sweep of all seventeen shapes through
-  every depth from 1 to 512 (8 704 pairs) also exits cleanly.
-  Residual, stated rather than hidden: the guard is on the **checked** parse.
-  `parse` and `parse_with` return a `Parsed` rather than a `Result`, so a refusal
-  has nowhere to go there, and their documentation now says so.
+- **The markdown grammar no longer aborts the process.** It did. The external
+  scanner of `tree-sitter-markdown` 0.5.3 serializes its open block containers
+  into a fixed 1 024-byte buffer and *asserts* when they do not fit. An assertion
+  in a C parser is `abort()`, so `"- "` repeated 255 times (510 bytes) ended the
+  process with `SIGABRT` rather than returning anything. A hostile PR that adds a
+  nested list to a README reaches it. The grammar arrives compiled through
+  `ast-grep-language`, so the crate cannot patch the scanner; it refuses the
+  source before the scanner sees it.
+  - The limit `MAX_MARKDOWN_CONTAINERS_PER_LINE` (64) and the new
+    `ParseError::ContainerNestingTooDeep` apply `lgwks_ast::markdown_containers`
+    on the markdown path only, in one `O(bytes)` pass with `O(1)` state.
+  - The bound is measured, not guessed. Seventeen container shapes were bisected
+    from a child process, and **every shape that aborts does so at 255 open
+    containers**: 255 repetitions of `- `, 128 of `> - `, 85 of `>>> `. The same
+    255 holds for indentation-nested lists, fenced and indented code inside
+    quotes. Three shapes never abort, because markdown does not nest blockquotes,
+    ordered lists or tab runs by indentation.
+  - The count over-estimates where indentation and markers both carry depth, so
+    64 cannot be 255: a margin of about 4x, on the safe side. The test
+    `tests/it/hostile.rs` proves it from child processes: every shape at
+    bound-1, bound and bound+1, every shape at its own measured abort depth, and
+    1 000 seeded mixes, 1 065 children, zero `SIGABRT`. An exhaustive sweep of
+    all seventeen shapes through every depth from 1 to 512 (8 704 pairs) also
+    exits cleanly.
+  - Residual, stated rather than hidden: the guard is on the **checked** parse.
+    The calls `parse` and `parse_with` return a `Parsed` rather than a `Result`,
+    so a refusal has nowhere to go there, and their documentation now says so.
 - Two test modules: `tests/it/hostile.rs` (four adversarial generators per
   compiled grammar, every answer typed or a tree inside the bounds) and
   `tests/it/sim_parse_bounds.rs` (96 seeds per test over four generated shapes,
@@ -84,9 +85,9 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
 Order changes with the traversal and is additive to the API: nodes arrive in
 source order rather than reverse-sibling order, so the node cap's `limit + 1`
 witness is the earliest node rather than the last. Every published guarantee
-survives it — `AstMetrics` folds order-independently, retained diagnostics are
-the earliest under `MAX_SYNTAX_DIAGNOSTICS` and are sorted before being
-returned — and `diagnostics` sorts its own output. `try_parse` keeps its
+survives it. `AstMetrics` folds order-independently, and retained diagnostics
+are the earliest under `MAX_SYNTAX_DIAGNOSTICS` and are sorted before being
+returned. The call `diagnostics` sorts its own output, and `try_parse` keeps its
 signature.
 
 ## Tests: the entropy replay simulation no longer folds drawn bytes (#276)
@@ -100,7 +101,7 @@ signature.
   `the_trace_folds_no_drawn_byte` pins both without entropy. 300 runs of the
   two tests: 0 failures.
 
-## lgwks_std — the blocking pool's ceiling and its shutdown (#264)
+## lgwks_std: the blocking pool's ceiling and its shutdown (#264)
 
 The two items #286 and #289 left open on the bounded blocking pool. Both are
 additive: no signature changed and no existing behaviour did.

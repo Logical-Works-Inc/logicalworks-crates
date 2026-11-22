@@ -29,7 +29,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   Swatinem/rust-cache ignores `[profile]` when it hashes manifests: without
   it the restore stayed a full match on the old key and nothing was saved.
 
-## lgwks_ast — `parse_budget`: a column with no measurement prints `-`
+## lgwks_ast: `parse_budget`, a column with no measurement prints `-`
 
 The measurement rig converted its own numbers with `unwrap_or` defaults, so a row
 that never reached the parser printed a rate of zero. A rate over nothing is not
@@ -59,7 +59,7 @@ Verified by running the shipped example: `--grammar rust --shape nested --tier 1
 admitted), `--grammar markdown --shape nested` prints the `-` columns above, and
 `--tier 0`, `--bytes 0` and `--grammar cobol` each refuse by name.
 
-## lgwks_macros — the nine-axis sweep: no stand-in for a value that is not there
+## lgwks_macros: the nine-axis sweep, no stand-in for a value that is not there
 
 Every `unwrap_or`/`unwrap_or_else`/`unwrap_or_default` in `lgwks_macros` read a
 missing value as a plausible one. Each is now either the thing itself or a typed
@@ -77,7 +77,7 @@ shared reading.
   `run_only`'s "the call is the whole line" test is `remaining.is_empty()`.
 - **`Line::keyword` returns the `&Ident`** and `Line::starts_with` answers the
   question each emitter was asking, which removes the empty keyword string
-  three call sites defaulted to — and the per-line `String` allocation with it.
+  three call sites defaulted to, and the per-line `String` allocation with it.
 - **`Line::finish` returns `Option<Line>`**: a line with no tokens is not a line
   whose position and span are invented from `Span::call_site`.
 - **`refuse` searches the literal whole.** Every machine-path prefix opens with
@@ -91,22 +91,22 @@ shared reading.
   either: `split_let` bound `let x =` as the pattern of a binding, and `run_call`
   skipped the callee path twice when it reported the tokens left after the call.
   Both reached `lgwks_bot`'s `script!` users as un-compilable expansions, which is
-  how they were found. `emit::words::tests::an_expansion_with_a_run_call_is_still_rust`
-  pins them: it expands every shape a `run` call reaches — the whole line, a
+  how they were found. The test `emit::words::tests::an_expansion_with_a_run_call_is_still_rust`
+  pins them. It expands every shape a `run` call reaches: the whole line, a
   `let` binding, a binding inside `together:`, a `::` callee with tokens after the
-  call — and asserts the expansion re-parses as Rust, that the tokens after a call
+  call. It asserts the expansion re-parses as Rust, that the tokens after a call
   survive, and that a `let` binds its name. Reintroducing either defect fails it.
 
 Behaviour is unchanged. All 10 `lgwks_macros` tests pass, including the property
 suite that renders trees, reads them back and asserts a line moved off its column
 is refused at that line, and `lgwks_bot`'s 192 `script!` tests pass against the
 rewritten emitter.
-## lgwks_bot — `sim_observe_refresh`: a schedule cell the run did not draw is `None`
+## lgwks_bot: `sim_observe_refresh`, a schedule cell the run did not draw is `None`
 
 The observe/refresh simulation had 60 places where a failed width conversion was
 folded onto a number, and four where a *missing* schedule cell became a real one.
 The largest of the four was a tenant or pace window the schedule does not
-declare: it arrived as a healthy plan, a fast window carrying the value `1`, a
-healthy fallback tenant, or a domain id borrowed from another tenant's row — and
-a `domain()` is precisely what a caller triaging two forced refreshes reads, so
+declare. It arrived as a healthy plan, a fast window carrying the value `1`, a
+healthy fallback tenant, or a domain id borrowed from another tenant's row. A
+`domain()` is precisely what a caller triaging two forced refreshes reads, so
 that last one would have blamed the wrong source.

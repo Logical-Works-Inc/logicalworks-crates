@@ -34,13 +34,13 @@ library release. Every change adds; none removes, so no crate takes a major.
 
 - `remembered_at` and `admit_at`, the located entrypoints the words call.
 - `tests/it/sim_script_durable.rs`: a resume on a fresh host replays a
-  remembered value and never reruns its block; the word admits exactly what
+  remembered value and never reruns its block. The word admits exactly what
   `admit` admits, refusals located at the word's step with the provenance of
-  the exact bytes; `ready` is released by a signal, fails with the readiness's
-  own failure, and is `TimedOut` past its deadline on a virtual clock.
+  the exact bytes. The word `ready` is released by a signal, fails with the
+  readiness's own failure, and is `TimedOut` past its deadline on a virtual clock.
 - From ADR 0006: one process driver, which host, estate and `block_on` share
-  (R2); runs enter the world through the journal as `RunFeed` events (R3); the
-  axum edge answers each tenant from its own state (R4); the world ticks on a
+  (R2). Runs enter the world through the journal as `RunFeed` events (R3). The
+  axum edge answers each tenant from its own state (R4). The world ticks on a
   `WakeHandle` wake or an `Observe::cadence` deadline, never a fixed poll (R5).
 - The process driver's warm path takes no lock.
 

@@ -16,16 +16,16 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
       }
   }
   ```
-  The list is a `static` built at compile time — no constructor to call, no
-  global to mutate, so two components cannot race to register a domain and the
-  set a binary can run is readable from its source. `Source` and `Action` are
+  The list is a `static` built at compile time. There is no constructor to call and no
+  global to mutate. So two components cannot race to register a domain, and the
+  set a binary can run is readable from its source. The types `Source` and `Action` are
   the erased handles a constructor returns, and `build_source`/`build_action`
   refuse an unlisted identifier with `BotError::UnregisteredDomain`, escaped
   because the name came from the document.
   - **A declarative list, not a proc macro.** The mapping is data a reader can
     see whole. `domains!` is `macro_rules!`, so this adds no dependency and
-    leaves the repo's stated position on the `syn` stack untouched —
-    `lgwks-std/Cargo.toml` records that policy, and it still holds. A `bot!`
+    leaves the repo's stated position on the `syn` stack untouched.
+    The file `lgwks-std/Cargo.toml` records that policy, and it still holds. A `bot!`
     proc-macro remains deliberately absent for the second reason it always had:
     it would hide the per-call `Auth::check` that auditors read.
   - **The registry is not a permission.** It answers which constructor an
@@ -63,7 +63,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     reinterpreted.
   - **The unknown-kind diagnostic reads differently on each path.** JSON checks a
     variant name against nothing, so `BotError::UnknownNodeKind` names the node
-    and the kind it carried; RON checks the name against the variant list it is
+    and the kind it carried. RON checks the name against the variant list it is
     handed and refuses before our own visitor runs, so its refusal names the
     variant and the enum but cannot name the node. Both refuse; only what each
     can say differs.

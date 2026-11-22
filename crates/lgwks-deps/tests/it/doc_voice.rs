@@ -45,3 +45,38 @@ fn a_page_for_people_sells_nothing() -> TestResult {
     assert_eq!((on(3), on(5), on(7), on(10)), (1, 1, 0, 0), "{printed}");
     Ok(())
 }
+
+/// The Director's order of 2026-11-22 ("THERE SHOULD BE 0 LINT FINDINGS",
+/// "ALWAYS"): the shipped `check-docs` audits every page of this repository,
+/// records included, and names no file but `AGENTS.md`. The contract hook seals
+/// that file, so its fix waits on the Director naming it. A run that neither
+/// passes nor prints its finding count fails, so a crash cannot read as clean.
+#[test]
+fn the_whole_tree_reads_zero_findings() -> TestResult {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let run = Command::new(env!("CARGO_BIN_EXE_check-docs"))
+        .arg(&root)
+        .output()?;
+    let printed = format!(
+        "{}{}",
+        String::from_utf8_lossy(&run.stdout),
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        run.status.success() || printed.contains("documentation finding(s)"),
+        "{printed}"
+    );
+    let outside = printed
+        .lines()
+        .map(str::trim_start)
+        .filter(|line| {
+            let mut parts = line.splitn(3, ':');
+            let (Some(path), Some(number)) = (parts.next(), parts.next()) else {
+                return false;
+            };
+            number.parse::<usize>().is_ok() && path != "AGENTS.md"
+        })
+        .count();
+    assert_eq!(outside, 0, "{printed}");
+    Ok(())
+}
