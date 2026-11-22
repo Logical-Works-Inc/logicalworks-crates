@@ -48,10 +48,15 @@ fn draw(sim: &mut sim::Sim, len: usize) -> Result<usize, Box<dyn Error>> {
     Ok(usize::try_from(sim.rng().below(bound))?)
 }
 
+/// The most path bytes one allowlist names in all, restated from the
+/// documented rule: 1 MiB, half of Linux's default `ARG_MAX`.
+const TOTAL_PATH_BYTES: usize = 1 << 20;
+
 /// The model's verdict on one drawn rule list, restated from the documented
 /// rule rather than read from the implementation.
 fn model_valid(paths: &[String]) -> bool {
     (1..=LandlockRules::MAX_RULES).contains(&paths.len())
+        && paths.iter().map(String::len).sum::<usize>() <= TOTAL_PATH_BYTES
         && paths.iter().all(|path| {
             path.starts_with('/')
                 && path.len() <= LandlockRules::MAX_PATH_BYTES
@@ -173,17 +178,12 @@ fn an_allowlist_off_linux_starts_nothing() -> TestResult {
     Ok(())
 }
 
-/// The system directories a shell and `cat` need to load, granted read-only.
+// The one probe `examples/landlock_cost.rs` times too; only this module uses it.
 #[cfg(target_os = "linux")]
-fn system_rules() -> LandlockRules {
-    let mut rules = LandlockRules::new();
-    for dir in ["/usr", "/bin", "/lib", "/lib64", "/etc"] {
-        if Path::new(dir).exists() {
-            rules.allow(dir, PathAccess::Read);
-        }
-    }
-    rules
-}
+#[path = "../support/landlock_probe.rs"]
+mod landlock_probe;
+#[cfg(target_os = "linux")]
+use landlock_probe::system_rules;
 
 #[test]
 #[cfg(target_os = "linux")]
@@ -389,21 +389,79 @@ fn a_hundred_tenants_never_read_each_other() -> TestResult {
     tenants_at(100)
 }
 
+/// A thousand-rule allowlist is applied whole by the kernel: the child reads the
+/// first and the last granted directory and is refused the one left out. The
+/// count is a 500-entry home folder walked from `/` with margin (larry#382,
+/// #1114); `examples/landlock_cost.rs` times the same spawn.
+#[test]
+#[cfg(target_os = "linux")]
+fn a_thousand_rule_allowlist_is_applied_by_the_kernel() -> TestResult {
+    const RULES: usize = 1_000;
+    let dir = crate::scratch::Scratch::new("landlock-thousand")?;
+    let probe = landlock_probe::probe(dir.path(), RULES)?;
+    assert_eq!(probe.full.rules().len(), RULES, "exactly a thousand rules");
+    let runtime = Runtime::new()?;
+    let mut supervisor = Supervisor::new(1);
+    // The few-rule baseline grants the same two ends, so it must agree.
+    for rules in [probe.full, probe.few] {
+        let count = rules.rules().len();
+        let mut spec = ProcessSpec::new("/bin/sh");
+        spec.arg("-c").arg(&probe.script);
+        spec.confinement(Confinement::Landlock(rules));
+        let run = runtime.block_on(supervisor.run_process(&spec))?;
+        assert_eq!(
+            run.exit_code(),
+            Some(0),
+            "under {count} rules the child read both ends and was refused the one left out"
+        );
+    }
+    Ok(())
+}
+
 /// Each bound is inclusive: exactly the maximum is accepted and one past it is
-/// refused, for the rule count, the path length and the profile source.
+/// refused, for the rule count, the summed path bytes, the path length and the
+/// profile source. The count holds a 500-entry home folder walked from `/` with
+/// margin (larry#382, #1114), and the byte sum keeps the wrapper's argv inside
+/// Linux's 2 MiB `ARG_MAX` (execve(2), `E2BIG`).
 #[test]
 fn every_bound_admits_its_maximum_and_refuses_one_past_it() -> TestResult {
     use lgwks_bot::rt::process::SandboxProfile;
 
+    assert_eq!(LandlockRules::MAX_RULES, 4_096, "the documented rule count");
     let mut rules = LandlockRules::new();
     for _ in 0..LandlockRules::MAX_RULES {
         rules.allow("/srv", PathAccess::Read);
     }
     rules.validate()?;
     rules.allow("/srv", PathAccess::Read);
+    let refused = rules
+        .validate()
+        .err()
+        .ok_or("one rule past the maximum is refused")?;
+    assert_eq!(refused.kind(), std::io::ErrorKind::InvalidInput);
     assert!(
-        rules.validate().is_err(),
-        "one rule past the maximum is refused"
+        refused.to_string().contains("1..=4096 rules, got 4097"),
+        "the refusal names the bound and the count: {refused}"
+    );
+
+    // 256 paths of 4,096 bytes fill the byte bound exactly.
+    let full = format!(
+        "/{}",
+        "a".repeat(LandlockRules::MAX_PATH_BYTES.saturating_sub(1))
+    );
+    let mut bytes = LandlockRules::new();
+    for _ in 0..TOTAL_PATH_BYTES.div_euclid(LandlockRules::MAX_PATH_BYTES) {
+        bytes.allow(&full, PathAccess::Read);
+    }
+    bytes.validate()?;
+    bytes.allow("/", PathAccess::Read);
+    let refused = bytes
+        .validate()
+        .err()
+        .ok_or("one byte past the sum is refused")?;
+    assert!(
+        refused.to_string().contains("1048577 path bytes"),
+        "the refusal names the summed bytes: {refused}"
     );
 
     let longest = format!(

@@ -91,7 +91,8 @@ holds the child and every descendant, a `setsid` escapee included:
   (`crates/lgwks-bot/src/rt/process/confine.rs:83`).
 - `Confinement::Landlock` (Linux) runs it under util-linux `setpriv`, 2.40 or
   later, with a deny-by-default filesystem allowlist: `LandlockRules::allow(path,
-  PathAccess::Read | ReadWrite)`, at most 64 rules
+  PathAccess::Read | ReadWrite)`, at most 4,096 rules whose paths sum to at
+  most 1 MiB, so the `setpriv` argv fits Linux's `ARG_MAX` (ADR 0072)
   (`crates/lgwks-bot/src/rt/process/confine.rs:295`). Grant the child's
   program and libraries (`/usr`, `/lib`, `/etc`) read-only and its work tree
   read-write; anything unnamed is refused by the kernel with `EACCES`.

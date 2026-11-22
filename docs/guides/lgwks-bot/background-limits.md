@@ -62,16 +62,22 @@ not reported as one that finished, cooperative cancellation and abort are told
 apart, and a shutdown that outlives the report cap still hands every outcome
 over.
 
-`crates/lgwks-bot/tests/it/rt_process.rs` is the black-box acceptance for
-`spawn_process`, run with `--features full`: a zero exit reports `Completed`, a
-non-zero exit reports `Failed` with its status and counts in `Stats::failed`, a
-cancelled command is killed **with its grandchild** — a shell records both its own
-and its backgrounded `sleep`'s pid, and the test asserts both are gone — and a
-command that cannot start returns `NotFound` without consuming a slot.
-`crates/lgwks-bot/tests/it/rt_async_tier.rs` holds the drain regression: on a real
-multi-threaded runtime, a body that returns on its cancellation is reported
-`Cancelled` and not `Aborted`.
-`crates/lgwks-bot/tests/it/sim_landlock.rs` is the Landlock acceptance on
-Linux: seeded grant sets decide every read for the child and its `setsid -w`
-grandchild, 16 and 100 concurrent tenants never read each other's files, and
-invalid, missing-path and foreign-platform allowlists start nothing.
+The black-box acceptance for `spawn_process` is
+`crates/lgwks-bot/tests/it/rt_process.rs`, run with `--features full`. A zero
+exit reports `Completed`, and a non-zero exit reports `Failed` with its status
+and counts in `Stats::failed`. A cancelled command is killed **with its
+grandchild**: a shell records both its own and its backgrounded `sleep`'s pid,
+and the test asserts both are gone. A command that cannot start returns
+`NotFound` without consuming a slot.
+
+The drain regression is in `crates/lgwks-bot/tests/it/rt_async_tier.rs`: on a
+real multi-threaded runtime, a body that returns on its cancellation is
+reported `Cancelled` and not `Aborted`.
+
+The Landlock acceptance on Linux is `crates/lgwks-bot/tests/it/sim_landlock.rs`.
+Seeded grant sets decide every read for the child and its `setsid -w`
+grandchild, and 16 and 100 concurrent tenants never read each other's files.
+The kernel applies a 1,000-rule allowlist whole, and invalid, missing-path and
+foreign-platform allowlists start nothing. The example
+`crates/lgwks-bot/examples/landlock_cost.rs` times that 1,000-rule spawn at
+p50, p95 and p99.

@@ -107,5 +107,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0069](0069-every-hosted-toolchain-carries-the-wrapper.md) | Every hosted toolchain carries the clippy wrapper the cargo config names |
 | [0070](0070-a-model-call-is-a-durable-step.md) | A model call is a durable step: a resume replays the answer and never pays twice |
 | [0071](0071-a-justify-token-rule-bounds-a-runs-model-spend.md) | A `justify` token rule bounds a run's model spend: reserve before the call, settle to the bill |
+| [0072](0072-a-landlock-allowlist-holds-4096-rules.md) | A Landlock allowlist holds 4,096 rules and 1 MiB of path bytes, refused before the fork |
 
 New records go at the bottom of that table.
