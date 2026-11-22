@@ -20,14 +20,14 @@ resolver = "2"
 # crates.io.
 # ─────────────────────────────────────────────────────────────────────────────
 [workspace.dependencies]
-lgwks_std = { version = "4.2.1", path = "crates/lgwks-std" }
+lgwks_std = { version = "5.0.0", path = "crates/lgwks-std" }
 # Drishti's command orchestrates through `script!`; members opt into features.
-lgwks_bot = { version = "9.0.0", path = "crates/lgwks-bot", default-features = false }
-lgwks_ast = { version = "6.1.0", path = "crates/lgwks-ast" }
-lgwks_macros = { version = "2.1.3", path = "crates/lgwks-macros" }
+lgwks_bot = { version = "10.0.0", path = "crates/lgwks-bot", default-features = false }
+lgwks_ast = { version = "6.1.1", path = "crates/lgwks-ast" }
+lgwks_macros = { version = "2.1.4", path = "crates/lgwks-macros" }
 # The storefront's default selection is empty; dependents opt into storefront
 # features such as `tokio` explicitly.
-lgwks_deps = { version = "7.3.0", path = "crates/lgwks-deps", default-features = false }
+lgwks_deps = { version = "8.0.0", path = "crates/lgwks-deps", default-features = false }
 
 [profile.release]
 opt-level = 3

@@ -148,6 +148,24 @@ fn context7_tags_the_newest_release() -> TestResult {
             "context7.json lists no tag {tag}"
         );
     }
+    // Every manifest version is tagged too, one tag per crate. The newest row
+    // alone let a crate that did not move in that cut keep an older tag: on
+    // 2026-11-21 the index named `lgwks_bot-v8.4.0` and `drishti-v0.1.5` while
+    // the manifests carried 9.0.0 and 0.2.0.
+    for directory in CRATES {
+        let (name, version) = identity(directory)?;
+        let tag = format!("{name}-v{version}");
+        assert!(
+            tags.contains(&tag.as_str()),
+            "context7.json lists no tag {tag}, the manifest version"
+        );
+        let prefix = format!("{name}-v");
+        let of_crate = tags.iter().filter(|held| held.starts_with(&prefix)).count();
+        assert_eq!(
+            of_crate, 1,
+            "context7.json lists {of_crate} tags for {name}, not one"
+        );
+    }
     Ok(())
 }
 

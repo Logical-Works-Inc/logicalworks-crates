@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_deps"
 description = "Dependency admission, supply-chain policy, and debugger-doctor CLI for a Rust workspace: every external edge and default trace install is verified."
-version = "7.3.0"
+version = "8.0.0"
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
@@ -296,7 +296,7 @@ rustls = { version = "0.23.46", default-features = false, features = ["std", "tl
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider"], optional = true }
 rmcp = { version = "3.9.0", default-features = false, features = ["server", "client", "transport-io", "transport-child-process", "transport-streamable-http-server", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"], optional = true }
 genai = { version = "0.7.4", default-features = false, optional = true }
-jsonschema = { version = "0.61.2", default-features = false, optional = true }
+jsonschema = { version = "0.62.0", default-features = false, optional = true }
 oauth2 = { version = "5.0.0", default-features = false, optional = true }
 coset = { version = "0.4.2", default-features = false, optional = true }
 ct-merkle = { version = "0.3.0", default-features = false, optional = true }
