@@ -9,11 +9,9 @@ Part of [production readiness](../production-readiness.md), §4, nine axes.
   by any single `#[allow]` anywhere, including one smuggled in by a macro this
   workspace does not own. A `forbid` cannot be lowered from source, and a
   conflicting allow is a hard `E0453`.
-- The anti-pattern corpus's 75 entries against 75 configured lints (68 `clippy`,
-  6 `rustc`, 1 `rustdoc`); the four names in the corpus that silently do nothing
-  are corrected. The rest need Miri, perf counters, allocation profiling or
-  human review. The corpus and the lint table are not a partition: see
-  `CODEBOOK.md` §2.3. The ceiling is published rather than claimed.
+- The lint table in the root `Cargo.toml`. Its counts, the four corpus names that
+  silently did nothing, and what no lint can catch (Miri, perf counters, allocation
+  profiling, review) are [`lints.md`](../codebook/lints.md) §2.2 and §2.3.
 - Every `#[allow]` and `#[expect]` must carry `reason = "..."`.
 - `clippy --workspace --all-targets --locked -- -D warnings` is a required gate
   lane and is green, across a feature matrix and a `--no-default-features` pass.

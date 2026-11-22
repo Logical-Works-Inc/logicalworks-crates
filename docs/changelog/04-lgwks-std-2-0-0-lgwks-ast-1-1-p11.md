@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 11 of 20. [Changelog index](../../CHANGELOG.md)
 
-## lgwks_deps — the policy refusals report what the register said (continued)
+## lgwks_deps: the policy refusals report what the register said (continued)
 
 - **`declared_scope` is published.** Cargo spells an unconditional dependency
   with no `target` key; the register spells the same declaration `target = ""`
@@ -13,7 +13,7 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
 - **A drift refusal carries the bit the entry authored.** `DefaultFeaturesDrift`
   and `OptionalityDrift` reported `approved` as a plain `bool` the gate filled with
   `unwrap_or(true)` / `unwrap_or(false)`. The refusal only exists for an *authored*
-  dimension, so the invented bit was never the answer — it is `Option<bool>` now,
+  dimension, so the invented bit was never the answer. It is `Option<bool>` now,
   and the message prints the bit the register carries.
 - **A target refusal names both sides in the register's vocabulary.** An authored
   `target = ""` and an absent `target` key both print `<none>`, through one named
@@ -32,24 +32,24 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
 
 New regression test: `seeded_scope_pairs_render_both_spellings_of_an_unconditional_edge`
 (`tests/it/sim_policy_properties.rs`) drives the public API over every scope pairing
-the register grammar admits, one seed for both draws, and asserts the rendered
-refusal text — a refusal printing `""` for an unconditional edge would pass every
+the register grammar admits, with one seed for both draws. It asserts the rendered
+refusal text. A refusal printing `""` for an unconditional edge would pass every
 verdict assertion and be unreadable to the operator who has to act on it.
 
 `python3 scripts/check-std-first.py`: std-first holds, 357 source files.
 `python3 scripts/check-doc-citations.py`: 100 pinned lines across 13 pages, all
 unchanged. `cargo clippy -p lgwks_deps --all-targets` passes on both
 `--all-features` and `--no-default-features`. 303 crate tests pass.
-## lgwks_deps — the metadata collection answers for what it could not read
+## lgwks_deps: the metadata collection answers for what it could not read
 
 - **`poll_quantum` parks instead of sleeping.** The `#[expect(clippy::disallowed_methods)]`
   on `std::thread::sleep` named a substitution where the ban already names a
   replacement: `std::thread::park_timeout`, which is the bounded synchronous
   wait in a crate with no reactor to block.
 - **A dependency the `--no-deps` read never resolved keeps no licence record.**
-  `direct_edges` wrote `DeclaredLicense { license: None, license_file: None }` for
-  a package that read did not see, which is indistinguishable from a package
-  that declares no licence — the one thing the licence audit (#208) exists to
+  The function `direct_edges` wrote `DeclaredLicense { license: None, license_file: None }` for
+  a package that read did not see. That is indistinguishable from a package
+  that declares no licence, which is the one thing the licence audit (#208) exists to
   tell apart. The fields stay `None` and the audit refuses an edge whose terms
   are unknown.
 - **`Instant::checked_add` failing is not a deadline that expired.** The old
@@ -70,7 +70,7 @@ refusals, exit 0, with the same contract and subject digests as before;
 `lgwks-deps invariants .` resolves 4 invariants; `lgwks-deps scan` reports 383
 files and zero findings. 176 lib tests pass, including the real-process deadline,
 descendant-capture and flood families.
-## lgwks_deps — the invariant register answers for what it did not read
+## lgwks_deps: the invariant register answers for what it did not read
 
 `build` read `id` through `.map_or_else(|| "<unnamed>".to_owned(), …)`, so every
 refusal about a block that declared no identifier named an invariant no register
@@ -81,7 +81,7 @@ required field "id"`.
 Five more readers each resolved an absent value to a stand-in:
 
 - **`lint_table` names both spellings.** `[workspace.lints.clippy]` and
-  `[lints.clippy]` declare one namespace — the second inherited by every member —
+  `[lints.clippy]` declare one namespace (the second is inherited by every member),
   and the equivalence is now written as two arms rather than as a default.
 - **`lint_level` states the terminator's two cases**: the level ends at the first
   `,` or `}`, or runs to the end of the tail when the writer closed the table on
@@ -103,10 +103,10 @@ Verified end to end: `lgwks-deps invariants .` on this repository resolves 4
 invariants; a truncated register reports `line 1: invariant block is missing
 required field "id"`, and a named block reports its own line. 176 lib tests and
 44 register tests pass.
-## lgwks_deps — a `cfg` the scanner cannot evaluate is its own verdict
+## lgwks_deps: a `cfg` the scanner cannot evaluate is its own verdict
 
 The `test`-scope detectors decided "is this item test-only?" by evaluating its
 `cfg` expression under every assignment of its free atoms. An atom the
 assignment had not recorded was read as `true`, which made the expression easier
-to satisfy and so kept the item in scope — the safe direction, and a value the
+to satisfy and so kept the item in scope. This was the safe direction, and a value the
 expression never had. `unwrap_or(true)` hid that from every caller above it.

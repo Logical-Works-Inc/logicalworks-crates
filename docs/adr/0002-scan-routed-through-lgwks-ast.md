@@ -3,17 +3,17 @@
 Status: **accepted**, 2026-10-12. Issue: #408. Supersedes the "Not yet routed"
 consequence of `0001-one-rust-reader.md`, which is not edited.
 
-Stakeholders: the Director; the gate's author; a contributor whose file the scan reads; a consumer reading a refusal
+Stakeholders: the Director; the gate's author; a contributor whose file the scan reads; a consumer reading a refusal.
 Concerns: a refused file must not end the walk or abort the run; the gate must hold one reader; a detector port must agree verdict for verdict with the reader it replaces
 Requirements: R8, R13
-Viewpoint: the detector viewpoint — one view per reader, each view the finding count, the wall time and the peak RSS over one corpus
+Viewpoint: the detector viewpoint: one view per reader, each view the finding count, the wall time and the peak RSS over one corpus
 Elements and relations: `lgwks_ast::scan`, its five detectors, the `lgwks-ast scan` command, the `scan` lane and `contract/APPROVED.toml`; relations: `lane runs command`, `command runs detectors`, `detector reads through parser`
 
 ## Context
 
-ADR 0001 measured the two Rust readers and chose `lgwks_ast`'s, but its own
+ADR 0001 measured the two Rust readers and chose `lgwks_ast`'s. Its own
 "not yet routed" consequence left the `scan` gate still reading with `syn`, with
-both measured hazards open: memory that grows with the corpus, and an abort on
+both measured hazards open. The hazards are memory that grows with the corpus, and an abort on
 deeply nested input. `lgwks_deps` could not host the port: `lgwks_ast`'s `script`
 feature depends on it, so the reverse edge is a cycle Cargo refuses. This record
 is that routing.

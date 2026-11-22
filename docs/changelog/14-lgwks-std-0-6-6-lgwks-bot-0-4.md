@@ -15,7 +15,7 @@ Documentation release. No API change in any crate. This supersedes 0.6.5 / 0.4.1
   companion repositories, references to an internal governance file, and
   citations to internal issue numbers that a public reader cannot resolve.
 - Em dashes across `crates/**/*.rs`: 316 to 56. The 20 that remain on
-  doc-comment lines are the ``- `item` — description`` form in feature and
+  doc-comment lines are the item, dash, description form in feature and
   module lists, which reads as a definition list rather than as prose
   punctuation. The 36 on code lines are the separator in error-message format
   strings, which are program output rather than prose; they are left unchanged

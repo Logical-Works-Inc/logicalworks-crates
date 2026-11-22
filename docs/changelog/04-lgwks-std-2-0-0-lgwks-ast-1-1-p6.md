@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 6 of 20. [Changelog index](../../CHANGELOG.md)
 
-## lgwks_bot — BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep) (continued)
+## lgwks_bot, BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep) (continued)
 
 **Breaking.** `EffectKey::new(run, action, attempt, flow, digest, environment,
 epoch)` is removed. A key is built only as
@@ -59,7 +59,7 @@ The tests (`crates/lgwks-bot/tests`, and the `seed.rs` substrate `lgwks_ast` and
 - **Every fixture compiles under exactly the features its callers need.**
   The parked-device instrument is `support/liveness.rs` (`rt`); the durable
   resume scaffolding is `support/resume.rs` (`script` + `ephemeral`); the
-  compile probe's positive control and lint pass are `script`-only; `lgwks_ast`
+  compile probe's positive control and lint pass are `script`-only. The crate `lgwks_ast`
   includes the seed substrate under `lang-rust`. `attempt_key_at` was one
   family's, and that family now moves the shared key with
   `EffectIdentity::at_epoch`.
@@ -116,4 +116,4 @@ $ cargo nextest run -p lgwks_std --all-targets --locked --features full
 The `full` lane's 337 s is over the five-minute gate budget; it was 331–385 s
 before this change, and that is still open.
 
-## lgwks_std — the nine-axis sweep: the ceiling assertion asserts, so the scan gate sees no unlogged refusal (9-axis sweep)
+## lgwks_std, the nine-axis sweep: the ceiling assertion asserts, so the scan gate sees no unlogged refusal (9-axis sweep)

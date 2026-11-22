@@ -6,7 +6,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 
 - **Punctuation normalization turned a negative integer into a positive match**
   (`lgwks_bot`). The fold maps `-5` and `5` to the same normalized form, so an
-  answer of `-5` resolved at the `Exact` tier to the option `5` — the sign was
+  answer of `-5` resolved at the `Exact` tier to the option `5`. The sign was
   discarded before anything compared it. Answers now carry a declared domain
   (`AnswerDomain::{Label, Integer}`, derived from the variable's type), and an
   integer question is resolved by decoding the utterance and comparing *values*.
@@ -20,7 +20,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   mixture reported `Ambiguous` for an answer typed in full. Precedence is now
   resolved over the whole candidate set first: the best tier present wins,
   everything below it is dropped, and the margin applies only inside that tier.
-  `Resolution::Ambiguous` carries the tier it tied in, because two exact
+  The variant `Resolution::Ambiguous` carries the tier it tied in, because two exact
   candidates folding to one form, two phonetic candidates sharing a key, and two
   fuzzy candidates inside the margin are three different ties.
 - **A learned alias bound to an option's position** (`lgwks_bot`). The table
@@ -35,8 +35,8 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   footprint, and the bot's preview limit was a post-hoc trim of an arbitrary
   allocation. The read is now bounded *while* reading: each window is clamped to
   what remains of a declared ceiling, so no buffer exceeds it. The overflow
-  policy is a typed choice — `BodyPolicy::Whole` refuses past the limit with
-  `Error::BodyTooLarge`, `BodyPolicy::Preview` keeps the prefix and reports
+  policy is a typed choice: `BodyPolicy::Whole` refuses past the limit with
+  `Error::BodyTooLarge`, and `BodyPolicy::Preview` keeps the prefix and reports
   `Truncation::{Complete, Cut}`. The bot selects `Preview` because a body larger
   than a preview is the normal case for a live endpoint, and its ceiling is
   derived from the preview size so the two numbers cannot drift.
@@ -47,9 +47,9 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   is gone.
 - **`--contract FILE` also became the audit target** (`lgwks_deps`). An
   invocation naming a register could audit the wrong tree and return a success
-  verdict for it. `check` now parses its own arguments in one consuming pass,
-  refusing a missing value, an option used as a value, a repeated override, a
-  surplus positional and an unknown flag — with nothing audited. A *relative*
+  verdict for it. The command `check` now parses its own arguments in one consuming pass.
+  It refuses a missing value, an option used as a value, a repeated override, a
+  surplus positional and an unknown flag, with nothing audited. A *relative*
   target was additionally resolved against two different working directories
   because `--manifest-path` is resolved by cargo against cargo's own cwd; it is
   now made absolute before the child sees it.
@@ -57,14 +57,14 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 - **A clean tick could mean work had been silently abandoned** (`lgwks_bot`).
   The `fire` system selected on `Changed<Revision>` and the revision was
   committed before anything ran, so a mid-chain failure marked the source
-  handled: untried entries were never reached while the source held still, a
+  handled. Untried entries were never reached while the source held still, a
   failure in the first chain stopped every later chain, and `tick` returned
   `Ok`. Eligible work now lives in a ledger keyed by chain and entry, and the
   revision only *opens* a transition. The walk resumes at the first unresolved
   entry and never replays an acknowledged effect to reach a successor.
-  `tick` returns `Err(PendingTransition { work, outstanding })` when work is
+  The call `tick` returns `Err(PendingTransition { work, outstanding })` when work is
   held and nothing failed, so a clean tick now means nothing is held.
-  `RetryPolicy` bounds attempts with a spent budget abandoning the entry rather
+  The type `RetryPolicy` bounds attempts with a spent budget abandoning the entry rather
   than retrying forever, and an effect that may have happened is never
   re-attempted without `resolve_effect` supplying evidence.
 - **A selector could starve every permitted host** (`lgwks_bot`).
@@ -84,7 +84,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 - `DegradedReason::UnmeasurableEmbedding` (`lgwks_bot`) and
   `CosineError::NonFinite` (`lgwks_std`). A vector no angle can be computed from
   is reported apart from an unavailable embedder, because the causes and the
-  repairs differ — nothing is down, one of the vectors is degenerate. Both enums
+  repairs differ: nothing is down, one of the vectors is degenerate. Both enums
   are `#[non_exhaustive]`, so these variants are additive.
 
 - Nine `BotError` variants (`lgwks_bot`): `AskOptionNotAssignable`,

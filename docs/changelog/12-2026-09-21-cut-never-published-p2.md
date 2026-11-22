@@ -40,25 +40,26 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   its own repair** (owner direction, 2026-09-21). The check returned at the first
   ungranted capability, so repairing a bot was a loop: grant what you were told,
   rebuild, be told the next word. Each individual refusal was true and the
-  sequence was still the wrong instrument, because the gate had already computed
-  the whole difference — the required set minus the granted set — and reported
-  only its head. `Deficit` is that difference reported in full, `Shortage` names
-  the domain that declared each requirement, and `Deficit::to_grant_set` turns
-  the diagnostic back into the grant set that closes it, so the repair is derived
-  rather than transcribed. This is the shape the owner asked for explicitly:
-  isolate what is missing at the point of the attempt, hand back the missing
-  pieces, and continue — not a build loop that refuses one word at a time.
+  sequence was still the wrong instrument. The gate had already computed
+  the whole difference (the required set minus the granted set) and reported
+  only its head. The type `Deficit` is that difference reported in full, and
+  `Shortage` names the domain that declared each requirement. The call
+  `Deficit::to_grant_set` turns the diagnostic back into the grant set that
+  closes it, so the repair is derived rather than transcribed. This is the shape
+  the owner asked for explicitly: isolate what is missing at the point of the
+  attempt, hand back the missing pieces, and continue, not a build loop that
+  refuses one word at a time.
 - **A run-time capability hold was designed, built, and then removed as
   unreachable.** The step after a total refusal is the natural one: deny an
   action at run time, hold the entry, let the caller supply the capability, and
   continue from that point rather than restarting the chain. It cannot be
-  reached, and the reason is structural rather than incidental. `assemble` admits
-  every declared requirement before the world exists, and every per-call proof is
-  minted from **the same list** — `run_any` issues
+  reached, and the reason is structural rather than incidental. The call
+  `assemble` admits every declared requirement before the world exists, and
+  every per-call proof is minted from **the same list**. There `run_any` issues
   `grants.issue(self.0.required_caps())` and the action checks
-  `call.0.check(self.required_caps())` — so the declaration and the check cannot
-  disagree, and nothing narrows `Grants` after `assemble`. `Auth::check` cannot
-  fail inside a running bot. The hold was removed rather than shipped behind a
+  `call.0.check(self.required_caps())`. So the declaration and the check cannot
+  disagree, and nothing narrows `Grants` after `assemble`. The check `Auth::check`
+  cannot fail inside a running bot. The hold was removed rather than shipped behind a
   contrived test, and the finding is recorded in
   `docs/guides/lgwks-bot/authority.md` with its line citations.
 - **The gap the hold was reaching for is the opposite one, and it is real: an
@@ -78,7 +79,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     because the doctrine and the instruction to reuse existing open source point
     at different rungs. It was taken against a finding recorded in full in §9:
     the tick is already deterministic by construction, so a seeded scheduler has
-    no caller until the recorder lands. One consequence is named there too — a
+    no caller until the recorder lands. One consequence is named there too: a
     seeded PRNG needs a carve-out from INV-RANDOM-ONE-SOURCE, argued in the
     module rather than assumed at the call site.
   - **The `Time<Virtual>` clock root (§10 step 4) is closed as already
@@ -112,5 +113,5 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   derives the macros from here as before.
 - **`Digest` carries the archive derives behind `wire`.** Thirty-two bytes with
   no indirection, so it archives in place and any record that contains one
-  reaches it without a pointer — which is the property that makes the journal's
+  reaches it without a pointer, which is the property that makes the journal's
   chain head a value a reader can compare against without decoding the record.

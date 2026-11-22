@@ -32,7 +32,7 @@ job running:
 | per-file parse p50 / p99 / max | 117 µs / 4.9 ms / 34 ms | 204 µs / 8.8 ms / 58 ms |
 | one round over the corpus | 3.1 s | 5.4 s |
 | peak RSS, one reader per process | **1,080 MB** | **51 MB** |
-| peak RSS, `syn` releasing spans after each parse | 311 MB | — |
+| peak RSS, `syn` releasing spans after each parse | 311 MB | n/a |
 | balanced nesting, depth 1,000 | accepted | refused: depth bound (512) |
 | depth 10,000, 100,000 and 1,000,000 | **stack overflow: the process aborts (exit 134)** | refused: depth bound, in 3 ms, 34 ms and 345 ms |
 

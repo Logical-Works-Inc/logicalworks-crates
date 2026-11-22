@@ -8,7 +8,7 @@ other change below is additive, and every enum that gained a variant is
 a refusal now added (#265) no longer compiles. That is a correction to the
 guard, recorded here as a minor bump rather than hidden in a patch.
 
-## lgwks_std — Digest equality measured constant-time (#275)
+## lgwks_std: Digest equality measured constant-time (#275)
 
 - `Digest`'s `==` now delegates to `blake3::Hash`'s equality, the
   `constant_time_eq` routine behind an optimisation barrier, instead of a
@@ -39,7 +39,7 @@ guard, recorded here as a minor bump rather than hidden in a patch.
 - `lgwks_bot`'s `process` feature no longer enables
   `lgwks_deps/process-group-probe`.
 
-## lgwks_bot — fan-out, journal status, process stdio (#257, #259, #260)
+## lgwks_bot: fan-out, journal status, process stdio (#257, #259, #260)
 
 - `script::FanOut` and `script::FanOutError`: a one-call fan-out over `script::each`, bounded
   by `at_most(limit)` and `within(deadline)`, whose error names the failing
@@ -53,7 +53,7 @@ guard, recorded here as a minor bump rather than hidden in a patch.
 - `rt::runtime::Builder::thread_stack_size`, bounded by
   `MAX_THREAD_STACK_SIZE` (256 MiB).
 
-## lgwks_deps — attestation bound to the tree under review (#258)
+## lgwks_deps: attestation bound to the tree under review (#258)
 
 - `invariants::Status::Attested` is refused unless the recorded revision is
   in the history of `HEAD` and the enforcer is unchanged since then. The
@@ -66,18 +66,18 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   default features off). No shipped artifact links it.
 - New property targets, each from one fixed seed with failures persisted
   under `proptest-regressions/`, and each paired with a mutant it must catch
-  and shrink: `lgwks_std` `prop_codecs` (hex, base64, percent, leb128,
-  RFC 3339, wire, and glob against a regex oracle); `lgwks_bot` `prop_journal`
+  and shrink. For `lgwks_std` the target is `prop_codecs` (hex, base64, percent, leb128,
+  RFC 3339, wire, and glob against a regex oracle). For `lgwks_bot` the targets are `prop_journal`
   (`recover()` over arbitrary proposal histories, refused appends, reopen)
-  and `prop_each` (order, in-flight bound, fail-fast); `lgwks_deps`
-  `prop_parsers` (register and lockfile round trips, duplicate keys); and
-  `lgwks_macros`' line splitter and indentation tree.
+  and `prop_each` (order, in-flight bound, fail-fast). For `lgwks_deps` the target is
+  `prop_parsers` (register and lockfile round trips, duplicate keys). For
+  `lgwks_macros` the targets are the line splitter and the indentation tree.
 - `lgwks_deps::lock::parse` refused nothing when a `[[package]]` block
   assigned `name`, `version`, `source` or `checksum` twice: the last
   assignment won. It now refuses with the new `LockError::DuplicateKey`, at
   the line of the second assignment.
 
-## lgwks_std — bounded blocking pool (#264)
+## lgwks_std: bounded blocking pool (#264)
 
 - `task::spawn_blocking` runs on one process-wide pool of at most 512 threads
   instead of one new OS thread per call. A job submitted while every thread is
@@ -92,14 +92,14 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   child that woke, so `n` children waking `k` times cost `n·(k+1)` polls
   rather than a scan of every pending child per wake.
 - A job that starts a pool thread is handed to it directly instead of through
-  the queue, so under the ceiling a job starts as fast as a thread of its own
+  the queue. So under the ceiling a job starts as fast as a thread of its own
   (p50 11 µs, p99 20–60 µs at 500 concurrent jobs, against 10–11 µs and
   19–20 µs before the pool). Past the ceiling a job waits for a thread: at
   10,000 × 20 ms jobs, p50 238 ms and p99 484 ms to start.
 - The pool's accounting (queued, live, idle, claimed wakeups) is a set of
   transitions a seeded simulation drives through every interleaving of
   submit, thread start and start failure, lost notify, spurious wake and
-  keep-alive expiry: every admitted job runs exactly once, a refused one
+  keep-alive expiry. Every admitted job runs exactly once, a refused one
   never, and the pool drains to nothing.
 
 ## lgwks_bot
@@ -110,4 +110,4 @@ guard, recorded here as a minor bump rather than hidden in a patch.
   polls against a full pool are all refused this way and send nothing; once
   the pool frees, the same ten thousand all run.
 
-## lgwks_macros — refusals by path, and lints the consumer enforces (#265)
+## lgwks_macros: refusals by path, and lints the consumer enforces (#265)

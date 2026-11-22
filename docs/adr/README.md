@@ -6,18 +6,18 @@ Prose review does not catch a missing field; a refusal does.
 
 | Field | 42010 clause | What it must say |
 |---|---|---|
-| `Status:` | 5.2 — an AD identifies its state | `proposed`, `accepted`, `superseded`, `rejected` or `deprecated`, and the `YYYY-MM-DD` it was decided |
-| `Stakeholders:` | 5.1 — stakeholders | who holds a concern about this decision |
-| `Concerns:` | 5.1 — concerns | the interest in the system this record answers |
-| `Requirements:` | 6.5 — rationale | the `REQUIREMENTS.md` ids (`R1`) the decision serves; a decision that traces to nothing is not one |
-| `Viewpoint:` | 5.2 — viewpoints | the model kind and conventions the view is written in |
-| `Elements and relations:` | 5.2 — views | the elements (crates, modules, features) and the relations between them the record describes |
-| `## Context` | 6.5 — rationale | the situation the decision answers |
-| `## Decision` | 6.5 — rationale | what was decided, in the imperative |
-| `## Alternatives rejected` | 8.2 — rationale | each credible alternative, why it lost, and what it cost |
-| `## Consequences` | 8.2 — rationale | what the decision costs, including what stays open |
-| `## Correspondence` | 7.3 — correspondence | the other records this one supersedes, refines or relates to |
-| `## Verification` | 8.3 — conformance | the test, gate or lane that holds the decision true, or `review only` with its owner |
+| `Status:` | 5.2: an AD identifies its state | `proposed`, `accepted`, `superseded`, `rejected` or `deprecated`, and the `YYYY-MM-DD` it was decided |
+| `Stakeholders:` | 5.1: stakeholders | who holds a concern about this decision |
+| `Concerns:` | 5.1: concerns | the interest in the system this record answers |
+| `Requirements:` | 6.5: rationale | the `REQUIREMENTS.md` ids (`R1`) the decision serves; a decision that traces to nothing is not one |
+| `Viewpoint:` | 5.2: viewpoints | the model kind and conventions the view is written in |
+| `Elements and relations:` | 5.2: views | the elements (crates, modules, features) and the relations between them the record describes |
+| `## Context` | 6.5: rationale | the situation the decision answers |
+| `## Decision` | 6.5: rationale | what was decided, in the imperative |
+| `## Alternatives rejected` | 8.2: rationale | each credible alternative, why it lost, and what it cost |
+| `## Consequences` | 8.2: rationale | what the decision costs, including what stays open |
+| `## Correspondence` | 7.3: correspondence | the other records this one supersedes, refines or relates to |
+| `## Verification` | 8.3: conformance | the test, gate or lane that holds the decision true, or `review only` with its owner |
 
 ## Rules
 

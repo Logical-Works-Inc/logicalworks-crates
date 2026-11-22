@@ -2,11 +2,11 @@
 
 Status: **superseded**, 2026-10-23. Plan: design-gate `b97012375d58a4a3`. It landed as 0003 (#736), and took 0005 when the #732 records took 0003 and 0004; the decision is unchanged.
 
-Stakeholders: the Director; the executing agent of each step below; a consumer of `lgwks_bot` outside Logical Works, when one exists
-Concerns: tokio is called the glue yet sits beside the core; a tick visits every source whether or not anything moved; the engines under the core are admitted, not owned
+Stakeholders: the Director; the executing agent of each step below; a consumer of `lgwks_bot` outside Logical Works, when one exists.
+Concerns: tokio is called the glue yet sits beside the core; a tick visits every source whether or not anything moved; the engines under the core are admitted, not owned.
 Requirements: R7, R3, R11
-Viewpoint: the module-dependency viewpoint — boxes are `lgwks_bot` modules and driver crates, arrows are `use` edges, and the rule is which arrows may exist
-Elements and relations: `ecs/`, the core modules (`verb`, `cap`, `gate`, `effect`, `journal`, `error`, `clock`, `spec`), `rt`, `task`, `script`, `domain`, tokio and `bevy_ecs`; relations: `driver wakes core`, `core emits an effect to the journal`, `core does not import a driver`
+Viewpoint: the module-dependency viewpoint: boxes are `lgwks_bot` modules and driver crates, arrows are `use` edges, and the rule is which arrows may exist.
+Elements and relations: `ecs/`, the core modules (`verb`, `cap`, `gate`, `effect`, `journal`, `error`, `clock`, `spec`), `rt`, `task`, `script`, `domain`, tokio and `bevy_ecs`; relations: `driver wakes core`, `core emits an effect to the journal`, `core does not import a driver`.
 
 ## Context
 
@@ -70,9 +70,9 @@ are where the replacements go in.
    owned executor; an owned readiness loop over epoll, kqueue and IOCP replaces tokio under `rt`
    when it matches it on a matched workload with printed numbers.
 2. **The ECS.** R1's seal limits the swap to `ecs/`. The contract an owned ECS must meet is the
-   measured behaviour in `docs/bot-on-ecs.md` sections 2, 3 and 5: `Changed<T>` fires only when the
-   value moved, effects land at a point the caller names, a schedule that cannot be ordered is
-   refused at build, and one seed replays one order.
+   measured behaviour in `docs/bot-on-ecs.md` sections 2, 3 and 5. A `Changed<T>` fires only when
+   the value moved, and effects land at a point the caller names. A schedule that cannot be ordered
+   is refused at build, and one seed replays one order.
 3. **The rest of the storefront.** Each `contract/APPROVED.toml` entry is replaced the same way.
 
 A replacement that loses its matched workload stays out. No date is set.
@@ -94,9 +94,9 @@ A replacement that loses its matched workload stays out. No date is set.
 - R1 removes an accessor, which is a breaking change: a major bump and no shim, by decision 5.
 - `bevy_ecs` stays pre-1.0 until ours replaces it; the seal makes that swap local to `ecs/`.
 - R4 brings another repository's history and its blocked proof gates into this workspace unchanged.
-- Not decided here: the names of any new crate (runtime, server, app framework), none is created by
-  this record; and the server and app half of the framework, since `codegraph` finds no router,
-  extractor, middleware or HTTP server in the repository, so it is built and not moved.
+- Not decided here: the names of any new crate (runtime, server, app framework). This record creates
+  none. Nor the server and app half of the framework: `codegraph` finds no router, extractor,
+  middleware or HTTP server in the repository, so it is built and not moved.
 
 ## Correspondence
 

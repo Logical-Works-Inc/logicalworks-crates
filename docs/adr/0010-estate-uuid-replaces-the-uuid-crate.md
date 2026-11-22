@@ -2,10 +2,10 @@
 
 Status: **accepted**, 2026-11-04. Answers gap #851 items 2 and 3; declines item 1; refines INV-ID-2.
 
-Stakeholders: the Director; logical-DB, whose ADR-0005 keeps `uuid` and `foundationdb-tuple`'s `uuid` feature until this lands; every estate crate that persists or keys by an identity
-Concerns: an identity that cannot be constructed without `Result` plumbing, or packed into a store key byte-identically to the bytes already stored
+Stakeholders: the Director; logical-DB, whose ADR-0005 keeps `uuid` and `foundationdb-tuple`'s `uuid` feature until this lands; every estate crate that persists or keys by an identity.
+Concerns: an identity that cannot be constructed without `Result` plumbing, or packed into a store key byte-identically to the bytes already stored.
 Requirements: R1, R10, R12
-Viewpoint: the capability viewpoint: one row per missing capability, its API, its bytes and its evidence
+Viewpoint: the capability viewpoint: one row per missing capability, its API, its bytes and its evidence.
 Elements and relations: `lgwks_std::id::Uuid`, `id::v7::{V7Generator, now_v7}`, `id::tuple`; `ci_local::scratch` names its volume with `Uuid::now_v7`; `lgwks id new|key|read` issues ids and packs and reads keys from the shell; logical-DB's model newtypes wrap `Uuid` and its FDB keys call `pack_tuple`
 
 ## Context

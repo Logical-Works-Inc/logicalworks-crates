@@ -7,10 +7,10 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 - **`effect`, the durable effect identity the ledger was missing: a settlement
   now names *which attempt* it is about.** The ECS ledger already settles an
   entry and already refuses a contradicting settlement. What it never carried is
-  identity: `EntryState::DefinitelyFailed` holds `attempts: u32`, so two
-  deliveries that both arrive as "attempt 3" are indistinguishable, and a repeat
+  identity. The state `EntryState::DefinitelyFailed` holds `attempts: u32`, so two
+  deliveries that both arrive as "attempt 3" are indistinguishable. A repeat
   of an old settlement looks exactly like a statement about a new one at the
-  moment the ledger decides whether to accept it. `EffectKey` binds the seven
+  moment the ledger decides whether to accept it. The key `EffectKey` binds the seven
   fields a settlement must name (run, action, attempt, flow revision, action
   digest, environment, environment epoch), so "is this the same settlement?" is
   a comparison rather than a judgement about a counter.
@@ -26,7 +26,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     would then refuse a genuine settlement as a duplicate. Running out is
     recoverable; silently reusing an identity is not.
   - **The schema admits two digest algorithms; this crate accepts one.**
-    `sha256` parses and is then refused as `UnsupportedAlgorithm` rather than
+    The tag `sha256` parses and is then refused as `UnsupportedAlgorithm` rather than
     rejected as malformed, because it is well-formed on the wire and the error a
     caller sees should say the algorithm is unsupported rather than that their
     JSON was wrong. A settlement is accepted because the receiver recomputed the
@@ -55,11 +55,11 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
     grep for either concept across the crate returns nothing before this module.
 - **`journal`, the durable append that has to land before the irreversible
   boundary, and the durability grade that decides whether a store may host one.**
-  `effect` supplied the identity a settlement is about; an identity held only in
-  memory is lost at exactly the moment it is needed. A controller that hands
-  bytes to an external system and then dies cannot say whether they arrived, and
-  a controller that guesses either duplicates a non-idempotent effect or drops
-  one. `EffectJournal::compare_and_append` is the seam: append `event` if and only
+  The module `effect` supplied the identity a settlement is about, and an identity
+  held only in memory is lost at exactly the moment it is needed. A controller
+  that hands bytes to an external system and then dies cannot say whether they
+  arrived. A controller that guesses either duplicates a non-idempotent effect or
+  drops one. The call `EffectJournal::compare_and_append` is the seam: append `event` if and only
   if `expected_tail` is still the committed tail, returning a `DurableAck` that
   names the committed position and the promise claimed for it.
   - **The tail is a position, not a counter.** `JournalPosition` carries a

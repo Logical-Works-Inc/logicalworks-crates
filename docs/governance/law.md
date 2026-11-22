@@ -5,9 +5,9 @@ Part of [`GOVERNANCE.md`](../../GOVERNANCE.md), which indexes every section.
 ## 2. Production Engineering Law
 
 Applies to every human and every coding-agent change. Unless an approved ADR
-explicitly narrows scope, design for: multiple independent users, tenants,
+explicitly narrows scope, design for these cases. Design for multiple independent users, tenants,
 workspaces, callers, and instances; concurrent operations; hostile and malformed
-input; retries, duplicates, and out-of-order delivery; restarts, upgrades, and
+input; retries, duplicates, and out-of-order delivery. Design also for restarts, upgrades, and
 migrations; partial dependency and network failure; empty and large datasets;
 bounded resources; long-lived state; different devices, locales, time zones,
 input methods, and accessibility needs.
@@ -18,17 +18,17 @@ speculative distributed systems.
 Every change must make identity and ownership scope explicit; enforce isolation
 and authorization at boundaries; define atomicity, ordering, idempotency,
 conflicts, and retry behaviour; handle timeouts, cancellation, crash recovery,
-partial failure, and safe lifecycle transition; bound queues, scans, caches,
+partial failure, and safe lifecycle transition. Every change must also bound queues, scans, caches,
 recursion, fan-out, retries, payloads, and logs; version persisted schemas and
-protocols; avoid hardcoded identity, machine, path, credential, provider, or
-topology; preserve structured and redacted evidence; support version skew or a
+protocols; and avoid hardcoded identity, machine, path, credential, provider, or
+topology. Every change must also preserve structured and redacted evidence; support version skew or a
 controlled migration; and treat security, privacy, accessibility, and non-happy
 UI states as product behaviour.
 
 **Proof** must cover the relevant combination of: two independent
 identities/workspaces/instances and isolation; concurrent calls, retries,
 duplicates, and reordering; restart/crash, timeout, cancellation, and dependency
-failure; empty, boundary, oversized, malformed, hostile, and unauthorized input;
+failure. Proof must also cover empty, boundary, oversized, malformed, hostile, and unauthorized input;
 migration, rollback, corruption, and version skew; resource ceilings and
 backpressure; and the real integration path. Mocks may assist but cannot be the
 only proof. A happy-path-only suite is a failing implementation.

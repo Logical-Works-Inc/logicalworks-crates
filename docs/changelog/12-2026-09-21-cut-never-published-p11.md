@@ -8,8 +8,8 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   (`lgwks_deps`). A register entry naming a lint no manifest declares, a file
   that exists but declares no test, or a lint declared at `allow` all produced a
   clean verdict, so the gate could not fail. The register now answers four
-  questions separately — registration validity, reference resolution, execution,
-  and verified outcome — and `check` prints `resolve`/`resolved`/`attested`,
+  questions separately (registration validity, reference resolution, execution,
+  and verified outcome), and `check` prints `resolve`/`resolved`/`attested`,
   never `enforced`. Every verdict carries a `SCOPE` line stating that no enforcer
   was executed, so a resolved reference is not read as proof the invariant holds.
   A reference that walks out of the repository (`..`) is refused at load, before
@@ -29,7 +29,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 
 - **Flow validation accepted a read before initialization** (`lgwks_bot`).
   Validation tested variable names for *global* writer membership, so a document
-  was accepted whenever a writer existed anywhere — including one that runs only
+  was accepted whenever a writer existed anywhere, including one that runs only
   after the read. Validation now runs a forward definite-assignment analysis: a
   node may read a variable only if every entry-reaching path assigns it. Reads
   of undeclared names still report `UndeclaredVariable` first, and a branch's
@@ -39,8 +39,8 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   (`lgwks_deps`). ERROR-SWALLOW was a claim with no evidence behind it: every
   `.unwrap_or_default()` and every initialized `let _` was reported, including
   `Option` fallbacks and infallible bindings. Fallibility is now resolved from
-  the file being scanned — a free function whose written or aliased return type
-  is `Result`, a curated table of std routines, or an annotated binding — and a
+  the file being scanned: a free function whose written or aliased return type
+  is `Result`, a curated table of std routines, or an annotated binding. A
   receiver resolved to a non-`Result` is never reported. Where the type is not
   visible the finding says so, and its evidence states that the shape is all
   there is rather than implying proof.
@@ -52,11 +52,11 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   not evidence, and `drop(binding)` is a discard rather than a use.
 
 - **A validated flow could expand to gigabytes from a sub-megabyte document**
-  (`lgwks_bot`). `FlowBounds` bounded *steps*, validation bounded the document's
-  *shape*, and nothing bounded *bytes*: a template repeating `${answer}` 20,000
+  (`lgwks_bot`). The type `FlowBounds` bounded *steps*, validation bounded the
+  document's *shape*, and nothing bounded *bytes*. A template repeating `${answer}` 20,000
   times is a 200 KB document that interpolates to 163,840,000 bytes in one step,
-  and four such steps reach 10 GB. Four ceilings now bound it — utterance,
-  stored value, computed record expansion, and aggregate session retention — and
+  and four such steps reach 10 GB. Four ceilings now bound it: utterance,
+  stored value, computed record expansion, and aggregate session retention. And
   a template's expansion is *sized* with checked arithmetic before it is
   rendered, so the amplification costs a bounded number of additions instead of
   an unbounded allocation. A template whose literal bytes alone exceed the

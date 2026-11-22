@@ -3,12 +3,12 @@
 Release: lgwks_std 0.7.0 / lgwks_bot 0.5.0 / lgwks_deps 0.1.13 - 2026-09-28. Page 1 of 5. [Changelog index](../../CHANGELOG.md)
 
 The first upload of this train. It carries everything below, including the
-2026-09-21 cut, which was never published. `lgwks_std` takes the minor position
+2026-09-21 cut, which was never published. The crate `lgwks_std` takes the minor position
 (0.7.0), not the cut's 0.6.7, because the entries under "lgwks_std Breaking"
 rename and remove public items, and Cargo treats 0.6.6 → 0.6.7 as compatible.
-`lgwks_bot` 0.5.0 is already a minor bump from the published 0.4.2; it re-exports
-`lgwks_std::json`, so it moves with std. `lgwks_deps` 0.1.13 only adds a command
-and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
+The crate `lgwks_bot` 0.5.0 is already a minor bump from the published 0.4.2; it re-exports
+`lgwks_std::json`, so it moves with std. The crate `lgwks_deps` 0.1.13 only adds a command
+and exposes no `lgwks_std` type, so it stays a patch. The crate `lgwks_ast` does not move.
 
 ## lgwks_std Breaking
 
@@ -78,7 +78,7 @@ and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
 - `RetryFacts::with_authority(bool)` is now
   `RetryFacts::with_live_authority()`. Authority defaults to not live and the
   refusing direction is the default, so `true` was the only setting a caller
-  could meaningfully pass: `with_authority(false)` spelled out the default under a
+  could meaningfully pass. The call `with_authority(false)` spelled out the default under a
   name that read like a choice, and the parameter made every call site decode
   which way round the boolean went. Removing it removes the question.
 
@@ -90,8 +90,8 @@ and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
   its authoritative length-check, write, `sync_all` path, so the two cannot
   drift into writing different bytes. The async surface is additive: the sync
   signature and every on-disk frame and chain format are unchanged, so no
-  existing store needs migrating. `FileView` gives lock-free fence checks
-  without a second open, and `FileJournal` drives its writes from a single
+  existing store needs migrating. The type `FileView` gives lock-free fence checks
+  without a second open. The type `FileJournal` drives its writes from a single
   owner thread over a capacity-one request slot, which is what makes ordering
   a property of the type rather than of a caller.
 - **An ambiguous write is poisoned, never reported as a clean failure.** When a
@@ -103,13 +103,13 @@ and exposes no `lgwks_std` type, so it stays a patch. `lgwks_ast` does not move.
 - **`BotError::EffectUnrecorded`, `DispatchCertainty::Occurred`, and
   `TransitionHold::RecordingFailed`.** A post-effect journal failure now
   carries the exact `EffectKey` and the observed `Applied`/`NotApplied` fact
-  instead of being retyped as a pre-dispatch refusal. `Occurred` answers "the
-  effect definitely happened" — the arm `Refused` (nothing left the process)
+  instead of being retyped as a pre-dispatch refusal. The variant `Occurred` answers "the
+  effect definitely happened". That is the answer the arms `Refused` (nothing left the process)
   and `NotDelivered` (a retry is a retry) both lied about. All three types are
   `#[non_exhaustive]`, so this is additive.
 - **The locator ladder: `Anchor`, `Ladder`, and `RecognitionVector::recognize_with_ladder`.**
   A ladder is the search order `docs/general-bot-fold.md` §3.2 sequences as step
   4: stable `id`, then `data-testid`, then ARIA role, then visible text, then a
-  class path. `ElementFacts` now carries the anchors a snapshot offers
+  class path. The type `ElementFacts` now carries the anchors a snapshot offers
   (`with_anchor` / `anchor`), because a ladder that cannot be joined to its
   candidates is a half-built path.

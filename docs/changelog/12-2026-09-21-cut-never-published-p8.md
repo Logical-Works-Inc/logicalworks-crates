@@ -5,14 +5,14 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 ## lgwks_bot Added (continued)
 
 - **A decision carries its provenance, and its receipt is written before the
-  transition.** `Resolver::resolve` returns `Verdict`: the `Resolution` and its
+  transition.** The call `Resolver::resolve` returns `Verdict`: the `Resolution` and its
   `Provenance` in one value, because "this score came from that model under that
-  rule" is one fact and a second call can only re-derive it. `Provenance` names a
-  `PolicyVersion` always — content-addressed over the tier's own parameters, so
-  retuning changes the revision — and an `EmbedderIdentity` only when a model was
-  consulted. `Session` writes a versioned, serializable `DecisionReceipt` per
+  rule" is one fact and a second call can only re-derive it. The `Provenance` names a
+  `PolicyVersion` always (content-addressed over the tier's own parameters, so
+  retuning changes the revision) and an `EmbedderIdentity` only when a model was
+  consulted. The `Session` writes a versioned, serializable `DecisionReceipt` per
   decision through a required
-  `Journal::record_decision -> Result<ReceiptAcceptance, JournalError>`, binding
+  `Journal::record_decision -> Result<ReceiptAcceptance, JournalError>`. It binds
   session and flow revision, node, the digest of the *ordered* option list, the
   verdict verbatim, provenance, the selected option's **text** rather than an
   index that moves, and the route. Because the receipt is written first, a
@@ -22,20 +22,20 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 - **`Deficit`, `Shortage` and `Demand`: the whole capability shortfall, and the
   repair it derives.** `Auth::check` and `GrantSet::admit` return
   `BotError::CapabilityDenied` naming **every** ungranted requirement rather than
-  the first, each `Shortage` carrying the `Demand` — the domain that declared it
-  — where the check site knows it. `Bot::build` walks every source and every
+  the first, each `Shortage` carrying the `Demand` (the domain that declared it)
+  where the check site knows it. The call `Bot::build` walks every source and every
   action and reports the whole bot's unmet requirements from one pass. New
   methods: `Auth::uncovered`, `Auth::covers_cap`, `GrantSet::uncovered`,
   `GrantSet::grants`, `Deficit::shortages/len/is_empty/first/to_grant_set`.
 - **`Deficit::to_grant_set` derives the repair.** The shortfall already names
   every capability that would close it, so a caller hands back the set the
-  deficit derived instead of writing a repair from the message — the step where a
+  deficit derived instead of writing a repair from the message, the step where a
   hand-written repair covers the first line and misses the rest. The repair is
   the *shortfall*, not the requirement: an already-granted capability is not in
   it, and closing the requirement is that set folded into the held one.
 - **`Cap` names are `Cow<'static, str>`.** The shipped four were `String`-backed,
-  so `Cap::net()` allocated and — because `GrantSet::issue` mints a proof by
-  copying the requirement list — every effect execution re-allocated the same
+  so `Cap::net()` allocated. And because `GrantSet::issue` mints a proof by
+  copying the requirement list, every effect execution re-allocated the same
   constants. `Cow::Borrowed` makes a shipped capability a pointer copy and
   authority for it allocation-free. Equality, ordering and hashing compare
   contents, so a `Cap` deserialized from a spec and one built from a constant are

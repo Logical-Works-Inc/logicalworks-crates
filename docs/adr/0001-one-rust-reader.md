@@ -7,7 +7,7 @@ today"). Issue: #387. Follow-up that routes the loser: #408.
 Stakeholders: the Director; the gate's author; a contributor reading this repository's source; a consumer of the scan
 Concerns: two readers of one language can disagree about the same file; a reader that can crash cannot gate; memory that grows with the corpus
 Requirements: R8, R11, R13
-Viewpoint: the reader viewpoint — one view per reader, each view the parse fidelity, latency, peak RSS and hostile-nesting rows
+Viewpoint: the reader viewpoint: one view per reader, each view the parse fidelity, latency, peak RSS and hostile-nesting rows
 Elements and relations: the `syn` reader, the tree-sitter reader through `lgwks_ast::try_parse`, the `scan` gate and the inspection walk; relations: `gate reads through reader`, `inspection reads through reader`
 
 ## Context

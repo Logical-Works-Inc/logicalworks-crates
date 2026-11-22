@@ -5,20 +5,20 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
 ## Proofs
 
 - **`proofs/bot-spec.sml` states and proves seven theorems about the
-  spec/condition layer**, machine-checked by the HOL4 kernel: totality of the
-  loop-free evaluator (`T1`), budget monotonicity (`T2_MONO`), budgeted-verdict
-  agreement (`T3`), **capability-gate soundness** — every entry that fires is one
-  the grant permits (`T4`) — gate monotonicity in the grant (`T5`), and
-  **record/replay agreement** (`T6`). `T7` proves that the loop constructor
-  admits no value at any finite budget, which is the formal reason `T1`'s
-  totality is a property of the loop-free language and does not survive the
-  extension. `proofs/proof-run.log` is the unedited run; no `mk_thm`,
+  spec/condition layer**, machine-checked by the HOL4 kernel. They are totality
+  of the loop-free evaluator (`T1`), budget monotonicity (`T2_MONO`) and
+  budgeted-verdict agreement (`T3`). Then **capability-gate soundness**, every
+  entry that fires is one the grant permits (`T4`), gate monotonicity in the
+  grant (`T5`), and **record/replay agreement** (`T6`). The theorem `T7` proves
+  that the loop constructor admits no value at any finite budget. That is the
+  formal reason `T1`'s totality is a property of the loop-free language and does
+  not survive the extension. `proofs/proof-run.log` is the unedited run; no `mk_thm`,
   `new_axiom` or `cheat` appears anywhere in the script.
 - **It is not a refinement proof, and the README says so first.** The theorems
   are about the script's own hand-written datatypes, not the Rust; nothing here
   proves that `spec.rs` implements the model. The claim is therefore split: the
   *design* has these properties (proved), and the *implementation* cannot express
-  the states that would break them (argued from type construction — a private
+  the states that would break them (argued from type construction: a private
   `Auth` constructor, a `Cap` newtype, a grant written only in `assemble`). The
   model's abstractions are enumerated too: `Contains` is an opaque literal,
   `Env` is total, effects are not modelled, capability shortfall is not modelled,
@@ -33,7 +33,7 @@ Release: 2026-09-21 cut, never published; ships as lgwks_std 0.7.0 / lgwks_bot 0
   effects alone let a baseline that returned `entries` as an integer instead of
   looping over them report a 2937x ratio where the counted-work gate measures
   72.38x at the same scenario. The rig is its own Cargo workspace root so the
-  dependency contract never sees it — `lgwks-deps check .` still reports the four
+  dependency contract never sees it: `lgwks-deps check .` still reports the four
   crates.
 - **The measured result is that the bot is 72x–256x slower than the loop, and
   ~98% of a tick is the poll and change-detection phase before any decision is

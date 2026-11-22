@@ -5,11 +5,11 @@ THING EXISTS HERE, BY DEFAULT IT WILL BE FUKING ON … A DEVELOPER WILL FUCKING
 COMPLY OR USE SOMETHING ELSE." Issue: #732. Supersedes `INV-DEP-2`'s "none is
 default-on", `INV-DEP-6` and `WORKFLOW.md` §4's storefront carve-out.
 
-Stakeholders: the Director; the executing agent; a consumer adding a crate to a new project; the std-first gate
-Concerns: a capability that exists but cannot be found is rebuilt by hand; a flag makes discovery a prerequisite for use; compile time, binary size and target portability are the price
+Stakeholders: the Director; the executing agent; a consumer adding a crate to a new project; the std-first gate.
+Concerns: a capability that exists but cannot be found is rebuilt by hand; a flag makes discovery a prerequisite for use; compile time, binary size and target portability are the price.
 Requirements: R1, R6, R11, R13
-Viewpoint: the capability viewpoint — one view per crate, a table of capabilities against owner module, cargo feature and default state
-Elements and relations: the five crates, their modules, features and default sets; relations: `feature enables module`, `module owns capability`, `default set carries feature`
+Viewpoint: the capability viewpoint: one view per crate, a table of capabilities against owner module, cargo feature and default state.
+Elements and relations: the five crates, their modules, features and default sets; relations: `feature enables module`, `module owns capability`, `default set carries feature`.
 
 ## Context
 
@@ -25,12 +25,12 @@ the default, not the agent.
 ## Decision
 
 1. **The default is the decision.** Each crate's `default` carries every
-   capability it owns on every declared target: `lgwks_std` is `standard`
-   (everything but `http`), `lgwks_ast` is `full, script, tool, scan` (all 28
-   grammars, the reader, the tool, the detectors). `lgwks_bot` carries its
-   portable boundary — `rt, time, sync, macros` — and `lgwks_deps` carries the
-   empty selection; both are argued below and both are exceptions with a veto,
-   not gaps.
+   capability it owns on every declared target. For `lgwks_std` it is `standard`
+   (everything but `http`), and for `lgwks_ast` it is `full, script, tool, scan`
+   (all 28 grammars, the reader, the tool, the detectors). The crate `lgwks_bot`
+   carries its portable boundary (`rt, time, sync, macros`) and `lgwks_deps`
+   carries the empty selection. Both are argued below, and both are exceptions
+   with a veto, not gaps.
 2. **An opt-out states its number.** A capability is default-off only where a
    measurement or a target denies it, recorded here and in its catalog row.
 3. **The opt-out is one flag.** `--no-default-features --features core` is the
@@ -38,10 +38,10 @@ the default, not the agent.
    `lgwks_ast` and the portable `lgwks_bot` core. A consumer says it once, at the
    edge, instead of assembling a surface from flags it must learn first.
 4. **The target veto.** The default set is the set that builds on every declared
-   target, and the claim is executed rather than asserted: the target matrix
+   target, and the claim is executed rather than asserted. The target matrix
    (`lgwks-deps check-target-matrix`) *requires* the Rust-only surface on
    `wasm32-wasip1`, `x86_64-linux-musl`, `x86_64-freebsd`, `aarch64-android` and
-   `aarch64-ios`, and *records* each crate's default set, exempting a failure
+   `aarch64-ios`. It *records* each crate's default set, exempting a failure
    only when the exact cc-rs toolchain phrases name a compiler this runner does
    not have. A default that cannot build on a target we ship, and has no
    recorded exemption, is not a default.
@@ -69,11 +69,11 @@ The rows that are off, warm target directory:
 | Row | Command | Cost | Why it is off |
 |---|---|---|---|
 | `lgwks_std/http` | `cargo check -p lgwks_std --target x86_64-unknown-linux-musl` | 7 s to fail | `ureq` → `rustls` → `ring` compiles C per target; the no-flag check above is required and failed with `cc-rs: failed to find tool "x86_64-linux-musl-gcc"` |
-| `lgwks_deps` selections | `cargo check -p lgwks_deps --target wasm32-wasip1` | — | every group is native (`appcui`, `gpui`) or a driver with no wasm surface (`tokio-net`, `tokio-process`, `tokio-signal`) |
+| `lgwks_deps` selections | `cargo check -p lgwks_deps --target wasm32-wasip1` | n/a | every group is native (`appcui`, `gpui`) or a driver with no wasm surface (`tokio-net`, `tokio-process`, `tokio-signal`) |
 | `lgwks_deps/gpui` | `cargo check -p lgwks_deps --features gpui` | 122 s | `objc2` refuses to compile off Apple targets, so the default would break Linux and Windows |
 | `lgwks_deps/ml-candle,ml-tokenizers` | `cargo check -p lgwks_deps --features ml-candle,ml-tokenizers` | 90 s | an inference runtime and a network-capable tokenizer closure, paid by every job that builds the crate |
-| `lgwks_deps/ml-candle-metal` | inside `ml-candle` | — | the macOS Metal backend; it builds nowhere else |
-| `lgwks_bot` host drivers | `cargo check -p lgwks_bot --target wasm32-wasip1` (the CI boundary step builds the defaults) | — | `net`, `process`, `fs`, `signal` and `inspect` have no wasm surface, and the T22 row asserts *on this default set* that no consumer can name a process description |
+| `lgwks_deps/ml-candle-metal` | inside `ml-candle` | n/a | the macOS Metal backend; it builds nowhere else |
+| `lgwks_bot` host drivers | `cargo check -p lgwks_bot --target wasm32-wasip1` (the CI boundary step builds the defaults) | n/a | `net`, `process`, `fs`, `signal` and `inspect` have no wasm surface, and the T22 row asserts *on this default set* that no consumer can name a process description |
 
 ## Alternatives rejected
 

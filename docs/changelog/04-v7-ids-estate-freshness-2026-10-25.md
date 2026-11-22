@@ -35,9 +35,9 @@ named no features now compiles more.
 ## lgwks_std 3.1.0
 
 - `Uuid::new_v7` issues RFC 9562 version 7 ids that are strictly increasing in
-  value and text across every thread of the process: a backwards clock keeps
+  value and text across every thread of the process. A backwards clock keeps
   the last stamp, a spent counter borrows the next millisecond, and a stamp past
-  48 bits is refused (`V7Error`). `Uuid::unix_millis` reads the stamp (#715).
+  48 bits is refused (`V7Error`). The method `Uuid::unix_millis` reads the stamp (#715).
 - `build` feature: a build script's input digest and checked cargo directives
   (#733). An input spelled with `..` is refused as outside the root, and a
   non-UTF-8 variable anywhere in the environment no longer panics the digest.

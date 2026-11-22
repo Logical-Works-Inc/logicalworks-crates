@@ -2,7 +2,7 @@
 
 Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1.1 / lgwks_bot 2.0.0 - 2026-10-06. Page 5 of 20. [Changelog index](../../CHANGELOG.md)
 
-## lgwks_bot — per-tenant capacity: one tenant cannot starve another (#268) (continued)
+## lgwks_bot: per-tenant capacity: one tenant cannot starve another (#268) (continued)
 
 - **New: `rt::tenancy`.** `TenancyPolicy` (per-tenant ceiling, per-tenant queue
   bound, supervisor-wide waiting bound, per-tenant weights, each clamped to a
@@ -15,8 +15,8 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   with `new` behaves exactly as before.
 - **Fixed before release: a late abandonment miscounted the tenant's queue.** An
   owner that left between the round's liveness check and the delivery had its
-  abandonment corrected inside the pump *before* its own report added it, and the
-  count saturates at zero, so the report overcounted: `queued_of` read low and a
+  abandonment corrected inside the pump *before* its own report added it. The
+  count saturates at zero, so the report overcounted. So `queued_of` read low and a
   tenant could hold five live waiters past a queue bound of four. The shell now
   marks that waiter withdrawn and the owner's report counts nothing;
   `DeficitRoundRobin::note_grant_abandoned` is gone. Found by the new
@@ -24,17 +24,17 @@ Release: lgwks_std 2.0.0 / lgwks_ast 1.1.0 / lgwks_deps 3.0.0 / lgwks_macros 1.1
   white-box `a_late_abandonment_leaves_the_live_count_exact`, which drives the
   shell's own functions in the order the locks force and failed (2 of 3) before
   the fix.
-- **Tests.** `tests/it/sim_tenancy_model.rs` model-checks the shipped scheduler
-  under an executor that follows the shell step for step — seventeen properties,
-  each over all 256 seeds twice. `tests/it/tenancy.rs` measures the live
-  supervisor: ten thousand loud submissions parked in the loud tenant's own queue
+- **Tests.** The file `tests/it/sim_tenancy_model.rs` model-checks the shipped scheduler
+  under an executor that follows the shell step for step, with seventeen properties,
+  each over all 256 seeds twice. The file `tests/it/tenancy.rs` measures the live
+  supervisor in two ways. The first is ten thousand loud submissions parked in the loud tenant's own queue
   and released one controlled completion at a time, against the quiet tenant's
-  p99 alone; and a fail-at-once flood four times the neighbour's volume against
+  p99 alone. The second is a fail-at-once flood four times the neighbour's volume against
   the neighbour's admission time alone (the median of 41 interleaved rounds
   within 10% of the median alone, no sleep before either timed window).
   INV-BOT-151.
 
-## lgwks_std tests — `fs::capability` is swept with hostile seeds
+## lgwks_std tests: `fs::capability` is swept with hostile seeds
 
 `fs::capability` had 28 unit tests and no seeded sweep. It is the sandbox
 boundary that `Dir` promises, so `tests/it/sim_fs_capability.rs` now draws
@@ -62,7 +62,7 @@ The `lgwks-deps` sim substrate doc no longer claims `lgwks_std` shares
 $ cargo nextest run -p lgwks_std --locked --features full
 691 tests run: 691 passed, 0 skipped        (36 in sim_fs_capability)
 ```
-## tests — the simulation substrate's own contracts are swept, not assumed
+## tests: the simulation substrate's own contracts are swept, not assumed
 
 Every `sim_*` family rests on the seed substrate, the sweep and the scratch
 guard; nothing checked them. `lgwks_bot/tests/it/sim_substrate.rs` sweeps:
@@ -84,11 +84,11 @@ $ cargo nextest run --workspace --locked
 4339 tests run: 4339 passed (1 leaky), 0 skipped
 simulation-evidence: source_visible 1712/3383 = 50.61% (was 50.13%)
 ```
-## lgwks_deps tests — one seed substrate for every workspace simulation
+## lgwks_deps tests: one seed substrate for every workspace simulation
 
 The six `sim_*` policy families drew from their own LCG and hashed their replay
 receipts through `std`'s `DefaultHasher`, whose algorithm std leaves free to
-change between releases, so a receipt was not stable across toolchains and a
+change between releases. So a receipt was not stable across toolchains, and a
 seed meant a different stream here than in `lgwks_bot`, `lgwks_ast` and
 `lgwks_std`. They now include `lgwks_bot`'s `sim/seed.rs` and
 `sim/seed_helpers.rs` like every other crate:
@@ -107,4 +107,4 @@ $ cargo nextest run -p lgwks_deps --locked -E 'not binary(storefront_consumers)'
 $ lgwks-deps scan
 OK  scan clean — 390 files, zero findings
 ```
-## lgwks_bot — BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep)
+## lgwks_bot, BREAKING: one way to build an `EffectKey`; every line of the crate and its tests through the guard (9-axis sweep)

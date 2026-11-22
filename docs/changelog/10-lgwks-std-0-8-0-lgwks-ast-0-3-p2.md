@@ -8,16 +8,16 @@ Release: lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 
   orchestration written as indented flows (`each x in xs:`, `within 2s:`,
   `retry up to 3 times, waiting 100ms:`, `together:`, `step`, `for`,
   `if`/`else`, `run`, `give back`, `fail with`). Every flow takes a tenant
-  `Scope`; every step has a stable `StepKey` over its tenant and structural
-  path; failures are `FlowError`s located at a path and classed as retryable
-  or not; every script emits an `ARCHITECTURE` map as text or JSON. `each`
-  runs bodies on the calling task, so they may borrow locals.
-- The root scope decides what an author should not: `each` with no bound runs
-  64 bodies per available core (a typed concurrency literal is refused at
-  compile time), and every `retry` under one root shares a retry budget of 10
-  plus one per five first attempts (Finagle's `RetryBudget` defaults), ending
-  in the new `FlowError::Throttled` instead of a retry storm
-  (arXiv:2608.25403, arXiv:2510.03551).
+  `Scope`, and every step has a stable `StepKey` over its tenant and structural
+  path. Failures are `FlowError`s located at a path and classed as retryable
+  or not, and every script emits an `ARCHITECTURE` map as text or JSON. The
+  block `each` runs bodies on the calling task, so they may borrow locals.
+- The root scope decides what an author should not. A block `each` with no bound
+  runs 64 bodies per available core (a typed concurrency literal is refused at
+  compile time). Every `retry` under one root shares a retry budget of 10 plus
+  one per five first attempts (Finagle's `RetryBudget` defaults). It ends in the
+  new `FlowError::Throttled` instead of a retry storm (arXiv:2608.25403,
+  arXiv:2510.03551).
 - A flow is `Send` whenever what it holds is: `each` and `retry` store their
   bodies as named future types, never `dyn`, so a tenant's flow can be spawned
   onto the multi-threaded runtime. `retry` bodies take their `Scope` by value.
@@ -26,10 +26,10 @@ Release: lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 
   token each: cancelling inside a body ends the whole fan-out, like `break`.
 - `bench/orchestration` compares `script!` with `join_all_bounded`, tokio
   `JoinSet`, asyncio `TaskGroup`, Trio, Go `errgroup`, a Node pool and
-  Effect-TS on one workload, five runs per cell. `script!` is the only way to
-  hold every invariant measured: no body live at return under failure, cancel
-  and storm; 130 attempts in a retry storm where the others make 368-5,000;
-  and an error that names the failing item. On an idle host it ran 435,000
+  Effect-TS on one workload, five runs per cell. Only `script!` holds every
+  invariant measured. No body is live at return under failure, cancel and storm.
+  A retry storm makes 130 attempts where the others make 368-5,000. And the
+  error names the failing item. On an idle host it ran 435,000
   items/s median against 334,000 for `join_all_bounded` and 316,000 for
   `JoinSet`, with a higher p99 (12.0 ms against 9.5 ms) and more peak RSS
   (13.6 MB against 7-9.5 MB). An earlier run on a loaded host, whose
@@ -78,9 +78,9 @@ Release: lgwks_std 0.8.0 / lgwks_ast 0.3.0 / lgwks_deps 0.2.0 / lgwks_bot 0.6.0 
   them with `headers()` and `body()`. `Options::redirect_policy`,
   `Response::header_values`, `final_target` and `redirect_chain` are added.
 - `http` redirects are explicit (`RedirectPolicy::{NoFollow, Follow,
-  FollowAtMost}`, at most ten hops) and are followed by this crate, not ureq: a
-  hop to another origin carries none of the caller's headers (ureq forwarded
-  every header but `Authorization` and `Cookie`, so an `X-Api-Key` reached any
-  host a server redirected to), a same-origin hop drops `Authorization`,
-  `Cookie` and `Proxy-Authorization`, and a 307/308 of a POST is refused
-  rather than replaying its body.
+  FollowAtMost}`, at most ten hops) and are followed by this crate, not ureq. A
+  hop to another origin carries none of the caller's headers. Before, ureq
+  forwarded every header but `Authorization` and `Cookie`, so an `X-Api-Key`
+  reached any host a server redirected to. A same-origin hop drops
+  `Authorization`, `Cookie` and `Proxy-Authorization`, and a 307/308 of a POST is
+  refused rather than replaying its body.

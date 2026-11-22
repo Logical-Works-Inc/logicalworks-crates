@@ -4,21 +4,21 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
 
 ## lgwks_bot Added (continued)
 
-- `task::{Host, Task, Report}`, the front door (#87 step 1): build a `Host` once
+- `task::{Host, Task, Report}`, the front door (#87 step 1). Build a `Host` once
   (tenant, stop token, admission ceiling, default deadline, trail capacity, all
-  finite and readable through `Host::limits`), define a `Task` with `task(name,
-  body)`, and `host.run(&task, input).await` returns a `Report` carrying the
+  finite and readable through `Host::limits`) and define a `Task` with `task(name,
+  body)`. Then `host.run(&task, input).await` returns a `Report` carrying the
   disposition (`Succeeded`, `Failed`, `Cancelled`, `DeadlineExceeded`,
   `Refused`), the typed output, the located error, a bounded step trail with a
   dropped-step count, and `EffectKnowledge::None`. Bodies are polled on the
   calling task, so they need not be `Send` and inputs may borrow; nested runs
   on one host are charged to the parent's permit (INV-BOT-20).
-  `Host::block_on` is the synchronous entry and refuses to run inside an
+  The call `Host::block_on` is the synchronous entry and refuses to run inside an
   existing runtime.
 - `Bot::from_spec` materializes a validated `BotSpec` against a `DomainRegistry`
   into a runnable `Bot`, through the same `assemble`/`build` path a native bot
-  uses — no second interpreter and no second execution path — so a JSON-built bot
-  and a natively built one produce the same operation trace. Authority still
+  uses. There is no second interpreter and no second execution path, so a
+  JSON-built bot and a natively built one produce the same operation trace. Authority still
   comes only from the caller's `GrantSet`, never from the document. Admission is
   all-or-nothing and reports every presently knowable unmet need in one
   attributed value (`Admission`, `NeedSet`, `Need`): an unknown source or action
@@ -53,21 +53,21 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   release a parked device from its own thread rather than from the runtime
   awaiting the append (#156).
 - `EffectJournal::reserve_handoff_capacity` reserves room for a whole external
-  handoff — intent, preparation and the settlement that lands after the effect
-  has left the process — before the first rung is written. The default is
+  handoff (intent, preparation and the settlement that lands after the effect
+  has left the process) before the first rung is written. The default is
   permissive; `FileJournal` refuses the handoff against its event ceiling, so a
   durable journal can never leave an attempt admitted and unable to settle
   (#122 item 2 / #156).
-- The `compare_orchestration` example gains a `host` way — `Host::run` per item
+- The `compare_orchestration` example gains a `host` way: `Host::run` per item
   with the host's admission ceiling as the fan-out bound and matched semantics
-  against the hand-written `JoinSet`+`Semaphore` and `join_all_bounded` ways —
-  and a `measure_overhead` example prints p50/p95/p99 for `Host::run` and
+  against the hand-written `JoinSet`+`Semaphore` and `join_all_bounded` ways.
+  A `measure_overhead` example prints p50/p95/p99 for `Host::run` and
   `sys::Process`.
 
 ## lgwks_deps Added
 
 - `[[approved]]` entries accept an optional `origin`: the exact admitted origin
-  for the entry's source class — a complete registry source, a Git repository
+  for the entry's source class: a complete registry source, a Git repository
   plus its admitted revision/reference policy, or an external path authority.
   Admission now compares origin as well as class, so replacing an approved Git
   repository, registry, path, or Git revision produces a typed
@@ -83,7 +83,7 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   mismatch from an unrelated class (#158 acceptance).
 - `[[approved]]` entries accept the admitted-capability policy keys `features`,
   `required_features`, `uses_default_features`, `optional` and `target`, and an
-  explicit `aliases` list. `DirectEdge` now carries Cargo's authored `features`,
+  explicit `aliases` list. The type `DirectEdge` now carries Cargo's authored `features`,
   `uses_default_features`, `target` and `rename`, so a capability that changes
   without a class or origin change is a typed `Refusal::FeatureDrift`,
   `DefaultFeaturesDrift`, `OptionalityDrift` or `TargetDrift` instead of a pass.
@@ -93,9 +93,9 @@ Release: lgwks_std 1.0.0 / lgwks_ast 1.0.0 / lgwks_deps 1.0.0 / lgwks_bot 1.0.0 
   `package` remains the upstream Cargo identity (#158 A2).
 - `check` prints a receipt binding the subject root, the contract identity and
   schema version, the exact metadata subject, the policy mode and the assurance
-  scope, and `check --json` exposes the same under the stable keys `mode`,
+  scope. The form `check --json` exposes the same under the stable keys `mode`,
   `contract.{digest,schema,entries,repository}`, `subject.{digest,edges,resolved}`
-  and `scope`. `Contract::digest`/`schema` and the `Subject`/`Verdict` types back
+  and `scope`. The items `Contract::digest`/`schema` and the `Subject`/`Verdict` types back
   it; `check_verdict` returns the receipt-bearing verdict (#158 A6, INV-DEP-15).
 - A register may author `[policy] schema`; the committed register is migrated to
   `schema = 2`. Schema 1 remains readable (#158 A7).

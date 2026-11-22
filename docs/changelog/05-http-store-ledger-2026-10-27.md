@@ -6,7 +6,7 @@ Six branches land together (#764 to #769). One crate takes a major bump:
 `lgwks_bot`, whose `net` endpoint's `Query` output is now the paginated listing
 (`Vec<json::Value>`) rather than one body, with transport failures mapped to
 `Refused` or `NotDelivered` by class. No public item of the other crates is
-removed. `lgwks-deps check` refuses more (`MissingLifecycle`,
+removed. The gate `lgwks-deps check` refuses more (`MissingLifecycle`,
 `DeferredAdmitted`, `PatchExpired`, `ProviderBlocked`, all on the
 `#[non_exhaustive]` `Refusal`), which `docs/releasing.md` §3 makes a minor: a
 register that passed 5.0.0 can be refused by 5.1.0. `lgwks_macros` 1.1.6 is
