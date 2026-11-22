@@ -113,13 +113,11 @@ fn read_table_pairs() -> io::Result<Vec<(i32, i32)>> {
 
 /// The refusal of a host with no process-table reader: [`io::ErrorKind::Unsupported`], never an
 /// empty table, because a sweep over an empty table kills nothing and reports success. It lives
-/// here, not inside the one arm that calls it, so every unix test host runs its test.
+/// here, not inside the one arm that calls it, so every test host runs its test, Windows
+/// included: Miri runs the sims of this module for `x86_64-pc-windows-msvc`.
 #[cfg(all(
     feature = "process",
-    any(
-        all(unix, not(any(target_os = "macos", target_os = "linux"))),
-        all(test, unix)
-    )
+    any(all(unix, not(any(target_os = "macos", target_os = "linux"))), test)
 ))]
 pub(super) fn no_table_reader() -> io::Result<Vec<(i32, i32)>> {
     let refusal = Err(io::Error::new(
