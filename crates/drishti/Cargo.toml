@@ -1,6 +1,6 @@
 [package]
 name = "drishti"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.98"
 description = "Rust frontend orchestration framework: design publication plus deterministic reference cores for the Logical Works ink lab, the GPU residency model and the Logic OS Canvas protocol, motion, scene and native host broker; no qualified GPU backend yet."

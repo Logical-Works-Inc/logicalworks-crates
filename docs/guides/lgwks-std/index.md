@@ -49,7 +49,7 @@ it needs both halves:
 
 ```toml
 [dependencies]
-lgwks_std = { version = "4", default-features = false, features = ["core"] }
+lgwks_std = { version = "5", default-features = false, features = ["core"] }
 ```
 `default-features = false` removes `standard`. `features = ["core"]` puts the core
 modules back. A bare `lgwks_std = "4"` is **not** zero-dependency: it is `standard`.

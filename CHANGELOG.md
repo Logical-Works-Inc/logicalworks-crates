@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_std 5.0.0 / lgwks_ast 6.1.1 / lgwks_deps 8.0.0 / lgwks_macros 2.1.4 / lgwks_bot 10.0.0 / drishti 0.3.0 - 2026-11-21: [notes](docs/changelog/25-every-dependency-newest-2026-11-21.md)
 - lgwks_std 4.2.1 / lgwks_ast 6.1.0 / lgwks_deps 7.3.0 / lgwks_macros 2.1.3 - 2026-11-18: [notes](docs/changelog/24-nightly-ci-stable-release-2026-11-18.md)
 - lgwks_bot 9.0.0 - 2026-11-15: [notes](docs/changelog/23-one-typed-error-per-layer-2026-11-15.md)
 - drishti 0.2.0 - 2026-11-14: [notes](docs/changelog/22-drishti-has-one-home-2026-11-14.md)
