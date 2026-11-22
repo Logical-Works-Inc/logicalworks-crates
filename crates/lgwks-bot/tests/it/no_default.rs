@@ -15,8 +15,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use lgwks_bot::spec::{ActionSpec, ChainSpec};
-use lgwks_bot::{Auth, Bot, BotError, BotSpec, Cap, EffectLifetime, Execute, GrantSet, Observe};
+use lgwks_bot::ecs::EcsError;
+use lgwks_bot::kernel::cap::{Auth, Cap};
+use lgwks_bot::kernel::gate::GrantSet;
+use lgwks_bot::spec::{ActionSpec, Bot, BotSpec, ChainSpec};
+use lgwks_bot::verb::{EffectLifetime, Execute, Observe};
 
 use crate::effects;
 #[path = "../support/yield_once.rs"]
@@ -45,7 +48,7 @@ impl Observe for YieldSource {
         &[]
     }
 
-    async fn poll(&self, call: (Auth, ())) -> Result<u32, BotError> {
+    async fn poll(&self, call: (Auth, ())) -> Result<u32, EcsError> {
         call.0.check(Observe::required_caps(self))?;
         Ok(YieldOnce::new(VALUE).await)
     }
@@ -73,7 +76,7 @@ impl Execute for YieldAction {
         EffectLifetime::Local
     }
 
-    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), BotError> {
+    async fn execute_action(&self, call: (Auth, &u32)) -> Result<(), EcsError> {
         call.0.check(Execute::required_caps(self))?;
         let seen = YieldOnce::new(VALUE).await;
         self.log.borrow_mut().push(seen);
@@ -102,7 +105,12 @@ fn no_default_features_preserve_the_sync_spec_surface() -> TestResult {
     let json = spec.to_json()?;
     let decoded = BotSpec::from_json(&json)?;
     assert_eq!(decoded.name(), "minimal");
-    assert_eq!(decoded.chains()[0].on()[0].0, "changed");
+    let first_event = decoded
+        .chains()
+        .first()
+        .and_then(|chain| chain.on().first())
+        .map(|entry| entry.0.as_str());
+    assert_eq!(first_event, Some("changed"));
     Ok(())
 }
 

@@ -426,7 +426,9 @@ mod tests {
     type TestResult = Result<(), Box<dyn Error>>;
 
     /// The committed lock verifies against the committed documentation: the
-    /// citations this binary finds are exactly the ones the Python script pinned.
+    /// citations this binary finds are exactly the ones its last `--update`
+    /// pinned. A cited file that grows above a citation fails here, as
+    /// `erase.rs:351` did when the #1058 gates moved it to 356.
     #[test]
     fn the_committed_lock_verifies() -> TestResult {
         let options = Options {

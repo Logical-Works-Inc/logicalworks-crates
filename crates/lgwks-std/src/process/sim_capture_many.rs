@@ -3,7 +3,9 @@
 use std::io;
 
 use super::capture::MAX_CAPTURED_DESCENDANTS;
-use super::capture_many::{MAX_CAPTURE_ROOTS, capture_descendants_many, capture_many_from_pairs};
+use super::capture_many::{
+    MAX_CAPTURE_ROOTS, capture_descendants_many, capture_many_from_pairs, no_table_reader,
+};
 use crate::seeded::{SWEEP_SEEDS, Seeded};
 
 /// Creates an `io::Error` with kind `Other`.
@@ -427,6 +429,25 @@ fn sim_capture_many_hierarchical_sweep() -> Result<(), io::Error> {
     test_max_captured_depth_truncation()?;
     test_real_os_capture()?;
     Ok(())
+}
+
+/// Source: `cargo check -p lgwks_std --target aarch64-apple-ios` failed because
+/// `read_table_pairs` existed only for macOS, Linux and Windows (#892); FreeBSD
+/// and iOS are the unix hosts with no reader here. Requirement: such a host
+/// refuses the batch sweep with `Unsupported` and never answers an empty table,
+/// which would make the sweep succeed having killed nothing.
+#[test]
+fn sim_a_unix_with_no_table_reader_refuses_the_batch() -> Result<(), io::Error> {
+    match no_table_reader() {
+        Err(error) => ensure(
+            error.kind() == io::ErrorKind::Unsupported,
+            "a host with no process-table reader must answer Unsupported",
+        ),
+        Ok(pairs) => ensure_msg(
+            false,
+            format!("an empty or partial table would sweep nothing, got {pairs:?}"),
+        ),
+    }
 }
 
 #[test]

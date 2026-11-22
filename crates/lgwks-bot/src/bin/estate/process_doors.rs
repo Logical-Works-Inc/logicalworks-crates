@@ -20,12 +20,20 @@ use lgwks_bot::rt::time::{Instant, sleep};
 use super::smoke::{make_dir, remove_dir};
 use super::{record, say, unique_hex};
 
+/// The program every door starts: this smoke's own executable, told to exit zero and say nothing.
+///
+/// No `true` is named, so no host needs one on its `PATH` or in `/usr/bin` (#890). The path is
+/// the one the operating system reports for the running binary, never navigated from.
+fn probe_spec() -> std::io::Result<ProcessSpec> {
+    let own = std::env::current_exe()?;
+    let mut spec = ProcessSpec::new(own);
+    spec.arg("probe");
+    Ok(spec)
+}
+
 /// The `run_process` result door, read as a downstream caller reads it.
-async fn read_process_result(supervisor: &mut Supervisor) -> Option<String> {
-    let run: ProcessRun = match supervisor
-        .run_process(&ProcessSpec::new("/usr/bin/true"))
-        .await
-    {
+async fn read_process_result(supervisor: &mut Supervisor, probe: &ProcessSpec) -> Option<String> {
+    let run: ProcessRun = match supervisor.run_process(probe).await {
         Ok(run) => run,
         Err(err) => return Some(format!("run_process refused a plain program: {err}")),
     };
@@ -147,9 +155,9 @@ fn profile_builders(mismatch: &mut Option<String>) -> std::io::Result<()> {
 /// A gated lane holds its payload until the identity is recorded: the
 /// release below stands in for the durable write, and the assertions
 /// around it are the record-then-release order the coordinator keeps.
-async fn gated_lane(mismatch: &mut Option<String>) -> std::io::Result<()> {
+async fn gated_lane(mismatch: &mut Option<String>, probe: &ProcessSpec) -> std::io::Result<()> {
     let mut supervisor = Supervisor::new(1);
-    let mut spec = ProcessSpec::new("/usr/bin/true");
+    let mut spec = probe.clone();
     if let Ok((reader, _writer)) = std::io::pipe() {
         spec.inherit_fd(std::os::fd::OwnedFd::from(reader));
         if spec.inherited_fd_count() != 1 {
@@ -225,7 +233,7 @@ async fn gated_lane(mismatch: &mut Option<String>) -> std::io::Result<()> {
             format!("the released payload must report under its own task, got {outcome:?}"),
         );
     }
-    if let Some(problem) = read_process_result(&mut supervisor).await {
+    if let Some(problem) = read_process_result(&mut supervisor, probe).await {
         record(mismatch, problem);
     }
     say(&format!(
@@ -238,25 +246,41 @@ async fn gated_lane(mismatch: &mut Option<String>) -> std::io::Result<()> {
 
 /// Every process door in order: the deny builders, the profile builders, then the gated lane.
 pub(super) async fn run(mismatch: &mut Option<String>) -> std::io::Result<()> {
+    run_probing(mismatch, &probe_spec()?).await
+}
+
+/// The same doors over the program `probe` describes, which must exit zero and write nothing.
+async fn run_probing(mismatch: &mut Option<String>, probe: &ProcessSpec) -> std::io::Result<()> {
     deny_builders(mismatch);
     profile_builders(mismatch)?;
-    gated_lane(mismatch).await
+    gated_lane(mismatch, probe).await
 }
 
 #[cfg(test)]
 mod tests {
     use lgwks_bot::rt::estate::Estate;
+    use lgwks_bot::rt::process::ProcessSpec;
 
     /// Every process door answers as the smoke asserts, run under this module so
     /// a change to a door is judged by its own test rather than the whole crate.
+    ///
+    /// This binary is the test harness, not the smoke, so its silent exit is the
+    /// harness listing no test: `--list --quiet` with an exact name nothing holds
+    /// prints nothing and exits zero.
     #[test]
     fn process_doors_answer_as_the_smoke_asserts() -> Result<(), Box<dyn std::error::Error>> {
         let estate = Estate::supervised("acme", 1)?;
         let driver = estate
             .handle()
             .ok_or("a supervised estate carries the process driver")?;
+        let mut silent = ProcessSpec::new(std::env::current_exe()?);
+        silent
+            .arg("--list")
+            .arg("--quiet")
+            .arg("--exact")
+            .arg("no-test-is-named-this");
         let mut mismatch = None;
-        driver.block_on(super::run(&mut mismatch))?;
+        driver.block_on(super::run_probing(&mut mismatch, &silent))?;
         assert_eq!(mismatch, None, "every process door answers as asserted");
         Ok(())
     }
