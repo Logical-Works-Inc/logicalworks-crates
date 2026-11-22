@@ -31,6 +31,14 @@ debug = 0
 [net]
 git-fetch-with-cli = true
 
+# The gpui upstream pin (ADR 0073) is a git source in the Zed repository, whose
+# full history is 418 MB. Every cold hosted job fetched it before building,
+# 23 s each, and run 45079575010 walled at 306 s. A depth-1 fetch of the pinned
+# commit is 26 MB in 4 s (measured 2026-11-22). Stable cargo ignores this table,
+# so the release jobs fetch in full.
+[unstable]
+git = { shallow_deps = true }
+
 # The LLVM linker, not Apple's ld: the link step is a large share of a
 # from-scratch build and ld64.lld is several times faster than the default.
 [target.aarch64-apple-darwin]

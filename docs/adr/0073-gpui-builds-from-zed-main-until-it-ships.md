@@ -39,6 +39,8 @@ The request to publish all of them is zed#67338.
 - The workspace, its fixtures and CI resolve neither crate.
 - A publish of `lgwks_deps` names `gpui_platform`, which crates.io does not hold, so that publish waits on zed#67338.
   Reverse this ADR when it ships: drop `git` and `rev`, delete the PATCHES row and run `cargo update -p gpui`.
+- The Zed history is 418 MB, so `.cargo/config.toml` sets cargo's `shallow_deps`: a depth-1 fetch is 26 MB in 4 s.
+  Without it every cold hosted job spent 23 s fetching, and the first run walled at 306 s.
 - `pathfinder_simd` 0.5.6 stays in the tree through Zed's font-kit fork, so #1089 is unchanged.
 
 ## Correspondence
