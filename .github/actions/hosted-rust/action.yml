@@ -130,25 +130,45 @@ runs:
     # with their own versions dropped (a release changes none), the root
     # profiles and the build environment. With rust-cache's hashes off, its key
     # and restore key are this one string, so its restore is exact or nothing,
-    # and nothing it restored is deleted; on a pull request's miss the step
-    # after it lays main's newest entry for the group underneath (ADR 0036).
+    # and nothing it restored is deleted; on a pull request's miss a later step
+    # lays main's entry for this same build underneath (ADR 0036, ADR 0074).
+    # That entry's key is this one taken over the base commit's Cargo.lock,
+    # here, before rust-cache exports variables that would move the hash.
     - name: Key the dependency build by what it is compiled from
       if: inputs.caches == 'true'
       id: deps-key
       shell: bash
+      env:
+        BASE_SHA: ${{ github.ref != 'refs/heads/main' && (github.event.pull_request.base.sha || github.event.merge_group.base_sha) || '' }}
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
         digest() { if command -v sha1sum >/dev/null 2>&1; then sha1sum; else shasum -a 1; fi; }
-        hash="$( {
-          rustc -vV
-          cat rust-toolchain.toml
-          awk 'BEGIN { RS = "" } /\nsource = / { print }' Cargo.lock
-          awk 'BEGIN { RS = "" } /^\[\[package\]\]/ && !/\nsource = / { sub(/\nversion = "[^"]*"/, ""); print }' Cargo.lock
-          awk '/^\[/ { keep = ($0 ~ /^\[profile/) } keep' Cargo.toml
-          env | LC_ALL=C sort | awk -F= '$1 ~ /^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)/ && $2 != ""'
-        } | digest | cut -c1-12 )"
+        key() {
+          {
+            rustc -vV
+            cat rust-toolchain.toml
+            awk 'BEGIN { RS = "" } /\nsource = / { print }' "$1"
+            awk 'BEGIN { RS = "" } /^\[\[package\]\]/ && !/\nsource = / { sub(/\nversion = "[^"]*"/, ""); print }' "$1"
+            awk '/^\[/ { keep = ($0 ~ /^\[profile/) } keep' Cargo.toml
+            env | LC_ALL=C sort | awk -F= '$1 ~ /^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)/ && $2 != ""'
+          } | digest | cut -c1-12
+        }
+        hash="$(key Cargo.lock)"
         echo "deps key ${hash}"
         echo "hash=${hash}" >> "${GITHUB_OUTPUT}"
+        # One raw read of the base commit's lock, never a fetch of its tree.
+        # A read that fails leaves `none`, which matches no entry, and the
+        # restore falls back to the group's newest entry.
+        base=none
+        base_lock="${RUNNER_TEMP}/base-Cargo.lock"
+        if [ -n "${BASE_SHA}" ] && curl -fsS --max-time 10 --retry 2 \
+            -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw" \
+            -o "${base_lock}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/Cargo.lock?ref=${BASE_SHA}"; then
+          base="$(key "${base_lock}")"
+        fi
+        echo "base deps key ${base}"
+        echo "base=${base}" >> "${GITHUB_OUTPUT}"
     - name: Cache the registry and the dependency build
       if: inputs.caches == 'true'
       id: rust-cache
@@ -169,8 +189,11 @@ runs:
     # every shard compiled cold: #923 added loom to Cargo.lock, slice 6 built
     # for 2 m 34 s against main's 44 s, and the run walled at 312 s (run
     # 43311128730). rust-cache's pre-clean has run on that miss, so laying
-    # main's newest entry for this group under it afterwards deletes nothing:
-    # cargo's fingerprints rebuild only what the lockfile moved. These are the
+    # main's entry for this build under it afterwards deletes nothing: cargo's
+    # fingerprints rebuild only what the lockfile moved. The group's newest
+    # entry is only the fallback, because it may be another job's build: run
+    # 45084656634 laid one down and every workspace slice compiled its 217
+    # crates, 124 to 146 s against 66 to 79 s (ADR 0074). These are the
     # paths rust-cache saves, in its order, so the entry's version matches; a
     # read here never saves, and rust-cache stays the one owner that writes.
     - name: Name the paths of main's dependency build
@@ -192,7 +215,9 @@ runs:
       with:
         path: ${{ steps.base-paths.outputs.paths }}
         key: v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}-base
-        restore-keys: v0-rust-${{ inputs.cache-key }}-
+        restore-keys: |
+          v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-
+          v0-rust-${{ inputs.cache-key }}-
     - name: Report the base build
       if: steps.base-paths.outcome == 'success'
       shell: bash

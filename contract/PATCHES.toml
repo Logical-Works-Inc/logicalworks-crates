@@ -66,6 +66,24 @@ upstream_issue = "https://github.com/huggingface/candle/issues/4074"
 upstream_pr = "https://github.com/huggingface/candle/pull/4078"
 patch_digest = "git:9515d410e3af803fd45efebfef8137f47d85a63d"
 
+# gpui 0.2.2 on crates.io pulls block 0.1.6 (rust#74840) and proc-macro-error2
+# 2.0.1 through stacksafe 0.1 (rust#127909), both future-incompat lints. Zed main
+# moved to block2 and stacksafe 1.0.3 (zed#62468); the release is asked in
+# zed#67338. Remove this row, the `git`/`rev` keys and the `origin` line in
+# APPROVED.toml when crates.io holds a gpui release past 0.2.2.
+[[patch]]
+crate = "gpui"
+kind = "upstream-pin"
+owner = "lgwks_deps"
+reason = "The crates.io release pulls block 0.1.6 and proc-macro-error2, which rustc reports as future-incompat lints."
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/1122"
+recorded_on = "2026-11-22"
+expires_on = "2027-02-22"
+version = "0.2.2"
+upstream_issue = "https://github.com/zed-industries/zed/issues/67338"
+upstream_pr = "https://github.com/zed-industries/zed/pull/62468"
+patch_digest = "git:f126950f9d3b62666f97437ae5d4ccac2272c4db"
+
 [[patch]]
 crate = "ring"
 kind = "provider-exception"

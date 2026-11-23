@@ -154,13 +154,18 @@ fn lock_tree() -> std::sync::MutexGuard<'static, ()> {
 ///
 /// Only what `cargo metadata` needs is copied -- the manifests, the workspace
 /// root manifest, and the register -- so the copy is cheap and carries no build
-/// output. `Cargo.lock` is copied too because `--locked` reads it.
+/// output. `Cargo.lock` is copied too because `--locked` reads it, and the
+/// toolchain pin and `.cargo/config.toml` because they decide how cargo fetches
+/// a git source: without them the copy looked for a full Zed checkout where the
+/// runner held only the shallow one the repository's config fetched (ADR 0073).
 fn copied_tree(scratch: &Scratch) -> Result<PathBuf, Box<dyn Error>> {
     let root = workspace_root()?;
     let target = scratch.path().join("tree");
     let relative = [
         "Cargo.toml",
         "Cargo.lock",
+        "rust-toolchain.toml",
+        ".cargo/config.toml",
         "contract/APPROVED.toml",
         "contract/INVARIANTS.toml",
     ];
@@ -286,12 +291,19 @@ impl AstManifestEdit {
 }
 
 impl Drop for AstManifestEdit {
-    /// Best effort: the tree is this repository's, and a test that has already
-    /// decided its verdict must not be failed by a failed restore. `Drop` has no
-    /// failure channel, so a restore that cannot happen is not reported here.
+    /// The tree is this repository's, and a test that has already decided its
+    /// verdict must not be failed by a failed restore. `Drop` has no failure
+    /// channel, so a restore that cannot happen is logged with the file it left
+    /// changed, for the operator to restore by hand.
     fn drop(&mut self) {
-        drop(std::fs::write(&self.path, &self.content));
-        drop(std::fs::write(&self.lock, &self.lock_content));
+        for (path, content) in [
+            (&self.path, &self.content),
+            (&self.lock, &self.lock_content),
+        ] {
+            if let Err(error) = std::fs::write(path, content) {
+                lgwks_std::trace::warn!(path = %path.display(), %error, "could not restore the tree");
+            }
+        }
     }
 }
 

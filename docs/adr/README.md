@@ -108,5 +108,8 @@ Prose review does not catch a missing field; a refusal does.
 | [0070](0070-a-model-call-is-a-durable-step.md) | A model call is a durable step: a resume replays the answer and never pays twice |
 | [0071](0071-a-justify-token-rule-bounds-a-runs-model-spend.md) | A `justify` token rule bounds a run's model spend: reserve before the call, settle to the bill |
 | [0072](0072-a-landlock-allowlist-holds-4096-rules.md) | A Landlock allowlist holds 4,096 rules and 1 MiB of path bytes, refused before the fork |
+| [0073](0073-gpui-builds-from-zed-main-until-it-ships.md) | gpui builds from Zed main until crates.io holds the fix for two future-incompatible crates |
+| [0074](0074-a-moved-lockfile-builds-on-mains-entry-for-its-own-build.md) | A moved lockfile builds on main's entry for its own build (refines 0036) |
+| [0075](0075-every-page-reads-zero-findings-with-no-exemption.md) | Every page reads 0 `check-docs` findings, `AGENTS.md` included |
 
 New records go at the bottom of that table.

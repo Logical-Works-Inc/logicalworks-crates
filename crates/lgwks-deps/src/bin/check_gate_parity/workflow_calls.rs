@@ -569,8 +569,21 @@ mod tests {
         if !action.contains(RUST_CACHE_PATHS) {
             problems.push("hosted-rust's base build names other paths than rust-cache".to_owned());
         }
-        if !action.contains("restore-keys: v0-rust-${{ inputs.cache-key }}-\n") {
+        if !action.contains(
+            "restore-keys: |\n          v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-\n",
+        ) {
+            problems.push(
+                "hosted-rust's base build does not look for main's entry of its own build first"
+                    .to_owned(),
+            );
+        }
+        if !action.contains("\n          v0-rust-${{ inputs.cache-key }}-\n") {
             problems.push("hosted-rust's base build is not main's entry for its group".to_owned());
+        }
+        if !action.contains("hash=\"$(key Cargo.lock)\"")
+            || !action.contains("base=\"$(key \"${base_lock}\")\"")
+        {
+            problems.push("hosted-rust keys main's entry by another hash than its own".to_owned());
         }
         problems
     }
@@ -598,10 +611,22 @@ mod tests {
                 "\"${home}/git\" \"${home}/registry\"",
                 "hosted-rust's base build names other paths than rust-cache",
             ),
+            // Run 45084656634: the group's newest entry was another job's
+            // build, and every workspace slice compiled its 217 crates.
             (
-                "restore-keys: v0-rust-${{ inputs.cache-key }}-\n",
-                "restore-keys: v0-rust-\n",
+                "          v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-\n",
+                "",
+                "hosted-rust's base build does not look for main's entry of its own build first",
+            ),
+            (
+                "\n          v0-rust-${{ inputs.cache-key }}-\n",
+                "\n          v0-rust-\n",
                 "hosted-rust's base build is not main's entry for its group",
+            ),
+            (
+                "base=\"$(key \"${base_lock}\")\"",
+                "base=\"$(key Cargo.lock)\"",
+                "hosted-rust keys main's entry by another hash than its own",
             ),
             (
                 "uses: actions/cache/restore@v6",

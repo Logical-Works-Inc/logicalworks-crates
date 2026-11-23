@@ -62,6 +62,7 @@ fn deps_are_approved_leaves() -> TestResult {
                 "tower-http",
                 "llm-guard",
                 "gpui",
+                "gpui_platform",
                 "appcui",
                 "bevy_ecs",
                 "bevy_app",

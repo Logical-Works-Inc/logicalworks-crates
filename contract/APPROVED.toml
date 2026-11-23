@@ -437,7 +437,8 @@ version = "^0.2"
 license = "Apache-2.0"
 owner = "lgwks_deps"
 capability = "ui.gpu-desktop"
-source = "registry"
+source = "git"
+origin = "git+https://github.com/zed-industries/zed?rev=f126950f9d3b62666f97437ae5d4ccac2272c4db"
 allowed_consumers = "lgwks_deps"
 allowed_kinds = "normal"
 reason = "Zed's GPU-accelerated desktop UI framework has no standard-library equivalent; it is an opt-in storefront feature of lgwks_deps, never built by default, consumed by drishti's native ink lab host (feature `ui`)."
@@ -448,6 +449,27 @@ review = "https://crates.io/crates/gpui"
 replacement = "drishti::native"
 blocker = "GPU-accelerated desktop UI needs a native framework the estate does not own yet."
 cost = { cold_build_s = 141.73, crates = 407, binary_bytes = 881934504, measured = "2026-11-02", command = "cargo tree --locked -e normal -p lgwks_deps --no-default-features --features gpui --prefix none (427 distinct, 407 over the 20-crate base); CARGO_TARGET_DIR=/private/tmp/lgwks-retire-gpui cargo build --locked -p lgwks_deps --no-default-features --features gpui (151.00s vs 9.27s base); rlib bytes summed under /private/tmp/lgwks-retire-gpui/debug/deps (925398024 vs 43463520 base)" }
+review = "2027-02-01"
+
+[[approved]]
+crate = "gpui_platform"
+tier = "boundary"
+version = "^0.1"
+license = "Apache-2.0"
+owner = "lgwks_deps"
+capability = "ui.gpu-desktop.platform"
+source = "git"
+origin = "git+https://github.com/zed-industries/zed?rev=f126950f9d3b62666f97437ae5d4ccac2272c4db"
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "On Zed main the macOS, Linux and Windows backends left gpui for this crate; it rides the gpui pin and builds the Application drishti's native host runs."
+approved_by = "maintainer"
+approved_on = "2026-11-22"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/1122"
+[approved.retire]
+replacement = "drishti::native"
+blocker = "GPU-accelerated desktop UI needs a native framework the estate does not own yet."
+cost = { cold_build_s = 141.73, crates = 407, binary_bytes = 881934504, measured = "2026-11-02", command = "shared gpui feature with gpui; see the gpui row" }
 review = "2027-02-01"
 
 [[approved]]

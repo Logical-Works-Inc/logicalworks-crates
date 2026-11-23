@@ -11,7 +11,7 @@ Six files are the governance surface, and each owns exactly one concern:
 | [`WORKFLOW.md`](WORKFLOW.md) | Process: local CI, the delivery loop, evidence proportionality, agent economics |
 | [`INVARIANTS.md`](INVARIANTS.md) | Short enforced rule list, read before the first edit |
 | [`REQUIREMENTS.md`](REQUIREMENTS.md) | Immutable product requirements, superseded never edited |
-| `AGENTS.md` (this file) | **Dependency doctrine** — the narrower rule layered on `CODEBOOK.md` §10 |
+| `AGENTS.md` (this file) | **Dependency doctrine**: the narrower rule layered on `CODEBOOK.md` §10 |
 
 A second copy of a policy is a second policy, and the two drift. Do not
 duplicate these rules elsewhere; link here. Where this file and `CODEBOOK.md`
@@ -100,13 +100,13 @@ depends on the features on. It runs every feature, no features, the default set
 and each `lgwks_std` feature alone.
 
 The `check-std-first` binary (lane `std-first`) is the other half of the same
-rule: it reads the source, not the manifest, so it sees a `use` of an undeclared
-crate that builds only because the graph re-exports it, and a capability
+rule. It reads the source, not the manifest. So it sees a `use` of an undeclared
+crate that builds only because the graph re-exports it. It also sees a capability
 hand-rolled beside the `lgwks_std` module that provides it. `--justify` prints
 the record that approves every crate the source reaches past the four surfaces.
 
 The `check-doc-citations` binary (lane `doc-citations`) pins the text of every
-line a guide cites, so a citation that lands on another line after a file grows
+line a guide cites. A citation that lands on another line after a file grows
 fails. `--update` records a legitimate move and prints every line whose text
 changed under a citation, which is the review.
 

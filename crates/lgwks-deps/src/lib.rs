@@ -296,6 +296,12 @@ pub use bevy_state;
 #[doc(hidden)]
 pub use gpui;
 
+/// The platform backends GPUI moved out of its core crate; `application()`
+/// builds the `Application` for the target the binary runs on.
+#[cfg(feature = "gpui")]
+#[doc(hidden)]
+pub use gpui_platform;
+
 /// Native terminal widgets and input-driven drawing, selected explicitly.
 ///
 /// The `appcui` example of `tests/fixtures/storefront-matrix` builds a `layout!` through this path,
