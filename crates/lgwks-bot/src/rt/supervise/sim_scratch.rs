@@ -9,7 +9,7 @@
 //! whose owner is still locked is removed.
 
 use super::{
-    ABANDONED_AFTER, OWNER, ROOT_PREFIX, SWEEP_EVERY, abandoned, elapsed_enough, open_root,
+    ABANDONED_AFTER, OWNER, ROOT_PREFIX, SWEEP_EVERY, abandoned, claim, elapsed_enough, open_root,
     sweep_dead_roots,
 };
 use lgwks_std::seeded::Seeded;
@@ -88,6 +88,66 @@ fn sim_scratch_sweep_interval_matches_the_model() -> SimResult {
         elapsed_enough(1, every.saturating_add(1)),
         "the full interval is due"
     );
+    Ok(())
+}
+
+/// #1130: every process scanned the shared Darwin temp dir (30,145 entries on
+/// the build Mac) at its first spawn and each interval, and logical_ci's lanes
+/// ran seven times slower. The claim lets one process per machine scan it per
+/// interval. Model: a claim wins when the stamp is new, or the last win is a
+/// full interval behind, or more than one interval ahead (a stepped clock),
+/// and never while another process holds the stamp's lock.
+#[test]
+fn sim_scratch_machine_claim_matches_the_model() -> SimResult {
+    let (parent, _owner) = open_root(&std::env::temp_dir())?;
+    let stamp = parent.join(".lgwks-sweep-sim");
+    let base = SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(1_700_000_000))
+        .ok_or("the base instant overflows")?;
+    let every = u64::try_from(SWEEP_EVERY.as_millis())?;
+    let mut last_win: Option<SystemTime> = None;
+    let mut now = base;
+    for seed in 0..2_000_u64 {
+        let mut draw = Seeded::from_seed(seed);
+        // Steps around the interval, and some clock steps backwards.
+        let step = Duration::from_millis(draw.below(every.saturating_mul(2))?);
+        now = if draw.below(10)? == 0 {
+            now.checked_sub(step.saturating_mul(3))
+        } else {
+            now.checked_add(step)
+        }
+        .ok_or("a drawn instant overflows")?;
+        // A contended draw needs a stamp to lock, so the first win comes first.
+        let contended = last_win.is_some() && draw.below(6)? == 0;
+        let holder = if contended {
+            let other = File::open(&stamp)?;
+            other.lock()?;
+            Some(other)
+        } else {
+            None
+        };
+        let due = match last_win {
+            None => true,
+            Some(last) => match now.duration_since(last) {
+                Ok(age) => age >= SWEEP_EVERY,
+                Err(ahead) => ahead.duration() > SWEEP_EVERY,
+            },
+        };
+        let want = due && !contended;
+        assert_eq!(
+            claim(&stamp, now),
+            want,
+            "seed {seed}: due={due} contended={contended}"
+        );
+        if want {
+            last_win = Some(now);
+        }
+        drop(holder);
+        if last_win.is_none() {
+            return Err("the first claim of a new stamp must win".into());
+        }
+    }
+    fs::remove_dir_all(&parent)?;
     Ok(())
 }
 

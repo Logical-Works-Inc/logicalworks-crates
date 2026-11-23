@@ -22,7 +22,9 @@
 //!   temp dir whatever `TMPDIR` says, through `xcrun_db-XXXXXXXX`; one cut off
 //!   (killed, or past a file-size limit) never removes it. While a group runs,
 //!   and when it ends, such files idle past [`ABANDONED_AFTER`] are removed, at
-//!   most once per [`SWEEP_EVERY`] per process.
+//!   most once per [`SWEEP_EVERY`] per process. That dir is shared by every
+//!   tool on the machine, so only the process that wins its stamp's [`claim`]
+//!   scans it, once per interval per machine (#1130).
 //!
 //! Not claimed: a child that writes to a fixed path such as `/tmp/x`, or sets
 //! its own `TMPDIR` before it forks, writes where it says.
@@ -50,6 +52,11 @@ const SWEEP_MAX: usize = 1_000_000;
 /// Temp writers that ignore `TMPDIR`: a name prefix and the length of the
 /// alphanumeric `mkstemp` suffix after it.
 const ABANDONED: &[(&str, usize)] = &[("xcrun_db-", 8)];
+/// The stamp in the shared Darwin user temp dir whose claim lets one process
+/// per machine scan it for abandoned files each [`SWEEP_EVERY`] (#1130).
+const FILES_CLAIM: &str = ".lgwks-sweep-files";
+/// The stamp whose claim lets one process per machine scan it for dead roots.
+const ROOTS_CLAIM: &str = ".lgwks-sweep-roots";
 
 /// One child's private temp directory, removed when it drops.
 #[derive(Debug)]
@@ -109,6 +116,7 @@ pub(super) fn sweep_if_due() {
     let now = SystemTime::now();
     let swept: usize = sweep_dirs()
         .iter()
+        .filter(|dir| may_scan(dir, FILES_CLAIM, now))
         .map(|dir| sweep_abandoned(dir, now))
         .sum();
     // Every due sweep reports its count, zero included: at most one line per
@@ -161,6 +169,78 @@ fn sweep_dirs() -> Vec<PathBuf> {
     dirs
 }
 
+/// Whether this process scans `dir` now for the scan kind `stamp` names.
+///
+/// A private temp dir is small and scanned whenever this process's interval
+/// allows. The shared Darwin user temp dir holds every tool's leftovers (30,145
+/// entries on the build Mac, #1130), so one process per machine scans it per
+/// interval: whichever wins the [`claim`] on its stamp.
+fn may_scan(dir: &Path, stamp: &str, now: SystemTime) -> bool {
+    let shared = match *USER_TEMP.get_or_init(darwin_user_temp) {
+        Some(ref user) => match (user.canonicalize(), dir.canonicalize()) {
+            (Ok(darwin), Ok(this)) => darwin == this,
+            _ => false,
+        },
+        None => false,
+    };
+    !shared || claim(&dir.join(stamp), now)
+}
+
+/// Claim the machine-wide stamp at `path` for a scan at `now`.
+///
+/// Wins when this process creates the stamp, or locks it and its last win is
+/// [`SWEEP_EVERY`] or more before `now`, or more than that after it (a clock
+/// stepped back). A win stamps `now`. A stamp another process holds, or one
+/// that cannot be opened, locked or stamped, is not won: the next interval
+/// tries again, and one stamp file is all the scan ever leaves.
+fn claim(path: &Path, now: SystemTime) -> bool {
+    let (stamp, fresh) = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
+        Ok(stamp) => (stamp, true),
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            match fs::OpenOptions::new().write(true).open(path) {
+                Ok(stamp) => (stamp, false),
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, stamp = %path.display(), "scratch: the sweep stamp could not be opened");
+                    return false;
+                }
+            }
+        }
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, stamp = %path.display(), "scratch: the sweep stamp could not be made");
+            return false;
+        }
+    };
+    if stamp.try_lock().is_err() {
+        // Another process is deciding or scanning: this interval is its.
+        return false;
+    }
+    let due = fresh
+        || match stamp.metadata().and_then(|meta| meta.modified()) {
+            Ok(last) => match now.duration_since(last) {
+                Ok(age) => age >= SWEEP_EVERY,
+                Err(ahead) => ahead.duration() > SWEEP_EVERY,
+            },
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, stamp = %path.display(), "scratch: the sweep stamp has no readable age");
+                false
+            }
+        };
+    if !due {
+        return false;
+    }
+    match stamp.set_modified(now) {
+        Ok(()) => true,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, stamp = %path.display(), "scratch: the sweep stamp could not be stamped");
+            false
+        }
+    }
+}
+
 /// `getconf DARWIN_USER_TEMP_DIR`: the directory `xcrun` writes to, which
 /// `TMPDIR` does not move. `None` off macOS or when it cannot be read.
 fn darwin_user_temp() -> Option<PathBuf> {
@@ -206,8 +286,10 @@ fn process_root(parent: &Path) -> io::Result<PathBuf> {
     // the loser removes its own empty root and uses the winner's. No lock: a
     // failed open is retried by the next spawn rather than cached.
     let (root, owner) = open_root(parent)?;
-    let swept = sweep_dead_roots(parent, &root);
-    lgwks_std::trace::debug!(swept, root = %root.display(), "scratch: dead owners' roots removed");
+    if may_scan(parent, ROOTS_CLAIM, SystemTime::now()) {
+        let swept = sweep_dead_roots(parent, &root);
+        lgwks_std::trace::debug!(swept, root = %root.display(), "scratch: dead owners' roots removed");
+    }
     if let Err((lost, owner)) = ROOT.set((root, owner)) {
         drop(owner);
         if let Err(error) = fs::remove_dir_all(&lost) {
