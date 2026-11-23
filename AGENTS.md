@@ -2,6 +2,15 @@
 
 > **Starting here? Read [`SKILLS.md`](SKILLS.md), then `INVARIANTS.md` before the first edit.** The first routes your task to one skill, and the second is the short, enforced list of this repo's domain rules. This file is the dependency doctrine.
 
+## The goal
+
+The crates are a runtime that holds AI-written code to rails, as the borrow
+checker holds memory. A dev, human or AI, takes the one path, and the runtime
+makes the small calls: spawn, retry, deadline, temp dir, cleanup, tenant, trust.
+A leak or a bug class in any repo built on the crates is a crates defect
+(Director, 2026-11-23). Issue #1128 lists each class the rails rule out and its
+proof; a class there without a test is a gap, and it says so.
+
 Six files are the governance surface, and each owns exactly one concern:
 
 | File | Concern |
@@ -13,15 +22,10 @@ Six files are the governance surface, and each owns exactly one concern:
 | [`REQUIREMENTS.md`](REQUIREMENTS.md) | Immutable product requirements, superseded never edited |
 | `AGENTS.md` (this file) | **Dependency doctrine**: the narrower rule layered on `CODEBOOK.md` §10 |
 
-A second copy of a policy is a second policy, and the two drift. Do not
-duplicate these rules elsewhere; link here. Where this file and `CODEBOOK.md`
-conflict on a dependency question, this file wins.
-
-The gate is defined once in `scripts/gate-lanes.toml`. Run it with
-`./scripts/ci-local.sh`. The `check-gate-parity` binary of `lgwks_deps` keeps
-`.github/workflows/ci.yml` in agreement with that table.
-
----
+A second copy of a policy drifts: link here, never duplicate. On a dependency
+question this file wins over `CODEBOOK.md`. The gate is defined once in
+`scripts/gate-lanes.toml` (run `./scripts/ci-local.sh`), and the
+`check-gate-parity` binary holds `.github/workflows/ci.yml` to it.
 
 Read this before adding a dependency to any crate in this repository. The
 workspace compiles against `std` and `lgwks_std` first; every other edge is a
@@ -74,13 +78,10 @@ would be the defect (`docs/dependency-doctrine.md` says which is which).
 
 ## Before you reach for a crate
 
-1. Read `docs/dependency-doctrine.md`: the decision flow and the full
-   replacement matrix, including where no replacement exists.
+1. Read `docs/dependency-doctrine.md`: the decision flow and replacement matrix.
 2. Confirm the crate's rung: `cargo run -p lgwks_deps -- tiers`.
-3. If the capability is genuinely missing, follow
-   `skills/lgwks-dependency-admission/SKILL.md` exactly.
-4. To check existing code against the policy before writing,
-   `skills/lgwks-std-first/SKILL.md` is the operational map.
+3. A missing capability follows `skills/lgwks-dependency-admission/SKILL.md`.
+4. `skills/lgwks-std-first/SKILL.md` maps existing code to the policy.
 
 ## Checks that must pass
 
