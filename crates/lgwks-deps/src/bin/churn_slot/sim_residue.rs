@@ -7,7 +7,7 @@
 //! symlink back to the root that a followed walk loops on, and a directory the
 //! census cannot read, which must fail closed rather than read as clean.
 
-use super::{Census, Residue, count_within};
+use super::{Census, PREFIX, Residue, count_within, draw_name};
 use lgwks_std::seeded::Seeded;
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -36,6 +36,31 @@ fn base(tag: &str) -> io::Result<PathBuf> {
     let dir = std::env::temp_dir().join(format!("sim-residue-{tag}-{unique:016x}"));
     fs::create_dir(&dir)?;
     Ok(dir)
+}
+
+/// The census names a test's dir `lwc-test-<16 hex>` from 64 random bits, so
+/// two tests on one host never share one. Model: every draw has the prefix and
+/// 16 lowercase hex digits, and 4,096 draws are 4,096 names. A draw from a
+/// clock or a counter repeats across processes started in one tick.
+#[test]
+fn sim_residue_census_names_are_distinct_draws() -> SimResult {
+    let mut seen = BTreeSet::new();
+    for _ in 0..4_096 {
+        let name = draw_name()?;
+        let hex = name
+            .strip_prefix(PREFIX)
+            .ok_or("a name without the prefix")?;
+        assert!(
+            hex.len() == 16 && hex.chars().all(|digit| digit.is_ascii_hexdigit()),
+            "{name}"
+        );
+        assert!(
+            hex.chars().all(|digit| !digit.is_ascii_uppercase()),
+            "{name}"
+        );
+        assert!(seen.insert(name), "a census name repeated");
+    }
+    Ok(())
 }
 
 /// A drawn element of `items`, as an I/O error when the stream refuses.

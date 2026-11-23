@@ -47,6 +47,36 @@ pub(super) struct Residue {
     refusals: Vec<String>,
 }
 
+/// A test dir's name, `lwc-test-<16 hex>`, from 64 bits of OS entropy.
+///
+/// # Errors
+///
+/// The entropy draw's error: on wasm, where there is none to draw and no
+/// program to spawn, `Unsupported`, so the census fails closed.
+fn draw_name() -> io::Result<String> {
+    Ok(format!("{PREFIX}{:016x}", entropy()?))
+}
+
+/// 64 bits from the estate's one entropy source (INV-RANDOM-1).
+#[cfg(not(target_family = "wasm"))]
+fn entropy() -> io::Result<u64> {
+    lgwks_std::random::bytes::<8>()
+        .map(u64::from_be_bytes)
+        .map_err(io::Error::other)
+}
+
+/// `lgwks_std::random` refuses wasm, and `std::process` cannot spawn there,
+/// so no census runs: the draw says so and the wrapper exits UNJUDGED.
+#[cfg(target_family = "wasm")]
+fn entropy() -> io::Result<u64> {
+    let refusal = io::Error::new(
+        io::ErrorKind::Unsupported,
+        "the residue census needs OS entropy and a spawned program; wasm has neither",
+    );
+    lgwks_std::trace::debug!(%refusal, "census: no entropy on wasm");
+    Err(refusal)
+}
+
 impl Census {
     /// A fresh directory for one test under `base`, named by 64 random bits.
     ///
@@ -55,8 +85,7 @@ impl Census {
     /// The draw's or the `create_dir` call's error: a test never runs without
     /// the census it was promised.
     pub(super) fn open(base: &Path) -> io::Result<Self> {
-        let unique = lgwks_std::random::bytes::<8>().map_err(io::Error::other)?;
-        let dir = base.join(format!("{PREFIX}{:016x}", u64::from_be_bytes(unique)));
+        let dir = base.join(draw_name()?);
         if let Err(error) = fs::create_dir(&dir) {
             lgwks_std::trace::debug!(%error, dir = %dir.display(), "census: the test's directory could not be made");
             return Err(error);
