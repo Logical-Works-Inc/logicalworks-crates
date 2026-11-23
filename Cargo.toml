@@ -27,7 +27,7 @@ lgwks_ast = { version = "6.1.1", path = "crates/lgwks-ast" }
 lgwks_macros = { version = "2.1.4", path = "crates/lgwks-macros" }
 # The storefront's default selection is empty; dependents opt into storefront
 # features such as `tokio` explicitly.
-lgwks_deps = { version = "8.0.1", path = "crates/lgwks-deps", default-features = false }
+lgwks_deps = { version = "8.0.0", path = "crates/lgwks-deps", default-features = false }
 
 [profile.release]
 opt-level = 3
