@@ -23,7 +23,9 @@ crate, so the crate owns the fix.
    and `TEMP` to it. The process-group guard owns it, and it is removed after the group is killed.
 2. **The caller's choice wins.** A spec that sets `TMPDIR` or clears the environment gets nothing.
 3. **Crash-safe roots.** A root holds an `.owner` file that its process locks. The kernel drops the
-   lock on `SIGKILL`. The first root a process opens removes each sibling whose lock it can take.
+   lock on `SIGKILL`. A root a process opens removes each sibling whose lock it can take and whose
+   owner file is 10 s idle, at most once per 2 s: a younger root is still being opened. The last
+   child's drop removes the root, lock still held (amended 2026-11-23, #1128).
 4. **Writers that ignore `TMPDIR`.** While a group runs and when it ends, at most once each 2 s, a
    sweep removes `xcrun_db-XXXXXXXX` files idle for 10 s or more. It reads the own temp dir and
    `getconf DARWIN_USER_TEMP_DIR`.

@@ -14,7 +14,7 @@
 //!
 //! | Test | Property it pins |
 //! |---|---|
-//! | `sim_scratch_leaves_nothing` | each child's `TMPDIR` is its own directory under the user temp dir, and it is gone once the run returns, however the child ended |
+//! | `sim_scratch_leaves_nothing` | each child's `TMPDIR` is its own directory under the user temp dir, and it and its process root are gone once the run returns, however the child ended |
 //! | `sim_scratch_caller_temp_is_the_callers` | a spec that names `TMPDIR` keeps it, and what the child wrote there stays |
 //! | `sim_scratch_sweeps_dead_roots_and_xcrun_leftovers` | a root whose owner lock is free is removed, a locked one stays, and only idle `xcrun_db-XXXXXXXX` files are swept |
 
@@ -120,6 +120,15 @@ fn leak_case(sim: &mut sim::Sim, runtime: &Runtime, temp: &Path) -> TestResult {
         "the child's temp dir is gone once the run returns ({ending}): {}",
         dir.display()
     );
+    // No other child of this test process is live, so the process root that
+    // held the child's directory goes with its last child: a run leaves no
+    // `lgwks-tmp-*` root, `.owner` file included (#1128 G2).
+    let root = dir.parent().ok_or("a child's directory has a root")?;
+    assert!(
+        !root.exists(),
+        "the process's temp root is gone with its last child ({ending}): {}",
+        root.display()
+    );
     assert_eq!(
         run.deadline_fired(),
         ending == "deadline",
@@ -171,17 +180,19 @@ fn sim_scratch_sweeps_dead_roots_and_xcrun_leftovers() -> TestResult {
     let tag = tag()?;
     let dead = temp.join(format!("lgwks-tmp-it-dead-{tag}"));
     let live = temp.join(format!("lgwks-tmp-it-live-{tag}"));
-    for root in [&dead, &live] {
-        fs::create_dir_all(root.join("7"))?;
-        fs::write(root.join("7/left"), b"x")?;
-        File::create(root.join(".owner"))?;
-    }
-    let held = File::open(live.join(".owner"))?;
-    held.lock()?;
     // A fixed instant in 2001, far past any idle bound, so the test reads no clock.
     let long_ago = SystemTime::UNIX_EPOCH
         .checked_add(Duration::from_secs(1_000_000_000))
         .ok_or("2001 is past the end of the clock")?;
+    for root in [&dead, &live] {
+        fs::create_dir_all(root.join("7"))?;
+        fs::write(root.join("7/left"), b"x")?;
+        // An owner that made its root long ago: a younger root is still being
+        // opened, and the sweep leaves it alone.
+        File::create(root.join(".owner"))?.set_modified(long_ago)?;
+    }
+    let held = File::open(live.join(".owner"))?;
+    held.lock()?;
     let idle = temp.join(format!("xcrun_db-I{:07}", tag % 10_000_000));
     let fresh = temp.join(format!("xcrun_db-F{:07}", tag % 10_000_000));
     let other = temp.join(format!("xcrun_db-keep-{tag}"));

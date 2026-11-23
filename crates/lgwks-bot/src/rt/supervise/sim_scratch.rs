@@ -6,11 +6,12 @@
 //! is swept; clock-fool, a file stamped in the future, or one tick short of
 //! idle, is swept; double-clicker, a second claim inside one interval sweeps;
 //! saboteur, a root with no owner file, a file named like a root, or a root
-//! whose owner is still locked is removed.
+//! whose owner is still locked is removed; wrong-order, children dropped in
+//! any order leave the root behind, or remove it while one still lives.
 
 use super::{
-    ABANDONED_AFTER, OWNER, ROOT_PREFIX, SWEEP_EVERY, abandoned, elapsed_enough, open_root,
-    sweep_dead_roots,
+    ABANDONED_AFTER, OWNER, ROOT, ROOT_PREFIX, SWEEP_EVERY, Scratch, abandoned, elapsed_enough,
+    open_root, sweep_dead_roots,
 };
 use lgwks_std::seeded::Seeded;
 use std::error::Error;
@@ -91,6 +92,83 @@ fn sim_scratch_sweep_interval_matches_the_model() -> SimResult {
     Ok(())
 }
 
+/// The open root's path and live count, read under its lock.
+fn open_root_state() -> Option<(std::path::PathBuf, usize)> {
+    ROOT.hold()
+        .as_ref()
+        .map(|root| (root.path.clone(), root.live))
+}
+
+#[test]
+fn sim_scratch_root_lives_exactly_while_a_child_does() -> SimResult {
+    // The model: a count of live children. The root exists exactly while it is
+    // above zero, every live child's directory exists under it, and a caller
+    // that owns its temp gets nothing and moves nothing.
+    for seed in 0..64_u64 {
+        let mut draw = Seeded::from_seed(seed);
+        let mut live: Vec<Scratch> = Vec::new();
+        let mut roots_seen: Vec<std::path::PathBuf> = Vec::new();
+        for _ in 0..=draw.below(24)? {
+            match draw.below(4)? {
+                0 | 1 => {
+                    let scratch = Scratch::for_spawn(false)?.ok_or("a child gets a dir")?;
+                    live.push(scratch);
+                }
+                2 if !live.is_empty() => {
+                    // Any child, not the newest: the drawn one moves to the end
+                    // and the truncate runs its drop.
+                    let at = draw.index(live.len())?;
+                    let last = live.len().saturating_sub(1);
+                    live.swap(at, last);
+                    live.truncate(last);
+                }
+                _ => {
+                    assert!(
+                        Scratch::for_spawn(true)?.is_none(),
+                        "seed {seed}: the caller's own temp gets nothing"
+                    );
+                }
+            }
+            match open_root_state() {
+                Some((root, count)) => {
+                    assert_eq!(count, live.len(), "seed {seed}: the live count");
+                    assert!(
+                        root.join(OWNER).exists(),
+                        "seed {seed}: an open root holds its owner"
+                    );
+                    for child in &live {
+                        assert!(
+                            child.dir.starts_with(&root) && child.dir.is_dir(),
+                            "seed {seed}: a live child's dir is under the open root"
+                        );
+                    }
+                    if !roots_seen.contains(&root) {
+                        roots_seen.push(root);
+                    }
+                }
+                None => assert!(live.is_empty(), "seed {seed}: no root while a child lives"),
+            }
+            for root in &roots_seen {
+                let open = open_root_state().is_some_and(|(path, _)| &path == root);
+                assert_eq!(
+                    root.exists(),
+                    open,
+                    "seed {seed}: only the open root exists"
+                );
+            }
+        }
+        live.clear();
+        assert!(
+            open_root_state().is_none(),
+            "seed {seed}: the last drop closes the root"
+        );
+        for root in &roots_seen {
+            assert!(!root.exists(), "seed {seed}: no root outlives its children");
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn sim_scratch_dead_roots_match_the_model() -> SimResult {
     // The parent is itself a held root, so no concurrent sweep removes it.
@@ -100,10 +178,23 @@ fn sim_scratch_dead_roots_match_the_model() -> SimResult {
         keep.starts_with(&parent) && keep.join(OWNER).exists(),
         "a root holds its owner file"
     );
+    // The sweep's instant: fixed, so the sim reads no clock. A dead owner file
+    // is stamped far before it; a young one (an owner still opening its root)
+    // one second before, inside the idle bound.
+    let now = SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(1_700_000_000))
+        .ok_or("the sweep instant overflows")?;
+    let old = now
+        .checked_sub(ABANDONED_AFTER.saturating_mul(6))
+        .ok_or("the old instant underflows")?;
+    let young = now
+        .checked_sub(Duration::from_secs(1))
+        .ok_or("the young instant underflows")?;
     for seed in 0..64_u64 {
         // 0: dead root, 1: live root, 2: root with no owner file, 3: a file
-        // named like a root, 4: a directory whose name is not a root's.
-        let kind = Seeded::from_seed(seed).below(5)?;
+        // named like a root, 4: a directory whose name is not a root's, 5: a
+        // root whose owner made it a moment ago and has not locked it yet.
+        let kind = Seeded::from_seed(seed).below(6)?;
         let name = if kind == 4 {
             format!("other-{seed}")
         } else {
@@ -117,13 +208,14 @@ fn sim_scratch_dead_roots_match_the_model() -> SimResult {
             fs::create_dir_all(path.join("child"))?;
             if kind != 2 {
                 let owner = File::create(path.join(OWNER))?;
+                owner.set_modified(if kind == 5 { young } else { old })?;
                 if kind == 1 {
                     owner.lock()?;
                     held = Some(owner);
                 }
             }
         }
-        let removed = sweep_dead_roots(&parent, &keep);
+        let removed = sweep_dead_roots(&parent, &keep, now);
         let want_gone = kind == 0;
         assert_eq!(
             removed,
@@ -140,5 +232,44 @@ fn sim_scratch_dead_roots_match_the_model() -> SimResult {
         }
     }
     fs::remove_dir_all(&parent)?;
+    Ok(())
+}
+
+#[test]
+fn sim_scratch_a_root_removed_from_outside_is_replaced() -> SimResult {
+    // The saboteur: a temp cleaner removes the open root while two children
+    // live. The next child gets a fresh root, the two old drops count against
+    // no root, and the fresh root lives exactly as long as its own child.
+    let mut old = vec![
+        Scratch::for_spawn(false)?.ok_or("a child gets a dir")?,
+        Scratch::for_spawn(false)?.ok_or("a child gets a dir")?,
+    ];
+    let (gone, count) = open_root_state().ok_or("two children hold a root")?;
+    assert_eq!(count, 2, "two children are counted");
+    fs::remove_dir_all(&gone)?;
+    let mut third = Some(Scratch::for_spawn(false)?.ok_or("a removed root is replaced")?);
+    let dir = third
+        .as_ref()
+        .map(|child| child.dir.clone())
+        .ok_or("the third child")?;
+    let (fresh, count) = open_root_state().ok_or("the third child holds a root")?;
+    assert!(
+        fresh != gone && dir.starts_with(&fresh) && dir.is_dir(),
+        "a fresh root"
+    );
+    assert_eq!(count, 1, "the fresh root counts only its own child");
+    old.clear();
+    assert_eq!(
+        open_root_state(),
+        Some((fresh.clone(), 1)),
+        "old children's drops leave the fresh root open"
+    );
+    assert!(dir.is_dir(), "the live child's dir stays");
+    third = None;
+    assert!(
+        third.is_none() && open_root_state().is_none(),
+        "the last drop closes the root"
+    );
+    assert!(!fresh.exists(), "no root outlives its children");
     Ok(())
 }
