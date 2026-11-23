@@ -48,6 +48,8 @@ cargo publish -p drishti --locked
 ```
 Skip a crate that did not move. An uploaded version cannot be withdrawn, and a chain that stops halfway is finished later, never rolled back.
 
+- [ ] No token, or a keychain check that blocks or fails: mint a one-day token and publish with it, as `docs/releasing.md` §1 says. Never wait on the keychain.
+
 ## 4. Tag after the upload
 
 A tag or a release created before the upload is a claim the registry does not back. Tags are `<package>-v<version>`, as in `lgwks_bot-v10.0.0` and `drishti-v0.3.0`:

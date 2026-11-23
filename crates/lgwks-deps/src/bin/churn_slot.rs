@@ -31,12 +31,23 @@
 //! disk of its own) keeps it and keeps the six slots, and `LWC_CHURN_TMP=inherit`
 //! keeps the default directory.
 //!
+//! It is also the residue census (ADR 0078, #1128 G2). Each test gets a fresh
+//! `TMPDIR`, `lwc-test-<16 hex>` under the one it would have used. When the
+//! test exits, anything left there fails it by name. On Linux the wrapper is
+//! the child subreaper too, and a process the test orphaned that is still
+//! alive is killed and fails it. The census removes what it found.
+//!
 //! Usage: `churn-slot <program> [argument...]`. The exit status is the program's;
-//! a program ended by a signal exits `128 + signal`.
+//! a program ended by a signal exits `128 + signal`. A program that exits zero
+//! and leaves residue exits 1; one the census cannot open a dir for is not run
+//! and exits 125.
 
 #[cfg(target_os = "macos")]
 #[path = "shared/ram_disk.rs"]
 mod ram_disk;
+
+#[path = "churn_slot/residue.rs"]
+mod residue;
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -475,35 +486,80 @@ fn temp_for(choice: Temp, dir: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Runs `program` under a slot, with `temp` as its `TMPDIR` when one is named, and
-/// returns its exit status.
+/// The exit status of a test the census could not open a directory for: the
+/// wrapper itself failed, as `docker run` reports it.
+const UNJUDGED: u8 = 125;
+
+/// The exit status of a test that exited zero and left residue.
+const LEFT_RESIDUE: u8 = 1;
+
+/// Runs `program` under a slot with a census `TMPDIR` of its own under `temp`
+/// (the caller's temp dir when `None`), and returns its exit status, or
+/// [`LEFT_RESIDUE`] when it exited zero and the census found residue.
 fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsString]) -> ExitCode {
-    let held = match slots.take(start_slot()) {
-        Ok(held) => Some(held),
+    let base = match temp {
+        Some(dir) => dir.to_path_buf(),
+        None => std::env::temp_dir(),
+    };
+    let census = match residue::Census::open(&base) {
+        Ok(census) => census,
         Err(error) => {
-            say(&format!("running uncapped: {error}"));
-            None
+            say(&format!(
+                "residue: no census dir under {}: {error}; the test is not run",
+                base.display()
+            ));
+            return ExitCode::from(UNJUDGED);
         }
     };
+    let mut found = residue::Residue::default();
+    residue::arm(&mut found);
     let mut command = Command::new(program);
     command.args(arguments);
-    if let Some(dir) = temp {
-        // A trailing separator, as the macOS default carries one.
-        let mut named = dir.as_os_str().to_os_string();
-        named.push("/");
-        command.env("TMPDIR", named);
-    }
-    let status = command.status();
-    drop(held);
-    match status {
-        Ok(status) => ExitCode::from(exit_status_of(status)),
+    // A trailing separator, as the macOS default carries one.
+    let mut named = census.dir().as_os_str().to_os_string();
+    named.push("/");
+    command.env("TMPDIR", named);
+    let status = {
+        // The slot is held exactly while the program runs: `_held` lives to
+        // the end of this block.
+        let _held = match slots.take(start_slot()) {
+            Ok(held) => Some(held),
+            Err(error) => {
+                say(&format!("running uncapped: {error}"));
+                None
+            }
+        };
+        command.status()
+    };
+    residue::sweep_orphans(&mut found);
+    census.close(&mut found);
+    let code = match status {
+        Ok(status) => exit_status_of(status),
         Err(error) => {
             say(&format!(
                 "cannot start {}: {error}",
                 Path::new(program).display()
             ));
-            ExitCode::from(UNRUNNABLE)
+            UNRUNNABLE
         }
+    };
+    if found.is_clean() {
+        return ExitCode::from(code);
+    }
+    for line in found.to_string().lines() {
+        say(line);
+    }
+    ExitCode::from(if code == 0 { LEFT_RESIDUE } else { code })
+}
+
+/// The slot count when none is named. Only macOS's one shared kernel queue,
+/// on the physical disk, wants the small default; a test moved to the RAM
+/// disk, or any other host, gets the host's `cores`, as nextest's threads are.
+fn fallback_slots(moved_to_ram_disk: bool, macos: bool, cores: NonZeroUsize) -> NonZeroUsize {
+    if moved_to_ram_disk || !macos {
+        cores
+    } else {
+        DEFAULT_SLOTS
     }
 }
 
@@ -524,11 +580,7 @@ fn main() -> ExitCode {
         Temp::Inherited
     };
     let temp = temp_for(choice, &dir);
-    let fallback = if temp.is_some() {
-        cores()
-    } else {
-        DEFAULT_SLOTS
-    };
+    let fallback = fallback_slots(temp.is_some(), cfg!(target_os = "macos"), cores());
     let slots = Slots::from_env(std::env::var_os(SLOTS_VAR), dir, fallback);
     run(&slots, temp.as_deref(), &program, &rest)
 }

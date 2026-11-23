@@ -38,6 +38,17 @@ there, so it says nothing about authentication: confirm credentials first
 train stops mid-chain. A partially published chain is recoverable (finish the
 rest once the token is available), but uploaded versions cannot be withdrawn.
 
+Check the keychain with a bound, and never wait on its dialog:
+`gtimeout 20 security find-generic-password -s 'cargo-registry:https://github.com/rust-lang/crates.io-index' -w >/dev/null`.
+With no token, or any nonzero exit, mint a new token in the signed-in agent
+browser. Set Expiration to "Custom..." and the date to tomorrow: the presets
+are No expiration and 7, 30, 60, 90 or 365 days, and the Custom date can be
+no earlier than today. Give it the publish-update scope (publish-new only for
+a first upload) and the patterns `lgwks_*` and `drishti`. Publish the whole
+chain with
+`CARGO_REGISTRY_GLOBAL_CREDENTIAL_PROVIDERS=cargo:token CARGO_REGISTRY_TOKEN=<token>`.
+Never print the token, and trash the file that held it when the chain is done.
+
 ## 2. Gates that must pass first
 
 CI runs the gate, defined once in `scripts/gate-lanes.toml`. Run its local lanes

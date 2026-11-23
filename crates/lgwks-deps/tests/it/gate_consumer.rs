@@ -124,7 +124,11 @@ impl Scratch {
         let bits = lgwks_std::random::bytes::<8>().map_err(|error| error.to_string())?;
         let name = u64::from_le_bytes(bits);
         let root = std::env::temp_dir().join(format!("lgwks-gate-consumer-{name:016x}-{id}"));
-        let target = std::env::temp_dir().join(format!("lgwks-gate-consumer-target-{name:016x}"));
+        // Under Cargo's per-suite scratch, beside the suite's own build: one
+        // name every case shares, so the dependency build is warm after the
+        // first, and `cargo clean` owns it. A target named per case in the temp
+        // root was never shared and never removed (ADR 0078).
+        let target = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("gate-consumer-target");
         std::fs::create_dir_all(root.join("src"))?;
         std::fs::create_dir_all(root.join("contract"))?;
         std::fs::create_dir_all(&target)?;
@@ -210,11 +214,12 @@ impl Scratch {
 }
 
 impl Drop for Scratch {
-    /// Removes the case directory; the shared target directory outlives the
-    /// cases that used it and the operating system reclaims it.
+    /// Removes the case directory; the shared target directory is Cargo's.
+    /// A case directory that stays is named by the residue census, which
+    /// fails the test (ADR 0078), so the error is traced, not swallowed.
     fn drop(&mut self) {
-        if std::fs::remove_dir_all(&self.root).is_err() {
-            // Left for the operating system: a test must not fail on cleanup.
+        if let Err(error) = std::fs::remove_dir_all(&self.root) {
+            lgwks_std::trace::debug!(%error, "gate consumer: a case directory stayed");
         }
     }
 }

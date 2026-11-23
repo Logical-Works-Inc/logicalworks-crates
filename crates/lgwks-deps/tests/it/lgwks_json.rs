@@ -232,7 +232,7 @@ fn run_json_is_parseable_then_serves() -> TestResult {
         }
         Ok(())
     })();
-    let stopped = stop_run(&mut child, port, Duration::from_secs(30));
+    let stopped = stop_run(&mut child, &dir, port, Duration::from_secs(30));
     outcome?;
     stopped.map_err(Into::into)
 }
