@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "lgwks_deps"
-version = "8.0.0"
+version = "8.0.1"
 dependencies = [
  "bevy_ecs",
  "bevy_state",

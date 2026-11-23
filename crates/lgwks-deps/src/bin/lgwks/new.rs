@@ -22,7 +22,7 @@ is refused rather than clobbered.
 ";
 
 /// The `lgwks_bot` release the scaffold pins, kept beside the workspace's.
-const BOT_VERSION: &str = "10.0.0";
+const BOT_VERSION: &str = "10.0.1";
 
 /// The `lgwks_std` release the scaffold pins, kept beside the workspace's.
 const STD_VERSION: &str = "5.0.0";
@@ -183,5 +183,44 @@ pub(crate) fn run(
         common::json_line(&value, out).map(|()| ExitCode::SUCCESS)
     } else {
         writeln!(out, "created {name}/Cargo.toml and {name}/app.rs").map(|()| ExitCode::SUCCESS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{BOT_VERSION, STD_VERSION, render};
+
+    /// `docs/releasing.md` §3: a release that moves `lgwks_bot` or `lgwks_std`
+    /// moves the scaffold's pin with it. On 2026-11-23 `lgwks_bot` 10.0.1 carried
+    /// the private temp dir per child (ADR 0077) while the pin still said
+    /// `=10.0.0`, so every new app would have started on the leaking runtime.
+    /// This holds `render` to the workspace manifests, in a millisecond.
+    #[test]
+    fn render_pins_the_workspace_releases_exactly() -> Result<(), String> {
+        let (manifest, app) = render("pins-app");
+        for (package, directory, pinned) in [
+            ("lgwks_bot", "lgwks-bot", BOT_VERSION),
+            ("lgwks_std", "lgwks-std", STD_VERSION),
+        ] {
+            let path = format!("{}/../{directory}/Cargo.toml", env!("CARGO_MANIFEST_DIR"));
+            let held =
+                std::fs::read_to_string(&path).map_err(|error| format!("{path}: {error}"))?;
+            if !held.contains(&format!("\nversion = \"{pinned}\"\n")) {
+                return Err(format!(
+                    "the scaffold pins {package} {pinned}, and {path} disagrees"
+                ));
+            }
+            let wanted = format!("{package} = {{ version = \"={pinned}\"");
+            if !manifest.lines().any(|line| line.starts_with(&wanted)) {
+                return Err(format!("the manifest lacks `{wanted}`:\n{manifest}"));
+            }
+        }
+        if manifest.contains("@@") || app.contains("@@") {
+            return Err(format!("a marker was left unwritten:\n{manifest}\n{app}"));
+        }
+        if !manifest.contains("name = \"pins-app\"") || !app.starts_with("//! pins-app:") {
+            return Err(format!("the app name was not written in:\n{manifest}"));
+        }
+        Ok(())
     }
 }
