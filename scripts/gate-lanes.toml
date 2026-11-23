@@ -1002,7 +1002,7 @@ reason = "dedicated PR check row whose job name is the ruleset's required Clippy
 # shards (the workspace suite, lgwks_bot full and its saturation shard), and
 # lgwks_bot at no default features runs in a job of its own; this row carries
 # the required name and passes only when the archives, both platforms' shards,
-# the evidence job (evidence, doc tests, smoke) and the no-default suite passed
+# the evidence, doc test and smoke jobs and the no-default suite passed
 # and, in a later step of the same job, the run's wall was at most 300 s
 # (`ci-wall`).
 [[lane]]

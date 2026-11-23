@@ -516,11 +516,10 @@ jobs:
         if: ${{ always() && matrix.suite != 'bot-it' }}
         run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
 
-  # The workspace's evidence lanes, doc tests and package smoke, and the
-  # receipts tool the required row runs: each reads a build rather than a test
-  # archive, and none waits on the suites.
+  # The workspace's evidence lane and the receipts tool the required row runs:
+  # each reads a build rather than a test archive, and none waits on the suites.
   workspace_tail:
-    name: Workspace evidence and doc tests
+    name: Workspace evidence
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
@@ -560,6 +559,28 @@ jobs:
           path: gate-evidence/
           if-no-files-found: error
           retention-days: 7
+
+  # The doc tests in a job of their own, beside the suites (#1095, ADR 0076).
+  # As a step of the evidence job they ran after the journey, about 200 s, and
+  # the run walled at 313 s (run 45086616792). Under the shared `workspace` key
+  # another job's `dev` build owned the entry, so each run compiled 249 crates
+  # again under the test profile (run 45056931513). `check-gate-parity` rule 11
+  # holds both.
+  doc_tests:
+    name: Doc tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    env:
+      RUSTC_WORKSPACE_WRAPPER: ""
+    steps:
+      - uses: actions/checkout@v7
+      - name: Pin Rust nightly
+        uses: ./.github/actions/hosted-rust
+        with:
+          toolchain: "nightly-2026-11-12"
+          cache-key: doc-tests
       - name: Doc tests
         run: cargo test --workspace --doc --locked
 
@@ -1306,7 +1327,7 @@ jobs:
   # jobs already wrote, with the receipts binary the evidence job built.
   build_verdict:
     name: Build and workspace tests
-    needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, package_smoke, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
+    needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, doc_tests, package_smoke, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -1333,7 +1354,7 @@ jobs:
           # The compile beyond the shards: the all-targets build and the
           # simulation listing.
           BUILD: ${{ needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
-          TAIL: ${{ needs.workspace_tail.result == 'success' && needs.package_smoke.result == 'success' && 'success' || 'failure' }}
+          TAIL: ${{ needs.workspace_tail.result == 'success' && needs.doc_tests.result == 'success' && needs.package_smoke.result == 'success' && 'success' || 'failure' }}
           LINUX: ${{ needs.tests_linux.result }}
           MACOS: ${{ needs.tests_macos.result }}
           BOT_NODEFAULT: ${{ needs.tests_nodefault.result }}

@@ -65,6 +65,8 @@ mod lgwks_scratch;
 
 mod gate_consumer;
 mod gate_ownership;
+/// The doc tests held off the one critical path, by the shipped parity binary.
+mod gate_parity_doc_path;
 /// The `logical_ci` job's runner, held to where the engine contains lanes.
 mod gate_runner;
 mod identity_binding;

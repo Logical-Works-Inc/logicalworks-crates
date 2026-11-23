@@ -38,14 +38,15 @@
 //!      failed `logical_ci.yml` in 0 s on every run (ADR 0029).
 //!   9. A sliced row runs its slice. A job that gives a suite `slice:` rows
 //!      passes `--partition` in every step that runs that suite (#923).
-//!  10. The wrapper ships with the toolchain. `.cargo/config.toml` runs every
-//!      build through `clippy-driver`, so the hosted action installs `clippy`
-//!      on every toolchain, whatever a caller passes (`wrapper.rs`).
+//!  10. The wrapper ships with the toolchain: the hosted action installs `clippy`
+//!      on every toolchain, for the `clippy-driver` the cargo config runs (`wrapper.rs`).
+//!  11. Only the required row waits on the doc tests, whose cache key is their own (#1095).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
 #[cfg(test)]
 mod cache_budget;
+mod doc_path;
 mod lane_split;
 mod neuter;
 mod partitions;
@@ -392,6 +393,7 @@ fn execute(root: &Path, out: &mut impl Write, err: &mut impl Write) -> Result<u8
     let pages_text = read(&root.join(PAGES_REL))?;
     let manifest = read_manifest(&manifest_text);
     let mut problems = check_parity(&manifest_text, &workflow_text);
+    problems.extend(doc_path::problems(&workflow_text));
     problems.extend(pin_problems(&manifest, "pages.yml", &pages_text));
     problems.extend(self_hosted_problems("pages.yml", &pages_text));
     problems.extend(foreign_workflow_problems("pages.yml", &pages_text));

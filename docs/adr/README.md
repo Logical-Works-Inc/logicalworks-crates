@@ -111,5 +111,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0073](0073-gpui-builds-from-zed-main-until-it-ships.md) | gpui builds from Zed main until crates.io holds the fix for two future-incompatible crates |
 | [0074](0074-a-moved-lockfile-builds-on-mains-entry-for-its-own-build.md) | A moved lockfile builds on main's entry for its own build (refines 0036) |
 | [0075](0075-every-page-reads-zero-findings-with-no-exemption.md) | Every page reads 0 `check-docs` findings, `AGENTS.md` included |
+| [0076](0076-doc-tests-run-beside-the-suites-on-their-own-cache.md) | Doc tests run beside the suites, on their own cache |
 
 New records go at the bottom of that table.
