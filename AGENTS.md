@@ -2,15 +2,6 @@
 
 > **Starting here? Read [`SKILLS.md`](SKILLS.md), then `INVARIANTS.md` before the first edit.** The first routes your task to one skill, and the second is the short, enforced list of this repo's domain rules. This file is the dependency doctrine.
 
-## The goal
-
-The crates are a runtime that holds AI-written code to rails, as the borrow
-checker holds memory. A dev, human or AI, takes the one path, and the runtime
-makes the small calls: spawn, retry, deadline, temp dir, cleanup, tenant, trust.
-A leak or a bug class in any repo built on the crates is a crates defect
-(Director, 2026-11-23). Issue #1128 lists each class the rails rule out and its
-proof; a class there without a test is a gap, and it says so.
-
 Six files are the governance surface, and each owns exactly one concern:
 
 | File | Concern |
@@ -26,6 +17,15 @@ A second copy of a policy drifts: link here, never duplicate. On a dependency
 question this file wins over `CODEBOOK.md`. The gate is defined once in
 `scripts/gate-lanes.toml` (run `./scripts/ci-local.sh`), and the
 `check-gate-parity` binary holds `.github/workflows/ci.yml` to it.
+
+## The goal
+
+The crates are a runtime that holds AI-written code to rails, as the borrow
+checker holds memory. A dev, human or AI, takes the one path, and the runtime
+makes the small calls: spawn, retry, deadline, temp dir, cleanup, tenant, trust.
+A leak or a bug class in any repo built on the crates is a crates defect
+(Director, 2026-11-23). Issue #1128 lists each class the rails rule out and its
+proof; a class there without a test is a gap, and it says so.
 
 Read this before adding a dependency to any crate in this repository. The
 workspace compiles against `std` and `lgwks_std` first; every other edge is a
