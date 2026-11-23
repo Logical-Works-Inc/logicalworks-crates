@@ -10,8 +10,8 @@
 //! any order leave the root behind, or remove it while one still lives.
 
 use super::{
-    ABANDONED_AFTER, OWNER, ROOT, ROOT_PREFIX, SWEEP_EVERY, Scratch, abandoned, elapsed_enough,
-    open_root, sweep_dead_roots,
+    ABANDONED_AFTER, OWNER, ROOT, ROOT_PREFIX, ROOTS_CLAIM, SWEEP_EVERY, Scratch, abandoned, claim,
+    elapsed_enough, open_root, sweep_dead_roots, sweeps_roots,
 };
 use lgwks_std::seeded::Seeded;
 use std::error::Error;
@@ -166,6 +166,96 @@ fn sim_scratch_root_lives_exactly_while_a_child_does() -> SimResult {
             assert!(!root.exists(), "seed {seed}: no root outlives its children");
         }
     }
+    Ok(())
+}
+
+/// #1130 meets the per-child root: a process reopens its root for each child,
+/// so the dead-root sweep runs when this process is due and, for the shared
+/// Darwin dir, only on the machine's claim. Model: a private parent sweeps
+/// exactly when due and never gets a stamp, which would itself be residue.
+#[test]
+fn sim_scratch_root_sweep_claims_only_the_shared_dir() -> SimResult {
+    let (parent, _owner) = open_root(&std::env::temp_dir())?;
+    let base = SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(1_700_000_000))
+        .ok_or("the base instant overflows")?;
+    for seed in 0..256_u64 {
+        let mut draw = Seeded::from_seed(seed);
+        let due = draw.below(2)? == 0;
+        let now = base
+            .checked_add(Duration::from_millis(draw.below(1_000_000)?))
+            .ok_or("a drawn instant overflows")?;
+        assert_eq!(
+            sweeps_roots(&parent, due, now),
+            due,
+            "seed {seed}: a private parent sweeps exactly when due"
+        );
+        assert!(
+            !parent.join(ROOTS_CLAIM).exists(),
+            "seed {seed}: a private parent gets no stamp"
+        );
+    }
+    fs::remove_dir_all(&parent)?;
+    Ok(())
+}
+
+/// #1130: every process scanned the shared Darwin temp dir (30,145 entries on
+/// the build Mac) at its first spawn and each interval, and logical_ci's lanes
+/// ran seven times slower. The claim lets one process per machine scan it per
+/// interval. Model: a claim wins when the stamp is new, or the last win is a
+/// full interval behind, or more than one interval ahead (a stepped clock),
+/// and never while another process holds the stamp's lock.
+#[test]
+fn sim_scratch_machine_claim_matches_the_model() -> SimResult {
+    let (parent, _owner) = open_root(&std::env::temp_dir())?;
+    let stamp = parent.join(".lgwks-sweep-sim");
+    let base = SystemTime::UNIX_EPOCH
+        .checked_add(Duration::from_secs(1_700_000_000))
+        .ok_or("the base instant overflows")?;
+    let every = u64::try_from(SWEEP_EVERY.as_millis())?;
+    let mut last_win: Option<SystemTime> = None;
+    let mut now = base;
+    for seed in 0..2_000_u64 {
+        let mut draw = Seeded::from_seed(seed);
+        // Steps around the interval, and some clock steps backwards.
+        let step = Duration::from_millis(draw.below(every.saturating_mul(2))?);
+        now = if draw.below(10)? == 0 {
+            now.checked_sub(step.saturating_mul(3))
+        } else {
+            now.checked_add(step)
+        }
+        .ok_or("a drawn instant overflows")?;
+        // A contended draw needs a stamp to lock, so the first win comes first.
+        // The holder's lock lasts to the end of this iteration.
+        let contended = last_win.is_some() && draw.below(6)? == 0;
+        let _holder = if contended {
+            let other = File::open(&stamp)?;
+            other.lock()?;
+            Some(other)
+        } else {
+            None
+        };
+        let due = match last_win {
+            None => true,
+            Some(last) => match now.duration_since(last) {
+                Ok(age) => age >= SWEEP_EVERY,
+                Err(ahead) => ahead.duration() > SWEEP_EVERY,
+            },
+        };
+        let want = due && !contended;
+        assert_eq!(
+            claim(&stamp, now),
+            want,
+            "seed {seed}: due={due} contended={contended}"
+        );
+        if want {
+            last_win = Some(now);
+        }
+        if last_win.is_none() {
+            return Err("the first claim of a new stamp must win".into());
+        }
+    }
+    fs::remove_dir_all(&parent)?;
     Ok(())
 }
 
