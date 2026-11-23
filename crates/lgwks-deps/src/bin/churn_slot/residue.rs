@@ -4,10 +4,9 @@
 //! The wrapper gives each test a `TMPDIR` of its own, made fresh under the one
 //! it would have used. When the test exits, an entry still in that directory
 //! is a leak: the test, or the code it drove, made it and nothing removed it.
-//! On Linux the wrapper is also the child subreaper, so a process the test
-//! orphaned, a `setsid` escapee or one with a cleared environment included, is
-//! adopted here; one still alive after the test is a leak too, and is killed.
 //! The census then removes what it found, so the wrapper itself leaves nothing.
+//! Processes a test orphans are not judged here: a subreaper that does not
+//! reap while the test runs breaks init's semantics for it (#1128 G2b).
 //!
 //! It judges the outcome, not a proxy: a test passes it only by leaving
 //! nothing, and no count of tests, lines or annotations moves it.
@@ -27,11 +26,6 @@ const NAMED: usize = 8;
 /// Entries one census reads before it stops counting and says so.
 const COUNT_MAX: usize = 100_000;
 
-/// How long the process census waits for killed orphans to die and be reaped
-/// before it says so. A `SIGKILL`ed process is a zombie within milliseconds.
-#[cfg(target_os = "linux")]
-const REAP_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
-
 /// One test's own temporary directory, judged and removed by [`Census::close`].
 #[derive(Debug)]
 pub(super) struct Census {
@@ -48,8 +42,6 @@ pub(super) struct Residue {
     total: usize,
     /// Whether the count stopped at [`COUNT_MAX`].
     capped: bool,
-    /// Processes the test orphaned that were alive after it, sorted.
-    processes: BTreeSet<i32>,
     /// Census steps the host refused. A refused step is not clean: the census
     /// fails closed.
     refusals: Vec<String>,
@@ -140,7 +132,7 @@ fn count_within(dir: &Path, residue: &mut Residue, max: usize) {
 impl Residue {
     /// Whether the test left nothing and every census step ran.
     pub(super) fn is_clean(&self) -> bool {
-        self.total == 0 && self.processes.is_empty() && self.refusals.is_empty()
+        self.total == 0 && self.refusals.is_empty()
     }
 
     /// Record a census step the host refused.
@@ -169,15 +161,6 @@ impl fmt::Display for Residue {
                 names.join(", ")
             )?;
         }
-        if !self.processes.is_empty() {
-            let pids: Vec<String> = self.processes.iter().map(i32::to_string).collect();
-            writeln!(
-                formatter,
-                "residue: the test left {} live processes, now killed: {} (ADR 0078)",
-                self.processes.len(),
-                pids.join(", ")
-            )?;
-        }
         for refusal in &self.refusals {
             writeln!(formatter, "residue: the census could not judge: {refusal}")?;
         }
@@ -185,73 +168,6 @@ impl fmt::Display for Residue {
     }
 }
 
-/// Become the child subreaper before the test starts, so its orphans come here.
-/// A `prctl` refusal goes into `residue`, and the census fails closed: a test
-/// it cannot watch is not one it calls clean.
-#[cfg(target_os = "linux")]
-pub(super) fn arm(residue: &mut Residue) {
-    if let Err(error) = lgwks_std::process::enable_child_subreaper() {
-        residue.refuse(format!("the subreaper could not be set: {error}"));
-    }
-}
-
-/// No subreaper off Linux: the file census runs, and the process census is
-/// Linux's, where every suite runs (INV-CI-PLATFORM-1).
-#[cfg(not(target_os = "linux"))]
-pub(super) fn arm(_residue: &mut Residue) {}
-
-/// After the test exited and was reaped: record, kill and reap every process
-/// it orphaned. A killed process's own children are adopted in turn, so this
-/// repeats until none is left or [`REAP_WITHIN`] passes.
-#[cfg(target_os = "linux")]
-pub(super) fn sweep_orphans(residue: &mut Residue) {
-    let deadline = std::time::Instant::now().checked_add(REAP_WITHIN);
-    loop {
-        let children = match lgwks_std::process::own_children() {
-            Ok(children) => children,
-            Err(error) => {
-                residue.refuse(format!(
-                    "the adopted processes could not be listed: {error}"
-                ));
-                return;
-            }
-        };
-        let reaped = match lgwks_std::process::reap_descendants(&children) {
-            Ok(reaped) => reaped,
-            Err(error) => {
-                residue.refuse(format!("an adopted process could not be reaped: {error}"));
-                return;
-            }
-        };
-        let live: Vec<i32> = children
-            .into_iter()
-            .filter(|pid| !reaped.contains(pid))
-            .collect();
-        if live.is_empty() {
-            return;
-        }
-        for pid in live {
-            // A pid seen before was killed already and is still dying.
-            if residue.processes.insert(pid)
-                && let Err(error) = lgwks_std::process::kill_process(pid)
-            {
-                lgwks_std::trace::debug!(%error, pid, "census: an adopted process could not be killed");
-            }
-        }
-        if deadline.is_none_or(|at| std::time::Instant::now() >= at) {
-            residue.refuse(format!(
-                "adopted processes were still alive {REAP_WITHIN:?} after the kill"
-            ));
-            return;
-        }
-        std::thread::yield_now();
-    }
-}
-
-/// No process census off Linux.
-#[cfg(not(target_os = "linux"))]
-pub(super) fn sweep_orphans(_residue: &mut Residue) {}
-
-#[cfg(test)]
+#[cfg(all(test, unix))]
 #[path = "sim_residue.rs"]
 mod sim_residue;

@@ -325,12 +325,6 @@ tokio = { version = "1", default-features = false, features = ["rt-multi-thread"
 # which keeps the tree at one entropy source rather than two.
 lgwks_std = { workspace = true, default-features = false, features = ["random"] }
 
-# The `churn-slot` residue census (ADR 0078) is the child subreaper on Linux:
-# `lgwks_std::process` names, kills and reaps a test's orphans. A feature of a
-# dependency already held, so no new edge; rustix is in the tree for lgwks_bot.
-[target.'cfg(target_os = "linux")'.dependencies]
-lgwks_std = { workspace = true, default-features = false, features = ["process"] }
-
 [[bin]]
 name = "lgwks-deps"
 path = "src/main.rs"

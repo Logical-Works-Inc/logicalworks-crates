@@ -20,12 +20,14 @@ the code runs (`xcrun`) is outside any model of the code.
 1. **A census per test.** The `churn-slot` wrapper gives each test a fresh `TMPDIR`,
    `lwc-test-<16 hex>` under the one it would have used. When the test exits, each entry still
    there fails it, and the first eight are named. The census then removes the directory.
-2. **Orphans on Linux.** The wrapper sets `PR_SET_CHILD_SUBREAPER`. After the test exits, each
-   adopted process still alive fails it by pid, and is killed and reaped.
-3. **Fail closed.** A census step the host refuses fails the test. A missing base dir is not
+2. **Fail closed.** A census step the host refuses fails the test. A missing base dir is not
    run, exit 125.
-4. **Every Unix host.** The wrapper runs on Linux and macOS. Linux runs every suite
-   (INV-CI-PLATFORM-1), so the process census runs there.
+3. **Every Unix host.** The wrapper runs on Linux and macOS. Linux runs every suite
+   (INV-CI-PLATFORM-1).
+4. **Processes are #1128 G2b.** A first cut made the wrapper the Linux child subreaper and
+   killed live orphans after the test. It did not reap while the test ran, so a child that
+   exited stayed a zombie where init would have reaped it, and 12 tests that probe exit
+   failed for the census's own reason. The next cut reaps during the run, as init does.
 5. **A served flow drains on a stop signal.** The first census run failed 58 of 8,454 tests.
    One was a product leak: an app served by the `serve` word took the default action on
    `SIGTERM`, so no drain ran and its ephemeral run store stayed for ever. `serve_at` now arms
@@ -52,7 +54,7 @@ Closes #1128 G2. It extends ADR 0077 from the children `lgwks_bot` starts to eve
 ## Verification
 
 `sim_residue_census_matches_the_model` checks the count and names over 256 drawn trees.
-`the_census_fails_a_program_that_leaves_residue` runs the real wrapper over 16 seeds of files,
-exit codes and, on Linux, a background process. It failed before the change.
+`the_census_fails_a_program_that_leaves_residue` runs the real wrapper over 16 seeds of files
+and exit codes. It failed before the change.
 `new_check_expand_run_serves_one_request` kills `lgwks run` and requires the app's `TMPDIR`
 empty. It failed before the serve change.

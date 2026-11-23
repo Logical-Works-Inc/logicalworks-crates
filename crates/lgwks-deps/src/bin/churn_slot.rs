@@ -33,9 +33,8 @@
 //!
 //! It is also the residue census (ADR 0078, #1128 G2). Each test gets a fresh
 //! `TMPDIR`, `lwc-test-<16 hex>` under the one it would have used. When the
-//! test exits, anything left there fails it by name. On Linux the wrapper is
-//! the child subreaper too, and a process the test orphaned that is still
-//! alive is killed and fails it. The census removes what it found.
+//! test exits, anything left there fails it by name. The census removes what
+//! it found.
 //!
 //! Usage: `churn-slot <program> [argument...]`. The exit status is the program's;
 //! a program ended by a signal exits `128 + signal`. A program that exits zero
@@ -512,7 +511,6 @@ fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsSt
         }
     };
     let mut found = residue::Residue::default();
-    residue::arm(&mut found);
     let mut command = Command::new(program);
     command.args(arguments);
     // A trailing separator, as the macOS default carries one.
@@ -531,7 +529,6 @@ fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsSt
         };
         command.status()
     };
-    residue::sweep_orphans(&mut found);
     census.close(&mut found);
     let code = match status {
         Ok(status) => exit_status_of(status),

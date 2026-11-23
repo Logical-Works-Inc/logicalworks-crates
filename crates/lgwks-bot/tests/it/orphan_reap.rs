@@ -127,6 +127,10 @@ fn a_killed_coordinators_lane_is_stopped_by_its_successor() -> TestResult {
         ))?
         .env(PROBE_ENV, "1")
         .env(PROBE_DIR, scratch.path())
+        // The killed coordinator never removes its children's temp root
+        // (ADR 0077 leaves it to the next sweep); in the scratch, it goes
+        // with the test (ADR 0078).
+        .env("TMPDIR", scratch.path())
         .stdout(std::process::Stdio::null())
         .spawn()?,
     ));

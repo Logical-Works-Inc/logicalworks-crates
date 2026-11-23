@@ -7,7 +7,7 @@
 //! symlink back to the root that a followed walk loops on, and a directory the
 //! census cannot read, which must fail closed rather than read as clean.
 
-use super::{Census, Residue, arm, count_within, sweep_orphans};
+use super::{Census, Residue, count_within};
 use lgwks_std::seeded::Seeded;
 use std::collections::BTreeSet;
 use std::error::Error;
@@ -92,10 +92,7 @@ fn sim_residue_census_matches_the_model() -> SimResult {
             residue.named, named,
             "seed {seed}: the first eight, sorted, are named"
         );
-        assert!(
-            !residue.capped && residue.processes.is_empty(),
-            "seed {seed}"
-        );
+        assert!(!residue.capped, "seed {seed}");
         assert!(
             residue.refusals.is_empty(),
             "seed {seed}: {:?}",
@@ -209,6 +206,47 @@ fn sim_residue_an_unreadable_dir_does_not_hide_its_siblings() -> SimResult {
     Ok(())
 }
 
+/// The verdict is files and refusals, every combination against the model:
+/// clean exactly when nothing was left and nothing refused, and each part
+/// named exactly when it is there. A process census is not claimed (G2b).
+#[test]
+fn sim_residue_the_verdict_matches_the_model_for_every_shape() {
+    for total in [0_usize, 1, 9] {
+        for capped in [false, true] {
+            for refused in [false, true] {
+                let named: BTreeSet<PathBuf> = (0..total.min(8))
+                    .map(|index| PathBuf::from(format!("e{index}")))
+                    .collect();
+                let mut residue = Residue {
+                    named,
+                    total,
+                    capped,
+                    ..Residue::default()
+                };
+                if refused {
+                    residue.refusals.push("no".to_owned());
+                }
+                // The record holds only what the census fills: no process
+                // field that no step of it sets (G2b).
+                let record = format!("{residue:?}");
+                assert!(!record.contains("processes"), "{record}");
+                let verdict = residue.to_string();
+                let shape = format!("total {total}, capped {capped}, refused {refused}");
+                assert_eq!(residue.is_clean(), total == 0 && !refused, "{shape}");
+                assert_eq!(
+                    verdict.contains("entries in its TMPDIR"),
+                    total > 0,
+                    "{shape}"
+                );
+                assert_eq!(verdict.contains("could not judge: no"), refused, "{shape}");
+                let floor = format!("left {total}+ entries");
+                assert_eq!(verdict.contains(&floor), total > 0 && capped, "{shape}");
+                assert!(!verdict.contains("process"), "{shape}: {verdict}");
+            }
+        }
+    }
+}
+
 /// A census that only refused names no entries: its verdict is the refusal.
 #[test]
 fn sim_residue_a_refusal_alone_names_no_entries() {
@@ -222,46 +260,4 @@ fn sim_residue_a_refusal_alone_names_no_entries() {
     );
     assert!(!verdict.contains("entries in its TMPDIR"), "{verdict}");
     assert!(!verdict.contains("live processes"), "{verdict}");
-}
-
-/// The saboteur that forks and exits: its background child is adopted by the
-/// subreaper, named, killed and reaped.
-#[cfg(target_os = "linux")]
-#[test]
-fn sim_residue_an_orphan_is_named_and_killed() -> SimResult {
-    let mut armed = Residue::default();
-    arm(&mut armed);
-    assert!(armed.is_clean(), "{armed}");
-    // The shell exits before `output` returns, so its background child is
-    // adopted here by then.
-    let output = std::process::Command::new("/bin/sh")
-        .args(["-c", "sleep 600 </dev/null >/dev/null 2>&1 & echo $!"])
-        .output()?;
-    let pid: i32 = String::from_utf8(output.stdout)?.trim().parse()?;
-    let mut residue = Residue::default();
-    sweep_orphans(&mut residue);
-    assert!(residue.refusals.is_empty(), "{:?}", residue.refusals);
-    assert_eq!(
-        residue.processes,
-        BTreeSet::from([pid]),
-        "the orphan is named"
-    );
-    assert!(
-        !Path::new(&format!("/proc/{pid}")).exists(),
-        "the orphan is killed and reaped"
-    );
-    let mut quiet = Residue::default();
-    sweep_orphans(&mut quiet);
-    assert!(quiet.is_clean(), "a second sweep finds nothing");
-    Ok(())
-}
-
-/// Off Linux the arm is a no-op and the process census finds nothing to judge.
-#[cfg(not(target_os = "linux"))]
-#[test]
-fn sim_residue_off_linux_the_process_census_is_empty() {
-    let mut residue = Residue::default();
-    arm(&mut residue);
-    sweep_orphans(&mut residue);
-    assert!(residue.is_clean(), "{residue}");
 }

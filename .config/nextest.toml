@@ -38,9 +38,7 @@ command = { command-line = "debug/churn-slot", relative-to = "target" }
 
 # ADR 0078 (#1128 G2): the same wrapper is the residue census on every Unix
 # host. Each test runs with a fresh TMPDIR of its own, and anything it leaves
-# there, or on Linux any process it orphaned that is still alive, fails that
-# test by name. Linux runs every suite (INV-CI-PLATFORM-1), so the process
-# census runs there; macOS has no subreaper and runs the file census.
+# there fails that test by name. Linux runs every suite (INV-CI-PLATFORM-1).
 [[profile.default.scripts]]
 platform = 'cfg(unix)'
 filter = 'all()'

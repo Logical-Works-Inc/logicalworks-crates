@@ -378,18 +378,17 @@ fn only_a_default_temporary_directory_is_moved_to_the_shared_volume() -> Result<
 
 /// The census's verdict for one drawn program: the exit status the wrapper
 /// owes, from what the program was told to leave and how it ends.
-fn owed_status(code: u8, entries: u64, orphan: bool) -> i32 {
+fn owed_status(code: u8, entries: u64) -> i32 {
     match code {
-        0 if entries > 0 || orphan => 1,
+        0 if entries > 0 => 1,
         _ => i32::from(code),
     }
 }
 
 /// Catches a wrapper that lets a test pass while it leaves files in its temp
-/// dir or, on Linux, a live process behind it (ADR 0078, #1128 G2). Source:
-/// 2026-11-23, 110,965 leaked temp files on the build Mac that no test saw.
-/// Fools: the monkey writes nested trees, the saboteur forks a background
-/// process and exits, and a failing program keeps its own status.
+/// dir (ADR 0078, #1128 G2). Source: 2026-11-23, 110,965 leaked temp files on
+/// the build Mac that no test saw. Fools: the monkey writes nested trees, and
+/// a failing program keeps its own status.
 #[test]
 fn the_census_fails_a_program_that_leaves_residue() -> Result<(), Failure> {
     replay_sweep("residue", SEEDS, |rng, trace: &mut Trace| {
@@ -398,17 +397,10 @@ fn the_census_fails_a_program_that_leaves_residue() -> Result<(), Failure> {
         fs::create_dir(&base)?;
         let trees = rng.between(0, 6);
         let code = if rng.between(0, 3) == 0 { 7_u8 } else { 0 };
-        // Only Linux has the subreaper the process census needs.
-        let orphan = cfg!(target_os = "linux") && rng.between(0, 2) == 0;
-        let background = if orphan {
-            "sleep 600 </dev/null >/dev/null 2>&1 &"
-        } else {
-            ""
-        };
         let script = format!(
             "printf '%s' \"$TMPDIR\"; i=0; while [ $i -lt {trees} ]; do \
              mkdir -p \"$TMPDIR/t$i/deep\"; : > \"$TMPDIR/t$i/deep/f\"; i=$((i+1)); done; \
-             {background} exit {code}"
+             exit {code}"
         );
         let output = wrapper(&dir, 2)
             .env("TMPDIR", &base)
@@ -435,10 +427,10 @@ fn the_census_fails_a_program_that_leaves_residue() -> Result<(), Failure> {
             .status
             .code()
             .ok_or("the wrapper has an exit status")?;
-        let owed = owed_status(code, u64::from(entries), orphan);
+        let owed = owed_status(code, u64::from(entries));
         if status != owed {
             return refuse(format!(
-                "the wrapper exited {status}, owed {owed} (code {code}, {entries} entries, orphan {orphan}): {said:?}"
+                "the wrapper exited {status}, owed {owed} (code {code}, {entries} entries): {said:?}"
             ));
         }
         if entries > 0 && !said.contains(&format!("the test left {entries} entries")) {
@@ -446,13 +438,7 @@ fn the_census_fails_a_program_that_leaves_residue() -> Result<(), Failure> {
                 "the verdict does not count {entries} entries: {said:?}"
             ));
         }
-        if orphan && !said.contains("live processes, now killed") {
-            return refuse(format!(
-                "the verdict does not name the live process: {said:?}"
-            ));
-        }
         trace.record_number("entries", u64::from(entries));
-        trace.record_number("orphan", u64::from(orphan));
         trace.record_number("status", u64::try_from(status)?);
         Ok(())
     })

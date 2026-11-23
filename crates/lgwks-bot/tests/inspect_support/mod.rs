@@ -163,10 +163,29 @@ pub(crate) fn spec_for(artifact: &str) -> TestResult<BotSpec> {
 /// the one this fixture must not assume.
 static ARTIFACTS: AtomicUsize = AtomicUsize::new(1);
 
-/// Write `subject` to a unique temp artifact and return its path string.
-pub(crate) fn artifact_for(label: &str, subject: &str) -> TestResult<String> {
+/// A temp artifact a test inspects, removed when the test drops it: the
+/// residue census (ADR 0078) found 17 of them left in the temp dir.
+pub(crate) struct Artifact(String);
+
+impl Artifact {
+    /// The artifact's path, as the inspection names it.
+    pub(crate) fn path(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Drop for Artifact {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.0) {
+            lgwks_std::trace::debug!(%error, path = self.0.as_str(), "inspect: an artifact stayed");
+        }
+    }
+}
+
+/// Write `subject` to a unique temp artifact, removed with the returned guard.
+pub(crate) fn artifact_for(label: &str, subject: &str) -> TestResult<Artifact> {
     let mark = ARTIFACTS.fetch_add(1, Ordering::Relaxed);
     let path = std::env::temp_dir().join(format!("lgwks-inspect-wiring-{label}-{mark}.rs"));
     std::fs::write(&path, subject)?;
-    Ok(path.to_string_lossy().into_owned())
+    Ok(Artifact(path.to_string_lossy().into_owned()))
 }
