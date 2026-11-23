@@ -154,6 +154,10 @@ libm = ["dep:libm"]
 # (`softbuffer`) and text shaping (`cosmic-text`). One feature for the three
 # edges, native-only, default-off, selected by drishti's `desktop` feature.
 desktop-preview = ["dep:winit", "dep:softbuffer", "dep:cosmic-text"]
+# Heap accounting (#1128 G1): a counting global allocator, so a test proves a
+# finished run gives back every byte it took. Its `GlobalAlloc` impl is the
+# unsafe code no estate crate may write. Default-off like every storefront group.
+heap-accounting = ["dep:stats_alloc"]
 # Sealed records (AEAD). The one pinned authenticated-encryption engine the
 # sealed journal and run-store records seal under: ChaCha20-Poly1305, pure
 # Rust, no C toolchain, portable to every declared target. Default-off like
@@ -279,6 +283,9 @@ p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"]
 winit = { version = "0.30.12", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
 softbuffer = { version = "0.4.6", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
 cosmic-text = { version = "0.19.0", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#836
+# Heap accounting (#1128 G1): a counting global allocator over `System`, no
+# dependencies of its own, pinned exactly because a test's byte count is its oracle.
+stats_alloc = { version = "=0.1.10", optional = true } # gap: Logical-Works-Inc/logicalworks-crates#1133
 # Sealed records: the one AEAD every sealed estate record seals under (estate
 # issue #785): one requirement here, the exact release in `Cargo.lock` (ADR
 # 0031). ChaCha20-Poly1305 is pure Rust with no C toolchain, so the no-flag

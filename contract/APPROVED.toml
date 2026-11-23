@@ -746,6 +746,30 @@ cost = { cold_build_s = 2.78, crates = 13, binary_bytes = 30318320, measured = "
 review = "2027-02-01"
 
 [[approved]]
+crate = "stats_alloc"
+tier = "boundary"
+version = "=0.1.10"
+license = "MIT"
+owner = "lgwks_deps"
+capability = "test.heap-accounting"
+source = "registry"
+# Reached only through the `heap-accounting` storefront feature: `lgwks_bot`'s
+# heap census selects it as a dev edge. Writing a counting allocator needs
+# `unsafe impl GlobalAlloc`, which `unsafe_code = "forbid"` refuses in every
+# workspace crate.
+allowed_consumers = "lgwks_deps"
+allowed_kinds = "normal"
+reason = "A test that the heap of a finished run returns to its baseline needs the live byte count across every thread; std has no counting allocator and a hand-written one needs unsafe code the workspace forbids."
+approved_by = "srinji"
+approved_on = "2026-11-23"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/1133"
+[approved.retire]
+replacement = "core::alloc"
+blocker = "core::alloc::GlobalAlloc counts nothing by itself, and a counting impl over System is unsafe code every workspace crate forbids."
+cost = { cold_build_s = 0.45, crates = 1, binary_bytes = 47800, measured = "2026-11-23", command = "cargo generate-lockfile --manifest-path /private/tmp/probe-stats-alloc/Cargo.toml (online); cargo tree --locked --manifest-path /private/tmp/probe-stats-alloc/Cargo.toml -e normal --prefix none (2 distinct incl. probe); cargo build --locked --manifest-path /private/tmp/probe-stats-alloc/Cargo.toml (0.45s); rlib bytes of libstats_alloc (47800 bytes)" }
+review = "2027-02-01"
+
+[[approved]]
 crate = "semver"
 tier = "boundary"
 version = "^1.0.28"

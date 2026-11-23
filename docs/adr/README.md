@@ -114,5 +114,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0076](0076-doc-tests-run-beside-the-suites-on-their-own-cache.md) | Doc tests run beside the suites, on their own cache |
 | [0077](0077-supervised-children-get-a-private-temp-dir.md) | Supervised children get a private temp dir |
 | [0079](0079-the-shared-darwin-temp-dir-is-scanned-once-per-machine.md) | The shared Darwin temp dir is scanned once per machine |
+| [0080](0080-a-finished-run-returns-the-heap.md) | A finished run returns the heap to its baseline |
 
 New records go at the bottom of that table.
