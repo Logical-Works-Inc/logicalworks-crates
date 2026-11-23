@@ -201,12 +201,12 @@ impl Supervisor {
         let (token, bounds) = self.prepare_process(spec);
         let clock = self.clock.clone();
         let stdin = spec.stdin_feed();
-        let (child, group_id, gate_writer) = if gated {
-            let (child, group_id, writer) = start_gated(spec)?;
-            (child, group_id, Some(writer))
+        let (child, group_id, scratch, gate_writer) = if gated {
+            let (child, group_id, scratch, writer) = start_gated(spec)?;
+            (child, group_id, scratch, Some(writer))
         } else {
-            let (child, group_id) = start(spec)?;
-            (child, group_id, None)
+            let (child, group_id, scratch) = start(spec)?;
+            (child, group_id, scratch, None)
         };
         // Construct the guard before the child is placed in the async task. If
         // the task is aborted before its first poll, this guard still owns the
@@ -221,9 +221,11 @@ impl Supervisor {
             permit,
             Arc::clone(&self.cleanup_owners),
             scope,
-        );
+        )
+        .holding(scratch);
         #[cfg(all(unix, not(target_os = "linux"), feature = "process"))]
-        let group = ProcessGroup::of(group_id, task, permit, Arc::clone(&self.cleanup_owners));
+        let group = ProcessGroup::of(group_id, task, permit, Arc::clone(&self.cleanup_owners))
+            .holding(scratch);
         let live = LiveProcess::enter(&self.cleanup_owners);
         // The identity read runs on the blocking pool rather than the executor
         // thread, so a burst of identified spawns pays one pool handoff per
@@ -458,7 +460,7 @@ impl Supervisor {
         let (token, bounds) = self.prepare_process(spec);
         let clock = self.clock.clone();
         let stdin = spec.stdin_feed();
-        let (child, group_id) = match start(spec) {
+        let (child, group_id, scratch) = match start(spec) {
             Ok(started) => started,
             Err(source) => {
                 let refusal = Err(ProcessRunError::NotStarted { source });
@@ -476,9 +478,11 @@ impl Supervisor {
             lease,
             Arc::clone(&self.cleanup_owners),
             scope,
-        );
+        )
+        .holding(scratch);
         #[cfg(all(unix, not(target_os = "linux"), feature = "process"))]
-        let group = ProcessGroup::of(group_id, task, lease, Arc::clone(&self.cleanup_owners));
+        let group = ProcessGroup::of(group_id, task, lease, Arc::clone(&self.cleanup_owners))
+            .holding(scratch);
         self.spawned = self.spawned.saturating_add(1);
         let end =
             drive_process_observed(&clock, child, &token, group, bounds, on_line, stdin).await;

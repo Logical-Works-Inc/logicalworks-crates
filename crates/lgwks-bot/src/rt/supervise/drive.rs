@@ -41,14 +41,23 @@ pub(super) async fn observe_pid_without_reaping(
         if token.is_cancelled() {
             return ProcessObservation::Cancelled;
         }
-        if deadline.is_some_and(|at| clock.now() >= at) {
+        if let Some(at) = deadline
+            && clock.now() >= at
+        {
             return ProcessObservation::Deadline;
         }
         match lgwks_std::process::child_has_exited_without_reaping(pid) {
             Ok(true) => return ProcessObservation::Exited,
             Ok(false) => {}
-            Err(_) => return ProcessObservation::Unobservable,
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, pid, "observe: the child's exit state is unreadable");
+                return ProcessObservation::Unobservable;
+            }
         }
+        // A writer that ignores `TMPDIR` can pile up files for as long as the
+        // group lives, so the abandoned-file sweep also runs here, at most once
+        // per interval per process (INV-BOT-TEMP-1).
+        super::scratch::sweep_while_running().await;
         if token
             .run_until_cancelled(crate::rt::time::sleep(Duration::from_millis(5)))
             .await

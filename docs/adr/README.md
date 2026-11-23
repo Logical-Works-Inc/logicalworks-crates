@@ -112,5 +112,6 @@ Prose review does not catch a missing field; a refusal does.
 | [0074](0074-a-moved-lockfile-builds-on-mains-entry-for-its-own-build.md) | A moved lockfile builds on main's entry for its own build (refines 0036) |
 | [0075](0075-every-page-reads-zero-findings-with-no-exemption.md) | Every page reads 0 `check-docs` findings, `AGENTS.md` included |
 | [0076](0076-doc-tests-run-beside-the-suites-on-their-own-cache.md) | Doc tests run beside the suites, on their own cache |
+| [0077](0077-supervised-children-get-a-private-temp-dir.md) | Supervised children get a private temp dir |
 
 New records go at the bottom of that table.

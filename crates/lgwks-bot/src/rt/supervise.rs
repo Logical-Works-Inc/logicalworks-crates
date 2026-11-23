@@ -706,6 +706,8 @@ mod report;
 #[cfg(feature = "process")]
 mod run;
 #[cfg(all(unix, feature = "process"))]
+mod scratch;
+#[cfg(all(unix, feature = "process"))]
 mod start;
 mod supervisor;
 #[cfg(test)]

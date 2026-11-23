@@ -6,6 +6,7 @@ use super::owners::{
     Capture, CleanupOwners, DescendantCapture, GroupObserver, GroupSignaller,
     NATIVE_DESCENDANT_CAPTURE, NATIVE_GROUP_OBSERVER, NATIVE_GROUP_SIGNALLER,
 };
+use super::scratch::Scratch;
 use super::start::REAP_POLL;
 #[cfg(target_os = "linux")]
 use super::start::{reap_adopted, sweep_adopted, sweep_adopted_confirmed};
@@ -89,6 +90,10 @@ pub(super) struct ProcessGroup<'ops> {
     pub(super) observer: &'ops dyn GroupObserver,
     /// The per-process containment boundary, injectable for regression tests.
     pub(super) capture: &'ops dyn DescendantCapture,
+    /// The child's private temp directory. A field drops after the guard's own
+    /// `Drop` body, so it is removed once the group kill has run, on every
+    /// path that ends the guard (INV-BOT-TEMP-1).
+    pub(super) scratch: Option<Scratch>,
 }
 
 #[cfg(all(unix, feature = "process"))]
@@ -119,7 +124,14 @@ impl<'ops> ProcessGroup<'ops> {
             signaller: &NATIVE_GROUP_SIGNALLER,
             observer: &NATIVE_GROUP_OBSERVER,
             capture: &NATIVE_DESCENDANT_CAPTURE,
+            scratch: None,
         }
+    }
+
+    /// Own the child's private temp directory for the guard's lifetime.
+    pub(super) fn holding(mut self, scratch: Option<Scratch>) -> Self {
+        self.scratch = scratch;
+        self
     }
 
     /// The guard over process group `group`, armed, owning `scope`.
@@ -300,7 +312,9 @@ impl<'ops> ProcessGroup<'ops> {
                 // process — leaves the pid unsignalled, and the round's own
                 // observation then reports it: an unexplainable survivor belongs
                 // in the receipt, not in a swallowed error.
-                Err(_) => {}
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, pid = *pid, "cleanup: a captured pid refused its signal; the observation reports it");
+                }
             }
         }
     }
