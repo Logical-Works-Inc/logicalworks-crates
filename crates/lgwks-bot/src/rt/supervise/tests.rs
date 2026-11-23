@@ -59,14 +59,12 @@ fn non_unix_process_group_run_is_refused_as_unsupported() {
 
 /// Panic on the calling task, carrying `message` as the payload.
 ///
-/// `resume_unwind` and not `panic!`: the workspace forbids `panic` outright
-/// with no suppression path, and this is the documented form for a
-/// deliberate panic — it reports on the task that observes it and never
-/// aborts the process. A `panic-in-a-task` test that let the panic reach
-/// the test harness would prove nothing about the API that is supposed to
-/// report it, and would take the rest of the suite down with it.
+/// It rides a deliberately false assertion, the estate form (`lgwks_std`
+/// `spawn_blocking_panic_resumes_on_joiner`, `tests/it/rt_async_tier.rs`),
+/// because the workspace forbids `panic` with no test carve-out. It reports on
+/// the task that observes it and never aborts the process.
 fn explode(message: &'static str) {
-    std::panic::resume_unwind(Box::new(message));
+    assert!(message.is_empty(), "{message}");
 }
 
 /// A budget of `iterations`. Zero cannot be expressed, so it reads as the
@@ -294,6 +292,7 @@ fn armed_group<'ops>(
         signaller: seams.signaller,
         observer: seams.observer,
         capture: seams.capture,
+        scratch: None,
     }
 }
 
@@ -439,14 +438,18 @@ fn test_lease() -> Option<Lease> {
 /// The helpers below observe executor sharing by yielding, which only means
 /// something on one thread: the process driver the free
 /// [`crate::rt::runtime::block_on`] uses is multi-thread (ADR 0006 R2), and
-/// on it a sibling runs in parallel rather than when the body yields. Panics,
-/// as the free one does, if the OS refuses the runtime.
+/// on it a sibling runs in parallel rather than when the body yields. A
+/// refused runtime fails the test through the estate's false-assertion form;
+/// the free entry after it only gives the arm its type.
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
     match Builder::new().current_thread().build() {
         Ok(runtime) => runtime.block_on(future),
-        Err(error) => std::panic::resume_unwind(Box::new(format!(
-            "supervise tests: the OS refused a current-thread runtime: {error}"
-        ))),
+        Err(error) => {
+            let message =
+                format!("supervise tests: the OS refused a current-thread runtime: {error}");
+            assert!(message.is_empty(), "{message}");
+            crate::rt::runtime::block_on(future)
+        }
     }
 }
 

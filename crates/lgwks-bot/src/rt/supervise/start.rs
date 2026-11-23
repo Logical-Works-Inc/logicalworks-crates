@@ -1,5 +1,9 @@
 //! Starting a child and owning it, and the Linux adoption sweeps.
 
+#[cfg(all(unix, feature = "process"))]
+use super::scratch::Scratch;
+#[cfg(all(unix, feature = "process"))]
+use crate::rt::process::EnvDelta;
 use crate::rt::process::ProcessSpec;
 use lgwks_deps::tokio::process::{ChildStderr, ChildStdin, ChildStdout};
 #[cfg(target_os = "linux")]
@@ -25,9 +29,23 @@ use std::time::Duration;
 /// A confined spec replaces the program with the platform's sandbox wrapper
 /// (see [`ProcessSpec::command`](crate::rt::process::ProcessSpec::command)),
 /// so the group below still leads the wrapper and through it the target.
+///
+/// The child's private temp directory comes back beside it, for the group
+/// guard to own: it is removed after the group is killed (INV-BOT-TEMP-1).
 #[cfg(all(unix, feature = "process"))]
-pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
+pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32, Option<Scratch>)> {
     start_holding(spec, None)
+}
+
+/// Whether the caller decided the child's temp itself: it set `TMPDIR`, or
+/// cleared the environment, whose contract is exactly the names it gives.
+#[cfg(all(unix, feature = "process"))]
+fn caller_owns_temp(spec: &ProcessSpec) -> bool {
+    spec.env_deltas().iter().any(|delta| match *delta {
+        EnvDelta::Set { ref key, .. } => key == "TMPDIR",
+        EnvDelta::Clear => true,
+        _ => false,
+    })
 }
 
 /// [`start`] with one more descriptor inherited for this spawn alone: the read
@@ -36,9 +54,17 @@ pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32)> {
 fn start_holding(
     spec: &ProcessSpec,
     gate: Option<std::os::fd::BorrowedFd<'_>>,
-) -> io::Result<(OwnedChild, i32)> {
+) -> io::Result<(OwnedChild, i32, Option<Scratch>)> {
     let mut command = spec.command()?;
     spec.configure(&mut command)?;
+    // After the spec's own deltas, so its names are untouched; created before
+    // the fork, so a refused directory refuses the start.
+    let scratch = Scratch::for_spawn(caller_owns_temp(spec))?;
+    if let Some(ref scratch) = scratch {
+        for (key, dir) in scratch.env() {
+            command.env(key, dir);
+        }
+    }
     // The group kill reaches what the child spawned; `OwnedChild`'s drop-time
     // kill reaches the direct child on the paths where no group kill ran.
     command.process_group(0);
@@ -47,7 +73,7 @@ fn start_holding(
     // is inheritable for exactly this window, so no other supervised fork may
     // run inside it; and a new leader is sweepable before it is tracked, so an
     // adoption pass must not collect a leader that exits fast.
-    let start_lock = crate::journal::owner::lock(&START_SWEEP);
+    let start_lock = START_SWEEP.hold();
     let spawned = spawn_with_inheritance(spec, gate, command);
     let child = OwnedChild::own(spawned?)?;
     // Read before the child is awaited: an unreaped child still has its id,
@@ -67,7 +93,7 @@ fn start_holding(
     // releases the adoptees its earlier trees stranded.
     #[cfg(all(target_os = "linux", feature = "process"))]
     let _collected = sweep_adopted();
-    Ok((child, group))
+    Ok((child, group, scratch))
 }
 
 /// Run the spawn with this child's descriptors inheritable, and only for it.
@@ -101,16 +127,16 @@ fn spawn_with_inheritance(
 #[cfg(all(unix, feature = "process"))]
 pub(super) fn start_gated(
     spec: &ProcessSpec,
-) -> io::Result<(OwnedChild, i32, std::io::PipeWriter)> {
+) -> io::Result<(OwnedChild, i32, Option<Scratch>, std::io::PipeWriter)> {
     let (gate_reader, gate_writer) = std::io::pipe()?;
     let gate_rx_fd = std::os::fd::OwnedFd::from(gate_reader);
     let raw_fd = std::os::fd::AsRawFd::as_raw_fd(&gate_rx_fd);
-    let (child, group) = start_holding(
+    let (child, group, scratch) = start_holding(
         &spec.gated_with_fd(raw_fd),
         Some(std::os::fd::AsFd::as_fd(&gate_rx_fd)),
     )?;
     drop(gate_rx_fd);
-    Ok((child, group, gate_writer))
+    Ok((child, group, scratch, gate_writer))
 }
 
 /// The one lock every supervised start takes.
@@ -128,7 +154,27 @@ pub(super) fn start_gated(
 /// pass — so a pass never interleaves a start. Short holds only, never across
 /// an await: the spawn and the nonblocking reaps are both synchronous.
 #[cfg(all(unix, feature = "process"))]
-pub(super) static START_SWEEP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(super) static START_SWEEP: KernelWide<()> = KernelWide::new(());
+
+/// State whose scope the kernel sets, not a tenant: descriptor inheritance
+/// across `fork` and the subreaper's adoptees belong to the whole process, so
+/// one per process is the only correct count, and a tenant key could split
+/// what the kernel shares. Held briefly, never across an await.
+#[cfg(all(unix, feature = "process"))]
+pub(super) struct KernelWide<T>(std::sync::Mutex<T>);
+
+#[cfg(all(unix, feature = "process"))]
+impl<T> KernelWide<T> {
+    /// The one value for this process.
+    const fn new(value: T) -> Self {
+        Self(std::sync::Mutex::new(value))
+    }
+
+    /// Hold the value; a poisoned hold is recovered, as every owner lock is.
+    pub(super) fn hold(&self) -> std::sync::MutexGuard<'_, T> {
+        crate::journal::owner::lock(&self.0)
+    }
+}
 
 /// How many tree scopes this process has named, disambiguating reused pids.
 ///
@@ -155,8 +201,8 @@ pub(super) static SUBREAPER_ONCE: std::sync::Once = std::sync::Once::new();
 /// owns the exit: a pid leaves the set when its driver reaps or parks it, so
 /// a collected pid is never a driver's answer.
 #[cfg(all(target_os = "linux", feature = "process"))]
-pub(super) static LIVE_LEADERS: std::sync::Mutex<std::collections::BTreeSet<i32>> =
-    std::sync::Mutex::new(std::collections::BTreeSet::new());
+pub(super) static LIVE_LEADERS: KernelWide<std::collections::BTreeSet<i32>> =
+    KernelWide::new(std::collections::BTreeSet::new());
 
 /// Mark `pid` as a supervised leader whose exit its driver still owns.
 ///
@@ -166,7 +212,7 @@ pub(super) static LIVE_LEADERS: std::sync::Mutex<std::collections::BTreeSet<i32>
 #[cfg(all(target_os = "linux", feature = "process"))]
 pub(super) fn track_leader(pid: i32) {
     if pid > 0 {
-        let _present = crate::journal::owner::lock(&LIVE_LEADERS).insert(pid);
+        let _present = LIVE_LEADERS.hold().insert(pid);
     }
 }
 
@@ -174,7 +220,7 @@ pub(super) fn track_leader(pid: i32) {
 /// on it — and a later adoptee under a reused number starts unattributed.
 #[cfg(all(target_os = "linux", feature = "process"))]
 pub(super) fn untrack_leader(pid: i32) {
-    let _removed = crate::journal::owner::lock(&LIVE_LEADERS).remove(&pid);
+    let _removed = LIVE_LEADERS.hold().remove(&pid);
 }
 
 /// Reap every zombie child no driver owns.
@@ -209,10 +255,17 @@ pub(super) fn unclaimed_children() -> Vec<i32> {
     if children.is_empty() {
         return Vec::new();
     }
-    let live = crate::journal::owner::lock(&LIVE_LEADERS).clone();
-    let parked: std::collections::BTreeSet<i32> = crate::journal::owner::lock(&ORPHANS)
+    let live = LIVE_LEADERS.hold().clone();
+    let parked: std::collections::BTreeSet<i32> = ORPHANS.hold()
         .iter()
-        .filter_map(|orphan| i32::try_from(orphan.id()).ok())
+        .filter_map(|orphan| match i32::try_from(orphan.id()) {
+            Ok(pid) => Some(pid),
+            // No kernel pid exceeds `i32`; one that did names no child to exclude.
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, id = orphan.id(), "sweep: a parked orphan's id is past i32");
+                None
+            }
+        })
         .collect();
     children
         .into_iter()
@@ -231,7 +284,7 @@ pub(super) fn unclaimed_children() -> Vec<i32> {
 /// exits before its driver tracks it, stealing its driver's exit.
 #[cfg(all(target_os = "linux", feature = "process"))]
 pub(super) fn sweep_adopted() -> usize {
-    let _start_sweep = crate::journal::owner::lock(&START_SWEEP);
+    let _start_sweep = START_SWEEP.hold();
     let zombies = unclaimed_children();
     if zombies.is_empty() {
         return 0;
@@ -401,13 +454,13 @@ pub(super) const REAP_POLL: Duration = Duration::from_millis(5);
 /// down by the kernel, which is momentary for every process not stuck in an
 /// uninterruptible wait.
 #[cfg(all(unix, feature = "process"))]
-pub(super) static ORPHANS: std::sync::Mutex<Vec<std::process::Child>> =
-    std::sync::Mutex::new(Vec::new());
+pub(super) static ORPHANS: KernelWide<Vec<std::process::Child>> = KernelWide::new(Vec::new());
 
 /// Reap every parked orphan that has exited, keeping the rest parked.
 #[cfg(all(unix, feature = "process"))]
 pub(super) fn reap_orphans() {
-    crate::journal::owner::lock(&ORPHANS)
+    ORPHANS
+        .hold()
         .retain_mut(|orphan| matches!(orphan.try_wait(), Ok(None)));
 }
 
@@ -511,7 +564,7 @@ impl Drop for OwnedChild {
             lgwks_std::trace::debug!(%error, pid = self.pid, "owned child: direct kill on drop refused");
         }
         if !matches!(inner.try_wait(), Ok(Some(_))) {
-            crate::journal::owner::lock(&ORPHANS).push(inner);
+            ORPHANS.hold().push(inner);
         }
         reap_orphans();
         // Parked or reaped: either way no driver owns this exit any more, so

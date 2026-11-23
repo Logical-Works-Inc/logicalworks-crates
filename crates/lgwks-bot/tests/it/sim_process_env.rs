@@ -23,6 +23,10 @@
 
 use crate::sim;
 
+/// The temp-scope family: the `TMPDIR` the supervisor hands each child.
+#[path = "sim_scratch.rs"]
+mod sim_scratch;
+
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::ffi::OsString;

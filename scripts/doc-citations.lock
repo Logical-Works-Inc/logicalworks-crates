@@ -87,7 +87,7 @@ crates/lgwks-bot/src/rt/supervise.rs:510	/// long enough on one worker and far t
 crates/lgwks-bot/src/rt/supervise/repeat.rs:168	token.run_until_cancelled(body(iterations)),
 crates/lgwks-bot/src/rt/supervise/run.rs:95	pub async fn spawn_process(&mut self, spec: &ProcessSpec) -> io::Result<TaskId> {
 crates/lgwks-bot/src/rt/supervise/run.rs:134	pub async fn spawn_process_identified(
-crates/lgwks-bot/src/rt/supervise/run.rs:335	pub async fn run_process(&mut self, spec: &ProcessSpec) -> Result<ProcessRun, ProcessRunError> {
+crates/lgwks-bot/src/rt/supervise/run.rs:337	pub async fn run_process(&mut self, spec: &ProcessSpec) -> Result<ProcessRun, ProcessRunError> {
 crates/lgwks-bot/src/rt/supervise/supervisor.rs:250	pub fn new(max_in_flight: usize) -> Self {
 crates/lgwks-bot/src/rt/supervise/tests.rs:1	//! The supervisor's unit tests: the shared seams and helpers, and one module per concern.
 crates/lgwks-bot/src/rt/sweep.rs:1	//! The owned TTL driver: one [`JoinSet`], one [`CancellationToken`], and the
