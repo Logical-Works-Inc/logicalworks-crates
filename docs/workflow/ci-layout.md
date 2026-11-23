@@ -79,9 +79,9 @@ One owner per layer, both in `hosted-rust`:
   is the action's own, over what the dependency build is compiled from (ADR
   0028), because rust-cache's hash moved on any manifest or config edit, and a
   miss deleted every restored artifact older than a week. A pull request that
-  moves a registry package misses that key, so a read-only restore then lays
-  main's newest entry for the group under it, and cargo rebuilds only what
-  moved (ADR 0036). The `it` group rows pass their group cfg through
+  moves a registry package misses that key, so a read-only restore lays main's
+  entry for the same build under it, else the group's newest, and cargo
+  rebuilds only what moved (ADR 0036, 0074). The `it` group rows pass their group cfg through
   `scripts/it_group_rustc.rs` to workspace crates alone and share one `bot-it`
   entry: as RUSTFLAGS it put 11 copies of one build past the 10 GB cap (ADR 0037).
   Only a job that compiles past 150 s cold saves, and `cache-budget.yml` deletes every
