@@ -52,6 +52,8 @@ mod cfg_arm_silencers;
 mod check_cli;
 mod contract_schema_compat;
 mod default_run;
+/// A citation a page adds, refused by name until `--update` pins it.
+mod doc_citations_cli;
 mod embedding;
 mod estate_edges;
 mod feature_policy;
