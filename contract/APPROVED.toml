@@ -748,7 +748,7 @@ review = "2027-02-01"
 [[approved]]
 crate = "stats_alloc"
 tier = "boundary"
-version = "=0.1.10"
+version = "^0.1.10"
 license = "MIT"
 owner = "lgwks_deps"
 capability = "test.heap-accounting"
