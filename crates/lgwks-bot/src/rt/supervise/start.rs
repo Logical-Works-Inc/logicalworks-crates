@@ -449,20 +449,94 @@ pub(super) const REAP_POLL: Duration = Duration::from_millis(5);
 ///
 /// A dropped handle cannot await its child, and a killed child that nobody
 /// waits on stays a zombie and keeps its pid allocated. Each one is parked here
-/// and reaped by the next [`OwnedChild`] that starts or drops — the same
-/// contract as the engine's own orphan queue, which this replaces. Its length
-/// is bounded by the children that were SIGKILLed and have not yet been torn
-/// down by the kernel, which is momentary for every process not stuck in an
-/// uninterruptible wait.
+/// and reaped by the next [`OwnedChild`] that starts or drops, and by the
+/// [`REAPER`] a park starts, so the last child parked is reaped though no
+/// start follows (INV-BOT-LEDGER-1). Its length is bounded by the children
+/// that were SIGKILLed and have not yet been torn down by the kernel, which is
+/// momentary for every process not stuck in an uninterruptible wait.
 #[cfg(all(unix, feature = "process"))]
 pub(super) static ORPHANS: KernelWide<Vec<std::process::Child>> = KernelWide::new(Vec::new());
 
 /// Reap every parked orphan that has exited, keeping the rest parked.
 #[cfg(all(unix, feature = "process"))]
 pub(super) fn reap_orphans() {
-    ORPHANS
-        .hold()
-        .retain_mut(|orphan| matches!(orphan.try_wait(), Ok(None)));
+    reap_held(&mut ORPHANS.hold());
+}
+
+/// Reap every exited child in `orphans`, a held [`ORPHANS`].
+#[cfg(all(unix, feature = "process"))]
+fn reap_held(orphans: &mut Vec<std::process::Child>) {
+    orphans.retain_mut(|orphan| matches!(orphan.try_wait(), Ok(None)));
+}
+
+/// The one task that reaps [`ORPHANS`] when no start or drop comes.
+///
+/// Read and written only while [`ORPHANS`] is held, so a park and the
+/// reaper's exit cannot cross: a child parked after the reaper saw the ledger
+/// empty finds it stopped and starts another. The set owns the task on the
+/// process driver, which is never dropped, and collects each ended one at the
+/// next park, so it holds at most one live task.
+#[cfg(all(unix, feature = "process"))]
+static REAPER: KernelWide<Reaper> = KernelWide::new(Reaper {
+    running: false,
+    tasks: None,
+});
+
+/// The reaper's state, behind [`REAPER`].
+#[cfg(all(unix, feature = "process"))]
+struct Reaper {
+    /// Whether a reaper task is live.
+    running: bool,
+    /// The set that owns it, built at the first park.
+    tasks: Option<crate::rt::task::JoinSet<()>>,
+}
+
+/// Park `child`, killed but not yet exited, and start the reaper if none runs.
+///
+/// A driver the OS refused leaves the child parked for the next start or
+/// drop to reap, named in the trace, and the next park tries again.
+#[cfg(all(unix, feature = "process"))]
+fn park(child: std::process::Child) {
+    let mut orphans = ORPHANS.hold();
+    orphans.push(child);
+    let mut reaper = REAPER.hold();
+    if reaper.running {
+        return;
+    }
+    let driver = match crate::rt::runtime::driver() {
+        Ok(driver) => driver,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, parked = orphans.len(), "owned child: no driver to reap the parked; the next start reaps them");
+            return;
+        }
+    };
+    let tasks = reaper
+        .tasks
+        .get_or_insert_with(crate::rt::task::JoinSet::new);
+    while let Some(ended) = tasks.try_join_next() {
+        if let Err(error) = ended {
+            lgwks_std::trace::debug!(%error, "owned child: a reaper task ended abnormally");
+        }
+    }
+    let _reaping = tasks.spawn_on(reap_parked(), &driver);
+    reaper.running = true;
+}
+
+/// Reap [`ORPHANS`] at [`REAP_POLL`] until it is empty, then stop while it
+/// is still held.
+#[cfg(all(unix, feature = "process"))]
+async fn reap_parked() {
+    loop {
+        {
+            let mut orphans = ORPHANS.hold();
+            reap_held(&mut orphans);
+            if orphans.is_empty() {
+                REAPER.hold().running = false;
+                return;
+            }
+        }
+        crate::rt::time::sleep(REAP_POLL).await;
+    }
 }
 
 /// A started child this module owns: the std handle, its two captured pipes as
@@ -565,7 +639,7 @@ impl Drop for OwnedChild {
             lgwks_std::trace::debug!(%error, pid = self.pid, "owned child: direct kill on drop refused");
         }
         if !matches!(inner.try_wait(), Ok(Some(_))) {
-            ORPHANS.hold().push(inner);
+            park(inner);
         }
         reap_orphans();
         // Parked or reaped: either way no driver owns this exit any more, so
