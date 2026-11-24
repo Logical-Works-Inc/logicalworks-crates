@@ -1,8 +1,8 @@
 //! Deny-shaped confinement: the wrappers that hide a subtree from a child.
 
 use std::io;
-#[cfg(target_os = "linux")]
-use std::path::Path;
+#[cfg(any(target_os = "linux", all(test, unix)))]
+use std::path::{Path, PathBuf};
 
 use lgwks_deps::tokio::process::Command;
 
@@ -55,9 +55,43 @@ fn deny_platform(denied: &DenyBeneath) -> io::Result<Command> {
 /// that overmounts each denial before it execs the target.
 #[cfg(target_os = "linux")]
 fn deny_platform(denied: &DenyBeneath) -> io::Result<Command> {
-    let wrapper = deny_wrapper(denied.paths())?;
+    let wrapper = denial_wrapper(denied)?;
     mount_namespace_available()?;
     Ok(Command::from(wrapper))
+}
+
+/// Where the systemd user manager keeps each user's runtime directory.
+#[cfg(target_os = "linux")]
+const USER_RUNTIME_ROOT: &str = "/run/user";
+
+/// The wrapper over `denied`'s subtrees and, before them, the caller's user
+/// manager runtime directory when it has one (#1136).
+///
+/// `systemd-run --user` asks the manager through a socket in that directory,
+/// and the manager starts the command outside the namespace, where the
+/// overmount hides nothing. Denying the directory refuses the socket. The uid
+/// is the owner of `/proc/self`; a host that will not say fails the spawn
+/// rather than leaving the manager reachable.
+#[cfg(target_os = "linux")]
+fn denial_wrapper(denied: &DenyBeneath) -> io::Result<std::process::Command> {
+    use std::os::unix::fs::MetadataExt;
+    let own = std::fs::metadata("/proc/self").map_err(|source| {
+        lgwks_std::trace::warn!(%source, "a denial could not read the caller's uid");
+        io::Error::new(
+            source.kind(),
+            format!("a denial reads the caller's uid from /proc/self: {source}"),
+        )
+    })?;
+    let runtime = user_runtime_dir(Path::new(USER_RUNTIME_ROOT), own.uid());
+    deny_wrapper(runtime.as_deref().into_iter().chain(denied.paths()))
+}
+
+/// `<root>/<uid>`, the user manager's runtime directory for `uid`, when it is
+/// a directory: a host with no user manager has none to deny.
+#[cfg(any(target_os = "linux", all(test, unix)))]
+pub(crate) fn user_runtime_dir(root: &Path, uid: u32) -> Option<PathBuf> {
+    let dir = root.join(uid.to_string());
+    dir.is_dir().then_some(dir)
 }
 
 /// The host's mount-namespace wrapper over `paths`, as a std command the
@@ -140,12 +174,14 @@ const BWRAP: &str = "/usr/bin/bwrap";
 #[cfg(target_os = "linux")]
 const UNSHARE: &str = "/usr/bin/unshare";
 
-/// `bwrap --bind / / --tmpfs <denied>... --`: the child sees its own root
-/// except for the denied subtrees, which read as empty directories.
+/// `bwrap --dev-bind / / --tmpfs <denied>... --`: the child sees its own root
+/// except for the denied subtrees, which read as empty directories. A plain
+/// `--bind` mounts the root `nodev`, and no build tool runs without
+/// `/dev/null` (#1136).
 #[cfg(target_os = "linux")]
 fn bwrap_deny<'a>(paths: impl Iterator<Item = &'a Path>) -> std::process::Command {
     let mut command = std::process::Command::new(BWRAP);
-    command.arg("--bind").arg("/");
+    command.arg("--dev-bind").arg("/");
     command.arg("/");
     for path in paths {
         command.arg("--tmpfs").arg(path.as_os_str());
