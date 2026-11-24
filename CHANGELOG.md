@@ -9,6 +9,7 @@ breaks are listed explicitly under the crate.
 
 ## Releases, newest first
 
+- lgwks_bot 10.0.3 - 2026-11-24: [notes](docs/changelog/28-a-denied-child-keeps-its-devices-2026-11-24.md)
 - lgwks_bot 10.0.2 - 2026-11-23: [notes](docs/changelog/27-one-sweep-per-machine-2026-11-23.md)
 - lgwks_bot 10.0.1 - 2026-11-23: [notes](docs/changelog/26-a-child-cleans-its-temp-2026-11-23.md)
 - lgwks_std 5.0.0 / lgwks_ast 6.1.1 / lgwks_deps 8.0.0 / lgwks_macros 2.1.4 / lgwks_bot 10.0.0 / drishti 0.3.0 - 2026-11-21: [notes](docs/changelog/25-every-dependency-newest-2026-11-21.md)

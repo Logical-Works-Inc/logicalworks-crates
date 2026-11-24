@@ -1,4 +1,5 @@
-//! Per-tenant admission through the supervisor, and the idle wait.
+//! Per-tenant admission through the supervisor, the idle wait, and what a
+//! denial keeps from a tenant's child.
 
 #[cfg(test)]
 #[cfg(all(unix, feature = "process"))]
@@ -22,6 +23,28 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::Poll;
 use std::time::Duration;
+
+/// #1136: a tenant's child under a denial is also denied the systemd user
+/// manager's runtime directory, `<root>/<uid>`, when that is a directory. A
+/// host with no manager adds nothing, and a file of that name is not one.
+#[cfg(all(unix, feature = "process"))]
+#[test]
+fn a_denial_adds_the_user_runtime_dir_only_where_it_exists() -> std::io::Result<()> {
+    use crate::rt::process::user_runtime_dir;
+    let id = lgwks_std::id::Uuid::new_v4().map_err(std::io::Error::other)?;
+    let root = std::env::temp_dir().join(format!("lgwks-runtime-root-{id}"));
+    std::fs::create_dir_all(&root)?;
+    let missing = user_runtime_dir(&root, 4242);
+    std::fs::write(root.join("4243"), b"not a dir")?;
+    let file = user_runtime_dir(&root, 4243);
+    std::fs::create_dir(root.join("4242"))?;
+    let found = user_runtime_dir(&root, 4242);
+    std::fs::remove_dir_all(&root)?;
+    assert_eq!(missing, None, "a host with no runtime dir adds nothing");
+    assert_eq!(file, None, "a file of that name is not a runtime dir");
+    assert_eq!(found, Some(root.join("4242")), "the uid's dir is denied");
+    Ok(())
+}
 
 /// A grant that lands in the same instant as a cancellation is handed back
 /// through the round, so the tenant it was charged to is not left holding an

@@ -11,6 +11,8 @@ use lgwks_deps::tokio::process::Command;
 mod deny;
 
 use deny::deny;
+#[cfg(all(test, unix))]
+pub(crate) use deny::user_runtime_dir;
 
 /// How a supervised child is confined past its process group, declared as data.
 ///
@@ -50,6 +52,13 @@ impl Confinement {
     /// ([`LandlockRules`]) cannot say "everything but the coordinator's
     /// state", because it would have to name every sibling of every ancestor
     /// of that state; this names only the state.
+    ///
+    /// On Linux the child keeps `/dev`, and the caller's systemd user runtime
+    /// directory (`/run/user/<uid>`) is denied beside the named subtrees: the
+    /// user manager would otherwise start a command for the child outside the
+    /// namespace (#1136). A confined child cannot open a namespace of its own,
+    /// so a denial it asks for in turn is refused as unsupported before its
+    /// fork, never run unconfined.
     #[must_use]
     pub fn deny_beneath(paths: impl IntoIterator<Item = impl AsRef<Path>>) -> Self {
         let mut denied = DenyBeneath::new();

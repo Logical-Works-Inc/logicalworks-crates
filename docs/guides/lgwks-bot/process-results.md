@@ -20,7 +20,7 @@ The report is data, and none of it is a verdict about the work:
 judging whether the command did what it was asked is the caller's job.
 
 A stream whose policy is `StdioPolicy::Capture(limit)`
-(`crates/lgwks-bot/src/rt/process.rs:64`) keeps its first `limit` bytes. The
+(`crates/lgwks-bot/src/rt/process.rs:66`) keeps its first `limit` bytes. The
 ceiling is a `NonZeroUsize`, so it cannot be unbounded. The pipe keeps draining
 so a child that writes past the ceiling never blocks, reporting the exact
 byte total with a `truncated` flag. The retained buffer is sized once to the
@@ -88,12 +88,12 @@ supervisor applies it through the platform's own exec wrapper, so the boundary
 holds the child and every descendant, a `setsid` escapee included:
 
 - `Confinement::SandboxProfile` (macOS) runs the child under `sandbox-exec -p`
-  (`crates/lgwks-bot/src/rt/process/confine.rs:83`).
+  (`crates/lgwks-bot/src/rt/process/confine.rs:92`).
 - `Confinement::Landlock` (Linux) runs it under util-linux `setpriv`, 2.40 or
   later, with a deny-by-default filesystem allowlist: `LandlockRules::allow(path,
   PathAccess::Read | ReadWrite)`, at most 4,096 rules whose paths sum to at
   most 1 MiB, so the `setpriv` argv fits Linux's `ARG_MAX` (ADR 0072)
-  (`crates/lgwks-bot/src/rt/process/confine.rs:295`). Grant the child's
+  (`crates/lgwks-bot/src/rt/process/confine.rs:304`). Grant the child's
   program and libraries (`/usr`, `/lib`, `/etc`) read-only and its work tree
   read-write; anything unnamed is refused by the kernel with `EACCES`.
 
