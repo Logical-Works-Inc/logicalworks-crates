@@ -8,17 +8,9 @@ use std::io;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
-/// Environment Git reads that would redirect it away from `root`. A hook runs
-/// with some of these set, and a gate that answered about the wrong repository
-/// would be worse than one that refused.
-const REDIRECTING_ENV: [&str; 6] = [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_INDEX_FILE",
-    "GIT_COMMON_DIR",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-];
+// A hook runs with some of these set, and a gate that answered about the
+// wrong repository would be worse than one that refused.
+use crate::redirecting_env::REDIRECTING_ENV;
 
 /// Runs `git -C root args…` with no stdin, no optional locks and no
 /// redirecting environment.

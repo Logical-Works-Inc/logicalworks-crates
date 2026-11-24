@@ -41,6 +41,11 @@
 //! the test exits, each process still alive is killed, and a test that left one
 //! fails, naming it.
 //!
+//! It runs each test outside any repository a hook runs in. A pre-commit hook
+//! exports `GIT_DIR` and `GIT_INDEX_FILE`, absolute in a worktree, and a
+//! fixture's `git -C <dir>` followed them into the worktree being committed
+//! (2026-11-24). The wrapper removes the list in `src/redirecting_env.rs`.
+//!
 //! Usage: `churn-slot <program> [argument...]`. The exit status is the program's;
 //! a program ended by a signal exits `128 + signal`. A program that exits zero
 //! and leaves residue or a live process exits 1; one the census cannot open a
@@ -52,6 +57,9 @@ mod ram_disk;
 
 #[path = "churn_slot/residue.rs"]
 mod residue;
+
+#[path = "../redirecting_env.rs"]
+mod redirecting_env;
 
 use std::ffi::{OsStr, OsString};
 use std::fmt;
@@ -574,6 +582,11 @@ fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsSt
     let mut found = residue::Residue::default();
     let mut command = Command::new(program);
     command.args(arguments);
+    // A hook exports the repository it runs in (githooks(5)); in a worktree the
+    // paths are absolute, so a test's `git -C <fixture>` wrote that worktree.
+    for name in redirecting_env::REDIRECTING_ENV {
+        command.env_remove(name);
+    }
     // A trailing separator, as the macOS default carries one.
     let mut named = census.dir().as_os_str().to_os_string();
     named.push("/");

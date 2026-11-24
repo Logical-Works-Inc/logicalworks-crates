@@ -6,7 +6,7 @@
 # every ordinary build, for workspace members only (`--cap-lints` still
 # protects the vendored tree), with no flag to remember and no CI step to skip.
 #
-# The wrapper composes with RUSTC_WRAPPER (sccache) in the order
+# The wrapper composes with RUSTC_WRAPPER (kache in CI, ADR 0086) in the order
 # `$RUSTC_WRAPPER $RUSTC_WORKSPACE_WRAPPER $RUSTC`.
 [build]
 rustc-workspace-wrapper = "clippy-driver"

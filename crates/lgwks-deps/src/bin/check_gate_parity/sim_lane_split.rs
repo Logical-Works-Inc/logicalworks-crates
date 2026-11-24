@@ -345,6 +345,15 @@ fn the_simulation_lane_reads_listings_not_archives() -> TestResult {
         .find_map(|line| line.trim().strip_prefix("for suite in "))
         .and_then(|rest| rest.strip_suffix("; do"))
         .ok_or(SimError::Shape("the workflow has no listing waiter"))?;
+    // ADR 0086: the waiter reads `${SUITES:-<every suite>}`, a routed pull
+    // request narrowing it to `workspace`; the default is the whole set.
+    let waited = match waited
+        .strip_prefix("${SUITES:-")
+        .and_then(|inner| inner.strip_suffix('}'))
+    {
+        Some(inner) => inner,
+        None => waited,
+    };
     let suites: Vec<&str> = waited.split_whitespace().collect();
     let files: Vec<&str> = named.split_whitespace().collect();
     let wanted: Vec<String> = suites

@@ -93,6 +93,28 @@ ci_step = "Classify the change"
 reason = "a pull request's file list exists only in CI"
 
 [[lane]]
+id = "route"
+surfaces = "ci"
+required = true
+# ADR 0086: a pull request skips the lgwks_bot rows only when it changes none
+# of their inputs and main's listings of those inputs are cached, which the
+# simulation lane then counts in their place.
+command = "if [ \"${INPUTS}\" = false ] && [ \"${LISTED}\" = true ]; then bot=false; fi"
+ci_step = "Route the change to its suites"
+reason = "the route reads the pull request's file list and the Actions cache, which exist only in CI"
+
+[[lane]]
+id = "failure-receipt"
+surfaces = "ci"
+required = true
+# ADR 0086: a failed run ends with one receipt of its failures (job, kind, file
+# and line, diagnostic code, seed, repro command), in the job summary, as an
+# artifact and as one comment on the pull request.
+command = "receipts-tool/ci-receipt --logs failed-logs --out ci-receipt/receipt.json --markdown ci-receipt/receipt.md"
+ci_step = "Write the failure receipt"
+reason = "the receipt reads the failed jobs' logs from the Actions API, which exist only in CI"
+
+[[lane]]
 id = "docs-only-verdict"
 surfaces = "ci"
 required = true
@@ -267,7 +289,7 @@ command = '''set -euo pipefail
 for attempt in $(seq 1 60); do
   listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
   missing=""
-  for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
+  for suite in ${SUITES:-workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8}; do
     case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
   done
   if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
@@ -373,7 +395,9 @@ required = true
 # to the required row as an artifact (`receipts-tool/`): that row is the run's
 # last link, and on a fresh hosted runner a `cargo run` there compiles the
 # lgwks_deps library first. An artifact keeps no file mode, hence the `chmod`.
-command = "chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision \"$REVISION\" --map docs/acceptance/t-rows-darwin.toml --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision \"$REVISION\" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision \"$REVISION\" --platform windows-x86_64"
+# A pull request records the Linux receipt; the merge queue and main record
+# the Darwin and Windows ones too, from the jobs only they run (ADR 0086).
+command = "chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision \"$REVISION\" --platform linux-aarch64 && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision \"$REVISION\" --map docs/acceptance/t-rows-darwin.toml --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --platform darwin-arm64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision \"$REVISION\" --platform windows-x86_64"
 ci_step = "Record acceptance receipts"
 
 [[lane]]
@@ -875,6 +899,17 @@ required = true
 builtin = "readme-quickstart"
 ci_step = "Root README quickstart matches its compiled example"
 
+# ADR 0084: every skill loads in a harness, is routed, tags its fences and
+# includes its rust blocks as `lgwks_bot` doctests; a harness link into the tree
+# lands on a skill of its own name.
+[[lane]]
+id = "skill-hygiene"
+surfaces = "local ci"
+required = true
+fast = true
+builtin = "skill-hygiene"
+ci_step = "Every skill loads, routes and compiles"
+
 # The RustSec advisories, over the lockfile the gate's builds resolve. #635: four
 # advisories in `rustls 0.23.45` sat in `Cargo.lock` until a manual audit found
 # them, and no lane would have. The three `zip 8.6.0` ids SECURITY.md assesses as
@@ -1002,15 +1037,15 @@ reason = "dedicated PR check row whose job name is the ruleset's required Clippy
 # once per platform into test archives and run from them in Linux and macOS
 # shards (the workspace suite, lgwks_bot full and its saturation shard), and
 # lgwks_bot at no default features runs in a job of its own; this row carries
-# the required name and passes only when the archives, both platforms' shards,
-# the evidence, doc test and smoke jobs and the no-default suite passed
-# and, in a later step of the same job, the run's wall was at most 300 s
-# (`ci-wall`).
+# the required name and passes only when every job it needs passed, each by
+# name, where a pull request may skip only the merge queue's QUEUE_ONLY jobs
+# (ADR 0086), and, in a later step of the same job, the run's wall was at most
+# 300 s (`ci-wall`).
 [[lane]]
 id = "build-verdict"
 surfaces = "ci"
 required = true
-command = "test \"${BUILD}\" = success && test \"${TAIL}\" = success && test \"${LINUX}\" = success && test \"${MACOS}\" = success && test \"${BOT_NODEFAULT}\" = success"
+command = "test -z \"${failed}\""
 ci_step = "Every workspace test job passed"
 reason = "dedicated PR check row whose job name is the ruleset's required Build and workspace tests"
 

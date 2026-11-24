@@ -239,6 +239,57 @@ fn the_program_gets_its_arguments_its_environment_and_reports_its_own_status() -
     })
 }
 
+/// Catches a wrapper that hands a test the repository its hook runs in. A
+/// pre-commit hook exports `GIT_DIR` and `GIT_INDEX_FILE` (githooks(5)), and in
+/// a worktree they are absolute, so a test's `git -C <fixture>` wrote the
+/// worktree's own index and moved its branch to a fixture's root commit
+/// (2026-11-24, twice, under the mutation gate). Each seed sets a drawn subset
+/// of the six redirecting variables to a decoy and a probe beside them. The
+/// program must see none of the six and still see the probe.
+#[test]
+fn the_program_never_sees_a_hooks_repository() -> Result<(), Failure> {
+    const REDIRECTING: [&str; 6] = [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ];
+    replay_sweep("hook-repository", SEEDS, |rng, trace: &mut Trace| {
+        let marker = rng.next_u64();
+        let dir = scratch("hook-repository", marker)?;
+        let decoy = dir.join("decoy.git");
+        let mut command = wrapper(&dir, 2);
+        command.env("CHURN_PROBE", marker.to_string());
+        let mut set = 0_u64;
+        for (bit, name) in REDIRECTING.iter().enumerate() {
+            // Never an empty draw: the first variable is always set.
+            if bit == 0 || rng.between(0, 1) == 1 {
+                command.env(name, &decoy);
+                set |= 1 << bit;
+            }
+        }
+        let script = REDIRECTING
+            .iter()
+            .map(|name| format!("printf '%s ' \"${{{name}-unset}}\";"))
+            .collect::<String>();
+        let output = command
+            .args(["/bin/sh", "-c"])
+            .arg(format!("{script} printf '%s' \"$CHURN_PROBE\""))
+            .output()?;
+        clear(&dir);
+        let printed = String::from_utf8(output.stdout)?;
+        let expected = format!("{}{marker}", "unset ".repeat(REDIRECTING.len()));
+        if printed != expected {
+            return refuse(format!("the program saw {printed:?}, not {expected:?}"));
+        }
+        trace.record_number("set", set);
+        trace.record_number("marker", marker);
+        Ok(())
+    })
+}
+
 #[test]
 fn slots_that_cannot_be_made_still_run_the_program_and_say_so() -> Result<(), Failure> {
     replay_sweep("uncapped", SEEDS, |rng, trace: &mut Trace| {
