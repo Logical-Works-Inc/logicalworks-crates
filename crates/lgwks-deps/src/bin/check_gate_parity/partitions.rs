@@ -7,7 +7,14 @@
 //! every step that runs that suite; otherwise every slice reruns the whole set
 //! and the split buys nothing.
 
-use std::collections::BTreeSet;
+//!
+//! A sliced row also runs only its slice, so the rows of one shard must name
+//! each of `slice:1/M` to `slice:M/M` once. A row dropped, a slice named twice
+//! or two cuts of one shard leave tests that no job runs, and every job still
+//! ends green. bot-it-g7 became two slices after a slow runner cancelled it at
+//! its 5 minute cap (run 45399189913).
+
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One step of a job: its name, its `if:` condition and every line of it.
 struct StepText<'a> {
@@ -25,14 +32,69 @@ struct JobText<'a> {
     id: &'a str,
     /// Each suite one of the job's matrix rows gives a `slice:` partition.
     sliced: BTreeSet<&'a str>,
+    /// Each sliced shard, by `archive` and `it_group`: every `(N, M)` its
+    /// rows name, in file order.
+    slices: BTreeMap<String, Vec<Slice>>,
     /// The job's steps, in file order.
     steps: Vec<StepText<'a>>,
 }
 
+/// The value of `key` in one inline matrix row, `- { key: VALUE, ... }`.
+fn row_field<'a>(row: &'a str, key: &str) -> Option<&'a str> {
+    let rest = row.split_once(&format!(" {key}:"))?.1.trim_start();
+    rest.split([',', '}']).next().map(str::trim)
+}
+
 /// The suite of one inline matrix row, `- { suite: NAME, ... }`.
 fn row_suite(row: &str) -> Option<&str> {
-    let rest = row.split_once("suite:")?.1.trim_start();
-    rest.split([',', '}']).next().map(str::trim)
+    row_field(row, "suite")
+}
+
+/// One row's slice: its `(N, M)`, or the text that is not `N/M`.
+type Slice = Result<(u32, u32), String>;
+
+/// The shard a sliced row belongs to and its slice, from
+/// `archive: A, it_group: G, partition: "slice:N/M"`.
+fn row_slice(row: &str) -> Option<(String, Slice)> {
+    let text = row.split_once("partition: \"slice:")?.1.split('"').next()?;
+    let shard = match (row_field(row, "archive"), row_field(row, "it_group")) {
+        (Some(archive), Some(group)) => format!("{archive} {group}"),
+        (Some(archive), None) => archive.to_owned(),
+        (None, _) => row_suite(row)?.to_owned(),
+    };
+    let parsed = match text.split_once('/') {
+        Some((part, of)) => match (part.trim().parse::<u32>(), of.trim().parse::<u32>()) {
+            (Ok(part), Ok(of)) => Ok((part, of)),
+            (Err(error), _) | (_, Err(error)) => Err(format!("{text:?} ({error})")),
+        },
+        None => Err(format!("{text:?} (no `/`)")),
+    };
+    Some((shard, parsed))
+}
+
+/// Why the slices of one shard do not run each of its tests once, or `None`.
+fn slice_gap(workflow: &str, job: &str, shard: &str, slices: &[Slice]) -> Option<String> {
+    if let Some(Err(text)) = slices.iter().find(|slice| slice.is_err()).cloned() {
+        return Some(format!(
+            "{workflow}: job {job} names {shard} slice {text}, which is not N/M (rule 9)"
+        ));
+    }
+    let slices: Vec<(u32, u32)> = slices.iter().flatten().copied().collect();
+    let cuts: BTreeSet<u32> = slices.iter().map(|&(_, of)| of).collect();
+    let mut parts: Vec<u32> = slices.iter().map(|&(part, _)| part).collect();
+    parts.sort_unstable();
+    let cut: Vec<u32> = cuts.iter().copied().collect();
+    match *cut.as_slice() {
+        [of] if parts.iter().copied().eq(1..=of) => None,
+        [of] => Some(format!(
+            "{workflow}: job {job} runs {shard} as slices {parts:?} of {of}, not each of 1 to \
+             {of} once, so some of its tests run in no job (rule 9)"
+        )),
+        _ => Some(format!(
+            "{workflow}: job {job} cuts {shard} {cut:?} ways at once, so some of its tests run \
+             in no job (rule 9)"
+        )),
+    }
 }
 
 /// Every job of `text`, in file order: a key two spaces under `jobs:`.
@@ -57,6 +119,7 @@ fn jobs(text: &str) -> Vec<JobText<'_>> {
                 found.push(JobText {
                     id,
                     sliced: BTreeSet::new(),
+                    slices: BTreeMap::new(),
                     steps: Vec::new(),
                 });
             }
@@ -68,6 +131,9 @@ fn jobs(text: &str) -> Vec<JobText<'_>> {
         if trimmed.starts_with("- {") && trimmed.contains("partition: \"slice:") {
             if let Some(suite) = row_suite(trimmed) {
                 job.sliced.insert(suite);
+            }
+            if let Some((shard, slice)) = row_slice(trimmed) {
+                job.slices.entry(shard).or_default().push(slice);
             }
         } else if let Some(name) = trimmed.strip_prefix("- name:") {
             job.steps.push(StepText {
@@ -117,9 +183,59 @@ pub(crate) fn partition_problems(workflow: &str, text: &str) -> Vec<String> {
     problems
 }
 
+/// The rule-9 slice violations of one workflow: every shard whose rows do not
+/// name each of its slices once, by job and shard.
+fn slice_problems(workflow: &str, text: &str) -> Vec<String> {
+    jobs(text)
+        .iter()
+        .flat_map(|job| {
+            job.slices
+                .iter()
+                .filter_map(|(shard, slices)| slice_gap(workflow, job.id, shard, slices))
+        })
+        .collect()
+}
+
+/// Every rule-9 violation of one workflow: steps that drop the slice, and
+/// shards whose slices do not cover their tests once.
+pub(crate) fn problems(workflow: &str, text: &str) -> Vec<String> {
+    let mut found = partition_problems(workflow, text);
+    found.extend(slice_problems(workflow, text));
+    found
+}
+
 #[cfg(test)]
 mod tests {
-    use super::partition_problems;
+    use super::{partition_problems, slice_problems};
+
+    /// The fat-finger: a slice that is not `N/M` is named as that, never
+    /// read as a missing slice, and a shard whose rows cover it passes.
+    #[test]
+    fn partitions_a_slice_that_is_not_n_of_m_is_named() {
+        let row = |slice: &str| {
+            format!(
+                "          - {{ suite: bot-full, archive: g7, partition: \"slice:{slice}\" }}\n"
+            )
+        };
+        let text = |second: &str| {
+            format!(
+                "name: ci\njobs:\n  shard:\n    strategy:\n{}{}",
+                row("1/2"),
+                row(second)
+            )
+        };
+        assert_eq!(slice_problems("ci.yml", &text("2/2")), Vec::<String>::new());
+        for (second, named) in [("2/x", "\"2/x\" ("), ("two", "\"two\" (no `/`)")] {
+            let problems = slice_problems("ci.yml", &text(second));
+            assert_eq!(problems.len(), 1, "{second}: {problems:?}");
+            assert!(
+                problems
+                    .iter()
+                    .all(|problem| problem.contains(named) && problem.contains("not N/M")),
+                "{second}: {problems:?}"
+            );
+        }
+    }
 
     /// A job of two rows of `suite`, sliced or not, whose step runs `run`.
     fn workflow(partition: &str, condition: &str, run: &str) -> String {

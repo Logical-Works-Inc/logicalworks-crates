@@ -25,9 +25,8 @@ Prose review does not catch a missing field; a refusal does.
 2. **A record is superseded, never rewritten.** A later decision adds a record
    that names the one it supersedes in its `## Correspondence`. The superseded
    record's `Status:` changes to `superseded` and nothing else in it changes.
-3. A decision with no record cannot be reviewed later. The `doc-governance` lane
-   refuses a missing *field*, not a missing judgement: review still owns whether
-   the decision was right.
+3. A decision with no record cannot be reviewed later. The `doc-governance` lane refuses a missing *field*,
+   not a missing judgement: review still owns whether the decision was right.
 4. The measurements a record cites are commands and their output. An estimate
    is labelled one and is replaced by a measurement before the claim stands.
 
@@ -118,3 +117,4 @@ Prose review does not catch a missing field; a refusal does.
 | [0081](0081-a-parked-child-is-reaped-with-no-later-start.md) | A parked child is reaped with no later start |
 | [0082](0082-a-test-is-judged-by-the-processes-it-leaves.md) | A test is judged by the processes it leaves |
 | [0083](0083-a-denied-child-keeps-its-devices-and-loses-the-user-manager.md) | A denied child keeps its devices and loses the user manager |
+| [0085](0085-a-sliced-shard-runs-each-slice-once.md) | A sliced shard runs each slice once |

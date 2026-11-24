@@ -37,7 +37,8 @@
 //!      public repository's call to a private one before any job starts, which
 //!      failed `logical_ci.yml` in 0 s on every run (ADR 0029).
 //!   9. A sliced row runs its slice. A job that gives a suite `slice:` rows
-//!      passes `--partition` in every step that runs that suite (#923).
+//!      passes `--partition` in every step that runs that suite (#923), and
+//!      its rows name each of `slice:1/M` to `slice:M/M` once.
 //!  10. The wrapper ships with the toolchain: the hosted action installs `clippy`
 //!      on every toolchain, for the `clippy-driver` the cargo config runs (`wrapper.rs`).
 //!  11. Only the required row waits on the doc tests, whose cache key is their own (#1095).
@@ -70,7 +71,6 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use lane_split::split_problems;
-use partitions::partition_problems;
 use reader::{Manifest, Step, read_manifest, read_workflow};
 use workflow_calls::foreign_workflow_problems;
 
@@ -380,7 +380,7 @@ fn check_parity(manifest_text: &str, workflow_text: &str) -> Vec<String> {
     problems.extend(pin_problems(&manifest, "ci.yml", workflow_text));
     problems.extend(self_hosted_problems("ci.yml", workflow_text));
     problems.extend(foreign_workflow_problems("ci.yml", workflow_text));
-    problems.extend(partition_problems("ci.yml", workflow_text));
+    problems.extend(partitions::problems("ci.yml", workflow_text));
     problems.extend(split_problems(manifest_text, workflow_text));
     problems.extend(neuter::problems(&jobs, &claimed_steps));
     problems
