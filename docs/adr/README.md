@@ -117,3 +117,4 @@ Prose review does not catch a missing field; a refusal does.
 | [0079](0079-the-shared-darwin-temp-dir-is-scanned-once-per-machine.md) | The shared Darwin temp dir is scanned once per machine |
 | [0080](0080-a-finished-run-returns-the-heap.md) | A finished run returns the heap to its baseline |
 | [0081](0081-a-parked-child-is-reaped-with-no-later-start.md) | A parked child is reaped with no later start |
+| [0082](0082-a-test-is-judged-by-the-processes-it-leaves.md) | A test is judged by the processes it leaves |

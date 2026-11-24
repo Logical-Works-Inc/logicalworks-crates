@@ -36,10 +36,15 @@
 //! test exits, anything left there fails it by name. The census removes what
 //! it found.
 //!
+//! On Linux it is the process census too (ADR 0082, #1128 G2b). The wrapper is
+//! its test's subreaper and reaps each orphan as it ends, as init does. When
+//! the test exits, each process still alive is killed, and a test that left one
+//! fails, naming it.
+//!
 //! Usage: `churn-slot <program> [argument...]`. The exit status is the program's;
 //! a program ended by a signal exits `128 + signal`. A program that exits zero
-//! and leaves residue exits 1; one the census cannot open a dir for is not run
-//! and exits 125.
+//! and leaves residue or a live process exits 1; one the census cannot open a
+//! dir or take the subreaper flag for is not run and exits 125.
 
 #[cfg(target_os = "macos")]
 #[path = "shared/ram_disk.rs"]
@@ -492,6 +497,62 @@ const UNJUDGED: u8 = 125;
 /// The exit status of a test that exited zero and left residue.
 const LEFT_RESIDUE: u8 = 1;
 
+/// How the program's run ended.
+enum Ran {
+    /// It ran to its end; the process census's verdict when it left any.
+    Ended(ExitStatus, Option<String>),
+    /// It could not be started.
+    NotStarted(io::Error),
+    /// A census step the host refused: the test is not judged clean. Only
+    /// Linux takes the census.
+    #[cfg(target_os = "linux")]
+    Unjudged(String),
+}
+
+/// Runs `command` to its end as its subreaper: each orphan it makes is reaped
+/// as it ends, as init reaps it, and whatever is still alive when it exits is
+/// killed and named (#1128 G2b, ADR 0082).
+#[cfg(target_os = "linux")]
+fn run_program(command: &mut Command) -> Ran {
+    if let Err(error) = lgwks_std::process::enable_child_subreaper() {
+        return Ran::Unjudged(format!(
+            "orphans: the host refused the subreaper flag, so the test is not run: {error}"
+        ));
+    }
+    let child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => return Ran::NotStarted(error),
+    };
+    let pid = match i32::try_from(child.id()) {
+        Ok(pid) => pid,
+        Err(error) => {
+            return Ran::Unjudged(format!("orphans: the test's pid is past pid_t: {error}"));
+        }
+    };
+    // `reap_until` waits for the test itself, so the std handle is never waited on.
+    drop(child);
+    let status = match lgwks_std::process::reap_until(pid) {
+        Ok(status) => status,
+        Err(error) => {
+            return Ran::Unjudged(format!("orphans: the test's wait was refused: {error}"));
+        }
+    };
+    let left = lgwks_std::process::stop_orphans();
+    // The verdict is empty exactly when the census is clean.
+    let verdict = left.to_string();
+    Ran::Ended(status, (!verdict.is_empty()).then_some(verdict))
+}
+
+/// Runs `command` to its end. Off Linux there is no subreaper, so the process
+/// census is not taken.
+#[cfg(not(target_os = "linux"))]
+fn run_program(command: &mut Command) -> Ran {
+    match command.status() {
+        Ok(status) => Ran::Ended(status, None),
+        Err(error) => Ran::NotStarted(error),
+    }
+}
+
 /// Runs `program` under a slot with a census `TMPDIR` of its own under `temp`
 /// (the caller's temp dir when `None`), and returns its exit status, or
 /// [`LEFT_RESIDUE`] when it exited zero and the census found residue.
@@ -517,7 +578,7 @@ fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsSt
     let mut named = census.dir().as_os_str().to_os_string();
     named.push("/");
     command.env("TMPDIR", named);
-    let status = {
+    let ran = {
         // The slot is held exactly while the program runs: `_held` lives to
         // the end of this block.
         let _held = match slots.take(start_slot()) {
@@ -527,24 +588,34 @@ fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsSt
                 None
             }
         };
-        command.status()
+        run_program(&mut command)
     };
     census.close(&mut found);
-    let code = match status {
-        Ok(status) => exit_status_of(status),
-        Err(error) => {
+    let (code, orphans) = match ran {
+        Ran::Ended(status, orphans) => (exit_status_of(status), orphans),
+        Ran::NotStarted(error) => {
             say(&format!(
                 "cannot start {}: {error}",
                 Path::new(program).display()
             ));
-            UNRUNNABLE
+            (UNRUNNABLE, None)
+        }
+        #[cfg(target_os = "linux")]
+        Ran::Unjudged(why) => {
+            say(&why);
+            return ExitCode::from(UNJUDGED);
         }
     };
-    if found.is_clean() {
+    if found.is_clean() && orphans.is_none() {
         return ExitCode::from(code);
     }
-    for line in found.to_string().lines() {
-        say(line);
+    if !found.is_clean() {
+        for line in found.to_string().lines() {
+            say(line);
+        }
+    }
+    for line in orphans.iter().flat_map(|verdict| verdict.lines()) {
+        say(&format!("orphans: {line}"));
     }
     ExitCode::from(if code == 0 { LEFT_RESIDUE } else { code })
 }

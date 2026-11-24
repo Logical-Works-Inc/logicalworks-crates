@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// The process census's sims (#1128 G2b).
+#[path = "orphans_sim.rs"]
+mod orphans_sim;
+
 /// How many table reads [`all_stop_running`] makes before it gives up.
 #[cfg(unix)]
 const SETTLE_READS: usize = 100_000;
