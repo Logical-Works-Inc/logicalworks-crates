@@ -182,6 +182,15 @@ mod tests {
         problems
     }
 
+    /// The loom prebuild's environment, line for line the engine's own.
+    const LOOM_ENV: [&str; 5] = [
+        "RUSTC_WORKSPACE_WRAPPER: ${{ runner.temp }}/lci/logical_ci-macos-arm64\n",
+        "LOGICAL_CI_RUSTC_CFG: loom\n",
+        "CARGO_PROFILE_RELEASE_LTO: \"off\"\n",
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS: \"256\"\n",
+        "CARGO_TARGET_DIR: ${{ github.workspace }}/target/loom-target\n",
+    ];
+
     /// A prebuild names its packages and its targets: one that names neither
     /// compiles every test binary in the workspace.
     fn names_its_targets(command: &str) -> bool {
@@ -214,6 +223,19 @@ mod tests {
                 "logical_ci.yml prebuilds every test binary the engine's property lane skips"
                     .to_owned(),
             );
+        }
+        // The engine builds the loom probe with itself as the workspace
+        // wrapper, cfg loom, LTO off and 256 codegen units, into `loom-target`
+        // under its target (logical_ci v0.4.9, src/gates/property.rs). A
+        // prebuild with the job's own flags warmed nothing, and the probe was
+        // killed at 103 473 ms (run 45384510957).
+        for needle in LOOM_ENV {
+            if !workflow.contains(needle) {
+                problems.push(format!(
+                    "logical_ci.yml builds the loom probe with other flags than the engine: no `{}`",
+                    needle.trim_end()
+                ));
+            }
         }
         let engine = engine_step(workflow);
         if !prebuilds.iter().any(|&(at, command)| {
@@ -278,8 +300,26 @@ mod tests {
         );
         release_controls(&gate, &adr);
         engine_controls(&gate, &adr);
+        loom_controls(&gate, &adr);
         record_controls(&gate, &adr);
         every_workflow_is_checked()
+    }
+
+    /// A loom prebuild that drops any one of the engine's settings is named by
+    /// that setting: built otherwise, it warms nothing the probe runs.
+    fn loom_controls(gate: &str, adr: &str) {
+        for needle in LOOM_ENV {
+            let cold = gate.replacen(needle, "", 1);
+            assert_ne!(cold, gate, "the loom setting the control drops must exist");
+            assert_eq!(
+                inline_gate_problems(&cold, adr),
+                vec![format!(
+                    "logical_ci.yml builds the loom probe with other flags than the engine: no `{}`",
+                    needle.trim_end()
+                )],
+                "a loom prebuild without {needle:?} is named"
+            );
+        }
     }
 
     /// A tag moved alone, an ADR line left behind, and a malformed pin.
