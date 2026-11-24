@@ -143,6 +143,23 @@ fn the_logical_ci_job_outlasts_its_cold_builds_and_lane_budget() -> TestResult {
     Ok(())
 }
 
+/// Run 45490255730: the v0.4.11 pin was pushed before release.yml published, and the download
+/// at 21:21:52 printed only `release not found`; v0.4.11 published at 21:22:12. The download
+/// names the cause.
+#[test]
+fn the_logical_ci_download_names_an_unpublished_release() -> TestResult {
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    let step = text
+        .split("- name: ")
+        .find(|step| step.starts_with("Download pinned release"))
+        .ok_or("logical_ci.yml has no download step")?;
+    assert!(
+        step.contains("|| { echo \"$LCI_RELEASE is not published on Logical-Works-Inc/logical_ci: a pin lands only after its release.yml run publishes\"; exit 1; }"),
+        "the download does not name an unpublished release as the cause"
+    );
+    Ok(())
+}
+
 /// Run 45448206410: the wait step saw bot-rest's listing in the REST answer at 17:27:09.15, and
 /// `download-artifact`, which reads its own listing, fetched 12 of 13 at 17:27:09.49, so the
 /// simulation lane could not run. The job fetches each listing by id from the answer it waited on.
