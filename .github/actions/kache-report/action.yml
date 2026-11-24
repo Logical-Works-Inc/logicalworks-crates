@@ -1,0 +1,29 @@
+name: kache report
+description: >
+  Ends a job that compiled through kache (ADR 0086). It stops the job's kache
+  daemon, which gives its upload queue up to 30 s to drain into the shared
+  store, so a `main` or merge-queue job does not end with outputs unpublished.
+  Then it writes the job's hit rate to the log and the job summary: the number
+  each change to the cache layout is measured by. A job that never started
+  kache says so and passes.
+runs:
+  using: composite
+  steps:
+    - name: Drain kache's uploads and report the hit rate
+      shell: bash
+      run: |
+        set -euo pipefail
+        kache="${RUSTC_WRAPPER:-}"
+        if [ -z "${kache}" ] || [ ! -e "${kache}" ]; then
+          echo "kache: this job compiled nothing through it"
+          exit 0
+        fi
+        if ! "${kache}" daemon stop; then
+          echo "::warning::kache's daemon did not stop cleanly; uploads still queued are lost"
+        fi
+        if ! "${kache}" stats --since 6h; then
+          echo "::warning::kache stats failed"
+        fi
+        if ! "${kache}" stats --format github --since 6h >> "${GITHUB_STEP_SUMMARY}"; then
+          echo "::warning::kache could not write the job summary"
+        fi

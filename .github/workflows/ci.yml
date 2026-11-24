@@ -7,6 +7,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Two speeds (ADR 0086). A pull request runs the Linux inner loop: the gate,
+  # every lint leg and every Linux suite. The merge queue runs all of it plus
+  # the jobs a pull request skips (macOS, Windows, the GPUI, Metal and AppCUI
+  # legs, the target, feature and timing matrices, Miri, the release docs and
+  # the package smoke), on the commit that would land, for a batch of queued
+  # pull requests at once. Each of those jobs carries
+  # `github.event_name != 'pull_request'` and is named in the verdict's
+  # QUEUE_ONLY; tests/it/ci_two_speed.rs holds the two together.
+  merge_group:
   # The same matrix on a branch's head with no commit to carry it:
   # `gh workflow run ci.yml --ref main` starts it; a run on `main` takes the
   # `main` paths of the file (the cache saves, the receipts upload).
@@ -37,9 +46,11 @@ on:
 # Caching has one owner per layer (`.github/actions/hosted-rust`): rust-cache
 # holds the registry and the dependency build, keyed by the lane group the job
 # builds and saved from `main` alone, so pull requests stop evicting main past
-# the repository's 10 GiB (9.71 GiB in 153 entries on 2026-11-03); sccache on
-# the GitHub Actions backend holds compiled crates, workspace crates included,
-# because every hosted job checks out at one path.
+# the repository's 10 GiB (9.71 GiB in 153 entries on 2026-11-03); kache holds
+# every rustc output, keyed by its inputs, in one GHCR store that `main` and
+# the merge queue write and every job reads (ADR 0086). Each compiling job ends
+# with `.github/actions/kache-report`, which drains its uploads and prints its
+# hit rate.
 #
 # The job timeout is the budget, 5 minutes: a job that passes its tests and ends
 # past it is cancelled. Hung tests are bounded inside the suite by nextest's
@@ -59,9 +70,14 @@ concurrency:
 # out and nothing more. The two jobs that read this run through the Actions API
 # (`workspace_build` lists its artifacts, `build_verdict` reads the cache usage
 # and the run's start) add `actions: read`. Caches and artifacts authenticate
-# with the runner's own token, not this one.
+# with the runner's own token, not this one. `packages: write` is kache's
+# store in GHCR (ADR 0086): kache writes it only from a `main` push or the
+# merge queue, and a fork's pull request gets a read-only token whatever this
+# says. A same-repository pull request can already ask for any scope by
+# editing this file, so the line widens nothing it could not reach.
 permissions:
   contents: read
+  packages: write
 
 # The same values as `[profile.test]` in Cargo.toml, which cargo already reads;
 # they are repeated here for the cache. Swatinem/rust-cache keys on every
@@ -71,8 +87,8 @@ permissions:
 env:
   CARGO_PROFILE_TEST_DEBUG: "0"
   CARGO_PROFILE_TEST_OPT_LEVEL: "1"
-  # sccache refuses to cache an incremental compilation, and a hosted target
-  # directory never outlives its job, so incremental state is only cost.
+  # A hosted target directory never outlives its job, so incremental state is
+  # only cost, and kache stores no incremental compilation.
   CARGO_INCREMENTAL: "0"
   # One warning fails the run, in every job and every cargo command (Director
   # 2026-10-28: "YOU WILL EDIT CI.YML TO FAIL ON A SINGLE CLIPPY WARNING").
@@ -166,6 +182,9 @@ jobs:
       - name: Every lgwks_bot test target is in a bot shard
         run: |
           test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick heap_baseline it process_job sim_deep_cancel sim_review_path t03_non_yielding"
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The simulation lane counts the tests the Linux shards built: the first
   # shard of each suite writes the nextest listing of its build
@@ -184,6 +203,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      packages: write
     container:
       image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
@@ -235,9 +255,9 @@ jobs:
           path: gate-evidence/
           if-no-files-found: error
           retention-days: 7
-      - name: Cache hit rate
+      - name: Upload the compile cache
         if: ${{ always() }}
-        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
+        uses: ./.github/actions/kache-report
 
   # The Linux shards. They build and run in the `rust:<pin>-trixie` container
   # the Mac's Linux leg used: its util-linux 2.41 `setpriv` applies the
@@ -414,9 +434,9 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
-      - name: Cache hit rate
+      - name: Upload the compile cache
         if: ${{ always() }}
-        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
+        uses: ./.github/actions/kache-report
 
   # The macOS shards hold the platform gates and nothing else (ADR 0042):
   # lgwks_std, whose fs, process and time seams take the Darwin branch,
@@ -435,7 +455,7 @@ jobs:
   tests_macos:
     name: Tests on macOS (${{ matrix.archive }}, ${{ matrix.tier || matrix.it_group || matrix.partition }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # mac-specific: the darwin-arm64 acceptance receipt and the Darwin seams.
     runs-on: macos-15
     timeout-minutes: 5
@@ -488,8 +508,6 @@ jobs:
           toolchain: "nightly-2026-11-12"
           cache-key: ${{ matrix.archive }}
           nextest: "true"
-          # The group rows restore their whole dependency build from rust-cache.
-          sccache: "false"
       - name: Run all workspace tests
         if: matrix.suite == 'workspace'
         run: cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}
@@ -518,10 +536,9 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
-      # The group rows start no sccache; their dependency build is rust-cache's.
-      - name: Cache hit rate
-        if: ${{ always() && matrix.suite != 'bot-it' }}
-        run: command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The workspace's evidence lane and the receipts tool the required row runs:
   # each reads a build rather than a test archive, and none waits on the suites.
@@ -566,6 +583,9 @@ jobs:
           path: gate-evidence/
           if-no-files-found: error
           retention-days: 7
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The doc tests in a job of their own, beside the suites (#1095, ADR 0076).
   # As a step of the evidence job they ran after the journey, about 200 s, and
@@ -590,6 +610,9 @@ jobs:
           cache-key: doc-tests
       - name: Doc tests
         run: cargo test --workspace --doc --locked
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The package smoke beside the doc tests, not after them: it reads no build of
   # theirs, and in line it ran 39 s past their 172 s, the run's last job to end
@@ -597,7 +620,7 @@ jobs:
   package_smoke:
     name: Package smoke
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -613,6 +636,9 @@ jobs:
           cache-key: workspace-stable
       - name: Run package smoke test
         run: ./scripts/lgwks-std-package-smoke.sh
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The checks that read the tree rather than test it, in a job of their own:
   # none builds the workspace's tests, so they need not wait on that compile.
@@ -635,7 +661,6 @@ jobs:
           toolchain: "nightly-2026-11-12"
           cache-key: gate
           save-cache: "false"
-          sccache: "false"
           components: clippy, rustfmt
           nextest: "true"
       - name: Verify lockfile is up-to-date
@@ -690,6 +715,9 @@ jobs:
         run: cargo run --locked -p lgwks_deps --bin check-docs -- . --base ${DOCS_BASE:-origin/main}
       - name: Root README quickstart matches its compiled example
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane readme-quickstart
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The RustSec advisories (#635), beside the gate rather than a step of it: the
   # audit is a network read (the advisory database), which this file cannot
@@ -761,7 +789,6 @@ jobs:
         with:
           toolchain: "nightly-2026-11-12"
           cache-key: std-full
-          sccache: "false"
           nextest: "true"
       - name: Build lgwks-std full-feature tests
         # Stops before the job limit so the cache is saved.
@@ -782,6 +809,9 @@ jobs:
           pkill -KILL -x cargo-nextest || true
           pkill -KILL -x cargo || true
           timeout 10 bash -c 'while pgrep -f "${GITHUB_WORKSPACE}/target/" > /dev/null; do sleep 0.2; done'
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The lgwks-bot suite at no default features, in a job of its own.
   tests_nodefault:
@@ -803,6 +833,9 @@ jobs:
           nextest: "true"
       - name: Run lgwks-bot no-default-feature tests
         run: cargo nextest run -p lgwks_bot --all-targets --locked --no-default-features ${PARTITION:+--partition $PARTITION}
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # Lints, on hosted arm64 Linux: nothing in a lint leg is Mac-specific, and on
   # #863 every macOS leg sat in the hosted macOS queue until it was cancelled.
@@ -835,12 +868,6 @@ jobs:
           # Every part checks within 107 s cold (run 43397802234), so none
           # sets the wall and none saves (ADR 0041).
           save-cache: "false"
-          # No sccache here: twice the reduced-bot leg sat silent from its
-          # last `Checking` line to the 5-minute cancel (runs 41777272472 and
-          # 41791513019, both stopped before `rkyv`), where it otherwise ends
-          # in 35 to 50 s. A check build is cheap, and rust-cache keeps the
-          # dependencies.
-          sccache: "false"
           components: clippy
       - name: Clippy all workspace targets
         if: matrix.part == 'workspace'
@@ -908,6 +935,9 @@ jobs:
         run: >
           cargo clippy --locked --manifest-path crates/lgwks-bot/Cargo.toml
           --all-targets --no-default-features --features process -- -D warnings
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The documentation lanes, apart from the lints: rustdoc builds its own output
   # for each feature set. `scripts/doc-lanes.sh` holds the commands and the
@@ -915,7 +945,7 @@ jobs:
   docs:
     name: Docs and release gates
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -928,7 +958,6 @@ jobs:
           toolchain: "1.100.0"
           cache-key: docs
           save-cache: "false"
-          sccache: "false"
           components: clippy
       - name: Doc build with broken-link denial
         run: ./scripts/doc-lanes.sh all-features
@@ -940,6 +969,9 @@ jobs:
         # The set `cargo add lgwks_std` hands a consumer, which neither boundary
         # lane builds.
         run: ./scripts/doc-lanes.sh default
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The lgwks-deps storefronts and the standalone consumer packages. The GPUI,
   # GPUI fixture and Metal ML legs need Apple's toolchain; the rest are
@@ -948,7 +980,7 @@ jobs:
   storefront-matrix:
     name: Target and storefront matrix (${{ matrix.part }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
@@ -978,7 +1010,6 @@ jobs:
           cache-key: ${{ matrix.cache }}
           # The deps part compiles 48 s cold; the others pass 150 s (ADR 0041).
           save-cache: ${{ matrix.cache != 'storefront-deps' }}
-          sccache: "false"
           nextest: ${{ startsWith(matrix.part, 'consumers') && 'true' || 'false' }}
       - name: Check lgwks-deps
         if: matrix.part == 'deps'
@@ -1011,6 +1042,9 @@ jobs:
         env:
           PARTITION: ${{ matrix.partition }}
         run: cargo nextest run --locked -p lgwks_deps --test storefront_consumers ${PARTITION:+--partition $PARTITION}
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The declared target matrix, one leg per group of targets, each with the host
   # triple the script always adds. The hosted runner is arm64 Linux, so its own
@@ -1019,7 +1053,7 @@ jobs:
   target-matrix:
     name: Target matrix (${{ matrix.targets }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
@@ -1051,6 +1085,9 @@ jobs:
       - name: Check the aarch64-unknown-linux-gnu target cells
         if: matrix.targets == 'aarch64-unknown-linux-gnu'
         run: cargo check --locked -p lgwks_std --features full --target aarch64-unknown-linux-gnu && cargo check --locked -p lgwks_ast --target aarch64-unknown-linux-gnu
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The two release-build timing gates, apart from the lints: each measures wall
   # time. On arm64 Linux, the server class the services ship to (province#9
@@ -1059,7 +1096,7 @@ jobs:
   timing_gates:
     name: Timing gates (dudect, async fairness, latency tails)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -1078,13 +1115,16 @@ jobs:
         # Every leaf call in lgwks_std, each bounded at 500 ns p50 and 1 500 ns
         # p99 (ADR 0003).
         run: cargo run --release --locked -p lgwks_std --example latency_tails
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The async fairness gate and concurrency ladder: the bench workspace run four
   # ways (the suite, a mutant check, the tiers and the matrix).
   timing_async:
     name: Async fairness gate and concurrency ladder
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -1096,6 +1136,9 @@ jobs:
           cache-key: bench-async
       - name: Async fairness gate and concurrency ladder
         run: cargo test --locked --manifest-path bench/async/Cargo.toml --bin lgwks-bench-async && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --mutant-check && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --tiers && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --matrix
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The lgwks-bot and lgwks-ast compile matrices and the grammar execution, on
   # hosted arm64 Linux: every leg checks or runs portable code, and docs.rs
@@ -1103,7 +1146,7 @@ jobs:
   feature-matrix-bot-ast:
     name: Feature matrix (${{ matrix.part }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     strategy:
@@ -1125,7 +1168,6 @@ jobs:
           # lgwks-ast and docs.rs pass 150 s cold; the lgwks-bot parts finish
           # within 145 s and save nothing (ADR 0041).
           save-cache: ${{ matrix.part == 'lgwks-ast' || matrix.part == 'docs.rs' }}
-          sccache: "false"
       - name: docs.rs metadata names a buildable feature set
         if: matrix.part == 'docs.rs'
         # docs.rs builds with whatever `[package.metadata.docs.rs]` declares,
@@ -1192,11 +1234,14 @@ jobs:
             --features lang-bash,lang-c,lang-cpp,lang-csharp,lang-css,lang-dart,lang-elixir,lang-go,lang-haskell,lang-hcl,lang-html,lang-java,lang-javascript,lang-json,lang-kotlin,lang-lua,lang-md,lang-nix,lang-php,lang-python,lang-ruby,lang-rust,lang-scala,lang-solidity,lang-swift,lang-tsx,lang-typescript,lang-yaml
           execute cargo test --locked -p lgwks_ast --lib --all-features
           exit "$failed"
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   appcui-native:
     name: AppCUI native storefront
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # mac-specific: AppCUI's macOS terminal backend.
     runs-on: macos-15
     timeout-minutes: 5
@@ -1211,12 +1256,15 @@ jobs:
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --lib
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --doc
       - run: cargo clippy --locked -p lgwks_deps --no-default-features --features appcui --all-targets -- -D warnings
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The AppCUI legs on Windows and Linux, beside the macOS one.
   appcui-native-hosted:
     name: AppCUI native storefront hosted (${{ matrix.os }})
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 5
     strategy:
@@ -1235,13 +1283,16 @@ jobs:
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --lib
       - run: cargo test --locked -p lgwks_deps --no-default-features --features appcui --doc
       - run: cargo clippy --locked -p lgwks_deps --no-default-features --features appcui --all-targets -- -D warnings
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # Its own job rather than a step of the AppCUI Windows leg: the GPUI build is
   # 194 s, and behind the AppCUI steps it made that leg the run's longest job.
   gpui-windows:
     name: GPUI Windows renderer
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 5
     steps:
@@ -1251,13 +1302,15 @@ jobs:
         with:
           toolchain: "nightly-2026-11-12"
           cache-key: storefront-fixture-target
-          sccache: "false"
       - name: Check GPUI Windows renderer fixture
         run: >
           cargo check --locked
           --manifest-path crates/lgwks-deps/tests/fixtures/storefront-matrix/Cargo.toml
           --target-dir target
           --no-default-features --features gpui --example gpui
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # #263 on Windows, executed. The job object a supervised tree lives in is the
   # kernel's own membership list, so the only evidence that containment works is
@@ -1268,7 +1321,7 @@ jobs:
   process-windows:
     name: Process containment on Windows
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 5
     env:
@@ -1284,7 +1337,6 @@ jobs:
         with:
           toolchain: "nightly-2026-11-12"
           cache-key: process-windows-dev
-          sccache: "false"
           nextest: "true"
       - name: Run the Windows containment and row tests
         # The `dev` profile: the `test` one builds every dependency at opt-level 3.
@@ -1299,6 +1351,9 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: error
           retention-days: 7
+      - name: Upload the compile cache
+        if: ${{ always() }}
+        uses: ./.github/actions/kache-report
 
   # The repository's ruleset requires a check named exactly "Clippy and scan".
   # The lint job is a matrix whose legs report under their own names; this row
@@ -1355,19 +1410,26 @@ jobs:
         run: |
           echo "docs-only change: classification ${CHANGES}, gate ${GATE}; the suites build nothing it changed"
           test "${CHANGES}" = success && test "${GATE}" = success
+      # Every job this row needs passed, each one by name. A pull request may
+      # skip only the jobs the merge queue runs (QUEUE_ONLY, ADR 0086); in the
+      # queue and on main a skipped job fails the row like a failed one.
       - name: Every workspace test job passed
         if: needs.changes.outputs.code != 'false'
         env:
-          # The compile beyond the shards: the all-targets build and the
-          # simulation listing.
-          BUILD: ${{ needs.workspace_all_targets.result == 'success' && needs.workspace_build.result == 'success' && 'success' || 'failure' }}
-          TAIL: ${{ needs.workspace_tail.result == 'success' && needs.doc_tests.result == 'success' && needs.package_smoke.result == 'success' && 'success' || 'failure' }}
-          LINUX: ${{ needs.tests_linux.result }}
-          MACOS: ${{ needs.tests_macos.result }}
-          BOT_NODEFAULT: ${{ needs.tests_nodefault.result }}
+          NEEDS: ${{ toJSON(needs) }}
+          QUEUE_ONLY: tests_macos package_smoke docs storefront-matrix target-matrix timing_gates timing_async feature-matrix-bot-ast appcui-native appcui-native-hosted gpui-windows process-windows miri_unsafe
         run: |
-          echo "builds ${BUILD}, evidence ${TAIL}, Linux shards ${LINUX}, macOS shards ${MACOS}, lgwks_bot no default ${BOT_NODEFAULT}"
-          test "${BUILD}" = success && test "${TAIL}" = success && test "${LINUX}" = success && test "${MACOS}" = success && test "${BOT_NODEFAULT}" = success
+          set -euo pipefail
+          failed=""
+          for job in $(printf '%s' "${NEEDS}" | jq -r 'keys[]'); do
+            result="$(printf '%s' "${NEEDS}" | jq -r --arg job "${job}" '.[$job].result')"
+            case " ${QUEUE_ONLY} " in *" ${job} "*) queued=true ;; *) queued=false ;; esac
+            if [ "${result}" = success ]; then continue; fi
+            if [ "${result}" = skipped ] && [ "${queued}" = true ] && [ "${GITHUB_EVENT_NAME}" = pull_request ]; then continue; fi
+            failed="${failed} ${job}=${result}"
+          done
+          echo "${GITHUB_EVENT_NAME}: jobs that did not pass:${failed:- none}"
+          test -z "${failed}"
       - uses: actions/checkout@v7
         if: needs.changes.outputs.code != 'false'
       - name: Install sqlite3, the program the receipts are recorded through
@@ -1379,8 +1441,10 @@ jobs:
         with:
           name: receipts-tool
           path: receipts-tool
+      # The macOS rows run in the merge queue, so a pull request has no
+      # Darwin report to download.
       - name: Download lgwks-bot JUnit reports
-        if: needs.changes.outputs.code != 'false'
+        if: needs.changes.outputs.code != 'false' && github.event_name != 'pull_request'
         uses: actions/download-artifact@v8
         with:
           pattern: lgwks-bot-junit-*
@@ -1391,9 +1455,19 @@ jobs:
         with:
           pattern: acceptance-junit-*
           path: acceptance-junit
+      # A pull request records the Linux receipt; the merge queue and main
+      # record the Darwin and Windows ones too, from the jobs only they run.
       - name: Record acceptance receipts
         if: needs.changes.outputs.code != 'false'
-        run: chmod +x receipts-tool/acceptance-receipts && receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --map docs/acceptance/t-rows-darwin.toml --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --platform darwin-arm64 && receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64 && receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
+        run: |
+          set -euo pipefail
+          chmod +x receipts-tool/acceptance-receipts
+          mkdir -p acceptance-artifact
+          receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64
+          if [ "${GITHUB_EVENT_NAME}" != pull_request ]; then
+            receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --map docs/acceptance/t-rows-darwin.toml --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --platform darwin-arm64
+            receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64
+          fi
       - name: Upload acceptance receipt
         if: needs.changes.outputs.code != 'false'
         uses: actions/upload-artifact@v7
@@ -1425,7 +1499,7 @@ jobs:
   miri_unsafe:
     name: Miri unsafe seams
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
