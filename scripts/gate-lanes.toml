@@ -263,6 +263,8 @@ surfaces = "ci"
 required = true
 # Waits, bounded at 60 polls, until the first Linux shard of every suite has
 # uploaded its listing to this run, and fails naming the suites that never did.
+# Then it fetches each listing by id from that same answer: a second listing
+# missed one the wait had seen (run 45448206410).
 command = '''set -euo pipefail
 for attempt in $(seq 1 60); do
   listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
@@ -270,14 +272,27 @@ for attempt in $(seq 1 60); do
   for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
     case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
   done
-  if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
+  if [ -z "${missing}" ]; then
+    echo "every suite listing is uploaded"
+    for file in ${SIMULATION_LISTINGS}; do
+      dir="${file%/listing.json}"
+      before="${listed%%\"name\":\"${dir#nextest-listing/}\"*}"
+      id="${before##*\"id\":}"
+      id="${id%%,*}"
+      mkdir -p "${dir}"
+      curl -fsSL --retry 3 -H "Authorization: Bearer ${TOKEN}" -o /tmp/listing.zip "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip"
+      unzip -o -q /tmp/listing.zip -d "${dir}"
+      test -s "${file}"
+    done
+    exit 0
+  fi
   echo "attempt ${attempt}: waiting on${missing}"
   sleep 4
 done
 echo "::error::the suite listings never arrived:${missing}"
 exit 1
 '''
-ci_step = "Wait for the Linux suite listings"
+ci_step = "Wait for and fetch the Linux suite listings"
 
 [[lane]]
 id = "sqlite3-program"

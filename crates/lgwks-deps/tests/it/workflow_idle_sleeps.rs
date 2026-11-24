@@ -143,6 +143,32 @@ fn the_logical_ci_job_outlasts_its_cold_builds_and_lane_budget() -> TestResult {
     Ok(())
 }
 
+/// Run 45448206410: the wait step saw bot-rest's listing in the REST answer at 17:27:09.15, and
+/// `download-artifact`, which reads its own listing, fetched 12 of 13 at 17:27:09.49, so the
+/// simulation lane could not run. The job fetches each listing by id from the answer it waited on.
+#[test]
+fn the_simulation_lane_fetches_the_listings_it_waited_for() -> TestResult {
+    let text = fs::read_to_string(workflows().join("ci.yml"))?;
+    let step = text
+        .split("- name: ")
+        .find(|step| step.starts_with("Wait for and fetch the Linux suite listings"))
+        .ok_or("ci.yml has no step that waits for and fetches the suite listings")?;
+    for part in [
+        "actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100",
+        "for file in ${SIMULATION_LISTINGS}; do",
+        "id=\"${before##*\\\"id\\\":}\"",
+        "/actions/artifacts/${id}/zip",
+        "test -s \"${file}\"",
+    ] {
+        assert!(step.contains(part), "the listing step lost `{part}`");
+    }
+    assert!(
+        !text.contains("pattern: nextest-listing-*-Linux"),
+        "a second listing of the artifacts can miss one the wait saw"
+    );
+    Ok(())
+}
+
 #[test]
 fn no_workflow_step_sleeps() -> TestResult {
     let found = idle_steps(&workflows())?;
