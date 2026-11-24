@@ -5,8 +5,8 @@
 //! it would have used. When the test exits, an entry still in that directory
 //! is a leak: the test, or the code it drove, made it and nothing removed it.
 //! The census then removes what it found, so the wrapper itself leaves nothing.
-//! Processes a test orphans are not judged here: a subreaper that does not
-//! reap while the test runs breaks init's semantics for it (#1128 G2b).
+//! Processes a test leaves are judged by the process census beside it
+//! (`lgwks_std::process::stop_orphans`, #1128 G2b).
 //!
 //! It judges the outcome, not a proxy: a test passes it only by leaving
 //! nothing, and no count of tests, lines or annotations moves it.

@@ -101,6 +101,22 @@ impl<T: Send + 'static> JoinSet<T> {
         self.inner.spawn(future)
     }
 
+    /// Start one `Send` task owned by this set on `driver` rather than on the
+    /// caller's runtime: for work that must outlive the runtime its caller
+    /// runs on, such as reaping a child a dropped supervisor parked.
+    #[cfg(all(unix, feature = "process"))]
+    pub(crate) fn spawn_on<F>(
+        &mut self,
+        future: F,
+        driver: &crate::rt::runtime::Handle,
+    ) -> AbortHandle
+    where
+        F: Future<Output = T> + Send + 'static,
+        T: 'static,
+    {
+        self.inner.spawn_on(future, driver.engine())
+    }
+
     /// Join the next completed task, in completion order.
     pub async fn join_next(&mut self) -> Option<Result<T, JoinError>> {
         self.inner.join_next().await

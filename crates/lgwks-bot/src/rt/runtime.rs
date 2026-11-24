@@ -395,6 +395,13 @@ impl Handle {
     pub fn block_on<F: Future>(&self, future: F) -> F::Output {
         self.inner.block_on(future)
     }
+
+    /// The driver's own handle, for a [`JoinSet`](crate::rt::task::JoinSet)
+    /// that owns a task started on this runtime.
+    #[cfg(all(unix, feature = "process"))]
+    pub(crate) const fn engine(&self) -> &lgwks_deps::tokio::runtime::Handle {
+        &self.inner
+    }
 }
 
 /// Whether a runtime is already driving the calling thread.

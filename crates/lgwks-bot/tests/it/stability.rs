@@ -181,13 +181,18 @@ fn start_writer(path: &Path, protocol: Protocol) -> Result<Child, Box<dyn Error>
          if [ $((i % 1000)) -eq 0 ]; then kill -0 $PPID 2>/dev/null || exit 0; fi; done",
         rounds = 20_000_000u32
     );
-    Ok(Command::new("/bin/sh")
+    let mut command = Command::new("/bin/sh");
+    command
         .arg("-c")
         .arg(script)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?)
+        .stderr(Stdio::null());
+    // A group of its own, so `quiesce` stops the `sleep` the loop is in as well
+    // as the loop: the census found that `sleep` alive after the test (#1128 G2b).
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    Ok(command.spawn()?)
 }
 
 /// What one poll of a real store produced, classified from the answer itself.
@@ -476,6 +481,15 @@ impl LiveStore {
     /// stops moving *now*. Idempotent, because [`Drop`] calls it too and a
     /// second `kill` on a reaped child is an error this method ignores.
     fn quiesce(&mut self) {
+        #[cfg(unix)]
+        if let Err(error) = Command::new("kill")
+            .args(["-s", "KILL", "--"])
+            .arg(format!("-{}", self.writer.id()))
+            .stderr(Stdio::null())
+            .status()
+        {
+            lgwks_std::trace::debug!(error = ?error, "quiesce: the writer's group was not signalled");
+        }
         if let Err(error) = self.writer.kill() {
             lgwks_std::trace::debug!(error = ?error, "quiesce: the writer was already gone");
         }

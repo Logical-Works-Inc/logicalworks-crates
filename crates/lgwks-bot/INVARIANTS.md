@@ -47,4 +47,5 @@ is [`INVARIANTS-2.md`](INVARIANTS-2.md), part 3 is [`INVARIANTS-3.md`](INVARIANT
 - **INV-BOT-60** A readiness is a typed, generation-bound fact released without sleeping or polling. · why: #87 T18 · enforced by: `tests/it/sim_ready.rs`
 - **INV-BOT-61** Service readiness is read from the child's own stdout in the read that captures it, with no timer. · why: #87 T18 · enforced by: `tests/it/ready.rs`
 - **INV-BOT-200** A Landlock allowlist holds 1 to 4,096 rules whose paths sum to at most 1 MiB, and one past either is refused by name before the fork. · why: #1114, ADR 0072 · enforced by: `tests/it/sim_landlock.rs`
+- **INV-BOT-LEDGER-1** After any supervised run, a dropped supervisor's included, no leader stays tracked and no killed child stays parked, though no start follows. · why: #1128 G4, ADR 0081 · enforced by: `sim_ledgers_drain_after_every_shape_of_run`
 - **INV-RT-BOUNDED** No channel is unbounded: `clippy.toml` disallows tokio's `unbounded_channel` and `std::sync::mpsc`, and `rt::sync::mpsc::channel` replaces them. · why: RUST-AP-022, #911 · enforced by: the `clippy-feature-bot` lane

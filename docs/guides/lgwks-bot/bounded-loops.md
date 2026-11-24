@@ -36,7 +36,7 @@ owns the token ends.
 
 `rt::task::join_all_bounded(limit, futures)` (feature `sync`) spawns and awaits
 at most `limit` tasks at once, spawning the next pending input as each completes
-(`crates/lgwks-bot/src/rt/task.rs:205`). Result `i` is the output of input `i`,
+(`crates/lgwks-bot/src/rt/task.rs:221`). Result `i` is the output of input `i`,
 whichever completes first, which is the property `JoinSet::join_next` does not
 give you.
 

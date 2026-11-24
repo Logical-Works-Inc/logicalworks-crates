@@ -35,11 +35,21 @@ const FLAGS_FIELD_AFTER_NAME: usize = 6;
 
 /// The `stat` line of `pid`, or `None` when it is unreadable.
 #[cfg(all(target_os = "linux", feature = "process"))]
-pub(super) fn read_proc_stat(pid: i32) -> Option<String> {
+pub(in crate::process) fn read_proc_stat(pid: i32) -> Option<String> {
     let path = std::path::Path::new("/proc")
         .join(pid.to_string())
         .join("stat");
-    std::fs::read_to_string(path).ok()
+    match std::fs::read_to_string(path) {
+        Ok(stat) => Some(stat),
+        Err(error) => {
+            // Gone, or never ours to read: either way it names no process.
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = %error, pid, "read_proc_stat: the stat line is unreadable");
+            #[cfg(not(feature = "trace"))]
+            drop(error);
+            None
+        }
+    }
 }
 
 /// Whether a `/proc/<pid>/stat` line describes a process still running user
@@ -64,9 +74,14 @@ pub(in crate::process) fn proc_stat_says_running(stat: &str) -> bool {
     if state == PROC_ZOMBIE {
         return false;
     }
-    let flags = fields
+    let flags = match fields
         .nth(FLAGS_FIELD_AFTER_NAME.saturating_sub(1))
-        .and_then(|field| field.parse::<u64>().ok());
+        .map(str::parse::<u64>)
+    {
+        Some(Ok(flags)) => Some(flags),
+        // No flags field, or one that is not a number: reports running.
+        Some(Err(_)) | None => None,
+    };
     !matches!(flags, Some(flags) if flags & PF_EXITING != 0)
 }
 
@@ -80,7 +95,7 @@ pub(in crate::process) fn proc_stat_says_running(stat: &str) -> bool {
 /// process with it set never returns to user code. An unreadable status claims
 /// nothing.
 #[cfg(any(target_os = "linux", all(test, unix)))]
-pub(super) fn kill_is_pending(pid: i32) -> bool {
+pub(in crate::process) fn kill_is_pending(pid: i32) -> bool {
     let path = std::path::Path::new("/proc")
         .join(pid.to_string())
         .join("status");
@@ -100,22 +115,38 @@ pub(super) fn kill_is_pending(pid: i32) -> bool {
 #[cfg(any(target_os = "linux", all(test, unix)))]
 pub(in crate::process) fn status_has_kill_pending(status: &str) -> bool {
     // A signal's bit in the masks is its number less one.
-    let kill_bit = rustix::process::Signal::KILL
+    let kill_bit = match rustix::process::Signal::KILL
         .as_raw()
         .checked_sub(1)
-        .and_then(|bit| u32::try_from(bit).ok())
-        .and_then(|bit| 1u64.checked_shl(bit));
+        .map(u32::try_from)
+    {
+        Some(Ok(bit)) => 1u64.checked_shl(bit),
+        Some(Err(_)) | None => None,
+    };
     let Some(kill_bit) = kill_bit else {
         return false;
     };
-    status
-        .lines()
-        .filter_map(|line| {
-            line.strip_prefix("SigPnd:")
-                .or_else(|| line.strip_prefix("ShdPnd:"))
-        })
-        .filter_map(|mask| u64::from_str_radix(mask.trim(), 16).ok())
-        .any(|mask| mask & kill_bit != 0)
+    for line in status.lines() {
+        let Some(mask) = line
+            .strip_prefix("SigPnd:")
+            .or_else(|| line.strip_prefix("ShdPnd:"))
+        else {
+            continue;
+        };
+        match u64::from_str_radix(mask.trim(), 16) {
+            Ok(mask) if mask & kill_bit != 0 => return true,
+            Ok(_) => {}
+            Err(error) => {
+                // An unparsable mask claims no pending kill, the answer that
+                // understates what a cleanup achieved.
+                #[cfg(feature = "trace")]
+                crate::trace::debug!(error = ?error, "status_has_kill_pending: a mask did not parse");
+                #[cfg(not(feature = "trace"))]
+                drop(error);
+            }
+        }
+    }
+    false
 }
 
 /// Whether each process in the table is a zombie, in one table read (macOS).
@@ -202,7 +233,13 @@ fn read_ps_table(columns: &[&str], caller: &'static str) -> io::Result<Vec<Strin
 pub(super) fn capture_proc_children(root: i32) -> Option<DescendantSet> {
     // The probe is the root's own list: if this process has none, a kernel
     // without `CONFIG_PROC_CHILDREN` has none for anybody.
-    read_proc_children(root).ok()?;
+    if let Err(error) = read_proc_children(root) {
+        #[cfg(feature = "trace")]
+        crate::trace::debug!(error = %error, root, "descendant capture: no per-process child list; the whole table answers");
+        #[cfg(not(feature = "trace"))]
+        drop(error);
+        return None;
+    }
     Some(walk_descendants(
         root,
         ContainmentMechanism::ProcChildrenTree,
@@ -269,10 +306,20 @@ fn read_children_under(
         }
         let thread = entry.path();
         match std::fs::read_to_string(thread.join("children")) {
-            Ok(text) => children.extend(
-                text.split_ascii_whitespace()
-                    .filter_map(|pid| pid.parse::<i32>().ok()),
-            ),
+            Ok(text) => {
+                for token in text.split_ascii_whitespace() {
+                    match token.parse::<i32>() {
+                        Ok(child) => children.push(child),
+                        Err(error) => {
+                            // The kernel writes pids only; anything else names no child.
+                            #[cfg(feature = "trace")]
+                            crate::trace::debug!(error = %error, pid, token, "read_proc_children: a token is not a pid");
+                            #[cfg(not(feature = "trace"))]
+                            drop(error);
+                        }
+                    }
+                }
+            }
             Err(error) if error.kind() == io::ErrorKind::NotFound && !thread.exists() => {}
             Err(error) => {
                 // A live thread with no list is a kernel that keeps none, which
@@ -384,15 +431,27 @@ fn parent_pairs() -> io::Result<Vec<(i32, i32)>> {
     let mut pairs = Vec::new();
     for entry in std::fs::read_dir("/proc")? {
         let entry = entry?;
-        let Some(pid) = entry
-            .file_name()
+        // Only the numeric entries of `/proc` are processes; `self`, `net` and
+        // the rest are not, and are passed over.
+        let name = entry.file_name();
+        let Some(pid) = name
             .to_str()
-            .and_then(|name| name.parse::<i32>().ok())
+            .filter(|name| name.bytes().all(|byte| byte.is_ascii_digit()))
         else {
             continue;
         };
-        if let Some(parent) = read_proc_stat(pid).as_deref().and_then(stat_parent) {
-            pairs.push((pid, parent));
+        match pid.parse::<i32>() {
+            Ok(pid) => {
+                if let Some(parent) = read_proc_stat(pid).as_deref().and_then(stat_parent) {
+                    pairs.push((pid, parent));
+                }
+            }
+            Err(error) => {
+                #[cfg(feature = "trace")]
+                crate::trace::debug!(error = %error, pid, "parent_pairs: a numeric entry is past pid_t");
+                #[cfg(not(feature = "trace"))]
+                drop(error);
+            }
         }
     }
     Ok(pairs)
@@ -402,10 +461,20 @@ fn parent_pairs() -> io::Result<Vec<(i32, i32)>> {
 /// the command name, which may itself hold spaces and parentheses.
 #[cfg(all(target_os = "linux", feature = "process"))]
 pub(in crate::process) fn stat_parent(stat: &str) -> Option<i32> {
-    stat.rfind(')')
+    let parent = stat
+        .rfind(')')
         .and_then(|end| stat.get(end.saturating_add(1)..))
-        .and_then(|fields| fields.split_ascii_whitespace().nth(1))
-        .and_then(|parent| parent.parse::<i32>().ok())
+        .and_then(|fields| fields.split_ascii_whitespace().nth(1))?;
+    match parent.parse::<i32>() {
+        Ok(parent) => Some(parent),
+        Err(error) => {
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(error = %error, parent, "stat_parent: the parent field is not a pid");
+            #[cfg(not(feature = "trace"))]
+            drop(error);
+            None
+        }
+    }
 }
 
 /// Every `(pid, ppid)` pair of the host's process table, from one `ps` read.
@@ -438,8 +507,16 @@ fn parent_pairs() -> io::Result<Vec<(i32, i32)>> {
     Ok(
         crate::process::windows::snapshot(&crate::process::windows::NATIVE)?
             .into_iter()
-            .filter_map(|(pid, parent)| {
-                Some((i32::try_from(pid).ok()?, i32::try_from(parent).ok()?))
+            .filter_map(|(pid, parent)| match (i32::try_from(pid), i32::try_from(parent)) {
+                (Ok(pid), Ok(parent)) => Some((pid, parent)),
+                // A Windows id past `i32` names no process this module signals.
+                (Err(error), _) | (_, Err(error)) => {
+                    #[cfg(feature = "trace")]
+                    crate::trace::debug!(error = %error, pid, parent, "parent_pairs: an id is past i32");
+                    #[cfg(not(feature = "trace"))]
+                    drop(error);
+                    None
+                }
             })
             .collect(),
     )

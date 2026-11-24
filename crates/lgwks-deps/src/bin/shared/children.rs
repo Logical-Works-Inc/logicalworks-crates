@@ -37,7 +37,9 @@ pub(crate) const TIMED_OUT: i32 = 124;
 pub(crate) const STOPPED: i32 = 130;
 
 /// The watchdog: reads `add <pgid>` and `del <pgid>` lines, stops every group it
-/// still holds when its input closes or a `quit` arrives.
+/// still holds when its input closes or a `quit` arrives: `TERM`, then `KILL` for
+/// what is left after the 10 s grace. It exits once its groups are gone, so it
+/// outlives the owner no longer than they do (#1128 G2b: it slept the whole grace).
 const WATCHDOG: &str = r#"groups=" "
 while read -r op pg; do
   case "$op" in
@@ -48,7 +50,12 @@ while read -r op pg; do
 done
 [ "$groups" = " " ] && exit 0
 for pg in $groups; do kill -s TERM -- "-$pg" 2>/dev/null; done
-sleep 10
+for tick in {1..100}; do
+  alive=
+  for pg in $groups; do if kill -0 -- "-$pg" 2>/dev/null; then alive=$tick; fi; done
+  if [ -z "$alive" ]; then exit 0; fi
+  sleep 0.1
+done
 for pg in $groups; do kill -s KILL -- "-$pg" 2>/dev/null; done
 "#;
 
@@ -645,6 +652,40 @@ mod tests {
             children.run(&launch(&quick, &env, PLENTY), None),
             130,
             "nothing starts after a stop"
+        );
+        Ok(())
+    }
+
+    /// #1128 G2b: a killed owner's watchdog slept its whole 10 s grace after the
+    /// groups it stopped were gone, and the process census found it alive when
+    /// the test that owned it exited. It must end as soon as its groups do.
+    #[test]
+    fn the_watchdog_ends_once_the_groups_it_stopped_are_gone() -> TestResult {
+        use std::io::Write;
+        use std::os::unix::process::CommandExt;
+        let mut target = std::process::Command::new("sleep")
+            .arg("60")
+            .process_group(0)
+            .spawn()?;
+        let super::Watchdog {
+            mut child,
+            mut input,
+        } = super::start_watchdog().ok_or("no watchdog could be started")?;
+        writeln!(input, "add {}", target.id())?;
+        input.flush()?;
+        drop(input);
+        let stopped = target.wait()?;
+        let started = Instant::now();
+        child.wait()?;
+        assert_eq!(
+            code_of(stopped),
+            143,
+            "the watchdog stopped the group with TERM"
+        );
+        let outlived = started.elapsed();
+        assert!(
+            outlived.checked_sub(super::GRACE).is_none(),
+            "the watchdog outlived its stopped group by {outlived:?}"
         );
         Ok(())
     }

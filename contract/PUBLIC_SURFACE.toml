@@ -379,10 +379,11 @@
 "crates/lgwks-std/src/legacy/limits.rs" = 3
 "crates/lgwks-std/src/online.rs" = 3
 "crates/lgwks-std/src/pattern.rs" = 29
-"crates/lgwks-std/src/process.rs" = 15
+"crates/lgwks-std/src/process.rs" = 17
 "crates/lgwks-std/src/process/capture.rs" = 26
 "crates/lgwks-std/src/process/cgroup.rs" = 10
 "crates/lgwks-std/src/process/identity.rs" = 13
+"crates/lgwks-std/src/process/orphans.rs" = 3
 "crates/lgwks-std/src/process/windows.rs" = 5
 "crates/lgwks-std/src/random.rs" = 8
 "crates/lgwks-std/src/retry.rs" = 6
@@ -574,5 +575,6 @@
 "crates/lgwks-std/src/http/stream.rs" = 2
 "crates/lgwks-std/src/http/tls.rs" = 1
 "crates/lgwks-std/src/id/tuple.rs" = 3
+"crates/lgwks-std/src/process/orphans.rs" = 3
 "docs/guides/lgwks-ast/custom-and-diagnostics.md" = 1
 "docs/guides/lgwks-std/details.md" = 1

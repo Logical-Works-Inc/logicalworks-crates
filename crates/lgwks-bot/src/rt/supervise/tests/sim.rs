@@ -17,6 +17,11 @@ use lgwks_std::process::ContainmentMechanism;
 use std::num::NonZeroU64;
 use std::sync::atomic::AtomicUsize;
 
+/// The process ledgers' drain over real children (#1128 G4).
+#[cfg(all(unix, feature = "process"))]
+#[path = "ledgers.rs"]
+mod ledgers;
+
 // ── The drain's decision table, as a seeded simulation ───────────────────
 //
 // The arms above are the cases a reader thinks of. This family is the rest:

@@ -391,7 +391,9 @@ const ESCAPE_COMMANDS: [EscapeCommand; 2] = [
         // *script file name* and records nothing. macOS has no `setsid(1)` and
         // falls through to perl, so only a Linux host exercises this entry.
         flag: "sh -c",
-        source: "echo $$ > {file}; sleep 30",
+        // `exec`, so the recorded pid is the sleeper: a forked `sleep` outlived
+        // the kill of its shell, and the process census failed the test (#1128 G2b).
+        source: "echo $$ > {file}; exec sleep 30",
     },
     EscapeCommand {
         program: "perl",

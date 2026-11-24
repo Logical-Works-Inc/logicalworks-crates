@@ -34,6 +34,10 @@ mod cgroup;
 mod darwin;
 /// Process identities and orphaned-group reaping.
 mod identity;
+/// The process census a subreaper takes of what its child left (#1128 G2b);
+/// its rounds are portable, so every host's tests judge them.
+#[cfg(any(all(target_os = "linux", feature = "process"), test))]
+mod orphans;
 /// What a zero-timeout wait on a Windows process handle answers: pure, so
 /// every host's tests judge it, not only a Windows runner's.
 #[cfg(any(windows, test))]
@@ -73,6 +77,10 @@ pub use identity::{
     MAX_START_TOKEN_BYTES, OrphanReap, ProcessIdentity, ProcessIdentityError, identify_process,
     reap_orphaned_group,
 };
+#[cfg(any(all(target_os = "linux", feature = "process"), test))]
+pub use orphans::Orphans;
+#[cfg(all(target_os = "linux", feature = "process"))]
+pub use orphans::{reap_until, stop_orphans};
 #[cfg(windows)]
 pub use windows::ProcessJob;
 
