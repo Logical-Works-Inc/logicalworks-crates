@@ -166,25 +166,42 @@ fn sim_the_same_seed_replays_to_one_trace() -> TestResult {
     Ok(())
 }
 
-/// Runs `git` with `args` in `dir`, refusing a failed run.
+/// Runs `git` with `args` in `dir` and returns what it printed, refusing a
+/// failed run. Auto maintenance is off: after a `commit` it detaches into the
+/// background by default (`maintenance.autoDetach`), and churn-slot failed this
+/// test on the `git` it left alive (run 45424270372, git 2.47.3).
 #[cfg(feature = "tool")]
-fn git(dir: &std::path::Path, args: &[&str]) -> TestResult {
-    let status = std::process::Command::new("git")
+fn git(dir: &std::path::Path, args: &[&str]) -> Result<String, Box<dyn std::error::Error>> {
+    let output = std::process::Command::new("git")
         .args([
             "-c",
             "user.name=sim",
             "-c",
             "user.email=sim@example.invalid",
         ])
-        .args(["-c", "commit.gpgsign=false"])
+        .args(["-c", "commit.gpgsign=false", "-c", "maintenance.auto=false"])
         .args(args)
         .current_dir(dir)
-        .status()?;
-    if status.success() {
-        Ok(())
+        .stdin(std::process::Stdio::null())
+        .output()?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
     } else {
-        Err(format!("git {args:?} exited {status}").into())
+        Err(format!("git {args:?} exited {}", output.status).into())
     }
+}
+
+/// The helper's git starts no background maintenance after it writes.
+#[cfg(feature = "tool")]
+#[test]
+fn the_test_git_runs_no_detached_maintenance() -> TestResult {
+    let tree = Scratch::new("scan-examples-maintenance")?;
+    git(tree.path(), &["init", "-q"])?;
+    assert_eq!(
+        git(tree.path(), &["config", "--get", "maintenance.auto"])?,
+        "false"
+    );
+    Ok(())
 }
 
 /// The shipped binary holds a change to the lines it added: an older item with
