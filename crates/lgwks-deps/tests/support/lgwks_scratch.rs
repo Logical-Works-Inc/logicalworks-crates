@@ -288,6 +288,8 @@ fn run_tmp(dir: &Path) -> PathBuf {
 /// in [`app_target`], with a `TMPDIR` of its own ([`run_tmp`]); stdout is
 /// piped for `--json`, inherited otherwise.
 pub(crate) fn spawn_run(dir: &Path, port: u16, json: bool) -> Result<std::process::Child, String> {
+    #[cfg(target_os = "linux")]
+    adopt_orphans()?;
     let tmp = run_tmp(dir);
     std::fs::create_dir_all(&tmp).map_err(|error| format!("no run TMPDIR: {error}"))?;
     let mut command = std::process::Command::new(binary()?);
@@ -342,7 +344,48 @@ pub(crate) fn stop_run(
             left_in(&tmp)
         ));
     }
-    closed
+    closed?;
+    // Off Linux nothing is adopted, and no census runs (ADR 0082).
+    #[cfg(target_os = "linux")]
+    reap_adopted()?;
+    Ok(())
+}
+
+/// On Linux the test is the subreaper of what `lgwks run` starts, so the
+/// watchdog a killed run leaves behind to stop the app is adopted here.
+#[cfg(target_os = "linux")]
+fn adopt_orphans() -> Result<(), String> {
+    lgwks_std::process::enable_child_subreaper().map_err(|error| {
+        lgwks_std::trace::debug!(%error, "lgwks-test: the subreaper flag was refused");
+        format!("the test could not adopt the run's orphans: {error}")
+    })
+}
+
+/// Reaps each process the killed run left with this test, as it ends. The
+/// watchdog ends once the app's groups are gone, up to one 100 ms tick after
+/// them, so without this the census names it (ADR 0082).
+#[cfg(target_os = "linux")]
+fn reap_adopted() -> Result<(), String> {
+    let left = lgwks_std::process::own_children().map_err(|error| {
+        lgwks_std::trace::debug!(%error, "lgwks-test: the test's children could not be listed");
+        format!("the test's children could not be listed: {error}")
+    })?;
+    for pid in left {
+        match lgwks_std::process::reap_until(pid) {
+            Ok(status) => lgwks_std::trace::debug!(pid, %status, "lgwks-test: reaped an adoptee"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                lgwks_std::trace::debug!(
+                    pid,
+                    "lgwks-test: the adoptee was reaped while another was awaited"
+                );
+            }
+            Err(error) => {
+                lgwks_std::trace::debug!(pid, %error, "lgwks-test: an adoptee could not be reaped");
+                return Err(format!("{pid} could not be reaped: {error}"));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Kill `lgwks run` and require `port` shut within `deadline`.
