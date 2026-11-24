@@ -86,8 +86,8 @@ id = "changes"
 surfaces = "ci"
 required = true
 # ADR 0011: lists the pull request's files and says whether any is code. Only
-# reader-facing Markdown and `llms.txt` are not; a push, a manual run or an
-# empty listing is code, so the suites run unless the change is plainly docs.
+# reader-facing Markdown and `llms.txt` are not; a push, a manual run, or an
+# empty or refused listing is code, so the suites run unless the change is plainly docs.
 command = "gh api \"repos/${GITHUB_REPOSITORY}/pulls/${PR}/files\" --paginate --jq '.[].filename'"
 ci_step = "Classify the change"
 reason = "a pull request's file list exists only in CI"
