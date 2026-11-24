@@ -325,6 +325,12 @@ tokio = { version = "1", default-features = false, features = ["rt-multi-thread"
 # which keeps the tree at one entropy source rather than two.
 lgwks_std = { workspace = true, default-features = false, features = ["random"] }
 
+# `lgwks_std::process`, a feature of a dependency already held (#1128 G2b, ADR
+# 0082): on Linux `churn-slot` is its test's subreaper, and on every Unix a
+# `cargo metadata` past its deadline is killed with its whole group.
+[target.'cfg(unix)'.dependencies]
+lgwks_std = { workspace = true, default-features = false, features = ["process"] }
+
 [[bin]]
 name = "lgwks-deps"
 path = "src/main.rs"

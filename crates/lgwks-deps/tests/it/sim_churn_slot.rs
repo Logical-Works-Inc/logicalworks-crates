@@ -444,6 +444,84 @@ fn the_census_fails_a_program_that_leaves_residue() -> Result<(), Failure> {
     })
 }
 
+/// Whether `pid` names a process that is still there, zombie included.
+#[cfg(target_os = "linux")]
+fn present(pid: u32) -> bool {
+    Path::new("/proc").join(pid.to_string()).exists()
+}
+
+/// Catches a wrapper that lets a test pass while it leaves a process running,
+/// or that holds an ended orphan as a zombie a `kill -0` still sees (#1128 G2b).
+/// Source: 2026-11-23, the `lgwks run` watchdog and nine other tests outlived
+/// their runs unseen, and a first census cut that reaped nothing during the run
+/// failed 12 tests that wait for an orphan to go. Fools: the pulled plug (a
+/// parent that exits under its children), the clock-fool (an orphan that ends
+/// mid-run), and a failing program that keeps its own status.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_census_fails_a_program_that_leaves_a_live_process() -> Result<(), Failure> {
+    replay_sweep("orphans", SEEDS, |rng, trace: &mut Trace| {
+        let dir = scratch("orphans", rng.next_u64())?;
+        let live = rng.between(0, 3);
+        let ended = rng.between(0, 3);
+        let code = if rng.between(0, 3) == 0 { 7_u8 } else { 0 };
+        // Each ended orphan's parent exits under it; the program then waits,
+        // bounded, for the orphan to be reaped, and says STUCK when it never is.
+        // Each live one is a `sleep 300` whose parent exits under it.
+        let script = format!(
+            "i=0; while [ $i -lt {ended} ]; do p=$( (true & echo $!) ); n=0; \
+             while kill -0 $p 2>/dev/null && [ $n -lt 200000 ]; do n=$((n+1)); done; \
+             [ $n -lt 200000 ] || echo STUCK; i=$((i+1)); done; \
+             i=0; while [ $i -lt {live} ]; do (sleep 300 >/dev/null 2>&1 & echo live:$!); \
+             i=$((i+1)); done; exit {code}"
+        );
+        let output = wrapper(&dir, 2).args(["/bin/sh", "-c", &script]).output()?;
+        clear(&dir);
+        let seen = String::from_utf8(output.stdout)?;
+        let said = String::from_utf8(output.stderr)?;
+        if seen.contains("STUCK") {
+            return refuse(format!(
+                "an orphan that ended mid-run was never reaped: {said:?}"
+            ));
+        }
+        let pids: Vec<u32> = seen
+            .lines()
+            .filter_map(|line| line.strip_prefix("live:"))
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+        if pids.len() != usize::try_from(live)? {
+            return refuse(format!("{} live pids printed, {live} drawn", pids.len()));
+        }
+        if let Some(pid) = pids.iter().copied().find(|pid| present(*pid)) {
+            return refuse(format!("live orphan {pid} outlived the wrapper"));
+        }
+        let status = output
+            .status
+            .code()
+            .ok_or("the wrapper has an exit status")?;
+        let owed = owed_status(code, u64::from(live));
+        if status != owed {
+            return refuse(format!(
+                "the wrapper exited {status}, owed {owed} (code {code}, {live} live): {said:?}"
+            ));
+        }
+        if live > 0 && !said.contains(&format!("the test left {live} live processes")) {
+            return refuse(format!(
+                "the verdict does not count {live} processes: {said:?}"
+            ));
+        }
+        // By pid: a survivor killed before it execs `sleep` is still named `sh`.
+        if let Some(pid) = pids.iter().find(|pid| !said.contains(&format!(" {pid} ("))) {
+            return refuse(format!(
+                "the verdict does not name survivor {pid}: {said:?}"
+            ));
+        }
+        trace.record_number("live", u64::from(live));
+        trace.record_number("status", u64::try_from(status)?);
+        Ok(())
+    })
+}
+
 #[test]
 fn a_program_that_has_exited_leaves_no_slot_held() -> Result<(), Failure> {
     replay_sweep("released", SEEDS, |rng, trace: &mut Trace| {

@@ -95,11 +95,40 @@ fn observe_child(
 }
 
 /// Requests termination and preserves an OS refusal for the cleanup owner.
+///
+/// On Unix the child leads a group of its own, and the whole group is killed
+/// first: a hung Cargo's own children (`rustc`, `git`) end with it rather than
+/// outliving the deadline (#1128 G2b). The child's own kill is the result.
 fn terminate_child(child: &mut std::process::Child, faults: &Faults) -> std::io::Result<()> {
     if let Some(error) = faults.take(FaultPoint::Kill) {
         return refuse(error, "terminate_child");
     }
+    #[cfg(unix)]
+    match i32::try_from(child.id()) {
+        Ok(pgid) => {
+            if let Err(error) = lgwks_std::process::kill_process_group(pgid) {
+                lgwks_std::trace::debug!(error = ?error, pgid, "terminate_child: the group was already gone");
+            }
+        }
+        Err(error) => {
+            lgwks_std::trace::debug!(error = ?error, "terminate_child: the pid is no group id");
+        }
+    }
     child.kill()
+}
+
+/// Makes the child lead a process group of its own, so [`terminate_child`]
+/// reaches everything it started.
+#[cfg(unix)]
+fn lead_group(command: &mut Command) -> &mut Command {
+    use std::os::unix::process::CommandExt as _;
+    command.process_group(0)
+}
+
+/// Makes the child lead a process group of its own, where the platform has groups.
+#[cfg(not(unix))]
+fn lead_group(command: &mut Command) -> &mut Command {
+    command
 }
 
 /// Waits for a direct child; an error leaves it in the retryable owner.
@@ -617,11 +646,11 @@ fn stop_after_refusal(
 /// carries no partial graph: the gate reports the failure rather than
 /// decoding a prefix of it.
 ///
-/// The kill targets the direct child only. A descendant may keep an inherited
-/// capture descriptor and continue writing after the direct child's exit; the
-/// sampled retained-byte cap does not bound that writer's disk use or reclaim
-/// its open file immediately. The supported profile is trusted Cargo and its
-/// direct child, not hostile descendant containment.
+/// On Unix the kill reaches the child's whole process group. A descendant that
+/// left the group, or one alive after the direct child exited on its own, may
+/// keep an inherited capture descriptor and go on writing; the sampled
+/// retained-byte cap does not bound that writer's disk use. The supported
+/// profile is trusted Cargo and its group, not hostile descendant containment.
 ///
 /// `faults` is [`Faults::default`] outside a fault-injection test.
 pub(super) fn run_bounded(
@@ -637,7 +666,7 @@ pub(super) fn run_bounded(
     let (stderr_path, stderr_file) = owned_capture(Stream::Stderr, &mut captures)?;
     let spawned = match faults.take(FaultPoint::Spawn) {
         Some(error) => Err(error),
-        None => Command::new(program)
+        None => lead_group(&mut Command::new(program))
             .args(args)
             .current_dir(dir)
             .stdout(Stdio::from(stdout_file))
