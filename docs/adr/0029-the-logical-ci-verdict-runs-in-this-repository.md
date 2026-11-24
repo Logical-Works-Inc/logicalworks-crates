@@ -93,6 +93,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 - The policy gates A02, and `ci/property-and-loom` probes cargo-nextest first. Without it the hosted
   run sealed UNMEASURED in 142 ms (run 43232168262). With nextest 0.9.149, `ci` on 0531bb6
   returns GO with A02 passed, in 153.5 s wall and 2.35 GB peak RSS on the logical_ci Mac.
+- The verdict never stops a merge (Director 2026-11-24). Every step continues on error, and the
+  last step reports GO, NO-GO or UNMEASURED with exit 0. The engine runs only after its seal
+  verifies. `the_logical_ci_verdict_never_fails_the_job` holds it.
 
 ## Correspondence
 
@@ -104,7 +107,7 @@ Refines #802 and #865, which first called the gate. Relates to ADR 0028, the bud
 - The `gate-parity` lane's rule 8 refuses a `uses:` of another repository's reusable workflow
   in any workflow, by its line: `a_call_to_another_repositorys_reusable_workflow_is_refused`
   and `every_workflow_the_checker_reads_is_held_to_rule_8`.
-- The `logical_ci` job on every push to main and every same-repository pull request. A GO is a
-  `logical_ci GO` line; anything else fails the job and names NO-GO or UNMEASURED.
-- `Pin the verifier` fails on a swapped verifier, and `Verify release plan and seal` fails on a
-  swapped release.
+- The `logical_ci` job on every push to main and every same-repository pull request. Its last
+  step prints `logical_ci GO`, NO-GO or UNMEASURED, and the job passes on each of them.
+- A swapped verifier fails `Pin the verifier`, and a swapped release fails `Verify release plan
+  and seal`. Then the engine does not run, and the report says UNMEASURED.
