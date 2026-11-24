@@ -149,6 +149,10 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
             found.push(problem.to_owned());
         }
     }
+    // Run 45441661494: `stats` after the stop started a second daemon.
+    if report.find("daemon stop") < report.rfind("\"${kache}\" stats") {
+        found.push("the report starts a daemon after it drained the first".to_owned());
+    }
     for (id, body) in jobs(workflow) {
         if !body.contains("uses: ./.github/actions/hosted-rust") {
             continue;
@@ -207,6 +211,12 @@ fn every_compiling_job_compiles_through_kache() -> TestResult {
             "\"${kache}\" daemon stop",
             "true",
             "a job ends before kache's uploads drain",
+        ),
+        (
+            "report",
+            "        if ! \"${kache}\" stats --since 6h; then",
+            "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --since 6h; then",
+            "the report starts a daemon after it drained the first",
         ),
         (
             "workflow",
