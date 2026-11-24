@@ -23,8 +23,9 @@ replaced only by a newer measurement of the same thing, with its run id.
 
 *Wall clock* is the attempt's `run_started_at` to the required row's last step,
 read from the Actions API, queueing included. *Cold* means no rust-cache entry
-and no sccache entry for the job's key; *warm* means main saved both. A bound is
-met by a run that passes; a red run's wall clock is not evidence of anything.
+and an empty kache store; *warm* means main filled both. A pull request runs the
+Linux inner loop; the merge queue and `main` add the 13 `QUEUE_ONLY` jobs (ADR 0086).
+A bound is met by a run that passes; a red run's wall clock is not evidence.
 
 ### Where jobs run
 
@@ -46,7 +47,7 @@ The `changes` job lists a pull request's files (ADR 0011). When every one is a
 suites are skipped and the gate decides. Its `check-docs` step holds every page
 the change touches to the docs bar. `Build and workspace tests` then reads the
 classification and the gate, and still holds the 300 s wall. A push to `main`
-runs everything.
+runs everything. A pull request that changes no lgwks_bot input skips the bot rows (ADR 0086).
 
 ### Each shard builds what it runs
 
@@ -90,12 +91,10 @@ One owner per layer, both in `hosted-rust`:
 The scaffolded-app journeys (lane `app-builds`) run on two `tests_linux` rows of
 their own, `apps run` and `apps clippy`. Each nests a cargo build of a new app's
 whole tree, and in a workspace shard the two held one lock for 100 s.
-- **sccache** (v0.18.0, GitHub Actions backend) holds compiled crates. Every
-  hosted job checks out at the same path, so workspace crates hit as well as
-  registry crates. `CARGO_INCREMENTAL=0`, because sccache cannot cache an
-  incremental compile and a hosted target dies with its job. Each archive job
-  prints `sccache --show-stats` (the hit rate), and the required row prints
-  the repository's cache usage.
+- **kache** (2.3.0, checksum-pinned) holds every rustc output in one GHCR store,
+  `ghcr.io/logical-works-inc/kache-cache`. `main` and the merge queue write it; a
+  pull request reads it. Each compiling job ends with `kache-report`, which drains
+  uploads and prints the hit rate (ADR 0086).
 
 Tools arrive prebuilt and pinned through `taiki-e/install-action`
 (`nextest@0.9.149`, `cargo-audit@0.22.2`), never `cargo install`.

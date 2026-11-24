@@ -53,6 +53,13 @@ mod check_cli;
 /// The `Classify the change` step of ci.yml, run under bash with a fake `gh`.
 #[cfg(unix)]
 mod ci_changes;
+/// Every compiling CI job runs rustc through kache and its one shared store.
+mod ci_compile_cache;
+/// The shipped `ci-receipt` binary, driven on real failed-job logs.
+mod ci_receipt_cli;
+/// The pull-request and merge-queue speeds of ci.yml, and the verdict between them.
+#[cfg(unix)]
+mod ci_two_speed;
 mod contract_schema_compat;
 mod default_run;
 /// A citation a page adds, refused by name until `--update` pins it.

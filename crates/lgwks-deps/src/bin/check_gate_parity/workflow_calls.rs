@@ -569,8 +569,10 @@ mod tests {
         if !action.contains(RUST_CACHE_PATHS) {
             problems.push("hosted-rust's base build names other paths than rust-cache".to_owned());
         }
+        // Main's kache build of this same lock first, then its build from
+        // before kache (ADR 0086), then the group's newest of each.
         if !action.contains(
-            "restore-keys: |\n          v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-\n",
+            "restore-keys: |\n          v0-rust-${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.base }}-\n          v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-\n",
         ) {
             problems.push(
                 "hosted-rust's base build does not look for main's entry of its own build first"
@@ -615,6 +617,11 @@ mod tests {
             // build, and every workspace slice compiled its 217 crates.
             (
                 "          v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-\n",
+                "",
+                "hosted-rust's base build does not look for main's entry of its own build first",
+            ),
+            (
+                "          v0-rust-${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.base }}-\n",
                 "",
                 "hosted-rust's base build does not look for main's entry of its own build first",
             ),

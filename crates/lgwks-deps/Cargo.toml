@@ -420,6 +420,12 @@ path = "src/bin/ci_local/main.rs"
 name = "acceptance-receipts"
 path = "src/bin/acceptance_receipts/main.rs"
 
+# Failed job logs in, one deterministic JSON failure receipt out, with the
+# command that reproduces each failure locally (`--logs DIR --out FILE`).
+[[bin]]
+name = "ci-receipt"
+path = "src/bin/ci_receipt/main.rs"
+
 [[bin]]
 name = "linux-container-tests"
 path = "src/bin/linux_container_tests/main.rs"

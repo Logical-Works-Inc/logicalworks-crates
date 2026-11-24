@@ -239,6 +239,65 @@ fn the_program_gets_its_arguments_its_environment_and_reports_its_own_status() -
     })
 }
 
+/// Source: 2026-11-24, lwc PR 1149. The mutation gate ran the suite inside
+/// pre-commit, where git exports `GIT_DIR` and `GIT_INDEX_FILE` for the
+/// checkout. A fixture's `git -C <fixture> init` obeyed them: it wrote
+/// `core.bare = true` into the checkout's config and its `update-ref HEAD`
+/// moved the branch. githooks(5) has a hook unset these variables before it runs
+/// git elsewhere, and `git rev-parse --local-env-vars` lists them. Requirement
+/// proved: no program the wrapper runs sees a hook's repository, so a test's git
+/// works in its own fixture and the checkout keeps its config and its HEAD,
+/// while every other variable still reaches the program.
+#[test]
+fn a_hook_repository_never_reaches_the_program() -> Result<(), Failure> {
+    let dir = scratch("hook-repo", 0)?;
+    let victim = dir.join("victim");
+    let fixture = dir.join("fixture");
+    fs::create_dir_all(&victim)?;
+    fs::create_dir_all(&fixture)?;
+    let git = |args: &[&str], at: &Path| -> Result<String, Failure> {
+        let ran = Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .stdin(Stdio::null())
+            .output()?;
+        Ok(String::from_utf8(ran.stdout)?.trim().to_owned())
+    };
+    git(&["init", "-q"], &victim)?;
+    let hook_dir = victim.join(".git");
+    let output = wrapper(&dir, 2)
+        .env("GIT_DIR", &hook_dir)
+        .env("GIT_INDEX_FILE", hook_dir.join("index"))
+        .env("GIT_WORK_TREE", &victim)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("CHURN_PROBE", "kept")
+        .args([
+            "/bin/sh",
+            "-c",
+            "git -C \"$1\" init -q && printf '%s|%s' \"$CHURN_PROBE\" \"${GIT_DIR-}${GIT_INDEX_FILE-}${GIT_WORK_TREE-}\"",
+            "probe",
+        ])
+        .arg(&fixture)
+        .output()?;
+    let printed = String::from_utf8(output.stdout)?;
+    let bare = git(&["config", "--get", "core.bare"], &victim)?;
+    let own = fixture.join(".git").is_dir();
+    clear(&dir);
+    if printed != "kept|" {
+        return refuse(format!("the program saw {printed:?}, not \"kept|\""));
+    }
+    if bare != "false" || !own {
+        return refuse(format!(
+            "the fixture's git reached the hook's repository: core.bare {bare:?}, own repository {own}"
+        ));
+    }
+    Ok(())
+}
+
 #[test]
 fn slots_that_cannot_be_made_still_run_the_program_and_say_so() -> Result<(), Failure> {
     replay_sweep("uncapped", SEEDS, |rng, trace: &mut Trace| {

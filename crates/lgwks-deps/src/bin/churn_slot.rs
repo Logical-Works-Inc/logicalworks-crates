@@ -553,6 +553,42 @@ fn run_program(command: &mut Command) -> Ran {
     }
 }
 
+/// The variables that bind git to one repository, as `git rev-parse
+/// --local-env-vars` lists them (git 2.54). A git hook exports `GIT_DIR` and
+/// `GIT_INDEX_FILE` for its checkout, and githooks(5) has it unset these before
+/// it runs git in another repository. A test is another repository: under the
+/// pre-commit mutation gate a fixture's `git init` wrote `core.bare = true` into
+/// the checkout and its `update-ref HEAD` moved the branch (2026-11-24, PR 1149).
+const GIT_LOCAL_VARS: [&str; 15] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
+
+/// The command for `program` with `arguments`: `TMPDIR` is `tmpdir`, and no git
+/// repository variable of a hook above it reaches the test.
+fn child(program: &OsString, arguments: &[OsString], tmpdir: OsString) -> Command {
+    let mut command = Command::new(program);
+    command.args(arguments);
+    command.env("TMPDIR", tmpdir);
+    for name in GIT_LOCAL_VARS {
+        command.env_remove(name);
+    }
+    command
+}
+
 /// Runs `program` under a slot with a census `TMPDIR` of its own under `temp`
 /// (the caller's temp dir when `None`), and returns its exit status, or
 /// [`LEFT_RESIDUE`] when it exited zero and the census found residue.
@@ -572,12 +608,10 @@ fn run(slots: &Slots, temp: Option<&Path>, program: &OsString, arguments: &[OsSt
         }
     };
     let mut found = residue::Residue::default();
-    let mut command = Command::new(program);
-    command.args(arguments);
     // A trailing separator, as the macOS default carries one.
     let mut named = census.dir().as_os_str().to_os_string();
     named.push("/");
-    command.env("TMPDIR", named);
+    let mut command = child(program, arguments, named);
     let ran = {
         // The slot is held exactly while the program runs: `_held` lives to
         // the end of this block.
