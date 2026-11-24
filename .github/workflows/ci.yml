@@ -198,13 +198,18 @@ jobs:
           echo "bot=${bot}" >> "${GITHUB_OUTPUT}"
           echo "lgwks_bot suites run: ${bot} (inputs changed: ${INPUTS}, main's listings cached: ${LISTED:-false})"
 
-  # Every workspace target compiles, benches and examples included, which the
-  # test shards (test targets only) do not prove. The listing for the
-  # simulation lane comes from the shards' own builds (`workspace_build`).
+  # Every workspace target compiles and links, benches and examples included,
+  # which the test shards (test targets only) do not prove. The listing for the
+  # simulation lane comes from the shards' own builds (`workspace_build`). It is
+  # QUEUE_ONLY: a pull request type-checks every target in the workspace clippy
+  # leg, and only `main` and the queue write kache, so on a pull request this
+  # job compiled 573 crates cold and was cancelled at 5 minutes (run
+  # 45462381296, 0 of 573 from cache). A cancelled queue run still uploads what
+  # it compiled.
   workspace_all_targets:
     name: Build all workspace targets
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -1505,7 +1510,7 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
           BOT: ${{ needs.changes.outputs.bot }}
-          QUEUE_ONLY: tests_macos package_smoke docs storefront-matrix target-matrix timing_gates timing_async feature-matrix-bot-ast appcui-native appcui-native-hosted gpui-windows process-windows miri_unsafe
+          QUEUE_ONLY: workspace_all_targets tests_macos package_smoke docs storefront-matrix target-matrix timing_gates timing_async feature-matrix-bot-ast appcui-native appcui-native-hosted gpui-windows process-windows miri_unsafe
           BOT_ONLY: tests_nodefault
         run: |
           set -euo pipefail
@@ -1543,7 +1548,7 @@ jobs:
           mkdir -p failed-logs ci-receipt
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" --paginate --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | "\(.id)\t\(.name)"' > failed-jobs.tsv
           while IFS=$'\t' read -r id name; do
-            gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${id}/logs" > "failed-logs/${name//\//-}.log"
+            gh api --allow-escape-sequences "repos/${GITHUB_REPOSITORY}/actions/jobs/${id}/logs" >"failed-logs/${name//\//-}.log"
           done < failed-jobs.tsv
           chmod +x receipts-tool/ci-receipt
           receipts-tool/ci-receipt --logs failed-logs --out ci-receipt/receipt.json --markdown ci-receipt/receipt.md

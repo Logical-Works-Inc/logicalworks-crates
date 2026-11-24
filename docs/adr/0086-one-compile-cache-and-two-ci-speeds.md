@@ -25,7 +25,7 @@ kache keys each rustc output by its inputs. It caches bins, test binaries, build
 1. **kache is the compile cache of every hosted job.** `hosted-rust` installs kache 2.3.0 from its release and checks each asset against the SHA-256 the release published. It makes kache the `RUSTC_WRAPPER`.
 2. **One store, in GHCR.** The remote is `ghcr.io/logical-works-inc/kache-cache`, an OCI store with no 10 GiB cap. A `main` push writes it by kache's protected-branch policy, and the merge queue by `KACHE_GITHUB_WRITES=merge_group`. A pull request only reads it (`KACHE_REMOTE_READONLY=1`), so no change under review can put an output under another commit's key.
 3. **Each compiling job ends with `kache-report`.** It stops the daemon, which drains the upload queue, and prints the hit rate to the log and the job summary.
-4. **Two speeds.** A pull request runs the Linux inner loop: the gate, every lint leg and every Linux suite. The merge queue and `main` also run the 13 jobs a pull request skips: macOS, Windows, the GPUI, Metal and AppCUI legs, the target, feature and timing matrices, Miri, the release docs and the package smoke.
+4. **Two speeds.** A pull request runs the Linux inner loop: the gate, every lint leg and every Linux suite. The merge queue and `main` also run the 14 jobs a pull request skips: the build of every target, macOS, Windows, the GPUI, Metal and AppCUI legs, the target, feature and timing matrices, Miri, the release docs and the package smoke. A pull request type-checks every target in the workspace clippy leg. The build that links them all ran cold on a pull request, 0 of 573 crates from kache, which only `main` and the queue write (run 45462381296).
 5. **The required row judges every job by name.** A pull request may skip only the `QUEUE_ONLY` jobs, and the `BOT_ONLY` jobs when decision 6 routed them off. In the queue and on `main`, a skipped job fails the row like a failed one.
 6. **A pull request runs the suites its change can break.** The `changes` job sorts each changed path. The lgwks_bot rows skip when no path is a bot input: a reader page, drishti, or a test, example or bench of a crate lgwks_bot builds on, outside `tests/support/`. They skip only when `main` cached its bot listings under the hash of the bot inputs, because the simulation lane counts them. Every unknown path is a bot input.
 7. **Pre-flight is the commit door.** An agent's push comes only from the post-commit hook, after `rust-guard: GO COMMIT`. The commit door needs a green `design-gate` receipt for the staged tree, and pre-commit runs the repository's parity lane. The suites run on the persistent boxes through `lgwks-box`, never on a hosted runner first.
@@ -42,7 +42,7 @@ kache keys each rustc output by its inputs. It caches bins, test binaries, build
 
 ## Consequences
 
-- A pull request runs 21 fewer jobs and no macOS job. A defect only macOS or Windows sees is found in the merge queue, before it lands, not on the pull request.
+- A pull request runs 22 fewer jobs and no macOS job. A defect only macOS or Windows sees is found in the merge queue, before it lands, not on the pull request.
 - The merge queue must be on in the ruleset, or the queue jobs run only after the merge, on `main`.
 - The first runs read an empty store. It fills from `main` and the queue.
 - Reverse decision 2 if the hit rate on pull requests stays under 70 % after five `main` runs.

@@ -263,6 +263,12 @@ fn receipt_problem(text: &str) -> Option<&'static str> {
             return Some("the receipt step leaves out its log, summary or comment");
         }
     }
+    // A job log holds colour codes, and `gh api` refuses to write them without
+    // the flag: the step exited 1 and no receipt was written (run 45462381296).
+    if !write.contains("gh api --allow-escape-sequences \"repos/${GITHUB_REPOSITORY}/actions/jobs/")
+    {
+        return Some("the receipt step cannot fetch a log that holds escape codes");
+    }
     None
 }
 
@@ -285,6 +291,11 @@ fn a_failed_row_writes_one_failure_receipt() -> TestResult {
             "a run that passed",
         ),
         ("gh pr comment", "true", "its log, summary or comment"),
+        (
+            "gh api --allow-escape-sequences \"repos",
+            "gh api \"repos",
+            "escape codes",
+        ),
         (
             "- name: Write the failure receipt\n",
             "- name: Write it\n",
