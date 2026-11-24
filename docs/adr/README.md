@@ -22,9 +22,8 @@ Prose review does not catch a missing field; a refusal does.
 ## Rules
 
 1. Numbered, append-only: `NNNN-short-name.md`, four digits, one decision each.
-2. **A record is superseded, never rewritten.** A later decision adds a record
-   that names the one it supersedes in its `## Correspondence`. The superseded
-   record's `Status:` changes to `superseded` and nothing else in it changes.
+2. **A record is superseded, never rewritten.** The later record names it in its
+   `## Correspondence`, and only the old record's `Status:` changes.
 3. A decision with no record cannot be reviewed later. The `doc-governance` lane
    refuses a missing *field*, not a missing judgement: review still owns whether
    the decision was right.
@@ -118,3 +117,4 @@ Prose review does not catch a missing field; a refusal does.
 | [0081](0081-a-parked-child-is-reaped-with-no-later-start.md) | A parked child is reaped with no later start |
 | [0082](0082-a-test-is-judged-by-the-processes-it-leaves.md) | A test is judged by the processes it leaves |
 | [0083](0083-a-denied-child-keeps-its-devices-and-loses-the-user-manager.md) | A denied child keeps its devices and loses the user manager |
+| [0084](0084-a-skill-hygiene-lane.md) | A skill hygiene lane: every skill loads, routes and compiles |

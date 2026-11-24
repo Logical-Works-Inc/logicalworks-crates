@@ -116,10 +116,16 @@ slow-timeout = { period = "60s", terminate-after = 1 }
 # The storefront consumers (INV-DEP-9) are one test per family, and every one is
 # a `cargo check` into the same target directory. Run side by side, all but one
 # park on cargo's lock and that wait counts against their own slow-timeout, so
-# the binary runs one test at a time and each test's bound is its own compile.
+# they run one at a time and each test's bound is its own compile. A group of
+# one holds that, and leaves every other slot to the rest of the run: when the
+# binary took every slot instead, its 38 tests ran alone at the head of the
+# mutation gate's base on a loaded Mac, 148.6 s for the first 6 of them, and
+# the base ran out of its budget with 6 of 1,397 tests done (2026-11-24). Its
+# sim_agent_standards tests compile nothing, so they are not in the group. The
+# group, `storefront-cargo`, is declared with the others under `[test-groups]`.
 [[profile.default.overrides]]
-filter = 'package(lgwks_deps) & binary(storefront_consumers)'
-threads-required = 'num-test-threads'
+filter = 'package(lgwks_deps) & binary(storefront_consumers) & not test(/^sim_agent_standards::/)'
+test-group = 'storefront-cargo'
 priority = 100
 
 # #277: two lgwks_ast modules exist to catch a walk that stops making progress,
@@ -276,6 +282,7 @@ priority = 50
 # times faster than macOS with no cap, so the override is macOS-only.
 [test-groups]
 file-churn = { max-threads = 3 }
+storefront-cargo = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = '(package(lgwks_bot) & binary(it) & test(/^(sim_cas_disk|sim_cas_corrupt|sim_cas_execute|sim_cas|sim_journal|sim_tenant_store)::/)) | (package(lgwks_deps) & binary(it) & test(/^sim_vendor_coverage::/)) | (package(lgwks_std) & binary(it) & test(/^sim_fs_walk(_prune)?::/))'

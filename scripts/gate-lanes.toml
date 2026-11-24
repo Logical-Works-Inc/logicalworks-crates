@@ -874,6 +874,17 @@ required = true
 builtin = "readme-quickstart"
 ci_step = "Root README quickstart matches its compiled example"
 
+# ADR 0084: every skill loads in a harness, is routed, tags its fences and
+# includes its rust blocks as `lgwks_bot` doctests; a harness link into the tree
+# lands on a skill of its own name.
+[[lane]]
+id = "skill-hygiene"
+surfaces = "local ci"
+required = true
+fast = true
+builtin = "skill-hygiene"
+ci_step = "Every skill loads, routes and compiles"
+
 # The RustSec advisories, over the lockfile the gate's builds resolve. #635: four
 # advisories in `rustls 0.23.45` sat in `Cargo.lock` until a manual audit found
 # them, and no lane would have. The three `zip 8.6.0` ids SECURITY.md assesses as

@@ -16,6 +16,7 @@ use super::toml_subset::{Table, list, raw, read_tables, text};
 use super::utc::stamp;
 use super::{
     Context, GateError, LaneResult, Status, Verdict, builtins, fail, invariants, read, runners,
+    skill_hygiene,
 };
 
 /// The lane table, relative to the repository root.
@@ -202,7 +203,10 @@ fn has_execute_bit(_meta: &fs::Metadata) -> bool {
 pub(super) fn is_executable_file(path: &Path) -> bool {
     match std::fs::metadata(path) {
         Ok(meta) => meta.is_file() && has_execute_bit(&meta),
-        Err(_) => false,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, path = %path.display(), "a need is not a readable file");
+            false
+        }
     }
 }
 
@@ -270,6 +274,13 @@ fn child_env_from(
     // 35 s on that rebuild locally and 55 to 112 s on the runners, and the Build
     // job hit its 5-minute limit (run 38776238519).
     forget_launched_crate(&mut env);
+    // A pre-commit hook exports the repository it runs in (githooks(5)),
+    // absolute in a worktree, and a lane's fixture `git init` under it turned
+    // the shared config bare (2026-11-24). Each lane runs in `root`, so git
+    // finds the repository there without them.
+    for name in crate::redirecting_env::REDIRECTING_ENV {
+        env.remove(name);
+    }
     let existing = path_of(&env);
     if let Some(home) = env.get("HOME") {
         let cargo = Path::new(home).join(".cargo").join("bin");
@@ -307,6 +318,7 @@ fn run_builtin(name: &str, context: &Context<'_>) -> Result<Verdict, GateError> 
         "contract-drift" => builtins::contract_drift(context),
         "docsrs-metadata" => runners::docsrs_metadata(context),
         "readme-quickstart" => builtins::readme_quickstart(context),
+        "skill-hygiene" => skill_hygiene::skill_hygiene(context),
         "debug-e2e" => runners::debug_e2e(context),
         "simulation-evidence" => runners::simulation_evidence(context),
         _ => Ok(Verdict {
@@ -468,6 +480,40 @@ mod tests {
     use crate::toml_subset::{list, read_tables, text};
     use std::collections::BTreeMap;
 
+    /// A `needs` path that is not there is no executable, so its lane is
+    /// blocked rather than run.
+    #[test]
+    fn lanes_a_need_that_is_not_there_is_not_executable() {
+        let gone = std::path::Path::new("no-such-lanes-need/bin");
+        assert!(!super::is_executable_file(gone));
+    }
+
+    /// `builtin = "skill-hygiene"` reaches the skill lane, not the unknown
+    /// arm: an empty tree passes it with that lane's own words.
+    #[test]
+    fn lanes_dispatch_the_skill_hygiene_builtin() -> Result<(), Box<dyn std::error::Error>> {
+        let fixture = crate::fixture::Fixture::claim(&std::env::temp_dir(), "lanes-skills")?;
+        let root = fixture.path();
+        std::fs::create_dir_all(root.join("crates/lgwks-bot/src"))?;
+        std::fs::write(root.join("SKILLS.md"), "# Skills\n")?;
+        std::fs::write(root.join("crates/lgwks-bot/src/lib.rs"), "//! doctests\n")?;
+        let (children, env) = (crate::children::Children::new(false), BTreeMap::new());
+        let context = crate::Context {
+            root,
+            env: &env,
+            children: &children,
+            out: None,
+        };
+        let verdict = super::run_builtin("skill-hygiene", &context)?;
+        assert_eq!(verdict.code, 0, "{}", verdict.detail);
+        assert!(
+            verdict.detail.starts_with("every skill loads"),
+            "{}",
+            verdict.detail
+        );
+        Ok(())
+    }
+
     #[test]
     fn a_lane_keeps_the_incremental_setting_its_caller_chose() {
         let chosen = BTreeMap::from([("CARGO_INCREMENTAL".to_owned(), "1".to_owned())]);
@@ -481,6 +527,32 @@ mod tests {
             Some(&"0".to_owned()),
             "unset, a lane builds without incremental state"
         );
+    }
+
+    /// githooks(5): a hook runs with `GIT_DIR` and `GIT_INDEX_FILE` set to the
+    /// repository being committed. On 2026-11-24 a lane run under pre-commit
+    /// in a worktree left the shared `.git/config` bare. No lane inherits any
+    /// of the six redirecting variables, and the rest of the environment stays.
+    #[test]
+    fn lanes_never_inherit_a_hooks_repository() {
+        let mut given = BTreeMap::new();
+        for name in crate::redirecting_env::REDIRECTING_ENV {
+            given.insert(name.to_owned(), "/decoy/.git/worktrees/w".to_owned());
+        }
+        given.insert("HOOK_PROBE".to_owned(), "kept".to_owned());
+        let env = super::child_env_from(given, None, None);
+        for name in [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+        ] {
+            assert!(!env.contains_key(name), "{name} reaches a lane");
+        }
+        for name in ["GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"] {
+            assert!(!env.contains_key(name), "{name} reaches a lane");
+        }
+        assert_eq!(env.get("HOOK_PROBE").map(String::as_str), Some("kept"));
     }
 
     /// The Cargo Book's "Environment variables Cargo sets for crates" is the

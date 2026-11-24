@@ -19,6 +19,13 @@ A test reads this page and every skill against the tree, so a path, lane, binary
 |---|---|
 | Add or change a public item, module, binary, feature or test | `skills/lgwks-change-a-crate/SKILL.md` |
 | Write code that uses these crates, here or in another repository | `skills/lgwks-use-the-crates/SKILL.md` |
+| Write or fix a `script!` flow, or read a refusal from the macro | `skills/lgwks-script-flows/SKILL.md` |
+| Make a flow survive a restart, run once per key or wait for approval | `skills/lgwks-durable-runs/SKILL.md` |
+| Start a child process, confine it or read its cleanup receipt | `skills/lgwks-supervise-processes/SKILL.md` |
+| Serve a flow or app over HTTP, or use `lgwks new`, `check`, `expand` and `run` | `skills/lgwks-serve-an-app/SKILL.md` |
+| Build your own runtime on `lgwks_bot::kernel` | `skills/lgwks-kernel/SKILL.md` |
+| Write a test, a simulation, or fix a test the census failed | `skills/lgwks-test-on-the-rails/SKILL.md` |
+| About to hand-roll a spawn, retry, deadline, channel, temp dir or tenant key | `skills/lgwks-stay-on-the-rails/SKILL.md` |
 | The task suggests `tokio`, `regex`, `uuid`, `serde_json` or another familiar crate | `skills/lgwks-std-first/SKILL.md` |
 | Add or audit a third-party dependency | `skills/lgwks-dependency-admission/SKILL.md` |
 | Land a Dependabot pull request, a stale lockfile or a new major | `skills/lgwks-dependency-update/SKILL.md` |

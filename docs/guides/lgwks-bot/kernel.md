@@ -2,7 +2,7 @@
 
 `script!` is how a flow is written, and `lgwks_bot::kernel` is the promised path to what a host of flows stands on.
 
-Each of its eight modules is a glob of the support module with the same name, so one type has two paths and one definition. A removal or a changed signature here is a major release, and a `#[doc(hidden)]` item inside a module stays outside the promise ([ADR 0021](../../adr/0021-the-kernel-surface-and-a-recorded-instant.md)).
+Each of its eleven modules is a glob of the support module with the same name, so one type has two paths and one definition. A removal or a changed signature here is a major release, and a `#[doc(hidden)]` item inside a module stays outside the promise ([ADR 0021](../../adr/0021-the-kernel-surface-and-a-recorded-instant.md)).
 
 | Module | Holds | Decision |
 |---|---|---|
@@ -14,6 +14,9 @@ Each of its eight modules is a glob of the support module with the same name, so
 | `kernel::gate` | Grant sets: admission at build, and a proof on each tick | ADR 0021 |
 | `kernel::effect` | The exact key a settlement is a statement about | [`effect-kernel.md`](../../effect-kernel.md) |
 | `kernel::retry` | Whether a failed attempt may be tried again | ADR 0021 |
+| `kernel::task` | `Host`, `Task`, `Report` and the run store; feature `script` | ADR 0064 |
+| `kernel::cap` | Capabilities and the proofs that carry them | ADR 0064 |
+| `kernel::sealed` | Records sealed at rest under fresh data keys; feature `sealed` | ADR 0064 |
 
 ## Try each one from the shell
 

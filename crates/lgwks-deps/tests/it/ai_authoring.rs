@@ -95,9 +95,11 @@ fn put(root: &Path, relative: &str, text: &str) -> TestResult {
     Ok(())
 }
 
-/// Runs `git` in `dir`, deaf to the host's configuration, and returns what it printed.
+/// Runs `git` in `dir`, deaf to the host's configuration and to a hook's
+/// repository (`crate::git_env`), and returns what it printed.
 fn git(dir: &Path, args: &[&str]) -> Result<String, Box<dyn Error>> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(dir)
         .args(args)
@@ -107,8 +109,8 @@ fn git(dir: &Path, args: &[&str]) -> Result<String, Box<dyn Error>> {
         .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
         .env("GIT_COMMITTER_NAME", "fixture")
         .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
-        .stdin(Stdio::null())
-        .output()?;
+        .stdin(Stdio::null());
+    let output = crate::git_env::deaf(command).output()?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
     } else {

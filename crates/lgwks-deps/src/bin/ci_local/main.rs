@@ -56,10 +56,13 @@ mod process;
 mod ram_disk;
 mod readme_block;
 mod receipt;
+#[path = "../../redirecting_env.rs"]
+mod redirecting_env;
 mod runners;
 #[path = "../shared/rust_code.rs"]
 mod rust_code;
 mod scratch;
+mod skill_hygiene;
 mod test_gated;
 #[path = "../shared/toml_subset.rs"]
 mod toml_subset;

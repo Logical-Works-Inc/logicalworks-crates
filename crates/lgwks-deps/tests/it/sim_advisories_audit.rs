@@ -248,7 +248,8 @@ fn commit_fixture(db: &Path) -> Result<(), Failure> {
         &["commit", "--quiet", "--message", "fixture"],
     ];
     for step in steps {
-        let status = Command::new("git")
+        let mut command = Command::new("git");
+        command
             .arg("-C")
             .arg(db)
             .args([
@@ -265,14 +266,8 @@ fn commit_fixture(db: &Path) -> Result<(), Failure> {
             ])
             .args(step)
             .env("GIT_AUTHOR_DATE", "2026-11-01T00:00:00Z")
-            .env("GIT_COMMITTER_DATE", "2026-11-01T00:00:00Z")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE")
-            .env_remove("GIT_INDEX_FILE")
-            .env_remove("GIT_COMMON_DIR")
-            .env_remove("GIT_OBJECT_DIRECTORY")
-            .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
-            .status()?;
+            .env("GIT_COMMITTER_DATE", "2026-11-01T00:00:00Z");
+        let status = crate::git_env::deaf(command).status()?;
         if !status.success() {
             return refuse(format!("git {step:?} exited {status}"));
         }
