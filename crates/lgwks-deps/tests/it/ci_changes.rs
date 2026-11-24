@@ -131,6 +131,94 @@ fn a_failed_listing_is_code_and_a_docs_listing_is_not() -> TestResult {
     Ok(())
 }
 
+/// Each job of `text` with its body, a key two spaces under `jobs:`.
+fn jobs(text: &str) -> Vec<(&str, String)> {
+    let mut found: Vec<(&str, String)> = Vec::new();
+    let mut in_jobs = false;
+    for line in text.lines() {
+        if !line.starts_with(' ') && !line.is_empty() {
+            in_jobs = line == "jobs:";
+            continue;
+        }
+        let key = line
+            .strip_prefix("  ")
+            .filter(|rest| !rest.starts_with([' ', '#']));
+        match key.and_then(|rest| rest.strip_suffix(':')) {
+            Some(id) if in_jobs => found.push((id, String::new())),
+            _ => {
+                if let Some(job) = found.last_mut() {
+                    job.1.push_str(line);
+                    job.1.push('\n');
+                }
+            }
+        }
+    }
+    found
+}
+
+/// Source: PR 1146, run 45426215266. The bench workspace is its own Cargo
+/// root, and rust-cache saved only the root `target`, so every run compiled
+/// it cold twice: 64 s for the tests and 127 s for the LTO release build on
+/// run 45419917546. On a slower runner it was still compiling at the 5
+/// minute cap. Requirement proved: a job that builds a nested workspace
+/// passes that workspace to the cache, and the action hands it to
+/// rust-cache.
+#[test]
+fn a_nested_workspace_job_caches_its_own_target() -> TestResult {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let action = fs::read_to_string(repo.join(".github/actions/hosted-rust/action.yml"))?;
+    assert!(
+        action.contains("workspaces: ${{ inputs.workspace }} -> target"),
+        "hosted-rust hands its workspace to rust-cache"
+    );
+    let workflow = fs::read_to_string(repo.join(".github/workflows/ci.yml"))?;
+    let mut nested = Vec::new();
+    for (id, body) in jobs(&workflow) {
+        let pieces: Vec<&str> = body.split("--manifest-path ").collect();
+        for pair in pieces.windows(2) {
+            let &[before, after] = pair else { continue };
+            let Some(dir) = after
+                .split_whitespace()
+                .next()
+                .and_then(|path| path.strip_suffix("/Cargo.toml"))
+            else {
+                continue;
+            };
+            let manifest = fs::read_to_string(repo.join(dir).join("Cargo.toml"))?;
+            if !manifest.lines().any(|line| line == "[workspace]") {
+                continue;
+            }
+            // The command the flag belongs to: from its `cargo` to the next `&&` or step.
+            let Some((_, head)) = before.rsplit_once("cargo ") else {
+                continue;
+            };
+            let tail = match after.split(" && ").next() {
+                Some(command) => match command.split("\n      - ").next() {
+                    Some(step) => step,
+                    None => command,
+                },
+                None => after,
+            };
+            if head.starts_with("fmt")
+                || head.contains("--target-dir")
+                || tail.contains("--target-dir")
+            {
+                continue;
+            }
+            nested.push(id);
+            assert!(
+                body.contains(&format!("workspace: {dir}\n")),
+                "job {id} builds {dir} but caches only the root target"
+            );
+        }
+    }
+    assert!(
+        nested.contains(&"timing_async"),
+        "the bench job builds a nested workspace: {nested:?}"
+    );
+    Ok(())
+}
+
 /// The fetch step, given a download that left out bot-rest. `serves` says
 /// whether the REST API answers for it.
 fn fetch_missing(case: &str, serves: bool) -> Result<(Output, bool), Box<dyn Error>> {

@@ -21,6 +21,14 @@ inputs:
       entry instead of saving a copy each. rust-cache adds the OS, the
       architecture, the toolchain and the lockfile to it.
     required: true
+  workspace:
+    description: >
+      The Cargo workspace root the job builds, relative to the checkout. A
+      nested root (`bench/async`) has its own lock and `target`, and rust-cache
+      saves only the target it is given: with the root's alone, the bench job
+      compiled cold on every run and met its 5 minute cap (run 45426215266).
+    required: false
+    default: "."
   components:
     description: Extra rustup components, comma-separated.
     required: false
@@ -141,6 +149,7 @@ runs:
       env:
         BASE_SHA: ${{ github.ref != 'refs/heads/main' && (github.event.pull_request.base.sha || github.event.merge_group.base_sha) || '' }}
         GH_TOKEN: ${{ github.token }}
+        WORKSPACE: ${{ inputs.workspace }}
       run: |
         set -euo pipefail
         digest() { if command -v sha1sum >/dev/null 2>&1; then sha1sum; else shasum -a 1; fi; }
@@ -150,11 +159,12 @@ runs:
             cat rust-toolchain.toml
             awk 'BEGIN { RS = "" } /\nsource = / { print }' "$1"
             awk 'BEGIN { RS = "" } /^\[\[package\]\]/ && !/\nsource = / { sub(/\nversion = "[^"]*"/, ""); print }' "$1"
-            awk '/^\[/ { keep = ($0 ~ /^\[profile/) } keep' Cargo.toml
+            awk '/^\[/ { keep = ($0 ~ /^\[profile/) } keep' "${WORKSPACE}/Cargo.toml"
             env | LC_ALL=C sort | awk -F= '$1 ~ /^(CARGO|CC|CFLAGS|CXX|CMAKE|RUST)/ && $2 != ""'
           } | digest | cut -c1-12
         }
-        hash="$(key Cargo.lock)"
+        lock="${WORKSPACE}/Cargo.lock"
+        hash="$(key "${lock}")"
         echo "deps key ${hash}"
         echo "hash=${hash}" >> "${GITHUB_OUTPUT}"
         # One raw read of the base commit's lock, never a fetch of its tree.
@@ -164,7 +174,7 @@ runs:
         base_lock="${RUNNER_TEMP}/base-Cargo.lock"
         if [ -n "${BASE_SHA}" ] && curl -fsS --max-time 10 --retry 2 \
             -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github.raw" \
-            -o "${base_lock}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/Cargo.lock?ref=${BASE_SHA}"; then
+            -o "${base_lock}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/contents/${lock#./}?ref=${BASE_SHA}"; then
           base="$(key "${base_lock}")"
         fi
         echo "base deps key ${base}"
@@ -176,6 +186,7 @@ runs:
       with:
         shared-key: ${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}
         add-rust-environment-hash-key: "false"
+        workspaces: ${{ inputs.workspace }} -> target
         # Every ref saving filled the 10 GiB cap and evicted main's entries,
         # so pull requests compiled cold (10.66 GiB on 2026-11-03, main 1.41).
         # Saved from main alone, the cache is one ref's worth and a pull
@@ -200,12 +211,16 @@ runs:
       if: inputs.caches == 'true' && github.ref != 'refs/heads/main' && steps.rust-cache.outputs.cache-hit != 'true'
       id: base-paths
       shell: bash
+      env:
+        WORKSPACE: ${{ inputs.workspace }}
       run: |
         set -euo pipefail
         home="${CARGO_HOME:-$HOME/.cargo}"
+        target="${GITHUB_WORKSPACE}/target"
+        if [ "${WORKSPACE}" != "." ]; then target="${GITHUB_WORKSPACE}/${WORKSPACE}/target"; fi
         {
           echo "paths<<LGWKS_PATHS"
-          printf '%s\n' "${home}/bin" "${home}/.crates.toml" "${home}/.crates2.json" "${home}/registry" "${home}/git" "${GITHUB_WORKSPACE}/target"
+          printf '%s\n' "${home}/bin" "${home}/.crates.toml" "${home}/.crates2.json" "${home}/registry" "${home}/git" "${target}"
           echo "LGWKS_PATHS"
         } >> "${GITHUB_OUTPUT}"
     - name: Restore main's nearest dependency build under a moved lockfile
