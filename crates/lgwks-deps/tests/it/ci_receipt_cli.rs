@@ -276,6 +276,42 @@ fn a_missing_logs_directory_exits_two_and_writes_nothing() -> TestResult {
     Ok(())
 }
 
+/// Source: run 45467652939. `bot-it-surface, slice:3/4` was cancelled at its
+/// 5-minute limit after every step passed, its log held no failure line, and the
+/// receipt left it out. Requirement: every failed job's log is at least one row,
+/// a quiet one a `step` row that says no line named the failure.
+#[test]
+fn a_failed_job_whose_log_names_no_failure_is_still_a_row() -> TestResult {
+    let scratch = Scratch::new("ci-receipt-quiet")?;
+    let logs = logs_copy(&scratch)?;
+    fs::write(
+        logs.join("quiet.log"),
+        "2026-11-24T19:17:05.4076146Z Finished uploading artifact content to blob storage!\n",
+    )?;
+    let out = scratch.path().join("receipt.json");
+    let output = receipt_run(&logs, &out, &[])?;
+    assert_eq!(output.status.code(), Some(0), "{}", said(&output));
+    let receipt = parsed(&out)?;
+    let quiet: Vec<&Value> = failures_of(&receipt)?
+        .iter()
+        .filter(|found| text(found, "job") == Some("quiet"))
+        .collect();
+    assert_eq!(quiet.len(), 1, "one row for the quiet job");
+    let row = quiet.first().ok_or("the quiet row")?;
+    assert_eq!(text(row, "kind"), Some("step"), "a step row");
+    assert!(
+        text(row, "message")
+            .is_some_and(|said| said.contains("no line of the log names the failure")),
+        "that says why: {row:?}"
+    );
+    assert_eq!(
+        failures_of(&receipt)?.len(),
+        expected().len().saturating_add(1),
+        "the fixtures' rows are unchanged"
+    );
+    Ok(())
+}
+
 /// Requirement: a flag that is not one is a refusal with exit 2, never a guess.
 #[test]
 fn an_unknown_flag_exits_two() -> TestResult {

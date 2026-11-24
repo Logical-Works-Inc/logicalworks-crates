@@ -11,7 +11,8 @@
 //! kinds, in this order of preference: `test` (a nextest result line and its
 //! output), `compile` (a rustc or clippy diagnostic with a place) and `step` (the
 //! failed step, only when nothing more specific was found), each with the command
-//! that runs it again. The receipt keeps the first `--max` (default 50, at most
+//! that runs it again. A log that names none is one `step` row saying so, as
+//! every log read is a failed job's. The receipt keeps the first `--max` (default 50, at most
 //! 100) in the order job, file, line, test, and sets `truncated` when more were
 //! found. Exit status 0 when the receipt is written, even with no failure found;
 //! 2 on bad arguments, an unreadable directory or log, or a file it cannot write.
@@ -60,7 +61,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use error::ReceiptError;
-use failure::{DEFAULT_MAX, MAX_CEILING, Receipt};
+use failure::{DEFAULT_MAX, Failure, Kind, MAX_CEILING, Receipt};
 
 /// What the command line asked for.
 #[derive(Debug)]
@@ -187,6 +188,29 @@ fn write_atomic(path: &Path, text: &str) -> Result<(), ReceiptError> {
     Err(failed(source))
 }
 
+/// The row of a failed job whose log names no failure: only failed jobs' logs are
+/// read, so a log with nothing in it is a job cancelled at its time limit or
+/// killed before it printed one (run 45467652939, `bot-it-surface, slice:3/4`).
+fn quiet(job: &str) -> Failure {
+    Failure {
+        job: job.to_owned(),
+        kind: Kind::Step,
+        test: None,
+        binary: None,
+        file: None,
+        line: None,
+        code: None,
+        seed: None,
+        message: QUIET.to_owned(),
+        repro: String::new(),
+        step: String::new(),
+    }
+}
+
+/// What a quiet job's row says.
+const QUIET: &str =
+    "the job failed and no line of the log names the failure: cancelled at its time limit?";
+
 /// Runs with `arguments`: lists the logs, reads them one at a time into the
 /// receipt, and writes the receipt and the table.
 fn execute(arguments: &[OsString]) -> Result<Written, ReceiptError> {
@@ -197,7 +221,11 @@ fn execute(arguments: &[OsString]) -> Result<Written, ReceiptError> {
         let log = logs::read(&file.path)?;
         let found = extract::extract(&file.job, &log.text);
         receipt.shed = receipt.shed || log.clipped || found.shed;
-        receipt.absorb(found.failures);
+        let mut failures = found.failures;
+        if failures.is_empty() {
+            failures.push(quiet(&file.job));
+        }
+        receipt.absorb(failures);
     }
     write_atomic(&args.out, &render::json(&receipt)?)?;
     if let Some(path) = args.markdown.as_deref() {
