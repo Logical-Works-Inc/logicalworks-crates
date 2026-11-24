@@ -1,0 +1,15 @@
+2026-11-24T16:01:00.1000000Z ##[group]Run cargo clippy --locked -p x --all-targets -- -D warnings
+2026-11-24T16:01:00.1000100Z ^[[36;1mcargo clippy --locked -p x --all-targets -- -D warnings^[[0m
+2026-11-24T16:01:00.1000200Z shell: sh -e {0}
+2026-11-24T16:01:00.1000300Z env:
+2026-11-24T16:01:00.1000400Z   CARGO_TERM_COLOR: always
+2026-11-24T16:01:00.1000500Z ##[endgroup]
+2026-11-24T16:01:01.2000000Z ^[[1m^[[92m    Checking^[[0m x v0.1.0 (/__w/x/x/crates/x)
+2026-11-24T16:01:02.3000000Z ^[[1m^[[91merror[E0425]^[[0m^[[1m: cannot find value `total` in this scope^[[0m
+2026-11-24T16:01:02.3000100Z ^[[1m^[[94m --> ^[[0mcrates/x/src/lib.rs:3:5
+2026-11-24T16:01:02.3000200Z ^[[1m^[[94m  |^[[0m
+2026-11-24T16:01:02.3000300Z ^[[1m^[[94m3^[[0m ^[[1m^[[94m|^[[0m     total
+2026-11-24T16:01:02.3000400Z ^[[1m^[[94m  |^[[0m     ^[[1m^[[91m^^^^^^[[0m^[[1m^[[91m not found in this scope^[[0m
+2026-11-24T16:01:02.3000500Z
+2026-11-24T16:01:02.9000000Z ^[[1m^[[91merror^[[0m^[[1m: could not compile `x` (lib) due to 1 previous error^[[0m
+2026-11-24T16:01:03.0000000Z ##[error]Process completed with exit code 101.

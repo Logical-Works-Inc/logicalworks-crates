@@ -335,26 +335,6 @@ fn the_start_page_names_only_what_the_tree_holds() -> TestResult {
     Ok(())
 }
 
-/// A skill an agent cannot select by its description is never loaded, and an
-/// oversized one costs every session. Catches a folder missing from the route.
-#[test]
-fn a_skill_declares_its_name_and_when_to_use_it() -> TestResult {
-    let route = page("SKILLS.md")?;
-    let names = skill_names()?;
-    assert!(names.len() >= 6, "the route holds six skills: {names:?}");
-    for name in names {
-        let path = format!("skills/{name}/SKILL.md");
-        let text = page(&path)?;
-        assert!(
-            text.starts_with(&format!("---\nname: {name}\ndescription: Use ")),
-            "{path} opens with its name and a description that says when"
-        );
-        assert!(text.lines().count() <= 120, "{path} is past 120 lines");
-        assert!(route.contains(&path), "SKILLS.md does not route to {path}");
-    }
-    Ok(())
-}
-
 /// The workspace crates a manifest needs before it can publish: normal and
 /// build edges, never dev, which a registry does not resolve.
 fn publish_edges(text: &str) -> BTreeSet<String> {

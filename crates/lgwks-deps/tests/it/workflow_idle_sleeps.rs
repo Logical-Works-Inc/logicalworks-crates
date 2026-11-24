@@ -248,10 +248,10 @@ fn the_simulation_lane_fetches_the_listings_it_waited_for() -> TestResult {
         .ok_or("ci.yml has no step that waits for and fetches the suite listings")?;
     for part in [
         "actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100",
-        "for file in ${SIMULATION_LISTINGS}; do",
+        "for suite in ${SUITES:-workspace ",
         "id=\"${before##*\\\"id\\\":}\"",
         "/actions/artifacts/${id}/zip",
-        "test -s \"${file}\"",
+        "test -s \"${dir}/listing.json\"",
     ] {
         assert!(step.contains(part), "the listing step lost `{part}`");
     }

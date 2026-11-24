@@ -147,6 +147,19 @@
 #[doc = include_str!("../README-script.md")]
 struct ReadmeExamples;
 
+/// Compiles every Rust block of the agent skills as a doctest (ADR 0084).
+///
+/// An agent copies a skill's block and trusts it, so a block no compiler reads
+/// teaches an API that may be gone. The `skill-hygiene` lane refuses a skill
+/// whose Rust block is not included here.
+#[cfg(doctest)]
+#[doc = include_str!("../../../skills/lgwks-script-flows/SKILL.md")]
+#[doc = include_str!("../../../skills/lgwks-durable-runs/SKILL.md")]
+#[doc = include_str!("../../../skills/lgwks-kernel/SKILL.md")]
+#[doc = include_str!("../../../skills/lgwks-test-on-the-rails/SKILL.md")]
+#[doc = include_str!("../../../skills/lgwks-std-first/SKILL.md")]
+struct SkillExamples;
+
 /// The environment broker: which environments a run owns, which generation each
 /// is at, and the authority to hand one exact attempt to one of them.
 ///

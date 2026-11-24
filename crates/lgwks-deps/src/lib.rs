@@ -175,6 +175,9 @@ pub mod metadata;
 /// (`contract/PATCHES.toml`, #723, #728).
 #[doc(hidden)]
 pub mod patches;
+/// The variables that send `git` to another repository; the `churn-slot`
+/// wrapper and the test fixtures load the same file by path.
+mod redirecting_env;
 /// The requirements check's one implementation (#695): `lgwks_deps` owns the
 /// rule, the `check-requirements` binary is a thin shim over the shared
 /// entry, and `logical_ci`'s `governance` gate is its designated library

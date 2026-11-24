@@ -1,0 +1,71 @@
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2319050Z ##[group]Run cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2321672Z ^[[36;1mcargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2322985Z shell: sh -e {0}
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2323185Z env:
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2323357Z   CARGO_PROFILE_TEST_DEBUG: 0
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2323583Z   CARGO_PROFILE_TEST_OPT_LEVEL: 1
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2323849Z   CARGO_INCREMENTAL: 0
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2324053Z   CARGO_BUILD_WARNINGS: deny
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2324268Z   PARTITION: slice:7/10
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2324596Z   NEXTEST_BUILD: --workspace --exclude lgwks_bot --locked --cargo-profile ci-bot
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2324965Z   LWC_IT_GROUP: 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2325142Z   RUST_IT_GROUP_RUSTC: 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2325338Z   RUST_MIN_STACK: 8388608
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2325544Z   RUSTC_WORKSPACE_WRAPPER: 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2325763Z   CARGO_HOME: /usr/local/cargo
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2325979Z   CARGO_TERM_COLOR: always
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2326187Z   CACHE_ON_FAILURE: true
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.2326386Z ##[endgroup]
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:02.9520737Z ^[[1minfo^[[0m: experimental features enabled: setup-scripts, wrapper-scripts
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:03.3969823Z ^[[1m^[[92m    Finished^[[0m `ci-bot` profile [unoptimized] target(s) in 0.43s
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:03.6514773Z ────────────
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.4749975Z ^[[32;1m        PASS^[[0m [   0.044s] (189/373) ^[[35;1mlgwks_deps::bin/check-gate-parity^[[0m ^[[36mtests^[[0m^[[36m::^[[0m^[[34;1ma_required_checker_removed_from_ci_fails^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5039320Z ^[[31;1m        FAIL^[[0m [   0.028s] (190/373) ^[[35;1mlgwks_deps::bin/check-gate-parity^[[0m ^[[36mworkflow_calls::tests^[[0m^[[36m::^[[0m^[[34;1ma_moved_lockfile_restores_mains_nearest_build^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5041011Z ^[[31;1m ^[[0m ^[[31;1mstdout^[[0m ^[[31;1m───^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5041481Z 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5041685Z     running 1 test
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5042463Z     test workflow_calls::tests::a_moved_lockfile_restores_mains_nearest_build ... FAILED
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5042866Z 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5042982Z     failures:
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5043094Z 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5043183Z     failures:
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5043465Z         workflow_calls::tests::a_moved_lockfile_restores_mains_nearest_build
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5043741Z 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5044002Z     test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 54 filtered out; finished in 0.01s
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5044593Z     ^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5044878Z ^[[31;1m ^[[0m ^[[31;1mstderr^[[0m ^[[31;1m───^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5045065Z 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5045839Z     ^[[0m^[[31;1mthread 'workflow_calls::tests::a_moved_lockfile_restores_mains_nearest_build' (15148) panicked at crates/lgwks-deps/src/bin/check_gate_parity/workflow_calls.rs:597:9:^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5046608Z     ^[[31;1massertion `left == right` failed^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5047172Z       left: ["hosted-rust's base build names other paths than rust-cache", "hosted-rust keys main's entry by another hash than its own"]
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5047698Z      right: []
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5048948Z     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5049328Z 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5049968Z ^[[31;1m  Cancelling^[[0m due to ^[[31;1mtest failure^[[0m: ^[[1m3^[[0m tests still running
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:19.5626621Z ^[[32;1m        PASS^[[0m [   0.696s] (191/373) ^[[35;1mlgwks_deps::bin/ai-authoring^[[0m ^[[36msim_record^[[0m^[[36m::^[[0m^[[34;1ma_log_keeps_the_last_record_of_a_repeated_trial_and_counts_what_it_cannot_read^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:52:55.6221751Z ^[[32;1m        PASS^[[0m [  44.337s] (192/373) ^[[35;1mlgwks_ast::it^[[0m ^[[36mhostile::markdown^[[0m^[[36m::^[[0m^[[34;1mmarkdown_never_reaches_the_scanner_past_its_bound^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4211783Z ^[[32;1m        PASS^[[0m [  51.112s] (193/373) ^[[35;1mlgwks_deps::it^[[0m ^[[36mgate_consumer^[[0m^[[36m::^[[0m^[[34;1msim_a_refused_flow_fails_the_gate^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4212401Z ────────────
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4213149Z ^[[31;1m     Summary^[[0m [  60.770s] ^[[1m193^[[0m/^[[1m373^[[0m tests run: ^[[1m192^[[0m ^[[32;1mpassed^[[0m, ^[[1m1^[[0m ^[[31;1mfailed^[[0m, ^[[1m3366^[[0m ^[[33;1mskipped^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4214332Z ^[[31;1m        FAIL^[[0m [   0.028s] (190/373) ^[[35;1mlgwks_deps::bin/check-gate-parity^[[0m ^[[36mworkflow_calls::tests^[[0m^[[36m::^[[0m^[[34;1ma_moved_lockfile_restores_mains_nearest_build^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4215463Z ^[[33;1mwarning^[[0m: ^[[1m180^[[0m/^[[1m373^[[0m tests were not run due to ^[[33;1mtest failure^[[0m (run with ^[[1m--no-fail-fast^[[0m to run all tests, or run with ^[[1m--max-fail^[[0m)
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4292551Z ^[[31;1merror^[[0m: test run failed
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4361532Z ##[error]Process completed with exit code 100.
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4434583Z ##[group]Run command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4435107Z ^[[36;1mcommand -v sccache >/dev/null 2>&1 && sccache --show-stats || true^[[0m
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4435527Z shell: sh -e {0}
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4435963Z env:
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4436137Z   CARGO_PROFILE_TEST_DEBUG: 0
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4436365Z   CARGO_PROFILE_TEST_OPT_LEVEL: 1
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4436592Z   CARGO_INCREMENTAL: 0
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4436792Z   CARGO_BUILD_WARNINGS: deny
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4437010Z   PARTITION: slice:7/10
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4437339Z   NEXTEST_BUILD: --workspace --exclude lgwks_bot --locked --cargo-profile ci-bot
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4437700Z   LWC_IT_GROUP: 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4437877Z   RUST_IT_GROUP_RUSTC: 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4438073Z   RUST_MIN_STACK: 8388608
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4438281Z   RUSTC_WORKSPACE_WRAPPER: 
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4438503Z   CARGO_HOME: /usr/local/cargo
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4438720Z   CARGO_TERM_COLOR: always
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4438958Z   CACHE_ON_FAILURE: true
+Tests on Linux (workspace, slice:7/10)	UNKNOWN STEP	2026-11-24T15:53:04.4439156Z ##[endgroup]
