@@ -239,63 +239,66 @@ fn the_program_gets_its_arguments_its_environment_and_reports_its_own_status() -
     })
 }
 
-/// Source: 2026-11-24, lwc PR 1149. The mutation gate ran the suite inside
-/// pre-commit, where git exports `GIT_DIR` and `GIT_INDEX_FILE` for the
-/// checkout. A fixture's `git -C <fixture> init` obeyed them: it wrote
-/// `core.bare = true` into the checkout's config and its `update-ref HEAD`
-/// moved the branch. githooks(5) has a hook unset these variables before it runs
-/// git elsewhere, and `git rev-parse --local-env-vars` lists them. Requirement
-/// proved: no program the wrapper runs sees a hook's repository, so a test's git
-/// works in its own fixture and the checkout keeps its config and its HEAD,
-/// while every other variable still reaches the program.
+/// Catches a wrapper that hands a test the repository its hook runs in. A
+/// pre-commit hook exports `GIT_DIR` and `GIT_INDEX_FILE` (githooks(5)), and in
+/// a worktree they are absolute, so a test's `git -C <fixture>` wrote the
+/// worktree's own index and moved its branch to a fixture's root commit
+/// (2026-11-24, twice, under the mutation gate). Each seed sets a drawn subset
+/// of the variables `git rev-parse --local-env-vars` prints (git 2.54) to a
+/// decoy and a probe beside them. The program must see none of them and still
+/// see the probe. A hook run under `git -c` exports `GIT_CONFIG_PARAMETERS`,
+/// so the list is git's own, not only the paths.
 #[test]
-fn a_hook_repository_never_reaches_the_program() -> Result<(), Failure> {
-    let dir = scratch("hook-repo", 0)?;
-    let victim = dir.join("victim");
-    let fixture = dir.join("fixture");
-    fs::create_dir_all(&victim)?;
-    fs::create_dir_all(&fixture)?;
-    let git = |args: &[&str], at: &Path| -> Result<String, Failure> {
-        let ran = Command::new("git")
-            .arg("-C")
-            .arg(at)
-            .args(args)
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .stdin(Stdio::null())
+fn the_program_never_sees_a_hooks_repository() -> Result<(), Failure> {
+    const REDIRECTING: [&str; 15] = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
+        "GIT_INDEX_FILE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
+        "GIT_COMMON_DIR",
+    ];
+    replay_sweep("hook-repository", SEEDS, |rng, trace: &mut Trace| {
+        let marker = rng.next_u64();
+        let dir = scratch("hook-repository", marker)?;
+        let decoy = dir.join("decoy.git");
+        let mut command = wrapper(&dir, 2);
+        command.env("CHURN_PROBE", marker.to_string());
+        let mut set = 0_u64;
+        for (bit, name) in REDIRECTING.iter().enumerate() {
+            // Never an empty draw: the first variable is always set.
+            if bit == 0 || rng.between(0, 1) == 1 {
+                command.env(name, &decoy);
+                set |= 1 << bit;
+            }
+        }
+        let script = REDIRECTING
+            .iter()
+            .map(|name| format!("printf '%s ' \"${{{name}-unset}}\";"))
+            .collect::<String>();
+        let output = command
+            .args(["/bin/sh", "-c"])
+            .arg(format!("{script} printf '%s' \"$CHURN_PROBE\""))
             .output()?;
-        Ok(String::from_utf8(ran.stdout)?.trim().to_owned())
-    };
-    git(&["init", "-q"], &victim)?;
-    let hook_dir = victim.join(".git");
-    let output = wrapper(&dir, 2)
-        .env("GIT_DIR", &hook_dir)
-        .env("GIT_INDEX_FILE", hook_dir.join("index"))
-        .env("GIT_WORK_TREE", &victim)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("CHURN_PROBE", "kept")
-        .args([
-            "/bin/sh",
-            "-c",
-            "git -C \"$1\" init -q && printf '%s|%s' \"$CHURN_PROBE\" \"${GIT_DIR-}${GIT_INDEX_FILE-}${GIT_WORK_TREE-}\"",
-            "probe",
-        ])
-        .arg(&fixture)
-        .output()?;
-    let printed = String::from_utf8(output.stdout)?;
-    let bare = git(&["config", "--get", "core.bare"], &victim)?;
-    let own = fixture.join(".git").is_dir();
-    clear(&dir);
-    if printed != "kept|" {
-        return refuse(format!("the program saw {printed:?}, not \"kept|\""));
-    }
-    if bare != "false" || !own {
-        return refuse(format!(
-            "the fixture's git reached the hook's repository: core.bare {bare:?}, own repository {own}"
-        ));
-    }
-    Ok(())
+        clear(&dir);
+        let printed = String::from_utf8(output.stdout)?;
+        let expected = format!("{}{marker}", "unset ".repeat(REDIRECTING.len()));
+        if printed != expected {
+            return refuse(format!("the program saw {printed:?}, not {expected:?}"));
+        }
+        trace.record_number("set", set);
+        trace.record_number("marker", marker);
+        Ok(())
+    })
 }
 
 #[test]

@@ -819,6 +819,8 @@ jobs:
         run: cargo run --locked -p lgwks_deps --bin check-docs -- . --base ${DOCS_BASE:-origin/main}
       - name: Root README quickstart matches its compiled example
         run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane readme-quickstart
+      - name: Every skill loads, routes and compiles
+        run: cargo run --locked -p lgwks_deps --bin ci-local -- --lane skill-hygiene
       - name: Upload the compile cache
         if: ${{ always() }}
         uses: ./.github/actions/kache-report
@@ -1238,6 +1240,7 @@ jobs:
         with:
           toolchain: "nightly-2026-11-12"
           cache-key: bench-async
+          workspace: bench/async
       - name: Async fairness gate and concurrency ladder
         run: cargo test --locked --manifest-path bench/async/Cargo.toml --bin lgwks-bench-async && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --mutant-check && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --tiers && cargo run --release --locked --manifest-path bench/async/Cargo.toml -- --matrix
       - name: Upload the compile cache

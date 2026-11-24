@@ -1,4 +1,5 @@
-//! The `Classify the change` step of `ci.yml`, run as CI runs it.
+//! Steps of `ci.yml`, each run as CI runs it: its own body under bash, with
+//! fake tools on `PATH` in a scratch directory.
 //!
 //! Source: PR 1142, run 45417609208. GitHub answered the pull request's file
 //! listing with HTTP 500 ("this diff is temporarily unavailable due to heavy
@@ -48,12 +49,13 @@ fn repo() -> Result<PathBuf, Box<dyn Error>> {
         .canonicalize()?)
 }
 
-/// The body of the step's `run: |` block, its indent removed.
-fn step_body() -> Result<String, Box<dyn Error>> {
+/// The body of step `name`'s `run: |` block, its indent removed.
+fn step_body(name: &str) -> Result<String, Box<dyn Error>> {
     let text = fs::read_to_string(repo()?.join(".github/workflows/ci.yml"))?;
+    let wanted = format!("- name: {name}");
     let mut lines = text
         .lines()
-        .skip_while(|line| line.trim() != "- name: Classify the change")
+        .skip_while(|line| line.trim() != wanted)
         .skip_while(|line| line.trim() != "run: |")
         .skip(1);
     let first = lines.next().ok_or("the step has no run body")?;
@@ -150,7 +152,7 @@ impl Fixture {
         fs::write(&output, "")?;
         let status = Command::new("/bin/bash")
             .arg("-c")
-            .arg(step_body()?)
+            .arg(step_body("Classify the change")?)
             .current_dir(&self.root)
             .env_clear()
             .env(
@@ -359,7 +361,7 @@ fn the_route_table_is_the_crate_graph() -> TestResult {
         }
     }
     closure.remove("lgwks_bot");
-    let body = step_body()?;
+    let body = step_body("Classify the change")?;
     let mut expected = 0_usize;
     for (name, member) in &members {
         if name == "lgwks_bot" {
@@ -465,4 +467,67 @@ fn every_file_lgwks_bot_includes_routes_the_bot_rows_on() -> TestResult {
         );
     }
     fixture.finish()
+}
+
+/// Source: PR 1146, run 45426215266. The bench workspace is its own Cargo
+/// root, and rust-cache saved only the root `target`, so every run compiled
+/// it cold twice: 64 s for the tests and 127 s for the LTO release build on
+/// run 45419917546. On a slower runner it was still compiling at the 5
+/// minute cap. Requirement proved: a job that builds a nested workspace
+/// passes that workspace to the cache, and the action hands it to
+/// rust-cache.
+#[test]
+fn a_nested_workspace_job_caches_its_own_target() -> TestResult {
+    let repo = repo()?;
+    let action = fs::read_to_string(repo.join(".github/actions/hosted-rust/action.yml"))?;
+    assert!(
+        action.contains("workspaces: ${{ inputs.workspace }} -> target"),
+        "hosted-rust hands its workspace to rust-cache"
+    );
+    let workflow = fs::read_to_string(repo.join(".github/workflows/ci.yml"))?;
+    let mut nested = Vec::new();
+    for (id, body) in crate::ci_compile_cache::jobs(&workflow) {
+        let pieces: Vec<&str> = body.split("--manifest-path ").collect();
+        for pair in pieces.windows(2) {
+            let &[before, after] = pair else { continue };
+            let Some(dir) = after
+                .split_whitespace()
+                .next()
+                .and_then(|path| path.strip_suffix("/Cargo.toml"))
+            else {
+                continue;
+            };
+            let manifest = fs::read_to_string(repo.join(dir).join("Cargo.toml"))?;
+            if !manifest.lines().any(|line| line == "[workspace]") {
+                continue;
+            }
+            // The command the flag belongs to: from its `cargo` to the next `&&` or step.
+            let Some((_, head)) = before.rsplit_once("cargo ") else {
+                continue;
+            };
+            let tail = match after.split(" && ").next() {
+                Some(command) => match command.split("\n      - ").next() {
+                    Some(step) => step,
+                    None => command,
+                },
+                None => after,
+            };
+            if head.starts_with("fmt")
+                || head.contains("--target-dir")
+                || tail.contains("--target-dir")
+            {
+                continue;
+            }
+            nested.push(id);
+            assert!(
+                body.contains(&format!("workspace: {dir}\n")),
+                "job {id} builds {dir} but caches only the root target"
+            );
+        }
+    }
+    assert!(
+        nested.contains(&"timing_async"),
+        "the bench job builds a nested workspace: {nested:?}"
+    );
+    Ok(())
 }

@@ -52,8 +52,9 @@ fn repo() -> &'static Path {
     Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
 }
 
-/// Each job of `text` with its body, a key two spaces under `jobs:`.
-fn jobs(text: &str) -> Vec<(&str, String)> {
+/// Each job of `text` with its body, a key two spaces under `jobs:`. The one
+/// job reader of the workflow tests; `ci_changes` calls it too.
+pub(crate) fn jobs(text: &str) -> Vec<(&str, String)> {
     let mut found: Vec<(&str, String)> = Vec::new();
     let mut in_jobs = false;
     for line in text.lines() {

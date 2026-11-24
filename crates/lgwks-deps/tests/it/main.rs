@@ -23,6 +23,14 @@ mod replay;
 #[path = "../support/lock_fixture.rs"]
 mod lock_fixture;
 
+/// A fixture's `git`, with none of a hook's variables that redirect it.
+#[path = "../support/git_env.rs"]
+mod git_env;
+
+/// The one list of those variables, shared with the crate and `churn-slot`.
+#[path = "../../src/redirecting_env.rs"]
+mod redirecting_env;
+
 /// A sparse-index registry on a loopback port, for driving `freshness`.
 #[path = "../support/stub_index.rs"]
 mod stub_index;
@@ -128,6 +136,9 @@ mod sim_requirements_pages;
 #[cfg(feature = "lgwks")]
 mod sim_retire;
 mod sim_seed_draws;
+/// The `skill-hygiene` lane, driven through `ci-local` on seeded skill trees.
+#[cfg(unix)]
+mod sim_skill_hygiene;
 #[cfg(feature = "sqlite")]
 mod sim_sqlite_first_open;
 mod sim_vendor_coverage;
