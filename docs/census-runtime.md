@@ -109,6 +109,6 @@ Each file sits in its ADR 0052 planned crate and imports a crate that one may no
 
 - Fixed by #991: the sweep driver, which imported `rt::task`, `rt::sync` and `task`, now sits in `crates/lgwks-bot/src/rt/sweep.rs:1`; only the port stays in `crates/lgwks-bot/src/sealed/sweep.rs:1`.
 - Fixed by #991: the run-store read types, which imported `script::run_store`, now sit in `crates/lgwks-bot/src/task/store/sealed_read.rs:1`.
-- `crates/lgwks-bot/src/rt/runtime.rs:455`, `:458` (rt) import `rt::estate` (app) and `task` (script).
+- `crates/lgwks-bot/src/rt/runtime.rs:462`, `:465` (rt) import `rt::estate` (app) and `task` (script).
 - `crates/lgwks-bot/src/script/serve.rs:8` (script) imports `rt::serve` (app).
 - `crates/lgwks-bot/src/ecs.rs:231`, `:246` (world) re-export `cell` and `ecs::requests` (app).

@@ -77,7 +77,7 @@ crates/lgwks-bot/src/rt/process/run_result.rs:138	pub struct ProcessRun {
 crates/lgwks-bot/src/rt/process/run_result.rs:262	pub enum ProcessRunError {
 crates/lgwks-bot/src/rt/runtime.rs:213	let mut builder = lgwks_deps::tokio::runtime::Builder::new_current_thread();
 crates/lgwks-bot/src/rt/runtime.rs:216	if self.worker_threads.is_some() && workers.get() > MAX_WORKER_THREADS {
-crates/lgwks-bot/src/rt/runtime.rs:455	use crate::rt::estate::Estate;
+crates/lgwks-bot/src/rt/runtime.rs:462	use crate::rt::estate::Estate;
 crates/lgwks-bot/src/rt/supervise.rs:9	//! # Why a task cannot leak
 crates/lgwks-bot/src/rt/supervise.rs:58	//! cannot be written without a [`Budget`]. Every iteration races the
 crates/lgwks-bot/src/rt/supervise.rs:80	//! permits inside a task this supervisor owns can deadlock with itself. The
@@ -91,7 +91,7 @@ crates/lgwks-bot/src/rt/supervise/run.rs:337	pub async fn run_process(&mut self,
 crates/lgwks-bot/src/rt/supervise/supervisor.rs:250	pub fn new(max_in_flight: usize) -> Self {
 crates/lgwks-bot/src/rt/supervise/tests.rs:1	//! The supervisor's unit tests: the shared seams and helpers, and one module per concern.
 crates/lgwks-bot/src/rt/sweep.rs:1	//! The owned TTL driver: one [`JoinSet`], one [`CancellationToken`], and the
-crates/lgwks-bot/src/rt/task.rs:205	pub async fn join_all_bounded<F, T>(
+crates/lgwks-bot/src/rt/task.rs:221	pub async fn join_all_bounded<F, T>(
 crates/lgwks-bot/src/script/serve.rs:8	pub use crate::rt::serve::{ServeError, ServeOptions, ServeReport};
 crates/lgwks-bot/src/sealed/sweep.rs:1	//! The TTL sweep port: what a sealed store offers the driver that runs it.
 crates/lgwks-bot/src/semantic.rs:13	//! This tier is consulted only when the lexicon returns [`Resolution::Absent`](crate::session::Resolution::Absent) —
