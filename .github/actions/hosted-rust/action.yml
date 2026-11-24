@@ -287,6 +287,10 @@ runs:
     # store, 130 to 196 s a shard against main's 76 to 95 s. Such a job reuses
     # the build and runs no wrapper. A main run never restores one this way, so
     # main compiles through kache, writes the store and saves a `-kache-` build.
+    # The scheduler is off: it paces compiles across concurrent builds on one
+    # machine, and a hosted job runs one cargo. On run 45504674831 it gave each
+    # rustc 2 slots of a 4-CPU pool, so cargo ran half its jobs: 125 s against
+    # 76 s for the same 8 workspace crates.
     - name: Set up kache as the compiler wrapper
       if: inputs.caches == 'true'
       shell: bash
@@ -322,6 +326,7 @@ runs:
           echo "KACHE_OCI_USERNAME=${GITHUB_ACTOR}"
           echo "KACHE_OCI_PASSWORD=${TOKEN}"
           echo "KACHE_GITHUB_WRITES=merge_group"
+          echo "KACHE_SCHEDULER=0"
           if [ "${GITHUB_EVENT_NAME}" = pull_request ]; then echo "KACHE_REMOTE_READONLY=1"; fi
           echo "CARGO_INCREMENTAL=0"
         } >> "${GITHUB_ENV}"
