@@ -71,6 +71,11 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
   3-slot hosted Mac its compile still ran past the 392.8 s cap (run 43315235672), so the job
   builds the lane's own 5 targets first with `--no-run`, the selection the engine printed,
   and the lane runs on them inside the job's 10 minutes.
+- The pinned release builds the loom probe in the run's scratch, so the build is cold on every
+  run. On main, A02 sealed UNMEASURED that way (run 45381300749).
+- The v0.4.9 release keeps that build warm. Its A11 lane runs the whole workspace with ignored
+  tests, and its A02 lane selects 12 targets. Both lanes were killed at 396 s (run 45392276274).
+- So the pin stays where it is until logical_ci#549 scopes A11 and prints its builds.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:

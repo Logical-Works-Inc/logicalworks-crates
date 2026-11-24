@@ -106,7 +106,11 @@ jobs:
           set -euo pipefail
           code=true
           if [ -n "${PR}" ]; then
-            files="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')"
+            # A listing GitHub refuses (HTTP 500 under load, run 45417609208) is empty, so it is code.
+            if ! files="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')"; then
+              echo "::warning::the file listing failed, so the change is code"
+              files=""
+            fi
             code=false
             if [ -z "${files}" ]; then code=true; fi
             while IFS= read -r file; do
@@ -292,7 +296,10 @@ jobs:
           - { suite: bot-full, archive: bot-it-g4, it_group: g4, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-it-g5, it_group: g5, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-it-g6, it_group: g6, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
-          - { suite: bot-full, archive: bot-it-g7, it_group: g7, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          # g7 holds sim_source_matrix: 65 s of tests where every other group takes 20 to 47 s, so a slow runner
+          # cancelled it at test 795 of 1,722 with its build already 125 s (run 45399189913). Two slices, as scale runs.
+          - { suite: bot-full, archive: bot-it-g7, it_group: g7, partition: "slice:1/2", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
+          - { suite: bot-full, archive: bot-it-g7, it_group: g7, partition: "slice:2/2", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-it-g8, it_group: g8, partition: "", build: "-p lgwks_bot --test it --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:1/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test heap_baseline --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }
           - { suite: bot-full, archive: bot-rest, partition: "slice:2/2", build: "-p lgwks_bot --lib --bins --examples --test ecs_tick --test heap_baseline --test process_job --test sim_deep_cancel --test sim_review_path --test t03_non_yielding --locked --features full --cargo-profile ci-bot" }

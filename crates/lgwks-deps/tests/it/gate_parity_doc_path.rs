@@ -101,3 +101,63 @@ fn the_doc_tests_hold_no_job_but_the_verdict() -> TestResult {
     }
     Ok(())
 }
+
+/// Catches a sliced shard that loses tests without a sound. nextest's
+/// `--partition slice:N/M` runs only the Nth of M parts, so a slice row
+/// dropped, named twice, or cut two ways leaves tests that no job runs, and
+/// every job still ends green. bot-it-g7 became two slices after a slow
+/// runner cancelled it at its 5 minute cap (run 45399189913).
+#[test]
+fn every_sliced_archive_runs_each_slice_once() -> TestResult {
+    let second = "archive: bot-it-g7, it_group: g7, partition: \"slice:2/2\"";
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let ci = fs::read_to_string(repo.join(WORKFLOW))?;
+    let row = ci
+        .lines()
+        .find(|line| line.contains(second))
+        .ok_or("the second g7 slice must exist")?;
+    let cases = [
+        (
+            "slices-twice",
+            second.to_owned(),
+            second.replacen("2/2", "1/2", 1),
+            "runs bot-it-g7 g7 as slices [1, 1] of 2",
+        ),
+        (
+            "slices-dropped",
+            format!("{row}\n"),
+            String::new(),
+            "runs bot-it-g7 g7 as slices [1] of 2",
+        ),
+        (
+            "slices-two-cuts",
+            second.to_owned(),
+            second.replacen("2/2", "2/3", 1),
+            "cuts bot-it-g7 g7 [2, 3] ways at once",
+        ),
+    ];
+    for (case, from, to, named) in cases {
+        let (code, stderr) = judge(case, &from, &to)?;
+        assert_eq!(code, Some(1), "{case}: {stderr}");
+        assert!(stderr.contains(named), "{case}: {named}: {stderr}");
+    }
+    Ok(())
+}
+
+/// PR 1137 moved three cited lines. The pre-commit fast gate skipped the 1 s
+/// `doc-citations` lane, so only the hosted run refused it, one full CI run
+/// later. The committed lane table keeps it in the fast set.
+#[test]
+fn the_fast_gate_runs_the_doc_citations_lane() -> TestResult {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let table = fs::read_to_string(repo.join("scripts/gate-lanes.toml"))?;
+    let lane = table
+        .split("[[lane]]")
+        .find(|lane| lane.lines().any(|line| line == "id = \"doc-citations\""))
+        .ok_or("no doc-citations lane")?;
+    assert!(
+        lane.lines().any(|line| line == "fast = true"),
+        "doc-citations runs in the pre-commit fast gate:\n{lane}"
+    );
+    Ok(())
+}

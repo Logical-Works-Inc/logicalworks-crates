@@ -50,6 +50,9 @@ mod ai_authoring;
 /// Every cfg arm held to the lint floor, including those this host never builds.
 mod cfg_arm_silencers;
 mod check_cli;
+/// The `Classify the change` step of ci.yml, run under bash with a fake `gh`.
+#[cfg(unix)]
+mod ci_changes;
 mod contract_schema_compat;
 mod default_run;
 /// A citation a page adds, refused by name until `--update` pins it.
