@@ -5,9 +5,12 @@ name: logical_ci
 # 0 s on every run. The job below is logical_ci's own gate.yml at
 # Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
 # step for step on its macos-arm64 asset, re-pinned to
-# pin the signed v0.4.10 release: its ci/fault-tolerance runs only the members a change
+# pin the signed v0.4.11 release: its ci/fault-tolerance runs only the members a change
 # reaches, and `plan --builds` prints what its compile lanes build, so this job prebuilds
 # exactly that (logical_ci#549; v0.4.9 ran A02 and A11 out of their lanes, run 45392276274).
+# v0.4.10's reach was still the whole workspace here, because `.cargo/audit.toml` is in no
+# member: A11 sealed UNMEASURED at 398 s of 420 s (run 45455712893). v0.4.11 (logical_ci#560)
+# follows that file to the members that name it, and the reach is `lgwks_deps`.
 on:
   pull_request:
   push:
@@ -26,7 +29,7 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.4.10 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
+    # mac-specific: logical_ci v0.4.11 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
     runs-on: macos-latest
     # Warm, the job is setup, a prebuild that compiles nothing and its lanes.
     # Cold, the printed builds took 12.3 min (4 m 03 s A02, 1 m 45 s loom,
@@ -39,7 +42,7 @@ jobs:
       LCI_TENANT: crates
       LCI_HARDNESS: C
       LCI_GATES: ''
-      LCI_RELEASE: v0.4.10
+      LCI_RELEASE: v0.4.11
       # The engine built every lane's Rust into its own cache directory, which
       # no rust-cache entry holds, so A02 compiled the workspace cold on every
       # run and its lane ended at 397.1 s (run 43273499037). Building into the
@@ -61,7 +64,7 @@ jobs:
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: '175dbde808ed9347118b5033eac00418d09a76422468ef03e18054b3f7213fe0'
+      LCI_VERIFIER_SHA256: '806f7857f01bedeb66d24e2e369cc36f323e46028f20db2cad74acff804fee77'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
