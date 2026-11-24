@@ -90,27 +90,85 @@ fn idle_steps(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(found)
 }
 
-/// logical_ci's A02 lane probes `cargo test --release -p lgwks_std --lib loom` inside a 97 279 ms
-/// timer. loom runs under `--release`, so the job builds that exact target before the engine runs:
-/// cold, the probe's own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537).
+/// logical_ci's A02 lane probes loom under `--release` inside a 97 279 ms timer; cold, the probe's
+/// own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537). The job builds the
+/// release target before the engine runs. Since logical_ci v0.4.10 (logical_ci#549) the engine
+/// prints that build with its wrapper and its `loom-target`, and the job runs every printed cargo
+/// build with its own environment, so the probe's target is the one built.
 #[test]
 fn the_loom_probe_release_target_is_built_before_the_engine() -> TestResult {
     let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
-    let prebuild = "cargo test --locked --release -p lgwks_std --lib --no-run";
-    let built = text
-        .find(prebuild)
-        .ok_or("logical_ci.yml builds no release target for the loom probe")?;
     let engine = text
         .find("- name: Run ci and keep the sealed record")
         .ok_or("logical_ci.yml has no engine step")?;
-    assert!(
-        built < engine,
-        "the loom probe's release target is built after the engine already timed it"
-    );
-    // The prebuild is the probe's own target: same package, same lib, same profile, from the lockfile.
-    for part in ["--release", "-p lgwks_std --lib", "--locked"] {
-        assert!(prebuild.contains(part), "the prebuild lost `{part}`");
+    for part in [
+        "plan --builds --tenant \"$LCI_TENANT\" --json",
+        "select(.program == \"cargo\")",
+        "[.env[] | \"\\(.name)=\\(.value)\"]",
+        "sh -e \"$RUNNER_TEMP/lci-builds.sh\"",
+    ] {
+        let built = text
+            .find(part)
+            .ok_or_else(|| format!("logical_ci.yml never runs the engine's builds: no `{part}`"))?;
+        assert!(
+            built < engine,
+            "`{part}` comes after the engine already timed the loom probe"
+        );
     }
+    Ok(())
+}
+
+/// The first run on logical_ci v0.4.10 (run 45442648134) spent 12.3 min cold on the builds the
+/// engine printed (4 m 03 s, 1 m 45 s, 6 m 28 s), and its 15-minute cap cancelled A11 91 s into
+/// the engine's 420 s budget. A cancelled job saves no cache, so the next run is cold again. The
+/// cap holds setup, those builds, the budget and the upload.
+#[test]
+fn the_logical_ci_job_outlasts_its_cold_builds_and_lane_budget() -> TestResult {
+    const SETUP_S: u64 = 60;
+    const COLD_BUILDS_S: u64 = 243 + 105 + 388;
+    const LANE_BUDGET_S: u64 = 420;
+    const UPLOAD_S: u64 = 60;
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    let minutes: u64 = text
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("timeout-minutes:"))
+        .ok_or("logical_ci.yml sets no timeout-minutes")?
+        .trim()
+        .parse()?;
+    let need = SETUP_S + COLD_BUILDS_S + LANE_BUDGET_S + UPLOAD_S;
+    assert!(
+        minutes * 60 >= need,
+        "the job's {minutes}-minute cap ends before its cold run's {need} s"
+    );
+    Ok(())
+}
+
+/// Run 45448206410: the wait step saw bot-rest's listing in the REST answer at 17:27:09.15, and
+/// `download-artifact`, which reads its own listing, fetched 12 of 13 at 17:27:09.49, so the
+/// simulation lane could not run. The job fetches each listing by id from the answer it waited on.
+/// It fetches only this run's `SUITES`: with the bot rows routed off (ADR 0086), their listings
+/// are main's from the cache, and this run uploaded none to fetch.
+#[test]
+fn the_simulation_lane_fetches_the_listings_it_waited_for() -> TestResult {
+    let text = fs::read_to_string(workflows().join("ci.yml"))?;
+    let step = text
+        .split("- name: ")
+        .find(|step| step.starts_with("Wait for and fetch the Linux suite listings"))
+        .ok_or("ci.yml has no step that waits for and fetches the suite listings")?;
+    for part in [
+        "actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100",
+        "for suite in ${SUITES}; do",
+        "dir=\"nextest-listing/nextest-listing-${suite}-Linux\"",
+        "id=\"${before##*\\\"id\\\":}\"",
+        "/actions/artifacts/${id}/zip",
+        "test -s \"${file}\"",
+    ] {
+        assert!(step.contains(part), "the listing step lost `{part}`");
+    }
+    assert!(
+        !text.contains("pattern: nextest-listing-*-Linux"),
+        "a second listing of the artifacts can miss one the wait saw"
+    );
     Ok(())
 }
 

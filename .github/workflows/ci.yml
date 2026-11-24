@@ -295,7 +295,11 @@ jobs:
           key: ${{ needs.changes.outputs.bot_key }}
           path: nextest-listing/nextest-listing-bot-*-Linux
           fail-on-cache-miss: true
-      - name: Wait for the Linux suite listings
+      # The listings are fetched by id from the same REST answer the wait
+      # matched. A second listing (download-artifact's) lagged it: bot-rest's
+      # listing was created at 17:27:08, the wait saw it at 17:27:09.15, and
+      # the download listed 12 of 13 at 17:27:09.49 (run 45448206410).
+      - name: Wait for and fetch the Linux suite listings
         env:
           TOKEN: ${{ github.token }}
           SUITES: ${{ needs.changes.outputs.bot == 'false' && 'workspace' || 'workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8' }}
@@ -307,17 +311,28 @@ jobs:
             for suite in ${SUITES:-workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8}; do
               case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
             done
-            if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
+            if [ -z "${missing}" ]; then
+              echo "every suite listing is uploaded"
+              # Only this run's suites: with the bot rows routed off, their
+              # listings are main's, restored from the cache above.
+              for suite in ${SUITES}; do
+                dir="nextest-listing/nextest-listing-${suite}-Linux"
+                file="${dir}/listing.json"
+                before="${listed%%\"name\":\"${dir#nextest-listing/}\"*}"
+                id="${before##*\"id\":}"
+                id="${id%%,*}"
+                mkdir -p "${dir}"
+                curl -fsSL --retry 3 -H "Authorization: Bearer ${TOKEN}" -o /tmp/listing.zip "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip"
+                unzip -o -q /tmp/listing.zip -d "${dir}"
+                test -s "${file}"
+              done
+              exit 0
+            fi
             echo "attempt ${attempt}: waiting on${missing}"
             sleep 4
           done
           echo "::error::the suite listings never arrived:${missing}"
           exit 1
-      - name: Download the Linux suite listings
-        uses: actions/download-artifact@v8
-        with:
-          pattern: nextest-listing-*-Linux
-          path: nextest-listing
       - name: Deterministic simulation evidence
         run: |
           set -euo pipefail
