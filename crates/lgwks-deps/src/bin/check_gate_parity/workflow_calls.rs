@@ -188,8 +188,13 @@ mod tests {
         command.contains(" -p ") && (command.contains(" --lib") || command.contains(" --test "))
     }
 
-    /// The prebuild steps: each scoped to its packages and targets, and the
-    /// property lane's own before the engine runs.
+    /// The call that prints what the engine's compile lanes start from.
+    const PRINTED_BUILDS: &str = "plan --builds --tenant \"$LCI_TENANT\" --json";
+    /// The line that runs each printed build.
+    const RUN_PRINTED: &str = "sh -e \"$RUNNER_TEMP/lci-builds.sh\"";
+
+    /// The prebuild steps: each written one scoped to its packages and
+    /// targets, and the engine's printed builds run before the engine.
     fn prebuild_problems(workflow: &str) -> Vec<String> {
         let mut problems = Vec::new();
         // A `nextest --no-run` naming no target compiles every test binary
@@ -215,14 +220,19 @@ mod tests {
                     .to_owned(),
             );
         }
+        // A list written here went stale: v0.4.9's A02 selected 12 targets,
+        // the 5 listed warmed nothing, and A02 and A11 were killed at 396 s
+        // (run 45392276274). The job runs what the engine prints instead
+        // (logical_ci#549), and it must run it before the engine.
         let engine = engine_step(workflow);
-        if !prebuilds.iter().any(|&(at, command)| {
-            command.contains(" --lib")
-                && command.contains(" --test it")
-                && engine.is_some_and(|engine| at < engine)
-        }) {
+        let before_engine = |needle: &str| {
+            workflow
+                .find(needle)
+                .is_some_and(|at| engine.is_some_and(|engine| at < engine))
+        };
+        if !before_engine(PRINTED_BUILDS) || !before_engine(RUN_PRINTED) {
             problems.push(
-                "logical_ci.yml leaves the property lane's cold compile inside its lane cap"
+                "logical_ci.yml leaves the compile lanes' cold builds inside their lane cap"
                     .to_owned(),
             );
         }
@@ -362,6 +372,13 @@ mod tests {
             ],
             "a copy whose engine builds outside the cached target is named"
         );
+        prebuild_controls(&gate, &adr);
+    }
+
+    /// A copy that brings back an unscoped prebuild, never asks the engine for
+    /// its builds, never runs them, or runs them after the engine.
+    fn prebuild_controls(gate: &str, adr: &str) {
+        let (gate, adr) = (gate.to_owned(), adr.to_owned());
         let prebuilt = gate.replacen(
             "      - name: Run ci and keep the sealed record",
             "      - name: Build the property lane's test targets\n        \
@@ -378,17 +395,18 @@ mod tests {
             ],
             "a copy that brings back the 51-binary prebuild is named"
         );
-        let loom = "run: cargo test --locked --release -p lgwks_std --lib --no-run";
-        assert!(
-            gate.contains(loom),
-            "the loom prebuild the controls mutate must exist"
-        );
+        let step = "      - name: Run ci and keep the sealed record";
         for unscoped in [
             "run: cargo test --locked --release --lib --no-run",
             "run: cargo test --locked --release -p lgwks_std --no-run",
         ] {
+            let added = gate.replacen(
+                step,
+                &format!("      - name: A release prebuild\n        {unscoped}\n{step}"),
+                1,
+            );
             assert_eq!(
-                inline_gate_problems(&gate.replacen(loom, unscoped, 1), &adr),
+                inline_gate_problems(&added, &adr),
                 vec![
                     "logical_ci.yml prebuilds every test binary the engine's property lane skips"
                         .to_owned()
@@ -396,15 +414,33 @@ mod tests {
                 "a release prebuild that drops its package or its target is named: {unscoped}"
             );
         }
-        let in_cap = gate.replacen("--test it --no-run", "--test it", 1);
-        assert_ne!(in_cap, gate, "the prebuild the control drops must exist");
+        let in_cap = "logical_ci.yml leaves the compile lanes' cold builds inside their lane cap";
+        for (dropped, why) in [
+            (
+                PRINTED_BUILDS,
+                "a copy that never asks the engine for its builds",
+            ),
+            (
+                RUN_PRINTED,
+                "a copy that asks for the builds and never runs them",
+            ),
+        ] {
+            let unbuilt = gate.replacen(dropped, "true", 1);
+            assert_ne!(unbuilt, gate, "the text the control drops must exist");
+            assert_eq!(
+                inline_gate_problems(&unbuilt, &adr),
+                vec![in_cap.to_owned()],
+                "{why} is named"
+            );
+        }
+        // The engine runs first, so the printed builds come after its lanes.
+        let builds = "      - name: Build what the compile lanes start from";
+        let late = gate.replacen(builds, &format!("{step}\n{builds}"), 1);
+        assert_ne!(late, gate, "the step the control moves must exist");
         assert_eq!(
-            inline_gate_problems(&in_cap, &adr),
-            vec![
-                "logical_ci.yml leaves the property lane's cold compile inside its lane cap"
-                    .to_owned()
-            ],
-            "a copy with no selected prebuild before the engine is named"
+            inline_gate_problems(&late, &adr),
+            vec![in_cap.to_owned()],
+            "a copy that builds after the engine ran is named"
         );
     }
 

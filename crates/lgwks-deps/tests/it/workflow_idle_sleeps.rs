@@ -90,26 +90,30 @@ fn idle_steps(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(found)
 }
 
-/// logical_ci's A02 lane probes `cargo test --release -p lgwks_std --lib loom` inside a 97 279 ms
-/// timer. loom runs under `--release`, so the job builds that exact target before the engine runs:
-/// cold, the probe's own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537).
+/// logical_ci's A02 lane probes loom under `--release` inside a 97 279 ms timer; cold, the probe's
+/// own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537). The job builds the
+/// release target before the engine runs. Since logical_ci v0.4.10 (logical_ci#549) the engine
+/// prints that build with its wrapper and its `loom-target`, and the job runs every printed cargo
+/// build with its own environment, so the probe's target is the one built.
 #[test]
 fn the_loom_probe_release_target_is_built_before_the_engine() -> TestResult {
     let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
-    let prebuild = "cargo test --locked --release -p lgwks_std --lib --no-run";
-    let built = text
-        .find(prebuild)
-        .ok_or("logical_ci.yml builds no release target for the loom probe")?;
     let engine = text
         .find("- name: Run ci and keep the sealed record")
         .ok_or("logical_ci.yml has no engine step")?;
-    assert!(
-        built < engine,
-        "the loom probe's release target is built after the engine already timed it"
-    );
-    // The prebuild is the probe's own target: same package, same lib, same profile, from the lockfile.
-    for part in ["--release", "-p lgwks_std --lib", "--locked"] {
-        assert!(prebuild.contains(part), "the prebuild lost `{part}`");
+    for part in [
+        "plan --builds --tenant \"$LCI_TENANT\" --json",
+        "select(.program == \"cargo\")",
+        "[.env[] | \"\\(.name)=\\(.value)\"]",
+        "sh -e \"$RUNNER_TEMP/lci-builds.sh\"",
+    ] {
+        let built = text
+            .find(part)
+            .ok_or_else(|| format!("logical_ci.yml never runs the engine's builds: no `{part}`"))?;
+        assert!(
+            built < engine,
+            "`{part}` comes after the engine already timed the loom probe"
+        );
     }
     Ok(())
 }
