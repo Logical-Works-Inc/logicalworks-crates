@@ -534,10 +534,16 @@ mod tests {
     }
 
     /// The paths rust-cache saves, in its order: a restore naming any other
-    /// set computes another cache version and finds none of its entries.
+    /// set computes another cache version and finds none of its entries. The
+    /// target is the job's workspace's own (`inputs.workspace`).
     const RUST_CACHE_PATHS: &str = "\"${home}/bin\" \"${home}/.crates.toml\" \
         \"${home}/.crates2.json\" \"${home}/registry\" \"${home}/git\" \
-        \"${GITHUB_WORKSPACE}/target\"";
+        \"${target}\"";
+
+    /// The target rust-cache saves for a job's workspace, the root's or a
+    /// nested one's.
+    const WORKSPACE_TARGET: &str = "target=\"${GITHUB_WORKSPACE}/target\"\n        \
+        if [ \"${WORKSPACE}\" != \".\" ]; then target=\"${GITHUB_WORKSPACE}/${WORKSPACE}/target\"; fi";
 
     /// What keeps a pull request whose lockfile moved off a cold build (ADR
     /// 0036): after rust-cache's step, a read-only restore of main's newest
@@ -566,7 +572,7 @@ mod tests {
                     .to_owned(),
             );
         }
-        if !action.contains(RUST_CACHE_PATHS) {
+        if !action.contains(RUST_CACHE_PATHS) || !action.contains(WORKSPACE_TARGET) {
             problems.push("hosted-rust's base build names other paths than rust-cache".to_owned());
         }
         if !action.contains(
@@ -580,7 +586,7 @@ mod tests {
         if !action.contains("\n          v0-rust-${{ inputs.cache-key }}-\n") {
             problems.push("hosted-rust's base build is not main's entry for its group".to_owned());
         }
-        if !action.contains("hash=\"$(key Cargo.lock)\"")
+        if !action.contains("lock=\"${WORKSPACE}/Cargo.lock\"\n        hash=\"$(key \"${lock}\")\"")
             || !action.contains("base=\"$(key \"${base_lock}\")\"")
         {
             problems.push("hosted-rust keys main's entry by another hash than its own".to_owned());
@@ -610,6 +616,17 @@ mod tests {
                 "\"${home}/registry\" \"${home}/git\"",
                 "\"${home}/git\" \"${home}/registry\"",
                 "hosted-rust's base build names other paths than rust-cache",
+            ),
+            // Run 45426215266: the bench's own target was never cached.
+            (
+                "target=\"${GITHUB_WORKSPACE}/${WORKSPACE}/target\"",
+                "target=\"${GITHUB_WORKSPACE}/target\"",
+                "hosted-rust's base build names other paths than rust-cache",
+            ),
+            (
+                "hash=\"$(key \"${lock}\")\"",
+                "hash=\"$(key Cargo.lock)\"",
+                "hosted-rust keys main's entry by another hash than its own",
             ),
             // Run 45084656634: the group's newest entry was another job's
             // build, and every workspace slice compiled its 217 crates.
