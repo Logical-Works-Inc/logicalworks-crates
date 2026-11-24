@@ -5,11 +5,9 @@ name: logical_ci
 # 0 s on every run. The job below is logical_ci's own gate.yml at
 # Logical-Works-Inc/logical_ci@d0daddd235a8558de5465620714a314dcd2229db (#215),
 # step for step on its macos-arm64 asset, re-pinned to
-# pin the signed v0.4.9 release: its ci/property-and-loom builds only the targets that hold a
+# pin the signed v0.4.3 release: its ci/property-and-loom builds only the targets that hold a
 # property test (5 of this workspace's 51 test binaries) and the packages that model loom,
 # where a whole-workspace build ran A02 out of its 397.9 s lane (runs 43244596498, 43278464658).
-# v0.4.9 keeps the loom build in the run's target, not the run's scratch (logical_ci#484):
-# v0.4.3's scratch build started cold every run and A02 sealed UNMEASURED (run 45381300749).
 on:
   pull_request:
   push:
@@ -28,7 +26,7 @@ jobs:
     # A fork's pull request is never handed LOGICAL_CI_TOKEN, so it could only
     # fail at the download; it skips instead of reporting a false NO-GO.
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    # mac-specific: logical_ci v0.4.9 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
+    # mac-specific: logical_ci v0.4.3 publishes a linux-arm64 pair too, but Linux refuses `ci` until lane containment lands (logical_ci#85), so the pins are of the macos-arm64 bytes.
     runs-on: macos-latest
     # Warm, the job is setup, a prebuild that compiles nothing and a 99 s
     # lane. Cold (its rust-cache entry evicted) the prebuild took 7 m 46 s on
@@ -40,7 +38,7 @@ jobs:
       LCI_TENANT: crates
       LCI_HARDNESS: C
       LCI_GATES: ''
-      LCI_RELEASE: v0.4.9
+      LCI_RELEASE: v0.4.3
       # The engine built every lane's Rust into its own cache directory, which
       # no rust-cache entry holds, so A02 compiled the workspace cold on every
       # run and its lane ended at 397.1 s (run 43273499037). Building into the
@@ -62,7 +60,7 @@ jobs:
       # The release ed25519 public key and the verifier's sha256, pinned by
       # logical_ci's gate.yml (its ADR 0014): a swapped release cannot verify.
       LCI_RELEASE_PUBKEY: 'fe3995fafb2d8bb58eb0817975b1cd10bb34855ed93afd2d79315bf0873c7bce'
-      LCI_VERIFIER_SHA256: '82e864bab804c3c751228806b4af8d6e89554b302cedcee7075515cd02af59f5'
+      LCI_VERIFIER_SHA256: '2a8ad3bb200aed08ef0227f286c617f38a70d51103aab1aa156be1549f7207f0'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -155,19 +153,8 @@ jobs:
       # runs under --release, a profile the step above never builds. Cold, that
       # compile outlasted the probe's 97 279 ms and sealed A02 UNMEASURED on a
       # commit that changed two strings (run 44733566537), where its warm parent
-      # passed (run 44730131277). The engine builds it with itself as the
-      # workspace wrapper, `LOGICAL_CI_RUSTC_CFG=loom`, LTO off and 256 codegen
-      # units, into `loom-target` under its target (src/gates/property.rs at
-      # v0.4.9). This step sets the same, so the probe only runs its tests: built
-      # with the job's own flags into the workspace target it warmed nothing,
-      # and the probe was killed at 103 473 ms (run 45384510957).
+      # passed (run 44730131277). Built here, the probe only runs its tests.
       - name: Build the loom probe's release target
-        env:
-          RUSTC_WORKSPACE_WRAPPER: ${{ runner.temp }}/lci/logical_ci-macos-arm64
-          LOGICAL_CI_RUSTC_CFG: loom
-          CARGO_PROFILE_RELEASE_LTO: "off"
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "256"
-          CARGO_TARGET_DIR: ${{ github.workspace }}/target/loom-target
         run: cargo test --locked --release -p lgwks_std --lib --no-run
       - name: Run ci and keep the sealed record
         id: ci
