@@ -6,9 +6,9 @@ description: >
   cache key never rotates on a toolchain the image adds, and sets up the two
   cache layers, each with one owner: Swatinem/rust-cache holds the registry and
   the dependency build, keyed by the lane group the job builds and saved from
-  `main` alone; sccache, on the GitHub Actions backend, holds compiled crates,
-  workspace crates included, because every hosted job checks out at the same
-  path. Tools arrive prebuilt and pinned (taiki-e/install-action), never
+  `main` alone; kache holds every rustc output, keyed by its inputs, in one
+  GHCR store that `main` and the merge queue write and every job reads (ADR
+  0086). Tools arrive prebuilt and pinned (taiki-e/install-action), never
   compiled in CI. WORKFLOW.md §12 is the specification.
 inputs:
   toolchain:
@@ -53,15 +53,6 @@ inputs:
       so it saves nothing and leaves the room to the jobs that do (ADR 0041).
     required: false
     default: "true"
-  sccache:
-    description: >
-      Whether the job reads and writes sccache. A job whose rust-cache entry main
-      already saves restores its whole dependency build from that entry, so its
-      sccache objects only took room: the repository's 10 GiB held 5.24 GiB of
-      them, sccache logged 143 write errors on the macOS bot archive and every
-      run compiled it cold (run 41633491192).
-    required: false
-    default: "false"
 runs:
   using: composite
   steps:
@@ -184,7 +175,9 @@ runs:
       id: rust-cache
       uses: Swatinem/rust-cache@v2
       with:
-        shared-key: ${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}
+        # `-kache-` marks a build compiled through kache. A build saved
+        # before kache keeps its old key, and the kache step reads the mark.
+        shared-key: ${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.hash }}
         add-rust-environment-hash-key: "false"
         workspaces: ${{ inputs.workspace }} -> target
         # Every ref saving filled the 10 GiB cap and evicted main's entries,
@@ -231,35 +224,105 @@ runs:
         path: ${{ steps.base-paths.outputs.paths }}
         key: v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}-base
         restore-keys: |
+          v0-rust-${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.base }}-
           v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-
+          v0-rust-${{ inputs.cache-key }}-kache-
           v0-rust-${{ inputs.cache-key }}-
     - name: Report the base build
       if: steps.base-paths.outcome == 'success'
       shell: bash
       run: echo "base build ${{ steps.base-build.outputs.cache-matched-key || 'none' }}"
-    - name: Install sccache
-      if: inputs.caches == 'true' && inputs.sccache == 'true'
-      continue-on-error: true
-      uses: mozilla-actions/sccache-action@v0.0.11
-      with:
-        version: v0.18.0
-    # sccache cannot cache an incremental compilation, and a hosted target
-    # directory never outlives its job, so incremental state is only cost here.
-    - name: Set up sccache as the compiler wrapper
+    # kache (kunobi-ninja/kache, Apache-2.0) keys each rustc output, bins, test
+    # binaries, build scripts and clippy runs included, by its inputs, and
+    # shares it through one OCI store in GHCR, which has no 10 GiB cap (ADR
+    # 0086). The release asset is checked against the SHA-256 its release
+    # published, so a swapped binary never runs. Measured on the Mac at a new
+    # checkout path: kache served 224 of 226 crates in 34 s, where the wrapper it
+    # replaced served 141 of 200 in 112 s.
+    - name: Install kache
       if: inputs.caches == 'true'
       shell: bash
+      env:
+        KACHE_VERSION: "2.3.0"
       run: |
+        set -euo pipefail
+        case "${RUNNER_OS}-${RUNNER_ARCH}" in
+          Linux-ARM64) asset=kache-aarch64-unknown-linux-musl.tar.gz; sum=c3f8dfeef93659eabbb00f7d58cdf882e33560ae61306bb784158ccfa7d02bd5 ;;
+          Linux-X64) asset=kache-x86_64-unknown-linux-musl.tar.gz; sum=60b6c507a1bfd396baba8670e0612feb5dda2c8460c8f02644328dde64359701 ;;
+          macOS-ARM64) asset=kache-aarch64-apple-darwin.tar.gz; sum=66a078e0cb85f80a80a365b61a646791d6fe27f2000832194cadf06deddd6438 ;;
+          macOS-X64) asset=kache-x86_64-apple-darwin.tar.gz; sum=45e33861306133dfd970de7301ed1e560b2db18f999528e2416556064e3e3719 ;;
+          Windows-X64) asset=kache-x86_64-pc-windows-msvc.zip; sum=07b723787880c0de128f6e9d1f52ee4f96948a574f108c574a4f58728daacf59 ;;
+          Windows-ARM64) asset=kache-aarch64-pc-windows-msvc.zip; sum=943013b221d867742cb4dd2a8e157e323f9d0f2f3edf16daae98f47a57c61a4a ;;
+          *) echo "::error::kache ${KACHE_VERSION} has no release for ${RUNNER_OS}-${RUNNER_ARCH}"; exit 1 ;;
+        esac
+        dir="${RUNNER_TEMP}/kache"
+        mkdir -p "${dir}/bin" "${dir}/store"
+        curl -fsSL --retry 5 --retry-all-errors -o "${dir}/${asset}" \
+          "https://github.com/kunobi-ninja/kache/releases/download/v${KACHE_VERSION}/${asset}"
+        if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "${dir}/${asset}")"; else got="$(shasum -a 256 "${dir}/${asset}")"; fi
+        got="${got%% *}"
+        if [ "${got}" != "${sum}" ]; then
+          echo "::error::${asset} has SHA-256 ${got}, not the released ${sum}"
+          exit 1
+        fi
+        case "${asset}" in
+          *.zip) 7z x -y -o"${dir}/bin" "${dir}/${asset}" >/dev/null ;;
+          *) tar -xzf "${dir}/${asset}" -C "${dir}/bin" ;;
+        esac
+        "${dir}/bin/kache" --version
+    # One store for every job: `main` pushes and merge-queue runs write it (a
+    # protected branch writes by kache's own CI policy, the queue by
+    # KACHE_GITHUB_WRITES), and a pull request only reads it, so no change
+    # under review can put an output under another commit's key. Each job's
+    # local store starts empty and is the job's alone. Incremental state is
+    # off: a hosted target never outlives its job, and kache's incremental
+    # seeding runs rustc with RUSTC_BOOTSTRAP=1. Layout advice is off: the
+    # store sits on the workspace disk and the suites' nested builds on the
+    # /tmp tmpfs, so every restore there crosses a device. With advice on,
+    # kache left a `kache-cow-warn-*.hardlink-exdev` marker in each test's
+    # TMPDIR and the residue census failed 17 rows (run 45441661494, ADR 0078).
+    # A dependency build restored from before kache was compiled without it,
+    # and cargo rebuilds every unit when the wrapper changes: run 45471907504
+    # restored main's build, then compiled 399 of 399 crates through an empty
+    # store, 130 to 196 s a shard against main's 76 to 95 s. Such a job reuses
+    # the build and runs no wrapper. A main run never restores one this way, so
+    # main compiles through kache, writes the store and saves a `-kache-` build.
+    - name: Set up kache as the compiler wrapper
+      if: inputs.caches == 'true'
+      shell: bash
+      env:
+        TOKEN: ${{ github.token }}
+        EXACT: ${{ steps.rust-cache.outputs.cache-hit }}
+        BASE: ${{ steps.base-build.outputs.cache-matched-key }}
+      run: |
+        set -euo pipefail
+        if [ "${EXACT}" != true ] && [ -n "${BASE}" ] && [[ "${BASE}" != *-kache-* ]]; then
+          echo "kache: off for this job: the restored build ${BASE} was compiled without it"
+          exit 0
+        fi
+        dir="${RUNNER_TEMP}/kache"
+        bin="${dir}/bin/kache"
+        if [ "${RUNNER_OS}" = Windows ]; then bin="${bin}.exe"; fi
+        cat > "${dir}/config.toml" <<'KACHE_TOML'
+        [cache]
+        seed_incremental = false
+        adaptive_incremental = false
+        storage_layout_advice = false
+
+        [cache.remote]
+        type = "oci"
+        repository = "ghcr.io/logical-works-inc/kache-cache"
+        prefix = "artifacts"
+        KACHE_TOML
         {
-          if [ "${{ inputs.sccache }}" = "true" ] && command -v sccache >/dev/null 2>&1; then
-            echo "SCCACHE_GHA_ENABLED=true"
-            echo "RUSTC_WRAPPER=sccache"
-            # Writes from main alone, as rust-cache saves: a pull request's
-            # writes warm only its own next run, and with eighty jobs writing
-            # at once the throttled cache calls stalled whole compiles (run
-            # 41777272472: the reduced-bot clippy leg printed nothing for
-            # 4 m 25 s after 94 requests, with every miss a write error).
-            echo "SCCACHE_GHA_RW_MODE=${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}"
-          fi
+          echo "RUSTC_WRAPPER=${bin}"
+          echo "KACHE_CONFIG=${dir}/config.toml"
+          echo "KACHE_CACHE_DIR=${dir}/store"
+          echo "KACHE_MAX_SIZE=6GiB"
+          echo "KACHE_OCI_USERNAME=${GITHUB_ACTOR}"
+          echo "KACHE_OCI_PASSWORD=${TOKEN}"
+          echo "KACHE_GITHUB_WRITES=merge_group"
+          if [ "${GITHUB_EVENT_NAME}" = pull_request ]; then echo "KACHE_REMOTE_READONLY=1"; fi
           echo "CARGO_INCREMENTAL=0"
         } >> "${GITHUB_ENV}"
     - name: Install cargo-nextest

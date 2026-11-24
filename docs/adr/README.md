@@ -2,7 +2,6 @@
 
 Every architecture decision in this repository is a record here, and the record
 is held to **ISO/IEC/IEEE 42010** by `check-docs` in the `doc-governance` lane.
-Prose review does not catch a missing field; a refusal does.
 
 | Field | 42010 clause | What it must say |
 |---|---|---|
@@ -118,3 +117,4 @@ Prose review does not catch a missing field; a refusal does.
 | [0083](0083-a-denied-child-keeps-its-devices-and-loses-the-user-manager.md) | A denied child keeps its devices and loses the user manager |
 | [0084](0084-a-skill-hygiene-lane.md) | A skill hygiene lane: every skill loads, routes and compiles |
 | [0085](0085-a-sliced-shard-runs-each-slice-once.md) | A sliced shard runs each slice once |
+| [0086](0086-one-compile-cache-and-two-ci-speeds.md) | One compile cache, and two CI speeds |

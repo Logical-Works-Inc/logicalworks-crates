@@ -1,0 +1,65 @@
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8274399Z ##[group]Run cargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8276839Z ^[[36;1mcargo nextest run ${NEXTEST_BUILD:---workspace --locked} -E 'not binary(storefront_consumers) and not package(lgwks_bot) and not (package(lgwks_deps) and binary(it) and (test(/^(lgwks_e2e|lgwks_json)::/) or test(=sim_lgwks_expand::expanded_app_passes_clippy) or test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)))' ${PARTITION:+--partition $PARTITION}^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8278190Z shell: sh -e {0}
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8278372Z env:
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8278545Z   CARGO_PROFILE_TEST_DEBUG: 0
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8278773Z   CARGO_PROFILE_TEST_OPT_LEVEL: 1
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8279043Z   CARGO_INCREMENTAL: 0
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8279250Z   CARGO_BUILD_WARNINGS: deny
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8279465Z   PARTITION: slice:4/10
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8279789Z   NEXTEST_BUILD: --workspace --exclude lgwks_bot --locked --cargo-profile ci-bot
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8280166Z   LWC_IT_GROUP: 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8280344Z   RUST_IT_GROUP_RUSTC: 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8280544Z   RUST_MIN_STACK: 8388608
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8280751Z   RUSTC_WORKSPACE_WRAPPER: 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8280973Z   CARGO_HOME: /usr/local/cargo
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8281187Z   CARGO_TERM_COLOR: always
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8281395Z   CACHE_ON_FAILURE: true
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:33.8281590Z ##[endgroup]
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:34.5877297Z ^[[1minfo^[[0m: experimental features enabled: setup-scripts, wrapper-scripts
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:35.0497231Z ^[[1m^[[92m    Finished^[[0m `ci-bot` profile [unoptimized] target(s) in 0.45s
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:35.3208872Z ────────────
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:35.3209516Z ^[[32;1m Nextest run^[[0m ID ^[[1md71fd6f1-edb4-47bd-8401-c6f1b48e713d^[[0m with nextest profile: ^[[1mdefault^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:35.3210338Z ^[[32;1m    Starting^[[0m ^[[1m371^[[0m tests across ^[[1m76^[[0m binaries (^[[1m3352^[[0m tests and ^[[1m1^[[0m binary ^[[33;1mskipped^[[0m)
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.7873511Z ^[[32;1m        PASS^[[0m [   0.188s] ( 94/371) ^[[35;1mlgwks_ast::it^[[0m ^[[36msim_scan_detectors::sim_rules^[[0m^[[36m::^[[0m^[[34;1ma_test_function_nested_in_production_code_is_exempt^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8247039Z ^[[31;1m        FAIL^[[0m [   0.041s] ( 95/371) ^[[35;1mlgwks_ast::it^[[0m ^[[36msim_scan_examples^[[0m^[[36m::^[[0m^[[34;1mthe_shipped_scan_holds_a_change_to_its_added_lines^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8248869Z ^[[31;1m ^[[0m ^[[31;1mstdout^[[0m ^[[31;1m───^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8249403Z 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8249654Z     running 1 test
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8250523Z     test sim_scan_examples::the_shipped_scan_holds_a_change_to_its_added_lines ... ok
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8250915Z 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8251162Z     test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 263 filtered out; finished in 0.03s
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8251729Z     ^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8252029Z ^[[31;1m ^[[0m ^[[31;1mstderr^[[0m ^[[31;1m───^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8252512Z     churn-slot: orphans: the test left 1 live processes: 124916 (git)^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8252782Z 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8252942Z     (test ^[[31;1mfailed^[[0m with exit code ^[[1m1^[[0m)
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8253144Z 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8253400Z ^[[31;1m  Cancelling^[[0m due to ^[[31;1mtest failure^[[0m: ^[[1m3^[[0m tests still running
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.8330659Z ^[[32;1m        PASS^[[0m [   0.044s] ( 96/371) ^[[35;1mlgwks_ast::it^[[0m ^[[36msim_scan_manifest^[[0m^[[36m::^[[0m^[[34;1mcarriage_returns_do_not_change_the_verdict^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:48.9496217Z ^[[32;1m        PASS^[[0m [   0.206s] ( 97/371) ^[[35;1mlgwks_ast::it^[[0m ^[[36msim_scan_detectors::sim_rules^[[0m^[[36m::^[[0m^[[34;1mexempting_attributes_silence_every_chain_in_their_function^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6007203Z ^[[32;1m        PASS^[[0m [   4.557s] ( 98/371) ^[[35;1mdrishti::sim^[[0m ^[[36mbroker_bounds^[[0m^[[36m::^[[0m^[[34;1msim_broker_double_clicker_repeats_are_idempotent_bounded_and_audited^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6007916Z ────────────
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6008532Z ^[[31;1m     Summary^[[0m [  16.280s] ^[[1m98^[[0m/^[[1m371^[[0m tests run: ^[[1m97^[[0m ^[[32;1mpassed^[[0m, ^[[1m1^[[0m ^[[31;1mfailed^[[0m, ^[[1m3352^[[0m ^[[33;1mskipped^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6009555Z ^[[31;1m        FAIL^[[0m [   0.041s] ( 95/371) ^[[35;1mlgwks_ast::it^[[0m ^[[36msim_scan_examples^[[0m^[[36m::^[[0m^[[34;1mthe_shipped_scan_holds_a_change_to_its_added_lines^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6010606Z ^[[33;1mwarning^[[0m: ^[[1m273^[[0m/^[[1m371^[[0m tests were not run due to ^[[33;1mtest failure^[[0m (run with ^[[1m--no-fail-fast^[[0m to run all tests, or run with ^[[1m--max-fail^[[0m)
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6084726Z ^[[31;1merror^[[0m: test run failed
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6147728Z ##[error]Process completed with exit code 100.
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6225272Z ##[group]Run command -v sccache >/dev/null 2>&1 && sccache --show-stats || true
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6226126Z ^[[36;1mcommand -v sccache >/dev/null 2>&1 && sccache --show-stats || true^[[0m
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6226538Z shell: sh -e {0}
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6226712Z env:
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6226883Z   CARGO_PROFILE_TEST_DEBUG: 0
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6227113Z   CARGO_PROFILE_TEST_OPT_LEVEL: 1
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6227337Z   CARGO_INCREMENTAL: 0
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6227543Z   CARGO_BUILD_WARNINGS: deny
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6227756Z   PARTITION: slice:4/10
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6228087Z   NEXTEST_BUILD: --workspace --exclude lgwks_bot --locked --cargo-profile ci-bot
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6228452Z   LWC_IT_GROUP: 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6228629Z   RUST_IT_GROUP_RUSTC: 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6228824Z   RUST_MIN_STACK: 8388608
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6229032Z   RUSTC_WORKSPACE_WRAPPER: 
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6229254Z   CARGO_HOME: /usr/local/cargo
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6229473Z   CARGO_TERM_COLOR: always
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6229725Z   CACHE_ON_FAILURE: true
+Tests on Linux (workspace, slice:4/10)	UNKNOWN STEP	2026-11-24T15:22:51.6229938Z ##[endgroup]
