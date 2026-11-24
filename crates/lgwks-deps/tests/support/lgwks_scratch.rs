@@ -275,10 +275,23 @@ pub(crate) fn app_target() -> PathBuf {
     PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lgwks-apps")
 }
 
+/// The `TMPDIR` a run started in `dir` gets: its own, beside the app so the
+/// app's tree stays its scaffold, so a stop can require that the app took its
+/// ephemeral store with it.
+fn run_tmp(dir: &Path) -> PathBuf {
+    let mut named = dir.as_os_str().to_os_string();
+    named.push(".run-tmp");
+    PathBuf::from(named)
+}
+
 /// Start `lgwks run` (with `--json` when asked) in `dir` on `port`, building
-/// in [`app_target`]; stdout is piped for `--json`, inherited otherwise.
+/// in [`app_target`], with a `TMPDIR` of its own ([`run_tmp`]); stdout is
+/// piped for `--json`, inherited otherwise.
 pub(crate) fn spawn_run(dir: &Path, port: u16, json: bool) -> Result<std::process::Child, String> {
+    let tmp = run_tmp(dir);
+    std::fs::create_dir_all(&tmp).map_err(|error| format!("no run TMPDIR: {error}"))?;
     let mut command = std::process::Command::new(binary()?);
+    command.env("TMPDIR", &tmp);
     command.arg("run");
     if json {
         command.arg("--json").stdout(std::process::Stdio::piped());
@@ -295,10 +308,45 @@ pub(crate) fn spawn_run(dir: &Path, port: u16, json: bool) -> Result<std::proces
         .map_err(|error| format!("lgwks run could not start: {error}"))
 }
 
+/// What is still in `dir`, by name; an unreadable dir is not empty.
+fn left_in(dir: &Path) -> Vec<String> {
+    match std::fs::read_dir(dir) {
+        Ok(entries) => entries
+            .map(|entry| match entry {
+                Ok(entry) => entry.file_name().to_string_lossy().into_owned(),
+                Err(error) => format!("<unreadable: {error}>"),
+            })
+            .collect(),
+        Err(error) => vec![format!("<{} unreadable: {error}>", dir.display())],
+    }
+}
+
 /// Kill `lgwks run` alone, as a supervisor would, then require `port` shut
-/// within `deadline`: the app it started must stop with it. Nothing else is
-/// signalled, so a port left open is the command's own defect.
+/// and the run's `TMPDIR` empty within `deadline`: the app it started must
+/// stop with it and take its ephemeral store with it (ADR 0078). Nothing else
+/// is signalled, so a port left open or a store left behind is the command's
+/// own defect.
 pub(crate) fn stop_run(
+    child: &mut std::process::Child,
+    dir: &Path,
+    port: u16,
+    deadline: std::time::Duration,
+) -> Result<(), String> {
+    let closed = close_run(child, port, deadline);
+    let tmp = run_tmp(dir);
+    let step = std::time::Duration::from_millis(50);
+    if !poll_ready(deadline, step, || left_in(&tmp).is_empty()) {
+        lgwks_std::trace::debug!(port, "lgwks-test: the app left its TMPDIR behind");
+        return Err(format!(
+            "after lgwks run was killed, its TMPDIR still holds {:?}",
+            left_in(&tmp)
+        ));
+    }
+    closed
+}
+
+/// Kill `lgwks run` and require `port` shut within `deadline`.
+fn close_run(
     child: &mut std::process::Child,
     port: u16,
     deadline: std::time::Duration,

@@ -53,3 +53,4 @@ is [`INVARIANTS.md`](INVARIANTS.md), part 3 is [`INVARIANTS-3.md`](INVARIANTS-3.
 - **INV-BOT-131** Group-commit evidence is read from a reopened store, never the acknowledging handle. · why: #152 · enforced by: `tests/it/durable_crash_group_commit.rs`
 - **INV-BOT-132** One storage owner serves every durable store with `Settled`, `Unsynced` and `Committed` answers. · why: #152 · enforced by: `tests/it/sim_group_commit.rs`
 - **INV-BOT-140** An awaited answer registers its waker before reading the slot, so no wakeup is lost. · why: #239 · enforced by: `an_answer_published_during_registration_still_wakes_the_poll`
+- **INV-SERVE-5** A serve's ephemeral run store is removed when the serve returns, though a run or a connection still holds its state. · why: #1128 G2, PR #1129's Linux CI · enforced by: `an_ephemeral_store_goes_when_the_serve_returns_though_a_run_holds_on`

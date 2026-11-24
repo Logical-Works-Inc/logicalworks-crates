@@ -157,7 +157,8 @@ pub(super) fn start_gated(
 pub(super) static START_SWEEP: KernelWide<()> = KernelWide::new(());
 
 /// State whose scope the kernel sets, not a tenant: descriptor inheritance
-/// across `fork` and the subreaper's adoptees belong to the whole process, so
+/// across `fork`, the subreaper's adoptees and the temp root's owner lock
+/// (`scratch.rs`) belong to the whole process, so
 /// one per process is the only correct count, and a tenant key could split
 /// what the kernel shares. Held briefly, never across an await.
 #[cfg(all(unix, feature = "process"))]
@@ -166,7 +167,7 @@ pub(super) struct KernelWide<T>(std::sync::Mutex<T>);
 #[cfg(all(unix, feature = "process"))]
 impl<T> KernelWide<T> {
     /// The one value for this process.
-    const fn new(value: T) -> Self {
+    pub(super) const fn new(value: T) -> Self {
         Self(std::sync::Mutex::new(value))
     }
 

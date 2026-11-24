@@ -41,7 +41,6 @@
 
 use std::error::Error;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
 use std::time::Duration;
 
 use lgwks_bot::rt::time::Clock;
@@ -210,9 +209,9 @@ fn a_non_yielding_callback_is_detected_from_outside_and_not_preempted() -> TestR
     }
 
     let runtime = lgwks_bot::rt::runtime::Runtime::new()?;
-    let scratch = child_scratch("t03-non-yielding")?;
-    let marker = scratch.join("started");
-    let sibling_marker = scratch.join("sibling.pid");
+    let scratch = scratch::Scratch::new("t03-non-yielding")?;
+    let marker = scratch.path().join("started");
+    let sibling_marker = scratch.path().join("sibling.pid");
 
     // A sibling of the child's own: unrelated to the child's executor, alive
     // throughout, and never a member of anything the parent signals.
@@ -312,23 +311,11 @@ impl Drop for Reaped {
     }
 }
 
-/// A scratch directory named by wall-clock nanos and a monotone sequence.
-///
-/// A process id would not do: the OS reuses it, so two runs of this test could
-/// read each other's marker, and one run's marker would then be this run's proof
-/// that a child had started when none had.
-fn child_scratch(name: &str) -> Result<PathBuf, Box<dyn Error>> {
-    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let nanos = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-        Ok(since) => since.as_nanos(),
-        // A clock set before the epoch still names an instant: how far before it.
-        Err(before) => before.duration().as_nanos(),
-    };
-    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("lgwks-bot-{name}-{nanos}-{seq}"));
-    std::fs::create_dir_all(&path)?;
-    Ok(path)
-}
+/// The suite's one scratch directory, randomly named and removed on drop: the
+/// wall-clock name this test made before was never removed, and the residue
+/// census (ADR 0078) failed it.
+#[path = "support/scratch.rs"]
+mod scratch;
 
 /// Whether `path` exists and is non-empty; a path that cannot be read is not
 /// there yet, and the reason is traced.

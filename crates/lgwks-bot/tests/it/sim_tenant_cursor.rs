@@ -4,33 +4,31 @@
 //! never moves back, and one tenant's place is never another's.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use lgwks_bot::tenant_store::{TenantStore, TenantStoreError};
 use lgwks_std::seeded::Seeded;
 
+use crate::scratch::Scratch;
+
 /// A test's outcome: setup failures propagate instead of panicking.
 type Outcome<T = ()> = Result<T, Box<dyn std::error::Error>>;
 
-/// A scratch directory for one store.
-fn scratch(name: &str) -> Outcome<PathBuf> {
-    let id = lgwks_std::id::Uuid::new_v4()?;
-    let dir = std::env::temp_dir().join(format!("{name}-{id}"));
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
+/// A scratch directory for one store, removed with the test (ADR 0078).
+fn scratch(name: &str) -> Outcome<Scratch> {
+    Scratch::new(name)
 }
 
 /// Catches a place lost at a reopen, or one that went back.
 #[test]
 fn sim_tenant_cursor_pulled_plug_a_place_survives_and_never_moves_back() -> Outcome {
     let dir = scratch("cursor-reopen")?;
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     assert_eq!(store.cursor("acme", "mailer")?, None);
     assert_eq!(store.advance_cursor("acme", "mailer", 0)?, 0);
     assert_eq!(store.cursor("acme", "mailer")?, Some(0), "zero is a place");
     assert_eq!(store.advance_cursor("acme", "mailer", 7)?, 7);
     drop(store);
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     assert_eq!(store.cursor("acme", "mailer")?, Some(7));
     assert!(matches!(
         store.advance_cursor("acme", "mailer", 6),
@@ -44,8 +42,8 @@ fn sim_tenant_cursor_pulled_plug_a_place_survives_and_never_moves_back() -> Outc
 #[test]
 fn sim_tenant_cursor_double_clicker_the_same_place_writes_nothing() -> Outcome {
     let dir = scratch("cursor-twice")?;
-    let file = dir.join("tenant.store");
-    let store = TenantStore::open(&dir)?;
+    let file = dir.path().join("tenant.store");
+    let store = TenantStore::open(dir.path())?;
     store.advance_cursor("acme", "mailer", 5)?;
     let length = std::fs::metadata(&file)?.len();
     assert_eq!(store.advance_cursor("acme", "mailer", 5)?, 5);
@@ -57,7 +55,7 @@ fn sim_tenant_cursor_double_clicker_the_same_place_writes_nothing() -> Outcome {
 #[test]
 fn sim_tenant_cursor_neighbour_two_tenants_share_no_place() -> Outcome {
     let dir = scratch("cursor-tenants")?;
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     store.advance_cursor("acme", "mailer", 90)?;
     assert_eq!(store.cursor("globex", "mailer")?, None);
     assert_eq!(store.advance_cursor("globex", "mailer", 3)?, 3);
@@ -70,7 +68,7 @@ fn sim_tenant_cursor_neighbour_two_tenants_share_no_place() -> Outcome {
 #[test]
 fn sim_tenant_cursor_giant_and_empty_a_tenant_holds_a_bounded_count() -> Outcome {
     let dir = scratch("cursor-limit")?;
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     for number in 0..64 {
         store.advance_cursor("acme", &format!("consumer-{number}"), 1)?;
     }
@@ -90,14 +88,14 @@ fn sim_tenant_cursor_giant_and_empty_a_tenant_holds_a_bounded_count() -> Outcome
 #[test]
 fn sim_tenant_cursor_saboteur_a_damaged_snapshot_costs_no_place() -> Outcome {
     let dir = scratch("cursor-snapshot")?;
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     for position in 0..600 {
         store.advance_cursor("acme", "mailer", position)?;
     }
     drop(store);
-    let snapshot = dir.join("tenant.snapshot");
+    let snapshot = dir.path().join("tenant.snapshot");
     assert!(snapshot.exists(), "600 frames pass the snapshot interval");
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     assert_eq!(
         store.cursor("acme", "mailer")?,
         Some(599),
@@ -105,7 +103,7 @@ fn sim_tenant_cursor_saboteur_a_damaged_snapshot_costs_no_place() -> Outcome {
     );
     drop(store);
     std::fs::write(&snapshot, b"not a snapshot")?;
-    let store = TenantStore::open(&dir)?;
+    let store = TenantStore::open(dir.path())?;
     assert_eq!(
         store.cursor("acme", "mailer")?,
         Some(599),
@@ -118,7 +116,7 @@ fn sim_tenant_cursor_saboteur_a_damaged_snapshot_costs_no_place() -> Outcome {
 fn monkey(seed: u64) -> Outcome<BTreeMap<(u64, u64), u64>> {
     let mut dice = Seeded::from_seed(seed);
     let dir = scratch("cursor-monkey")?;
-    let mut store = TenantStore::open(&dir)?;
+    let mut store = TenantStore::open(dir.path())?;
     let mut model: BTreeMap<(u64, u64), u64> = BTreeMap::new();
     for _ in 0..60 {
         let (tenant, consumer) = (dice.below(3)?, dice.below(3)?);
@@ -143,7 +141,7 @@ fn monkey(seed: u64) -> Outcome<BTreeMap<(u64, u64), u64>> {
             ),
             _ => {
                 drop(store);
-                store = TenantStore::open(&dir)?;
+                store = TenantStore::open(dir.path())?;
             }
         }
     }

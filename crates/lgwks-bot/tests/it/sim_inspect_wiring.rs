@@ -98,7 +98,8 @@ fn sim_seeded_subjects_agree_across_every_entry_point() -> TestResult<()> {
 
         // The Observe source behind a real bot reads the artifact from disk; the
         // report must be the same report as the bytes handed over directly.
-        let artifact = artifact_for(&format!("sim{seed}"), &source)?;
+        let artifact_file = artifact_for(&format!("sim{seed}"), &source)?;
+        let artifact = artifact_file.path().to_owned();
         let observed = observe_once(&artifact, "sim")?;
         assert_eq!(
             observed,
@@ -171,7 +172,8 @@ fn sim_seeded_budget_tiers_agree_across_entry_points() -> TestResult<()> {
 fn sim_seeded_admission_needs_are_deterministic() -> TestResult<()> {
     for seed in 0..16_u64 {
         let (source, _) = source_for(seed)?;
-        let artifact = artifact_for(&format!("needs{seed}"), &source)?;
+        let artifact_file = artifact_for(&format!("needs{seed}"), &source)?;
+        let artifact = artifact_file.path().to_owned();
         let spec = inspect_support::spec_for(&artifact)?;
         let first = Bot::from_spec(&spec, &INSPECT_DOMAINS, &GrantSet::empty(), scope()?);
         let second = Bot::from_spec(&spec, &INSPECT_DOMAINS, &GrantSet::empty(), scope()?);
@@ -242,7 +244,8 @@ fn sim_seeded_multitenant_reports_stay_isolated() -> TestResult<()> {
 fn sim_seeded_file_read_matches_the_supplied_bytes() -> TestResult<()> {
     for seed in 0..32_u64 {
         let (source, _) = source_for(seed)?;
-        let artifact = artifact_for(&format!("bytes{seed}"), &source)?;
+        let artifact_file = artifact_for(&format!("bytes{seed}"), &source)?;
+        let artifact = artifact_file.path().to_owned();
         let direct = inspect(&InspectRequest::new(&artifact, &source));
         let observed = observe_once(&artifact, "bytes")?;
         assert_eq!(
@@ -368,7 +371,8 @@ fn sim_seeded_node_budget_never_reads_clean_through_the_domain() -> TestResult<(
 fn sim_seeded_unicode_never_false_positives_through_the_domain() -> TestResult<()> {
     let source = "fn f() { let a = wrapped(); let b = my_unwrap(); let é = 1; }\n";
     for seed in 0..16_u64 {
-        let artifact = artifact_for(&format!("uni{seed}"), source)?;
+        let artifact_file = artifact_for(&format!("uni{seed}"), source)?;
+        let artifact = artifact_file.path().to_owned();
         let (direct, query, by_task) = three_doors(&artifact, source)?;
         assert_eq!(direct, query, "seed {seed}: unicode diverged on the Query");
         assert_eq!(direct, by_task, "seed {seed}: unicode diverged on the task");

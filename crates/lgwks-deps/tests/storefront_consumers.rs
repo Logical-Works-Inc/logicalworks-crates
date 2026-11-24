@@ -223,6 +223,14 @@ storefront_families! {
 fn storefront_sqlite_runs_its_journey() -> TestResult {
     let manifest = fixtures().join("storefront-matrix/Cargo.toml");
     let output = cargo_run(&manifest, &["--features", "sqlite", "--example", "sqlite"])?;
+    // The example keeps its store at one fixed name in the temp dir, which
+    // this test's run made; the test removes it (ADR 0078).
+    let store = std::env::temp_dir().join("lgwks-sqlite-journey");
+    match std::fs::remove_dir_all(&store) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("{} stayed: {error}", store.display()).into()),
+    }
     assert!(
         output.status.success(),
         "sqlite journey failed:\n{}",
@@ -400,7 +408,7 @@ fn storefront_sqlite_doctor_reports_and_migrates() -> TestResult {
         "sqlite re-report hid user_version=1:\n{again_text}"
     );
 
-    drop(std::fs::remove_dir_all(&dir));
+    std::fs::remove_dir_all(&dir)?;
     Ok(())
 }
 

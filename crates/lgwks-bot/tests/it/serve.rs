@@ -491,6 +491,71 @@ fn graceful_stop_drains_then_cancels_and_reports() -> Result<(), String> {
     Ok(())
 }
 
+/// Requirement: a per-serve scratch store goes when the serve returns, even
+/// while a run that ignored the stop still holds the serve's state (#1128 G2).
+///
+/// Source: PR #1129's Linux CI, `lgwks run` killed and the app's
+/// `lgwks-serve-<hex>` store left in its `TMPDIR`. The removal waited on the
+/// last holder of the shared state, and a holder that outlives the serve (this
+/// parked run, an axum connection task) on the process-wide driver is never
+/// dropped before exit. The oracle is the directory itself: present while
+/// serving, absent the moment `serve` returns, before the run is released.
+#[test]
+fn an_ephemeral_store_goes_when_the_serve_returns_though_a_run_holds_on() -> Result<(), String> {
+    let gate = Arc::new(Gate::default());
+    let entered = Arc::new(AtomicBool::new(false));
+    let park = parking_route("/park", &gate, &entered);
+    let options = ServeOptions::new_ephemeral(0, 1_000)
+        .map_err(|error| error.to_string())
+        .map(|options| options.with_drain_grace(Duration::from_millis(50)))?;
+    let store = options.store_dir().to_path_buf();
+    let (listener, addr) = loopback()?;
+    let stop = EdgeStop::new();
+    let (made, left) = std::thread::scope(|scope| {
+        let ending = stop.clone();
+        let served = scope.spawn(move || {
+            lgwks_bot::rt::serve::serve(&options, std::vec![park], listener, &ending)
+                .map_err(|error| error.to_string())
+        });
+        let held = scope.spawn(move || {
+            post_timeout(
+                addr,
+                "acme",
+                "/park",
+                b"park",
+                None,
+                Some(Duration::from_secs(60)),
+            )
+        });
+        await_entered(&entered)?;
+        let made = store.is_dir();
+        stop.stop();
+        let joined = served.join();
+        let left = store.exists();
+        gate.release()?;
+        if held.join().is_err() {
+            lgwks_std::trace::debug!("serve: the held request's thread panicked");
+        }
+        match joined {
+            Ok(report) => report.map(|_| (made, left)),
+            Err(_) => Err(String::from("the serve thread panicked")),
+        }
+    })?;
+    if !made {
+        return Err(format!(
+            "the serve never made its store {}",
+            store.display()
+        ));
+    }
+    if left {
+        return Err(format!(
+            "the serve returned and its ephemeral store {} is still there",
+            store.display()
+        ));
+    }
+    Ok(())
+}
+
 /// Requirement: hostile bodies never panic and never allocate past the bound.
 ///
 /// Proves INV-BOT-185: fuzz-shaped bodies are answered `400` or `413`, the

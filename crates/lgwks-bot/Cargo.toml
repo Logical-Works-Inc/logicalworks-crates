@@ -85,8 +85,9 @@ fs = ["io", "lgwks_deps/tokio-fs"]
 # beside the router on its wakes and deadlines (ADR 0006 R5), so it carries the
 # timer and the select it waits with. It carries `script`, whose `task` and
 # `script` modules `app` and `rt::serve` import: without it `edge` alone did not
-# compile (`the_edge_feature_carries_the_modules_it_imports`).
-edge = ["net", "script", "lgwks_deps/axum"]
+# compile (`the_edge_feature_carries_the_modules_it_imports`). It carries
+# `signal`: a served flow drains on `SIGTERM` and `SIGINT` (ADR 0078).
+edge = ["net", "script", "signal", "lgwks_deps/axum"]
 signal = ["rt", "lgwks_deps/tokio-signal"]
 # `inspect`: typed in-process structural code inspection (R8). Host-only, like
 # `process`/`fs`/`net`: it pulls the native tree-sitter grammars through
