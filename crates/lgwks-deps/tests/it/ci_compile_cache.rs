@@ -94,33 +94,60 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
             found.push(format!("hosted-rust does not pin {asset} to its checksum"));
         }
     }
-    if !action.contains("if [ \"${got}\" != \"${sum}\" ]; then") {
-        found.push("hosted-rust runs a kache it never checked".to_owned());
-    }
-    if !action.contains("echo \"RUSTC_WRAPPER=${bin}\"") {
-        found.push("hosted-rust installs kache but never makes it the wrapper".to_owned());
-    }
-    if !action.contains(
-        "type = \"oci\"\n        repository = \"ghcr.io/logical-works-inc/kache-cache\"\n",
-    ) {
-        found.push("hosted-rust's kache has no shared store".to_owned());
-    }
-    if !action.contains(
-        "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
-    ) {
-        found.push("a pull request can write the shared store".to_owned());
-    }
-    if !action.contains("echo \"KACHE_GITHUB_WRITES=merge_group\"") {
-        found.push("the merge queue cannot write the shared store".to_owned());
-    }
-    if !report.contains("\"${kache}\" daemon stop") {
-        found.push("a job ends before kache's uploads drain".to_owned());
-    }
-    if !report.contains("stats --format github") {
-        found.push("a job never prints its hit rate".to_owned());
-    }
-    if !workflow.contains("permissions:\n  contents: read\n  packages: write\n") {
-        found.push("the workflow's token cannot write the shared store".to_owned());
+    // Each text a file must hold, and the problem its absence is.
+    let required = [
+        (
+            action,
+            "if [ \"${got}\" != \"${sum}\" ]; then",
+            "hosted-rust runs a kache it never checked",
+        ),
+        (
+            action,
+            "echo \"RUSTC_WRAPPER=${bin}\"",
+            "hosted-rust installs kache but never makes it the wrapper",
+        ),
+        (
+            action,
+            "type = \"oci\"\n        repository = \"ghcr.io/logical-works-inc/kache-cache\"\n",
+            "hosted-rust's kache has no shared store",
+        ),
+        // Run 45441661494: kache's layout advice left a marker file in each
+        // test's TMPDIR, and the residue census failed 17 Linux rows.
+        (
+            action,
+            "        storage_layout_advice = false\n",
+            "kache leaves its layout-advice marker in a test's TMPDIR",
+        ),
+        (
+            action,
+            "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
+            "a pull request can write the shared store",
+        ),
+        (
+            action,
+            "echo \"KACHE_GITHUB_WRITES=merge_group\"",
+            "the merge queue cannot write the shared store",
+        ),
+        (
+            report,
+            "\"${kache}\" daemon stop",
+            "a job ends before kache's uploads drain",
+        ),
+        (
+            report,
+            "stats --format github",
+            "a job never prints its hit rate",
+        ),
+        (
+            workflow,
+            "permissions:\n  contents: read\n  packages: write\n",
+            "the workflow's token cannot write the shared store",
+        ),
+    ];
+    for (text, needle, problem) in required {
+        if !text.contains(needle) {
+            found.push(problem.to_owned());
+        }
     }
     for (id, body) in jobs(workflow) {
         if !body.contains("uses: ./.github/actions/hosted-rust") {
@@ -168,6 +195,12 @@ fn every_compiling_job_compiles_through_kache() -> TestResult {
             "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
             "",
             "a pull request can write the shared store",
+        ),
+        (
+            "action",
+            "        storage_layout_advice = false\n",
+            "",
+            "kache leaves its layout-advice marker in a test's TMPDIR",
         ),
         (
             "report",
