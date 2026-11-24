@@ -1,12 +1,13 @@
-//! The `unshare` fallback against the target it confines. `user_namespaces(7)`:
+//! The denial wrappers against the targets they confine. `user_namespaces(7)`:
 //! a process that makes a user namespace holds every capability inside it, so
 //! the fallback's mapped root could `umount` its own overmount unless the exec
-//! drops them.
+//! drops them. #1136: a `--bind` root is `nodev`, and the systemd user manager
+//! starts processes outside the namespace.
 
 use std::io;
 use std::path::Path;
 
-use super::{UNSHARE, unshare_deny};
+use super::{BWRAP, UNSHARE, bwrap_deny, denial_wrapper, unshare_deny};
 
 /// What the payload's secret reads as when the denial held.
 const SECRET: &str = "the-hidden-bytes";
@@ -21,6 +22,10 @@ enum DenyFault {
     Lifted,
     /// The payload still held capabilities after the wrapper's exec.
     KeptCapabilities,
+    /// The payload could not write `/dev/null` under the denial.
+    LostDevices,
+    /// The user manager read the secret for the payload.
+    ManagerRead,
 }
 
 /// Written by hand because a test's returned error is printed through `Debug`,
@@ -33,6 +38,8 @@ impl core::fmt::Debug for DenyFault {
             Self::Entropy(ref cause) => write!(f, "no entropy: {cause}"),
             Self::Lifted => f.write_str("the payload read the secret through the overmount"),
             Self::KeptCapabilities => f.write_str("the payload kept capabilities after exec"),
+            Self::LostDevices => f.write_str("the payload could not write /dev/null"),
+            Self::ManagerRead => f.write_str("the user manager read the secret for the payload"),
         }
     }
 }
@@ -95,4 +102,89 @@ fn attack(held: &Path) -> Result<(), DenyFault> {
     };
     lgwks_std::trace::debug!(?verdict, %printed, "sim_deny: the payload's report");
     verdict
+}
+
+/// A fresh scratch directory under the temp dir, named from entropy.
+fn scratch(label: &str) -> Result<std::path::PathBuf, DenyFault> {
+    let dir =
+        std::env::temp_dir().join(format!("lgwks-{label}-{}", lgwks_std::id::Uuid::new_v4()?));
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// #1136 item 1: `bwrap --bind / /` mounts the root `nodev`, so no build tool
+/// could write `/dev/null`. The denial binds it with devices.
+#[test]
+fn sim_deny_a_bwrap_denial_keeps_the_devices() -> Result<(), DenyFault> {
+    if !Path::new(BWRAP).exists() {
+        lgwks_std::trace::warn!("cap: this host has no bwrap");
+        return Ok(());
+    }
+    let held = scratch("deny-dev")?;
+    let mut command = bwrap_deny(std::iter::once(held.as_path()));
+    command.args([
+        "/bin/sh",
+        "-c",
+        "echo started; : >/dev/null && echo devices",
+    ]);
+    let output = command.output();
+    std::fs::remove_dir_all(&held)?;
+    let printed = String::from_utf8_lossy(&output?.stdout).into_owned();
+    if !printed.contains("started") {
+        lgwks_std::trace::warn!("cap: this host refused the namespace before the payload ran");
+        return Ok(());
+    }
+    if printed.contains("devices") {
+        Ok(())
+    } else {
+        Err(DenyFault::LostDevices)
+    }
+}
+
+/// #1136 item 2: a process the systemd user manager starts is not the child's
+/// descendant, so it reads the host's tree. The denial hides the manager's
+/// runtime directory, so a confined `systemd-run --user` cannot reach it. A
+/// control run outside the denial proves the manager reads the file on this
+/// host; a host with no user manager is the cap.
+#[test]
+fn sim_deny_saboteur_the_user_manager_cannot_read_a_denied_file() -> Result<(), DenyFault> {
+    const SYSTEMD_RUN: &str = "/usr/bin/systemd-run";
+    const TIMEOUT: &str = "/usr/bin/timeout";
+    if !Path::new(SYSTEMD_RUN).exists() || !Path::new(TIMEOUT).exists() {
+        lgwks_std::trace::warn!("cap: this host has no systemd-run or timeout");
+        return Ok(());
+    }
+    let held = scratch("deny-manager")?;
+    let secret = held.join("secret");
+    std::fs::write(&secret, SECRET)?;
+    let payload = |command: &mut std::process::Command| -> io::Result<String> {
+        command
+            .args([
+                TIMEOUT,
+                "20",
+                SYSTEMD_RUN,
+                "--user",
+                "--wait",
+                "--pipe",
+                "-q",
+                "/bin/cat",
+            ])
+            .arg(&secret)
+            .stdin(std::process::Stdio::null());
+        Ok(String::from_utf8_lossy(&command.output()?.stdout).into_owned())
+    };
+    let control = payload(&mut std::process::Command::new("/usr/bin/env"));
+    let mut denied = super::DenyBeneath::new();
+    denied.deny(&held);
+    let confined = denial_wrapper(&denied).and_then(|mut wrapper| payload(&mut wrapper));
+    std::fs::remove_dir_all(&held)?;
+    if !control?.contains(SECRET) {
+        lgwks_std::trace::warn!("cap: this host has no user manager that runs the control");
+        return Ok(());
+    }
+    if confined?.contains(SECRET) {
+        Err(DenyFault::ManagerRead)
+    } else {
+        Ok(())
+    }
 }

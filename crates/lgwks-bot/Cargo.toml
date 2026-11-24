@@ -1,7 +1,7 @@
 [package]
 name = "lgwks_bot"
 description = "Resilient workflow orchestration & durable execution on one ECS world: script! flows with bounded fan-out, deadlines, retry budgets, sagas, and agent plan admission."
-version = "10.0.2"
+version = "10.0.3"
 edition = "2024"
 rust-version = "1.98"
 # Deliberately not the workspace's Apache-2.0: the bot is the artefact the whole
@@ -241,7 +241,9 @@ lgwks_ast = { workspace = true, default-features = false, features = ["tool"] }
 # The heap census of `tests/heap_baseline.rs` (#1128 G1) counts every byte
 # through the storefront's counting allocator (`heap-accounting`), since
 # `unsafe_code` is forbidden here and `lgwks_deps` owns every third-party edge.
-lgwks_deps = { workspace = true, default-features = false, features = ["heap-accounting"] }
+# A path with no version: `cargo publish` drops it, so a release of this crate
+# never waits on an `lgwks_deps` upload that carries the feature.
+lgwks_deps = { path = "../lgwks-deps", default-features = false, features = ["heap-accounting"] }
 
 [lints]
 workspace = true

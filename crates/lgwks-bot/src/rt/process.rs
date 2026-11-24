@@ -24,6 +24,8 @@ mod frames;
 mod resolve;
 mod run_result;
 
+#[cfg(all(test, unix))]
+pub(crate) use confine::user_runtime_dir;
 pub use confine::{Confinement, DenyBeneath, LandlockRules, PathAccess, SandboxProfile};
 pub use frames::{DEFAULT_FRAME_CEILING, FrameRead, FrameReadError, Frames, read_frames};
 pub use run_result::{CapturedStream, ProcessRun, ProcessRunError};
@@ -381,7 +383,13 @@ impl ProcessSpec {
     #[cfg(all(unix, feature = "process"))]
     pub(crate) fn restore_cloexec(&self) {
         for item in &self.inherited_fds {
-            let _result = lgwks_std::process::set_cloexec(std::os::fd::AsFd::as_fd(&*item.0));
+            // A descriptor left inheritable reaches only later supervised
+            // forks, and each of those clears and restores under the start
+            // lock again, so the failure is reported and the restore goes on.
+            if let Err(error) = lgwks_std::process::set_cloexec(std::os::fd::AsFd::as_fd(&*item.0))
+            {
+                lgwks_std::trace::warn!(%error, "restore_cloexec: FD_CLOEXEC was not restored");
+            }
         }
     }
 
