@@ -101,3 +101,21 @@ fn the_doc_tests_hold_no_job_but_the_verdict() -> TestResult {
     }
     Ok(())
 }
+
+/// PR 1137 moved three cited lines. The pre-commit fast gate skipped the 1 s
+/// `doc-citations` lane, so only the hosted run refused it, one full CI run
+/// later. The committed lane table keeps it in the fast set.
+#[test]
+fn the_fast_gate_runs_the_doc_citations_lane() -> TestResult {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let table = fs::read_to_string(repo.join("scripts/gate-lanes.toml"))?;
+    let lane = table
+        .split("[[lane]]")
+        .find(|lane| lane.lines().any(|line| line == "id = \"doc-citations\""))
+        .ok_or("no doc-citations lane")?;
+    assert!(
+        lane.lines().any(|line| line == "fast = true"),
+        "doc-citations runs in the pre-commit fast gate:\n{lane}"
+    );
+    Ok(())
+}

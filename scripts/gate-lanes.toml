@@ -631,6 +631,7 @@ ci_step = "llms.txt matches the documentation index"
 id = "doc-citations"
 surfaces = "local ci"
 required = true
+fast = true
 command = "cargo run --locked -p lgwks_deps --bin check-doc-citations"
 ci_step = "Documentation citations resolve"
 
