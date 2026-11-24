@@ -376,6 +376,16 @@ pub use p256;
 #[doc(hidden)]
 pub use libm;
 
+/// The one authored counting-allocator edge, re-exported for the storefront.
+///
+/// Reached only through the `heap-accounting` feature (#1128 G1): a test
+/// installs it as the global allocator and proves a finished run returns the
+/// live heap to its baseline. Its `GlobalAlloc` impl is unsafe code no estate
+/// crate may write.
+#[cfg(feature = "heap-accounting")]
+#[doc(hidden)]
+pub use stats_alloc;
+
 /// The desktop preview's window, reached only through `desktop-preview` (#836).
 #[cfg(feature = "desktop-preview")]
 #[doc(hidden)]
