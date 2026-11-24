@@ -165,7 +165,9 @@ runs:
       id: rust-cache
       uses: Swatinem/rust-cache@v2
       with:
-        shared-key: ${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}
+        # `-kache-` marks a build compiled through kache. A build saved
+        # before kache keeps its old key, and the kache step reads the mark.
+        shared-key: ${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.hash }}
         add-rust-environment-hash-key: "false"
         # Every ref saving filled the 10 GiB cap and evicted main's entries,
         # so pull requests compiled cold (10.66 GiB on 2026-11-03, main 1.41).
@@ -207,7 +209,9 @@ runs:
         path: ${{ steps.base-paths.outputs.paths }}
         key: v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.hash }}-base
         restore-keys: |
+          v0-rust-${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.base }}-
           v0-rust-${{ inputs.cache-key }}-${{ steps.deps-key.outputs.base }}-
+          v0-rust-${{ inputs.cache-key }}-kache-
           v0-rust-${{ inputs.cache-key }}-
     - name: Report the base build
       if: steps.base-paths.outcome == 'success'
@@ -262,13 +266,25 @@ runs:
     # /tmp tmpfs, so every restore there crosses a device. With advice on,
     # kache left a `kache-cow-warn-*.hardlink-exdev` marker in each test's
     # TMPDIR and the residue census failed 17 rows (run 45441661494, ADR 0078).
+    # A dependency build restored from before kache was compiled without it,
+    # and cargo rebuilds every unit when the wrapper changes: run 45471907504
+    # restored main's build, then compiled 399 of 399 crates through an empty
+    # store, 130 to 196 s a shard against main's 76 to 95 s. Such a job reuses
+    # the build and runs no wrapper. A main run never restores one this way, so
+    # main compiles through kache, writes the store and saves a `-kache-` build.
     - name: Set up kache as the compiler wrapper
       if: inputs.caches == 'true'
       shell: bash
       env:
         TOKEN: ${{ github.token }}
+        EXACT: ${{ steps.rust-cache.outputs.cache-hit }}
+        BASE: ${{ steps.base-build.outputs.cache-matched-key }}
       run: |
         set -euo pipefail
+        if [ "${EXACT}" != true ] && [ -n "${BASE}" ] && [[ "${BASE}" != *-kache-* ]]; then
+          echo "kache: off for this job: the restored build ${BASE} was compiled without it"
+          exit 0
+        fi
         dir="${RUNNER_TEMP}/kache"
         bin="${dir}/bin/kache"
         if [ "${RUNNER_OS}" = Windows ]; then bin="${bin}.exe"; fi

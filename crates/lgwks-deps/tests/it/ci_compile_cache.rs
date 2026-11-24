@@ -128,6 +128,18 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
             "echo \"KACHE_GITHUB_WRITES=merge_group\"",
             "the merge queue cannot write the shared store",
         ),
+        // Run 45471907504: a pull request restored main's build from before
+        // kache, then compiled 399 of 399 crates through the empty store.
+        (
+            action,
+            "shared-key: ${{ inputs.cache-key }}-kache-${{ steps.deps-key.outputs.hash }}\n",
+            "a build compiled through kache is not marked as one",
+        ),
+        (
+            action,
+            "if [ \"${EXACT}\" != true ] && [ -n \"${BASE}\" ] && [[ \"${BASE}\" != *-kache-* ]]; then",
+            "kache runs in front of a build it did not compile, or is off where it did",
+        ),
         (
             report,
             "\"${kache}\" daemon stop",
@@ -205,6 +217,24 @@ fn every_compiling_job_compiles_through_kache() -> TestResult {
             "        storage_layout_advice = false\n",
             "",
             "kache leaves its layout-advice marker in a test's TMPDIR",
+        ),
+        (
+            "action",
+            "-kache-${{ steps.deps-key.outputs.hash }}",
+            "-${{ steps.deps-key.outputs.hash }}",
+            "a build compiled through kache is not marked as one",
+        ),
+        (
+            "action",
+            " && [[ \"${BASE}\" != *-kache-* ]]",
+            "",
+            "kache runs in front of a build it did not compile, or is off where it did",
+        ),
+        (
+            "action",
+            "[ \"${EXACT}\" != true ] && ",
+            "",
+            "kache runs in front of a build it did not compile, or is off where it did",
         ),
         (
             "report",
