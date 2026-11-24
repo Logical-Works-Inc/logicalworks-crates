@@ -114,6 +114,7 @@ mod sim_churn_slot;
 mod sim_dependency_policy;
 mod sim_freshness_cli;
 mod sim_invariant_register;
+mod sim_job_limits;
 #[cfg(feature = "lgwks")]
 mod sim_lgwks_check;
 #[cfg(feature = "lgwks")]

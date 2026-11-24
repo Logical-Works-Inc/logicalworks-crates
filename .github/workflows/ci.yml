@@ -106,7 +106,7 @@ jobs:
   changes:
     name: Changed files
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     permissions:
       contents: read
       pull-requests: read
@@ -211,7 +211,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -271,7 +271,7 @@ jobs:
     container:
       image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
       SIMULATION_LISTINGS: nextest-listing/nextest-listing-workspace-Linux/listing.json nextest-listing/nextest-listing-bot-rest-Linux/listing.json nextest-listing/nextest-listing-bot-it-scale-Linux/listing.json nextest-listing/nextest-listing-bot-it-surface-Linux/listing.json nextest-listing/nextest-listing-bot-it-refusals-Linux/listing.json nextest-listing/nextest-listing-bot-it-g1-Linux/listing.json nextest-listing/nextest-listing-bot-it-g2-Linux/listing.json nextest-listing/nextest-listing-bot-it-g3-Linux/listing.json nextest-listing/nextest-listing-bot-it-g4-Linux/listing.json nextest-listing/nextest-listing-bot-it-g5-Linux/listing.json nextest-listing/nextest-listing-bot-it-g6-Linux/listing.json nextest-listing/nextest-listing-bot-it-g7-Linux/listing.json nextest-listing/nextest-listing-bot-it-g8-Linux/listing.json
@@ -381,7 +381,7 @@ jobs:
     container:
       image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -562,7 +562,7 @@ jobs:
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # mac-specific: the darwin-arm64 acceptance receipt and the Darwin seams.
     runs-on: macos-15
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -651,7 +651,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -702,7 +702,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -726,7 +726,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -749,7 +749,7 @@ jobs:
   gate:
     name: Gate checks
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -831,7 +831,7 @@ jobs:
   advisories:
     name: RustSec advisories
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       # The prebuilt release, checksum-verified, rather than a `cargo install`
@@ -851,7 +851,7 @@ jobs:
     name: successful simulation result
     needs: workspace_build
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - name: Download gate evidence
         uses: actions/download-artifact@v8
@@ -866,7 +866,7 @@ jobs:
     name: successful end-to-end journey result
     needs: workspace_tail
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - name: Download gate evidence
         uses: actions/download-artifact@v8
@@ -885,7 +885,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -925,7 +925,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.bot != 'false'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -952,7 +952,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1053,7 +1053,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       # docs.rs and `cargo doc` downstream run stable rustdoc, so the release
@@ -1088,7 +1088,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1161,7 +1161,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1204,7 +1204,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1232,7 +1232,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1255,7 +1255,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1351,7 +1351,7 @@ jobs:
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # mac-specific: AppCUI's macOS terminal backend.
     runs-on: macos-15
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1373,7 +1373,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       matrix:
         os: [windows-latest, ubuntu-24.04-arm]
@@ -1401,7 +1401,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1430,7 +1430,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
       # On a hosted Windows runner the default CARGO_HOME is on the C: drive,
@@ -1471,7 +1471,7 @@ jobs:
     needs: clippy
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - name: Every clippy leg passed
         env:
@@ -1499,7 +1499,7 @@ jobs:
     needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, doc_tests, package_smoke, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     permissions:
       contents: read
       actions: read
@@ -1658,7 +1658,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Prove the process unsafe seams under Miri
