@@ -79,7 +79,7 @@ fn the_doc_tests_hold_no_job_but_the_verdict() -> TestResult {
             "doc-path-shared-key",
             "cache-key: doc-tests\n",
             "cache-key: workspace\n",
-            "doc_tests's cache key workspace is also workspace_all_targets's: the first saver owns the entry (#1095)",
+            "doc_tests's cache key workspace is also workspace_build's: the first saver owns the entry (#1095)",
         ),
         (
             "doc-path-no-key",

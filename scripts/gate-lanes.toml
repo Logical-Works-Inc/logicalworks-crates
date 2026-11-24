@@ -93,6 +93,28 @@ ci_step = "Classify the change"
 reason = "a pull request's file list exists only in CI"
 
 [[lane]]
+id = "route"
+surfaces = "ci"
+required = true
+# ADR 0086: a pull request skips the lgwks_bot rows only when it changes none
+# of their inputs and main's listings of those inputs are cached, which the
+# simulation lane then counts in their place.
+command = "if [ \"${INPUTS}\" = false ] && [ \"${LISTED}\" = true ]; then bot=false; fi"
+ci_step = "Route the change to its suites"
+reason = "the route reads the pull request's file list and the Actions cache, which exist only in CI"
+
+[[lane]]
+id = "failure-receipt"
+surfaces = "ci"
+required = true
+# ADR 0086: a failed run ends with one receipt of its failures (job, kind, file
+# and line, diagnostic code, seed, repro command), in the job summary, as an
+# artifact and as one comment on the pull request.
+command = "receipts-tool/ci-receipt --logs failed-logs --out ci-receipt/receipt.json --markdown ci-receipt/receipt.md"
+ci_step = "Write the failure receipt"
+reason = "the receipt reads the failed jobs' logs from the Actions API, which exist only in CI"
+
+[[lane]]
 id = "docs-only-verdict"
 surfaces = "ci"
 required = true
@@ -267,7 +289,7 @@ command = '''set -euo pipefail
 for attempt in $(seq 1 60); do
   listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
   missing=""
-  for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
+  for suite in ${SUITES:-workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8}; do
     case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
   done
   if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi

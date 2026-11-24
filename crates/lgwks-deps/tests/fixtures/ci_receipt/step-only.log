@@ -1,0 +1,8 @@
+2026-11-24T17:00:00.1000000Z ##[group]Run ./scripts/check-docs.sh --base origin/main
+2026-11-24T17:00:00.1000100Z ^[[36;1m./scripts/check-docs.sh --base origin/main^[[0m
+2026-11-24T17:00:00.1000200Z shell: /usr/bin/bash -e {0}
+2026-11-24T17:00:00.1000300Z ##[endgroup]
+2026-11-24T17:00:01.2000000Z checking 12 pages
+2026-11-24T17:00:01.3000000Z README.md: the link docs/gone.md names no file
+2026-11-24T17:00:01.4000000Z ##[error]docs lane refused 1 page
+2026-11-24T17:00:01.4000100Z ##[error]Process completed with exit code 1.

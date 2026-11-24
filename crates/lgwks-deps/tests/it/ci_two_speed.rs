@@ -51,13 +51,25 @@ fn job_conditions(text: &str) -> Vec<(&str, Option<&str>)> {
     found
 }
 
-/// The QUEUE_ONLY list of the verdict step.
-fn queue_only(text: &str) -> Result<Vec<&str>, Box<dyn Error>> {
+/// The jobs the verdict step's `list` env names (QUEUE_ONLY or BOT_ONLY).
+fn named<'text>(text: &'text str, list: &str) -> Result<Vec<&'text str>, Box<dyn Error>> {
+    let prefix = format!("{list}: ");
     let line = text
         .lines()
-        .find_map(|line| line.trim_start().strip_prefix("QUEUE_ONLY: "))
-        .ok_or("the verdict names no QUEUE_ONLY jobs")?;
+        .find_map(|line| line.trim_start().strip_prefix(prefix.as_str()))
+        .ok_or_else(|| format!("the verdict names no {list} jobs"))?;
     Ok(line.split_whitespace().collect())
+}
+
+/// The jobs whose job-level `if:` holds `condition`, sorted.
+fn gated<'text>(text: &'text str, condition: &str) -> Vec<&'text str> {
+    let mut jobs: Vec<&str> = job_conditions(text)
+        .into_iter()
+        .filter(|&(_, held)| held.is_some_and(|held| held.contains(condition)))
+        .map(|(id, _)| id)
+        .collect();
+    jobs.sort_unstable();
+    jobs
 }
 
 /// The body of step `name`'s `run: |` block, its indent removed.
@@ -104,11 +116,18 @@ fn scratch(case: &str, results: &[(&str, &str)]) -> Result<PathBuf, Box<dyn Erro
     Ok(root)
 }
 
-/// Runs the verdict step for `event` over `results`; true when it passes.
-fn verdict(case: &str, event: &str, results: &[(&str, &str)]) -> Result<bool, Box<dyn Error>> {
+/// Runs the verdict step for `event` over `results`, with the changes job's
+/// `bot` route; true when it passes.
+fn verdict(
+    case: &str,
+    event: &str,
+    bot: &str,
+    results: &[(&str, &str)],
+) -> Result<bool, Box<dyn Error>> {
     let text = workflow()?;
     let root = scratch(case, results)?;
-    let queue = queue_only(&text)?.join(" ");
+    let queue = named(&text, "QUEUE_ONLY")?.join(" ");
+    let bot_only = named(&text, "BOT_ONLY")?.join(" ");
     let ran = Command::new("/bin/bash")
         .arg("-c")
         .arg(step_body(&text, "Every workspace test job passed")?)
@@ -120,6 +139,8 @@ fn verdict(case: &str, event: &str, results: &[(&str, &str)]) -> Result<bool, Bo
         )
         .env("NEEDS", "{}")
         .env("QUEUE_ONLY", queue)
+        .env("BOT_ONLY", bot_only)
+        .env("BOT", bot)
         .env("GITHUB_EVENT_NAME", event)
         .output()?;
     fs::remove_dir_all(&root)?;
@@ -133,20 +154,20 @@ fn the_queue_runs_what_a_pull_request_skips() -> TestResult {
         text.contains("\n  merge_group:\n"),
         "the merge queue runs ci.yml"
     );
-    let queue = queue_only(&text)?;
-    let skipping: Vec<&str> = job_conditions(&text)
-        .into_iter()
-        .filter(|&(_, condition)| {
-            condition.is_some_and(|text| text.contains("github.event_name != 'pull_request'"))
-        })
-        .map(|(id, _)| id)
-        .collect();
-    let (mut sorted_queue, mut sorted_skipping) = (queue.clone(), skipping.clone());
+    let queue = named(&text, "QUEUE_ONLY")?;
+    let mut sorted_queue = queue.clone();
     sorted_queue.sort_unstable();
-    sorted_skipping.sort_unstable();
     assert_eq!(
-        sorted_queue, sorted_skipping,
+        sorted_queue,
+        gated(&text, "github.event_name != 'pull_request'"),
         "QUEUE_ONLY is exactly the jobs that skip a pull request"
+    );
+    let mut bot_only = named(&text, "BOT_ONLY")?;
+    bot_only.sort_unstable();
+    assert_eq!(
+        bot_only,
+        gated(&text, "needs.changes.outputs.bot != 'false'"),
+        "BOT_ONLY is exactly the jobs the bot route skips (ADR 0086)"
     );
     for linux in [
         "gate",
@@ -166,23 +187,116 @@ fn the_queue_runs_what_a_pull_request_skips() -> TestResult {
         ("tests_macos", "skipped"),
         ("gpui-windows", "skipped"),
     ];
-    assert!(verdict("pr-pass", "pull_request", &passed)?);
+    assert!(verdict("pr-pass", "pull_request", "true", &passed)?);
     assert!(
-        !verdict("queue-skipped", "merge_group", &passed)?,
+        !verdict("queue-skipped", "merge_group", "true", &passed)?,
         "the queue fails a skipped macOS row"
     );
     let all = [("tests_linux", "success"), ("tests_macos", "success")];
-    assert!(verdict("queue-pass", "merge_group", &all)?);
+    assert!(verdict("queue-pass", "merge_group", "true", &all)?);
     let linux_skipped = [("tests_linux", "skipped"), ("tests_macos", "skipped")];
     assert!(
-        !verdict("pr-linux-skipped", "pull_request", &linux_skipped)?,
+        !verdict("pr-linux-skipped", "pull_request", "false", &linux_skipped)?,
         "a pull request never skips a Linux suite"
     );
     let failed = [("tests_linux", "success"), ("tests_macos", "failure")];
-    assert!(!verdict("queue-failed", "merge_group", &failed)?);
+    assert!(!verdict("queue-failed", "merge_group", "true", &failed)?);
     assert!(
-        !verdict("pr-failed", "pull_request", &failed)?,
+        !verdict("pr-failed", "pull_request", "true", &failed)?,
         "a queue job that ran and failed fails a pull request too"
     );
+    let routed = [("tests_linux", "success"), ("tests_nodefault", "skipped")];
+    assert!(
+        verdict("pr-routed", "pull_request", "false", &routed)?,
+        "a pull request the bot route skips passes without the bot jobs"
+    );
+    assert!(
+        !verdict("pr-unrouted", "pull_request", "true", &routed)?,
+        "a pull request that changed a bot input runs the bot jobs"
+    );
+    assert!(
+        !verdict("queue-routed", "merge_group", "false", &routed)?,
+        "the queue runs every bot job"
+    );
+    Ok(())
+}
+
+/// Each way the failure receipt of a failed row is lost, or `None`.
+fn receipt_problem(text: &str) -> Option<&'static str> {
+    let required: [(&str, &str); 4] = [
+        (
+            "--bin ci-receipt",
+            "the evidence job does not build the receipt binary",
+        ),
+        (
+            "cp target/debug/acceptance-receipts target/debug/ci-receipt receipts-tool/",
+            "the receipt binary is not handed to the required row",
+        ),
+        (
+            "      pull-requests: write\n",
+            "the required row cannot comment the receipt",
+        ),
+        (
+            "name: ci-failure-receipt",
+            "the receipt is not kept as an artifact",
+        ),
+    ];
+    if let Some(&(_, problem)) = required.iter().find(|&&(needle, _)| !text.contains(needle)) {
+        return Some(problem);
+    }
+    let Ok(write) = step_body(text, "Write the failure receipt") else {
+        return Some("ci.yml writes no failure receipt");
+    };
+    let guard = text
+        .split("- name: Write the failure receipt\n")
+        .nth(1)
+        .and_then(|rest| rest.lines().next());
+    if !guard.is_some_and(|line| line.contains("if: failure()")) {
+        return Some("the receipt is written on a run that passed");
+    }
+    for needle in [
+        "ci-receipt --logs failed-logs",
+        "GITHUB_STEP_SUMMARY",
+        "gh pr comment",
+    ] {
+        if !write.contains(needle) {
+            return Some("the receipt step leaves out its log, summary or comment");
+        }
+    }
+    None
+}
+
+/// Source: Gemini's CI review for the Director, 2026-11-24, item 5: an agent
+/// that reads a raw log spends its context on noise; a failed run hands it the
+/// failing job, file and line, diagnostic code, seed and repro. Requirement
+/// proved: a failed required row writes the receipt to its summary, an
+/// artifact and the pull request, and each way of losing it is refused.
+#[test]
+fn a_failed_row_writes_one_failure_receipt() -> TestResult {
+    let text = workflow()?;
+    assert_eq!(receipt_problem(&text), None, "the committed workflow");
+    let cases = [
+        ("--bin ci-receipt", "", "does not build"),
+        ("      pull-requests: write\n", "", "cannot comment"),
+        ("name: ci-failure-receipt", "name: other", "artifact"),
+        (
+            "      - name: Write the failure receipt\n        if: failure() &&",
+            "      - name: Write the failure receipt\n        if: always() &&",
+            "a run that passed",
+        ),
+        ("gh pr comment", "true", "its log, summary or comment"),
+        (
+            "- name: Write the failure receipt\n",
+            "- name: Write it\n",
+            "no failure receipt",
+        ),
+    ];
+    for (from, to, named) in cases {
+        assert!(text.contains(from), "the control edits a real line: {from}");
+        let broken = text.replacen(from, to, 1);
+        let found =
+            receipt_problem(&broken).ok_or_else(|| format!("{from} -> {to}: not refused"))?;
+        assert!(found.contains(named), "{from} -> {to}: {found}");
+    }
     Ok(())
 }

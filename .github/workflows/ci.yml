@@ -112,7 +112,18 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.classify.outputs.code }}
+      bot: ${{ steps.route.outputs.bot }}
+      bot_key: ${{ steps.classify.outputs.key }}
     steps:
+      - uses: actions/checkout@v7
+      # Blast-radius routing (ADR 0086). `bot` is false when no changed path is
+      # one the lgwks_bot suites build from: a reader page; drishti, which
+      # depends on lgwks_bot while lgwks_bot builds nothing of it; or a test,
+      # example or bench of a crate lgwks_bot builds on, outside
+      # `tests/support/`, which lgwks_bot's tests include. An unknown path is
+      # bot. `key` hashes the index entries that are bot, so it moves exactly
+      # when a bot suite's inputs move. tests/it/ci_route.rs holds the crate
+      # lists to `cargo metadata` and the support rule to lgwks_bot's includes.
       - name: Classify the change
         id: classify
         env:
@@ -120,27 +131,72 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          code=true
+          kind_of() {
+            case "$1" in
+              docs/script-lexicon*.md|docs/catalog.md|README.md) kind=bot ;;
+              docs/*.md|llms.txt) kind=page ;;
+              crates/*/tests/support/*) kind=bot ;;
+              crates/drishti/*) kind=other ;;
+              crates/lgwks-std/tests/*|crates/lgwks-std/examples/*|crates/lgwks-std/benches/*) kind=other ;;
+              crates/lgwks-ast/tests/*|crates/lgwks-ast/examples/*|crates/lgwks-ast/benches/*) kind=other ;;
+              crates/lgwks-deps/tests/*|crates/lgwks-deps/examples/*|crates/lgwks-deps/benches/*) kind=other ;;
+              crates/lgwks-macros/tests/*|crates/lgwks-macros/examples/*|crates/lgwks-macros/benches/*) kind=other ;;
+              */*) kind=bot ;;
+              *.md) kind=page ;;
+              *) kind=bot ;;
+            esac
+          }
+          files=""
           if [ -n "${PR}" ]; then
             # A listing GitHub refuses (HTTP 500 under load, run 45417609208) is empty, so it is code.
             if ! files="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR}/files" --paginate --jq '.[].filename')"; then
               echo "::warning::the file listing failed, so the change is code"
               files=""
             fi
-            code=false
-            if [ -z "${files}" ]; then code=true; fi
-            while IFS= read -r file; do
-              case "${file}" in
-                docs/script-lexicon*.md|docs/catalog.md|README.md) code=true ;;
-                docs/*.md|llms.txt) ;;
-                */*) code=true ;;
-                *.md) ;;
-                *) code=true ;;
-              esac
-            done <<< "${files}"
           fi
-          echo "code=${code}" >> "${GITHUB_OUTPUT}"
-          echo "code changed: ${code}"
+          code=false
+          bot=false
+          if [ -z "${files}" ]; then code=true; bot=true; fi
+          while IFS= read -r file; do
+            if [ -z "${file}" ]; then continue; fi
+            kind_of "${file}"
+            case "${kind}" in
+              bot) code=true; bot=true ;;
+              other) code=true ;;
+              page) ;;
+            esac
+          done <<< "${files}"
+          sum="$(git ls-files --stage -z | while IFS= read -r -d '' entry; do
+            kind_of "${entry#*$'\t'}"
+            if [ "${kind}" = bot ]; then printf '%s\n' "${entry}"; fi
+          done | sha256sum)"
+          {
+            echo "code=${code}"
+            echo "bot=${bot}"
+            echo "key=bot-listings-${sum%% *}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "code changed: ${code}; lgwks_bot inputs changed: ${bot}"
+      # The bot rows skip only when main's run of these inputs left their
+      # suite listings, which the simulation lane counts.
+      - name: Cache lookup for main's lgwks_bot listings of these inputs
+        id: listings
+        if: steps.classify.outputs.bot == 'false'
+        uses: actions/cache/restore@v6
+        with:
+          key: ${{ steps.classify.outputs.key }}
+          path: nextest-listing/nextest-listing-bot-*-Linux
+          lookup-only: true
+      - name: Route the change to its suites
+        id: route
+        env:
+          INPUTS: ${{ steps.classify.outputs.bot }}
+          LISTED: ${{ steps.listings.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          bot=true
+          if [ "${INPUTS}" = false ] && [ "${LISTED}" = true ]; then bot=false; fi
+          echo "bot=${bot}" >> "${GITHUB_OUTPUT}"
+          echo "lgwks_bot suites run: ${bot} (inputs changed: ${INPUTS}, main's listings cached: ${LISTED:-false})"
 
   # Every workspace target compiles, benches and examples included, which the
   # test shards (test targets only) do not prove. The listing for the
@@ -159,7 +215,10 @@ jobs:
         uses: ./.github/actions/hosted-rust
         with:
           toolchain: "nightly-2026-11-12"
-          cache-key: workspace
+          # Its own key: `workspace` is the container build of workspace_build,
+          # another rustc, so this job restored it and compiled all 218 crates
+          # cold on every run (runs 45430022570, 45434287873, ADR 0086).
+          cache-key: all-targets
       # `--timings` records what each unit costs, the measurement every cut to
       # the cold build is judged by. The job proves every target compiles and
       # links; it runs nothing, so it builds under `ci-bot` (dependencies at
@@ -221,15 +280,26 @@ jobs:
           nextest: "true"
       - name: Build the simulation lane
         run: cargo build --locked -p lgwks_deps --bin ci-local
+      # ADR 0086: a change no lgwks_bot suite builds from runs no bot row, and
+      # main's listings of the same inputs stand in, keyed by their hash. The
+      # changes job routed the bot rows off only when this key was cached.
+      - name: Cache restore of main's lgwks_bot listings of these inputs
+        if: needs.changes.outputs.bot == 'false'
+        uses: actions/cache/restore@v6
+        with:
+          key: ${{ needs.changes.outputs.bot_key }}
+          path: nextest-listing/nextest-listing-bot-*-Linux
+          fail-on-cache-miss: true
       - name: Wait for the Linux suite listings
         env:
           TOKEN: ${{ github.token }}
+          SUITES: ${{ needs.changes.outputs.bot == 'false' && 'workspace' || 'workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8' }}
         run: |
           set -euo pipefail
           for attempt in $(seq 1 60); do
             listed="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" | tr -d ' \n')"
             missing=""
-            for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
+            for suite in ${SUITES:-workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8}; do
               case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
             done
             if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
@@ -248,6 +318,12 @@ jobs:
           set -euo pipefail
           mkdir -p gate-evidence
           cargo run --locked -p lgwks_deps --bin ci-local -- --lane simulation-evidence | tee gate-evidence/simulation-evidence.txt
+      - name: Cache save of the lgwks_bot listings, for pull requests that leave their inputs
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          key: ${{ needs.changes.outputs.bot_key }}
+          path: nextest-listing/nextest-listing-bot-*-Linux
       - name: Upload simulation evidence
         uses: actions/upload-artifact@v7
         with:
@@ -350,6 +426,10 @@ jobs:
           # #927). A count slice cannot split one test, so it has its own row.
           - { suite: apps, archive: apps, tier: "apps gate", partition: "", build: "-p lgwks_deps --test it --locked --cargo-profile ci-it", apps_filter: "binary(it) & test(=gate_consumer::sim_a_clean_consumer_passes_the_gate)" }
     env:
+      # ADR 0086: a bot row of a change no lgwks_bot suite builds from skips
+      # every step; the simulation lane counts main's listings of those inputs.
+      # A matrix row has no job-level `if`, so each step reads this.
+      ROUTED: ${{ (matrix.suite == 'workspace' || matrix.suite == 'apps' || needs.changes.outputs.bot != 'false') && 'true' || 'false' }}
       PARTITION: ${{ matrix.partition }}
       NEXTEST_BUILD: ${{ matrix.build }}
       # A bot-it row builds one group of the `it` modules (tests/it/main.rs
@@ -374,7 +454,9 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
       - uses: actions/checkout@v7
+        if: env.ROUTED == 'true'
       - name: Pin Rust nightly
+        if: env.ROUTED == 'true'
         uses: ./.github/actions/hosted-rust
         with:
           toolchain: "nightly-2026-11-12"
@@ -382,10 +464,12 @@ jobs:
           nextest: "true"
       # A group row compiles its workspace wrapper before any cargo call.
       - name: Prepare the checkout
+        if: env.ROUTED == 'true'
         run: |
           command -v sqlite3 >/dev/null || { apt-get -qq update && apt-get -qq install -y sqlite3; }
           if [ -n "$RUST_IT_GROUP_RUSTC" ]; then rustc --edition 2024 -O -o "$RUST_IT_GROUP_RUSTC" scripts/it_group_rustc.rs; fi
       - name: Build the suite
+        if: env.ROUTED == 'true'
         env:
           RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
         run: cargo nextest list ${NEXTEST_BUILD} --message-format oneline >/dev/null
@@ -395,12 +479,12 @@ jobs:
       # the checkout: the authority-claims guard reads every file there, and it
       # read the listing's test names as claims (run 43234727204).
       - name: List the suite for the simulation lane
-        if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        if: env.ROUTED == 'true' && matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         env:
           RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
         run: mkdir -p /tmp/nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > /tmp/nextest-listing/listing.json
       - name: Upload the suite listing
-        if: matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
+        if: env.ROUTED == 'true' && matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
         uses: actions/upload-artifact@v7
         with:
           name: nextest-listing-${{ matrix.archive }}-Linux
@@ -416,18 +500,18 @@ jobs:
           APPS_FILTER: ${{ matrix.apps_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_deps --test it --locked} -E "${APPS_FILTER:-binary(it) & (test(/^(lgwks_e2e|lgwks_json)::/) | test(=sim_lgwks_expand::expanded_app_passes_clippy) | test(=gate_consumer::sim_a_clean_consumer_passes_the_gate))}"
       - name: Run lgwks-bot async runner tests
-        if: matrix.suite == 'bot-full'
+        if: env.ROUTED == 'true' && matrix.suite == 'bot-full'
         env:
           RUSTC_WORKSPACE_WRAPPER: ${{ env.RUST_IT_GROUP_RUSTC }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --all-targets --locked --features full} --profile ci -E 'not test(saturation_r32_tier)' ${PARTITION:+--partition $PARTITION}
       - name: Run lgwks-bot saturation tiers
-        if: matrix.suite == 'saturation'
+        if: env.ROUTED == 'true' && matrix.suite == 'saturation'
         env:
           SATURATION_BINARIES: ${{ matrix.sat_bins }}
           SATURATION_FILTER: ${{ matrix.sat_filter }}
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
       - name: Upload Linux lgwks-bot JUnit report
-        if: matrix.suite != 'workspace' && matrix.suite != 'apps'
+        if: env.ROUTED == 'true' && matrix.suite != 'workspace' && matrix.suite != 'apps'
         uses: actions/upload-artifact@v7
         with:
           name: acceptance-junit-linux-${{ strategy.job-index }}
@@ -561,9 +645,9 @@ jobs:
       - name: Install the acceptance-receipts binary
         run: |
           set -euo pipefail
-          cargo build --locked -p lgwks_deps --bin acceptance-receipts
+          cargo build --locked -p lgwks_deps --bin acceptance-receipts --bin ci-receipt
           mkdir -p receipts-tool
-          cp target/debug/acceptance-receipts receipts-tool/
+          cp target/debug/acceptance-receipts target/debug/ci-receipt receipts-tool/
       - name: Upload the acceptance-receipts binary
         uses: actions/upload-artifact@v7
         with:
@@ -817,7 +901,7 @@ jobs:
   tests_nodefault:
     name: Tests (lgwks-bot no default features)
     needs: changes
-    if: needs.changes.outputs.code == 'true'
+    if: needs.changes.outputs.code == 'true' && needs.changes.outputs.bot != 'false'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     env:
@@ -1396,6 +1480,8 @@ jobs:
     permissions:
       contents: read
       actions: read
+      # The failure receipt's one comment on the pull request.
+      pull-requests: write
     env:
       REVISION: ${{ github.sha }}
     steps:
@@ -1411,25 +1497,67 @@ jobs:
           echo "docs-only change: classification ${CHANGES}, gate ${GATE}; the suites build nothing it changed"
           test "${CHANGES}" = success && test "${GATE}" = success
       # Every job this row needs passed, each one by name. A pull request may
-      # skip only the jobs the merge queue runs (QUEUE_ONLY, ADR 0086); in the
-      # queue and on main a skipped job fails the row like a failed one.
+      # skip only the jobs the merge queue runs (QUEUE_ONLY, ADR 0086), and the
+      # BOT_ONLY jobs when the changes job routed the lgwks_bot suites off
+      # (ADR 0086); in the queue and on main a skipped job fails the row.
       - name: Every workspace test job passed
         if: needs.changes.outputs.code != 'false'
         env:
           NEEDS: ${{ toJSON(needs) }}
+          BOT: ${{ needs.changes.outputs.bot }}
           QUEUE_ONLY: tests_macos package_smoke docs storefront-matrix target-matrix timing_gates timing_async feature-matrix-bot-ast appcui-native appcui-native-hosted gpui-windows process-windows miri_unsafe
+          BOT_ONLY: tests_nodefault
         run: |
           set -euo pipefail
           failed=""
           for job in $(printf '%s' "${NEEDS}" | jq -r 'keys[]'); do
             result="$(printf '%s' "${NEEDS}" | jq -r --arg job "${job}" '.[$job].result')"
             case " ${QUEUE_ONLY} " in *" ${job} "*) queued=true ;; *) queued=false ;; esac
+            case " ${BOT_ONLY} " in *" ${job} "*) routed=true ;; *) routed=false ;; esac
             if [ "${result}" = success ]; then continue; fi
-            if [ "${result}" = skipped ] && [ "${queued}" = true ] && [ "${GITHUB_EVENT_NAME}" = pull_request ]; then continue; fi
+            if [ "${result}" = skipped ] && [ "${GITHUB_EVENT_NAME}" = pull_request ]; then
+              if [ "${queued}" = true ]; then continue; fi
+              if [ "${routed}" = true ] && [ "${BOT}" = false ]; then continue; fi
+            fi
             failed="${failed} ${job}=${result}"
           done
           echo "${GITHUB_EVENT_NAME}: jobs that did not pass:${failed:- none}"
           test -z "${failed}"
+      # ADR 0086: a failed row ends with one failure receipt, so an agent
+      # repeats the failure on the box from its repro command and never reads
+      # a raw log. `ci-receipt` reads each failed job's log and writes each
+      # failure's job, kind, file and line, diagnostic code, seed and repro.
+      - name: Download the failure-receipt binary
+        if: failure() && needs.changes.outputs.code != 'false'
+        uses: actions/download-artifact@v8
+        with:
+          name: receipts-tool
+          path: receipts-tool
+      - name: Write the failure receipt
+        if: failure() && needs.changes.outputs.code != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p failed-logs ci-receipt
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/attempts/${GITHUB_RUN_ATTEMPT}/jobs" --paginate --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | "\(.id)\t\(.name)"' > failed-jobs.tsv
+          while IFS=$'\t' read -r id name; do
+            gh api "repos/${GITHUB_REPOSITORY}/actions/jobs/${id}/logs" > "failed-logs/${name//\//-}.log"
+          done < failed-jobs.tsv
+          chmod +x receipts-tool/ci-receipt
+          receipts-tool/ci-receipt --logs failed-logs --out ci-receipt/receipt.json --markdown ci-receipt/receipt.md
+          cat ci-receipt/receipt.md >> "${GITHUB_STEP_SUMMARY}"
+          if [ -n "${PR}" ]; then
+            gh pr comment "${PR}" --repo "${GITHUB_REPOSITORY}" --body-file ci-receipt/receipt.md --edit-last --create-if-none
+          fi
+      - name: Upload the failure receipt
+        if: failure() && needs.changes.outputs.code != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-failure-receipt
+          path: ci-receipt/
+          retention-days: 7
       - uses: actions/checkout@v7
         if: needs.changes.outputs.code != 'false'
       - name: Install sqlite3, the program the receipts are recorded through
@@ -1449,8 +1577,10 @@ jobs:
         with:
           pattern: lgwks-bot-junit-*
           path: acceptance-artifact
+      # The Linux reports come from the bot rows, which a routed pull request
+      # skips (ADR 0086).
       - name: Download the Linux and Windows JUnit reports
-        if: needs.changes.outputs.code != 'false'
+        if: needs.changes.outputs.code != 'false' && needs.changes.outputs.bot != 'false'
         uses: actions/download-artifact@v8
         with:
           pattern: acceptance-junit-*
@@ -1459,11 +1589,15 @@ jobs:
       # record the Darwin and Windows ones too, from the jobs only they run.
       - name: Record acceptance receipts
         if: needs.changes.outputs.code != 'false'
+        env:
+          BOT: ${{ needs.changes.outputs.bot }}
         run: |
           set -euo pipefail
           chmod +x receipts-tool/acceptance-receipts
           mkdir -p acceptance-artifact
-          receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64
+          if [ "${BOT}" != false ]; then
+            receipts-tool/acceptance-receipts --from-junit acceptance-junit/acceptance-junit-linux-*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-linux.json --revision "$REVISION" --platform linux-aarch64
+          fi
           if [ "${GITHUB_EVENT_NAME}" != pull_request ]; then
             receipts-tool/acceptance-receipts --from-junit acceptance-artifact/*/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts.json --revision "$REVISION" --map docs/acceptance/t-rows-darwin.toml --features rt,time,sync,macros,io,process,script,ephemeral,ecs,wire --platform darwin-arm64
             receipts-tool/acceptance-receipts --map docs/acceptance/t-rows-windows.toml --features process,script,ephemeral --from-junit acceptance-junit/acceptance-junit-windows/junit.xml --db acceptance-artifact/receipts.sqlite --export acceptance-artifact/acceptance-receipts-windows.json --revision "$REVISION" --platform windows-x86_64

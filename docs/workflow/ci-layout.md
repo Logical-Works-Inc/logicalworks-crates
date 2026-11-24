@@ -47,7 +47,7 @@ The `changes` job lists a pull request's files (ADR 0011). When every one is a
 suites are skipped and the gate decides. Its `check-docs` step holds every page
 the change touches to the docs bar. `Build and workspace tests` then reads the
 classification and the gate, and still holds the 300 s wall. A push to `main`
-runs everything.
+runs everything. A pull request that changes no lgwks_bot input skips the bot rows (ADR 0086).
 
 ### Each shard builds what it runs
 
