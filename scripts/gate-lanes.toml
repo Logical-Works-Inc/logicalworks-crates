@@ -295,7 +295,7 @@ required = true
 # lgwks_bot full is built in two parts that name their test targets (bot-it:
 # `it`; bot-rest: the rest), so a target added to the crate
 # and named in neither would never run. This refuses that drift.
-command = '''test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick it process_job sim_deep_cancel sim_review_path t03_non_yielding"'''
+command = '''test "$(cargo metadata --locked --format-version 1 --no-deps | jq -r '[.packages[] | select(.name == "lgwks_bot") | .targets[] | select(.kind == ["test"]) | .name] | sort | join(" ")')" = "ecs_tick heap_baseline it process_job sim_deep_cancel sim_review_path t03_non_yielding"'''
 ci_step = "Every lgwks_bot test target is in a bot shard"
 
 [[lane]]

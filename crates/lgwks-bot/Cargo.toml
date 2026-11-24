@@ -238,6 +238,10 @@ proptest = { version = "1.11", default-features = false, features = ["std"] }
 # held to the `ARCHITECTURE` this crate's tests compile (#384). No grammar: the
 # tool reads tokens, not tree-sitter trees.
 lgwks_ast = { workspace = true, default-features = false, features = ["tool"] }
+# The heap census of `tests/heap_baseline.rs` (#1128 G1) counts every byte
+# through the storefront's counting allocator (`heap-accounting`), since
+# `unsafe_code` is forbidden here and `lgwks_deps` owns every third-party edge.
+lgwks_deps = { workspace = true, default-features = false, features = ["heap-accounting"] }
 
 [lints]
 workspace = true

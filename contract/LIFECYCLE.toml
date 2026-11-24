@@ -238,6 +238,13 @@ last_reviewed = "2026-10-26"
 review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/273"
 
 [[lifecycle]]
+crate = "stats_alloc"
+replacement = "A counting allocator in std, or an estate crate allowed one audited GlobalAlloc impl."
+removal_trigger = "The heap census counts live bytes without the edge and no consumer remains."
+last_reviewed = "2026-11-23"
+review = "https://github.com/Logical-Works-Inc/logicalworks-crates/issues/1133"
+
+[[lifecycle]]
 crate = "semver"
 replacement = "The advisory SemVer port held to a reference the estate owns, with no semver edge."
 removal_trigger = "Cargo's version reading is checked without the semver crate and no consumer remains."
