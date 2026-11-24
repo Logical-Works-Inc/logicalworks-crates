@@ -118,6 +118,31 @@ fn the_loom_probe_release_target_is_built_before_the_engine() -> TestResult {
     Ok(())
 }
 
+/// The first run on logical_ci v0.4.10 (run 45442648134) spent 12.3 min cold on the builds the
+/// engine printed (4 m 03 s, 1 m 45 s, 6 m 28 s), and its 15-minute cap cancelled A11 91 s into
+/// the engine's 420 s budget. A cancelled job saves no cache, so the next run is cold again. The
+/// cap holds setup, those builds, the budget and the upload.
+#[test]
+fn the_logical_ci_job_outlasts_its_cold_builds_and_lane_budget() -> TestResult {
+    const SETUP_S: u64 = 60;
+    const COLD_BUILDS_S: u64 = 243 + 105 + 388;
+    const LANE_BUDGET_S: u64 = 420;
+    const UPLOAD_S: u64 = 60;
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    let minutes: u64 = text
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("timeout-minutes:"))
+        .ok_or("logical_ci.yml sets no timeout-minutes")?
+        .trim()
+        .parse()?;
+    let need = SETUP_S + COLD_BUILDS_S + LANE_BUDGET_S + UPLOAD_S;
+    assert!(
+        minutes * 60 >= need,
+        "the job's {minutes}-minute cap ends before its cold run's {need} s"
+    );
+    Ok(())
+}
+
 #[test]
 fn no_workflow_step_sleeps() -> TestResult {
     let found = idle_steps(&workflows())?;

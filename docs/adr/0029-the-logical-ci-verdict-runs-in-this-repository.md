@@ -79,6 +79,9 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
   workflow change runs nothing (logical_ci#549). Its `plan --builds` prints each build the
   lanes start from, with the target each lane builds in. The job runs that list before `ci`,
   so no hand-written list goes stale. `check-gate-parity` refuses a job without that step.
+- On its first run A02 passed in 60.7 s and A10 in 6.5 s. Cold, the printed builds took
+  12.3 min, and the 15-minute cap cancelled A11 91 s in (run 45442648134). A cancelled job saves
+  no cache, so the cap is now 25 minutes: setup, the cold builds, the 420 s budget, the upload.
 - v0.4.1's seal names all four binaries, and `lci-verify` exits 2 with the macOS pair alone, so
   the download takes every `logical_ci-*` and `lci-verify-*` asset (13.7 MB).
 - The engine compiles this repository, so the job first runs `.github/actions/hosted-rust`:
@@ -91,7 +94,7 @@ also passed no `LOGICAL_CI_TOKEN`, which gate.yml requires to download the relea
 ## Correspondence
 
 Refines #802 and #865, which first called the gate. Relates to ADR 0028, the budget the job's
-10-minute cap sits under.
+25-minute cap sits under.
 
 ## Verification
 
