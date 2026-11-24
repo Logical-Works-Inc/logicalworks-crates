@@ -26,7 +26,8 @@ use lgwks_bot::verb::Query;
 #[test]
 fn both_entry_points_produce_the_identical_inspection() -> TestResult<()> {
     let subject = "fn f() { g().unwrap(); }\n";
-    let artifact = artifact_for("identity", subject)?;
+    let artifact_file = artifact_for("identity", subject)?;
+    let artifact = artifact_file.path().to_owned();
     let direct = inspect(&InspectRequest::new(&artifact, subject));
 
     // (A) The registry path, native: a bot observes the shipped source.

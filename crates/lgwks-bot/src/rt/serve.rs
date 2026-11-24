@@ -349,8 +349,6 @@ pub(crate) struct Shared {
     runs: runs::Runs,
     /// Where every host's run store lives.
     pub(crate) store_dir: PathBuf,
-    /// A per-serve scratch removed on drain, when the store is ephemeral.
-    pub(crate) ephemeral_store: Option<PathBuf>,
     /// The per-host admission ceiling.
     pub(crate) max_in_flight: usize,
     /// Requests answered before the stop.
@@ -359,10 +357,18 @@ pub(crate) struct Shared {
     pub(crate) live: AtomicUsize,
 }
 
-impl Drop for Shared {
-    /// Remove a per-serve scratch store; a caller-named store is left alone.
+/// A per-serve scratch store, removed when the serve that made it returns.
+///
+/// The serve owns it, not [`Shared`]: a run that ignored the stop or an axum
+/// connection task can hold `Shared` past the serve, and on the process-wide
+/// driver such a holder is never dropped before exit, so a removal waiting on
+/// the last holder left the store for ever (#1128 G2, PR #1129's Linux CI).
+struct EphemeralStore(Option<PathBuf>);
+
+impl Drop for EphemeralStore {
+    /// Remove the store, naming a refusal in the trace.
     fn drop(&mut self) {
-        if let Some(ref dir) = self.ephemeral_store
+        if let Some(ref dir) = self.0
             && let Err(error) = std::fs::remove_dir_all(dir)
         {
             lgwks_std::trace::debug!(error = ?error, "serve: the scratch store was not removed");
@@ -434,6 +440,9 @@ pub(crate) async fn serve_async(
         lgwks_std::trace::debug!(error = ?refusal, "serve: the listener is refused");
         return Err(refusal);
     }
+    // Declared before `Shared` so it drops after it, on every return below,
+    // including a refusal after `prepare_store` made the directory.
+    let _scratch = EphemeralStore(options.ephemeral.then(|| options.store_dir.clone()));
     let dir = options.store_dir.clone();
     let prepared = match lgwks_std::task::try_spawn_blocking(move || prepare_store(dir.as_path())) {
         Ok(handle) => handle.await,
@@ -460,11 +469,6 @@ pub(crate) async fn serve_async(
         hosts: hosts::Hosts::new(hosts::MAX_TENANT_HOSTS),
         runs: runs::Runs::new(),
         store_dir: options.store_dir.clone(),
-        ephemeral_store: if options.ephemeral {
-            Some(options.store_dir.clone())
-        } else {
-            None
-        },
         max_in_flight: options.max_in_flight,
         drained: AtomicUsize::new(0),
         live: AtomicUsize::new(0),

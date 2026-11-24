@@ -36,13 +36,16 @@ command = ['cargo', 'build', '--locked', '-p', 'lgwks_deps', '--no-default-featu
 [scripts.wrapper.churn-slot]
 command = { command-line = "debug/churn-slot", relative-to = "target" }
 
+# ADR 0078 (#1128 G2): the same wrapper is the residue census on every Unix
+# host. Each test runs with a fresh TMPDIR of its own, and anything it leaves
+# there fails that test by name. Linux runs every suite (INV-CI-PLATFORM-1).
 [[profile.default.scripts]]
-platform = 'cfg(target_os = "macos")'
+platform = 'cfg(unix)'
 filter = 'all()'
 setup = 'build-churn-slot'
 
 [[profile.default.scripts]]
-platform = 'cfg(target_os = "macos")'
+platform = 'cfg(unix)'
 filter = 'all()'
 run-wrapper = 'churn-slot'
 

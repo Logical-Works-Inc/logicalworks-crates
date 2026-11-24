@@ -9,11 +9,14 @@
 //! the child, on every path (INV-BOT-TEMP-1).
 //!
 //! - **Crash-safe.** The directories live under one root per supervising
-//!   process, `lgwks-tmp-<pid>-<n>`, whose `.owner` file that process holds an
-//!   exclusive lock on for its lifetime. The kernel drops the lock when the
-//!   process dies, `SIGKILL` included, so the first root a supervisor opens
-//!   removes every sibling root whose lock it can take. A reused pid never
-//!   keeps a dead root alive: the lock decides, not the pid.
+//!   process, `lgwks-tmp-<16 hex>`, whose `.owner` file that process holds an
+//!   exclusive lock on while any child directory under it lives. The last
+//!   child's drop removes the root, lock still held, so a process leaves no root
+//!   behind (#1128 G2); the next child opens a fresh one. The kernel drops the
+//!   lock when the process dies, `SIGKILL` included, so a root a supervisor
+//!   opens removes every sibling root whose lock it can take, at most once per
+//!   [`SWEEP_EVERY`]. A reused pid never keeps a dead root alive: the lock
+//!   decides, not the pid.
 //! - **The caller's choice wins.** A spec that sets `TMPDIR`, or clears the
 //!   environment (whose contract is exactly what the caller names), gets
 //!   nothing injected.
@@ -34,6 +37,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::start::KernelWide;
 use std::time::{Duration, Instant, SystemTime};
 
 /// The prefix of one supervising process's root of child directories.
@@ -76,10 +81,44 @@ impl Scratch {
         if caller_owns_temp {
             return Ok(None);
         }
-        let root = process_root(&std::env::temp_dir())?;
-        let dir = root.join(NEXT_CHILD.fetch_add(1, Ordering::Relaxed).to_string());
-        fs::create_dir(&dir)?;
-        Ok(Some(Self { dir }))
+        let parent = std::env::temp_dir();
+        let mut held = ROOT.hold();
+        // Two tries: a root something outside this process removed (a temp
+        // cleaner, `rm -rf /tmp/*`) is abandoned and a fresh one opened once.
+        let mut fresh = false;
+        loop {
+            let root = match held.take() {
+                Some(root) => root,
+                None => {
+                    fresh = true;
+                    open_process_root(&parent)?
+                }
+            };
+            let root = held.insert(root);
+            let dir = root
+                .path
+                .join(NEXT_CHILD.fetch_add(1, Ordering::Relaxed).to_string());
+            match fs::create_dir(&dir) {
+                Ok(()) => {
+                    root.live = root.live.saturating_add(1);
+                    return Ok(Some(Self { dir }));
+                }
+                Err(error) if error.kind() == io::ErrorKind::NotFound && !fresh => {
+                    lgwks_std::trace::debug!(%error, root = %root.path.display(), "scratch: the open root was removed from outside; opening a fresh one");
+                    // Its children's dirs went with it, and their drops count
+                    // against no other root.
+                    if let Some(gone) = held.take() {
+                        drop(gone.owner);
+                    }
+                }
+                Err(error) => {
+                    lgwks_std::trace::debug!(%error, dir = %dir.display(), "scratch: the child's temp dir could not be made");
+                    // A root opened for this child and never used goes now.
+                    close_if_idle(&mut held);
+                    return Err(error);
+                }
+            }
+        }
     }
 
     /// The child's directory, under every name a tool reads its temp from.
@@ -93,16 +132,58 @@ impl Scratch {
 }
 
 impl Drop for Scratch {
-    /// Remove the child's directory, then sweep what writers that ignore
-    /// `TMPDIR` abandoned. Best effort: a cleanup never fails a run.
+    /// Remove the child's directory, and the process root with the last one,
+    /// then sweep what writers that ignore `TMPDIR` abandoned. Best effort: a
+    /// cleanup never fails a run.
     fn drop(&mut self) {
         if let Err(error) = fs::remove_dir_all(&self.dir)
             && error.kind() != io::ErrorKind::NotFound
         {
             lgwks_std::trace::debug!(%error, dir = %self.dir.display(), "scratch: the child's temp dir was not removed");
         }
+        let mut held = ROOT.hold();
+        // Only the root this child was made under counts it: one removed from
+        // outside and replaced is not the open root.
+        if let Some(root) = held.as_mut()
+            && self.dir.parent() == Some(root.path.as_path())
+        {
+            root.live = root.live.saturating_sub(1);
+        }
+        close_if_idle(&mut held);
+        drop(held);
         sweep_if_due();
     }
+}
+
+/// One supervising process's open root.
+#[derive(Debug)]
+struct Root {
+    /// `lgwks-tmp-<16 hex>` under the temp dir it was opened in.
+    path: PathBuf,
+    /// The `.owner` file whose exclusive lock says this process lives.
+    owner: File,
+    /// Child directories under it not yet dropped.
+    live: usize,
+}
+
+/// Remove the root in `slot` once no child directory under it lives.
+///
+/// The tree goes first and the owner lock after it, so no other process sees
+/// the root unlocked while it still exists. A root that cannot be removed has
+/// its lock dropped anyway: the next supervisor's sweep takes it.
+fn close_if_idle(slot: &mut Option<Root>) {
+    if slot.as_ref().is_none_or(|root| root.live > 0) {
+        return;
+    }
+    let Some(Root { path, owner, .. }) = slot.take() else {
+        return;
+    };
+    if let Err(error) = fs::remove_dir_all(&path)
+        && error.kind() != io::ErrorKind::NotFound
+    {
+        lgwks_std::trace::debug!(%error, root = %path.display(), "scratch: an idle root was not removed; the next supervisor sweeps it");
+    }
+    drop(owner);
 }
 
 /// Sweep the abandoned-writer files now when [`SWEEP_EVERY`] has passed.
@@ -143,10 +224,14 @@ pub(super) async fn sweep_while_running() {
 
 /// The next child directory's number within this process's root.
 static NEXT_CHILD: AtomicU64 = AtomicU64::new(0);
-/// This process's root and the locked owner file that keeps it alive.
-static ROOT: OnceLock<(PathBuf, File)> = OnceLock::new();
+/// This process's open root, if a child directory under it lives. Kernel-wide
+/// by design: the temp dir and the owner lock belong to the process, not a
+/// tenant. Held for short filesystem calls, never across an await.
+static ROOT: KernelWide<Option<Root>> = KernelWide::new(None);
 /// When this process last swept: milliseconds since [`SWEEP_BASE`], plus one.
 static LAST_SWEEP: AtomicU64 = AtomicU64::new(0);
+/// When this process last swept dead owners' roots, on the same clock.
+static LAST_ROOT_SWEEP: AtomicU64 = AtomicU64::new(0);
 /// The instant sweep times are counted from.
 static SWEEP_BASE: OnceLock<Instant> = OnceLock::new();
 /// The Darwin user temp dir, read once.
@@ -276,32 +361,35 @@ fn darwin_user_temp() -> Option<PathBuf> {
     }
 }
 
-/// This process's root under `parent`, opened once; the first open removes the
-/// roots of owners that died.
-fn process_root(parent: &Path) -> io::Result<PathBuf> {
-    if let Some(entry) = ROOT.get() {
-        return Ok(entry.0.clone());
+/// A fresh root for this process under `parent`, with no child yet. The caller
+/// holds [`ROOT`], so two spawns never open two roots. A due open also removes
+/// the roots of owners that died: at most once per [`SWEEP_EVERY`], since a
+/// process that spawns one child at a time reopens its root for each.
+fn open_process_root(parent: &Path) -> io::Result<Root> {
+    let (path, owner) = open_root(parent)?;
+    let at = sweep_clock(Instant::now());
+    let last = LAST_ROOT_SWEEP.load(Ordering::Relaxed);
+    let due = elapsed_enough(last, at);
+    if due {
+        LAST_ROOT_SWEEP.store(at, Ordering::Relaxed);
     }
-    // Two first spawns may race here. Each opens a root; one wins the set, and
-    // the loser removes its own empty root and uses the winner's. No lock: a
-    // failed open is retried by the next spawn rather than cached.
-    let (root, owner) = open_root(parent)?;
-    if may_scan(parent, ROOTS_CLAIM, SystemTime::now()) {
-        let swept = sweep_dead_roots(parent, &root);
-        lgwks_std::trace::debug!(swept, root = %root.display(), "scratch: dead owners' roots removed");
+    let now = SystemTime::now();
+    if sweeps_roots(parent, due, now) {
+        let swept = sweep_dead_roots(parent, &path, now);
+        lgwks_std::trace::debug!(swept, root = %path.display(), "scratch: dead owners' roots removed");
     }
-    if let Err((lost, owner)) = ROOT.set((root, owner)) {
-        drop(owner);
-        if let Err(error) = fs::remove_dir_all(&lost) {
-            lgwks_std::trace::debug!(%error, root = %lost.display(), "scratch: a raced root was not removed; the next supervisor sweeps it");
-        }
-    }
-    if let Some(entry) = ROOT.get() {
-        return Ok(entry.0.clone());
-    }
-    let error = io::Error::other("lgwks_bot: the temp root was set and is not readable");
-    lgwks_std::trace::debug!(%error, "scratch: no root after its set");
-    Err(error)
+    Ok(Root {
+        path,
+        owner,
+        live: 0,
+    })
+}
+
+/// Whether this root open sweeps dead roots under `parent`: this process is
+/// `due`, and for the shared Darwin dir it won the machine's claim (#1130).
+/// The claim is not tried when not due, so a private parent gets no stamp.
+fn sweeps_roots(parent: &Path, due: bool, now: SystemTime) -> bool {
+    due && may_scan(parent, ROOTS_CLAIM, now)
 }
 
 /// Create a fresh root under `parent`, named by 64 random bits (INV-BOT-116),
@@ -316,11 +404,16 @@ fn open_root(parent: &Path) -> io::Result<(PathBuf, File)> {
     Ok((root, owner))
 }
 
-/// Remove every root under `parent` but `keep` whose owner lock is free.
+/// Remove every root under `parent` but `keep` whose owner lock is free and
+/// whose owner file is idle past [`ABANDONED_AFTER`] at `now`.
+///
+/// The idle bound closes the window between another process's `create_dir`
+/// of its root and its `lock` of the owner file: a root that young is never
+/// taken, so a sweep cannot remove a root its owner is still opening.
 ///
 /// A root whose owner file cannot be opened is left alone: only a lock this
 /// process took proves its owner gone. Returns how many roots were removed.
-fn sweep_dead_roots(parent: &Path, keep: &Path) -> usize {
+fn sweep_dead_roots(parent: &Path, keep: &Path, now: SystemTime) -> usize {
     let entries = match fs::read_dir(parent) {
         Ok(entries) => entries,
         Err(error) => {
@@ -341,11 +434,30 @@ fn sweep_dead_roots(parent: &Path, keep: &Path) -> usize {
         let Ok(owner) = File::open(path.join(OWNER)) else {
             continue;
         };
-        if owner.try_lock().is_ok() && fs::remove_dir_all(&path).is_ok() {
+        let idle = match owner.metadata().and_then(|meta| meta.modified()) {
+            Ok(modified) => owner_idle(modified, now),
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, root = %path.display(), "scratch: a root's owner file has no readable age, so it stays");
+                false
+            }
+        };
+        if idle && owner.try_lock().is_ok() && fs::remove_dir_all(&path).is_ok() {
             removed = removed.saturating_add(1);
         }
     }
     removed
+}
+
+/// Whether an owner file last written at `modified` is old enough at `now` for
+/// its root to be swept. One written after `now` (a clock step) is not.
+fn owner_idle(modified: SystemTime, now: SystemTime) -> bool {
+    match now.duration_since(modified) {
+        Ok(age) => age >= ABANDONED_AFTER,
+        Err(ahead) => {
+            lgwks_std::trace::debug!(ahead = ?ahead.duration(), "scratch: a root's owner file is newer than the sweep, so it stays");
+            false
+        }
+    }
 }
 
 /// Milliseconds since [`SWEEP_BASE`] at `now`, plus one so zero means never.

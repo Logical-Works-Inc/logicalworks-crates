@@ -143,7 +143,7 @@ fn new_check_expand_run_serves_one_request() -> TestResult {
         }
         Ok(())
     })();
-    let stopped = stop_run(&mut child, port, STOP_DEADLINE);
+    let stopped = stop_run(&mut child, &dir, port, STOP_DEADLINE);
     outcome?;
     stopped?;
     assert_untracked(&dir)

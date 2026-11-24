@@ -209,6 +209,22 @@ fn a_volume_that_cannot_be_attached_is_a_volume_error() -> Result<(), Failed> {
     Ok(())
 }
 
+/// Catches the small default leaking off the macOS physical disk: a test moved
+/// to the RAM disk, and every host but macOS, gets the host's cores.
+#[test]
+fn only_a_test_on_the_macos_physical_disk_gets_the_small_default() -> Result<(), Failed> {
+    let host = NonZeroUsize::new(13).ok_or("13 is not zero")?;
+    assert_eq!(
+        fallback_slots(false, true, host),
+        DEFAULT_SLOTS,
+        "macOS disk"
+    );
+    assert_eq!(fallback_slots(true, true, host), host, "macOS RAM disk");
+    assert_eq!(fallback_slots(false, false, host), host, "Linux");
+    assert_eq!(fallback_slots(true, false, host), host, "Linux, moved");
+    Ok(())
+}
+
 #[test]
 fn every_slot_is_held_once_and_a_further_try_finds_none() -> Result<(), Failed> {
     let dir = scratch("full")?;

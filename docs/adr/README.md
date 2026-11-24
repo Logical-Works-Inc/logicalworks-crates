@@ -113,6 +113,7 @@ Prose review does not catch a missing field; a refusal does.
 | [0075](0075-every-page-reads-zero-findings-with-no-exemption.md) | Every page reads 0 `check-docs` findings, `AGENTS.md` included |
 | [0076](0076-doc-tests-run-beside-the-suites-on-their-own-cache.md) | Doc tests run beside the suites, on their own cache |
 | [0077](0077-supervised-children-get-a-private-temp-dir.md) | Supervised children get a private temp dir |
+| [0078](0078-every-test-is-judged-by-what-it-leaves.md) | Every test is judged by what it leaves |
 | [0079](0079-the-shared-darwin-temp-dir-is-scanned-once-per-machine.md) | The shared Darwin temp dir is scanned once per machine |
 
 New records go at the bottom of that table.

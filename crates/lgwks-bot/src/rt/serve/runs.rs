@@ -163,7 +163,6 @@ mod tests {
             hosts: Hosts::new(2),
             runs: Runs::new(),
             store_dir: std::path::PathBuf::new(),
-            ephemeral_store: None,
             max_in_flight: 1,
             drained: AtomicUsize::new(0),
             live: AtomicUsize::new(live),

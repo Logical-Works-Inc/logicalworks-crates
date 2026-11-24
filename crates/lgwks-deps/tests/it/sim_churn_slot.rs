@@ -33,16 +33,22 @@ fn scratch(family: &str, seed: u64) -> Result<PathBuf, Failure> {
         "churn-slot-it-{family}-{seed:x}-{distinguisher:016x}"
     ));
     match fs::remove_dir_all(&dir) {
-        Ok(()) | Err(_) => {}
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "churn-slot sim: an old scratch dir stayed");
+            return Err(error.into());
+        }
     }
     fs::create_dir_all(&dir)?;
     Ok(dir)
 }
 
-/// Removes a directory this run made.
+/// Removes a directory this run made. A refusal is logged and the run goes
+/// on: under the census it then fails this test by name anyway.
 fn clear(dir: &Path) {
-    match fs::remove_dir_all(dir) {
-        Ok(()) | Err(_) => {}
+    if let Err(error) = fs::remove_dir_all(dir) {
+        lgwks_std::trace::debug!(%error, dir = %dir.display(), "clear: a scratch dir was not removed");
     }
 }
 
@@ -96,7 +102,8 @@ impl Holder {
 
     /// Lets the program exit and waits for the wrapper, returning its status.
     fn release(mut self) -> Result<i32, Failure> {
-        drop(self.stdin.take());
+        // Closing the pipe is what lets the program exit.
+        self.stdin = None;
         let status = self.child.wait()?;
         status
             .code()
@@ -286,12 +293,12 @@ fn a_program_that_cannot_start_and_a_call_with_none_are_refused_by_name() -> Res
 }
 
 /// What a program the wrapper starts sees as `TMPDIR` when its caller gave
-/// `tmpdir`, and what the wrapper said on standard error.
+/// `tmpdir`, the wrapper's exit status, and what it said on standard error.
 fn seen_tmpdir(
     dir: &Path,
     tmpdir: &str,
     choice: Option<&str>,
-) -> Result<(String, String), Failure> {
+) -> Result<(String, Option<i32>, String), Failure> {
     let mut command = wrapper(dir, 2);
     command
         .env("TMPDIR", tmpdir)
@@ -301,17 +308,31 @@ fn seen_tmpdir(
         None => command.env_remove("LWC_CHURN_TMP"),
     };
     let output = command.output()?;
-    if !output.status.success() {
-        return refuse(format!("the probe exited {:?}", output.status.code()));
-    }
     Ok((
         String::from_utf8(output.stdout)?,
+        output.status.code(),
         String::from_utf8(output.stderr)?,
     ))
 }
 
+/// Whether `seen` is a census dir of the wrapper's own directly under `base`:
+/// `<base>/lwc-test-<16 hex>/` (ADR 0078).
+fn own_dir_under(seen: &str, base: &str) -> bool {
+    seen.strip_prefix(base.trim_end_matches('/'))
+        .and_then(|rest| rest.strip_prefix("/lwc-test-"))
+        .and_then(|rest| rest.strip_suffix('/'))
+        .is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
+}
+
+/// Whether the wrapper refused to run a test whose temp dir does not exist.
+fn refused_unjudged(seen: &str, code: Option<i32>, said: &str) -> bool {
+    seen.is_empty() && code == Some(125) && said.contains("no census dir under")
+}
+
 /// Catches a wrapper that leaves a test on the physical disk's fsync queue, or
-/// that moves a directory its caller chose (a CI job's own RAM disk).
+/// that moves a directory its caller chose (a CI job's own RAM disk). Every
+/// program sees a census dir of its own under the base it was given, and a
+/// base that does not exist is refused by name rather than run unjudged.
 #[test]
 fn only_a_default_temporary_directory_is_moved_to_the_shared_volume() -> Result<(), Failure> {
     replay_sweep("shared-temp", SEEDS, |rng, trace: &mut Trace| {
@@ -319,27 +340,106 @@ fn only_a_default_temporary_directory_is_moved_to_the_shared_volume() -> Result<
         let dir = scratch("shared-temp", marker)?;
         let default = format!("/var/folders/{marker:x}/T/");
         let chosen = dir.join(format!("chosen-{marker:x}"));
+        fs::create_dir(&chosen)?;
         let chosen = chosen.to_str().ok_or("a scratch path is UTF-8")?.to_owned();
-        let (moved, said) = seen_tmpdir(&dir, &default, None)?;
-        let (kept, _) = seen_tmpdir(&dir, &chosen, None)?;
-        let (inherited, _) = seen_tmpdir(&dir, &default, Some("inherit"))?;
+        let (moved, moved_code, said) = seen_tmpdir(&dir, &default, None)?;
+        let (kept, _, _) = seen_tmpdir(&dir, &chosen, None)?;
+        let chosen_left = fs::read_dir(&chosen)?.count();
+        let (inherited, inherited_code, inherited_said) =
+            seen_tmpdir(&dir, &default, Some("inherit"))?;
         clear(&dir);
-        let shared = moved == "/Volumes/lgwks-test-tmp/tmp/";
-        let declined = moved == default && said.contains("keeping TMPDIR");
+        let shared = own_dir_under(&moved, "/Volumes/lgwks-test-tmp/tmp/");
+        let declined =
+            said.contains("keeping TMPDIR") && refused_unjudged(&moved, moved_code, &said);
         if cfg!(target_os = "macos") && !shared && !declined {
             return refuse(format!(
                 "a default TMPDIR became {moved:?} and the wrapper said {said:?}"
             ));
         }
-        if !cfg!(target_os = "macos") && moved != default {
-            return refuse(format!("off macOS a default TMPDIR became {moved:?}"));
-        }
-        if kept != chosen || inherited != default {
+        if !cfg!(target_os = "macos") && !refused_unjudged(&moved, moved_code, &said) {
             return refuse(format!(
-                "a chosen TMPDIR became {kept:?} and an inherited one {inherited:?}"
+                "off macOS a missing default TMPDIR became {moved:?}: {said:?}"
+            ));
+        }
+        if !own_dir_under(&kept, &chosen) || chosen_left != 0 {
+            return refuse(format!(
+                "a chosen TMPDIR became {kept:?}, and {chosen_left} entries stayed in it"
+            ));
+        }
+        if !refused_unjudged(&inherited, inherited_code, &inherited_said) {
+            return refuse(format!(
+                "an inherited missing TMPDIR became {inherited:?}: {inherited_said:?}"
             ));
         }
         trace.record_number("shared", u64::from(shared));
+        Ok(())
+    })
+}
+
+/// The census's verdict for one drawn program: the exit status the wrapper
+/// owes, from what the program was told to leave and how it ends.
+fn owed_status(code: u8, entries: u64) -> i32 {
+    match code {
+        0 if entries > 0 => 1,
+        _ => i32::from(code),
+    }
+}
+
+/// Catches a wrapper that lets a test pass while it leaves files in its temp
+/// dir (ADR 0078, #1128 G2). Source: 2026-11-23, 110,965 leaked temp files on
+/// the build Mac that no test saw. Fools: the monkey writes nested trees, and
+/// a failing program keeps its own status.
+#[test]
+fn the_census_fails_a_program_that_leaves_residue() -> Result<(), Failure> {
+    replay_sweep("residue", SEEDS, |rng, trace: &mut Trace| {
+        let dir = scratch("residue", rng.next_u64())?;
+        let base = dir.join("base");
+        fs::create_dir(&base)?;
+        let trees = rng.between(0, 6);
+        let code = if rng.between(0, 3) == 0 { 7_u8 } else { 0 };
+        let script = format!(
+            "printf '%s' \"$TMPDIR\"; i=0; while [ $i -lt {trees} ]; do \
+             mkdir -p \"$TMPDIR/t$i/deep\"; : > \"$TMPDIR/t$i/deep/f\"; i=$((i+1)); done; \
+             exit {code}"
+        );
+        let output = wrapper(&dir, 2)
+            .env("TMPDIR", &base)
+            .env("LWC_CHURN_TMP", "inherit")
+            .args(["/bin/sh", "-c", &script])
+            .output()?;
+        let seen = String::from_utf8(output.stdout)?;
+        let said = String::from_utf8(output.stderr)?;
+        let left_in_base = fs::read_dir(&base)?.count();
+        clear(&dir);
+        if !own_dir_under(&seen, base.to_str().ok_or("a scratch path is UTF-8")?) {
+            return refuse(format!(
+                "the program's TMPDIR {seen:?} is not its own dir under {base:?}"
+            ));
+        }
+        if left_in_base != 0 {
+            return refuse(format!(
+                "the wrapper left {left_in_base} entries in the base temp dir"
+            ));
+        }
+        // Each tree is three entries: t<i>, t<i>/deep and t<i>/deep/f.
+        let entries = trees.saturating_mul(3);
+        let status = output
+            .status
+            .code()
+            .ok_or("the wrapper has an exit status")?;
+        let owed = owed_status(code, u64::from(entries));
+        if status != owed {
+            return refuse(format!(
+                "the wrapper exited {status}, owed {owed} (code {code}, {entries} entries): {said:?}"
+            ));
+        }
+        if entries > 0 && !said.contains(&format!("the test left {entries} entries")) {
+            return refuse(format!(
+                "the verdict does not count {entries} entries: {said:?}"
+            ));
+        }
+        trace.record_number("entries", u64::from(entries));
+        trace.record_number("status", u64::try_from(status)?);
         Ok(())
     })
 }
