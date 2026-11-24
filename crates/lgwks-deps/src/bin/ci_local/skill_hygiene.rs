@@ -342,12 +342,10 @@ pub(super) fn skill_hygiene(context: &Context<'_>) -> Result<Verdict, GateError>
 #[cfg(test)]
 mod tests {
     use super::{
-        Around, DESCRIPTION_MAX, HOPS_MAX, LINES_MAX, NAME_MAX, chain_end, description_findings,
-        fence_findings, header_findings, link_findings, name_fault, page_findings, yaml_fault,
+        Around, DESCRIPTION_MAX, LINES_MAX, NAME_MAX, chain_end, description_findings,
+        fence_findings, header_findings, name_fault, page_findings, yaml_fault,
     };
     use std::path::Path;
-
-    type TestResult = Result<(), Box<dyn std::error::Error>>;
 
     /// Whether one of `found` holds `words`.
     fn has(found: &[String], words: &str) -> bool {
@@ -557,7 +555,9 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn skill_hygiene_links_land_on_a_skill_of_their_own_name() -> TestResult {
+    fn skill_hygiene_links_land_on_a_skill_of_their_own_name()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use super::{HOPS_MAX, link_findings};
         use std::os::unix::fs::symlink;
         let fixture = crate::fixture::Fixture::claim(&std::env::temp_dir(), "skill-hygiene")?;
         let root = fixture.path();
