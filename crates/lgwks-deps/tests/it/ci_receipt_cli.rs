@@ -23,7 +23,7 @@ type TestResult = Result<(), Box<dyn Error>>;
 const FLAGS: &str = "--workspace --exclude lgwks_bot --locked --cargo-profile ci-bot";
 
 /// Copies the fixture logs into `<scratch>/logs` and returns that directory.
-fn logs_copy(scratch: &Scratch) -> Result<PathBuf, Box<dyn Error>> {
+pub(crate) fn logs_copy(scratch: &Scratch) -> Result<PathBuf, Box<dyn Error>> {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ci_receipt");
     let target = scratch.path().join("logs");
     fs::create_dir_all(&target)?;
@@ -42,19 +42,23 @@ fn run(arguments: &[&Path]) -> Result<Output, Box<dyn Error>> {
 }
 
 /// `--logs <logs> --out <out>`, then the extra flags in `more`.
-fn receipt_run(logs: &Path, out: &Path, more: &[&Path]) -> Result<Output, Box<dyn Error>> {
+pub(crate) fn receipt_run(
+    logs: &Path,
+    out: &Path,
+    more: &[&Path],
+) -> Result<Output, Box<dyn Error>> {
     let mut arguments = vec![Path::new("--logs"), logs, Path::new("--out"), out];
     arguments.extend_from_slice(more);
     run(&arguments)
 }
 
 /// What the binary said on standard error.
-fn said(output: &Output) -> String {
+pub(crate) fn said(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
 /// The receipt written to `out`, parsed.
-fn parsed(out: &Path) -> Result<Value, Box<dyn Error>> {
+pub(crate) fn parsed(out: &Path) -> Result<Value, Box<dyn Error>> {
     Ok(json::from_str::<Value>(&fs::read_to_string(out)?)?)
 }
 

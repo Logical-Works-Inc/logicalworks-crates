@@ -132,6 +132,8 @@ mod sim_origin;
 /// The crates ADR 0052 plans, held to CODEBOOK.md and the workspace members.
 mod sim_planned_crates;
 mod sim_policy_properties;
+/// The `ci-receipt` write against a neighbour that holds its temporary names.
+mod sim_receipt_temp;
 mod sim_register_policy;
 mod sim_requirements_pages;
 #[cfg(feature = "lgwks")]

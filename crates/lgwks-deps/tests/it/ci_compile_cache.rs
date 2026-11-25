@@ -97,9 +97,10 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
     }
     // Each text a file must hold, and the problem its absence is.
     let required = [
+        // Hashed from stdin: Git Bash printed `\` before a path's (run 45522616196).
         (
             action,
-            "if [ \"${got}\" != \"${sum}\" ]; then",
+            "sha256sum < \"${dir}/${asset}\")\"; else got=\"$(shasum -a 256 < \"${dir}/${asset}\")\"; fi\n        got=\"${got%% *}\"\n        if [ \"${got}\" != \"${sum}\" ]; then",
             "hosted-rust runs a kache it never checked",
         ),
         (
@@ -190,7 +191,13 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
 
 /// Each way of losing decisions 1 to 3: the file, the text a careless edit
 /// replaces, what it leaves, and the problem [`problems`] must name.
-const CONTROLS: [(&str, &str, &str, &str); 13] = [
+const CONTROLS: [(&str, &str, &str, &str); 14] = [
+    (
+        "action",
+        "sha256sum < \"${dir}/${asset}\"",
+        "sha256sum \"${dir}/${asset}\"",
+        "hosted-rust runs a kache it never checked",
+    ),
     (
         "action",
         "KACHE_VERSION: \"2.3.0\"",

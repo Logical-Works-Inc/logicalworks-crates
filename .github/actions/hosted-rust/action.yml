@@ -259,7 +259,9 @@ runs:
         mkdir -p "${dir}/bin" "${dir}/store"
         curl -fsSL --retry 5 --retry-all-errors -o "${dir}/${asset}" \
           "https://github.com/kunobi-ninja/kache/releases/download/v${KACHE_VERSION}/${asset}"
-        if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "${dir}/${asset}")"; else got="$(shasum -a 256 "${dir}/${asset}")"; fi
+        # From stdin: Git Bash's sha256sum escapes a path that holds a
+        # backslash and prints `\` before the hash (run 45522616196).
+        if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum < "${dir}/${asset}")"; else got="$(shasum -a 256 < "${dir}/${asset}")"; fi
         got="${got%% *}"
         if [ "${got}" != "${sum}" ]; then
           echo "::error::${asset} has SHA-256 ${got}, not the released ${sum}"
