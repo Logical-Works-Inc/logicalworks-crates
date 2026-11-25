@@ -24,6 +24,19 @@ runs:
         if ! "${kache}" stats --full --since 6h; then
           echo "::warning::kache stats failed"
         fi
+        # The stats count failed uploads but name no cause: run 45532085813
+        # printed "0 ok, 21 failed". kache's own log holds each remote error.
+        case "${RUNNER_OS}" in
+          macOS) log="${HOME}/Library/Logs/kache/kache.log" ;;
+          Windows) log="${LOCALAPPDATA:-}/kache/kache.log" ;;
+          *) log="${XDG_CACHE_HOME:-${HOME}/.cache}/kache/kache.log" ;;
+        esac
+        if [ -f "${log}" ]; then
+          echo "kache's warnings and errors, the last 40 of ${log}:"
+          { grep -iE 'warn|error' "${log}" || true; } | tail -n 40
+        else
+          echo "kache wrote no log at ${log}"
+        fi
         if ! "${kache}" stats --format github --since 6h >> "${GITHUB_STEP_SUMMARY}"; then
           echo "::warning::kache could not write the job summary"
         fi

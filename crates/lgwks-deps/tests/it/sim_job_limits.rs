@@ -38,6 +38,25 @@ const WRONG: [&str; 6] = [
 
 const SEEDS: u64 = 64;
 
+/// The step limits of `workflow` that do not leave the job time to save its
+/// cache: each must be `${{ github.event_name == 'push' && P || Q }}` with Q
+/// under 5 and P under 15. Run 45532085813: a fixed 4-minute Windows step cut
+/// main's cold compile at test 94 of 119, though its job had 15 minutes.
+fn bad_step_limits(workflow: &str) -> Vec<String> {
+    let arms = |line: &str| -> Option<(u32, u32)> {
+        let rest =
+            line.strip_prefix("        timeout-minutes: ${{ github.event_name == 'push' && ")?;
+        let (push, rest) = rest.split_once(" || ")?;
+        Some((push.parse().ok()?, rest.strip_suffix(" }}")?.parse().ok()?))
+    };
+    workflow
+        .lines()
+        .filter(|line| line.starts_with("        timeout-minutes:"))
+        .filter(|line| !arms(line).is_some_and(|(push, other)| push < 15 && other < 5))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// Each job of `workflow` whose limit is not [`JOB_LIMIT`], by id.
 fn short_limits(workflow: &str) -> BTreeSet<&str> {
     jobs(workflow)
@@ -71,6 +90,19 @@ fn sim_every_wrong_job_limit_is_refused_by_name() -> Result<(), Failure> {
     let held = short_limits(&workflow);
     if !held.is_empty() {
         return refuse(format!("ci.yml holds jobs to another limit: {held:?}"));
+    }
+    let steps = bad_step_limits(&workflow);
+    if !steps.is_empty() {
+        return refuse(format!("step limits not keyed on the event: {steps:?}"));
+    }
+    for wrong in [
+        "        timeout-minutes: 4",
+        "        timeout-minutes: ${{ github.event_name == 'push' && 15 || 4 }}",
+        "        timeout-minutes: ${{ github.event_name == 'push' && 14 || 5 }}",
+    ] {
+        if bad_step_limits(wrong).len() != 1 {
+            return refuse(format!("a wrong step limit passes: {wrong}"));
+        }
     }
     let ids: Vec<&str> = jobs(&workflow).into_iter().map(|(id, _)| id).collect();
     if ids.len() < 20 {
