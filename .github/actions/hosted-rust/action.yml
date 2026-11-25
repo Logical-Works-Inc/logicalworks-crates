@@ -329,7 +329,14 @@ runs:
           echo "KACHE_OCI_PASSWORD=${TOKEN}"
           echo "KACHE_GITHUB_WRITES=merge_group"
           echo "KACHE_SCHEDULER=0"
-          if [ "${GITHUB_EVENT_NAME}" = pull_request ]; then echo "KACHE_REMOTE_READONLY=1"; fi
+          # One writer per build: every slice compiles the same crates, and in
+          # run 45627908295 GHCR answered 429 to their repeated uploads.
+          case "${PARTITION:-}" in "" | slice:1/*) slice=first ;; *) slice=later ;; esac
+          if [ "${GITHUB_EVENT_NAME}" = pull_request ] || [ "${slice}" = later ]; then
+            echo "KACHE_REMOTE_READONLY=1"
+          else
+            echo "KACHE_S3_CONCURRENCY=4"
+          fi
           echo "CARGO_INCREMENTAL=0"
         } >> "${GITHUB_ENV}"
     - name: Install cargo-nextest

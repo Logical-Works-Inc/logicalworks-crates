@@ -120,8 +120,8 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
         ),
         (
             action,
-            "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
-            "a pull request can write the shared store",
+            "case \"${PARTITION:-}\" in \"\" | slice:1/*) slice=first ;; *) slice=later ;; esac\n          if [ \"${GITHUB_EVENT_NAME}\" = pull_request ] || [ \"${slice}\" = later ]; then\n            echo \"KACHE_REMOTE_READONLY=1\"\n          else\n            echo \"KACHE_S3_CONCURRENCY=4\"\n          fi\n",
+            "a pull request or a repeated slice can write the shared store",
         ),
         (
             action,
@@ -201,7 +201,7 @@ fn job_problems(workflow: &str) -> Vec<String> {
 
 /// Each way of losing decisions 1 to 3: the file, the text a careless edit
 /// replaces, what it leaves, and the problem [`problems`] must name.
-const CONTROLS: [(&str, &str, &str, &str); 15] = [
+const CONTROLS: [(&str, &str, &str, &str); 17] = [
     (
         "report",
         "grep -iE 'warn|error'",
@@ -234,9 +234,21 @@ const CONTROLS: [(&str, &str, &str, &str); 15] = [
     ),
     (
         "action",
-        "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
+        "[ \"${GITHUB_EVENT_NAME}\" = pull_request ] || ",
         "",
-        "a pull request can write the shared store",
+        "a pull request or a repeated slice can write the shared store",
+    ),
+    (
+        "action",
+        "*) slice=later ;;",
+        "*) slice=first ;;",
+        "a pull request or a repeated slice can write the shared store",
+    ),
+    (
+        "action",
+        "echo \"KACHE_S3_CONCURRENCY=4\"",
+        "true",
+        "a pull request or a repeated slice can write the shared store",
     ),
     (
         "action",
