@@ -82,10 +82,8 @@ pub(crate) fn jobs(text: &str) -> Vec<(&str, String)> {
 /// name. Empty means every compiling job reads the one store.
 fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
     let mut found = Vec::new();
-    for text in [action, workflow] {
-        if text.contains("sccache") {
-            found.push("a second compile cache, sccache, is still wired".to_owned());
-        }
+    if action.contains("sccache") || workflow.contains("sccache") {
+        found.push("a second compile cache, sccache, is still wired".to_owned());
     }
     if !action.contains(&format!("KACHE_VERSION: \"{VERSION}\"")) {
         found.push(format!("hosted-rust does not pin kache {VERSION}"));
@@ -155,9 +153,13 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
         ),
         (
             report,
-            // Issue 1155: `--full` names the remote error that trips the breaker.
-            "if ! \"${kache}\" stats --full --since 6h; then\n          echo \"::warning::kache stats failed\"\n        fi\n        if ! \"${kache}\" stats --format github",
+            "if ! \"${kache}\" stats --full --since 6h; then\n          echo \"::warning::kache stats failed\"\n        fi\n",
             "a job never prints its hit rate",
+        ),
+        (
+            report,
+            "{ grep -iE 'warn|error' \"${log}\" || true; } | tail -n 40",
+            "a job never says why kache's remote failed",
         ),
         (
             workflow,
@@ -174,6 +176,13 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
     if report.find("daemon stop") < report.rfind("\"${kache}\" stats") {
         found.push("the report starts a daemon after it drained the first".to_owned());
     }
+    found.extend(job_problems(workflow));
+    found
+}
+
+/// Each compiling job of `workflow` that skips the report or narrows its token.
+fn job_problems(workflow: &str) -> Vec<String> {
+    let mut found = Vec::new();
     for (id, body) in jobs(workflow) {
         if !body.contains("uses: ./.github/actions/hosted-rust") {
             continue;
@@ -192,7 +201,13 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
 
 /// Each way of losing decisions 1 to 3: the file, the text a careless edit
 /// replaces, what it leaves, and the problem [`problems`] must name.
-const CONTROLS: [(&str, &str, &str, &str); 14] = [
+const CONTROLS: [(&str, &str, &str, &str); 15] = [
+    (
+        "report",
+        "grep -iE 'warn|error'",
+        "grep -iE 'never'",
+        "a job never says why kache's remote failed",
+    ),
     (
         "action",
         "sha256sum < \"${dir}/${asset}\"",
