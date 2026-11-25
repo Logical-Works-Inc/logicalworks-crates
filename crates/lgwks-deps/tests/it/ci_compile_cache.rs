@@ -155,7 +155,8 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
         ),
         (
             report,
-            "stats --format github",
+            // Issue 1155: `--full` names the remote error that trips the breaker.
+            "if ! \"${kache}\" stats --full --since 6h; then\n          echo \"::warning::kache stats failed\"\n        fi\n        if ! \"${kache}\" stats --format github",
             "a job never prints its hit rate",
         ),
         (
@@ -260,8 +261,8 @@ const CONTROLS: [(&str, &str, &str, &str); 14] = [
     ),
     (
         "report",
-        "        if ! \"${kache}\" stats --since 6h; then",
-        "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --since 6h; then",
+        "        if ! \"${kache}\" stats --full --since 6h; then",
+        "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --full --since 6h; then",
         "the report starts a daemon after it drained the first",
     ),
     (
