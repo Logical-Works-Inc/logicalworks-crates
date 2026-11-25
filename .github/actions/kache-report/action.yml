@@ -19,7 +19,9 @@ runs:
           echo "kache: this job compiled nothing through it"
           exit 0
         fi
-        if ! "${kache}" stats --since 6h; then
+        # `--full` prints the remote's resilience detail, the error that marks
+        # it DEGRADED included (issue 1155).
+        if ! "${kache}" stats --full --since 6h; then
           echo "::warning::kache stats failed"
         fi
         if ! "${kache}" stats --format github --since 6h >> "${GITHUB_STEP_SUMMARY}"; then

@@ -154,6 +154,38 @@ fn parse_args(arguments: &[OsString]) -> Result<Args, ReceiptError> {
     })
 }
 
+/// The temporary names one receipt path may take: `.<name>.<n>.tmp`, `n` below
+/// this.
+const TEMP_NAMES: usize = 64;
+
+/// The first temporary beside `path` that no writer holds, created exclusively.
+///
+/// # Errors
+///
+/// The create's own error, or `AlreadyExists` when all [`TEMP_NAMES`] are held.
+fn claim_temp(path: &Path, name: &str) -> io::Result<(PathBuf, fs::File)> {
+    for number in 0..TEMP_NAMES {
+        let temp = path.with_file_name(format!(".{name}.{number}.tmp"));
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)
+        {
+            Ok(file) => return Ok((temp, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, temp = %temp.display(), "a temporary receipt could not be created");
+                return Err(error);
+            }
+        }
+    }
+    lgwks_std::trace::debug!(path = %path.display(), "every temporary name is held");
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "every temporary name beside the receipt is held",
+    ))
+}
+
 /// Writes `text` to `path` through a file beside it and a rename, so a reader
 /// sees the old file or the whole new one, never half of it.
 fn write_atomic(path: &Path, text: &str) -> Result<(), ReceiptError> {
@@ -173,11 +205,19 @@ fn write_atomic(path: &Path, text: &str) -> Result<(), ReceiptError> {
             "the path names no file",
         )));
     };
-    // A v4 UUID, not the process id: the OS reuses a pid, so two writers of
-    // one path could share a temporary name.
-    let unique = lgwks_std::id::Uuid::new_v4().map_err(|error| failed(io::Error::other(error)))?;
-    let temp = path.with_file_name(format!(".{}.{unique}.tmp", name.to_string_lossy()));
-    fs::write(&temp, text).map_err(failed)?;
+    // An exclusive create, not a process id or a random name: the OS reuses a
+    // pid, and `lgwks_std::id` does not build for wasm (run 45522616196). A
+    // name another writer holds is skipped and never opened.
+    let (temp, mut file) = claim_temp(path, &name.to_string_lossy()).map_err(failed)?;
+    let wrote = file.write_all(text.as_bytes());
+    drop(file);
+    if let Err(source) = wrote {
+        lgwks_std::trace::debug!(%source, temp = %temp.display(), "a temporary receipt could not be written");
+        if let Err(error) = fs::remove_file(&temp) {
+            lgwks_std::trace::debug!(%error, "a temporary receipt could not be removed");
+        }
+        return Err(failed(source));
+    }
     let Err(source) = fs::rename(&temp, path) else {
         return Ok(());
     };

@@ -32,12 +32,18 @@ impl TreeIdentity {
 
 /// What `git` prints for `args` in `root`, if it succeeds.
 pub(super) fn git(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
+    let output = match Command::new("git")
         .args(args)
         .current_dir(root)
         .stdin(Stdio::null())
         .output()
-        .ok()?;
+    {
+        Ok(output) => output,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, ?args, "git could not start");
+            return None;
+        }
+    };
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
@@ -55,20 +61,34 @@ fn git_text(root: &Path, args: &[&str]) -> String {
 
 /// Git's object hash of `text`, as a stable digest of it.
 fn digest_of(root: &Path, text: &str) -> Option<String> {
-    let mut child = Command::new("git")
+    let mut child = match Command::new("git")
         .args(["hash-object", "--stdin"])
         .current_dir(root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .ok()?;
-    let mut input = child.stdin.take()?;
-    if let Err(error) = input.write_all(text.as_bytes()) {
-        lgwks_std::trace::debug!(%error, "the index listing could not be hashed");
+    {
+        Ok(child) => child,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "git hash-object could not start");
+            return None;
+        }
+    };
+    // The pipe closes at the end of this block, so git sees end of input.
+    {
+        let mut input = child.stdin.take()?;
+        if let Err(error) = input.write_all(text.as_bytes()) {
+            lgwks_std::trace::debug!(%error, "the index listing could not be hashed");
+        }
     }
-    drop(input);
-    let output = child.wait_with_output().ok()?;
+    let output = match child.wait_with_output() {
+        Ok(output) => output,
+        Err(error) => {
+            lgwks_std::trace::debug!(%error, "git hash-object could not be read");
+            return None;
+        }
+    };
     let printed = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     if printed.is_empty() {
         None

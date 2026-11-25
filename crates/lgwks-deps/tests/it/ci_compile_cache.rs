@@ -97,9 +97,10 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
     }
     // Each text a file must hold, and the problem its absence is.
     let required = [
+        // Hashed from stdin: Git Bash printed `\` before a path's (run 45522616196).
         (
             action,
-            "if [ \"${got}\" != \"${sum}\" ]; then",
+            "sha256sum < \"${dir}/${asset}\")\"; else got=\"$(shasum -a 256 < \"${dir}/${asset}\")\"; fi\n        got=\"${got%% *}\"\n        if [ \"${got}\" != \"${sum}\" ]; then",
             "hosted-rust runs a kache it never checked",
         ),
         (
@@ -154,7 +155,8 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
         ),
         (
             report,
-            "stats --format github",
+            // Issue 1155: `--full` names the remote error that trips the breaker.
+            "if ! \"${kache}\" stats --full --since 6h; then\n          echo \"::warning::kache stats failed\"\n        fi\n        if ! \"${kache}\" stats --format github",
             "a job never prints its hit rate",
         ),
         (
@@ -190,7 +192,13 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
 
 /// Each way of losing decisions 1 to 3: the file, the text a careless edit
 /// replaces, what it leaves, and the problem [`problems`] must name.
-const CONTROLS: [(&str, &str, &str, &str); 13] = [
+const CONTROLS: [(&str, &str, &str, &str); 14] = [
+    (
+        "action",
+        "sha256sum < \"${dir}/${asset}\"",
+        "sha256sum \"${dir}/${asset}\"",
+        "hosted-rust runs a kache it never checked",
+    ),
     (
         "action",
         "KACHE_VERSION: \"2.3.0\"",
@@ -253,8 +261,8 @@ const CONTROLS: [(&str, &str, &str, &str); 13] = [
     ),
     (
         "report",
-        "        if ! \"${kache}\" stats --since 6h; then",
-        "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --since 6h; then",
+        "        if ! \"${kache}\" stats --full --since 6h; then",
+        "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --full --since 6h; then",
         "the report starts a daemon after it drained the first",
     ),
     (
