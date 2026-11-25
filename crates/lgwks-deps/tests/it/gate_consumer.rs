@@ -66,12 +66,19 @@ fn target_dir() -> HelperResult<PathBuf> {
         .ok_or_else(|| "the gate binary has no target directory".into())
 }
 
-/// The `lgwks-ast` binary the script legs run, built on demand with the `tool`
-/// feature the verbs live behind. A present binary is reused, so the four
-/// cases share one build; two threads racing to build it both run the same
-/// command cargo serializes on its own lock. A build that fails is the test's
-/// failure, with the compiler's own words attached.
+/// The `lgwks-ast` binary the script legs run. A workspace build makes it
+/// beside the gate binary, as `tool` is a default feature of `lgwks_ast`, and
+/// that one is used. Run 45510390970 rebuilt the whole tree in the dev profile
+/// instead: 80 s a case against 37 s. Otherwise it is built on demand with
+/// `tool`. A present binary is reused, so the cases share one build; two
+/// threads racing to build it both run the same command cargo serializes on
+/// its own lock. A build that fails is the test's failure, with the
+/// compiler's own words attached.
 fn ast_binary() -> HelperResult<PathBuf> {
+    let beside = gate_binary().with_file_name("lgwks-ast");
+    if beside.is_file() {
+        return Ok(beside);
+    }
     let built = target_dir()?.join("debug/lgwks-ast");
     if built.is_file() {
         return Ok(built);

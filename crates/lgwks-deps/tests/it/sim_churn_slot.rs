@@ -244,17 +244,28 @@ fn the_program_gets_its_arguments_its_environment_and_reports_its_own_status() -
 /// a worktree they are absolute, so a test's `git -C <fixture>` wrote the
 /// worktree's own index and moved its branch to a fixture's root commit
 /// (2026-11-24, twice, under the mutation gate). Each seed sets a drawn subset
-/// of the six redirecting variables to a decoy and a probe beside them. The
-/// program must see none of the six and still see the probe.
+/// of the variables `git rev-parse --local-env-vars` prints (git 2.54) to a
+/// decoy and a probe beside them. The program must see none of them and still
+/// see the probe. A hook run under `git -c` exports `GIT_CONFIG_PARAMETERS`,
+/// so the list is git's own, not only the paths.
 #[test]
 fn the_program_never_sees_a_hooks_repository() -> Result<(), Failure> {
-    const REDIRECTING: [&str; 6] = [
+    const REDIRECTING: [&str; 15] = [
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_CONFIG_COUNT",
+        "GIT_OBJECT_DIRECTORY",
         "GIT_DIR",
         "GIT_WORK_TREE",
+        "GIT_IMPLICIT_WORK_TREE",
+        "GIT_GRAFT_FILE",
         "GIT_INDEX_FILE",
+        "GIT_NO_REPLACE_OBJECTS",
+        "GIT_REPLACE_REF_BASE",
+        "GIT_PREFIX",
+        "GIT_SHALLOW_FILE",
         "GIT_COMMON_DIR",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     ];
     replay_sweep("hook-repository", SEEDS, |rng, trace: &mut Trace| {
         let marker = rng.next_u64();

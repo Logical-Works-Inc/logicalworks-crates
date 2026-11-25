@@ -106,7 +106,7 @@ jobs:
   changes:
     name: Changed files
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     permissions:
       contents: read
       pull-requests: read
@@ -211,7 +211,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -271,7 +271,7 @@ jobs:
     container:
       image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
       SIMULATION_LISTINGS: nextest-listing/nextest-listing-workspace-Linux/listing.json nextest-listing/nextest-listing-bot-rest-Linux/listing.json nextest-listing/nextest-listing-bot-it-scale-Linux/listing.json nextest-listing/nextest-listing-bot-it-surface-Linux/listing.json nextest-listing/nextest-listing-bot-it-refusals-Linux/listing.json nextest-listing/nextest-listing-bot-it-g1-Linux/listing.json nextest-listing/nextest-listing-bot-it-g2-Linux/listing.json nextest-listing/nextest-listing-bot-it-g3-Linux/listing.json nextest-listing/nextest-listing-bot-it-g4-Linux/listing.json nextest-listing/nextest-listing-bot-it-g5-Linux/listing.json nextest-listing/nextest-listing-bot-it-g6-Linux/listing.json nextest-listing/nextest-listing-bot-it-g7-Linux/listing.json nextest-listing/nextest-listing-bot-it-g8-Linux/listing.json
@@ -295,7 +295,11 @@ jobs:
           key: ${{ needs.changes.outputs.bot_key }}
           path: nextest-listing/nextest-listing-bot-*-Linux
           fail-on-cache-miss: true
-      - name: Wait for the Linux suite listings
+      # The listings are fetched by id from the same REST answer the wait
+      # matched. A second listing (download-artifact's) lagged it: bot-rest's
+      # listing was created at 17:27:08, the wait saw it at 17:27:09.15, and
+      # the download listed 12 of 13 at 17:27:09.49 (run 45448206410).
+      - name: Wait for and fetch the Linux suite listings
         env:
           TOKEN: ${{ github.token }}
           SUITES: ${{ needs.changes.outputs.bot == 'false' && 'workspace' || 'workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8' }}
@@ -307,42 +311,28 @@ jobs:
             for suite in ${SUITES:-workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8}; do
               case "${listed}" in *"\"name\":\"nextest-listing-${suite}-Linux\""*) ;; *) missing="${missing} ${suite}" ;; esac
             done
-            if [ -z "${missing}" ]; then echo "every suite listing is uploaded"; exit 0; fi
+            if [ -z "${missing}" ]; then
+              echo "every suite listing is uploaded"
+              # Only this run's suites: with the bot rows routed off, their
+              # listings are main's, restored from the cache above.
+              for suite in ${SUITES}; do
+                dir="nextest-listing/nextest-listing-${suite}-Linux"
+                file="${dir}/listing.json"
+                before="${listed%%\"name\":\"${dir#nextest-listing/}\"*}"
+                id="${before##*\"id\":}"
+                id="${id%%,*}"
+                mkdir -p "${dir}"
+                curl -fsSL --retry 3 -H "Authorization: Bearer ${TOKEN}" -o /tmp/listing.zip "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip"
+                unzip -o -q /tmp/listing.zip -d "${dir}"
+                test -s "${file}"
+              done
+              exit 0
+            fi
             echo "attempt ${attempt}: waiting on${missing}"
             sleep 4
           done
           echo "::error::the suite listings never arrived:${missing}"
           exit 1
-      - name: Download the Linux suite listings
-        uses: actions/download-artifact@v8
-        with:
-          pattern: nextest-listing-*-Linux
-          path: nextest-listing
-      # The wait reads the REST API and download-artifact the artifact service,
-      # which can lag it: run 45418938734 listed bot-rest at 14:55:09.5, and the
-      # download 0.3 s later found 33 artifacts without it. A listing the
-      # download missed is fetched by name; one that never comes fails by name.
-      - name: Download any listing the first download missed
-        env:
-          TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          api="${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions"
-          for suite in workspace bot-rest bot-it-scale bot-it-surface bot-it-refusals bot-it-g1 bot-it-g2 bot-it-g3 bot-it-g4 bot-it-g5 bot-it-g6 bot-it-g7 bot-it-g8; do
-            dir="nextest-listing/nextest-listing-${suite}-Linux"
-            for attempt in $(seq 1 10); do
-              if [ -f "${dir}/listing.json" ]; then break; fi
-              echo "attempt ${attempt}: fetching the ${suite} listing by name"
-              if ! found="$(curl -fsS --retry 3 -H "Authorization: Bearer ${TOKEN}" "${api}/runs/${GITHUB_RUN_ID}/artifacts?name=nextest-listing-${suite}-Linux")"; then found=""; fi
-              id="$(printf '%s' "${found}" | tr -d ' \n' | grep -o -m 1 '"id":[0-9]*' | cut -d: -f2)" || id=""
-              if [ -n "${id}" ] && curl -fsSL --retry 3 -H "Authorization: Bearer ${TOKEN}" -o "${dir}.zip" "${api}/artifacts/${id}/zip"; then
-                command -v unzip >/dev/null || { apt-get -qq update && apt-get -qq install -y unzip; }
-                mkdir -p "${dir}" && unzip -o -q "${dir}.zip" -d "${dir}"
-              fi
-              sleep "${LISTING_RETRY_SECS:-3}"
-            done
-            if [ ! -f "${dir}/listing.json" ]; then echo "::error::the ${suite} listing never downloaded"; exit 1; fi
-          done
       - name: Deterministic simulation evidence
         run: |
           set -euo pipefail
@@ -391,7 +381,7 @@ jobs:
     container:
       image: "rust:1.100.0-trixie"
       options: "--init --tmpfs /tmp:rw,exec,nosuid,size=6g"
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -572,7 +562,7 @@ jobs:
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # mac-specific: the darwin-arm64 acceptance receipt and the Darwin seams.
     runs-on: macos-15
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -661,7 +651,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -712,7 +702,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -736,7 +726,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -759,7 +749,7 @@ jobs:
   gate:
     name: Gate checks
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -841,7 +831,7 @@ jobs:
   advisories:
     name: RustSec advisories
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       # The prebuilt release, checksum-verified, rather than a `cargo install`
@@ -861,7 +851,7 @@ jobs:
     name: successful simulation result
     needs: workspace_build
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - name: Download gate evidence
         uses: actions/download-artifact@v8
@@ -876,7 +866,7 @@ jobs:
     name: successful end-to-end journey result
     needs: workspace_tail
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - name: Download gate evidence
         uses: actions/download-artifact@v8
@@ -895,7 +885,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -935,7 +925,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.bot != 'false'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
@@ -962,7 +952,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1063,7 +1053,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       # docs.rs and `cargo doc` downstream run stable rustdoc, so the release
@@ -1098,7 +1088,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1171,7 +1161,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1214,7 +1204,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1242,7 +1232,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1265,7 +1255,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       fail-fast: false
       matrix:
@@ -1361,7 +1351,7 @@ jobs:
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     # mac-specific: AppCUI's macOS terminal backend.
     runs-on: macos-15
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1383,7 +1373,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     strategy:
       matrix:
         os: [windows-latest, ubuntu-24.04-arm]
@@ -1411,7 +1401,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
@@ -1440,7 +1430,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: windows-latest
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
       # On a hosted Windows runner the default CARGO_HOME is on the C: drive,
@@ -1481,7 +1471,7 @@ jobs:
     needs: clippy
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - name: Every clippy leg passed
         env:
@@ -1509,7 +1499,7 @@ jobs:
     needs: [changes, workspace_all_targets, workspace_build, tests_linux, tests_macos, workspace_tail, doc_tests, package_smoke, gate, advisories, simulation_evidence, debug_e2e, tests_std_full, tests_nodefault, clippy, docs, storefront-matrix, target-matrix, timing_gates, timing_async, feature-matrix-bot-ast, appcui-native, appcui-native-hosted, gpui-windows, process-windows, clippy_verdict, miri_unsafe]
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     permissions:
       contents: read
       actions: read
@@ -1668,7 +1658,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 5
+    timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
       - uses: actions/checkout@v7
       - name: Prove the process unsafe seams under Miri

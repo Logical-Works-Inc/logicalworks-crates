@@ -532,7 +532,8 @@ mod tests {
     /// githooks(5): a hook runs with `GIT_DIR` and `GIT_INDEX_FILE` set to the
     /// repository being committed. On 2026-11-24 a lane run under pre-commit
     /// in a worktree left the shared `.git/config` bare. No lane inherits any
-    /// of the six redirecting variables, and the rest of the environment stays.
+    /// of git's local variables (`REDIRECTING_ENV`), and the rest of the
+    /// environment stays.
     #[test]
     fn lanes_never_inherit_a_hooks_repository() {
         let mut given = BTreeMap::new();
@@ -546,10 +547,12 @@ mod tests {
             "GIT_WORK_TREE",
             "GIT_INDEX_FILE",
             "GIT_COMMON_DIR",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_PREFIX",
+            "GIT_SHALLOW_FILE",
         ] {
-            assert!(!env.contains_key(name), "{name} reaches a lane");
-        }
-        for name in ["GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES"] {
             assert!(!env.contains_key(name), "{name} reaches a lane");
         }
         assert_eq!(env.get("HOOK_PROBE").map(String::as_str), Some("kept"));

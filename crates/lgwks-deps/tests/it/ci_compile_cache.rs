@@ -129,6 +129,12 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
             "echo \"KACHE_GITHUB_WRITES=merge_group\"",
             "the merge queue cannot write the shared store",
         ),
+        // Run 45504674831: 125 s against 76 s for 8 crates (hosted-rust).
+        (
+            action,
+            "echo \"KACHE_SCHEDULER=0\"",
+            "kache's scheduler halves the one build a hosted job runs",
+        ),
         // Run 45471907504: a pull request restored main's build from before
         // kache, then compiled 399 of 399 crates through the empty store.
         (
@@ -182,87 +188,96 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
     found
 }
 
+/// Each way of losing decisions 1 to 3: the file, the text a careless edit
+/// replaces, what it leaves, and the problem [`problems`] must name.
+const CONTROLS: [(&str, &str, &str, &str); 13] = [
+    (
+        "action",
+        "KACHE_VERSION: \"2.3.0\"",
+        "KACHE_VERSION: \"2.2.0\"",
+        "hosted-rust does not pin kache 2.3.0",
+    ),
+    (
+        "action",
+        "if [ \"${got}\" != \"${sum}\" ]; then",
+        "if false; then",
+        "hosted-rust runs a kache it never checked",
+    ),
+    (
+        "action",
+        "c3f8dfeef93659eabbb00f7d58cdf882e33560ae61306bb784158ccfa7d02bd5",
+        "0000000000000000000000000000000000000000000000000000000000000000",
+        "hosted-rust does not pin kache-aarch64-unknown-linux-musl.tar.gz to its checksum",
+    ),
+    (
+        "action",
+        "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
+        "",
+        "a pull request can write the shared store",
+    ),
+    (
+        "action",
+        "echo \"KACHE_SCHEDULER=0\"",
+        "",
+        "kache's scheduler halves the one build a hosted job runs",
+    ),
+    (
+        "action",
+        "        storage_layout_advice = false\n",
+        "",
+        "kache leaves its layout-advice marker in a test's TMPDIR",
+    ),
+    (
+        "action",
+        "-kache-${{ steps.deps-key.outputs.hash }}",
+        "-${{ steps.deps-key.outputs.hash }}",
+        "a build compiled through kache is not marked as one",
+    ),
+    (
+        "action",
+        " && [[ \"${BASE}\" != *-kache-* ]]",
+        "",
+        "kache runs in front of a build it did not compile, or is off where it did",
+    ),
+    (
+        "action",
+        "[ \"${EXACT}\" != true ] && ",
+        "",
+        "kache runs in front of a build it did not compile, or is off where it did",
+    ),
+    (
+        "report",
+        "\"${kache}\" daemon stop",
+        "true",
+        "a job ends before kache's uploads drain",
+    ),
+    (
+        "report",
+        "        if ! \"${kache}\" stats --since 6h; then",
+        "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --since 6h; then",
+        "the report starts a daemon after it drained the first",
+    ),
+    (
+        "workflow",
+        "  contents: read\n  packages: write\n",
+        "  contents: read\n",
+        "the workflow's token cannot write the shared store",
+    ),
+    (
+        "workflow",
+        "      - name: Upload the compile cache\n        if: ${{ always() }}\n        uses: ./.github/actions/kache-report\n",
+        "",
+        "job workspace_all_targets compiles but never reports its cache",
+    ),
+];
+
 #[test]
 fn every_compiling_job_compiles_through_kache() -> TestResult {
     let action = fs::read_to_string(repo().join(".github/actions/hosted-rust/action.yml"))?;
     let report = fs::read_to_string(repo().join(".github/actions/kache-report/action.yml"))?;
     let workflow = fs::read_to_string(repo().join(".github/workflows/ci.yml"))?;
     assert_eq!(problems(&action, &report, &workflow), Vec::<String>::new());
-    let controls = [
-        (
-            "action",
-            "KACHE_VERSION: \"2.3.0\"",
-            "KACHE_VERSION: \"2.2.0\"",
-            "hosted-rust does not pin kache 2.3.0",
-        ),
-        (
-            "action",
-            "if [ \"${got}\" != \"${sum}\" ]; then",
-            "if false; then",
-            "hosted-rust runs a kache it never checked",
-        ),
-        (
-            "action",
-            "c3f8dfeef93659eabbb00f7d58cdf882e33560ae61306bb784158ccfa7d02bd5",
-            "0000000000000000000000000000000000000000000000000000000000000000",
-            "hosted-rust does not pin kache-aarch64-unknown-linux-musl.tar.gz to its checksum",
-        ),
-        (
-            "action",
-            "if [ \"${GITHUB_EVENT_NAME}\" = pull_request ]; then echo \"KACHE_REMOTE_READONLY=1\"; fi",
-            "",
-            "a pull request can write the shared store",
-        ),
-        (
-            "action",
-            "        storage_layout_advice = false\n",
-            "",
-            "kache leaves its layout-advice marker in a test's TMPDIR",
-        ),
-        (
-            "action",
-            "-kache-${{ steps.deps-key.outputs.hash }}",
-            "-${{ steps.deps-key.outputs.hash }}",
-            "a build compiled through kache is not marked as one",
-        ),
-        (
-            "action",
-            " && [[ \"${BASE}\" != *-kache-* ]]",
-            "",
-            "kache runs in front of a build it did not compile, or is off where it did",
-        ),
-        (
-            "action",
-            "[ \"${EXACT}\" != true ] && ",
-            "",
-            "kache runs in front of a build it did not compile, or is off where it did",
-        ),
-        (
-            "report",
-            "\"${kache}\" daemon stop",
-            "true",
-            "a job ends before kache's uploads drain",
-        ),
-        (
-            "report",
-            "        if ! \"${kache}\" stats --since 6h; then",
-            "        \"${kache}\" daemon stop\n        if ! \"${kache}\" stats --since 6h; then",
-            "the report starts a daemon after it drained the first",
-        ),
-        (
-            "workflow",
-            "  contents: read\n  packages: write\n",
-            "  contents: read\n",
-            "the workflow's token cannot write the shared store",
-        ),
-        (
-            "workflow",
-            "      - name: Upload the compile cache\n        if: ${{ always() }}\n        uses: ./.github/actions/kache-report\n",
-            "",
-            "job workspace_all_targets compiles but never reports its cache",
-        ),
-    ];
-    for (file, from, to, named) in controls {
+    for (file, from, to, named) in CONTROLS {
         let (mut broken_action, mut broken_report, mut broken_workflow) =
             (action.clone(), report.clone(), workflow.clone());
         let text = match file {

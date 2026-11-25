@@ -90,27 +90,179 @@ fn idle_steps(dir: &Path) -> Result<Vec<String>, Box<dyn Error>> {
     Ok(found)
 }
 
-/// logical_ci's A02 lane probes `cargo test --release -p lgwks_std --lib loom` inside a 97 279 ms
-/// timer. loom runs under `--release`, so the job builds that exact target before the engine runs:
-/// cold, the probe's own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537).
+/// logical_ci's A02 lane probes loom under `--release` inside a 97 279 ms timer; cold, the probe's
+/// own compile outlasted the timer and sealed A02 UNMEASURED (run 44733566537). The job builds the
+/// release target before the engine runs. Since logical_ci v0.4.10 (logical_ci#549) the engine
+/// prints that build with its wrapper and its `loom-target`, and the job runs every printed cargo
+/// build with its own environment, so the probe's target is the one built.
 #[test]
 fn the_loom_probe_release_target_is_built_before_the_engine() -> TestResult {
     let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
-    let prebuild = "cargo test --locked --release -p lgwks_std --lib --no-run";
-    let built = text
-        .find(prebuild)
-        .ok_or("logical_ci.yml builds no release target for the loom probe")?;
     let engine = text
         .find("- name: Run ci and keep the sealed record")
         .ok_or("logical_ci.yml has no engine step")?;
-    assert!(
-        built < engine,
-        "the loom probe's release target is built after the engine already timed it"
-    );
-    // The prebuild is the probe's own target: same package, same lib, same profile, from the lockfile.
-    for part in ["--release", "-p lgwks_std --lib", "--locked"] {
-        assert!(prebuild.contains(part), "the prebuild lost `{part}`");
+    for part in [
+        "plan --builds --tenant \"$LCI_TENANT\" --json",
+        "select(.program == \"cargo\")",
+        "[.env[] | \"\\(.name)=\\(.value)\"]",
+        "sh -e \"$RUNNER_TEMP/lci-builds.sh\"",
+    ] {
+        let built = text
+            .find(part)
+            .ok_or_else(|| format!("logical_ci.yml never runs the engine's builds: no `{part}`"))?;
+        assert!(
+            built < engine,
+            "`{part}` comes after the engine already timed the loom probe"
+        );
     }
+    Ok(())
+}
+
+/// The first run on logical_ci v0.4.10 (run 45442648134) spent 12.3 min cold on the builds the
+/// engine printed (4 m 03 s, 1 m 45 s, 6 m 28 s), and its 15-minute cap cancelled A11 91 s into
+/// the engine's 420 s budget. A cancelled job saves no cache, so the next run is cold again. The
+/// cap holds setup, those builds, the budget and the upload.
+#[test]
+fn the_logical_ci_job_outlasts_its_cold_builds_and_lane_budget() -> TestResult {
+    const SETUP_S: u64 = 60;
+    const COLD_BUILDS_S: u64 = 243 + 105 + 388;
+    const LANE_BUDGET_S: u64 = 420;
+    const UPLOAD_S: u64 = 60;
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    let minutes: u64 = text
+        .lines()
+        .find_map(|line| line.trim_start().strip_prefix("timeout-minutes:"))
+        .ok_or("logical_ci.yml sets no timeout-minutes")?
+        .trim()
+        .parse()?;
+    let need = SETUP_S + COLD_BUILDS_S + LANE_BUDGET_S + UPLOAD_S;
+    assert!(
+        minutes * 60 >= need,
+        "the job's {minutes}-minute cap ends before its cold run's {need} s"
+    );
+    Ok(())
+}
+
+/// Director 2026-11-24: "LOGICAL CI WILL NEVER FUCKING CAUSE A REPO TO STOP MERGE IF IT FAILS".
+/// Every step of the logical_ci job continues on error and the last one reports the verdict with
+/// exit 0, so no verdict and no setup failure turns the check red. It still fails closed: each
+/// step that runs the downloaded engine waits for the seal to verify. The controls: a step that
+/// can fail the job, a report that exits 1, and an engine step that runs unverified.
+#[test]
+fn the_logical_ci_verdict_never_fails_the_job() -> TestResult {
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    assert_eq!(never_blocks_problems(&text), Vec::<String>::new());
+    let controls = [
+        (
+            "      - name: Prepare this repository's Rust\n        continue-on-error: true\n",
+            "      - name: Prepare this repository's Rust\n",
+            "step `Prepare this repository's Rust` can fail the job",
+        ),
+        (
+            "(reported, never a merge gate)\" ;; esac",
+            "(reported, never a merge gate)\"; exit 1 ;; esac",
+            "the verdict report exits 1",
+        ),
+        (
+            "      - name: Init tenant policy (idempotent by policy version)\n        if: steps.verify.outcome == 'success'\n",
+            "      - name: Init tenant policy (idempotent by policy version)\n",
+            "step `Init tenant policy (idempotent by policy version)` runs the engine before its seal verifies",
+        ),
+    ];
+    for (from, to, named) in controls {
+        let broken = text.replacen(from, to, 1);
+        assert_ne!(
+            broken, text,
+            "the text the control mutates must exist: {from}"
+        );
+        assert_eq!(
+            never_blocks_problems(&broken),
+            vec![named.to_owned()],
+            "{named}"
+        );
+    }
+    Ok(())
+}
+
+/// Each way the logical_ci job could turn its check red or run an unverified engine.
+fn never_blocks_problems(text: &str) -> Vec<String> {
+    let mut problems = Vec::new();
+    for step in text.split("\n      - ").skip(1) {
+        // A named step's first line is its `name:`; the checkout's is its `uses:`.
+        let Some(first) = step.lines().next() else {
+            continue;
+        };
+        let name = first.trim_start_matches("name: ");
+        if name == "Report the verdict" {
+            if step.contains("exit 1") {
+                problems.push("the verdict report exits 1".to_owned());
+            }
+            continue;
+        }
+        if !step.contains("\n        continue-on-error: true\n") {
+            problems.push(format!("step `{name}` can fail the job"));
+        }
+        let runs_engine = step.contains("logical_ci-macos-arm64\"")
+            && !step.contains("test -f \"$RUNNER_TEMP/logical_ci-record.json\" || exit 0");
+        if runs_engine
+            && !name.starts_with("Download")
+            && !step.contains("if: steps.verify.outcome == 'success'")
+        {
+            problems.push(format!(
+                "step `{name}` runs the engine before its seal verifies"
+            ));
+        }
+    }
+    if !text.contains("      - name: Report the verdict\n        if: always()\n") {
+        problems.push("the job has no verdict report that always runs".to_owned());
+    }
+    problems
+}
+
+/// Run 45490255730: the v0.4.11 pin was pushed before release.yml published, and the download
+/// at 21:21:52 printed only `release not found`; v0.4.11 published at 21:22:12. The download
+/// names the cause.
+#[test]
+fn the_logical_ci_download_names_an_unpublished_release() -> TestResult {
+    let text = fs::read_to_string(workflows().join("logical_ci.yml"))?;
+    let step = text
+        .split("- name: ")
+        .find(|step| step.starts_with("Download pinned release"))
+        .ok_or("logical_ci.yml has no download step")?;
+    assert!(
+        step.contains("|| { echo \"$LCI_RELEASE is not published on Logical-Works-Inc/logical_ci: a pin lands only after its release.yml run publishes\"; exit 1; }"),
+        "the download does not name an unpublished release as the cause"
+    );
+    Ok(())
+}
+
+/// Run 45448206410: the wait step saw bot-rest's listing in the REST answer at 17:27:09.15, and
+/// `download-artifact`, which reads its own listing, fetched 12 of 13 at 17:27:09.49, so the
+/// simulation lane could not run. The job fetches each listing by id from the answer it waited on.
+/// It fetches only this run's `SUITES`: with the bot rows routed off (ADR 0086), their listings
+/// are main's from the cache, and this run uploaded none to fetch.
+#[test]
+fn the_simulation_lane_fetches_the_listings_it_waited_for() -> TestResult {
+    let text = fs::read_to_string(workflows().join("ci.yml"))?;
+    let step = text
+        .split("- name: ")
+        .find(|step| step.starts_with("Wait for and fetch the Linux suite listings"))
+        .ok_or("ci.yml has no step that waits for and fetches the suite listings")?;
+    for part in [
+        "actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100",
+        "for suite in ${SUITES}; do",
+        "dir=\"nextest-listing/nextest-listing-${suite}-Linux\"",
+        "id=\"${before##*\\\"id\\\":}\"",
+        "/actions/artifacts/${id}/zip",
+        "file=\"${dir}/listing.json\"",
+        "test -s \"${file}\"",
+    ] {
+        assert!(step.contains(part), "the listing step lost `{part}`");
+    }
+    assert!(
+        !text.contains("pattern: nextest-listing-*-Linux"),
+        "a second listing of the artifacts can miss one the wait saw"
+    );
     Ok(())
 }
 
