@@ -71,5 +71,7 @@ and ADR 0082 (the census). The census kills a lifeline and does not name it. Par
 their lifelines. Then it SIGKILLs each owner. Every held group must stop and each held release program must run. A
 dropped one must not run, and the lifeline must end. `a_supervised_group_dies_with_its_sigkilled_supervisor` does the
 same through a real `Supervisor`. `sim_lifeline_refuses_every_value_its_line_cannot_carry` holds the value rule.
+`sim_lifeline_holds_none_of_its_owner_streams`, `sim_lifeline_hold_past_the_bound_is_refused` and
+`sim_lifeline_killed_from_outside_is_seen_as_gone_and_replaced` hold the streams, the bound and the respawn.
 `sim_shared_volume_detaches_only_when_unheld_and_idle` drives 128 seeded runs of arrivals, leaves, SIGKILLs and
 releases against a model. No detach occurs while a wrapper holds the volume, or before 60 s idle.
