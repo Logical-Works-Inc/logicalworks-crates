@@ -44,8 +44,9 @@ const FRESH: Duration = Duration::from_secs(30);
 enum Detach {
     /// There is nothing to let go.
     Nothing,
-    /// A macOS RAM disk, detached by device.
-    Device(String),
+    /// A macOS RAM disk, detached by device; its lifeline hold detaches it if
+    /// the run dies before this does (ADR 0087).
+    Device(String, ram_disk::Hold),
     /// A directory under `/dev/shm`, removed.
     Directory(PathBuf),
 }
@@ -120,7 +121,10 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         match std::mem::replace(&mut self.detach, Detach::Nothing) {
             Detach::Nothing => {}
-            Detach::Device(device) => run_quietly("hdiutil", &["detach", &device, "-force"]),
+            Detach::Device(device, hold) => {
+                run_quietly("hdiutil", &["detach", &device, "-force"]);
+                drop(hold);
+            }
             Detach::Directory(directory) => {
                 if let Err(error) = fs::remove_dir_all(&directory) {
                     lgwks_std::trace::debug!(%error, path = ?directory, "a scratch directory could not be removed");
@@ -221,7 +225,7 @@ fn release_lease(lease: (File, PathBuf)) {
 /// A macOS APFS volume on a RAM disk, and the device to detach it by.
 fn make_ram_disk(name: &str) -> Option<(PathBuf, Detach)> {
     match ram_disk::attach(name, RAM_DISK_SECTORS) {
-        Ok((volume, device)) => Some((volume, Detach::Device(device))),
+        Ok((volume, device, hold)) => Some((volume, Detach::Device(device, hold))),
         Err(error) => {
             lgwks_std::trace::debug!(%error, name, "no ram disk for this run's scratch");
             None

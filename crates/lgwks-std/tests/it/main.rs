@@ -111,6 +111,7 @@ mod sim_legacy_ebcdic;
 mod sim_legacy_edges;
 #[cfg(feature = "legacy")]
 mod sim_legacy_fax;
+mod sim_lifeline;
 mod sim_locale;
 mod sim_orphan_reap;
 mod sim_pattern;

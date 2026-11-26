@@ -23,7 +23,10 @@ same ceiling and returns a `TaskId` rather than a `Child`, so there is no handle
 to drop. The child is placed in its own process group and the **group** is
 killed, both when the task is cancelled and when the supervisor drops or aborts,
 because a shell's grandchildren are the case that matters and `Child::kill`
-cannot reach them.
+cannot reach them. Each group is also held on the process's lifeline
+(`lgwks_std::process::hold_group`, ADR 0087), so a supervisor SIGKILLed with no
+code run still takes its groups with it
+(`a_supervised_group_dies_with_its_sigkilled_supervisor`).
 
 `run_process(command)` is the same machinery with the result handed back: it
 awaits the child and returns a `ProcessRun`. It holds the exit status or signal, the

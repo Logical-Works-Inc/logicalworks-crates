@@ -8,6 +8,32 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+/// A device's hold on this process's lifeline (ADR 0087).
+#[cfg(unix)]
+pub(super) type Hold = lgwks_std::process::LifelineHold;
+
+/// No lifeline off Unix, and no RAM disk to hold: `attach` refuses there.
+#[cfg(not(unix))]
+#[derive(Debug)]
+pub(super) struct Hold;
+
+/// Hold `device` on the lifeline.
+#[cfg(unix)]
+fn hold_device(device: &str) -> std::io::Result<Hold> {
+    lgwks_std::process::hold_device(device)
+}
+
+/// Off Unix there is no lifeline, so a device found there is refused rather
+/// than left unowned.
+#[cfg(not(unix))]
+fn hold_device(device: &str) -> std::io::Result<Hold> {
+    lgwks_std::trace::debug!(device, "no lifeline off unix; the ram disk is refused");
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "a RAM disk is held on a lifeline, which only Unix has",
+    ))
+}
+
 /// Runs a program for its effect, logging a failure.
 pub(super) fn run_quietly(program: &str, args: &[&str]) {
     let outcome = Command::new(program)
@@ -26,8 +52,15 @@ pub(super) fn run_quietly(program: &str, args: &[&str]) {
 }
 
 /// Attaches a RAM disk of `sectors` 512-byte sectors, formats it as APFS volume
-/// `name` and returns the mounted volume and the device to detach it by.
-pub(super) fn attach(name: &str, sectors: u64) -> std::io::Result<(PathBuf, String)> {
+/// `name` and returns the mounted volume, the device to detach it by, and the
+/// device's hold on this process's lifeline.
+///
+/// The device is held the moment `hdiutil` names it, before the format: a run
+/// SIGKILLed between the two once left an unmounted 4 GiB RAM disk no name
+/// could find (#1160). While the hold is open, this process's death by any
+/// path detaches the device; a caller that keeps the volume past its own life
+/// drops the hold.
+pub(super) fn attach(name: &str, sectors: u64) -> std::io::Result<(PathBuf, String, Hold)> {
     let attached = Command::new("hdiutil")
         .args(["attach", "-nomount", &format!("ram://{sectors}")])
         .stdin(Stdio::null())
@@ -45,6 +78,14 @@ pub(super) fn attach(name: &str, sectors: u64) -> std::io::Result<(PathBuf, Stri
             said.trim()
         )));
     };
+    let hold = match hold_device(&device) {
+        Ok(hold) => hold,
+        Err(error) => {
+            run_quietly("hdiutil", &["detach", &device, "-force"]);
+            lgwks_std::trace::debug!(%error, device, "a ram disk could not be held, so it was detached");
+            return Err(error);
+        }
+    };
     let erased = Command::new("diskutil")
         .args(["erasevolume", "APFS", name, &device])
         .stdin(Stdio::null())
@@ -53,9 +94,10 @@ pub(super) fn attach(name: &str, sectors: u64) -> std::io::Result<(PathBuf, Stri
         .status()?;
     let volume = Path::new("/Volumes").join(name);
     if erased.success() && volume.is_dir() {
-        return Ok((volume, device));
+        return Ok((volume, device, hold));
     }
     run_quietly("hdiutil", &["detach", &device, "-force"]);
+    drop(hold);
     lgwks_std::trace::debug!(?erased, device, "a ram disk could not be formatted");
     Err(std::io::Error::other(format!(
         "diskutil could not format {device} as {name} ({erased})"

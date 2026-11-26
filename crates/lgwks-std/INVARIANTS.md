@@ -42,6 +42,7 @@ The `lgwks_std` part of the invariant register, one short line per rule: rule ·
 - **INV-TASK-POOL-1** The blocking pool's ceiling is fixed once, shutdown closes admission and joins every thread, and finished threads are reaped. · why: #264, #289 · enforced by: `tests/sim_task_pool_public.rs`, `task::tests`
 - **INV-STD-PROCESS-1** A non-reaping waitid judges by `si_code`, so a stopped child never reads as exited. · why: #691 · enforced by: `process::tests`, `a_gated_spawn_holds_its_payload_until_release`
 - **INV-STD-PROCESS-2** A tree stop signals every target whatever earlier ones answered, and reports the first refusal last. · why: #913 · enforced by: `process::sim_signal_every`
+- **INV-STD-LIFELINE-1** A hold is on the lifeline before it returns; the owner's death by any path, SIGKILL included, kills each held group, detaches each held disk and runs each held release; a dropped hold releases nothing. · why: #1160, ADR 0087 · enforced by: `sim_lifeline_releases_every_hold_of_a_killed_owner`
 - **INV-TLS-2** An RSA modulus of up to 8,192 bits is admitted in a certificate and a key through one reader. · why: #913 · enforced by: `http::tls::der::sim_rsa_bounds`
 - **INV-LEGACY-1** Each `lgwks_std::legacy` codec round-trips bytes, refuses past its `Limits` before allocating and names the offset of a failure. · why: #792 · enforced by: `tests/it/sim_legacy_cfb.rs`, `tests/it/sim_legacy_fax.rs`
 - **INV-LEGACY-2** The legacy codecs are reachable in one line from `script!`. · why: #792 · enforced by: `a_script_flow_calls_the_ebcdic_codec_in_one_line`

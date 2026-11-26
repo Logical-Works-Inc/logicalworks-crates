@@ -293,6 +293,7 @@ fn armed_group<'ops>(
         observer: seams.observer,
         capture: seams.capture,
         scratch: None,
+        lifeline: None,
     }
 }
 

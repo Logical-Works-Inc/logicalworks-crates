@@ -1,16 +1,18 @@
-//! #318: a supervisor killed with SIGKILL leaves its lanes running, and its
-//! successor stops them through the identities it recorded.
+//! #318, #1160: a supervisor killed with SIGKILL takes its lanes with it, and
+//! when its lifeline died too, its successor stops them through the identities
+//! it recorded.
 //!
-//! A `Supervisor` owns its children's process groups only while it runs: its
-//! guards kill them on drop, on cancel and on shutdown, and none of that runs
-//! when the process is killed outright. The groups are then orphans — their
-//! leader re-parented to init, every member still running — and only a record
-//! written *before* the kill can find them again. These tests drive that whole
-//! journey with real processes:
+//! A `Supervisor`'s guards kill its children's groups on drop, on cancel and on
+//! shutdown, and none of that runs when the process is killed outright. The
+//! lifeline does (ADR 0087): each group is held on it, and the coordinator's
+//! death ends the group. The first test drives that. The second takes the case
+//! the lifeline cannot cover, a lifeline SIGKILLed before its owner, where only
+//! a record written *before* the kill can find the groups again:
 //!
 //! 1. a coordinator (this test binary re-run as a probe child) starts a lane
 //!    through [`Supervisor::spawn_process_identified`], whose leader backgrounds
-//!    a `sleep 300` and then becomes one, and writes the leader's identity down;
+//!    a `sleep 300` and then becomes one, writes the leader's identity down, and
+//!    SIGKILLs its own lifeline;
 //! 2. the parent sends the coordinator `SIGKILL`, so no cleanup runs, and
 //!    observes that both lane processes are still alive — the premise;
 //! 3. the parent, as the successor, parses the stored identity and calls
@@ -79,13 +81,35 @@ impl Drop for LaneGuard {
     }
 }
 
+/// The value of [`PROBE_ENV`] that has the coordinator SIGKILL its own
+/// lifeline once the lane runs, so nothing but the record can stop the lane.
+const WITHOUT_LIFELINE: &str = "without-lifeline";
+
+/// SIGKILL this process's lifeline and wait until it has stopped. The lifeline
+/// is this process's child, so its exit is read, and reaped, through
+/// `lifeline_pid`, never through a probe that sees an unreaped zombie as live.
+fn kill_own_lifeline() -> TestResult {
+    let lifeline =
+        lgwks_std::process::lifeline_pid().ok_or("a supervised lane holds a lifeline")?;
+    kill_pid(lifeline);
+    for _ in 0..(1_u32 << 22) {
+        if lgwks_std::process::lifeline_pid().is_none() {
+            return Ok(());
+        }
+        std::thread::yield_now();
+    }
+    Err("the coordinator's lifeline outlived its SIGKILL".into())
+}
+
 /// The coordinator: start the lane held behind its gate, write its leader's
 /// identity whole, release the payload once the record is durable, and park
-/// until killed. A kill after the release leaves a recorded group the
-/// successor stops; a kill before it leaves a group that never ran.
-fn coordinator(dir: &std::path::Path) -> TestResult {
+/// until killed. A kill after the release leaves a recorded group; a kill
+/// before it leaves a group that never ran. `without_lifeline` kills the
+/// lifeline once the lane runs.
+fn coordinator(dir: &std::path::Path, without_lifeline: bool) -> TestResult {
     let runtime = Runtime::new()?;
     let member_file = dir.join("member.pid");
+    let leader_file = dir.join("leader");
     // The supervisor is returned out of the runtime so it — and the lane it
     // owns — stays alive for as long as this process does.
     let (supervisor, mut spawned) = runtime.block_on(async {
@@ -98,13 +122,17 @@ fn coordinator(dir: &std::path::Path) -> TestResult {
     // Written aside and renamed, so the parent never reads a half-written record.
     let partial = dir.join("leader.partial");
     std::fs::write(&partial, spawned.leader().to_string())?;
-    std::fs::rename(&partial, dir.join("leader"))?;
     // The record is durable: the payload may run now.
     spawned
         .release()
         .map_err(|error| format!("the gate releases once the record is durable: {error}"))?;
     assert!(spawned.is_released(), "a released gate reads as released");
     wait_for_pid(&member_file, BUDGET).ok_or("the lane never recorded its member")?;
+    if without_lifeline {
+        kill_own_lifeline()?;
+    }
+    // The marker the parent kills on comes last, after any lifeline kill.
+    std::fs::rename(&partial, &leader_file)?;
     for _ in 0..600 {
         pause(100);
     }
@@ -112,27 +140,24 @@ fn coordinator(dir: &std::path::Path) -> TestResult {
     Err("the coordinator parked for its whole bound and was never killed".into())
 }
 
-#[test]
-fn a_killed_coordinators_lane_is_stopped_by_its_successor() -> TestResult {
-    if let Some(dir) = std::env::var_os(PROBE_DIR).filter(|_| std::env::var_os(PROBE_ENV).is_some())
-    {
-        return coordinator(std::path::Path::new(&dir));
-    }
+/// Run the coordinator probe as `test`, SIGKILL it once its record is
+/// written, and return the scratch, the leader's identity and the member pid.
+fn kill_a_coordinator(
+    test: &str,
+    mode: &str,
+) -> Result<(Scratch, ProcessIdentity, i32), Box<dyn std::error::Error>> {
     let scratch = Scratch::new("orphan-reap")?;
     let record = scratch.path().join("leader");
     let mut probe = ProbeGuard(Some(
-        crate::probe_command(&crate::probe_test(
-            module_path!(),
-            "a_killed_coordinators_lane_is_stopped_by_its_successor",
-        ))?
-        .env(PROBE_ENV, "1")
-        .env(PROBE_DIR, scratch.path())
-        // The killed coordinator never removes its children's temp root
-        // (ADR 0077 leaves it to the next sweep); in the scratch, it goes
-        // with the test (ADR 0078).
-        .env("TMPDIR", scratch.path())
-        .stdout(std::process::Stdio::null())
-        .spawn()?,
+        crate::probe_command(&crate::probe_test(module_path!(), test))?
+            .env(PROBE_ENV, mode)
+            .env(PROBE_DIR, scratch.path())
+            // The killed coordinator never removes its children's temp root
+            // (ADR 0077 leaves it to the next sweep); in the scratch, it goes
+            // with the test (ADR 0078).
+            .env("TMPDIR", scratch.path())
+            .stdout(std::process::Stdio::null())
+            .spawn()?,
     ));
     // The member pid is the release's proof: the payload runs only after the
     // record is durable, so a kill after this point always leaves a recorded
@@ -140,12 +165,68 @@ fn a_killed_coordinators_lane_is_stopped_by_its_successor() -> TestResult {
     let member = wait_for_pid(&scratch.path().join("member.pid"), BUDGET)
         .ok_or("the lane's member pid was never recorded")?;
     probe.kill_after_marker(&record, "orphan_reap coordinator")?;
-
     let leader: ProcessIdentity = std::fs::read_to_string(&record)?.parse()?;
+    Ok((scratch, leader, member))
+}
+
+/// The probe role, when this binary was started as one; a probe variable that
+/// is not unicode is an error, never "not a probe".
+fn as_probe() -> Option<TestResult> {
+    let mode = match std::env::var(PROBE_ENV) {
+        Ok(mode) => mode,
+        Err(std::env::VarError::NotPresent) => return None,
+        Err(error) => return Some(Err(error.into())),
+    };
+    let Some(dir) = std::env::var_os(PROBE_DIR) else {
+        return Some(Err("a probe is given its directory".into()));
+    };
+    Some(coordinator(
+        std::path::Path::new(&dir),
+        mode == WITHOUT_LIFELINE,
+    ))
+}
+
+/// #1160: the mutants gate SIGKILLed test binaries at their timeout, and their
+/// `logical_ci serve` children ran on for days. A coordinator SIGKILLed with
+/// its lifeline intact runs no code, and its lane still stops.
+#[test]
+fn a_supervised_group_dies_with_its_sigkilled_supervisor() -> TestResult {
+    if let Some(probe) = as_probe() {
+        return probe;
+    }
+    let (_scratch, leader, member) =
+        kill_a_coordinator("a_supervised_group_dies_with_its_sigkilled_supervisor", "1")?;
+    let _backstop = LaneGuard(vec![leader.pid(), member]);
+    assert!(
+        wait_for_pid_gone(leader.pid(), BUDGET).is_some(),
+        "the lifeline stops the dead supervisor's leader"
+    );
+    assert!(
+        wait_for_pid_gone(member, BUDGET).is_some(),
+        "the lifeline stops the member the leader forked"
+    );
+    let reap = reap_orphaned_group(&leader)?;
+    assert!(
+        !matches!(reap, OrphanReap::Signalled { .. }),
+        "nothing is left for a successor to signal, got {reap:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_killed_coordinators_lane_is_stopped_by_its_successor() -> TestResult {
+    if let Some(probe) = as_probe() {
+        return probe;
+    }
+    let (_scratch, leader, member) = kill_a_coordinator(
+        "a_killed_coordinators_lane_is_stopped_by_its_successor",
+        WITHOUT_LIFELINE,
+    )?;
     let _backstop = LaneGuard(vec![leader.pid(), member]);
     assert!(
         pid_is_alive(leader.pid()) && pid_is_alive(member),
-        "the premise: a SIGKILLed coordinator runs no cleanup, so its lane is still running"
+        "the premise: a coordinator SIGKILLed after its lifeline runs no cleanup, so its lane is \
+         still running"
     );
 
     let descendants = match reap_orphaned_group(&leader)? {

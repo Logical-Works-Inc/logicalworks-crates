@@ -170,6 +170,12 @@ impl Host for Kernel {
     }
 
     fn live_name(&mut self, pid: i32) -> Option<String> {
+        // A dead test's lifeline is adopted here and ends on its own once it
+        // has released what the test held; the sweep still kills it, and what
+        // it held is judged by name in its own right (ADR 0087).
+        if is_lifeline(pid) {
+            return None;
+        }
         let stat = super::capture::table::read_proc_stat(pid)?;
         name_if_live(&stat, super::capture::table::kill_is_pending(pid))
     }
@@ -181,6 +187,32 @@ impl Host for Kernel {
     fn reap_any(&mut self) -> io::Result<Option<i32>> {
         Ok(wait_any()?.map(|(pid, _)| pid))
     }
+}
+
+/// Whether `pid` is a lifeline, by the `argv[0]` it was started with. An
+/// unreadable command line is not one, so the process is judged by name.
+#[cfg(all(target_os = "linux", feature = "process"))]
+fn is_lifeline(pid: i32) -> bool {
+    match std::fs::read(format!("/proc/{pid}/cmdline")) {
+        Ok(line) => is_lifeline_cmdline(&line),
+        Err(error) => {
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(%error, pid, "census: a command line was unreadable; the process is judged by name");
+            #[cfg(not(feature = "trace"))]
+            drop(error);
+            false
+        }
+    }
+}
+
+/// Whether a `/proc/<pid>/cmdline` (NUL-separated) starts with the lifeline's
+/// `argv[0]`.
+#[cfg(any(
+    all(target_os = "linux", feature = "process"),
+    all(test, unix, feature = "process")
+))]
+pub(crate) fn is_lifeline_cmdline(line: &[u8]) -> bool {
+    line.split(|byte| *byte == 0).next() == Some(super::lifeline::LIFELINE_NAME.as_bytes())
 }
 
 /// The name a `/proc/<pid>/stat` line gives a process still running user code;
