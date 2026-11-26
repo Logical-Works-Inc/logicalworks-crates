@@ -1048,12 +1048,18 @@ jobs:
   # The documentation lanes, apart from the lints: rustdoc builds its own output
   # for each feature set. `scripts/doc-lanes.sh` holds the commands and the
   # reason for each lane, so this job and a contributor run the same ones.
+  # One leg per lane: the three in series ran 262 s, the run's second-longest
+  # job (run 45646393189).
   docs:
-    name: Docs and release gates
+    name: Docs and release gates (${{ matrix.lane }})
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [all-features, no-default-features, default]
     steps:
       - uses: actions/checkout@v7
       # docs.rs and `cargo doc` downstream run stable rustdoc, so the release
@@ -1066,14 +1072,17 @@ jobs:
           save-cache: "false"
           components: clippy
       - name: Doc build with broken-link denial
+        if: matrix.lane == 'all-features'
         run: ./scripts/doc-lanes.sh all-features
       - name: Doc build without default features
         # A module in `core` that links to a feature-gated module resolves
         # under `--all-features` and breaks here.
+        if: matrix.lane == 'no-default-features'
         run: ./scripts/doc-lanes.sh no-default-features
       - name: Doc build at the default feature set
         # The set `cargo add lgwks_std` hands a consumer, which neither boundary
         # lane builds.
+        if: matrix.lane == 'default'
         run: ./scripts/doc-lanes.sh default
       - name: Upload the compile cache
         if: ${{ always() }}
@@ -1152,10 +1161,12 @@ jobs:
         if: ${{ always() }}
         uses: ./.github/actions/kache-report
 
-  # The declared target matrix, one leg per group of targets, each with the host
-  # triple the script always adds. The hosted runner is arm64 Linux, so its own
-  # C compiler reaches `aarch64-unknown-linux-gnu`, and that leg also builds the
-  # two §4.7 cells (`tests-linux`) the Mac could reach only from a container.
+  # The declared target matrix, one leg per target, each with the host triple
+  # the script always adds. Three targets in one leg ran 269 s and set the
+  # run's wall at 307 s (run 45646393189). The hosted runner is arm64 Linux, so
+  # its own C compiler reaches `aarch64-unknown-linux-gnu`, and that leg also
+  # builds the two §4.7 cells (`tests-linux`) the Mac could reach only from a
+  # container.
   target-matrix:
     name: Target matrix (${{ matrix.targets }})
     needs: changes
@@ -1167,8 +1178,11 @@ jobs:
       matrix:
         targets:
           - aarch64-unknown-linux-gnu
-          - x86_64-unknown-linux-musl wasm32-wasip1
-          - x86_64-unknown-freebsd aarch64-linux-android aarch64-apple-ios
+          - x86_64-unknown-linux-musl
+          - wasm32-wasip1
+          - x86_64-unknown-freebsd
+          - aarch64-linux-android
+          - aarch64-apple-ios
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
