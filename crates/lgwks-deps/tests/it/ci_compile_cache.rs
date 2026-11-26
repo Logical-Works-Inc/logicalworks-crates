@@ -120,7 +120,7 @@ fn problems(action: &str, report: &str, workflow: &str) -> Vec<String> {
         ),
         (
             action,
-            "case \"${PARTITION:-}\" in \"\" | slice:1/*) slice=first ;; *) slice=later ;; esac\n          if [ \"${GITHUB_EVENT_NAME}\" = pull_request ] || [ \"${slice}\" = later ]; then\n            echo \"KACHE_REMOTE_READONLY=1\"\n          else\n            echo \"KACHE_S3_CONCURRENCY=4\"\n          fi\n",
+            "case \"${PARTITION:-}\" in \"\" | slice:1/*) slice=first ;; *) slice=later ;; esac\n          if [ \"${GITHUB_EVENT_NAME}\" = pull_request ] || [ \"${slice}\" = later ]; then\n            echo \"KACHE_REMOTE_READONLY=1\"\n          else\n            echo \"KACHE_S3_CONCURRENCY=1\"\n          fi\n",
             "a pull request or a repeated slice can write the shared store",
         ),
         (
@@ -246,8 +246,8 @@ const CONTROLS: [(&str, &str, &str, &str); 17] = [
     ),
     (
         "action",
+        "echo \"KACHE_S3_CONCURRENCY=1\"",
         "echo \"KACHE_S3_CONCURRENCY=4\"",
-        "true",
         "a pull request or a repeated slice can write the shared store",
     ),
     (
