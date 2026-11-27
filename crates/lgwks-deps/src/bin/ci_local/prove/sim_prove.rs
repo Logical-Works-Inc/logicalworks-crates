@@ -154,3 +154,51 @@ fn sim_prove_judge_matches_the_model_over_hostile_registers()
     assert_eq!(judge(&read_tables(&whole), &world), Vec::new());
     Ok(())
 }
+
+/// The live register against the live tree: the process kind names a Kani
+/// model, and every model any kind names is a `#[kani::proof]` function that
+/// the `kani` lane's `--harness` selects, so that lane verifies what the
+/// register claims.
+#[test]
+fn sim_prove_the_live_register_models_the_process_kind() -> Result<(), crate::GateError> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let tables = read_tables(&crate::read(&root.join(super::REGISTER))?);
+    let lanes = super::lanes_of(&crate::read(&root.join("scripts/gate-lanes.toml"))?);
+    let harnesses = crate::modules::kani_harnesses(&root)?;
+    let filters = match lanes.get("kani") {
+        Some(kani) => super::harness_filters(&kani.command),
+        None => Vec::new(),
+    };
+    assert!(
+        !filters.is_empty(),
+        "scripts/gate-lanes.toml has no kani lane that selects a harness"
+    );
+    let entries: Vec<_> = tables
+        .iter()
+        .filter(|table| table.path == "resource" && table.array)
+        .collect();
+    let kinds: Vec<_> = entries
+        .iter()
+        .filter_map(|table| crate::toml_subset::text(table, "kind").map(|kind| (kind, *table)))
+        .collect();
+    assert_eq!(kinds.len(), entries.len(), "an entry names no kind");
+    let mut modelled = BTreeSet::new();
+    for (kind, table) in kinds {
+        for harness in super::names(table, "model") {
+            assert!(
+                harnesses.contains(&harness),
+                "{kind}: `{harness}` is no proof"
+            );
+            assert!(
+                filters.iter().any(|filter| harness.contains(filter)),
+                "{kind}: the kani lane does not run `{harness}`"
+            );
+            modelled.insert(kind.to_owned());
+        }
+    }
+    assert!(
+        modelled.contains("process"),
+        "the process kind names no Kani model: {modelled:?}"
+    );
+    Ok(())
+}

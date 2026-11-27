@@ -213,7 +213,7 @@ pub fn from_unix_parts_lossy(secs: i64, nanos: u32) -> SystemTime {
             #[cfg(feature = "trace")]
             crate::trace::debug!(error = ?error, "from_unix_parts_lossy: clamping a refused pair to the Unix epoch");
             #[cfg(not(feature = "trace"))]
-            drop(error);
+            let _named = error;
             UNIX_EPOCH
         }
     }

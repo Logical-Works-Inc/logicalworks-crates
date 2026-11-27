@@ -29,7 +29,7 @@ const SEEDS: u64 = 4_096;
 const MAX_MEMBERS: u64 = 6;
 
 /// The group id every model uses.
-const PGID: i32 = 4_000;
+pub(super) const PGID: i32 = 4_000;
 
 /// A model member's state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,7 +71,7 @@ enum GroupKill {
 }
 
 /// The model host.
-struct Model {
+pub(super) struct Model {
     /// Every member ever in the group.
     members: Vec<Member>,
     /// What a group kill does.
@@ -81,7 +81,7 @@ struct Model {
     /// The next pid a fork takes.
     next_pid: i32,
     /// How many listings were taken.
-    listings: usize,
+    pub(super) listings: usize,
 }
 
 /// An OS error carrying `errno`.
@@ -113,7 +113,9 @@ impl GroupHost for Model {
         }
     }
 
-    fn members(&mut self, pgid: i32) -> io::Result<Vec<(i32, bool)>> {
+    type Members = Vec<(i32, bool)>;
+
+    fn members(&mut self, pgid: i32) -> io::Result<Self::Members> {
         assert_eq!(pgid, PGID, "the listing names the group");
         self.listings = self.listings.saturating_add(1);
         let listed = self
@@ -238,7 +240,7 @@ fn sim_child_group_end_matches_the_model() -> TestResult {
     let (mut ended, mut refused, mut by_pid) = (0_u32, 0_u32, 0_u32);
     for seed in 0..SEEDS {
         let (mut model, ends) = draw(seed)?;
-        let outcome = end_group_on(&mut model, PGID);
+        let outcome = end_group_on(&mut model, PGID, GROUP_ROUNDS);
         assert_eq!(
             outcome.is_ok(),
             ends,
@@ -285,32 +287,20 @@ fn sim_child_group_end_matches_the_model() -> TestResult {
     Ok(())
 }
 
-/// A shielded group of one forker past the round bound is refused by name,
-/// and one just inside it ends: the bound is exact.
-#[test]
-fn sim_child_group_end_refuses_a_fork_bomb_at_the_bound() -> TestResult {
-    for (forks, ends) in [
-        (GROUP_ROUNDS.saturating_sub(2), true),
-        (GROUP_ROUNDS.saturating_sub(1), false),
-    ] {
-        let mut model = Model {
-            members: vec![Member {
-                pid: PGID,
-                state: State::Live,
-                races: false,
-                refuses: false,
-                forks: u32::try_from(forks)?,
-            }],
-            group_kill: GroupKill::Shielded,
-            killed: Vec::new(),
-            next_pid: PGID.saturating_add(1),
-            listings: 0,
-        };
-        let outcome = end_group_on(&mut model, PGID);
-        assert_eq!(outcome.is_ok(), ends, "{forks} forks: {outcome:?}");
-        if let Err(error) = outcome {
-            assert!(error.to_string().contains("kill rounds"), "{error}");
-        }
-    }
-    Ok(())
+/// A shielded group of one live forker that starts `forks` replacements; the
+/// round-bound sims (`sim_rounds`) end it under each bound.
+pub(super) fn forker(forks: usize) -> Result<Model, std::num::TryFromIntError> {
+    Ok(Model {
+        members: vec![Member {
+            pid: PGID,
+            state: State::Live,
+            races: false,
+            refuses: false,
+            forks: u32::try_from(forks)?,
+        }],
+        group_kill: GroupKill::Shielded,
+        killed: Vec::new(),
+        next_pid: PGID.saturating_add(1),
+        listings: 0,
+    })
 }

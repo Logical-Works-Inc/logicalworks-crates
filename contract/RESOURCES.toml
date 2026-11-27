@@ -10,7 +10,7 @@
 kind = "process"
 owner = "lgwks_std::process"
 closure = ["lint", "std-first"]
-model = []
+model = ["group_end_kills_every_live_member_and_nothing_else"]
 census = ["the_census_fails_a_program_that_leaves_a_live_process", "sim_lifeline_releases_every_hold_of_a_killed_owner"]
 
 [[resource]]
