@@ -558,7 +558,7 @@ pub fn lifeline_pid() -> Option<i32> {
             #[cfg(feature = "trace")]
             crate::trace::debug!(%error, id, "lifeline_pid: a pid past pid_t names no process");
             #[cfg(not(feature = "trace"))]
-            drop(error);
+            let _named = error;
             None
         }
     }

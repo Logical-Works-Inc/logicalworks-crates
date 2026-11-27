@@ -174,10 +174,12 @@ id = "kani"
 surfaces = "local"
 # The Kani models the `prove` lane counts (ADR 0091). Kani 0.68.0
 # (`cargo install --locked kani-verifier --version 0.68.0`); the wrappers are
-# cleared because Kani drives rustc itself. 28.7 s wall, 3.0 GB peak RSS on the
-# M-series Mac (2026-11-27). It turns required, and runs in CI, with `prove`.
+# cleared because Kani drives rustc itself. The ledger and group-end harnesses:
+# 77.1 s wall, 3.4 GB peak RSS on the M-series Mac (2026-11-27). The group-end
+# host lists into a fixed array, because a `Vec` listing took 418 s and 13.1 GB.
+# It turns required, and runs in CI, with `prove`.
 required = false
-command = "env CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= RUSTC_WRAPPER= cargo kani -p lgwks_std --no-default-features --features process --harness ledger_"
+command = "env CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= RUSTC_WRAPPER= cargo kani -p lgwks_std --no-default-features --features process --harness ledger_ --harness group_end_"
 
 [[lane]]
 id = "deps-register"

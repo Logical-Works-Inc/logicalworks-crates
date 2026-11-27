@@ -19,8 +19,7 @@ Every architecture decision in this repository is a record here, and the record 
 
 ## Rules
 
-1. Numbered, append-only: `NNNN-short-name.md`, four digits, one decision each. **A record is superseded, never rewritten.** The later record names it in its `## Correspondence`, and only the old record's `Status:` changes.
-2. The `doc-governance` lane refuses a missing *field*, not a missing judgement; review owns whether it was right. The measurements a record cites are commands and their output, and an estimate is labelled one until a measurement replaces it.
+1. Numbered, append-only: `NNNN-short-name.md`, four digits, one decision each. **A record is superseded, never rewritten.** The later record names it in its `## Correspondence`, and only the old record's `Status:` changes. The `doc-governance` lane refuses a missing *field*, not a missing judgement; review owns whether it was right. The measurements a record cites are commands and their output, and an estimate is labelled one until a measurement replaces it.
 
 ## Index
 
@@ -118,3 +117,4 @@ Every architecture decision in this repository is a record here, and the record 
 | [0090](0090-a-lease-ledger-releases-what-a-dead-owner-and-its-lifeline-held.md) | A lease ledger releases what a dead owner and its lifeline held |
 | [0091](0091-a-meta-prover-holds-every-resource-kind-to-three-proofs.md) | A meta prover holds every resource kind to three proofs |
 | [0092](0092-a-process-starts-only-through-the-owned-command.md) | A process starts only through the owned `Command` |
+| [0093](0093-the-process-kind-is-modelled-by-kani.md) | The process kind is modelled by Kani on an allocation-free host |

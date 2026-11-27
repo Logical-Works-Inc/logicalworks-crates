@@ -46,7 +46,7 @@ pub(in crate::process) fn read_proc_stat(pid: i32) -> Option<String> {
             #[cfg(feature = "trace")]
             crate::trace::debug!(error = %error, pid, "read_proc_stat: the stat line is unreadable");
             #[cfg(not(feature = "trace"))]
-            drop(error);
+            let _named = error;
             None
         }
     }
@@ -105,7 +105,7 @@ pub(in crate::process) fn kill_is_pending(pid: i32) -> bool {
             #[cfg(feature = "trace")]
             crate::trace::debug!(error = ?error, pid, "an unreadable status claims no pending kill");
             #[cfg(not(feature = "trace"))]
-            drop(error);
+            let _named = error;
             false
         }
     }
@@ -142,7 +142,7 @@ pub(in crate::process) fn status_has_kill_pending(status: &str) -> bool {
                 #[cfg(feature = "trace")]
                 crate::trace::debug!(error = ?error, "status_has_kill_pending: a mask did not parse");
                 #[cfg(not(feature = "trace"))]
-                drop(error);
+                let _named = error;
             }
         }
     }
@@ -315,7 +315,7 @@ fn read_children_under(
                             #[cfg(feature = "trace")]
                             crate::trace::debug!(error = %error, pid, token, "read_proc_children: a token is not a pid");
                             #[cfg(not(feature = "trace"))]
-                            drop(error);
+                            let _named = error;
                         }
                     }
                 }
@@ -450,7 +450,7 @@ fn parent_pairs() -> io::Result<Vec<(i32, i32)>> {
                 #[cfg(feature = "trace")]
                 crate::trace::debug!(error = %error, pid, "parent_pairs: a numeric entry is past pid_t");
                 #[cfg(not(feature = "trace"))]
-                drop(error);
+                let _named = error;
             }
         }
     }
@@ -471,7 +471,7 @@ pub(in crate::process) fn stat_parent(stat: &str) -> Option<i32> {
             #[cfg(feature = "trace")]
             crate::trace::debug!(error = %error, parent, "stat_parent: the parent field is not a pid");
             #[cfg(not(feature = "trace"))]
-            drop(error);
+            let _named = error;
             None
         }
     }

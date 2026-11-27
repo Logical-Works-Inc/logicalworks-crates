@@ -4,6 +4,12 @@
 use std::io;
 use std::process::{ChildStderr, ChildStdin, ChildStdout, ExitStatus, Output};
 
+/// Kani proofs of the kill rounds for every small group.
+#[cfg(all(any(kani, test), unix))]
+mod proof;
+/// The round bound, at the production value and each small one.
+#[cfg(all(test, unix))]
+mod sim_rounds;
 /// The kill rounds driven against a seeded model of a group.
 #[cfg(all(test, unix))]
 mod tests;
@@ -266,17 +272,21 @@ fn end_group(pgid: i32) -> io::Result<()> {
 
 /// Kill rounds a group may take on macOS before it is called unstoppable: a
 /// group that adds a member every round is a fork bomb, not a leak.
-#[cfg(any(target_os = "macos", all(test, unix)))]
+#[cfg(any(target_os = "macos", all(any(test, kani), unix)))]
 const GROUP_ROUNDS: usize = 64;
 
 /// What ending a group asks of the host: a seam, so the kill rounds run
 /// against a seeded model as well as the kernel.
-#[cfg(any(target_os = "macos", all(test, unix)))]
+#[cfg(any(target_os = "macos", all(any(test, kani), unix)))]
 trait GroupHost {
     /// `killpg(pgid, SIGKILL)`.
     fn kill_group(&mut self, pgid: i32) -> io::Result<()>;
+    /// A listing of group `pgid`, owned, so the kills it drives can borrow the
+    /// host: a `Vec` from the kernel, a fixed array in the Kani proof, which
+    /// then models no heap.
+    type Members: IntoIterator<Item = (i32, bool)>;
     /// Each member of group `pgid`, and whether it is a zombie.
-    fn members(&mut self, pgid: i32) -> io::Result<Vec<(i32, bool)>>;
+    fn members(&mut self, pgid: i32) -> io::Result<Self::Members>;
     /// `kill(pid, SIGKILL)`.
     fn kill_pid(&mut self, pid: i32) -> io::Result<()>;
 }
@@ -291,7 +301,9 @@ impl GroupHost for Darwin {
         crate::process::kill_process_group(pgid)
     }
 
-    fn members(&mut self, pgid: i32) -> io::Result<Vec<(i32, bool)>> {
+    type Members = Vec<(i32, bool)>;
+
+    fn members(&mut self, pgid: i32) -> io::Result<Self::Members> {
         let rows = crate::process::darwin::group(pgid)?;
         Ok(rows.into_iter().map(|row| (row.pid, row.zombie)).collect())
     }
@@ -304,10 +316,11 @@ impl GroupHost for Darwin {
 /// SIGKILL group `pgid`; a group already gone is not an error.
 #[cfg(target_os = "macos")]
 fn end_group(pgid: i32) -> io::Result<()> {
-    end_group_on(&mut Darwin, pgid)
+    end_group_on(&mut Darwin, pgid, GROUP_ROUNDS)
 }
 
-/// SIGKILL group `pgid` through `host`; a group already gone is not an error.
+/// SIGKILL group `pgid` through `host`, in at most `rounds` kill rounds; a
+/// group already gone is not an error.
 ///
 /// Under parallel load macOS can refuse `killpg` with `EPERM` for a group that
 /// holds a zombie, and then signal no member (larry#131: 7 of 24 parallel
@@ -315,40 +328,42 @@ fn end_group(pgid: i32) -> io::Result<()> {
 /// reaped could shield its whole group. On `EPERM` each live member is killed
 /// by pid, round by round, until the group holds none: the unreaped leader
 /// still pins the group id, so no pid read here can be a stranger's.
-#[cfg(any(target_os = "macos", all(test, unix)))]
-fn end_group_on(host: &mut impl GroupHost, pgid: i32) -> io::Result<()> {
+#[cfg(any(target_os = "macos", all(any(test, kani), unix)))]
+fn end_group_on(host: &mut impl GroupHost, pgid: i32, rounds: usize) -> io::Result<()> {
     match host.kill_group(pgid) {
         Ok(()) => return Ok(()),
         Err(error) if is_gone(&error) => return Ok(()),
         Err(error) if error.raw_os_error() != Some(rustix::io::Errno::PERM.raw_os_error()) => {
+            #[cfg(feature = "trace")]
             crate::trace::debug!(%error, pgid, "end_group: the group refused its kill");
             return Err(error);
         }
         Err(shielded) => trace_error(&shielded, "a zombie shields its group; killed by pid"),
     }
-    for _ in 0..GROUP_ROUNDS {
-        let live: Vec<i32> = host
-            .members(pgid)?
-            .into_iter()
-            .filter(|&(_, zombie)| !zombie)
-            .map(|(pid, _)| pid)
-            .collect();
-        if live.is_empty() {
-            return Ok(());
-        }
-        for pid in live {
+    for _ in 0..rounds {
+        let mut live = false;
+        for (pid, zombie) in host.members(pgid)? {
+            if zombie {
+                continue;
+            }
+            live = true;
             if let Err(error) = host.kill_pid(pid)
                 && !is_gone(&error)
             {
+                #[cfg(feature = "trace")]
                 crate::trace::debug!(%error, pid, "end_group: a live member refused its kill");
                 return Err(error);
             }
         }
+        if !live {
+            return Ok(());
+        }
     }
-    let refusal = io::Error::other(format!(
-        "process group {pgid} still had live members after {GROUP_ROUNDS} kill rounds"
-    ));
-    trace_error(&refusal, "end_group: a group outlived every round");
+    // A fixed message, so the Kani proof does not model a formatter; the trace
+    // names the group and the bound.
+    let refusal = io::Error::other("a process group still had live members after every kill round");
+    #[cfg(feature = "trace")]
+    crate::trace::debug!(%refusal, pgid, rounds, "end_group: a group outlived every round");
     Err(refusal)
 }
 
@@ -382,6 +397,7 @@ fn wait_exit_keeping(pid: i32) -> io::Result<()> {
             Err(rustix::io::Errno::INTR) => {}
             Err(errno) => {
                 let error = crate::process::errno_to_io(errno);
+                #[cfg(feature = "trace")]
                 crate::trace::debug!(%error, pid, "wait: waitid refused the leader");
                 return Err(error);
             }
@@ -410,5 +426,8 @@ fn joined(
 
 /// Name a refusal where it is made; nothing else sees it.
 pub(super) fn trace_error(error: &io::Error, what: &'static str) {
+    #[cfg(feature = "trace")]
     crate::trace::debug!(%error, what, "process::Command: a refusal");
+    #[cfg(not(feature = "trace"))]
+    let _named = (error, what);
 }
