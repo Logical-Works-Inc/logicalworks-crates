@@ -96,7 +96,10 @@ impl Drop for Scratch {
             fs::remove_file(&self.0)
         };
         if let Err(error) = removed {
+            #[cfg(feature = "trace")]
             crate::trace::debug!(%error, "a ledger sim path could not be removed");
+            #[cfg(not(feature = "trace"))]
+            let _unreported = error;
         }
     }
 }
