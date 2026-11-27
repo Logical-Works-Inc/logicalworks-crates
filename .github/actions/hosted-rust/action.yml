@@ -257,7 +257,10 @@ runs:
         esac
         dir="${RUNNER_TEMP}/kache"
         mkdir -p "${dir}/bin" "${dir}/store"
-        curl -fsSL --retry 5 --retry-all-errors -o "${dir}/${asset}" \
+        # Each try is bounded: on run 45910843702 one fetch hung 120 s before a
+        # 504 and walled the run at 323 s. The asset is a few MB, so 30 s is
+        # many times a healthy fetch, and `--retry-all-errors` retries a timeout.
+        curl -fsSL --max-time 30 --retry 5 --retry-all-errors -o "${dir}/${asset}" \
           "https://github.com/kunobi-ninja/kache/releases/download/v${KACHE_VERSION}/${asset}"
         # From stdin: Git Bash's sha256sum escapes a path that holds a
         # backslash and prints `\` before the hash (run 45522616196).
@@ -355,9 +358,9 @@ runs:
           echo "install-action failed or was rate-limited; attempting direct prebuilt fallback"
           mkdir -p "${CARGO_HOME:-$HOME/.cargo}/bin"
           if [ "${{ runner.os }}" = "Linux" ]; then
-            curl -fsSL https://get.nexte.st/latest/linux | tar -xz -C "${CARGO_HOME:-$HOME/.cargo}/bin" 2>/dev/null || true
+            curl -fsSL --max-time 60 https://get.nexte.st/latest/linux | tar -xz -C "${CARGO_HOME:-$HOME/.cargo}/bin" 2>/dev/null || true
           elif [ "${{ runner.os }}" = "macOS" ]; then
-            curl -fsSL https://get.nexte.st/latest/mac | tar -xz -C "${CARGO_HOME:-$HOME/.cargo}/bin" 2>/dev/null || true
+            curl -fsSL --max-time 60 https://get.nexte.st/latest/mac | tar -xz -C "${CARGO_HOME:-$HOME/.cargo}/bin" 2>/dev/null || true
           fi
         fi
         cargo-nextest --version || cargo nextest --version

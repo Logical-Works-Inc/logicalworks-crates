@@ -46,7 +46,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        newest() { curl -fsS -A 'lgwks-gate (github.com/Logical-Works-Inc/logicalworks-crates)' "https://crates.io/api/v1/crates/$1" | jq -er .crate.max_stable_version; }
+        newest() { curl -fsS --max-time 20 --retry 3 -A 'lgwks-gate (github.com/Logical-Works-Inc/logicalworks-crates)' "https://crates.io/api/v1/crates/$1" | jq -er .crate.max_stable_version; }
         deps="${{ inputs.lgwks-deps-version }}"; ast="${{ inputs.lgwks-ast-version }}"
         echo "deps=${deps:-$(newest lgwks_deps)}" >> "${GITHUB_OUTPUT}"
         echo "ast=${ast:-$(newest lgwks_ast)}" >> "${GITHUB_OUTPUT}"

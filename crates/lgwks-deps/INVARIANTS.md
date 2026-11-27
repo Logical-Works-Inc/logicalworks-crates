@@ -36,3 +36,4 @@ The `lgwks_deps` part of the invariant register, one short line per rule: rule �
 - **INV-LGWKS-EMIT-1** One emitter, and `lgwks_macros` is a thin shell over parse plus that function. · why: #787 · enforced by: `lgwks_macros::tests::expand`
 - **INV-LGWKS-RUN-1** `lgwks run` builds twice in one target directory and prints the cold build, the warm rebuild and the start. · why: #787 · enforced by: `tests/it/lgwks_e2e.rs`
 - **INV-LGWKS-JSON-1** Every command takes `--json` with the same facts as the human text. · why: #787 · enforced by: `tests/it/lgwks_json.rs`
+- **INV-CI-FETCH-1** Every `curl` of every workflow and action has a `--max-time`, so a stalled server fails inside its bound and the retry runs. · why: run 45910843702, ADR 0088 · enforced by: the `gate-parity` lane, `sim_bounded_fetch_*`

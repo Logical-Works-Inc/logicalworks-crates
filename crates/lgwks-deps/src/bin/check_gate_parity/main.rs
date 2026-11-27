@@ -42,9 +42,11 @@
 //!  10. The wrapper ships with the toolchain: the hosted action installs `clippy`
 //!      on every toolchain, for the `clippy-driver` the cargo config runs (`wrapper.rs`).
 //!  11. Only the required row waits on the doc tests, whose cache key is their own (#1095).
+//!  12. Every `curl` of every workflow and action has a `--max-time` (`bounded_fetch.rs`).
 //!
 //! Usage: `check-gate-parity [ROOT]`. Exit 0 when all rules hold.
 
+mod bounded_fetch;
 #[cfg(test)]
 mod cache_budget;
 mod doc_path;
@@ -139,16 +141,10 @@ fn fail<T>(error: ParityError, site: &'static str) -> Result<T, ParityError> {
 
 /// Reads a file whole, naming it when it cannot be read.
 fn read(path: &Path) -> Result<String, ParityError> {
-    match fs::read_to_string(path) {
-        Ok(text) => Ok(text),
-        Err(cause) => fail(
-            ParityError::Io {
-                path: path.to_path_buf(),
-                cause,
-            },
-            "read",
-        ),
-    }
+    fs::read_to_string(path).or_else(|cause| {
+        let path = path.to_path_buf();
+        fail(ParityError::Io { path, cause }, "read")
+    })
 }
 
 /// Collapses runs of whitespace to single spaces.
@@ -398,6 +394,7 @@ fn execute(root: &Path, out: &mut impl Write, err: &mut impl Write) -> Result<u8
     problems.extend(self_hosted_problems("pages.yml", &pages_text));
     problems.extend(foreign_workflow_problems("pages.yml", &pages_text));
     problems.extend(wrapper::committed_problems(root)?);
+    problems.extend(bounded_fetch::committed_problems(root)?);
     for rel in OTHER_WORKFLOWS_REL {
         let text = read(&root.join(rel))?;
         problems.extend(self_hosted_problems(rel, &text));
