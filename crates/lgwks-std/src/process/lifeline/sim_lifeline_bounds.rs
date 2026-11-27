@@ -5,9 +5,61 @@
 //! by `sh` with a held and a let-go release. The oracle is the rule each one
 //! breaks, never the code's own answer.
 
-use super::{Release, SCRIPT, hold_within, lifeline_pid};
+use super::{Release, SCRIPT, hold_within, ledger, lifeline_pid, state};
 use std::io;
+use std::os::unix::process::CommandExt as _;
 use std::process::{Command, Stdio};
+
+/// A churner: a hold that writes no lease line and its release move no
+/// record, so they restart no lifeline; a flood of holds and releases past the
+/// record's line bound rewrites it with only its open leases, and the lifeline
+/// moves to the new file once. A restart where nothing moved would end every
+/// lifeline a busy owner has at each hold; a rewrite that lost a lease would
+/// leave it to no sweep.
+#[test]
+fn sim_lifeline_record_rewrite_keeps_the_open_leases_and_moves_once() -> io::Result<()> {
+    let kept = hold_within(inert(), 8)?;
+    let first = lifeline_pid().ok_or_else(|| io::Error::other("a hold starts a lifeline"))?;
+    // A group whose leader is gone has no identity, so the ledger gets no line.
+    let mut leader = Command::new("/usr/bin/true").process_group(0).spawn()?;
+    let pgid = i32::try_from(leader.id()).map_err(io::Error::other)?;
+    leader.wait()?;
+    drop(hold_within(Release::Group(pgid), 8)?);
+    let unmoved = lifeline_pid();
+    // `kept` wrote one line, so the rewrite lands on the last hold here.
+    // Each turn writes two lines, so half the bound reaches it.
+    for _ in 0..ledger::COMPACT_AT >> 1_u32 {
+        drop(hold_within(inert(), 8)?);
+    }
+    let moved = lifeline_pid();
+    let path = state()
+        .ledger
+        .as_ref()
+        .map(|record| record.path().to_owned())
+        .ok_or_else(|| io::Error::other("a hold opens a record"))?;
+    let text = std::fs::read_to_string(&path)?;
+    drop(kept);
+    let folded = ledger::fold(&text);
+    assert_eq!(
+        unmoved,
+        Some(first),
+        "a hold and release that moved no record restarted the lifeline"
+    );
+    assert!(
+        moved.is_some_and(|pid| pid != first),
+        "the rewritten record kept the old lifeline, which holds the old file's lock"
+    );
+    assert_eq!(
+        folded.leases.len(),
+        1,
+        "the rewrite keeps exactly the open lease: {text}"
+    );
+    assert!(
+        text.lines().count() < 16,
+        "the rewrite kept let-go leases: {text}"
+    );
+    Ok(())
+}
 
 /// A release under a directory no host has, so a lifeline that ends with it
 /// held runs nothing.

@@ -15,6 +15,13 @@
 //! lives is started again at the next hold or release, and every open hold is
 //! written to the new one first, so no hold is ever owed to a dead lifeline for
 //! longer than the gap to that call.
+//!
+//! A lifeline and its owner can both die, the lifeline first: then the
+//! [`ledger`] answers. Each hold is a line in the owner's lease record before
+//! it returns, and the first hold of every later process sweeps the records
+//! no live owner or lifeline holds.
+
+mod ledger;
 
 use std::collections::BTreeMap;
 use std::io::{self, Write as _};
@@ -68,6 +75,7 @@ const SCRIPT: &str = concat!(
     "    esac\n",
     "  done\n",
     "done >/dev/null 2>&1\n",
+    "[ -z \"${LGWKS_LEASE_PATH-}\" ] || rm -f -- \"$LGWKS_LEASE_PATH\"\n",
 );
 
 /// What the lifeline does for one hold when this process ends.
@@ -108,6 +116,8 @@ struct State {
     held: BTreeMap<u64, Release>,
     /// The next id.
     next: u64,
+    /// This process's lease record, once a hold opened it.
+    ledger: Option<ledger::Record>,
 }
 
 /// State whose scope the kernel sets, not a tenant: the kernel closes a pipe
@@ -133,6 +143,7 @@ static STATE: KernelWide<State> = KernelWide(Mutex::new(State {
     line: None,
     held: BTreeMap::new(),
     next: 1,
+    ledger: None,
 }));
 
 /// The state, held.
@@ -215,7 +226,7 @@ impl State {
         if self.held.is_empty() {
             return Ok(());
         }
-        let mut line = spawn()?;
+        let mut line = spawn(self.ledger.as_ref())?;
         let replay: String = self
             .held
             .iter()
@@ -233,19 +244,28 @@ impl State {
 }
 
 /// Start a lifeline: `sh` as the leader of its own group, so a signal to this
-/// process's group never reaches it, reading a pipe, with no other stream. It
-/// holds none of this process's output: a lifeline on an inherited stderr kept
-/// nextest's capture pipe open past the test's exit, a leak to nextest and a
-/// stall to any parent that reads this process's output to its end.
-fn spawn() -> io::Result<Line> {
-    let mut child = Command::new("/bin/sh")
+/// process's group never reaches it, reading a pipe. It holds none of this
+/// process's output: a lifeline on an inherited stderr kept nextest's capture
+/// pipe open past the test's exit, a leak to nextest and a stall to any parent
+/// that reads this process's output to its end. Its stdout is the lease
+/// `record`, so it holds the record's lock while it lives, and it removes the
+/// record once it has released.
+fn spawn(record: Option<&ledger::Record>) -> io::Result<Line> {
+    let mut command = Command::new("/bin/sh");
+    command
         .arg0(LIFELINE_NAME)
         .args(["-c", SCRIPT])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .process_group(0)
-        .spawn()?;
+        .env_remove(ledger::PATH_VAR)
+        .process_group(0);
+    if let Some(record) = record {
+        command
+            .stdout(record.share()?)
+            .env(ledger::PATH_VAR, record.path());
+    }
+    let mut child = command.spawn()?;
     if let Some(stdin) = child.stdin.take() {
         return Ok(Line { child, stdin });
     }
@@ -290,7 +310,43 @@ impl Drop for LifelineHold {
             #[cfg(not(feature = "trace"))]
             drop(error);
         }
+        // The lifeline let go first, so a crash between the two leaves an open
+        // lease, which a sweep releases again, never a hold no one records.
+        let moved = match state.ledger.as_mut().map(|record| record.remove(self.id)) {
+            Some(Ok(moved)) => moved,
+            Some(Err(error)) => {
+                #[cfg(feature = "trace")]
+                crate::trace::warn!(%error, id = self.id, "lifeline: a let-go lease could not be recorded");
+                #[cfg(not(feature = "trace"))]
+                drop(error);
+                false
+            }
+            None => false,
+        };
+        if moved && let Err(error) = state.restart() {
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(%error, "lifeline: a lifeline on the rewritten record could not start; the next hold retries");
+            #[cfg(not(feature = "trace"))]
+            drop(error);
+        }
     }
+}
+
+/// What the ledger records for `release`: a group by its leader's identity,
+/// so a sweep never signals a stranger that took the pid. A group whose
+/// leader is already gone has no identity to check, and only the lifeline
+/// holds it.
+fn lease_of(release: &Release) -> io::Result<Option<ledger::Lease>> {
+    Ok(match *release {
+        Release::Group(pgid) => super::identify_process(pgid)?.map(ledger::Lease::Group),
+        Release::Device(ref device) => Some(ledger::Lease::Device {
+            device: device.clone(),
+            image: ledger::image_of(device),
+        }),
+        Release::Run(ref program, ref argument) => {
+            Some(ledger::Lease::Run(program.clone(), argument.clone()))
+        }
+    })
 }
 
 /// An `io::Error` of `kind` saying `why`, logged where it is made.
@@ -309,6 +365,7 @@ fn hold(release: Release) -> io::Result<LifelineHold> {
 /// [`hold`] under a bound of `most` open holds, so a test reaches the bound
 /// without opening 65,536 of them.
 fn hold_within(release: Release, most: usize) -> io::Result<LifelineHold> {
+    let lease = lease_of(&release)?;
     let mut state = state();
     if state.held.len() >= most {
         #[cfg(feature = "trace")]
@@ -328,10 +385,33 @@ fn hold_within(release: Release, most: usize) -> io::Result<LifelineHold> {
         ));
     };
     state.next = next;
+    // The first hold of a process sweeps what dead owners left, then opens
+    // this process's record; the lease is on disk before the hold returns.
+    let record = match state.ledger {
+        Some(ref mut record) => record,
+        None => state.ledger.insert(ledger::Record::open()?),
+    };
+    let moved = match lease {
+        Some(lease) => record.add(id, lease)?,
+        None => false,
+    };
     let text = release.line(id);
     state.held.insert(id, release);
-    if let Err(error) = state.send(&text) {
+    let sent = if moved {
+        state.restart()
+    } else {
+        state.send(&text)
+    };
+    if let Err(error) = sent {
         state.held.remove(&id);
+        if let Some(record) = state.ledger.as_mut()
+            && let Err(unrecorded) = record.remove(id)
+        {
+            #[cfg(feature = "trace")]
+            crate::trace::debug!(%unrecorded, "hold: a refused hold's lease could not be let go");
+            #[cfg(not(feature = "trace"))]
+            drop(unrecorded);
+        }
         #[cfg(feature = "trace")]
         crate::trace::debug!(%error, "hold: returning an error to the caller");
         return Err(error);

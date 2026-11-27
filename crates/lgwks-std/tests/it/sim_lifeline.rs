@@ -244,8 +244,56 @@ fn all_stop(pids: &[i32]) -> Result<bool, Box<dyn Error>> {
     Ok(stopped.is_some())
 }
 
-/// Run one owner under `plan`, SIGKILL it, and check what was released.
-fn one_case(plan: &Plan, tag: &str) -> TestResult {
+/// The variable that puts this binary in the sweeper role: a later process
+/// whose first hold sweeps the ledger the dead owner left.
+const SWEEPER_VAR: &str = "LGWKS_LEDGER_SWEEPER";
+
+/// The ledger directory every role of one case shares, so a case never reads
+/// or sweeps the user's own ledger.
+const LEASE_VAR: &str = "LGWKS_LEASE_DIR";
+
+/// How an owner dies in a case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Death {
+    /// The owner alone is SIGKILLed; its lifeline releases.
+    Owner,
+    /// The lifeline is SIGKILLed first, while its owner lives, then the owner:
+    /// no end of file reaches a live lifeline, so only the ledger's sweep at a
+    /// later process's first hold can release.
+    Both,
+}
+
+/// The sweeper role: one hold, which sweeps the ledger before it is written.
+fn act_as_sweeper(dir: &Path) -> TestResult {
+    drop(hold_run(Path::new("/bin/mkdir"), &dir.join("swept"))?);
+    Ok(())
+}
+
+/// Start the sweeper in `dir`'s ledger and wait for it to end.
+fn sweep_from(dir: &Path) -> TestResult {
+    let status = Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "sim_lifeline::sim_ledger_sweep_releases_only_what_dead_owners_held",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(SWEEPER_VAR, dir)
+        .env(LEASE_VAR, dir.join("leases"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if !status.success() {
+        lgwks_std::trace::debug!(%status, "the sweeper failed");
+        return Err(format!("the sweeper failed: {status}").into());
+    }
+    Ok(())
+}
+
+/// Run one owner under `plan`, kill it as `death` says, and check what was
+/// released.
+fn one_case(plan: &Plan, tag: &str, death: Death) -> TestResult {
     let dir =
         CaseDir(std::env::temp_dir().join(format!("lgwks-lifeline-{}-{tag}", std::process::id())));
     std::fs::create_dir_all(&dir.0)?;
@@ -259,6 +307,7 @@ fn one_case(plan: &Plan, tag: &str) -> TestResult {
         ])
         .env(OWNER_VAR, plan.render())
         .env(DIR_VAR, &dir.0)
+        .env(LEASE_VAR, dir.0.join("leases"))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(std::fs::File::create(&said)?)
@@ -279,6 +328,16 @@ fn one_case(plan: &Plan, tag: &str) -> TestResult {
     // its normal exit and lets every hold go. The pipe stays open until the
     // owner is reaped, so the only way out is the kill.
     let keep_open = owner.stdin.take();
+    let mut early = false;
+    if death == Death::Both
+        && let Some(ref text) = ready
+    {
+        let line = field(text, "lifeline=")?;
+        for &pid in &line {
+            kill_process(pid)?;
+        }
+        early = !all_stop(&line)?;
+    }
     owner.kill()?;
     let status = owner.wait()?;
     drop(keep_open);
@@ -287,6 +346,15 @@ fn one_case(plan: &Plan, tag: &str) -> TestResult {
         .ok_or_else(|| format!("{tag}: the owner never opened its holds ({status}): {steps}"))?;
     let held = field(&ready, "held=")?;
     let line = field(&ready, "lifeline=")?;
+    if death == Death::Both {
+        // Nothing released a hold: the lifeline died first, and its owner after.
+        early = early || dir.0.join("kept").exists();
+        assert!(
+            !early,
+            "{tag}: a release ran with no lifeline alive, or the lifeline outlived its SIGKILL"
+        );
+        sweep_from(&dir.0)?;
+    }
     // The lifeline ends last, after every release, so it is waited on first;
     // then every fact is read once and judged together.
     let line_stopped = all_stop(&line)?;
@@ -303,6 +371,19 @@ fn one_case(plan: &Plan, tag: &str) -> TestResult {
          held groups stopped {held_stopped}, kept {kept}, late {late}, dropped ran {dropped}, \
          still running {running:?}, {plan:?}, {ready}, case dir holds {entries:?}\n{steps}"
     );
+    if death == Death::Both {
+        let prefix = format!("{}-", owner.id());
+        let left: Vec<String> = std::fs::read_dir(dir.0.join("leases"))?
+            .map(|entry| entry.map(|entry| entry.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .filter(|name| name.starts_with(&prefix))
+            .collect();
+        assert!(
+            left.is_empty(),
+            "{tag}: the swept record is still on disk: {left:?}"
+        );
+    }
     Ok(())
 }
 
@@ -486,7 +567,31 @@ fn sim_lifeline_releases_every_hold_of_a_killed_owner() -> TestResult {
                 plan,
                 "seed {seed:#x} case {case}: the owner reads the plan it was given"
             );
-            one_case(&plan, &format!("{seed:x}-{case}"))?;
+            one_case(&plan, &format!("{seed:x}-{case}"), Death::Owner)?;
+            fold_usize(&mut trace, plan.released.len());
+            fold(&mut trace, u64::from(plan.kill_lifeline));
+        }
+        assert_ne!(trace, initial_trace(), "seed {seed:#x} drew its cases");
+    }
+    Ok(())
+}
+
+/// The double death (#1160 mechanism 3): the owner's lifeline is SIGKILLed
+/// while the owner lives, then the owner, so no process that knew the holds is
+/// left. A later process's first hold sweeps the ledger and releases exactly
+/// what the dead owner still held: every held group and member stops, the held
+/// release programs run, the dropped one does not, and the record is gone.
+#[test]
+fn sim_ledger_sweep_releases_only_what_dead_owners_held() -> TestResult {
+    if let Some(dir) = std::env::var_os(SWEEPER_VAR) {
+        return act_as_sweeper(Path::new(&dir));
+    }
+    for seed in SWEEP_SEEDS {
+        let mut rng = Seeded::from_seed(seed);
+        let mut trace = initial_trace();
+        for case in 0..CASES {
+            let plan = Plan::draw(&mut rng);
+            one_case(&plan, &format!("both-{seed:x}-{case}"), Death::Both)?;
             fold_usize(&mut trace, plan.released.len());
             fold(&mut trace, u64::from(plan.kill_lifeline));
         }
