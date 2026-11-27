@@ -77,6 +77,8 @@ mod sim_build;
 #[cfg(feature = "full")]
 mod serde_facade_consumers;
 mod sim_codec;
+#[cfg(all(unix, feature = "process"))]
+mod sim_command;
 mod sim_descendants;
 mod sim_encoding;
 mod sim_fs_capability;

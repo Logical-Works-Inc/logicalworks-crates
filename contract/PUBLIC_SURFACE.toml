@@ -379,9 +379,12 @@
 "crates/lgwks-std/src/legacy/limits.rs" = 3
 "crates/lgwks-std/src/online.rs" = 3
 "crates/lgwks-std/src/pattern.rs" = 29
-"crates/lgwks-std/src/process.rs" = 18
+"crates/lgwks-std/src/process.rs" = 19
 "crates/lgwks-std/src/process/capture.rs" = 26
 "crates/lgwks-std/src/process/cgroup.rs" = 10
+# The owned start every raw `Command::new` moves to (#1164, ADR 0092).
+"crates/lgwks-std/src/process/command.rs" = 18
+"crates/lgwks-std/src/process/command/child.rs" = 8
 "crates/lgwks-std/src/process/identity.rs" = 13
 "crates/lgwks-std/src/process/lifeline.rs" = 5
 "crates/lgwks-std/src/process/orphans.rs" = 3
@@ -407,6 +410,8 @@
 # The doc-example ceiling (#526): per documentation file, how many fenced Rust
 # blocks name a workspace crate by path and hold no `script!`. Exact, like the one above.
 [examples]
+"crates/lgwks-std/src/process/command.rs" = 17
+"crates/lgwks-std/src/process/command/child.rs" = 8
 "crates/drishti/src/canvas_protocol.rs" = 11
 "crates/drishti/src/canvas_protocol/vocabulary.rs" = 9
 "crates/drishti/src/canvas_protocol/workspace_layout.rs" = 19

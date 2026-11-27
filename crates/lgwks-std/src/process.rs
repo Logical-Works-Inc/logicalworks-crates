@@ -29,6 +29,9 @@ mod capture_many;
 /// cgroup v2 scopes and the child subreaper (Linux).
 #[cfg(target_os = "linux")]
 mod cgroup;
+/// The one process start: every child held, its group ended with it (#1164).
+#[cfg(feature = "process")]
+mod command;
 /// The macOS process table through one `sysctl(KERN_PROC)` syscall (#345).
 #[cfg(target_os = "macos")]
 mod darwin;
@@ -76,6 +79,8 @@ pub use capture_many::{MAX_CAPTURE_ROOTS, capture_descendants_many};
 pub use cgroup::{
     CgroupScope, adopted_descendants, enable_child_subreaper, own_children, reap_descendants,
 };
+#[cfg(feature = "process")]
+pub use command::{Child, Command};
 pub use identity::{
     MAX_START_TOKEN_BYTES, OrphanReap, ProcessIdentity, ProcessIdentityError, identify_process,
     reap_orphaned_group,

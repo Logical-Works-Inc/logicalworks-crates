@@ -36,7 +36,9 @@
 use std::fmt::Write as _;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{ChildStdout, Stdio};
+
+use lgwks_std::process::{Child, Command};
 
 use crate::usage::{self, Host, RSS_METHOD, Usage};
 use crate::{LoadError, refused};
@@ -287,7 +289,7 @@ fn start(binary: &Path, mode: &str, extra: Option<&Path>) -> Result<Server, Load
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()?;
-    let Some(out) = child.stdout.take() else {
+    let Some(out) = child.take_stdout() else {
         return refused(LoadError::Malformed("the server has no stdout"));
     };
     let mut stdout = BufReader::new(out);
@@ -349,7 +351,8 @@ fn surface_rows(
         .then(|| std::env::temp_dir().join(format!("lgwks-edge-rig-{run}-{}", surface.mode)));
     let mut server = start(binary, surface.mode, store.as_deref())?;
     let measured = rounds(binary, surface, shape, &server);
-    drop(server.child.stdin.take());
+    // `wait` closes the server's input first, which says the surface is done,
+    // and then kills what is left of its group.
     let exited = server.child.wait();
     let mut tail = String::new();
     let drained = std::io::Read::read_to_string(&mut server.stdout, &mut tail);
@@ -488,11 +491,11 @@ fn store(db: &Path, sql: &str) -> Result<(), LoadError> {
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|error| LoadError::Store(format!("sqlite3 did not start: {error}")))?;
-    let Some(mut input) = child.stdin.take() else {
-        return refused(LoadError::Store(String::from("sqlite3 has no stdin")));
-    };
-    input.write_all(sql.as_bytes())?;
-    drop(input);
+    // The input closes at the end of this arm, so sqlite3 reads to its end.
+    match child.take_stdin() {
+        Some(mut input) => input.write_all(sql.as_bytes())?,
+        None => return refused(LoadError::Store(String::from("sqlite3 has no stdin"))),
+    }
     let done = child.wait_with_output()?;
     if done.status.success() {
         return Ok(());

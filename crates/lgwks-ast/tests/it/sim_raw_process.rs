@@ -36,7 +36,7 @@ const RULE: &str = "raw-process";
 
 /// How a file imports `Command`: the line, whether a bare `Command` is then the
 /// process one, and whether `Cmd` is.
-const IMPORTS: [(&str, bool, bool); 7] = [
+const IMPORTS: [(&str, bool, bool); 9] = [
     ("", false, false),
     ("use std::process::Command;\n", true, false),
     ("use tokio::process::Command;\n", true, false),
@@ -44,6 +44,14 @@ const IMPORTS: [(&str, bool, bool); 7] = [
     ("use std::process::Command as Cmd;\n", false, true),
     ("use crate::app::Command;\n", false, false),
     ("use std::process;\n", false, false),
+    // The owner (ADR 0092): its start holds the group, so no spelling of it
+    // is raw.
+    ("use lgwks_std::process::Command;\n", false, false),
+    (
+        "use lgwks_std::process::{Command as Cmd, Stdio};\n",
+        false,
+        false,
+    ),
 ];
 
 /// When a call spelling is a raw start.
@@ -60,7 +68,7 @@ enum Raw {
 }
 
 /// Each call spelling, with `@` for the program it starts.
-const CALLS: [(&str, Raw); 9] = [
+const CALLS: [(&str, Raw); 11] = [
     ("Command::new(\"@\")", Raw::Bare),
     ("Cmd::new(\"@\")", Raw::Alias),
     ("std::process::Command::new(\"@\")", Raw::Always),
@@ -70,6 +78,8 @@ const CALLS: [(&str, Raw); 9] = [
     ("Command::default()", Raw::Never),
     ("builder::Command::new(\"@\")", Raw::Never),
     ("Supervisor::new(\"@\")", Raw::Never),
+    ("lgwks_std::process::Command::new(\"@\")", Raw::Never),
+    ("::lgwks_std::process::Command::new(\"@\")", Raw::Never),
 ];
 
 /// Where a call sits, with `~` for the item's index and `%` for the call.
@@ -156,7 +166,11 @@ fn sim_raw_process_finds_exactly_the_raw_starts() -> TestResult {
         assert_eq!(lines, want, "seed {seed}: {hits:?}\n{}", drawn.source);
         for (hit, &(_, disk)) in hits.iter().zip(&drawn.expected) {
             assert_eq!(hit.rule(), RULE, "seed {seed}: {hit:?}");
-            assert!(hit.snippet().contains("Supervisor"), "seed {seed}: {hit:?}");
+            assert!(
+                hit.snippet().contains("`lgwks_std::process::Command`")
+                    && hit.snippet().contains("Supervisor"),
+                "seed {seed}: {hit:?}"
+            );
             assert_eq!(
                 hit.snippet().contains("hold_device"),
                 disk,
