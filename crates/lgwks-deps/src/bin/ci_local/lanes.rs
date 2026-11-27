@@ -15,8 +15,8 @@ use super::children::{Children, Launch, forget_launched_crate, inherited_env};
 use super::toml_subset::{Table, list, raw, read_tables, text};
 use super::utc::stamp;
 use super::{
-    Context, GateError, LaneResult, Status, Verdict, builtins, fail, invariants, read, runners,
-    skill_hygiene,
+    Context, GateError, LaneResult, Status, Verdict, builtins, fail, invariants, prove, read,
+    runners, skill_hygiene,
 };
 
 /// The lane table, relative to the repository root.
@@ -315,6 +315,7 @@ fn run_builtin(name: &str, context: &Context<'_>) -> Result<Verdict, GateError> 
         "suppressions" => builtins::suppressions(context),
         "artifacts" => builtins::artifacts(context),
         "invariants" => invariants::invariants(context),
+        "prove" => prove::prove(context),
         "contract-drift" => builtins::contract_drift(context),
         "docsrs-metadata" => runners::docsrs_metadata(context),
         "readme-quickstart" => builtins::readme_quickstart(context),

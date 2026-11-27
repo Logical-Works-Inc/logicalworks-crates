@@ -46,7 +46,7 @@ fn by_depth(left: &str, right: &str) -> std::cmp::Ordering {
 /// A qualified reference names its module path, so the leaf is resolved only
 /// against a module path whose tail *is* the path the reference named. A bare name
 /// carries no path to check, so it is matched anywhere.
-fn resolution_candidates(modules: &Modules, reference: &str) -> Vec<String> {
+pub(super) fn resolution_candidates(modules: &Modules, reference: &str) -> Vec<String> {
     let leaf = leaf_of(reference);
     let wanted = match reference.rsplit_once("::") {
         Some((front, _)) => normalise_path(front),

@@ -121,9 +121,9 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         match std::mem::replace(&mut self.detach, Detach::Nothing) {
             Detach::Nothing => {}
-            Detach::Device(device, hold) => {
+            // The hold drops when the arm ends, after the detach.
+            Detach::Device(device, _released_after_detach) => {
                 run_quietly("hdiutil", &["detach", &device, "-force"]);
-                drop(hold);
             }
             Detach::Directory(directory) => {
                 if let Err(error) = fs::remove_dir_all(&directory) {
@@ -389,6 +389,38 @@ mod tests {
                 "{name} must be aged by its lease file"
             );
         }
+        Ok(())
+    }
+
+    /// Apple's FSEvents Programming Guide, "Preventing File System Event
+    /// Storage" (#1160): fseventsd reached 3.9 GB RSS logging every write on
+    /// the gate's RAM disks. A scratch volume takes a burst of writes and logs
+    /// none: after a remount, which flushes what fseventsd holds, its
+    /// `.fseventsd` holds `no_log` and the volume id, never an event log file.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn no_log_volume_logs_no_event_after_a_write_burst() -> TestResult {
+        let scratch = super::Scratch::open(true);
+        let volume = scratch.path().ok_or("no ram disk on this Mac")?.to_owned();
+        let burst = volume.join("burst");
+        fs::create_dir(&burst)?;
+        for round in 0..4_u32 {
+            for file in 0..2500_u32 {
+                fs::write(burst.join(format!("f{file}")), round.to_le_bytes())?;
+            }
+        }
+        super::ram_disk::remount(&volume)?;
+        let mut logs = Vec::new();
+        for entry in fs::read_dir(volume.join(".fseventsd"))? {
+            let name = entry?.file_name().to_string_lossy().into_owned();
+            if name != "no_log" && name != "fseventsd-uuid" {
+                logs.push(name);
+            }
+        }
+        assert!(
+            logs.is_empty(),
+            "fseventsd logged the scratch volume: {logs:?}"
+        );
         Ok(())
     }
 

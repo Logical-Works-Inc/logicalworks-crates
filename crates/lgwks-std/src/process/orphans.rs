@@ -24,8 +24,12 @@ pub(crate) trait Host {
     fn children(&mut self) -> io::Result<Vec<i32>>;
     /// `pid`'s name while it runs; `None` once it has ended.
     fn live_name(&mut self, pid: i32) -> Option<String>;
+    /// The group `pid` is in, when a live lifeline leads it; `None` otherwise.
+    fn lifeline_group(&mut self, pid: i32) -> Option<i32>;
     /// Send `pid` SIGKILL.
     fn kill(&mut self, pid: i32) -> io::Result<()>;
+    /// Send every process in group `group` SIGKILL.
+    fn kill_group(&mut self, group: i32) -> io::Result<()>;
     /// Reap one ended child, waiting for one to end; `None` when none is left.
     fn reap_any(&mut self) -> io::Result<Option<i32>>;
 }
@@ -130,10 +134,21 @@ pub(crate) fn sweep(host: &mut impl Host) -> Orphans {
             return found;
         }
         for pid in children.iter().copied() {
-            if let Some(name) = host.live_name(pid) {
-                found.survivors.push(Survivor { pid, name });
-            }
-            if let Err(error) = host.kill(pid) {
+            // A dead test's lifeline is adopted here, and what runs in its
+            // group is the release it owes the test: `rm`, `hdiutil`, a release
+            // program. The group is stopped as one, so nothing the lifeline
+            // started is adopted and named after it; what it had not yet
+            // released is the ledger's (ADR 0087, ADR 0090).
+            let stopped = match host.lifeline_group(pid) {
+                Some(group) => host.kill_group(group),
+                None => {
+                    if let Some(name) = host.live_name(pid) {
+                        found.survivors.push(Survivor { pid, name });
+                    }
+                    host.kill(pid)
+                }
+            };
+            if let Err(error) = stopped {
                 found.unstopped = Some(format!("{pid} refused SIGKILL: {error}"));
                 return found;
             }
@@ -170,18 +185,32 @@ impl Host for Kernel {
     }
 
     fn live_name(&mut self, pid: i32) -> Option<String> {
-        // A dead test's lifeline is adopted here and ends on its own once it
-        // has released what the test held; the sweep still kills it, and what
-        // it held is judged by name in its own right (ADR 0087).
-        if is_lifeline(pid) {
-            return None;
-        }
         let stat = super::capture::table::read_proc_stat(pid)?;
         name_if_live(&stat, super::capture::table::kill_is_pending(pid))
     }
 
+    fn lifeline_group(&mut self, pid: i32) -> Option<i32> {
+        let group = match super::pid_from_raw(pid)
+            .and_then(|pid| rustix::process::getpgid(Some(pid)).map_err(super::errno_to_io))
+        {
+            Ok(group) => group.as_raw_nonzero().get(),
+            Err(error) => {
+                #[cfg(feature = "trace")]
+                crate::trace::debug!(%error, pid, "census: no group; the process is judged by name");
+                #[cfg(not(feature = "trace"))]
+                drop(error);
+                return None;
+            }
+        };
+        is_lifeline(group).then_some(group)
+    }
+
     fn kill(&mut self, pid: i32) -> io::Result<()> {
         super::kill_process(pid)
+    }
+
+    fn kill_group(&mut self, group: i32) -> io::Result<()> {
+        super::kill_process_group(group)
     }
 
     fn reap_any(&mut self) -> io::Result<Option<i32>> {

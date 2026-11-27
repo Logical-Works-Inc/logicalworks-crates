@@ -58,6 +58,8 @@ mod ai_authoring;
 /// Every cfg arm held to the lint floor, including those this host never builds.
 mod cfg_arm_silencers;
 mod check_cli;
+/// A red main never turns the cache pruner off.
+mod ci_cache_budget;
 /// The `Classify the change` step of ci.yml, run under bash with a fake `gh`.
 #[cfg(unix)]
 mod ci_changes;
@@ -98,6 +100,7 @@ mod metadata_dimensions;
 mod metadata_public_api;
 mod origin_binding;
 mod prop_parsers;
+mod prove_lane;
 mod sdk_surface;
 /// The ADR index held to the record directory under seeded faults.
 mod sim_adr_index;

@@ -8,7 +8,8 @@
 //! which must fail the test by name rather than read as clean; the monkey, a
 //! fork bomb that adopts a fresh child at every listing, which must end at the
 //! round cap; and a model that refuses to block, which catches a reap that
-//! waits on a child nobody killed.
+//! waits on a child nobody killed; and a lifeline mid-release, whose group
+//! (its `rm`, its release programs) is stopped as one and never named.
 
 use crate::process::orphans::{Host, MAX_ROUNDS, Orphans, sweep};
 use crate::seeded::Seeded;
@@ -31,6 +32,10 @@ struct Proc {
     parent: i32,
     /// Alive, or ended and not yet reaped.
     alive: bool,
+    /// Its process group: its own pid, or its forker's at the fork.
+    group: i32,
+    /// Whether it is a lifeline, the leader of its own group.
+    lifeline: bool,
 }
 
 /// A process tree under the wrapper.
@@ -75,10 +80,21 @@ impl World {
                 _ => chosen,
             };
             let alive = below(&mut draw, 4)? != 0;
-            let _replaced = procs.insert(pid, Proc { parent, alive });
+            let lifeline = below(&mut draw, 4)? == 0;
+            let group = match procs.get(&chosen) {
+                Some(forker) if !lifeline => forker.group,
+                _ => pid,
+            };
+            let proc = Proc {
+                parent,
+                alive,
+                group,
+                lifeline,
+            };
+            let _replaced = procs.insert(pid, proc);
             pids.push(pid);
         }
-        let live: Vec<i32> = alive_set(&procs).into_iter().collect();
+        let live: Vec<i32> = owed_set(&procs).into_iter().collect();
         let refuses = if below(&mut draw, 8)? == 0 && !live.is_empty() {
             Some(pick(&mut draw, &live)?)
         } else {
@@ -93,13 +109,35 @@ impl World {
     }
 }
 
-/// The pids alive in `procs`.
-fn alive_set(procs: &BTreeMap<i32, Proc>) -> BTreeSet<i32> {
+/// The group a live lifeline leads, when `proc` is in one.
+fn lifeline_group_of(procs: &BTreeMap<i32, Proc>, proc: &Proc) -> Option<i32> {
+    procs
+        .get(&proc.group)
+        .filter(|leader| leader.alive && leader.lifeline)
+        .map(|_| proc.group)
+}
+
+/// The pids a census owes a name: alive, and no live lifeline's release work.
+fn owed_set(procs: &BTreeMap<i32, Proc>) -> BTreeSet<i32> {
     procs
         .iter()
-        .filter(|&(_, proc)| proc.alive)
+        .filter(|&(_, proc)| proc.alive && lifeline_group_of(procs, proc).is_none())
         .map(|(pid, _)| *pid)
         .collect()
+}
+
+impl World {
+    /// End `pid`: its children, live or ended, go to the subreaper.
+    fn end(&mut self, pid: i32) {
+        if let Some(proc) = self.procs.get_mut(&pid) {
+            proc.alive = false;
+        }
+        for proc in self.procs.values_mut() {
+            if proc.parent == pid {
+                proc.parent = WRAPPER;
+            }
+        }
+    }
 }
 
 impl Host for World {
@@ -110,6 +148,8 @@ impl Host for World {
             let fresh = Proc {
                 parent: WRAPPER,
                 alive: true,
+                group: pid,
+                lifeline: false,
             };
             let _replaced = self.procs.insert(pid, fresh);
         }
@@ -134,14 +174,24 @@ impl Host for World {
             crate::trace::debug!(pid, "the model refuses this kill, as its saboteur");
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
         }
-        if let Some(proc) = self.procs.get_mut(&pid) {
-            proc.alive = false;
-        }
-        // The dead parent's children, live or ended, go to the subreaper.
-        for proc in self.procs.values_mut() {
-            if proc.parent == pid {
-                proc.parent = WRAPPER;
-            }
+        self.end(pid);
+        Ok(())
+    }
+
+    fn lifeline_group(&mut self, pid: i32) -> Option<i32> {
+        let proc = self.procs.get(&pid)?;
+        lifeline_group_of(&self.procs, proc)
+    }
+
+    fn kill_group(&mut self, group: i32) -> io::Result<()> {
+        let members: Vec<i32> = self
+            .procs
+            .iter()
+            .filter(|&(_, proc)| proc.group == group)
+            .map(|(pid, _)| *pid)
+            .collect();
+        for pid in members {
+            self.end(pid);
         }
         Ok(())
     }
@@ -170,7 +220,7 @@ impl Host for World {
 /// One seed's sweep, checked against what the drawn tree owed.
 fn judge(seed: u64) -> io::Result<Orphans> {
     let mut world = World::draw(seed)?;
-    let owed = alive_set(&world.procs);
+    let owed = owed_set(&world.procs);
     let (refuses, bomb) = (world.refuses, world.bomb);
     let found = sweep(&mut world);
     let named: Vec<i32> = found
@@ -234,6 +284,8 @@ fn a_census_verdict_counts_and_names_each_survivor() {
                 Proc {
                     parent: WRAPPER,
                     alive: true,
+                    group: 7,
+                    lifeline: false,
                 },
             ),
             (
@@ -241,6 +293,27 @@ fn a_census_verdict_counts_and_names_each_survivor() {
                 Proc {
                     parent: 7,
                     alive: true,
+                    group: 7,
+                    lifeline: false,
+                },
+            ),
+            // A lifeline mid-release, and the `rm` it runs: stopped, unnamed.
+            (
+                9,
+                Proc {
+                    parent: WRAPPER,
+                    alive: true,
+                    group: 9,
+                    lifeline: true,
+                },
+            ),
+            (
+                10,
+                Proc {
+                    parent: 9,
+                    alive: true,
+                    group: 9,
+                    lifeline: false,
                 },
             ),
         ]),
