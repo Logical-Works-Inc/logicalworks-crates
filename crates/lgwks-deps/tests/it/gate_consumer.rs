@@ -240,21 +240,28 @@ fn assert_leg(document: &str, name: &str, verdict: &str, case: &str) -> TestResu
     Err(format!("{case}: expected {needle} in the gate document:\n{document}").into())
 }
 
+/// Plants `text` at `path`, runs the gate over the whole scratch root and
+/// returns its document, refusing any exit but 1: the `case` must fail the
+/// gate, not err it and not pass it.
+fn refused_gate(scratch: &Scratch, path: &str, text: &str, case: &str) -> HelperResult<String> {
+    scratch.plant(path, text)?;
+    let (code, document) = scratch.gate("", &[])?;
+    if code != 1 {
+        return fail(format!(
+            "{case} must fail the gate (exit 1), got {code}:\n{document}"
+        ));
+    }
+    Ok(document)
+}
+
 #[test]
 /// An unregistered edge fails the admission leg, and the gate with it.
 fn sim_an_unregistered_edge_fails_the_gate() -> TestResult {
     let scratch = Scratch::make("itoa = \"1\"\n")?;
     // The crate names the edge, so the nightly's unused_dependencies lint stays
     // quiet and the clippy leg judges code, not the manifest (ADR 0066).
-    scratch.plant(
-        "src/lib.rs",
-        "use itoa as _;\n\npub fn f() -> u32 {\n    1\n}\n",
-    )?;
-    let (code, document) = scratch.gate("", &[])?;
-    assert_eq!(
-        code, 1,
-        "an unregistered edge must fail the gate:\n{document}"
-    );
+    let source = "use itoa as _;\n\npub fn f() -> u32 {\n    1\n}\n";
+    let document = refused_gate(&scratch, "src/lib.rs", source, "an unregistered edge")?;
     assert_leg(&document, "admission", "fail", "an unregistered edge")?;
     assert_leg(&document, "script-check", "pass", "an unregistered edge")?;
     assert_leg(&document, "clippy", "pass", "an unregistered edge")?;
@@ -267,9 +274,7 @@ fn sim_a_refused_flow_fails_the_gate() -> TestResult {
     let scratch = Scratch::make("")?;
     // Outside `src/`, so the clippy leg never sees it: the file is a
     // refusal, not a program, and no build reads it.
-    scratch.plant("flows/bad.rs", REFUSED)?;
-    let (code, document) = scratch.gate("", &[])?;
-    assert_eq!(code, 1, "a refused flow must fail the gate:\n{document}");
+    let document = refused_gate(&scratch, "flows/bad.rs", REFUSED, "a refused flow")?;
     assert_leg(&document, "script-check", "fail", "a refused flow")?;
     assert_leg(&document, "admission", "pass", "a refused flow")?;
     assert_leg(&document, "clippy", "pass", "a refused flow")?;
@@ -334,7 +339,32 @@ fn sim_a_clean_consumer_passes_the_gate() -> TestResult {
     assert_eq!(code, 0, "a clean consumer must pass the gate:\n{document}");
     assert_leg(&document, "admission", "pass", "a clean consumer")?;
     assert_leg(&document, "script-check", "pass", "a clean consumer")?;
+    assert_leg(&document, "raw-process", "pass", "a clean consumer")?;
     assert_leg(&document, "clippy", "pass", "a clean consumer")?;
     assert_leg(&document, "arch-diff", "skip", "a clean consumer")?;
+    Ok(())
+}
+
+#[test]
+/// A test that starts its server with a raw `Command` fails the raw-process
+/// leg, and the gate with it (#1160: the tests of two consumers started
+/// `logical_ci serve` and `larry acp` this way, and a SIGKILL left them alive).
+/// The finding names the file, the line and the `Supervisor` to use instead.
+fn sim_a_raw_process_in_test_code_fails_the_gate() -> TestResult {
+    let scratch = Scratch::make("")?;
+    let serve = concat!(
+        "#[test]\n",
+        "fn serves() {\n",
+        "    let _server = std::process::Command::new(\"sleep\").arg(\"5\").spawn();\n",
+        "}\n",
+    );
+    let document = refused_gate(&scratch, "tests/serve.rs", serve, "a raw process in a test")?;
+    assert_leg(&document, "raw-process", "fail", "a raw process in a test")?;
+    assert_leg(&document, "admission", "pass", "a raw process in a test")?;
+    assert_leg(&document, "script-check", "pass", "a raw process in a test")?;
+    assert!(
+        document.contains("serve.rs") && document.contains("Supervisor"),
+        "the leg must name the file and the owner to use:\n{document}"
+    );
     Ok(())
 }

@@ -3,7 +3,8 @@
 //!
 //! The checks exist as separate pieces a consumer would otherwise have to
 //! assemble: `check` for the dependency register, `lgwks-ast script check`
-//! for the refusals without compiling, `cargo clippy` for the `forbid` lints
+//! for the refusals without compiling, `lgwks-ast scan --rule raw-process` for
+//! a process started outside the `Supervisor` (#1160), `cargo clippy` for the `forbid` lints
 //! the generated flows carry, and `lgwks-ast script diff` for the
 //! architecture change against the base. This command runs them in that
 //! order, prints one summary and exits once: 0 every applicable leg passed, 1
@@ -11,7 +12,7 @@
 //! for an agent instead of the human transcript.
 //!
 //! A leg that cannot run is `skipped`, named with its reason, and never
-//! counted as passed: no `lgwks-ast` on `PATH` skips the two script legs
+//! counted as passed: no `lgwks-ast` on `PATH` skips the three tool legs
 //! (install `lgwks_ast` to run them), and no base revision skips the
 //! architecture diff. Skips are visible in both renderings, so a green gate
 //! with a skipped leg reads as what it is.
@@ -303,9 +304,11 @@ fn ast_missing(script: Script<'_>, name: &'static str) -> Option<Leg> {
     })
 }
 
-/// The script-check leg: what the language refuses, read without compiling.
-fn leg_script_check(script: Script<'_>) -> Leg {
-    if let Some(skip) = ast_missing(script, "script-check") {
+/// A leg named `name` that runs `lgwks-ast` with `verb` over the consumer
+/// root: status 0 passes, `refused` (the tool's own refusal contract) fails,
+/// and any other status is the leg failing to run, never a pass.
+fn tool_leg(script: Script<'_>, name: &'static str, verb: &[&str], refused: i32) -> Leg {
+    if let Some(skip) = ast_missing(script, name) {
         return skip;
     }
     let Script {
@@ -314,21 +317,32 @@ fn leg_script_check(script: Script<'_>) -> Leg {
         root,
         ast,
     } = script;
-    let argv = vec![
-        ast.to_owned(),
-        "script".to_owned(),
-        "check".to_owned(),
-        root.to_string_lossy().into_owned(),
-    ];
+    let mut argv = vec![ast.to_owned()];
+    argv.extend(verb.iter().map(|word| (*word).to_owned()));
+    argv.push(root.to_string_lossy().into_owned());
     let ran = capture(children, env, root, &argv, SCRIPT_BOUND);
     let verdict = match ran.code {
         0 => Verdict::Pass,
-        2 => Verdict::Fail,
+        code if code == refused => Verdict::Fail,
         _ => Verdict::Error,
     };
-    // Exit 2 is the tool's own refusal contract (a script is refused, or a
-    // file could not be read); anything else is the leg failing to run.
-    Leg::captured("script-check", verdict, &ran)
+    Leg::captured(name, verdict, &ran)
+}
+
+/// The script-check leg: what the language refuses, read without compiling.
+/// Exit 2 is the tool's refusal (a script is refused, or a file could not be
+/// read).
+fn leg_script_check(script: Script<'_>) -> Leg {
+    tool_leg(script, "script-check", &["script", "check"], 2)
+}
+
+/// The raw-process leg: no process `Command` built by hand anywhere in the
+/// consumer, test code included (#1160 G3). The tests of two consumers started
+/// their servers that way, and a SIGKILL left them holding a 24 GB Mac for
+/// hours; a `ProcessSpec` handed to the `lgwks_bot` `Supervisor` is the owner.
+/// Exit 1 is the scan's finding; 2 is a file it could not read.
+fn leg_raw_process(script: Script<'_>) -> Leg {
+    tool_leg(script, "raw-process", &["scan", "--rule", "raw-process"], 1)
 }
 
 /// The clippy leg: the `forbid` lints the generated flows carry only bite
@@ -693,6 +707,7 @@ fn run_legs(root: &Path, ast: &str, base: &str) -> Vec<Leg> {
         leg_requirements(root),
         leg_spec_owners(root),
         leg_script_check(script),
+        leg_raw_process(script),
         leg_clippy(&children, &env, root),
         leg_arch_diff(script, base),
     ];
