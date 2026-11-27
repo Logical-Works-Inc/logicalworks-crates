@@ -19,10 +19,9 @@ Every architecture decision in this repository is a record here, and the record 
 
 ## Rules
 
-1. Numbered, append-only: `NNNN-short-name.md`, four digits, one decision each.
-2. **A record is superseded, never rewritten.** The later record names it in its `## Correspondence`, and only the old record's `Status:` changes.
-3. The `doc-governance` lane refuses a missing *field*, not a missing judgement; review owns whether it was right.
-4. The measurements a record cites are commands and their output. An estimate is labelled one and is replaced by a measurement before the claim stands.
+1. Numbered, append-only: `NNNN-short-name.md`, four digits, one decision each. **A record is superseded, never rewritten.** The later record names it in its `## Correspondence`, and only the old record's `Status:` changes.
+2. The `doc-governance` lane refuses a missing *field*, not a missing judgement; review owns whether it was right.
+3. The measurements a record cites are commands and their output. An estimate is labelled one and is replaced by a measurement before the claim stands.
 
 ## Index
 
@@ -116,5 +115,6 @@ Every architecture decision in this repository is a record here, and the record 
 | [0086](0086-one-compile-cache-and-two-ci-speeds.md) | One compile cache, and two CI speeds |
 | [0087](0087-a-lifeline-releases-what-a-dead-owner-held.md) | A lifeline releases what a dead owner held |
 | [0088](0088-every-ci-fetch-has-a-deadline.md) | Every CI fetch has a deadline |
+| [0089](0089-a-consumer-starts-a-process-only-through-the-supervisor.md) | A consumer starts a process only through the Supervisor |
 | [0090](0090-a-lease-ledger-releases-what-a-dead-owner-and-its-lifeline-held.md) | A lease ledger releases what a dead owner and its lifeline held |
 | [0091](0091-a-meta-prover-holds-every-resource-kind-to-three-proofs.md) | A meta prover holds every resource kind to three proofs |

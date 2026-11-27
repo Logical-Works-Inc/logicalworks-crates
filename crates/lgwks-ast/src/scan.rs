@@ -16,9 +16,10 @@
 //! [`scan_source_with`] runs a selection of [`Rule`]s and [`scan_source`] runs
 //! [`Rule::ALL`], so a consumer that gates one class of defect selects it by
 //! name and pays for one parse (#699). [`Rule::OPT_IN`] holds the detectors a
-//! whole scan leaves out and a caller names: today missing-example, the public
-//! item whose doc shows no call to copy, which the gate holds to the lines a
-//! change adds (ADR 0012).
+//! whole scan leaves out and a caller names: missing-example, the public item
+//! whose doc shows no call to copy, which the gate holds to the lines a change
+//! adds (ADR 0012); and raw-process, a process `Command` built by hand where the
+//! `Supervisor` belongs (#1160).
 //!
 //! # Examples
 //!
@@ -62,6 +63,7 @@ mod chain;
 mod doc;
 mod example;
 mod manifest;
+mod raw_process;
 mod swallow;
 mod syntax;
 mod unlogged;
@@ -262,6 +264,11 @@ pub enum Rule {
     /// `missing-example`: a public library item whose doc opens no code
     /// block. Opt-in ([`Rule::OPT_IN`]): a whole scan leaves it out.
     MissingExample,
+    /// `raw-process`: a `std` or `tokio` process `Command` built by hand, in
+    /// test code too, where a `ProcessSpec` for the `lgwks_bot` `Supervisor`
+    /// belongs (#1160). Opt-in: the crates that own process starts pass the
+    /// zero gate, and a consumer's gate selects it.
+    RawProcess,
 }
 
 impl Rule {
@@ -299,7 +306,7 @@ impl Rule {
     /// assert!(scan_source_with(documented, "lib.rs", &Rule::OPT_IN)?.is_empty());
     /// # Ok::<(), lgwks_ast::scan::ScanError>(())
     /// ```
-    pub const OPT_IN: [Self; 1] = [Self::MissingExample];
+    pub const OPT_IN: [Self; 2] = [Self::MissingExample, Self::RawProcess];
 
     /// The rule name a finding of this detector carries, verbatim.
     ///
@@ -320,6 +327,7 @@ impl Rule {
             Self::LongTryChain => "long-try-chain",
             Self::TautologicalDoc => "tautological-doc",
             Self::MissingExample => "missing-example",
+            Self::RawProcess => "raw-process",
         }
     }
 
@@ -410,6 +418,7 @@ pub fn scan_source_with(source: &str, path: &str, rules: &[Rule]) -> Result<Vec<
             Rule::LongTryChain => chain::detect(source, root, &mut hits),
             Rule::TautologicalDoc => doc::detect(source, root, &mut hits),
             Rule::MissingExample => example::detect(source, path, root, &mut hits),
+            Rule::RawProcess => raw_process::detect(source, root, &mut hits),
         }
     }
     hits.sort_by(|left, right| (left.line, left.rule).cmp(&(right.line, right.rule)));

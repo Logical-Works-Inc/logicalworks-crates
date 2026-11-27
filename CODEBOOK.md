@@ -80,7 +80,7 @@ The estate identity type, replacing the `uuid` crate for stored identities (ADR 
 
 | Module | Owns | Invariant |
 |---|---|---|
-| `scan` | `Rule`, `Rule::ALL` (the whole scan) and `Rule::OPT_IN`, `scan_source_with`; `lgwks-ast scan --base REV` keeps findings on added lines | INV-SCAN-ZERO |
+| `scan` | `Rule`, `Rule::ALL` (the whole scan) and `Rule::OPT_IN`, `scan_source_with`; `lgwks-ast scan --base REV` keeps findings on added lines; `scan::raw_process`, the opt-in `raw-process` rule (a `std` or `tokio` process `Command::new` by path, import or alias, tests and macro arguments included), which `lgwks-deps gate` runs as a leg | INV-SCAN-ZERO, INV-SCAN-RAW-PROCESS-1 |
 | `scan::example` | the opt-in `missing-example` rule: a `pub` library item whose doc opens no fenced block | INV-DOC-6 |
 | `hunks` | `added_since`: the lines a change adds per file, the one `git diff --unified=0` reader | INV-DOC-6, INV-DOC-5 |
 

@@ -14,7 +14,7 @@ fn field(text: &str) -> String {
         match ch {
             '"' => quoted.push_str("\\\""),
             '\\' => quoted.push_str("\\\\"),
-            '\n' => quoted.push(' '),
+            '\n' => quoted.push_str("\\n"),
             control if u32::from(control) < 0x20 => {
                 let escape = format!("\\u{:04x}", u32::from(control));
                 quoted.push_str(&escape);
@@ -26,13 +26,20 @@ fn field(text: &str) -> String {
     quoted
 }
 
-/// The machine rendering: one document, one leg per row.
+/// The machine rendering: one document, one leg per row. A leg that did not
+/// pass carries its transcript, as the human rendering prints it, so an agent
+/// reads the same facts: which file and line a leg refused (INV-LGWKS-JSON-1).
 pub(super) fn render_json(root: &Path, base: &str, legs: &[Leg]) -> String {
     let rows: Vec<String> = legs
         .iter()
         .map(|leg| {
+            let transcript = if leg.verdict == Verdict::Pass {
+                String::new()
+            } else {
+                format!(",\"transcript\":{}", field(&leg.transcript))
+            };
             format!(
-                "{{\"name\":{},\"verdict\":{},\"detail\":{}}}",
+                "{{\"name\":{},\"verdict\":{},\"detail\":{}{transcript}}}",
                 field(leg.name),
                 field(leg.verdict.word()),
                 field(&leg.detail),
