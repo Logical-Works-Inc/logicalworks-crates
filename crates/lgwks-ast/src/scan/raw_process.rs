@@ -4,16 +4,18 @@
 //! A raw `Command` starts a child nothing owns once the caller stops running:
 //! a SIGKILL of the caller leaves the child and its group alive. The tests of
 //! two consumer repositories started their servers this way, and the children
-//! held a 24 GB Mac for hours. The owner is a `ProcessSpec` handed to the
-//! `lgwks_bot` `Supervisor`, which holds the group on the lifeline; a disk a
-//! tool attaches is held with the lifeline's `hold_device` too.
+//! held a 24 GB Mac for hours. The owners are `lgwks_std::process::Command`,
+//! whose start holds the group on the lifeline (ADR 0092), and a `ProcessSpec`
+//! handed to the `lgwks_bot` `Supervisor`; a disk a tool attaches is held with
+//! the lifeline's `hold_device` too.
 //!
 //! A call is raw when it is `new` on a path that ends `process::Command`
 //! (`std::process::Command::new`, `tokio::process::Command::new`), or on the
 //! bare name or alias a `use` of such a path bound in this file. A path that
-//! starts `crate`, `self` or `super` names the file's own module and is not
-//! raw. Calls written in a macro's arguments are read from its tokens. Test code
-//! is not exempt: the leak this rule exists for came from tests.
+//! starts `crate`, `self` or `super` names the file's own module, and one that
+//! starts `lgwks_std` names the owner; neither is raw. Calls written in a
+//! macro's arguments are read from its tokens. Test code is not exempt: the
+//! leak this rule exists for came from tests.
 
 use tree_sitter::Node;
 
@@ -43,14 +45,18 @@ struct Names {
     aliases: Vec<String>,
 }
 
-/// Whether `segments` name a process `Command` by path: they end
-/// `process::Command` and do not start in this crate.
+/// The crate whose `process::Command` is the owner every finding names: its
+/// start holds the child's group on the lifeline (#1164, ADR 0092).
+const OWNER_CRATE: &str = "lgwks_std";
+
+/// Whether `segments` name a raw process `Command` by path: they end
+/// `process::Command`, and start neither in this crate nor in the owner's.
 fn is_process_command(segments: &[String]) -> bool {
     let ends =
         matches!(*segments, [.., ref before, ref last] if before == "process" && last == "Command");
     let local = segments
         .first()
-        .is_some_and(|first| matches!(first.as_str(), "crate" | "self" | "super"));
+        .is_some_and(|first| matches!(first.as_str(), "crate" | "self" | "super" | OWNER_CRATE));
     ends && !local
 }
 
@@ -148,8 +154,9 @@ fn finding(line: usize, spelled: &str, program: Option<&str>) -> Hit {
         line,
         format!(
             "`{spelled}` starts a process nothing owns once this code stops running, so a SIGKILL \
-             leaves it alive (#1160); hand a `ProcessSpec` to the `lgwks_bot` `Supervisor`, which \
-             holds its group on the lifeline and owns its deadline and temp dir{device}"
+             leaves it alive (#1160); build it with `lgwks_std::process::Command`, whose start \
+             holds its group on the lifeline and kills it at every end, or hand a `ProcessSpec` \
+             to the `lgwks_bot` `Supervisor` for a deadline and a temp dir{device}"
         ),
     )
 }

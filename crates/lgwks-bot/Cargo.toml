@@ -388,7 +388,9 @@ required-features = ["rt", "time", "sync", "process"]
 [[bin]]
 name = "edge-load"
 path = "src/bin/edge_load.rs"
-required-features = ["edge", "ephemeral"]
+# `process`: the rig starts its servers through the owned
+# `lgwks_std::process::Command` (ADR 0092).
+required-features = ["edge", "ephemeral", "process"]
 
 [[bin]]
 name = "estate"

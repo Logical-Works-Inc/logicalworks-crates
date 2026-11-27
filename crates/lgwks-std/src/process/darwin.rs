@@ -59,6 +59,8 @@ const KERN_PROC: c_int = 14;
 const KERN_PROC_ALL: c_int = 0;
 /// `KERN_PROC_PID`: one process, by pid.
 const KERN_PROC_PID: c_int = 1;
+/// `KERN_PROC_PGRP` in `<sys/sysctl.h>`: the processes of one group.
+const KERN_PROC_PGRP: c_int = 2;
 /// `ENOMEM`: the table grew between the size query and the fill.
 const ENOMEM: i32 = 12;
 
@@ -118,6 +120,17 @@ unsafe extern "C" {
 /// [`MAX_ATTEMPTS`] reads.
 pub(super) fn table() -> io::Result<Vec<KinfoRow>> {
     let mut name = [CTL_KERN, KERN_PROC, KERN_PROC_ALL];
+    decode(&read_bytes(sysctl, io::Error::last_os_error, &mut name)?)
+}
+
+/// Every process in group `pgid`, zombies included, in one syscall
+/// (`KERN_PROC_PGRP`).
+///
+/// # Errors
+///
+/// As [`table`].
+pub(super) fn group(pgid: i32) -> io::Result<Vec<KinfoRow>> {
+    let mut name = [CTL_KERN, KERN_PROC, KERN_PROC_PGRP, pgid];
     decode(&read_bytes(sysctl, io::Error::last_os_error, &mut name)?)
 }
 
