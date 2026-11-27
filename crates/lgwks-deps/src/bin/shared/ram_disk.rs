@@ -51,6 +51,58 @@ pub(super) fn run_quietly(program: &str, args: &[&str]) {
     }
 }
 
+/// Turns fseventsd and Spotlight off for `volume`. fseventsd logs every write
+/// on every mounted volume and keeps what it logs in memory until it flushes;
+/// the gate's per-run RAM disks took it to 3.9 GB RSS on the gate Mac
+/// (2026-11-27, #1160). Apple's FSEvents Programming Guide, "Preventing File
+/// System Event Storage": an empty `.fseventsd/no_log` at the volume root
+/// stops it. fseventsd reads the file when the volume mounts, so the volume
+/// is mounted again after the file is written: without that it logged 20,000
+/// writes all the same (`no_log_volume_logs_no_event_after_a_write_burst`).
+fn quiet_events(volume: &Path) -> std::io::Result<()> {
+    let events = volume.join(".fseventsd");
+    std::fs::create_dir_all(&events)?;
+    std::fs::File::create(events.join("no_log"))?;
+    std::fs::File::create(volume.join(".metadata_never_index"))?;
+    remount(volume)
+}
+
+/// Unmounts `volume` and mounts its device again at the same place.
+pub(super) fn remount(volume: &Path) -> std::io::Result<()> {
+    let shown = volume.display().to_string();
+    let info = Command::new("diskutil")
+        .args(["info", &shown])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()?;
+    let text = String::from_utf8_lossy(&info.stdout).into_owned();
+    let Some(id) = text
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Device Identifier:"))
+        .map(str::trim)
+    else {
+        lgwks_std::trace::debug!(volume = shown, "diskutil named no device for a volume");
+        return Err(std::io::Error::other(format!(
+            "diskutil named no device for {shown}"
+        )));
+    };
+    for args in [["unmount", shown.as_str()], ["mount", id]] {
+        let status = Command::new("diskutil")
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?;
+        if !status.success() {
+            lgwks_std::trace::debug!(?status, ?args, "a ram disk remount step failed");
+            return Err(std::io::Error::other(format!(
+                "diskutil {args:?} failed: {status}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Attaches a RAM disk of `sectors` 512-byte sectors, formats it as APFS volume
 /// `name` and returns the mounted volume, the device to detach it by, and the
 /// device's hold on this process's lifeline.
@@ -94,10 +146,23 @@ pub(super) fn attach(name: &str, sectors: u64) -> std::io::Result<(PathBuf, Stri
         .status()?;
     let volume = Path::new("/Volumes").join(name);
     if erased.success() && volume.is_dir() {
-        return Ok((volume, device, hold));
+        match quiet_events(&volume) {
+            Ok(()) => return Ok((volume, device, hold)),
+            Err(error) => {
+                lgwks_std::trace::debug!(%error, device, "fseventsd could not be turned off for a ram disk, so it is let go");
+                let _released_after_detach = hold;
+                run_quietly("hdiutil", &["detach", &device, "-force"]);
+                return Err(error);
+            }
+        }
     }
-    run_quietly("hdiutil", &["detach", &device, "-force"]);
-    drop(hold);
+    {
+        // Let go once the device is detached. Bound, not passed to `drop`: off
+        // Unix a `Hold` has no destructor, and Windows clippy refuses `drop` of
+        // one (`drop_non_drop`, main run 45917420774).
+        let _released_after_detach = hold;
+        run_quietly("hdiutil", &["detach", &device, "-force"]);
+    }
     lgwks_std::trace::debug!(?erased, device, "a ram disk could not be formatted");
     Err(std::io::Error::other(format!(
         "diskutil could not format {device} as {name} ({erased})"

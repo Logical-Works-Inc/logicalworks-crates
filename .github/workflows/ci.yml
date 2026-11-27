@@ -696,7 +696,9 @@ jobs:
   # the run walled at 313 s (run 45086616792). Under the shared `workspace` key
   # another job's `dev` build owned the entry, so each run compiled 249 crates
   # again under the test profile (run 45056931513). `check-gate-parity` rule 11
-  # holds both.
+  # holds both. Opt-level 0 here built in 3 m 50 s cold against 4 m 03 s at 1
+  # (runs 45931933687, 45931108189), and moved the job off main's cache key:
+  # the cold build is the cost, so the job keeps main's key.
   doc_tests:
     name: Doc tests
     needs: changes

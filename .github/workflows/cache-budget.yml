@@ -4,7 +4,7 @@ name: cache-budget
 # current entries every main run evicted one a long job needed, and pull
 # requests compiled it cold (runs 43340940282, 43397802234). Main saves only
 # the builds that set the wall (`save-cache` in hosted-rust); this deletes
-# every entry the latest successful main runs did not touch, so a moved
+# every entry the latest completed main runs did not touch, so a moved
 # lockfile's old set never sits beside the new one, and it fails, naming the
 # largest entries, when the current set alone passes the budget.
 on:
@@ -40,15 +40,19 @@ jobs:
         run: |
           set -euo pipefail
           api="repos/${GITHUB_REPOSITORY}/actions"
-          # Each saving workflow's latest successful main run. An entry it
-          # restored or saved was touched at or after that run started.
+          # Each saving workflow's latest main run that ran its jobs, failed
+          # included: every job restores before it runs and rust-cache saves on
+          # failure, so an entry it restored or saved was touched at or after
+          # that run started. Read from successful runs alone, a red main froze
+          # the cutoff days back, nothing was pruned, the store passed 10 GiB
+          # and GitHub evicted the doc-tests build (run 45918166278, #1165).
           cutoff=""
           shas=""
           for workflow in ${SAVING_WORKFLOWS}; do
-            run="$(gh api "${api}/workflows/${workflow}/runs?branch=main&event=push&status=success&per_page=1" \
-              --jq '.workflow_runs[0] | select(. != null) | "\(.run_started_at) \(.head_sha)"')"
+            run="$(gh api "${api}/workflows/${workflow}/runs?branch=main&event=push&status=completed&per_page=20" \
+              --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0] | select(. != null) | "\(.run_started_at) \(.head_sha)"')"
             if [ -z "${run}" ]; then
-              echo "::notice::${workflow} has no successful main run, so no entry is pruned by use"
+              echo "::notice::${workflow} has no main run that ran its jobs, so no entry is pruned by use"
               cutoff=""
               shas="unknown ${shas}"
               break

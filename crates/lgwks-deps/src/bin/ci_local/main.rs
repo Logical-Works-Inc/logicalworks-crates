@@ -52,6 +52,7 @@ mod invariants;
 mod lanes;
 mod modules;
 mod process;
+mod prove;
 #[path = "../shared/ram_disk.rs"]
 mod ram_disk;
 mod readme_block;
