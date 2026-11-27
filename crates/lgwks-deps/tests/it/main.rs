@@ -98,6 +98,7 @@ mod metadata_dimensions;
 mod metadata_public_api;
 mod origin_binding;
 mod prop_parsers;
+mod prove_lane;
 mod sdk_surface;
 /// The ADR index held to the record directory under seeded faults.
 mod sim_adr_index;

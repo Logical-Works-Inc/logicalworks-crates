@@ -142,12 +142,18 @@ pub(super) struct Folded {
     pub(super) leases: BTreeMap<u64, Lease>,
 }
 
+/// A record's text up to its last newline, that newline left out; `None` when
+/// it has none. A last line with no newline is torn: an owner killed while it
+/// wrote the line.
+pub(super) fn whole_lines(text: &str) -> Option<&str> {
+    text.rfind('\n').and_then(|end| text.get(..end))
+}
+
 /// Fold a record's text. A last line with no newline is torn and ignored, and
 /// a line this module never writes is skipped, never guessed at.
 pub(super) fn fold(text: &str) -> Folded {
     let mut folded = Folded::default();
-    let whole = text.rfind('\n').and_then(|end| text.get(..end));
-    for line in whole.into_iter().flat_map(str::lines) {
+    for line in whole_lines(text).into_iter().flat_map(str::lines) {
         if let Some(boot) = line.strip_prefix("boot ") {
             folded.boot = Some(boot.to_owned());
             continue;
@@ -636,6 +642,14 @@ fn claim(path: PathBuf, live: &mut BTreeSet<String>) -> Option<Dead> {
     }
 }
 
+/// Whether a sweep detaches a dead owner's device held as image `held`: only
+/// on the boot it was held on, only when no live record holds it, and only
+/// while `now`, the image it is attached from today, is still `held`. A device
+/// number reused for a stranger's disk fails the last test.
+pub(super) fn owns_device(same_boot: bool, held_live: bool, held: &str, now: Option<&str>) -> bool {
+    same_boot && !held_live && now == Some(held)
+}
+
 /// Release what one dead record held: groups, then devices, then programs.
 fn release(
     folded: &Folded,
@@ -656,9 +670,12 @@ fn release(
             ref device,
             image: Some(ref image),
         } = *lease
-            && same_boot
-            && !live.contains(device)
-            && host.image(device).as_deref() == Some(image.as_str())
+            && owns_device(
+                same_boot,
+                live.contains(device),
+                image,
+                host.image(device).as_deref(),
+            )
         {
             host.detach(device);
             released = released.saturating_add(1);
@@ -696,3 +713,6 @@ pub(super) fn sweep(dir: &Path, boot: Option<&str>, host: &impl Host) -> Swept {
 
 #[cfg(test)]
 mod sim_ledger;
+
+#[cfg(kani)]
+mod proof;

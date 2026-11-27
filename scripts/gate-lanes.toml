@@ -161,6 +161,25 @@ builtin = "invariants"
 ci_step = "Verify invariant enforcement references resolve"
 
 [[lane]]
+id = "prove"
+surfaces = "local"
+# The meta prover (ADR 0091, #1164): every resource kind holds a closure lane,
+# a Kani model run by a required lane, and a census. It names each kind that
+# does not. It turns required, and runs in CI, when it names none.
+required = false
+builtin = "prove"
+
+[[lane]]
+id = "kani"
+surfaces = "local"
+# The Kani models the `prove` lane counts (ADR 0091). Kani 0.68.0
+# (`cargo install --locked kani-verifier --version 0.68.0`); the wrappers are
+# cleared because Kani drives rustc itself. 28.7 s wall, 3.0 GB peak RSS on the
+# M-series Mac (2026-11-27). It turns required, and runs in CI, with `prove`.
+required = false
+command = "env CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER= RUSTC_WRAPPER= cargo kani -p lgwks_std --no-default-features --features process --harness ledger_"
+
+[[lane]]
 id = "deps-register"
 group = "workspace"
 surfaces = "local ci"

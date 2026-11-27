@@ -360,6 +360,31 @@ fn module_prefix(root: &Path, path: &Path) -> Vec<String> {
     parts
 }
 
+/// Every function written under `#[kani::proof]` in the workspace's crates:
+/// the harnesses a Kani lane can verify. Other attributes between the proof
+/// mark and the `fn` (`#[kani::unwind(..)]`) are read past.
+pub(super) fn kani_harnesses(root: &Path) -> Result<BTreeSet<String>, GateError> {
+    let mut found = BTreeSet::new();
+    for path in rust_files_under(&root.join("crates"), &["target"])? {
+        let mut marked = false;
+        for line in read(&path)?.lines().map(str::trim_start) {
+            let compact: String = line.chars().filter(|ch| !ch.is_whitespace()).collect();
+            if compact == "#[kani::proof]" {
+                marked = true;
+                continue;
+            }
+            if !marked || is_attribute(line) || line.is_empty() || line.starts_with("//") {
+                continue;
+            }
+            if let Some(name) = function_item(line) {
+                found.insert(name);
+            }
+            marked = false;
+        }
+    }
+    Ok(found)
+}
+
 /// Maps every module path to the item names its own source defines.
 ///
 /// An earlier version built one flat set of every `mod` and `fn` name and
