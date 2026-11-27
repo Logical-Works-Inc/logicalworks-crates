@@ -115,7 +115,7 @@ jobs:
       bot: ${{ steps.route.outputs.bot }}
       bot_key: ${{ steps.classify.outputs.key }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # Blast-radius routing (ADR 0086). `bot` is false when no changed path is
       # one the lgwks_bot suites build from: a reader page; drishti, which
       # depends on lgwks_bot while lgwks_bot builds nothing of it; or a test,
@@ -215,7 +215,7 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -235,7 +235,7 @@ jobs:
         run: cargo test --workspace --all-targets --locked --no-run --profile ci-bot --timings
       - name: Upload the build timings
         if: ${{ always() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: cargo-timings-all-targets
           path: target/cargo-timings/cargo-timing.html
@@ -276,7 +276,7 @@ jobs:
       RUSTC_WORKSPACE_WRAPPER: ""
       SIMULATION_LISTINGS: nextest-listing/nextest-listing-workspace-Linux/listing.json nextest-listing/nextest-listing-bot-rest-Linux/listing.json nextest-listing/nextest-listing-bot-it-scale-Linux/listing.json nextest-listing/nextest-listing-bot-it-surface-Linux/listing.json nextest-listing/nextest-listing-bot-it-refusals-Linux/listing.json nextest-listing/nextest-listing-bot-it-g1-Linux/listing.json nextest-listing/nextest-listing-bot-it-g2-Linux/listing.json nextest-listing/nextest-listing-bot-it-g3-Linux/listing.json nextest-listing/nextest-listing-bot-it-g4-Linux/listing.json nextest-listing/nextest-listing-bot-it-g5-Linux/listing.json nextest-listing/nextest-listing-bot-it-g6-Linux/listing.json nextest-listing/nextest-listing-bot-it-g7-Linux/listing.json nextest-listing/nextest-listing-bot-it-g8-Linux/listing.json
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -345,7 +345,7 @@ jobs:
           key: ${{ needs.changes.outputs.bot_key }}
           path: nextest-listing/nextest-listing-bot-*-Linux
       - name: Upload simulation evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: gate-evidence-simulation
           path: gate-evidence/
@@ -473,7 +473,7 @@ jobs:
       # Lints run once, in the Clippy jobs; the compiled code is identical.
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         if: env.ROUTED == 'true'
       - name: Pin Rust nightly
         if: env.ROUTED == 'true'
@@ -505,7 +505,7 @@ jobs:
         run: mkdir -p /tmp/nextest-listing && cargo nextest list ${NEXTEST_BUILD} --message-format json --cargo-quiet > /tmp/nextest-listing/listing.json
       - name: Upload the suite listing
         if: env.ROUTED == 'true' && matrix.suite != 'saturation' && matrix.suite != 'apps' && (startsWith(matrix.partition, 'slice:1/') || matrix.partition == '')
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: nextest-listing-${{ matrix.archive }}-Linux
           path: /tmp/nextest-listing/listing.json
@@ -532,7 +532,7 @@ jobs:
         run: cargo nextest run ${NEXTEST_BUILD:--p lgwks_bot --locked --features full} --profile ci --ignore-default-filter ${SATURATION_BINARIES---test sim_review_path} -E "${SATURATION_FILTER:-binary(sim_review_path)}" ${PARTITION:+--partition $PARTITION}
       - name: Upload Linux lgwks-bot JUnit report
         if: env.ROUTED == 'true' && matrix.suite != 'workspace' && matrix.suite != 'apps'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: acceptance-junit-linux-${{ strategy.job-index }}
           path: target/nextest/ci/junit.xml
@@ -605,7 +605,7 @@ jobs:
       # macOS main thread has.
       RUST_MIN_STACK: "8388608"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -634,7 +634,7 @@ jobs:
       # review-path tests (T31-T34) are named in `docs/acceptance/t-rows.toml`.
       - name: Upload lgwks-bot JUnit report
         if: matrix.suite != 'workspace'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: lgwks-bot-junit-${{ matrix.suite }}-${{ strategy.job-index }}
           path: target/nextest/ci/junit.xml
@@ -655,7 +655,7 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -669,7 +669,7 @@ jobs:
           mkdir -p receipts-tool
           cp target/debug/acceptance-receipts target/debug/ci-receipt receipts-tool/
       - name: Upload the acceptance-receipts binary
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: receipts-tool
           path: receipts-tool/
@@ -681,7 +681,7 @@ jobs:
           mkdir -p gate-evidence
           cargo run --locked -p lgwks_deps --bin ci-local -- --lane debug-e2e | tee gate-evidence/debug-e2e.txt
       - name: Upload gate evidence
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: gate-evidence
           path: gate-evidence/
@@ -708,7 +708,7 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -732,7 +732,7 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # The package a consumer installs is built by stable, so the smoke proves
       # it on `[toolchain] release`, not the nightly (ADR 0066).
       - name: Pin Rust stable for the release
@@ -758,7 +758,7 @@ jobs:
       # Two commits deep, so `HEAD^1` is the base the docs check compares the
       # change with: a pull request's merge commit has the base tip as its first
       # parent, and a push to `main` the commit before it.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 2
       - name: Pin Rust nightly
@@ -835,7 +835,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # The prebuilt release, checksum-verified, rather than a `cargo install`
       # that compiles the audit's own dependency stack before it can run.
       - name: Install cargo-audit
@@ -891,7 +891,7 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -931,7 +931,7 @@ jobs:
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -964,7 +964,7 @@ jobs:
         # crates in one leg were cancelled at 296 s (run for 417e9ea93).
         part: [workspace, features, features-bot, scan, reduced-bot, reduced, process]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         with:
           # The example rule reads the change against HEAD^1.
           fetch-depth: 2
@@ -1063,7 +1063,7 @@ jobs:
       matrix:
         lane: [all-features, no-default-features, default]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       # docs.rs and `cargo doc` downstream run stable rustdoc, so the release
       # gates build on `[toolchain] release` (ADR 0066).
       - name: Pin Rust stable for the release
@@ -1119,7 +1119,7 @@ jobs:
           - { part: consumers-5, os: ubuntu-24.04-arm, cache: storefront, partition: "slice:5/6" }
           - { part: consumers-6, os: ubuntu-24.04-arm, cache: storefront, partition: "slice:6/6" }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1186,7 +1186,7 @@ jobs:
           - aarch64-linux-android
           - aarch64-apple-ios
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1222,7 +1222,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1250,7 +1250,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1282,7 +1282,7 @@ jobs:
           - part: lgwks-ast
           - part: lgwks-bot WASI
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1369,7 +1369,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1394,7 +1394,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-24.04-arm]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1419,7 +1419,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1454,7 +1454,7 @@ jobs:
       # CARGO_HOME on D:, where the workspace already is (run 39108008198).
       CARGO_HOME: D:\cargo-home
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Pin Rust nightly
         uses: ./.github/actions/hosted-rust
         with:
@@ -1468,7 +1468,7 @@ jobs:
         run: cargo nextest run --locked -p lgwks_bot --no-default-features --features 'process,script,ephemeral' --test process_job --test it --cargo-profile dev --profile ci --no-fail-fast -E 'binary(process_job) | test(/_t[0-9]{2}$/)'
       - name: Upload the Windows JUnit report
         if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: acceptance-junit-windows
           path: target/nextest/ci/junit.xml
@@ -1592,12 +1592,12 @@ jobs:
           fi
       - name: Upload the failure receipt
         if: failure() && needs.changes.outputs.code != 'false'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ci-failure-receipt
           path: ci-receipt/
           retention-days: 7
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
         if: needs.changes.outputs.code != 'false'
       - name: Install sqlite3, the program the receipts are recorded through
         if: needs.changes.outputs.code != 'false'
@@ -1643,7 +1643,7 @@ jobs:
           fi
       - name: Upload acceptance receipt
         if: needs.changes.outputs.code != 'false'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: acceptance-receipts
           path: acceptance-artifact/
@@ -1676,7 +1676,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7.0.1
       - name: Prove the process unsafe seams under Miri
         run: |
           rustup toolchain install nightly-2026-10-01 --profile minimal --component miri --component rust-src && \
