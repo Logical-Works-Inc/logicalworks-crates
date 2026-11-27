@@ -63,6 +63,8 @@ mod check_cli;
 mod ci_changes;
 /// Every compiling CI job runs rustc through kache and its one shared store.
 mod ci_compile_cache;
+/// The doc-test job builds at opt-level 0 under its own cache key.
+mod ci_doc_tests;
 /// The shipped `ci-receipt` binary, driven on real failed-job logs.
 mod ci_receipt_cli;
 /// The pull-request and merge-queue speeds of ci.yml, and the verdict between them.

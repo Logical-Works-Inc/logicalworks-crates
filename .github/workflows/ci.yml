@@ -696,7 +696,9 @@ jobs:
   # the run walled at 313 s (run 45086616792). Under the shared `workspace` key
   # another job's `dev` build owned the entry, so each run compiled 249 crates
   # again under the test profile (run 45056931513). `check-gate-parity` rule 11
-  # holds both.
+  # holds both. Opt-level 0: cold, the job set the wall at 276 of 309 s (run
+  # 45931108189), 258 s of it compiling at opt-level 1 for doc tests that ran
+  # in 14 s. Set in the job's env, so rust-cache's key carries it (#272).
   doc_tests:
     name: Doc tests
     needs: changes
@@ -705,6 +707,7 @@ jobs:
     timeout-minutes: ${{ github.event_name == 'push' && 15 || 5 }}
     env:
       RUSTC_WORKSPACE_WRAPPER: ""
+      CARGO_PROFILE_TEST_OPT_LEVEL: "0"
     steps:
       - uses: actions/checkout@v7
       - name: Pin Rust nightly
