@@ -58,6 +58,10 @@ mod ram_disk;
 #[path = "churn_slot/residue.rs"]
 mod residue;
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "churn_slot/shared_volume.rs"]
+mod shared_volume;
+
 #[path = "../redirecting_env.rs"]
 mod redirecting_env;
 
@@ -460,6 +464,8 @@ fn ensure_temp(
 #[cfg(target_os = "macos")]
 fn shared_temp(dir: &Path) -> Result<PathBuf, SlotError> {
     let root = Path::new("/Volumes").join(SHARED_VOLUME);
+    // The hold covers the attach only: the shared volume outlives this
+    // wrapper by design (ADR 0026), so it is let go once the volume is made.
     ensure_temp(&root, &dir.join("volume.lock"), || {
         ram_disk::attach(SHARED_VOLUME, SHARED_SECTORS).map(drop)
     })
@@ -652,6 +658,10 @@ fn main() -> ExitCode {
     };
     let rest: Vec<OsString> = arguments.collect();
     let dir = dir_from_env(std::env::var_os(DIR_VAR));
+    #[cfg(target_os = "macos")]
+    if program == shared_volume::RELEASE_FLAG {
+        return shared_volume::release_shared(&dir, &Path::new("/Volumes").join(SHARED_VOLUME));
+    }
     let choice = if cfg!(target_os = "macos") {
         Temp::from_env(
             std::env::var_os("TMPDIR").as_deref(),
@@ -660,10 +670,23 @@ fn main() -> ExitCode {
     } else {
         Temp::Inherited
     };
+    // Held before the volume is made or reused, so no release finds it unheld
+    // while this wrapper is about to run on it.
+    #[cfg(target_os = "macos")]
+    let tenure = if choice == Temp::Shared {
+        shared_volume::Tenure::take(&dir)
+    } else {
+        None
+    };
     let temp = temp_for(choice, &dir);
     let fallback = fallback_slots(temp.is_some(), cfg!(target_os = "macos"), cores());
     let slots = Slots::from_env(std::env::var_os(SLOTS_VAR), dir, fallback);
-    run(&slots, temp.as_deref(), &program, &rest)
+    let code = run(&slots, temp.as_deref(), &program, &rest);
+    #[cfg(target_os = "macos")]
+    if let Some(tenure) = tenure {
+        tenure.leave();
+    }
+    code
 }
 
 #[cfg(all(test, not(target_family = "wasm")))]

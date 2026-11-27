@@ -33,8 +33,22 @@ use std::time::Duration;
 /// The child's private temp directory comes back beside it, for the group
 /// guard to own: it is removed after the group is killed (INV-BOT-TEMP-1).
 #[cfg(all(unix, feature = "process"))]
-pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32, Option<Scratch>)> {
+pub(super) fn start(spec: &ProcessSpec) -> io::Result<(OwnedChild, i32, Holds)> {
     start_holding(spec, None)
+}
+
+/// What a started child's group guard owns beside the group, released after
+/// the group is killed.
+///
+/// The lifeline hold is what ends the group when this process dies with no
+/// code run, a SIGKILL included (#1160, ADR 0087): the guard's own `Drop` is
+/// the release only while this process lives.
+#[cfg(all(unix, feature = "process"))]
+pub(super) struct Holds {
+    /// The child's private temp directory (INV-BOT-TEMP-1).
+    pub(super) scratch: Option<Scratch>,
+    /// The group, held on this process's lifeline.
+    pub(super) lifeline: lgwks_std::process::LifelineHold,
 }
 
 /// Whether the caller decided the child's temp itself: it set `TMPDIR`, or
@@ -54,7 +68,7 @@ fn caller_owns_temp(spec: &ProcessSpec) -> bool {
 fn start_holding(
     spec: &ProcessSpec,
     gate: Option<std::os::fd::BorrowedFd<'_>>,
-) -> io::Result<(OwnedChild, i32, Option<Scratch>)> {
+) -> io::Result<(OwnedChild, i32, Holds)> {
     let mut command = spec.command()?;
     spec.configure(&mut command)?;
     // After the spec's own deltas, so its names are untouched; created before
@@ -80,6 +94,20 @@ fn start_holding(
     // and a group leader's group id is its own pid, which `process_group(0)`
     // arranged above. A refusal here drops — and so kills — the child.
     let group = child.group()?;
+    // On the lifeline before anything else can fail, and under the start lock,
+    // so a first hold's lifeline pipe is made while no other supervised fork
+    // can inherit it. A start this process cannot hold is refused: a group
+    // nothing ends at a SIGKILL is the leak this guard exists to prevent.
+    let lifeline = match lgwks_std::process::hold_group(group) {
+        Ok(hold) => hold,
+        Err(error) => {
+            if let Err(kill) = lgwks_std::process::kill_process_group(group) {
+                lgwks_std::trace::debug!(%kill, group, "start: an unheld group refused its kill; the child's drop kills the leader");
+            }
+            lgwks_std::trace::debug!(%error, group, "start: the group could not be held on the lifeline; the start is refused");
+            return Err(error);
+        }
+    };
     // The sweep's exclusion first: from here until the driver reaps or parks
     // the leader, its pid is somebody's answer rather than an adoptee.
     #[cfg(all(target_os = "linux", feature = "process"))]
@@ -93,7 +121,7 @@ fn start_holding(
     // releases the adoptees its earlier trees stranded.
     #[cfg(all(target_os = "linux", feature = "process"))]
     let _collected = sweep_adopted();
-    Ok((child, group, scratch))
+    Ok((child, group, Holds { scratch, lifeline }))
 }
 
 /// Run the spawn with this child's descriptors inheritable, and only for it.
@@ -127,7 +155,7 @@ fn spawn_with_inheritance(
 #[cfg(all(unix, feature = "process"))]
 pub(super) fn start_gated(
     spec: &ProcessSpec,
-) -> io::Result<(OwnedChild, i32, Option<Scratch>, std::io::PipeWriter)> {
+) -> io::Result<(OwnedChild, i32, Holds, std::io::PipeWriter)> {
     let (gate_reader, gate_writer) = std::io::pipe()?;
     let gate_rx_fd = std::os::fd::OwnedFd::from(gate_reader);
     let raw_fd = std::os::fd::AsRawFd::as_raw_fd(&gate_rx_fd);
@@ -256,6 +284,8 @@ pub(super) fn unclaimed_children() -> Vec<i32> {
     if children.is_empty() {
         return Vec::new();
     }
+    // This process's own lifeline is its child for life, never an adoptee.
+    let lifeline = lgwks_std::process::lifeline_pid();
     let live = LIVE_LEADERS.hold().clone();
     let parked: std::collections::BTreeSet<i32> = ORPHANS.hold()
         .iter()
@@ -270,7 +300,7 @@ pub(super) fn unclaimed_children() -> Vec<i32> {
         .collect();
     children
         .into_iter()
-        .filter(|pid| !live.contains(pid) && !parked.contains(pid))
+        .filter(|pid| !live.contains(pid) && !parked.contains(pid) && lifeline != Some(*pid))
         .collect()
 }
 

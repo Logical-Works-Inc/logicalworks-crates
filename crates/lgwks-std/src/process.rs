@@ -34,6 +34,9 @@ mod cgroup;
 mod darwin;
 /// Process identities and orphaned-group reaping.
 mod identity;
+/// The lifeline: holds released when this process ends, SIGKILL included (#1160).
+#[cfg(all(unix, feature = "process"))]
+mod lifeline;
 /// The process census a subreaper takes of what its child left (#1128 G2b);
 /// its rounds are portable, so every host's tests judge them.
 #[cfg(any(all(target_os = "linux", feature = "process"), test))]
@@ -77,6 +80,8 @@ pub use identity::{
     MAX_START_TOKEN_BYTES, OrphanReap, ProcessIdentity, ProcessIdentityError, identify_process,
     reap_orphaned_group,
 };
+#[cfg(all(unix, feature = "process"))]
+pub use lifeline::{LifelineHold, hold_device, hold_group, hold_run, lifeline_pid};
 #[cfg(any(all(target_os = "linux", feature = "process"), test))]
 pub use orphans::Orphans;
 #[cfg(all(target_os = "linux", feature = "process"))]

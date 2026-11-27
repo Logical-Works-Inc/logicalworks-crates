@@ -7,7 +7,7 @@ use super::owners::{
     NATIVE_DESCENDANT_CAPTURE, NATIVE_GROUP_OBSERVER, NATIVE_GROUP_SIGNALLER,
 };
 use super::scratch::Scratch;
-use super::start::REAP_POLL;
+use super::start::{Holds, REAP_POLL};
 #[cfg(target_os = "linux")]
 use super::start::{reap_adopted, sweep_adopted, sweep_adopted_confirmed};
 use super::{
@@ -94,6 +94,10 @@ pub(super) struct ProcessGroup<'ops> {
     /// `Drop` body, so it is removed once the group kill has run, on every
     /// path that ends the guard (INV-BOT-TEMP-1).
     pub(super) scratch: Option<Scratch>,
+    /// The group's hold on this process's lifeline, which ends the group if
+    /// this process dies first (#1160). A field, so it is let go only after
+    /// the guard's own `Drop` body has killed the group.
+    pub(super) lifeline: Option<lgwks_std::process::LifelineHold>,
 }
 
 #[cfg(all(unix, feature = "process"))]
@@ -125,12 +129,15 @@ impl<'ops> ProcessGroup<'ops> {
             observer: &NATIVE_GROUP_OBSERVER,
             capture: &NATIVE_DESCENDANT_CAPTURE,
             scratch: None,
+            lifeline: None,
         }
     }
 
-    /// Own the child's private temp directory for the guard's lifetime.
-    pub(super) fn holding(mut self, scratch: Option<Scratch>) -> Self {
-        self.scratch = scratch;
+    /// Own the child's private temp directory and its lifeline hold for the
+    /// guard's lifetime.
+    pub(super) fn holding(mut self, holds: Holds) -> Self {
+        self.scratch = holds.scratch;
+        self.lifeline = Some(holds.lifeline);
         self
     }
 
