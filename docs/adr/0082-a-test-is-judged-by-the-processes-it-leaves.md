@@ -24,7 +24,7 @@ subreaper but waited only for its own child. Each ended orphan stayed a zombie, 
    killed parent's children are adopted next. A test that exited zero and left a live process exits 1.
 4. A refused flag, a refused wait or a tree still adopting after 64 rounds fails the test as unjudged (125).
 5. A child in a group that a live lifeline leads (ADR 0087) is the lifeline's release work. The sweep kills that group
-   with one SIGKILL and names none of it. Killed by pid, the lifeline left its `rm` to be adopted and named, and 10
+   with one `SIGKILL` and names none of it. Killed by pid, the lifeline left its `rm` to be adopted and named, and 10
    Linux shards of #1165 failed that way. What the lifeline did not release is the ledger's (ADR 0090).
 
 ## Alternatives rejected
