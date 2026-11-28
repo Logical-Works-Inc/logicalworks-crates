@@ -16,6 +16,12 @@
 //! explicit no-follow choice and the previous ten-hop default. A redirect to
 //! another origin carries none of the caller's headers.
 //!
+//! A URL somebody else supplied is dialled under an address rule
+//! ([`Options::address_rule`]): every address the host answers is judged before
+//! a socket opens, on every hop, and no proxy is used.
+//!
+//! [`Options::address_rule`]: crate::http::Options::address_rule
+//!
 //! Response bodies are read under a ceiling the caller declares
 //! ([`Options::max_body_bytes`], 8 MiB by default). A body that reaches the
 //! ceiling is refused with [`Error::BodyTooLarge`] rather than truncated
@@ -280,6 +286,9 @@ pub struct Options {
     /// set with no client certificate, which is today's behavior byte for
     /// byte; only a deployment behind a private CA or mutual TLS sets this.
     tls: TlsOptions,
+    /// The address rule and lookup ([`Options::address_rule`],
+    /// [`Options::lookup`]). Neither is set by default.
+    addressing: address::Addressing,
 }
 
 impl Default for Options {
@@ -294,6 +303,7 @@ impl Default for Options {
             redirect_policy: RedirectPolicy::default(),
             pool: PoolConfig::default(),
             tls: TlsOptions::default(),
+            addressing: address::Addressing::default(),
         }
     }
 }
@@ -319,6 +329,7 @@ impl fmt::Debug for Options {
             .field("redirect_policy", &self.redirect_policy)
             .field("pool", &self.pool)
             .field("tls", &self.tls)
+            .field("addressing", &self.addressing)
             .finish()
     }
 }
@@ -468,6 +479,15 @@ pub enum Error {
         /// Maximum supported redirect limit.
         maximum: u8,
     },
+    /// A host answered an address that [`Options::address_rule`] refuses.
+    /// Nothing of that answer was dialled. On a redirect hop the earlier hops
+    /// were already sent, so this is not proof that nothing was sent.
+    AddressRefused {
+        /// The host as the URL or the `Location` named it, without userinfo.
+        host: String,
+        /// The first refused address, as the host answered it.
+        address: std::net::IpAddr,
+    },
 }
 
 impl fmt::Display for Error {
@@ -499,6 +519,11 @@ impl fmt::Display for Error {
             Self::RedirectLimitTooLarge { requested, maximum } => write!(
                 f,
                 "redirect limit {requested} exceeds the supported maximum {maximum}"
+            ),
+            Self::AddressRefused { ref host, address } => write!(
+                f,
+                "host `{host}` answers {address}, which the address rule refuses; none of that \
+                 answer was dialled"
             ),
         }
     }
@@ -604,8 +629,10 @@ pub fn post_with(
 // read, and ureq's errors folded into this module's. The redirect walk that
 // decides which caller headers each hop carries lives in `walk` so the hop
 // loop reads as one decision; `pool` holds the caller-owned pooled client,
-// `stream` the wire-still-open bodies, events and pages, and `tls` the
-// private-CA and identity seam.
+// `stream` the wire-still-open bodies, events and pages, `tls` the
+// private-CA and identity seam, and `address` the rule every dialled address
+// passes.
+mod address;
 mod exchange;
 mod pool;
 mod response;

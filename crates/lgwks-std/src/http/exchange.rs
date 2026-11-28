@@ -9,6 +9,7 @@ use std::io::Read;
 use iri_string::types::UriAbsoluteStr;
 use ureq::ResponseExt;
 
+use super::address::Unresolved;
 use super::{
     BodyPolicy, Error, FailureCause, FailureKind, FailureStage, Options, READ_CHUNK_BYTES,
     Response, Truncation,
@@ -126,7 +127,7 @@ fn split_before<'text>(text: &'text str, delimiters: &[char]) -> (&'text str, &'
 /// affect pool sharing, so literals keep the fast path on a shared agent too.
 pub(super) fn agent_for(options: &Options, pool: &super::PoolConfig) -> Result<ureq::Agent, Error> {
     let tls = options.tls.tls_config()?;
-    let config = ureq::Agent::config_builder()
+    let mut builder = ureq::Agent::config_builder()
         // Do not also set ureq's global timeout: when it equals the phase
         // limits, its earlier absolute deadline masks the typed phase timeout.
         .timeout_global(None)
@@ -144,21 +145,31 @@ pub(super) fn agent_for(options: &Options, pool: &super::PoolConfig) -> Result<u
         .max_idle_connections(pool.max_idle_connections)
         .max_idle_connections_per_host(pool.max_idle_connections_per_host)
         .max_idle_age(pool.max_idle_age)
-        .tls_config(tls)
-        .build();
-    Ok(ureq::Agent::new_with_config(config))
+        .tls_config(tls);
+    // A proxy resolves the target itself, so a rule would never see it, and
+    // ureq takes one from the environment unless told otherwise.
+    if options.addressing.is_set() {
+        builder = builder.proxy(None);
+    }
+    Ok(options.addressing.agent(builder.build()))
 }
 
 /// Whether per-call `options` change an agent-level setting of `base`.
 ///
-/// Agent-level settings (phase timeouts, TLS identity, pool sizes) are baked
-/// into the agent when it is built, so a per-call value that differs runs
-/// that call on a one-shot agent instead of the pool: still correct, just
+/// Agent-level settings (phase timeouts, TLS identity, pool sizes, address
+/// rule and lookup) are baked into the agent when it is built, so a per-call
+/// value that differs runs that call on a one-shot agent instead of the pool,
+/// whose connections another rule may have admitted: still correct, just
 /// unpooled for that call. Request-level settings (headers, the user agent,
 /// body ceiling and policy, redirect policy, deadline remainder) override per
 /// hop in [`super::walk`] and never affect pooling.
 pub(super) fn agent_settings_differ(base: &Options, options: &Options) -> bool {
-    base.timeout != options.timeout || base.tls != options.tls || base.pool != options.pool
+    base.timeout != options.timeout
+        || base.tls != options.tls
+        || base.pool != options.pool
+        || !base
+            .addressing
+            .same(&options.addressing.or(&base.addressing))
 }
 
 /// Run one call on a fresh one-shot agent, following redirects under the
@@ -515,6 +526,11 @@ pub(super) fn map_error(error: ureq::Error, is_tls: bool) -> Error {
         ureq::Error::BodyExceedsLimit(_) => {
             failure(FailureStage::Body, FailureKind::Transport, None)
         }
+        // The address resolver's own refusals travel as `Other`.
+        ureq::Error::Other(other) => match other.downcast_ref::<Unresolved>() {
+            Some(unresolved) => unresolved.error(),
+            None => failure(FailureStage::Request, FailureKind::Transport, None),
+        },
         _ => failure(FailureStage::Request, FailureKind::Transport, None),
     }
 }

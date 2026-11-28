@@ -9,10 +9,10 @@
 //! instead of opening another one.
 //!
 //! Pooling is identity-aware. Connections are pooled per origin, and a
-//! request whose agent-level settings (timeouts, identity, pool sizes) differ
-//! from the client's runs on a one-shot agent instead: still correct, just
-//! unpooled for that call. Two clones of one client share the same pool; two
-//! clients built separately share nothing.
+//! request whose agent-level settings (timeouts, identity, pool sizes, address
+//! rule and lookup) differ from the client's runs on a one-shot agent instead:
+//! still correct, just unpooled for that call. Two clones of one client share
+//! the same pool; two clients built separately share nothing.
 //!
 //! ```rust
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -97,8 +97,10 @@ impl PoolConfig {
 /// `post_with` take per-call options whose request-level settings (headers,
 /// body ceiling and policy, redirect policy, deadline remainder) override
 /// the client's for that call. Agent-level settings (timeouts, identity,
-/// pool sizes) come from the construction options; a per-call value that
-/// differs runs that call on a one-shot agent instead of the pool.
+/// pool sizes, address rule and lookup) come from the construction options; a
+/// per-call value that differs runs that call on a one-shot agent instead of
+/// the pool. A call whose options carry no address rule or lookup keeps the
+/// client's.
 ///
 /// Cloning shares the pool: every clone reuses the same idle connections.
 /// Dropping every clone closes every pooled connection.
@@ -155,6 +157,9 @@ impl Client {
 
     /// Run one exchange on this client's agent, or on a one-shot agent when
     /// the per-call options change an agent-level setting.
+    ///
+    /// A call whose options carry no address rule or lookup keeps the
+    /// client's: leaving one out never lifts it.
     fn exchange(
         &self,
         url: &str,
@@ -162,8 +167,12 @@ impl Client {
         options: &Options,
     ) -> Result<Response, Error> {
         if super::exchange::agent_settings_differ(&self.options, options) {
-            let agent = super::exchange::agent_for(options, &options.pool)?;
-            return super::walk::exchange_on(&agent, url, method, options);
+            let one_shot = Options {
+                addressing: options.addressing.or(&self.options.addressing),
+                ..options.clone()
+            };
+            let agent = super::exchange::agent_for(&one_shot, &one_shot.pool)?;
+            return super::walk::exchange_on(&agent, url, method, &one_shot);
         }
         super::walk::exchange_on(&self.agent, url, method, options)
     }

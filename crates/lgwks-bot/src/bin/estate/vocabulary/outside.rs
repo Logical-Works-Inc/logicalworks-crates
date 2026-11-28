@@ -145,7 +145,7 @@ impl EffectPolicy for AllowOutside {
 /// early drops the server instead, and the drop cancels it: it raises the
 /// stop flag and dials the port once, so the parked `accept` returns and the
 /// task ends without answering. No work outlives the section that started it.
-struct OnceUp {
+pub(super) struct OnceUp {
     /// The port the server listens on.
     port: u16,
     /// Connections answered so far.
@@ -158,7 +158,7 @@ struct OnceUp {
 
 impl OnceUp {
     /// Serve `body` on a loopback port for at most `expect` connections.
-    fn serve(body: Vec<u8>, expect: usize) -> Result<Self, VocabularyError> {
+    pub(super) fn serve(body: Vec<u8>, expect: usize) -> Result<Self, VocabularyError> {
         let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
         let port = listener.local_addr()?.port();
         let hits = Arc::new(AtomicUsize::new(0));
@@ -239,19 +239,25 @@ impl OnceUp {
     }
 
     /// The URL to dial.
-    fn url(&self) -> String {
+    pub(super) fn url(&self) -> String {
         let loopback = std::net::SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, self.port));
         format!("http://{loopback}/")
     }
 
+    /// The URL to dial under `host`, a name a lookup answers with this server.
+    pub(super) fn url_at(&self, host: &str) -> String {
+        let port = self.port;
+        format!("http://{host}:{port}/")
+    }
+
     /// Connections answered so far.
-    fn hits(&self) -> usize {
+    pub(super) fn hits(&self) -> usize {
         self.hits.load(Ordering::SeqCst)
     }
 
     /// Join the server task on the smoke's driver, once it has answered every
     /// connection it was started for.
-    fn join(mut self, driver: &Handle) {
+    pub(super) fn join(mut self, driver: &Handle) {
         if let Some(task) = self.task.take() {
             driver.block_on(task);
         }

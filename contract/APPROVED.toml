@@ -253,7 +253,7 @@ review = "2027-02-01"
 [[approved]]
 crate = "ureq"
 tier = "boundary"
-version = "^3"
+version = "^3.5.2"
 license = "MIT OR Apache-2.0"
 owner = "lgwks_std"
 capability = "net.http-client"

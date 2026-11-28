@@ -89,6 +89,7 @@ mod sim_glob_sweep;
 mod sim_hash;
 mod sim_hex;
 mod sim_http;
+mod sim_http_address;
 mod sim_http_pool;
 mod sim_http_stream;
 mod sim_http_tls;
