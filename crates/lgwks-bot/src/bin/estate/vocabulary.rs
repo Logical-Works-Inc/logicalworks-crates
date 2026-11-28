@@ -37,6 +37,8 @@ use super::say;
 mod approval;
 #[path = "vocabulary/clock_wait.rs"]
 mod clock_wait;
+#[path = "vocabulary/inward.rs"]
+mod inward;
 #[path = "vocabulary/outside.rs"]
 mod outside;
 
@@ -376,7 +378,8 @@ pub(crate) fn run(driver: &Handle) -> Result<(), VocabularyError> {
     typed(driver, &scope)?;
     durable(driver, &scope)?;
     approval::run(driver)?;
-    outside::run(driver)
+    outside::run(driver)?;
+    inward::run(driver)
 }
 
 /// Justification: one rule per verdict, each deciding on its own.

@@ -41,6 +41,10 @@ stack (`json` is serde and serde_json, `ron` is serde and ron, `http` is ureq
 and iri-string, `fs-raw` and `process` share rustix): `id::Uuid` (`random`),
 `hash::blake3` (`hash`), `pattern::Regex` (`pattern`) and `json::from_str`.
 
+To fetch a URL somebody else supplied, set `http::Options::address_rule`. It
+judges every address the exchange could dial before a socket opens, and uses no
+proxy.
+
 > **A derive on a JSON or RON type needs `#[serde(crate = ...)]`.** Point it at
 > `lgwks_std::json::serde` or `lgwks_std::ron::serde`; the RON path needs
 > neither `json` nor a direct `serde` dependency. The policy forbids consumers

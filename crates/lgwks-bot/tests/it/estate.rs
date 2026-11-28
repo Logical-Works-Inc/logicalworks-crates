@@ -382,8 +382,8 @@ mod durable {
         }
     }
 
-    #[test]
-    fn the_smoke_binary_proves_the_evening() -> TestResult {
+    /// Run the shipped smoke, and hold it to a clean exit and to printing each of `lines`.
+    fn smoke_prints(lines: &[&str]) -> TestResult {
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_estate")).output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
@@ -391,17 +391,22 @@ mod durable {
             "the smoke exits clean: {stdout} {}",
             String::from_utf8_lossy(&output.stderr)
         );
-        for line in [
-            "in-process drop inside a runtime: ok",
-            "durable drain: admitted=1",
-            "refused: an unopenable store",
-        ] {
+        for line in lines {
             assert!(
                 stdout.contains(line),
                 "the smoke printed {line:?}: {stdout}"
             );
         }
         Ok(())
+    }
+
+    #[test]
+    fn the_smoke_binary_proves_the_evening() -> TestResult {
+        smoke_prints(&[
+            "in-process drop inside a runtime: ok",
+            "durable drain: admitted=1",
+            "refused: an unopenable store",
+        ])
     }
 
     /// Source: the smoke ran `/usr/bin/true`, which Nix hosts and some distributions do not have
@@ -450,13 +455,6 @@ mod durable {
     fn the_smoke_binary_opens_all_four_library_doors() -> TestResult {
         // The doors (#990) on the shipped binary: each prints its proof only when
         // every outcome it asserts held, and a deviation makes the exit non-zero.
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_estate")).output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            output.status.success(),
-            "no door deviated: {stdout} {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
         let record = format!(
             "record door: installed draft at version 1, a stale write was a conflict (expected {}, \
              found 1), an uncovered proof was denied",
@@ -467,18 +465,25 @@ mod durable {
              after {} reads (",
             lgwks_bot::stability::MAX_STABILITY_READS
         );
-        for line in [
+        smoke_prints(&[
             record.as_str(),
             "session door: one re-ask, one routed answer, and an answer after the end refused in ",
             "credential door: a 401 carries its re-grant repair and is never retried",
             stability.as_str(),
-        ] {
-            assert!(
-                stdout.contains(line),
-                "the smoke printed {line:?}: {stdout}"
-            );
-        }
-        Ok(())
+        ])
+    }
+
+    /// Source: CWE-918 and larry#510, a URL somebody else supplied reaching a private or cloud
+    /// metadata address. Requirement (#1170): on the shipped binary, an exchange under an address
+    /// rule refuses a loopback URL and a name answering 169.254.169.254, and completes an
+    /// admitted answer under the name; the section's server counts one connection.
+    #[test]
+    fn the_smoke_binary_refuses_a_url_that_reaches_inward() -> TestResult {
+        smoke_prints(&[
+            "outside: a URL naming loopback is refused by the address rule",
+            "outside: a name answering 169.254.169.254 is refused by the address rule",
+            "outside: an admitted answer completes under its name, one connection in all",
+        ])
     }
 
     #[cfg(unix)]

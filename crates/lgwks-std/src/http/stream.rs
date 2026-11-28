@@ -340,6 +340,8 @@ fn io_error_of(typed: &Error) -> std::io::Error {
                 std::io::ErrorKind::Other
             }
         },
+        // Refused before a socket opens, so no body read produces it.
+        Error::AddressRefused { .. } => std::io::ErrorKind::PermissionDenied,
         Error::InvalidUrl | Error::RedirectLimitTooLarge { .. } => std::io::ErrorKind::Other,
     };
     std::io::Error::new(kind, typed.to_string())
